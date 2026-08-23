@@ -36,6 +36,12 @@ def _keypoints() -> dict:
     }
 
 
+def _fit_params() -> dict[str, list[float]]:
+    values = {field: [0.0] * length for field, length in reconstruct.FIT_PARAM_LENGTHS.items()}
+    values["scale"] = [1.0]
+    return values
+
+
 def _workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "identity-workspace"
     capture = workspace / "identity-capture"
@@ -88,6 +94,16 @@ def _workspace(tmp_path: Path) -> Path:
     return workspace
 
 
+def _write_reconstruction_fixture(stage: Path) -> None:
+    (stage / "smplx" / "000_smplx.obj").write_text("v 0 0 0\n" * 20, encoding="utf-8")
+    (stage / "smplx" / "000_fit.json").write_text(json.dumps(_fit_params()), encoding="utf-8")
+    (stage / "back_images" / "000_000.png").write_bytes(_png(512, 512, b"back"))
+    meshes = stage / "meshes"
+    (meshes / "000_reco.obj").write_text("mtllib 000.mtl\n" + "v 0 0 0\n" * 20, encoding="utf-8")
+    (meshes / "000.mtl").write_text("newmtl 000\nmap_Kd 000.png\n", encoding="utf-8")
+    (meshes / "000.png").write_bytes(_png(1024, 1024, b"texture"))
+
+
 def test_load_prepared_input_rehashes_image_and_keypoints(tmp_path: Path):
     workspace = _workspace(tmp_path)
     stage, prep, prep_sha = reconstruct.load_prepared_input(workspace)
@@ -100,23 +116,39 @@ def test_load_prepared_input_rehashes_image_and_keypoints(tmp_path: Path):
         reconstruct.load_prepared_input(workspace)
 
 
-def test_validate_reconstruction_outputs_binds_obj_mtl_texture(tmp_path: Path):
+def test_validate_fit_params_is_strict_and_finite(tmp_path: Path):
+    path = tmp_path / "000_fit.json"
+    path.write_text(json.dumps(_fit_params()), encoding="utf-8")
+    result = reconstruct.validate_fit_params(path)
+    assert result["scale"] == [1.0]
+    assert len(result["body_pose"]) == 63
+
+    invalid = _fit_params()
+    invalid["unexpected"] = [0.0]
+    path.write_text(json.dumps(invalid), encoding="utf-8")
+    with pytest.raises(reconstruct.SithReconstructError, match="fields must match"):
+        reconstruct.validate_fit_params(path)
+
+    invalid = _fit_params()
+    invalid["scale"] = [0.0]
+    path.write_text(json.dumps(invalid), encoding="utf-8")
+    with pytest.raises(reconstruct.SithReconstructError, match="scale is outside"):
+        reconstruct.validate_fit_params(path)
+
+
+def test_validate_reconstruction_outputs_binds_obj_fit_mtl_texture(tmp_path: Path):
     stage = tmp_path / "stage"
     (stage / "smplx").mkdir(parents=True)
     (stage / "back_images").mkdir()
-    meshes = stage / "meshes"
-    meshes.mkdir()
-    (stage / "smplx" / "000_smplx.obj").write_text("v 0 0 0\n" * 20, encoding="utf-8")
-    (stage / "back_images" / "000_000.png").write_bytes(_png(512, 512, b"back"))
-    (meshes / "000_reco.obj").write_text("mtllib 000.mtl\n" + "v 0 0 0\n" * 20, encoding="utf-8")
-    (meshes / "000.mtl").write_text("newmtl 000\nmap_Kd 000.png\n", encoding="utf-8")
-    (meshes / "000.png").write_bytes(_png(1024, 1024, b"texture"))
+    (stage / "meshes").mkdir()
+    _write_reconstruction_fixture(stage)
 
     result = reconstruct.validate_reconstruction_outputs(stage)
     assert result["mesh_texture_name"] == "000.png"
     assert len(result["mesh_obj_sha256"]) == 64
+    assert result["fit_params_sha256"] == hashlib.sha256((stage / "smplx" / "000_fit.json").read_bytes()).hexdigest()
 
-    (meshes / "000.mtl").write_text("newmtl 000\nmap_Kd ../escape.png\n", encoding="utf-8")
+    (stage / "meshes" / "000.mtl").write_text("newmtl 000\nmap_Kd ../escape.png\n", encoding="utf-8")
     with pytest.raises(reconstruct.SithReconstructError, match="leaf filename"):
         reconstruct.validate_reconstruction_outputs(stage)
 
@@ -139,7 +171,11 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
         command = list(command)
         commands.append((label, cwd, command))
         if label == "SiTH SMPL-X fitting":
-            (stage / "smplx" / "000_smplx.obj").write_text("v 0 0 0\n" * 20, encoding="utf-8")
+            smplx = stage / "smplx"
+            (smplx / "000_smplx.obj").write_text("v 0 0 0\n" * 20, encoding="utf-8")
+            debug = smplx / "debug"
+            debug.mkdir()
+            (debug / "000.json").write_text(json.dumps(_fit_params()), encoding="utf-8")
             return ""
         if label == "SiTH offline back-view hallucination":
             (stage / "back_images" / "000_000.png").write_bytes(_png(512, 512, b"back"))
@@ -173,7 +209,9 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
 
     fit = commands[0][2]
     assert fit[1] == "fit.py"
-    assert "--opt_orient" in fit and "--opt_betas" in fit
+    assert "--opt_orient" in fit and "--opt_betas" in fit and "--debug" in fit
+    assert sorted(path.name for path in (stage / "smplx").iterdir()) == ["000_fit.json", "000_smplx.obj"]
+    assert reconstruct.validate_fit_params(stage / "smplx" / "000_fit.json")["scale"] == [1.0]
 
     hallucinate = commands[1][2]
     assert hallucinate[:4] == [
@@ -195,6 +233,7 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
     assert evidence["seed"] == 1337
     assert evidence["hallucination"]["offline"] is True
     assert evidence["reconstruction"]["save_uv"] is True
+    assert evidence["reconstruction"]["fit_params_sha256"] == hashlib.sha256((stage / "smplx" / "000_fit.json").read_bytes()).hexdigest()
     persisted = json.loads((stage / "reconstruction.json").read_text(encoding="utf-8"))
     assert persisted == evidence
     assert "/opt/" not in json.dumps(evidence)
