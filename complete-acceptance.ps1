@@ -3,14 +3,10 @@ param(
     [string]$AcceptanceReport,
 
     [Parameter(Mandatory = $true)]
-    [switch]$WindowsRendererPass,
+    [string]$WindowsRendererReport,
 
     [Parameter(Mandatory = $true)]
-    [switch]$QuestRendererPass,
-
-    [Parameter(Mandatory = $true)]
-    [ValidateLength(1, 2000)]
-    [string]$QualityNote,
+    [string]$QuestRendererReport,
 
     [string]$Output = ""
 )
@@ -28,12 +24,63 @@ function Require-True {
     }
 }
 
+function Read-RendererAcceptance {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedPlatform,
+        [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+        [Parameter(Mandatory = $true)][string]$ExpectedAutomatedReportHash,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageHash,
+        [Parameter(Mandatory = $true)][string]$ExpectedBodyId
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Renderer acceptance report not found: $Path"
+    }
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    try {
+        $value = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json
+    } catch {
+        throw "Renderer acceptance report is not valid JSON: $resolved"
+    }
+    if ([string]$value.format -ne "bodyrig-renderer-acceptance" -or [int]$value.version -ne 1) {
+        throw "Unsupported renderer acceptance format/version: $resolved"
+    }
+    if ([string]$value.platform -ne $ExpectedPlatform) {
+        throw "Renderer acceptance platform mismatch. Expected $ExpectedPlatform, got $($value.platform)."
+    }
+    if ([string]$value.result -ne "pass" -or [string]$value.attestation -ne "operator-supplied" -or $value.production_activation -ne $false) {
+        throw "Renderer acceptance is not a valid non-activating PASS attestation: $resolved"
+    }
+    if (([string]$value.bodyrig_revision).ToLowerInvariant() -ne $ExpectedRevision) {
+        throw "Renderer acceptance revision does not match automated acceptance: $resolved"
+    }
+    if (([string]$value.automated_report_sha256).ToLowerInvariant() -ne $ExpectedAutomatedReportHash) {
+        throw "Renderer acceptance is bound to a different automated acceptance report: $resolved"
+    }
+    if (([string]$value.package_sha256).ToLowerInvariant() -ne $ExpectedPackageHash) {
+        throw "Renderer acceptance is bound to a different .mrbody package: $resolved"
+    }
+    if ([string]$value.body_id -ne $ExpectedBodyId) {
+        throw "Renderer acceptance body id does not match automated acceptance: $resolved"
+    }
+    foreach ($fieldName in @("renderer_name", "renderer_version", "quality_note", "attested_at")) {
+        $property = $value.PSObject.Properties[$fieldName]
+        if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            throw "Renderer acceptance is missing required evidence field '$fieldName': $resolved"
+        }
+    }
+    return [pscustomobject]@{
+        Path = $resolved
+        Hash = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
+        Value = $value
+    }
+}
+
 if (-not (Test-Path -LiteralPath $AcceptanceReport -PathType Leaf)) {
     throw "Acceptance report not found: $AcceptanceReport"
 }
 $AcceptanceReport = (Resolve-Path -LiteralPath $AcceptanceReport).Path
 $reportDir = Split-Path -Parent $AcceptanceReport
-
 try {
     $report = Get-Content -LiteralPath $AcceptanceReport -Raw | ConvertFrom-Json
 } catch {
@@ -50,13 +97,6 @@ if ([string]$report.physical_renderer_acceptance -ne "pending") {
 }
 if ($report.production_activation -ne $false) {
     throw "Input acceptance report unexpectedly has production_activation=true."
-}
-if (-not $WindowsRendererPass -or -not $QuestRendererPass) {
-    throw "Both Windows and Quest/Android renderer checks must be explicitly attested."
-}
-$QualityNote = $QualityNote.Trim()
-if ([string]::IsNullOrWhiteSpace($QualityNote)) {
-    throw "QualityNote must contain a meaningful non-whitespace renderer observation."
 }
 
 $sourceCount = [int]$report.source_count
@@ -135,15 +175,34 @@ $actualPackageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).
 if ($expectedPackageHash -notmatch '^[0-9a-f]{64}$' -or $actualPackageHash -ne $expectedPackageHash) {
     throw "Accepted .mrbody SHA-256 no longer matches the automated acceptance report."
 }
-
 $reportHash = (Get-FileHash -LiteralPath $AcceptanceReport -Algorithm SHA256).Hash.ToLowerInvariant()
+
+$windows = Read-RendererAcceptance \
+    -Path $WindowsRendererReport \
+    -ExpectedPlatform "windows-unity-univrm" \
+    -ExpectedRevision $head \
+    -ExpectedAutomatedReportHash $reportHash \
+    -ExpectedPackageHash $actualPackageHash \
+    -ExpectedBodyId $bodyId
+$quest = Read-RendererAcceptance \
+    -Path $QuestRendererReport \
+    -ExpectedPlatform "android-quest-class" \
+    -ExpectedRevision $head \
+    -ExpectedAutomatedReportHash $reportHash \
+    -ExpectedPackageHash $actualPackageHash \
+    -ExpectedBodyId $bodyId
+if ([string]::Equals($windows.Path, $quest.Path, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Windows and Quest renderer acceptance must be two distinct evidence files."
+}
+
 if ([string]::IsNullOrWhiteSpace($Output)) {
     $Output = Join-Path $reportDir "bodyrig-release-acceptance.json"
 }
 $Output = [System.IO.Path]::GetFullPath($Output)
-if ([string]::Equals($Output, $AcceptanceReport, [System.StringComparison]::OrdinalIgnoreCase) -or
-    [string]::Equals($Output, $packagePath, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Release output must not overwrite the automated acceptance report or accepted .mrbody package."
+foreach ($evidencePath in @($AcceptanceReport, $packagePath, $windows.Path, $quest.Path)) {
+    if ([string]::Equals($Output, $evidencePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release output must not overwrite input evidence."
+    }
 }
 if (Test-Path -LiteralPath $Output) {
     throw "Release acceptance output already exists; refusing to overwrite evidence: $Output"
@@ -153,11 +212,10 @@ if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-$completedAt = [DateTime]::UtcNow.ToString("o")
 $completed = [ordered]@{
     format = "bodyrig-release-acceptance"
     version = 1
-    completed_at = $completedAt
+    completed_at = [DateTime]::UtcNow.ToString("o")
     bodyrig_revision = $head
     automated_acceptance = [ordered]@{
         report_sha256 = $reportHash
@@ -166,11 +224,22 @@ $completed = [ordered]@{
         automated_pass = $true
     }
     renderer_acceptance = [ordered]@{
-        windows_unity_univrm = "pass"
-        android_quest_class = "pass"
-        quality_note = $QualityNote
-        attestation = "operator-supplied"
-        attested_at = $completedAt
+        windows_unity_univrm = [ordered]@{
+            report_sha256 = $windows.Hash
+            result = "pass"
+            renderer_name = [string]$windows.Value.renderer_name
+            renderer_version = [string]$windows.Value.renderer_version
+            quality_note = [string]$windows.Value.quality_note
+            attested_at = [string]$windows.Value.attested_at
+        }
+        android_quest_class = [ordered]@{
+            report_sha256 = $quest.Hash
+            result = "pass"
+            renderer_name = [string]$quest.Value.renderer_name
+            renderer_version = [string]$quest.Value.renderer_version
+            quality_note = [string]$quest.Value.quality_note
+            attested_at = [string]$quest.Value.attested_at
+        }
     }
     release_gate_pass = $true
     production_activation = $true
@@ -178,7 +247,7 @@ $completed = [ordered]@{
 
 $temp = Join-Path $outputDir ("." + [System.IO.Path]::GetFileName($Output) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
 try {
-    $completed | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temp -Encoding UTF8
+    $completed | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temp -Encoding UTF8
     $roundTrip = Get-Content -LiteralPath $temp -Raw | ConvertFrom-Json
     if ($roundTrip.release_gate_pass -ne $true -or $roundTrip.production_activation -ne $true) {
         throw "Release acceptance round-trip validation failed."
@@ -191,7 +260,7 @@ try {
 Write-Host "BodyRig release acceptance: PASS"
 Write-Host "Revision: $head"
 Write-Host "Package SHA-256: $actualPackageHash"
-Write-Host "Windows Unity/UniVRM: PASS (operator attested)"
-Write-Host "Android/Quest-class: PASS (operator attested)"
+Write-Host "Windows renderer evidence SHA-256: $($windows.Hash)"
+Write-Host "Quest renderer evidence SHA-256: $($quest.Hash)"
 Write-Host "Release report: $Output"
 exit 0
