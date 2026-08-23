@@ -4,16 +4,19 @@ BodyRig separates **automated physical recovery acceptance**, **platform rendere
 
 ## Gate A — automated target-rig acceptance
 
-Run on the target machine with real, user-supplied full-body video:
+Run on the target machine with real, user-supplied full-body video. The canonical managed path is `run-physical-gate.ps1`; the lower-level command below is for diagnostics or a non-standard recovery root:
 
 ```powershell
 .\validate-rig.ps1 `
   -Source "C:\video\person-1.mp4","C:\video\person-2.mp4" `
   -ExternalPython "C:\Users\you\AppData\Local\BodyRig\recovery\conda-env\python.exe" `
   -FourDHumansRepo "C:\Users\you\AppData\Local\BodyRig\recovery\4D-Humans" `
+  -PhalpRepo "C:\Users\you\AppData\Local\BodyRig\recovery\PHALP" `
   -BodyId "person-a" `
   -Name "Person A"
 ```
+
+The recovery preflight requires both 4D-Humans and PHALP to be on BodyRig's exact pinned revisions with clean tracked files. It also requires the external recovery Python to import `phalp` from that exact PHALP checkout, rather than from another installed copy.
 
 The harness creates one write-once artifact directory containing:
 
@@ -150,13 +153,15 @@ A renderer-attestation always contains `production_activation=false`. One platfo
 
 ## Gate C — final release acceptance
 
-Only after both Gate B files exist:
+Only after both Gate B operator reports and the exact machine probes they attest to exist:
 
 ```powershell
 .\complete-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
   -WindowsRendererReport "C:\path\to\bodyrig-renderer-acceptance-windows.json" `
+  -WindowsProbeReport "C:\path\to\windows-probe.json" `
   -QuestRendererReport "C:\path\to\bodyrig-renderer-acceptance-quest.json" `
+  -QuestProbeReport "C:\path\to\quest-probe.json" `
   -Output "C:\path\to\bodyrig-release-acceptance.json"
 ```
 
@@ -171,15 +176,16 @@ Only after both Gate B files exist:
 - the BodyRig checkout is dirty;
 - the accepted `.mrbody` is missing or its SHA-256 differs;
 - Gate A's runtime-manifest hash is missing/invalid;
-- either renderer evidence file is missing;
+- either renderer evidence file or corresponding machine probe is missing;
 - Windows and Quest evidence are not two distinct files with the correct platform ids;
-- either renderer report references a different Gate A hash, package hash, runtime-manifest hash, body id, or Git revision;
+- either renderer report references a different Gate A hash, machine-probe hash, package hash, runtime-manifest hash, body id, or Git revision;
 - either renderer report's avatar/bodyprint hashes differ from the accepted package payload checksums;
+- either machine probe no longer matches the hash recorded by its operator attestation;
 - either renderer report is not an explicit non-activating PASS;
 - renderer name/version/quality evidence is blank;
 - any input evidence file would be overwritten.
 
-The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accepted package, the materialized runtime payloads, and both renderer evidence files. Only this Gate C artifact sets:
+The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accepted package, the materialized runtime payloads, both machine probes and both renderer evidence files. Only this Gate C artifact sets:
 
 ```json
 {
@@ -192,16 +198,7 @@ The scripts do **not** inspect the operator's eyes or pretend visual quality can
 
 ## CI evidence
 
-Workflow run #66 on code/evidence head `15d6974246d01ac15ca8b42b6f3db34b4ad466c2` passed on Python 3.11 and 3.12, including:
-
-- exact-head checkout;
-- Python compile/tests;
-- JSON contract parse;
-- all PowerShell operator/test scripts parse;
-- the full package → materialized runtime → Windows/Quest evidence → release path;
-- negative cases for runtime avatar substitution, runtime-manifest mutation, package mutation, wrong evidence hashes, platform swaps, duplicate-platform evidence, dirty repo and evidence overwrite attempts.
-
-This CI proof is deliberately **not** the physical renderer proof.
+CI covers exact-head checkout, Python 3.11/3.12, JSON contracts, PowerShell parsing, the managed Gate A trust boundary, the complete non-physical evidence chain, and negative tamper cases. This CI proof is deliberately **not** the physical renderer proof.
 
 ## What is not proven by V1 acceptance
 
