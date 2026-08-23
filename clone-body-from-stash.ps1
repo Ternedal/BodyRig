@@ -9,9 +9,7 @@ param(
     [string]$FourDHumansRepo,
 
     [string]$IdentityCaptureConfig = "",
-
-    [Parameter(Mandatory = $true)]
-    [string]$FitterConfig,
+    [string]$FitterConfig = "",
 
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[a-z0-9æøå_-]{1,160}$')]
@@ -32,6 +30,15 @@ param(
     [string]$TrackId = "",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
+    [string]$SithDistribution = "",
+    [string]$SithRepo = "",
+    [string]$SithPython = "",
+    [string]$SithOpenPose = "",
+    [string]$SithDiffusionModel = "",
+    [string]$SithDiffusionModelSha256 = "",
+    [ValidateRange(0, 2147483647)]
+    [int]$SithSeed = 1337,
+    [string]$WslExe = "wsl.exe",
     [switch]$AllowCpu,
     [switch]$KeepPrivateWorkspace
 )
@@ -67,6 +74,25 @@ function Resolve-Executable {
     $resolved = Resolve-CommandPath $Fallback
     if ($null -eq $resolved) { throw "$Label executable not found: $Fallback" }
     return $resolved
+}
+
+function Resolve-Setting {
+    param(
+        [string]$Value,
+        [Parameter(Mandatory = $true)][string]$EnvironmentName,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [string]$DefaultValue = ""
+    )
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        $Value = [string][Environment]::GetEnvironmentVariable($EnvironmentName)
+    }
+    if ([string]::IsNullOrWhiteSpace($Value) -and -not [string]::IsNullOrWhiteSpace($DefaultValue)) {
+        $Value = $DefaultValue
+    }
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw "$Label is required via parameter or $EnvironmentName."
+    }
+    return $Value.Trim()
 }
 
 function Invoke-Checked {
@@ -117,6 +143,7 @@ if ($null -eq $powerShellExe) {
 $usingObservationSelection = -not $SkipObservationSelection
 $usingBuiltInObservationAnalyzer = $usingObservationSelection -and [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)
 $usingBuiltInIdentityCapture = [string]::IsNullOrWhiteSpace($IdentityCaptureConfig)
+$usingBuiltInFitter = [string]::IsNullOrWhiteSpace($FitterConfig)
 
 if (-not $usingBuiltInIdentityCapture) {
     $IdentityCaptureConfig = Resolve-InputFile -Path $IdentityCaptureConfig -Label "Identity capture config"
@@ -127,6 +154,62 @@ if ($usingBuiltInIdentityCapture) {
         "--external-python", $ExternalPython
     )
     Invoke-Checked -Executable $BodyRigPython -Arguments $identityPreflightArgs -Step "Built-in identity capture preflight"
+}
+
+if (-not $usingBuiltInFitter) {
+    $FitterConfig = Resolve-InputFile -Path $FitterConfig -Label "High-fidelity fitter config"
+} else {
+    $SithDistribution = Resolve-Setting -Value $SithDistribution -EnvironmentName "BODYRIG_SITH_DISTRIBUTION" -Label "SiTH WSL distribution" -DefaultValue "Ubuntu-22.04"
+    $SithRepo = Resolve-Setting -Value $SithRepo -EnvironmentName "BODYRIG_SITH_REPO" -Label "SiTH repository"
+    $SithPython = Resolve-Setting -Value $SithPython -EnvironmentName "BODYRIG_SITH_PYTHON" -Label "SiTH Python"
+    $SithOpenPose = Resolve-Setting -Value $SithOpenPose -EnvironmentName "BODYRIG_SITH_OPENPOSE" -Label "SiTH OpenPose executable"
+    $SithDiffusionModel = Resolve-Setting -Value $SithDiffusionModel -EnvironmentName "BODYRIG_SITH_DIFFUSION_MODEL" -Label "SiTH diffusion model"
+    $SithDiffusionModelSha256 = Resolve-Setting -Value $SithDiffusionModelSha256 -EnvironmentName "BODYRIG_SITH_DIFFUSION_SHA256" -Label "SiTH diffusion model SHA-256"
+    $SithDiffusionModelSha256 = $SithDiffusionModelSha256.ToLowerInvariant()
+    if ($SithDiffusionModelSha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "SiTH diffusion model SHA-256 must be exactly 64 hexadecimal characters."
+    }
+    foreach ($linuxSetting in @(
+        @{ Label = "SiTH repository"; Value = $SithRepo },
+        @{ Label = "SiTH Python"; Value = $SithPython },
+        @{ Label = "SiTH OpenPose executable"; Value = $SithOpenPose },
+        @{ Label = "SiTH diffusion model"; Value = $SithDiffusionModel }
+    )) {
+        if (-not ([string]$linuxSetting.Value).StartsWith("/")) {
+            throw "$($linuxSetting.Label) must be an absolute Linux path."
+        }
+    }
+    $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+
+    $sithPreflightArgs = @(
+        "-m", "bodyrig.sith_preflight",
+        "--distribution", $SithDistribution,
+        "--repo", $SithRepo,
+        "--python", $SithPython,
+        "--openpose", $SithOpenPose,
+        "--wsl-exe", $WslExe
+    )
+    Invoke-Checked -Executable $BodyRigPython -Arguments $sithPreflightArgs -Step "Built-in SiTH fitter preflight"
+
+    $digestArgs = @(
+        "-m", "bodyrig.sith_model",
+        "--distribution", $SithDistribution,
+        "--python", $SithPython,
+        "--model-path", $SithDiffusionModel,
+        "--wsl-exe", $WslExe
+    )
+    $digestRaw = & $BodyRigPython @digestArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "SiTH diffusion model digest failed with exit code $LASTEXITCODE"
+    }
+    try {
+        $digest = $digestRaw | ConvertFrom-Json
+    } catch {
+        throw "SiTH diffusion model digest returned unreadable JSON."
+    }
+    if ([string]$digest.sha256 -ne $SithDiffusionModelSha256) {
+        throw "SiTH diffusion model SHA-256 mismatch: expected $SithDiffusionModelSha256, got $([string]$digest.sha256)"
+    }
 }
 
 if ($usingObservationSelection) {
@@ -178,6 +261,36 @@ if ($usingBuiltInIdentityCapture) {
         timeout_seconds = 3600
     }
     $builtInIdentityConfig | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $IdentityCaptureConfig -Encoding UTF8
+}
+
+if ($usingBuiltInFitter) {
+    $FitterConfig = Join-Path $OutputDir "bodyrig-sith-fitter-config.json"
+    $builtInFitterConfig = [ordered]@{
+        format = "bodyrig-external-fitter-config"
+        version = 1
+        adapter = "sith-smplx-vrm"
+        revision = "1"
+        command = @(
+            $BodyRigPython,
+            "-m", "bodyrig.sith_fitter_orchestrator",
+            "--distribution", $SithDistribution,
+            "--sith-repo", $SithRepo,
+            "--sith-python", $SithPython,
+            "--openpose", $SithOpenPose,
+            "--diffusion-model", $SithDiffusionModel,
+            "--diffusion-model-sha256", $SithDiffusionModelSha256,
+            "--seed", [string]$SithSeed,
+            "--wsl-exe", $WslExe
+        )
+        capabilities = [ordered]@{
+            visual_identity = $true
+            textures = $true
+            hair = $false
+            clothing = $true
+        }
+        timeout_seconds = 86400
+    }
+    $builtInFitterConfig | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $FitterConfig -Encoding UTF8
 }
 
 $selectArgs = @(
@@ -244,6 +357,11 @@ if ($usingBuiltInIdentityCapture) {
     Write-Host "Identity capture: built-in opencv-identity-rgba v1"
 } else {
     Write-Host "Identity capture: custom config"
+}
+if ($usingBuiltInFitter) {
+    Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1"
+} else {
+    Write-Host "High-fidelity fitter: custom config"
 }
 Write-Host ""
 
