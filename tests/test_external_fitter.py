@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from bodyrig.avatar import ProceduralAvatarFitter
 from bodyrig.external_fitter import (
     ExternalFitterError,
     build_external_fit_request,
+    run_external_fitter,
     validate_external_fit_output,
 )
 from bodyrig.identity import validate_visual_identity
@@ -135,4 +137,80 @@ def test_external_output_rejects_extra_files(tmp_path: Path):
             tmp_path,
             expected_adapter="fixture-high-fidelity",
             expected_revision="fixture-rev-1",
+        )
+
+
+def test_external_process_transport_keeps_workspace_out_of_request(tmp_path: Path):
+    workspace = tmp_path / "private-workspace"
+    workspace.mkdir()
+    (workspace / "frame-0001.private").write_bytes(b"private fixture source material")
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text(
+        """
+import argparse
+import hashlib
+import json
+from pathlib import Path
+from bodyrig.avatar import ProceduralAvatarFitter
+
+p = argparse.ArgumentParser()
+p.add_argument('--bodyrig-request', required=True)
+p.add_argument('--bodyrig-workspace', required=True)
+p.add_argument('--bodyrig-output', required=True)
+p.add_argument('--bodyrig-adapter', required=True)
+p.add_argument('--bodyrig-revision', required=True)
+a = p.parse_args()
+request_text = Path(a.bodyrig_request).read_text(encoding='utf-8')
+if a.bodyrig_workspace in request_text:
+    raise SystemExit(9)
+request = json.loads(request_text)
+if not Path(a.bodyrig_workspace, 'frame-0001.private').is_file():
+    raise SystemExit(10)
+out = Path(a.bodyrig_output)
+fitted = ProceduralAvatarFitter().fit(request['bodyprint'], name=request['name'])
+out.joinpath('avatar.vrm').write_bytes(fitted.avatar_vrm)
+out.joinpath('thumbnail.png').write_bytes(fitted.thumbnail_png)
+out.joinpath('result.json').write_text(json.dumps({
+    'format': 'bodyrig-avatar-fit-result',
+    'version': 1,
+    'adapter': a.bodyrig_adapter,
+    'revision': a.bodyrig_revision,
+    'visual_identity': 'source-derived',
+    'avatar_sha256': hashlib.sha256(fitted.avatar_vrm).hexdigest(),
+    'thumbnail_sha256': hashlib.sha256(fitted.thumbnail_png).hexdigest(),
+}), encoding='utf-8')
+""",
+        encoding="utf-8",
+    )
+
+    result = run_external_fitter(
+        [sys.executable, str(adapter)],
+        workspace=workspace,
+        bodyprint=BODYPRINT,
+        name="Fixture Person",
+        identity=IDENTITY,
+        adapter="fixture-high-fidelity",
+        revision="fixture-rev-1",
+        timeout_seconds=30,
+    )
+    assert result.visual_identity == "source-derived"
+    assert result.fit.adapter == "fixture-high-fidelity"
+    assert result.fit.avatar_vrm.startswith(b"glTF")
+
+
+def test_external_process_nonzero_exit_is_rejected(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    adapter = tmp_path / "fail.py"
+    adapter.write_text("raise SystemExit(23)\n", encoding="utf-8")
+    with pytest.raises(ExternalFitterError, match="exit code 23"):
+        run_external_fitter(
+            [sys.executable, str(adapter)],
+            workspace=workspace,
+            bodyprint=BODYPRINT,
+            name="Fixture Person",
+            identity=IDENTITY,
+            adapter="fixture-high-fidelity",
+            revision="fixture-rev-1",
+            timeout_seconds=30,
         )
