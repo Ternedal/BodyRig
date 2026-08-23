@@ -89,8 +89,11 @@ def test_external_request_contains_metadata_but_no_source_paths_or_media():
     serialized = json.dumps(request)
     assert "C:\\" not in serialized
     assert "/home/" not in serialized
-    assert "source_media" not in serialized
-    assert "biometric_template" in serialized
+    assert "source_media" not in request
+    assert "source_media" not in request["visual_identity"]
+    assert "frames" not in request["visual_identity"]
+    assert "paths" not in request["visual_identity"]
+    assert request["visual_identity"]["privacy"]["contains_source_media"] is False
     assert request["visual_identity"]["privacy"]["contains_biometric_template"] is False
 
 
