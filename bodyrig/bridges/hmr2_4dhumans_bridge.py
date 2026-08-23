@@ -24,10 +24,19 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
 from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
 
 
-def _git_blob_sha1(path: Path) -> str:
-    data = path.read_bytes()
+def _git_blob_sha1_bytes(data: bytes) -> str:
     header = f"blob {len(data)}\0".encode("ascii")
     return hashlib.sha1(header + data).hexdigest()
+
+
+def _source_blob_matches(path: Path, expected: str) -> bool:
+    data = path.read_bytes()
+    if _git_blob_sha1_bytes(data) == expected:
+        return True
+    # A Windows working tree may have CRLF after Git checkout. Accept only the
+    # canonical line-ending normalization, not arbitrary source modifications.
+    normalized = data.replace(b"\r\n", b"\n")
+    return normalized != data and _git_blob_sha1_bytes(normalized) == expected
 
 
 def _read_request() -> list[Path]:
@@ -81,12 +90,8 @@ def _verify_phalp_install() -> None:
     tracker = package_root / "trackers" / "PHALP.py"
     if not tracker.is_file():
         raise RuntimeError("PHALP tracker source could not be located")
-    actual = _git_blob_sha1(tracker)
-    if actual != PHALP_TRACKER_BLOB_SHA1:
-        raise RuntimeError(
-            "PHALP tracker source does not match the pinned BodyRig revision; "
-            f"expected blob {PHALP_TRACKER_BLOB_SHA1}, got {actual}"
-        )
+    if not _source_blob_matches(tracker, PHALP_TRACKER_BLOB_SHA1):
+        raise RuntimeError("PHALP tracker source does not match the pinned BodyRig revision")
 
 
 def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
@@ -121,10 +126,15 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
 def _verify_repo(repo: Path) -> None:
     if not (repo / "track.py").is_file() or not (repo / "hmr2").is_dir():
         raise RuntimeError("--repo does not look like a 4D-Humans checkout")
-    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    head = completed.stdout.strip().lower()
-    if completed.returncode != 0 or head != FOUR_D_HUMANS_REVISION:
-        raise RuntimeError(f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {head or 'unknown'}")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    actual_head = head.stdout.strip().lower()
+    if head.returncode != 0 or actual_head != FOUR_D_HUMANS_REVISION:
+        raise RuntimeError(f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {actual_head or 'unknown'}")
+    status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if status.returncode != 0:
+        raise RuntimeError("could not verify 4D-Humans tracked-file status")
+    if status.stdout.strip():
+        raise RuntimeError("4D-Humans checkout has modified tracked files; recovery is refused")
 
 
 def main() -> int:

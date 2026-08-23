@@ -22,9 +22,19 @@ def _repo_head(repo: Path) -> str:
     return completed.stdout.strip().lower()
 
 
+def _repo_clean(repo: Path) -> bool:
+    completed = _run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo)
+    if completed.returncode != 0:
+        raise RuntimeError("could not read 4D-Humans tracked-file status")
+    return not completed.stdout.strip()
+
+
 def _external_probe(python: Path) -> dict:
     script = f'''\
 import hashlib, importlib.util, json, pathlib, sys
+EXPECTED = {PHALP_TRACKER_BLOB_SHA1!r}
+def blob(data):
+    return hashlib.sha1(("blob %d\\0" % len(data)).encode("ascii") + data).hexdigest()
 result = {{"python": sys.version.split()[0]}}
 for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
     try:
@@ -46,7 +56,12 @@ if spec is not None and spec.submodule_search_locations:
     tracker = root / "trackers" / "PHALP.py"
     if tracker.is_file():
         data = tracker.read_bytes()
-        result["phalp_tracker_blob"] = hashlib.sha1(("blob %d\\0" % len(data)).encode("ascii") + data).hexdigest()
+        hashes = [blob(data)]
+        normalized = data.replace(b"\\r\\n", b"\\n")
+        if normalized != data:
+            hashes.append(blob(normalized))
+        result["phalp_tracker_match"] = EXPECTED in hashes
+        result["phalp_tracker_hashes"] = hashes
 print(json.dumps(result, separators=(",", ":")))
 '''
     completed = _run([str(python), "-c", script])
@@ -68,61 +83,40 @@ def main(argv: list[str] | None = None) -> int:
 
     python = Path(args.external_python).expanduser().resolve()
     repo = Path(args.repo).expanduser().resolve()
-    checks: dict[str, object] = {
-        "format": "bodyrig-recovery-preflight",
-        "version": 1,
-        "four_d_humans_expected": FOUR_D_HUMANS_REVISION,
-        "phalp_tracker_expected_blob": PHALP_TRACKER_BLOB_SHA1,
-    }
+    checks: dict[str, object] = {"format":"bodyrig-recovery-preflight","version":1,"four_d_humans_expected":FOUR_D_HUMANS_REVISION,"phalp_tracker_expected_blob":PHALP_TRACKER_BLOB_SHA1}
     errors: list[str] = []
 
-    if not python.is_file():
-        errors.append(f"external Python not found: {python}")
-    if not (repo / "track.py").is_file():
-        errors.append(f"not a 4D-Humans checkout: {repo}")
+    if not python.is_file(): errors.append(f"external Python not found: {python}")
+    if not (repo / "track.py").is_file(): errors.append(f"not a 4D-Humans checkout: {repo}")
 
     if not errors:
         try:
-            head = _repo_head(repo)
-            checks["four_d_humans_head"] = head
-            if head != FOUR_D_HUMANS_REVISION:
-                errors.append(f"4D-Humans HEAD mismatch: {head}")
-        except Exception as exc:
-            errors.append(str(exc))
+            head = _repo_head(repo); checks["four_d_humans_head"] = head
+            if head != FOUR_D_HUMANS_REVISION: errors.append(f"4D-Humans HEAD mismatch: {head}")
+            clean = _repo_clean(repo); checks["four_d_humans_tracked_clean"] = clean
+            if not clean: errors.append("4D-Humans has modified tracked files")
+        except Exception as exc: errors.append(str(exc))
 
         smpl = repo / "data" / SMPL_FILENAME
         checks["smpl_present"] = smpl.is_file()
-        if not smpl.is_file():
-            errors.append(f"required SMPL model missing: data/{SMPL_FILENAME}")
+        if not smpl.is_file(): errors.append(f"required SMPL model missing: data/{SMPL_FILENAME}")
 
         try:
-            probe = _external_probe(python)
-            checks["external"] = probe
+            probe = _external_probe(python); checks["external"] = probe
             for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
-                if probe.get("import_" + name) is not True:
-                    errors.append(f"external import failed: {name}: {probe.get('error_' + name, 'unknown error')}")
-            if probe.get("phalp_tracker_blob") != PHALP_TRACKER_BLOB_SHA1:
-                errors.append("installed PHALP tracker source does not match pinned BodyRig blob")
-            if not args.allow_cpu and probe.get("cuda_available") is not True:
-                errors.append("CUDA is not available in the external recovery Python")
-        except Exception as exc:
-            errors.append(str(exc))
+                if probe.get("import_" + name) is not True: errors.append(f"external import failed: {name}: {probe.get('error_' + name, 'unknown error')}")
+            if probe.get("phalp_tracker_match") is not True: errors.append("installed PHALP tracker source does not match pinned BodyRig blob")
+            if not args.allow_cpu and probe.get("cuda_available") is not True: errors.append("CUDA is not available in the external recovery Python")
+        except Exception as exc: errors.append(str(exc))
 
-    checks["ok"] = not errors
-    checks["errors"] = errors
-
+    checks["ok"] = not errors; checks["errors"] = errors
     if args.out:
-        output = Path(args.out).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
+        output = Path(args.out).expanduser().resolve(); output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(checks, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
     if errors:
-        for error in errors:
-            print(f"FAIL: {error}", file=sys.stderr)
+        for error in errors: print(f"FAIL: {error}", file=sys.stderr)
         return 1
-
-    external = checks.get("external", {})
-    device = external.get("cuda_device") if isinstance(external, dict) else None
+    external = checks.get("external", {}); device = external.get("cuda_device") if isinstance(external, dict) else None
     print(f"BodyRig recovery preflight: OK{f' | CUDA: {device}' if device else ''}")
     return 0
 
