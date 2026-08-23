@@ -122,6 +122,7 @@ $validateArgs = @{
     Source = $Source
     ExternalPython = $externalPython
     FourDHumansRepo = $fourDHumansRepo
+    PhalpRepo = $phalpRepo
     BodyId = $BodyId
     Name = $Name
 }
