@@ -179,3 +179,7 @@ try {
 } finally {
     if (Test-Path -LiteralPath $TempRoot) { Remove-Item -LiteralPath $TempRoot -Recurse -Force }
 }
+
+# Expected negative child-process tests leave LASTEXITCODE=1. The test harness
+# itself succeeded if execution reached this point without throwing.
+exit 0
