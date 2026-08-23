@@ -8,7 +8,7 @@ BodyRig V1 uses 4D-Humans/HMR2 + PHALP as the first concrete video recovery cand
 - `brjathu/PHALP`: `96f7e6c09fb858ec3f597d59246c151ab4394bc3`
 - expected Git blob for `phalp/trackers/PHALP.py`: `f4258ab37f2cf034e7321f7ec48ef61be6001785`
 
-The bridge requires the 4D-Humans checkout to be at the exact commit **and have no modified tracked files**. The installed PHALP tracker source must match the pinned Git blob; CRLF↔LF working-tree normalization is the only tolerated byte-level difference for Windows compatibility.
+The bridge requires **both** upstream checkouts to be at their exact commits and have no modified tracked files. The external recovery Python must import `phalp` from the pinned PHALP checkout itself, and the installed tracker source must match the pinned Git blob; CRLF↔LF working-tree normalization is the only tolerated byte-level difference for Windows compatibility.
 
 4D-Humans documents Python 3.10/conda or pip setup, automatically downloaded checkpoints, an additionally required neutral SMPL model, and `track.py video.source=...` for video tracking. BodyRig does **not** redistribute the separately licensed SMPL model asset.
 
@@ -18,10 +18,11 @@ The bridge requires the 4D-Humans checkout to be at the exact commit **and have 
 bodyrig-recovery-preflight `
   --python "C:\path\to\4dh-python.exe" `
   --repo "C:\path\to\4D-Humans" `
+  --phalp-repo "C:\path\to\PHALP" `
   --out ".\bodyrig-recovery-preflight.json"
 ```
 
-The preflight fails closed unless the Git pin/cleanliness, neutral SMPL file, external imports, PHALP source identity and CUDA gate all pass (`--allow-cpu` explicitly relaxes only CUDA).
+The preflight fails closed unless the 4D-Humans pin/cleanliness, PHALP pin/cleanliness/import-root/source identity, neutral SMPL file, external imports and CUDA gate all pass (`--allow-cpu` explicitly relaxes only CUDA).
 
 ## Process boundary
 
