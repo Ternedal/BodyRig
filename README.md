@@ -125,12 +125,13 @@ Et automatiseret PASS **er ikke** det samme som release acceptance: rapporten ef
 
 Reference-rendereren åbner Gate A's `runtime/runtime-manifest.json` via `LoadRuntimeAsync(...)`; den har ingen offentlig loose-VRM acceptance-vej.
 
-Efter fysisk load-test oprettes én immutable attestationsfil pr. platform:
+Efter fysisk load-test oprettes én immutable attestationsfil pr. platform. Hver operatørattestering kræver den machine probe, som den byggede renderer selv skrev for præcis samme runtime-bytes:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
+  -ProbeReport "C:\acceptance\windows-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
@@ -140,6 +141,7 @@ Efter fysisk load-test oprettes én immutable attestationsfil pr. platform:
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
+  -ProbeReport "C:\acceptance\quest-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
@@ -147,7 +149,7 @@ Efter fysisk load-test oprettes én immutable attestationsfil pr. platform:
   -QualityNote "Same accepted runtime and Motor State verified on Quest-class runtime"
 ```
 
-Hver renderer-attestation bliver bundet til Gate A-reportens SHA-256, `.mrbody`-SHA-256, runtime-manifest-SHA-256, `avatar.vrm`-SHA-256, `bodyprint.json`-SHA-256, BodyRig Git-revision og body-id. Scriptet læser selv `.mrbody/checksums.json` og afviser materialiserede payloads, hvis deres bytes ikke matcher pakken. En renderer-attestation kan ikke selv aktivere production.
+Hver renderer-attestation bliver bundet til Gate A-reportens SHA-256, renderer-probe-SHA-256, `.mrbody`-SHA-256, runtime-manifest-SHA-256, `avatar.vrm`-SHA-256, `bodyprint.json`-SHA-256, BodyRig Git-revision og body-id. Scriptet læser selv `.mrbody/checksums.json` og afviser materialiserede payloads, hvis deres bytes ikke matcher pakken. En renderer-attestation kan ikke selv aktivere production.
 
 ### Final release gate
 
