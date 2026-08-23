@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .avatar import AvatarError, AvatarFitResult, validate_vrm1
 from .identity import validate_visual_identity
@@ -34,11 +36,11 @@ def build_external_fit_request(
     name: str,
     identity: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build the metadata request passed to an isolated reconstruction engine.
+    """Build metadata passed to an isolated reconstruction engine.
 
     The private identity workspace path is deliberately *not* part of the JSON
-    request. An operator/invoker may pass such a path separately to the external
-    process, but it must never leak into provenance or portable package data.
+    request. An invoker passes that path separately to the process, and BodyRig
+    never writes it to provenance or the portable package.
     """
 
     if not isinstance(name, str) or not name.strip() or len(name) > 160:
@@ -76,8 +78,9 @@ def validate_external_fit_output(
     if not root.is_dir():
         raise ExternalFitterError(f"external fitter output directory not found: {root}")
     expected_names = {"result.json", "avatar.vrm", "thumbnail.png"}
-    actual_names = {path.name for path in root.iterdir()}
-    if actual_names != expected_names or any(not path.is_file() for path in root.iterdir()):
+    children = list(root.iterdir())
+    actual_names = {path.name for path in children}
+    if actual_names != expected_names or any(not path.is_file() for path in children):
         raise ExternalFitterError("external fitter output must contain exactly result.json, avatar.vrm and thumbnail.png")
 
     try:
@@ -131,3 +134,84 @@ def validate_external_fit_output(
         ),
         visual_identity="source-derived",
     )
+
+
+def run_external_fitter(
+    command: Sequence[str],
+    *,
+    workspace: str | Path,
+    bodyprint: Mapping[str, Any],
+    name: str,
+    identity: Mapping[str, Any],
+    adapter: str,
+    revision: str,
+    timeout_seconds: int = 3600,
+) -> ExternalFitterResult:
+    """Run an operator-selected high-fidelity engine behind a file boundary.
+
+    `command` is executed directly with `shell=False`; no command string is
+    interpreted by a shell and no executable path can come from `.mrbody` data.
+    The private workspace may contain derived source frames, but its path is only
+    supplied as a process argument and is absent from request/result/provenance.
+    """
+
+    argv = list(command)
+    if not argv or any(not isinstance(item, str) or not item for item in argv):
+        raise ExternalFitterError("external fitter command must contain non-empty argv entries")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 86_400:
+        raise ExternalFitterError("external fitter timeout_seconds must be in 1..86400")
+    if not ADAPTER_RE.fullmatch(adapter):
+        raise ExternalFitterError("external fitter adapter id is invalid")
+    if not isinstance(revision, str) or not revision.strip() or len(revision) > 160:
+        raise ExternalFitterError("external fitter revision is invalid")
+
+    workspace_path = Path(workspace).expanduser().resolve()
+    if not workspace_path.is_dir():
+        raise ExternalFitterError(f"visual identity workspace not found: {workspace_path}")
+
+    request = build_external_fit_request(bodyprint=bodyprint, name=name, identity=identity)
+    with tempfile.TemporaryDirectory(prefix="bodyrig-external-fit-") as temp_name:
+        temp = Path(temp_name)
+        request_path = temp / "request.json"
+        output_dir = temp / "output"
+        log_path = temp / "adapter.log"
+        request_path.write_text(
+            json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        output_dir.mkdir()
+
+        invoke = [
+            *argv,
+            "--bodyrig-request",
+            str(request_path),
+            "--bodyrig-workspace",
+            str(workspace_path),
+            "--bodyrig-output",
+            str(output_dir),
+            "--bodyrig-adapter",
+            adapter,
+            "--bodyrig-revision",
+            revision,
+        ]
+        try:
+            with log_path.open("wb") as log:
+                completed = subprocess.run(
+                    invoke,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    shell=False,
+                    check=False,
+                    timeout=timeout_seconds,
+                )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ExternalFitterError("external fitter process could not complete") from exc
+        if completed.returncode != 0:
+            raise ExternalFitterError(f"external fitter process failed with exit code {completed.returncode}")
+
+        return validate_external_fit_output(
+            output_dir,
+            expected_adapter=adapter,
+            expected_revision=revision,
+        )
