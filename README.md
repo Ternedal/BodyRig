@@ -161,16 +161,18 @@ Hver renderer-attestation bliver bundet til Gate A-reportens SHA-256, renderer-p
 
 ### Final release gate
 
-Først når begge platformfiler findes, kan release-evidensen afsluttes:
+Først når begge platformers machine probes og operatorattesteringer findes, kan release-evidensen afsluttes:
 
 ```powershell
 .\complete-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -WindowsRendererReport "C:\acceptance\bodyrig-renderer-acceptance-windows.json" `
-  -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json"
+  -WindowsProbeReport "C:\acceptance\windows-probe.json" `
+  -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json" `
+  -QuestProbeReport "C:\acceptance\quest-probe.json"
 ```
 
-Final-gaten genverificerer hele Gate A, package-checksums, runtime-manifest-hash, Git-head og begge renderer-reporters bindinger. Kun den resulterende `bodyrig-release-acceptance.json` må have `production_activation=true`.
+Final-gaten genverificerer hele Gate A, package-checksums, runtime-manifest-hash, Git-head, begge machine probes og begge renderer-reporters bindinger. Kun den resulterende `bodyrig-release-acceptance.json` må have `production_activation=true`.
 
 En dokumenteret CI-baseline på code/evidence-head `15d6974246d01ac15ca8b42b6f3db34b4ad466c2` (workflow run #66) beviste den komplette ikke-fysiske gate: Python 3.11/3.12, schema-validering, PowerShell-parser og den eksekverede package → runtime → Windows/Quest evidence → release-kæde inklusive negative tamper-cases. Senere dokumentationscommits ændrer ikke den fysiske acceptance-status.
 
