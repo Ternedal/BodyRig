@@ -27,9 +27,32 @@ bodyrig
 
 BodyRig kører som standard på `127.0.0.1:8775`.
 
+## Klargør recovery-miljøet på Windows
+
+BodyRig kan oprette et separat, pinned recovery-miljø uden at blande 4D-Humans/PHALP ind i BodyRigs egen runtime:
+
+```powershell
+.\setup-recovery-windows.ps1 `
+  -SmplModelPath "C:\Downloads\basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
+```
+
+Scriptet:
+
+- opretter en managed recovery-root under `%LOCALAPPDATA%\BodyRig\recovery`;
+- checker 4D-Humans ud på den eksakte BodyRig-pin;
+- checker PHALP ud på den eksakte BodyRig-pin;
+- opretter et separat Conda-miljø fra den pinned 4D-Humans `environment.yml`;
+- installerer begge lokale checkouts editable, så versionerne ikke driver;
+- kopierer kun SMPL-modellen, hvis brugeren selv leverer den;
+- kører BodyRigs recovery-preflight til sidst.
+
+SMPL-modellen downloades eller redistribueres **ikke** af BodyRig. Hvis den ikke er leveret, afslutter setup med en eksplicit blokeret status og fortæller den forventede filplacering.
+
+Upstream 4D-Humans anbefaler Python 3.10/Conda og har native dependencies, som kan være den første praktiske Windows-risiko. Derfor er setup fail-closed: installation/preflight skal faktisk bestå på målriggen; BodyRig antager ikke, at et upstream Linux-orienteret research-stack automatisk virker på Windows.
+
 ## Fra video til `.mrbody`
 
-Den fysiske recovery-vej bruger først den pinned 4D-Humans/HMR2 + PHALP-adapter:
+Den fysiske recovery-vej bruger den pinned 4D-Humans/HMR2 + PHALP-adapter:
 
 ```powershell
 bodyrig-recovery-preflight `
