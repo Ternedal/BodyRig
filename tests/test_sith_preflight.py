@@ -21,6 +21,7 @@ def _probe(*, missing_asset: str | None = None, cuda: bool = True) -> dict:
         "import_numpy": True,
         "version_numpy": "1.24.1",
         "import_cv2": True,
+        "import_PIL": True,
         "import_smplx": True,
         "import_diffusers": True,
         "import_transformers": True,
@@ -34,7 +35,13 @@ def _probe(*, missing_asset: str | None = None, cuda: bool = True) -> dict:
     }
 
 
-def _runner(*, head: str = sith.SITH_REVISION, missing_asset: str | None = None, cuda: bool = True):
+def _runner(
+    *,
+    head: str = sith.SITH_REVISION,
+    missing_asset: str | None = None,
+    cuda: bool = True,
+    centralizer_blob: str = sith.SITH_CENTRALIZE_RGBA_BLOB,
+):
     def run(*, wsl_exe: str, distribution: str, command):
         assert wsl_exe == "wsl.exe"
         assert distribution == "Ubuntu-22.04"
@@ -45,8 +52,14 @@ def _runner(*, head: str = sith.SITH_REVISION, missing_asset: str | None = None,
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:4] == ["git", "-C", "/opt/sith", "hash-object"]:
             target = command[-1]
-            blob = sith.SITH_RUN_SH_BLOB if target == "run.sh" else sith.SITH_REQUIREMENTS_BLOB
-            return subprocess.CompletedProcess(command, 0, blob + "\n", "")
+            blobs = {
+                "run.sh": sith.SITH_RUN_SH_BLOB,
+                "requirements.txt": sith.SITH_REQUIREMENTS_BLOB,
+                "tools/centralize_rgba.py": centralizer_blob,
+            }
+            if target not in blobs:
+                raise AssertionError(f"unexpected SiTH blob target: {target}")
+            return subprocess.CompletedProcess(command, 0, blobs[target] + "\n", "")
         if command[0] == "/opt/sith/.venv/bin/python":
             return subprocess.CompletedProcess(
                 command,
@@ -75,6 +88,7 @@ def test_sith_preflight_accepts_exact_pinned_environment(monkeypatch):
     assert result["revision"] == sith.SITH_REVISION
     assert result["tracked_clean"] is True
     assert result["environment"]["cuda_available"] is True
+    assert result["blob_tools_centralize_rgba_py"] == sith.SITH_CENTRALIZE_RGBA_BLOB
     assert result["errors"] == []
 
 
@@ -82,6 +96,12 @@ def test_sith_preflight_rejects_revision_drift(monkeypatch):
     result = _run(monkeypatch, head="0" * 40)
     assert result["ok"] is False
     assert any("revision mismatch" in error for error in result["errors"])
+
+
+def test_sith_preflight_rejects_centralizer_drift(monkeypatch):
+    result = _run(monkeypatch, centralizer_blob="0" * 40)
+    assert result["ok"] is False
+    assert any("tools/centralize_rgba.py blob mismatch" in error for error in result["errors"])
 
 
 def test_sith_preflight_rejects_missing_model_asset(monkeypatch):
