@@ -110,7 +110,21 @@ def validate_visual_identity(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if privacy["contains_biometric_template"] is not False:
         raise VisualIdentityError("visual identity profile must not contain biometric templates")
 
-    # source_count is intentionally consumed above even though it does not
-    # affect any heuristic. It is evidence and must never be silently inferred.
     assert source_count >= 1
     return deepcopy(dict(value))
+
+
+def bind_visual_identity_to_proof(
+    value: Mapping[str, Any] | Any,
+    proof: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Require identity observations to refer to the exact recovery subject."""
+
+    identity = validate_visual_identity(value)
+    if identity["source_count"] != proof.get("source_count"):
+        raise VisualIdentityError("visual identity source_count does not match recovery proof")
+    if identity["subject_track_id"] != proof.get("track_id"):
+        raise VisualIdentityError(
+            "visual identity subject_track_id does not match recovery proof track_id"
+        )
+    return identity
