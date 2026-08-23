@@ -21,6 +21,7 @@ test = ["pytest>=8.0", "httpx>=0.27"]
 [project.scripts]
 bodyrig = "bodyrig.app:run"
 bodyrig-recover = "bodyrig.recover_cli:main"
+bodyrig-recovery-preflight = "bodyrig.preflight_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["bodyrig"]

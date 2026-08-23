@@ -12,6 +12,25 @@ The bridge requires the 4D-Humans checkout to be exactly pinned and independentl
 
 4D-Humans documents Python 3.10/conda or pip setup, automatically downloaded checkpoints, an additionally required neutral SMPL model, and `track.py video.source=...` for video tracking. BodyRig does **not** redistribute the separately licensed SMPL model asset.
 
+## Preflight
+
+Before using a real video, validate the external recovery environment:
+
+```powershell
+bodyrig-recovery-preflight `
+  --python "C:\path\to\4dh-python.exe" `
+  --repo "C:\path\to\4D-Humans" `
+  --out ".\bodyrig-recovery-preflight.json"
+```
+
+The preflight fails closed unless:
+
+- the 4D-Humans checkout is at the pinned Git commit;
+- the required neutral SMPL file exists under `data/`;
+- `torch`, `cv2`, `joblib`, `hmr2` and `phalp` import in the external Python;
+- the installed PHALP tracker source hashes to the pinned Git blob;
+- CUDA is available (unless `--allow-cpu` is explicitly supplied).
+
 ## Process boundary
 
 The bridge lives inside the installable BodyRig package at `bodyrig/bridges/hmr2_4dhumans_bridge.py`. It can be executed by the external Python directly from disk; it bootstraps the surrounding BodyRig pure-Python modules without requiring the full BodyRig service dependencies to be installed in the heavy recovery environment.
