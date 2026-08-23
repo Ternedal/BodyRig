@@ -1,295 +1,56 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$AcceptanceReport,
-
-    [Parameter(Mandatory = $true)]
-    [string]$WindowsRendererReport,
-
-    [Parameter(Mandatory = $true)]
-    [string]$WindowsProbeReport,
-
-    [Parameter(Mandatory = $true)]
-    [string]$QuestRendererReport,
-
-    [Parameter(Mandatory = $true)]
-    [string]$QuestProbeReport,
-
+    [Parameter(Mandatory = $true)][string]$AcceptanceReport,
+    [Parameter(Mandatory = $true)][string]$WindowsRendererReport,
+    [Parameter(Mandatory = $true)][string]$WindowsProbeReport,
+    [Parameter(Mandatory = $true)][string]$QuestRendererReport,
+    [Parameter(Mandatory = $true)][string]$QuestProbeReport,
     [string]$Output = ""
 )
+$ErrorActionPreference = "Stop"; Set-StrictMode -Version Latest
 
-$ErrorActionPreference = "Stop"
-Set-StrictMode -Version Latest
-
-function Require-True {
-    param([Parameter(Mandatory = $true)]$Value, [Parameter(Mandatory = $true)][string]$Field)
-    if ($Value -ne $true) { throw "$Field must be true before release acceptance can pass." }
-}
-
-function Require-LowerSha256 {
-    param([Parameter(Mandatory = $true)][string]$Value, [Parameter(Mandatory = $true)][string]$Field)
-    $normalized = $Value.ToLowerInvariant()
-    if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Field is not a canonical SHA-256." }
-    return $normalized
-}
-
-function Read-JsonFile {
-    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Label)
+function Read-Json([string]$Path,[string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
-    $resolved = (Resolve-Path -LiteralPath $Path).Path
-    try { $value = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json }
-    catch { throw "$Label is not valid JSON: $resolved" }
-    return [pscustomobject]@{
-        Path = $resolved
-        Hash = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
-        Value = $value
-    }
+    $p=(Resolve-Path -LiteralPath $Path).Path; try{$v=Get-Content -LiteralPath $p -Raw|ConvertFrom-Json}catch{throw "$Label is not valid JSON: $p"}
+    [pscustomobject]@{Path=$p;Hash=(Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant();Value=$v}
+}
+function Need-Sha([string]$v,[string]$f){$n=$v.ToLowerInvariant();if($n -notmatch '^[0-9a-f]{64}$'){throw "$f is not canonical SHA-256."};$n}
+function Read-Checksums([string]$Path){
+    Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead($Path)
+    try{$e=$z.GetEntry('checksums.json');if($null-eq$e){throw 'Accepted .mrbody has no checksums.json.'};$s=$e.Open();$r=[IO.StreamReader]::new($s,[Text.Encoding]::UTF8,$true,4096,$false);try{$t=$r.ReadToEnd()}finally{$r.Dispose()};$t|ConvertFrom-Json}finally{$z.Dispose()}
 }
 
-function Read-PackageChecksums {
-    param([Parameter(Mandatory = $true)][string]$PackagePath)
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
-    try {
-        $entry = $archive.GetEntry("checksums.json")
-        if ($null -eq $entry) { throw "Accepted .mrbody has no checksums.json." }
-        $stream = $entry.Open()
-        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $false)
-        try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        try { return $text | ConvertFrom-Json } catch { throw "Accepted .mrbody checksums.json is invalid JSON." }
-    } finally { $archive.Dispose() }
+$auto=Read-Json $AcceptanceReport 'Acceptance report';$AcceptanceReport=$auto.Path;$a=$auto.Value;$dir=Split-Path -Parent $AcceptanceReport
+if([string]$a.format-ne'bodyrig-rig-acceptance'-or[int]$a.version-ne1-or$a.automated_pass-ne$true-or$a.bodyrig_checkout_clean-ne$true-or[string]$a.physical_renderer_acceptance-ne'pending'-or$a.production_activation-ne$false){throw 'Automated acceptance is not a valid pending-renderer PASS.'}
+foreach($n in @('bodyrig_checkout_clean','preflight_ok','recovery_adapter_pinned','observed_frames_ge_2','source_derived_shape_present','source_derived_motion_present','bodyprint_matches_package','source_count_matches_package','recovery_provenance_matches','avatar_fitting_provenance_present','avatar_is_vrm_1_0','runtime_materialized_from_package')){$p=$a.checks.PSObject.Properties[$n];if($null-eq$p-or$p.Value-ne$true){throw "Automated acceptance check missing/false: $n"}}
+if([int]$a.recovery.observed_frames-lt2-or[string]$a.package.vrm_spec_version-ne'1.0'-or[string]$a.runtime.manifest-ne'runtime/runtime-manifest.json'-or$a.runtime.materialized_from_package-ne$true){throw 'Automated acceptance structural checks failed.'}
+$runtimeHash=Need-Sha ([string]$a.runtime.manifest_sha256) 'runtime.manifest_sha256'
+
+$root=(Resolve-Path $PSScriptRoot).Path;$head=(&git -C $root rev-parse HEAD).Trim().ToLowerInvariant();if($LASTEXITCODE-ne0-or$head-notmatch'^[0-9a-f]{40}$'-or$head-ne([string]$a.bodyrig_revision).ToLowerInvariant()){throw 'BodyRig HEAD does not match accepted revision.'};if(@(&git -C $root status --porcelain).Count-gt0){throw 'BodyRig checkout is dirty.'}
+$bodyId=[string]$a.package.body_id;if($bodyId-notmatch'^[a-z0-9æøå_-]{1,160}$'){throw 'Invalid body id.'};$package=Join-Path $dir "$bodyId.mrbody";if(-not(Test-Path $package -PathType Leaf)){throw 'Accepted .mrbody missing.'};$package=(Resolve-Path $package).Path;$packageHash=(Get-FileHash $package -Algorithm SHA256).Hash.ToLowerInvariant();if($packageHash-ne(Need-Sha ([string]$a.package.package_sha256) 'package hash')){throw 'Accepted package hash changed.'}
+$c=Read-Checksums $package;$avatarHash=Need-Sha ([string]$c.PSObject.Properties['avatar.vrm'].Value) 'avatar checksum';$bodyprintHash=Need-Sha ([string]$c.PSObject.Properties['bodyprint.json'].Value) 'bodyprint checksum'
+
+function Read-Probe([string]$Path,[string]$Platform){
+    $f=Read-Json $Path 'Renderer machine probe';$v=$f.Value;$fields=@('format','version','observed_at','platform','unity_platform','unity_version','build_guid','device_model','graphics_device','body_id','package_sha256','runtime_manifest_sha256','avatar_sha256','bodyprint_sha256','vrm10_loaded','humanoid_valid','required_bones_valid','active_renderer')
+    if(@(Compare-Object $fields @($v.PSObject.Properties.Name)).Count-ne0-or[string]$v.format-ne'bodyrig-renderer-probe'-or[int]$v.version-ne1-or[string]$v.platform-ne$Platform){throw "Invalid renderer probe: $($f.Path)"}
+    if($v.vrm10_loaded-ne$true-or$v.humanoid_valid-ne$true-or$v.required_bones_valid-ne$true){throw "Probe did not prove VRM/Humanoid/bones: $($f.Path)"}
+    if([string]$v.body_id-ne$bodyId-or(Need-Sha ([string]$v.package_sha256) 'probe package')-ne$packageHash-or(Need-Sha ([string]$v.runtime_manifest_sha256) 'probe runtime')-ne$runtimeHash-or(Need-Sha ([string]$v.avatar_sha256) 'probe avatar')-ne$avatarHash-or(Need-Sha ([string]$v.bodyprint_sha256) 'probe bodyprint')-ne$bodyprintHash){throw "Probe byte identity mismatch: $($f.Path)"}
+    foreach($n in @('observed_at','unity_platform','unity_version','build_guid','device_model','graphics_device')){if([string]::IsNullOrWhiteSpace([string]$v.$n)){throw "Probe missing $n: $($f.Path)"}}
+    if($Platform-eq'windows-unity-univrm'-and[string]$v.unity_platform-ne'WindowsPlayer'){throw 'Windows release evidence must come from Unity WindowsPlayer.'}
+    if($Platform-eq'android-quest-class'){if([string]$v.unity_platform-ne'Android'){throw 'Quest probe must come from Unity Android.'};if([string]$v.device_model-notmatch'(?i)(quest|oculus)'){throw "Quest probe device model is not Quest/Oculus: $($v.device_model)"}}
+    if([string]::IsNullOrWhiteSpace([string]$v.active_renderer.name)-or[string]::IsNullOrWhiteSpace([string]$v.active_renderer.version)){throw 'Probe renderer identity missing.'};$f
+}
+function Read-Att([string]$Path,[string]$Platform,$Probe){
+    $f=Read-Json $Path 'Renderer acceptance';$v=$f.Value
+    if([string]$v.format-ne'bodyrig-renderer-acceptance'-or[int]$v.version-ne1-or[string]$v.platform-ne$Platform-or[string]$v.result-ne'pass'-or[string]$v.attestation-ne'operator-supplied'-or$v.machine_probe-ne$true-or$v.production_activation-ne$false){throw "Invalid renderer attestation: $($f.Path)"}
+    if(([string]$v.bodyrig_revision).ToLowerInvariant()-ne$head-or(Need-Sha ([string]$v.automated_report_sha256) 'att automated')-ne$auto.Hash-or(Need-Sha ([string]$v.probe_report_sha256) 'att probe')-ne$Probe.Hash-or(Need-Sha ([string]$v.package_sha256) 'att package')-ne$packageHash-or(Need-Sha ([string]$v.runtime_manifest_sha256) 'att runtime')-ne$runtimeHash-or(Need-Sha ([string]$v.avatar_sha256) 'att avatar')-ne$avatarHash-or(Need-Sha ([string]$v.bodyprint_sha256) 'att bodyprint')-ne$bodyprintHash-or[string]$v.body_id-ne$bodyId){throw "Renderer attestation binding mismatch: $($f.Path)"}
+    if([string]$v.renderer_name-ne[string]$Probe.Value.active_renderer.name-or[string]$v.renderer_version-ne[string]$Probe.Value.active_renderer.version-or[string]$v.unity_platform-ne[string]$Probe.Value.unity_platform-or[string]$v.unity_version-ne[string]$Probe.Value.unity_version-or[string]$v.graphics_device-ne[string]$Probe.Value.graphics_device){throw "Renderer attestation does not match machine probe: $($f.Path)"}
+    if([string]::IsNullOrWhiteSpace([string]$v.quality_note)){throw 'Renderer quality note missing.'};$f
 }
 
-function Read-RendererProbe {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$ExpectedPlatform,
-        [Parameter(Mandatory = $true)][string]$ExpectedPackageHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedRuntimeManifestHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedAvatarHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedBodyprintHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedBodyId
-    )
-    $file = Read-JsonFile -Path $Path -Label "Renderer machine probe"
-    $value = $file.Value
-    $expectedFields = @(
-        "format", "version", "observed_at", "platform", "unity_platform", "unity_version", "graphics_device",
-        "body_id", "package_sha256", "runtime_manifest_sha256", "avatar_sha256", "bodyprint_sha256",
-        "vrm10_loaded", "humanoid_valid", "required_bones_valid", "active_renderer"
-    )
-    if (@(Compare-Object -ReferenceObject $expectedFields -DifferenceObject @($value.PSObject.Properties.Name)).Count -ne 0) {
-        throw "Renderer machine probe fields do not match BodyRig renderer probe v1: $($file.Path)"
-    }
-    if ([string]$value.format -ne "bodyrig-renderer-probe" -or [int]$value.version -ne 1) { throw "Unsupported renderer machine probe format/version: $($file.Path)" }
-    if ([string]$value.platform -ne $ExpectedPlatform) { throw "Renderer machine probe platform mismatch: $($file.Path)" }
-    if ($value.vrm10_loaded -ne $true -or $value.humanoid_valid -ne $true -or $value.required_bones_valid -ne $true) {
-        throw "Renderer machine probe did not prove VRM/Humanoid/bones success: $($file.Path)"
-    }
-    if ([string]$value.body_id -ne $ExpectedBodyId) { throw "Renderer machine probe body id mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.package_sha256) "probe.package_sha256") -ne $ExpectedPackageHash) { throw "Renderer machine probe package hash mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $ExpectedRuntimeManifestHash) { throw "Renderer machine probe runtime manifest hash mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.avatar_sha256) "probe.avatar_sha256") -ne $ExpectedAvatarHash) { throw "Renderer machine probe avatar hash mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.bodyprint_sha256) "probe.bodyprint_sha256") -ne $ExpectedBodyprintHash) { throw "Renderer machine probe bodyprint hash mismatch: $($file.Path)" }
-    foreach ($fieldName in @("observed_at", "unity_platform", "unity_version", "graphics_device")) {
-        if ([string]::IsNullOrWhiteSpace([string]$value.$fieldName)) { throw "Renderer machine probe is missing '$fieldName': $($file.Path)" }
-    }
-    if ([string]::IsNullOrWhiteSpace([string]$value.active_renderer.name) -or [string]::IsNullOrWhiteSpace([string]$value.active_renderer.version)) {
-        throw "Renderer machine probe is missing renderer identity: $($file.Path)"
-    }
-    if ($ExpectedPlatform -eq "windows-unity-univrm" -and [string]$value.unity_platform -notin @("WindowsEditor", "WindowsPlayer")) {
-        throw "Windows machine probe was not emitted by Unity on Windows: $($file.Path)"
-    }
-    if ($ExpectedPlatform -eq "android-quest-class" -and [string]$value.unity_platform -ne "Android") {
-        throw "Quest-class machine probe was not emitted by an Android Unity runtime: $($file.Path)"
-    }
-    return $file
-}
-
-function Read-RendererAcceptance {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)]$Probe,
-        [Parameter(Mandatory = $true)][string]$ExpectedPlatform,
-        [Parameter(Mandatory = $true)][string]$ExpectedRevision,
-        [Parameter(Mandatory = $true)][string]$ExpectedAutomatedReportHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedPackageHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedRuntimeManifestHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedAvatarHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedBodyprintHash,
-        [Parameter(Mandatory = $true)][string]$ExpectedBodyId
-    )
-    $file = Read-JsonFile -Path $Path -Label "Renderer acceptance report"
-    $value = $file.Value
-    if ([string]$value.format -ne "bodyrig-renderer-acceptance" -or [int]$value.version -ne 1) { throw "Unsupported renderer acceptance format/version: $($file.Path)" }
-    if ([string]$value.platform -ne $ExpectedPlatform) { throw "Renderer acceptance platform mismatch: $($file.Path)" }
-    if ([string]$value.result -ne "pass" -or [string]$value.attestation -ne "operator-supplied" -or $value.machine_probe -ne $true -or $value.production_activation -ne $false) {
-        throw "Renderer acceptance is not a valid machine-backed, non-activating PASS attestation: $($file.Path)"
-    }
-    if (([string]$value.bodyrig_revision).ToLowerInvariant() -ne $ExpectedRevision) { throw "Renderer acceptance revision mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.automated_report_sha256) "renderer.automated_report_sha256") -ne $ExpectedAutomatedReportHash) { throw "Renderer acceptance automated report binding mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.probe_report_sha256) "renderer.probe_report_sha256") -ne $Probe.Hash) { throw "Renderer acceptance machine probe binding mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.package_sha256) "renderer.package_sha256") -ne $ExpectedPackageHash) { throw "Renderer acceptance package mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.runtime_manifest_sha256) "renderer.runtime_manifest_sha256") -ne $ExpectedRuntimeManifestHash) { throw "Renderer acceptance runtime manifest mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.avatar_sha256) "renderer.avatar_sha256") -ne $ExpectedAvatarHash) { throw "Renderer acceptance avatar mismatch: $($file.Path)" }
-    if ((Require-LowerSha256 ([string]$value.bodyprint_sha256) "renderer.bodyprint_sha256") -ne $ExpectedBodyprintHash) { throw "Renderer acceptance bodyprint mismatch: $($file.Path)" }
-    if ([string]$value.body_id -ne $ExpectedBodyId) { throw "Renderer acceptance body id mismatch: $($file.Path)" }
-    if ([string]$value.renderer_name -ne [string]$Probe.Value.active_renderer.name -or [string]$value.renderer_version -ne [string]$Probe.Value.active_renderer.version) {
-        throw "Renderer acceptance identity no longer matches machine probe: $($file.Path)"
-    }
-    if ([string]$value.unity_platform -ne [string]$Probe.Value.unity_platform -or [string]$value.unity_version -ne [string]$Probe.Value.unity_version -or [string]$value.graphics_device -ne [string]$Probe.Value.graphics_device) {
-        throw "Renderer acceptance Unity/device evidence no longer matches machine probe: $($file.Path)"
-    }
-    foreach ($fieldName in @("renderer_name", "renderer_version", "quality_note", "attested_at")) {
-        if ([string]::IsNullOrWhiteSpace([string]$value.$fieldName)) { throw "Renderer acceptance is missing '$fieldName': $($file.Path)" }
-    }
-    return $file
-}
-
-$automated = Read-JsonFile -Path $AcceptanceReport -Label "Acceptance report"
-$AcceptanceReport = $automated.Path
-$report = $automated.Value
-$reportDir = Split-Path -Parent $AcceptanceReport
-if ([string]$report.format -ne "bodyrig-rig-acceptance" -or [int]$report.version -ne 1) { throw "Unsupported BodyRig acceptance report format/version." }
-Require-True $report.automated_pass "automated_pass"
-Require-True $report.bodyrig_checkout_clean "bodyrig_checkout_clean"
-if ([string]$report.physical_renderer_acceptance -ne "pending") { throw "Acceptance report is not in the expected pending renderer state." }
-if ($report.production_activation -ne $false) { throw "Input acceptance report unexpectedly has production_activation=true." }
-if ([int]$report.source_count -lt 1 -or [int]$report.source_count -gt 10) { throw "Acceptance report contains an invalid source_count." }
-if ([int]$report.recovery.observed_frames -lt 2) { throw "Acceptance report does not contain enough observed recovery frames." }
-
-$requiredChecks = @(
-    "bodyrig_checkout_clean", "preflight_ok", "recovery_adapter_pinned", "observed_frames_ge_2",
-    "source_derived_shape_present", "source_derived_motion_present", "bodyprint_matches_package",
-    "source_count_matches_package", "recovery_provenance_matches", "avatar_fitting_provenance_present",
-    "avatar_is_vrm_1_0", "runtime_materialized_from_package"
-)
-foreach ($checkName in $requiredChecks) {
-    $property = $report.checks.PSObject.Properties[$checkName]
-    if ($null -eq $property -or $property.Value -ne $true) { throw "Automated acceptance check is missing or false: checks.$checkName" }
-}
-foreach ($checkName in @("bodyprint_matches_proof", "source_count_matches", "recovery_provenance_matches", "avatar_fitting_provenance_present")) {
-    $property = $report.package.PSObject.Properties[$checkName]
-    if ($null -eq $property -or $property.Value -ne $true) { throw "Package acceptance check is missing or false: package.$checkName" }
-}
-if ([string]$report.package.vrm_spec_version -ne "1.0") { throw "Accepted package is not recorded as VRM 1.0." }
-if ([string]$report.runtime.manifest -ne "runtime/runtime-manifest.json" -or $report.runtime.materialized_from_package -ne $true) {
-    throw "Automated acceptance does not contain valid materialized runtime evidence."
-}
-$expectedRuntimeManifestHash = Require-LowerSha256 ([string]$report.runtime.manifest_sha256) "runtime.manifest_sha256"
-
-$repoRoot = (Resolve-Path $PSScriptRoot).Path
-$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Could not read BodyRig Git HEAD." }
-$acceptedRevision = ([string]$report.bodyrig_revision).ToLowerInvariant()
-if ($acceptedRevision -notmatch '^[0-9a-f]{40}$' -or $head -ne $acceptedRevision) {
-    throw "BodyRig HEAD no longer matches the accepted revision. Expected $($report.bodyrig_revision), got $head."
-}
-$dirty = @(& git -C $repoRoot status --porcelain)
-if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig Git status." }
-if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; release attestation requires the exact clean accepted revision." }
-
-$bodyId = [string]$report.package.body_id
-if ([string]::IsNullOrWhiteSpace($bodyId) -or $bodyId -notmatch '^[a-z0-9æøå_-]{1,160}$') { throw "Acceptance report contains an invalid body id." }
-$packagePath = Join-Path $reportDir "$bodyId.mrbody"
-if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { throw "Accepted .mrbody package not found beside report: $packagePath" }
-$packagePath = (Resolve-Path -LiteralPath $packagePath).Path
-$expectedPackageHash = Require-LowerSha256 ([string]$report.package.package_sha256) "package.package_sha256"
-$actualPackageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actualPackageHash -ne $expectedPackageHash) { throw "Accepted .mrbody SHA-256 no longer matches automated acceptance." }
-$reportHash = $automated.Hash
-
-$checksums = Read-PackageChecksums -PackagePath $packagePath
-$avatarChecksumProperty = $checksums.PSObject.Properties["avatar.vrm"]
-$bodyprintChecksumProperty = $checksums.PSObject.Properties["bodyprint.json"]
-if ($null -eq $avatarChecksumProperty -or $null -eq $bodyprintChecksumProperty) { throw "Accepted .mrbody checksums.json does not contain avatar/bodyprint hashes." }
-$expectedAvatarHash = Require-LowerSha256 ([string]$avatarChecksumProperty.Value) "checksums.avatar.vrm"
-$expectedBodyprintHash = Require-LowerSha256 ([string]$bodyprintChecksumProperty.Value) "checksums.bodyprint.json"
-
-$windowsProbe = Read-RendererProbe -Path $WindowsProbeReport -ExpectedPlatform "windows-unity-univrm" -ExpectedPackageHash $actualPackageHash -ExpectedRuntimeManifestHash $expectedRuntimeManifestHash -ExpectedAvatarHash $expectedAvatarHash -ExpectedBodyprintHash $expectedBodyprintHash -ExpectedBodyId $bodyId
-$questProbe = Read-RendererProbe -Path $QuestProbeReport -ExpectedPlatform "android-quest-class" -ExpectedPackageHash $actualPackageHash -ExpectedRuntimeManifestHash $expectedRuntimeManifestHash -ExpectedAvatarHash $expectedAvatarHash -ExpectedBodyprintHash $expectedBodyprintHash -ExpectedBodyId $bodyId
-if ([string]::Equals($windowsProbe.Path, $questProbe.Path, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Windows and Quest machine probes must be distinct evidence files." }
-
-$common = @{
-    ExpectedRevision = $head
-    ExpectedAutomatedReportHash = $reportHash
-    ExpectedPackageHash = $actualPackageHash
-    ExpectedRuntimeManifestHash = $expectedRuntimeManifestHash
-    ExpectedAvatarHash = $expectedAvatarHash
-    ExpectedBodyprintHash = $expectedBodyprintHash
-    ExpectedBodyId = $bodyId
-}
-$windowsArgs = $common.Clone(); $windowsArgs.Path = $WindowsRendererReport; $windowsArgs.Probe = $windowsProbe; $windowsArgs.ExpectedPlatform = "windows-unity-univrm"
-$windows = Read-RendererAcceptance @windowsArgs
-$questArgs = $common.Clone(); $questArgs.Path = $QuestRendererReport; $questArgs.Probe = $questProbe; $questArgs.ExpectedPlatform = "android-quest-class"
-$quest = Read-RendererAcceptance @questArgs
-if ([string]::Equals($windows.Path, $quest.Path, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Windows and Quest renderer acceptance must be distinct evidence files." }
-
-if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $reportDir "bodyrig-release-acceptance.json" }
-$Output = [System.IO.Path]::GetFullPath($Output)
-foreach ($evidencePath in @($AcceptanceReport, $packagePath, $windows.Path, $quest.Path, $windowsProbe.Path, $questProbe.Path)) {
-    if ([string]::Equals($Output, $evidencePath, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Release output must not overwrite input evidence." }
-}
-if (Test-Path -LiteralPath $Output) { throw "Release acceptance output already exists; refusing to overwrite evidence: $Output" }
-$outputDir = Split-Path -Parent $Output
-if (-not (Test-Path -LiteralPath $outputDir -PathType Container)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
-
-function RendererSummary {
-    param($Acceptance, $Probe)
-    return [ordered]@{
-        report_sha256 = $Acceptance.Hash
-        probe_report_sha256 = $Probe.Hash
-        runtime_manifest_sha256 = $expectedRuntimeManifestHash
-        avatar_sha256 = $expectedAvatarHash
-        bodyprint_sha256 = $expectedBodyprintHash
-        machine_probe = $true
-        result = "pass"
-        renderer_name = [string]$Acceptance.Value.renderer_name
-        renderer_version = [string]$Acceptance.Value.renderer_version
-        unity_platform = [string]$Probe.Value.unity_platform
-        unity_version = [string]$Probe.Value.unity_version
-        graphics_device = [string]$Probe.Value.graphics_device
-        quality_note = [string]$Acceptance.Value.quality_note
-        observed_at = [string]$Probe.Value.observed_at
-        attested_at = [string]$Acceptance.Value.attested_at
-    }
-}
-
-$completed = [ordered]@{
-    format = "bodyrig-release-acceptance"
-    version = 1
-    completed_at = [DateTime]::UtcNow.ToString("o")
-    bodyrig_revision = $head
-    automated_acceptance = [ordered]@{
-        report_sha256 = $reportHash
-        package_sha256 = $actualPackageHash
-        body_id = $bodyId
-        automated_pass = $true
-    }
-    renderer_acceptance = [ordered]@{
-        windows_unity_univrm = RendererSummary $windows $windowsProbe
-        android_quest_class = RendererSummary $quest $questProbe
-    }
-    release_gate_pass = $true
-    production_activation = $true
-}
-
-$temp = Join-Path $outputDir ("." + [System.IO.Path]::GetFileName($Output) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
-try {
-    $completed | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temp -Encoding UTF8
-    $roundTrip = Get-Content -LiteralPath $temp -Raw | ConvertFrom-Json
-    if ($roundTrip.release_gate_pass -ne $true -or $roundTrip.production_activation -ne $true -or $roundTrip.renderer_acceptance.windows_unity_univrm.machine_probe -ne $true -or $roundTrip.renderer_acceptance.android_quest_class.machine_probe -ne $true) {
-        throw "Release acceptance round-trip validation failed."
-    }
-    Move-Item -LiteralPath $temp -Destination $Output
-} finally {
-    if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
-}
-
-Write-Host "BodyRig release acceptance: PASS"
-Write-Host "Revision: $head"
-Write-Host "Package SHA-256: $actualPackageHash"
-Write-Host "Windows probe SHA-256: $($windowsProbe.Hash)"
-Write-Host "Windows renderer evidence SHA-256: $($windows.Hash)"
-Write-Host "Quest probe SHA-256: $($questProbe.Hash)"
-Write-Host "Quest renderer evidence SHA-256: $($quest.Hash)"
-Write-Host "Release report: $Output"
-exit 0
+$wp=Read-Probe $WindowsProbeReport 'windows-unity-univrm';$qp=Read-Probe $QuestProbeReport 'android-quest-class';if([string]::Equals($wp.Path,$qp.Path,[StringComparison]::OrdinalIgnoreCase)){throw 'Windows and Quest probes must be distinct.'}
+$wa=Read-Att $WindowsRendererReport 'windows-unity-univrm' $wp;$qa=Read-Att $QuestRendererReport 'android-quest-class' $qp;if([string]::Equals($wa.Path,$qa.Path,[StringComparison]::OrdinalIgnoreCase)){throw 'Windows and Quest attestations must be distinct.'}
+if([string]::IsNullOrWhiteSpace($Output)){$Output=Join-Path $dir 'bodyrig-release-acceptance.json'};$Output=[IO.Path]::GetFullPath($Output);foreach($p in @($AcceptanceReport,$package,$wp.Path,$qp.Path,$wa.Path,$qa.Path)){if([string]::Equals($Output,$p,[StringComparison]::OrdinalIgnoreCase)){throw 'Release output must not overwrite evidence.'}};if(Test-Path $Output){throw 'Release acceptance output already exists.'};$od=Split-Path -Parent $Output;if(-not(Test-Path $od -PathType Container)){New-Item -ItemType Directory $od -Force|Out-Null}
+function Summary($Att,$Probe){[ordered]@{report_sha256=$Att.Hash;probe_report_sha256=$Probe.Hash;runtime_manifest_sha256=$runtimeHash;avatar_sha256=$avatarHash;bodyprint_sha256=$bodyprintHash;machine_probe=$true;result='pass';renderer_name=[string]$Att.Value.renderer_name;renderer_version=[string]$Att.Value.renderer_version;unity_platform=[string]$Probe.Value.unity_platform;unity_version=[string]$Probe.Value.unity_version;build_guid=[string]$Probe.Value.build_guid;device_model=[string]$Probe.Value.device_model;graphics_device=[string]$Probe.Value.graphics_device;quality_note=[string]$Att.Value.quality_note;observed_at=[string]$Probe.Value.observed_at;attested_at=[string]$Att.Value.attested_at}}
+$out=[ordered]@{format='bodyrig-release-acceptance';version=1;completed_at=[DateTime]::UtcNow.ToString('o');bodyrig_revision=$head;automated_acceptance=[ordered]@{report_sha256=$auto.Hash;package_sha256=$packageHash;body_id=$bodyId;automated_pass=$true};renderer_acceptance=[ordered]@{windows_unity_univrm=Summary $wa $wp;android_quest_class=Summary $qa $qp};release_gate_pass=$true;production_activation=$true}
+$tmp=Join-Path $od ('.'+[IO.Path]::GetFileName($Output)+'.'+[Guid]::NewGuid().ToString('N')+'.tmp');try{$out|ConvertTo-Json -Depth 12|Set-Content $tmp -Encoding UTF8;Move-Item $tmp $Output}finally{if(Test-Path $tmp){Remove-Item $tmp -Force}}
+Write-Host "BodyRig release acceptance: PASS | Windows=$($wp.Value.device_model) | Quest=$($qp.Value.device_model)";Write-Host "Release report: $Output";exit 0
