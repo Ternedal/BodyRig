@@ -3,6 +3,9 @@ param(
     [string]$AcceptanceReport,
 
     [Parameter(Mandatory = $true)]
+    [string]$RuntimeManifest,
+
+    [Parameter(Mandatory = $true)]
     [ValidateSet("windows-unity-univrm", "android-quest-class")]
     [string]$Platform,
 
@@ -26,6 +29,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+function Read-PackageChecksums {
+    param([Parameter(Mandatory = $true)][string]$PackagePath)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $entry = $archive.GetEntry("checksums.json")
+        if ($null -eq $entry) {
+            throw "Accepted .mrbody has no checksums.json."
+        }
+        $stream = $entry.Open()
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $false)
+        try {
+            $text = $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+        try {
+            return $text | ConvertFrom-Json
+        } catch {
+            throw "Accepted .mrbody checksums.json is invalid JSON."
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
 
 foreach ($value in @($RendererName, $RendererVersion, $QualityNote)) {
     if ([string]::IsNullOrWhiteSpace($value)) {
@@ -87,14 +117,72 @@ if ($expectedPackageHash -notmatch '^[0-9a-f]{64}$' -or $actualPackageHash -ne $
 }
 $reportHash = (Get-FileHash -LiteralPath $AcceptanceReport -Algorithm SHA256).Hash.ToLowerInvariant()
 
+if (-not (Test-Path -LiteralPath $RuntimeManifest -PathType Leaf)) {
+    throw "Runtime manifest not found: $RuntimeManifest"
+}
+$RuntimeManifest = (Resolve-Path -LiteralPath $RuntimeManifest).Path
+try {
+    $runtime = Get-Content -LiteralPath $RuntimeManifest -Raw | ConvertFrom-Json
+} catch {
+    throw "Runtime manifest is not valid JSON: $RuntimeManifest"
+}
+$expectedRuntimeFields = @(
+    "format", "version", "body_id", "body_name", "package_sha256", "avatar", "bodyprint", "payloads"
+)
+$runtimeFields = @($runtime.PSObject.Properties.Name)
+if (@(Compare-Object -ReferenceObject $expectedRuntimeFields -DifferenceObject $runtimeFields).Count -ne 0) {
+    throw "Runtime manifest fields do not match BodyRig runtime assets v1."
+}
+if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or [int]$runtime.version -ne 1) {
+    throw "Unsupported BodyRig runtime manifest format/version."
+}
+if ([string]$runtime.body_id -ne $bodyId) {
+    throw "Runtime manifest body id does not match automated acceptance."
+}
+if (([string]$runtime.package_sha256).ToLowerInvariant() -ne $actualPackageHash) {
+    throw "Runtime manifest is bound to a different .mrbody package."
+}
+if ([string]$runtime.avatar -ne "avatar.vrm" -or [string]$runtime.bodyprint -ne "bodyprint.json") {
+    throw "Runtime manifest contains unexpected avatar/bodyprint paths."
+}
+$payloads = @($runtime.payloads)
+if ($payloads -notcontains "avatar.vrm" -or $payloads -notcontains "bodyprint.json") {
+    throw "Runtime manifest does not include required avatar/bodyprint payloads."
+}
+
+$runtimeDir = Split-Path -Parent $RuntimeManifest
+$avatarPath = Join-Path $runtimeDir "avatar.vrm"
+$bodyprintPath = Join-Path $runtimeDir "bodyprint.json"
+if (-not (Test-Path -LiteralPath $avatarPath -PathType Leaf) -or -not (Test-Path -LiteralPath $bodyprintPath -PathType Leaf)) {
+    throw "Materialized runtime is missing avatar.vrm or bodyprint.json."
+}
+$avatarHash = (Get-FileHash -LiteralPath $avatarPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$bodyprintHash = (Get-FileHash -LiteralPath $bodyprintPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksums = Read-PackageChecksums -PackagePath $packagePath
+$avatarChecksumProperty = $checksums.PSObject.Properties["avatar.vrm"]
+$bodyprintChecksumProperty = $checksums.PSObject.Properties["bodyprint.json"]
+if ($null -eq $avatarChecksumProperty -or $null -eq $bodyprintChecksumProperty) {
+    throw "Accepted .mrbody checksums.json does not contain avatar/bodyprint hashes."
+}
+$expectedAvatarHash = ([string]$avatarChecksumProperty.Value).ToLowerInvariant()
+$expectedBodyprintHash = ([string]$bodyprintChecksumProperty.Value).ToLowerInvariant()
+if ($expectedAvatarHash -notmatch '^[0-9a-f]{64}$' -or $avatarHash -ne $expectedAvatarHash) {
+    throw "Materialized avatar.vrm does not match the accepted .mrbody payload checksum."
+}
+if ($expectedBodyprintHash -notmatch '^[0-9a-f]{64}$' -or $bodyprintHash -ne $expectedBodyprintHash) {
+    throw "Materialized bodyprint.json does not match the accepted .mrbody payload checksum."
+}
+$runtimeManifestHash = (Get-FileHash -LiteralPath $RuntimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+
 if ([string]::IsNullOrWhiteSpace($Output)) {
     $suffix = if ($Platform -eq "windows-unity-univrm") { "windows" } else { "quest" }
     $Output = Join-Path $reportDir "bodyrig-renderer-acceptance-$suffix.json"
 }
 $Output = [System.IO.Path]::GetFullPath($Output)
-if ([string]::Equals($Output, $AcceptanceReport, [System.StringComparison]::OrdinalIgnoreCase) -or
-    [string]::Equals($Output, $packagePath, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Renderer acceptance output must not overwrite automated evidence."
+foreach ($evidencePath in @($AcceptanceReport, $packagePath, $RuntimeManifest, $avatarPath, $bodyprintPath)) {
+    if ([string]::Equals($Output, $evidencePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Renderer acceptance output must not overwrite input evidence."
+    }
 }
 if (Test-Path -LiteralPath $Output) {
     throw "Renderer acceptance output already exists; refusing to overwrite evidence: $Output"
@@ -111,6 +199,9 @@ $attestation = [ordered]@{
     bodyrig_revision = $head
     automated_report_sha256 = $reportHash
     package_sha256 = $actualPackageHash
+    runtime_manifest_sha256 = $runtimeManifestHash
+    avatar_sha256 = $avatarHash
+    bodyprint_sha256 = $bodyprintHash
     body_id = $bodyId
     platform = $Platform
     renderer_name = $RendererName
@@ -137,6 +228,8 @@ Write-Host "BodyRig renderer acceptance: PASS"
 Write-Host "Platform: $Platform"
 Write-Host "Revision: $head"
 Write-Host "Package SHA-256: $actualPackageHash"
+Write-Host "Runtime manifest SHA-256: $runtimeManifestHash"
+Write-Host "Avatar SHA-256: $avatarHash"
 Write-Host "Renderer: $RendererName | $RendererVersion"
 Write-Host "Report: $Output"
 exit 0
