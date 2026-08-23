@@ -27,6 +27,35 @@ bodyrig
 
 BodyRig kører som standard på `127.0.0.1:8775`.
 
+## Fra video til `.mrbody`
+
+Den fysiske recovery-vej bruger først den pinned 4D-Humans/HMR2 + PHALP-adapter:
+
+```powershell
+bodyrig-recovery-preflight `
+  --python "C:\path\to\4dh-python.exe" `
+  --repo "C:\path\to\4D-Humans" `
+  --out ".\bodyrig-recovery-preflight.json"
+
+bodyrig-recover `
+  --python "C:\path\to\4dh-python.exe" `
+  --repo "C:\path\to\4D-Humans" `
+  --out ".\bodyrig-recovery-proof.json" `
+  "C:\video\person.mp4"
+```
+
+Når recovery-proofet er gyldigt, bygges den portable avatarprofil med:
+
+```powershell
+bodyrig-fit-avatar `
+  .\bodyrig-recovery-proof.json `
+  --body-id "min-avatar" `
+  --name "Min avatar" `
+  --out ".\min-avatar.mrbody"
+```
+
+Den første fitter (`procedural-vrm1`) er bevidst en neutral placeholder for visuel identitet, men dens kropsproportioner drives af source-derived BodyPrint-data. Den producerer en reel VRM 1.0-humanoid og gør det eksplicit i metadata, at avataren er en placeholder. En almindelig GLB-fil omdøbt til `.vrm` bliver afvist.
+
 ## Arkitektur
 
 ```text
@@ -40,6 +69,6 @@ video --> recovery-engine (isolated) --> canonical 3D joints/tracks
       --> BodyRig bodyprint extractor --> avatar fitting/VRM --> .mrbody
 ```
 
-Recovery-motorer holdes bag en procesgrænse, så research-stack, checkpoints og kropsmodel-licenser ikke bliver skjulte runtime-afhængigheder.
+Recovery-motorer og avatar-fitters holdes bag udskiftelige grænser, så research-stack, checkpoints og kropsmodel-licenser ikke bliver skjulte runtime-afhængigheder.
 
-Se `docs/ARCHITECTURE.md` og `docs/MRBODY_SPEC.md`.
+Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md` og `docs/AVATAR_FITTING.md`.
