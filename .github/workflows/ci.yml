@@ -46,9 +46,12 @@ jobs:
       - name: Parse PowerShell operator scripts
         shell: pwsh
         run: |
-          $scripts = @(Get-ChildItem -LiteralPath . -Filter "*.ps1" -File | Sort-Object Name)
+          $scripts = @(
+            Get-ChildItem -LiteralPath . -Filter "*.ps1" -File
+            Get-ChildItem -LiteralPath ./tests -Filter "*.ps1" -File
+          ) | Sort-Object FullName
           if ($scripts.Count -eq 0) {
-            Write-Error "No root PowerShell operator scripts found."
+            Write-Error "No PowerShell operator/test scripts found."
             exit 1
           }
           $failed = $false
@@ -66,11 +69,14 @@ jobs:
                 Write-Error "$($script.Name): $($parseError.Message)"
               }
             } else {
-              Write-Host "Parsed: $($script.Name)"
+              Write-Host "Parsed: $($script.FullName)"
             }
           }
           if ($failed) { exit 1 }
-      - name: Test
+      - name: Test Python
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python -m pytest -q
+      - name: Test final acceptance gate
+        shell: pwsh
+        run: ./tests/test-complete-acceptance.ps1
