@@ -53,6 +53,15 @@ namespace BodyRig.ReferenceRenderer
 
         public string LastProbePath { get; private set; }
 
+        public void Configure(BodyRigAvatarLoader configuredLoader, string configuredRendererName, string configuredRendererVersion)
+        {
+            loader = configuredLoader != null ? configuredLoader : throw new ArgumentNullException(nameof(configuredLoader));
+            if (string.IsNullOrWhiteSpace(configuredRendererName)) throw new ArgumentException("Renderer name is required", nameof(configuredRendererName));
+            if (string.IsNullOrWhiteSpace(configuredRendererVersion)) throw new ArgumentException("Renderer version is required", nameof(configuredRendererVersion));
+            rendererName = configuredRendererName.Trim();
+            rendererVersion = configuredRendererVersion.Trim();
+        }
+
         private async void Start()
         {
             if (!runOnStart) return;
