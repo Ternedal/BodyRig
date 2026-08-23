@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/checksums-v1.schema.json",
+  "title": "BodyRig checksums v1",
+  "type": "object",
+  "minProperties": 4,
+  "maxProperties": 10,
+  "additionalProperties": false,
+  "properties": {
+    "avatar.vrm": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "bodyprint.json": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "provenance.json": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "thumbnail.png": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/idle.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/walk.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/talk.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/gesture_01.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/gesture_02.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motions/gesture_03.vrma": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": ["avatar.vrm", "bodyprint.json", "provenance.json", "thumbnail.png"]
+}

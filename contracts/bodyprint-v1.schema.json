@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyprint-v1.schema.json",
+  "title": "BodyRig BodyPrint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version"],
+  "properties": {
+    "format": {"const": "modelrig-bodyprint"},
+    "version": {"const": 1},
+    "shape": {"type": "object", "minProperties": 1, "additionalProperties": false, "properties": {
+      "height_scale": {"type": "number", "exclusiveMinimum": 0, "maximum": 4},
+      "shoulder_to_height": {"type": "number", "minimum": 0, "maximum": 1},
+      "hip_to_height": {"type": "number", "minimum": 0, "maximum": 1},
+      "arm_to_height": {"type": "number", "minimum": 0, "maximum": 1},
+      "leg_to_height": {"type": "number", "minimum": 0, "maximum": 1}
+    }},
+    "motion": {"type": "object", "minProperties": 1, "additionalProperties": false, "properties": {
+      "energy": {"type": "number", "minimum": 0, "maximum": 1},
+      "gesture_frequency": {"type": "number", "minimum": 0, "maximum": 1},
+      "gesture_amplitude": {"type": "number", "minimum": 0, "maximum": 1},
+      "head_motion": {"type": "number", "minimum": 0, "maximum": 1},
+      "turn_speed": {"type": "number", "minimum": 0, "maximum": 1},
+      "walk_cadence_spm": {"type": "number", "minimum": 0, "maximum": 300}
+    }},
+    "expression": {"type": "object", "minProperties": 1, "additionalProperties": false, "properties": {
+      "blink_rate_per_min": {"type": "number", "minimum": 0, "maximum": 120},
+      "gaze_strength": {"type": "number", "minimum": 0, "maximum": 1},
+      "head_tilt": {"type": "number", "minimum": 0, "maximum": 1},
+      "speech_motion": {"type": "number", "minimum": 0, "maximum": 1}
+    }},
+    "runtime": {"type": "object", "minProperties": 1, "additionalProperties": false, "properties": {
+      "idle_strength": {"type": "number", "minimum": 0, "maximum": 1},
+      "gaze_smoothing": {"type": "number", "minimum": 0, "maximum": 1},
+      "gesture_intensity": {"type": "number", "minimum": 0, "maximum": 1},
+      "breathing_strength": {"type": "number", "minimum": 0, "maximum": 1}
+    }}
+  },
+  "anyOf": [{"required": ["shape"]}, {"required": ["motion"]}, {"required": ["expression"]}, {"required": ["runtime"]}]
+}
