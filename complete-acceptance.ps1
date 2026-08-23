@@ -24,6 +24,33 @@ function Require-True {
     }
 }
 
+function Read-PackageChecksums {
+    param([Parameter(Mandatory = $true)][string]$PackagePath)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $entry = $archive.GetEntry("checksums.json")
+        if ($null -eq $entry) {
+            throw "Accepted .mrbody has no checksums.json."
+        }
+        $stream = $entry.Open()
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $false)
+        try {
+            $text = $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+        try {
+            return $text | ConvertFrom-Json
+        } catch {
+            throw "Accepted .mrbody checksums.json is invalid JSON."
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 function Read-RendererAcceptance {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -31,6 +58,9 @@ function Read-RendererAcceptance {
         [Parameter(Mandatory = $true)][string]$ExpectedRevision,
         [Parameter(Mandatory = $true)][string]$ExpectedAutomatedReportHash,
         [Parameter(Mandatory = $true)][string]$ExpectedPackageHash,
+        [Parameter(Mandatory = $true)][string]$ExpectedRuntimeManifestHash,
+        [Parameter(Mandatory = $true)][string]$ExpectedAvatarHash,
+        [Parameter(Mandatory = $true)][string]$ExpectedBodyprintHash,
         [Parameter(Mandatory = $true)][string]$ExpectedBodyId
     )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -60,6 +90,15 @@ function Read-RendererAcceptance {
     if (([string]$value.package_sha256).ToLowerInvariant() -ne $ExpectedPackageHash) {
         throw "Renderer acceptance is bound to a different .mrbody package: $resolved"
     }
+    if (([string]$value.runtime_manifest_sha256).ToLowerInvariant() -ne $ExpectedRuntimeManifestHash) {
+        throw "Renderer acceptance is bound to a different materialized runtime manifest: $resolved"
+    }
+    if (([string]$value.avatar_sha256).ToLowerInvariant() -ne $ExpectedAvatarHash) {
+        throw "Renderer acceptance avatar hash does not match the accepted .mrbody payload: $resolved"
+    }
+    if (([string]$value.bodyprint_sha256).ToLowerInvariant() -ne $ExpectedBodyprintHash) {
+        throw "Renderer acceptance bodyprint hash does not match the accepted .mrbody payload: $resolved"
+    }
     if ([string]$value.body_id -ne $ExpectedBodyId) {
         throw "Renderer acceptance body id does not match automated acceptance: $resolved"
     }
@@ -67,12 +106,6 @@ function Read-RendererAcceptance {
         $property = $value.PSObject.Properties[$fieldName]
         if ($null -eq $property -or [string]::IsNullOrWhiteSpace([string]$property.Value)) {
             throw "Renderer acceptance is missing required evidence field '$fieldName': $resolved"
-        }
-    }
-    foreach ($hashField in @("runtime_manifest_sha256", "avatar_sha256", "bodyprint_sha256")) {
-        $property = $value.PSObject.Properties[$hashField]
-        if ($null -eq $property -or ([string]$property.Value).ToLowerInvariant() -notmatch '^[0-9a-f]{64}$') {
-            throw "Renderer acceptance is missing a valid $hashField: $resolved"
         }
     }
     return [pscustomobject]@{
@@ -125,7 +158,8 @@ $requiredChecks = @(
     "source_count_matches_package",
     "recovery_provenance_matches",
     "avatar_fitting_provenance_present",
-    "avatar_is_vrm_1_0"
+    "avatar_is_vrm_1_0",
+    "runtime_materialized_from_package"
 )
 foreach ($checkName in $requiredChecks) {
     $property = $report.checks.PSObject.Properties[$checkName]
@@ -148,6 +182,13 @@ foreach ($checkName in $requiredPackageChecks) {
 }
 if ([string]$report.package.vrm_spec_version -ne "1.0") {
     throw "Accepted package is not recorded as VRM 1.0."
+}
+if ([string]$report.runtime.manifest -ne "runtime/runtime-manifest.json" -or $report.runtime.materialized_from_package -ne $true) {
+    throw "Automated acceptance does not contain valid materialized runtime evidence."
+}
+$expectedRuntimeManifestHash = ([string]$report.runtime.manifest_sha256).ToLowerInvariant()
+if ($expectedRuntimeManifestHash -notmatch '^[0-9a-f]{64}$') {
+    throw "Automated acceptance runtime manifest hash is invalid."
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
@@ -183,23 +224,34 @@ if ($expectedPackageHash -notmatch '^[0-9a-f]{64}$' -or $actualPackageHash -ne $
 }
 $reportHash = (Get-FileHash -LiteralPath $AcceptanceReport -Algorithm SHA256).Hash.ToLowerInvariant()
 
-$windowsArguments = @{
-    Path = $WindowsRendererReport
-    ExpectedPlatform = "windows-unity-univrm"
+$checksums = Read-PackageChecksums -PackagePath $packagePath
+$avatarChecksumProperty = $checksums.PSObject.Properties["avatar.vrm"]
+$bodyprintChecksumProperty = $checksums.PSObject.Properties["bodyprint.json"]
+if ($null -eq $avatarChecksumProperty -or $null -eq $bodyprintChecksumProperty) {
+    throw "Accepted .mrbody checksums.json does not contain avatar/bodyprint hashes."
+}
+$expectedAvatarHash = ([string]$avatarChecksumProperty.Value).ToLowerInvariant()
+$expectedBodyprintHash = ([string]$bodyprintChecksumProperty.Value).ToLowerInvariant()
+if ($expectedAvatarHash -notmatch '^[0-9a-f]{64}$' -or $expectedBodyprintHash -notmatch '^[0-9a-f]{64}$') {
+    throw "Accepted .mrbody contains invalid avatar/bodyprint checksums."
+}
+
+$commonRendererArguments = @{
     ExpectedRevision = $head
     ExpectedAutomatedReportHash = $reportHash
     ExpectedPackageHash = $actualPackageHash
+    ExpectedRuntimeManifestHash = $expectedRuntimeManifestHash
+    ExpectedAvatarHash = $expectedAvatarHash
+    ExpectedBodyprintHash = $expectedBodyprintHash
     ExpectedBodyId = $bodyId
 }
+$windowsArguments = $commonRendererArguments.Clone()
+$windowsArguments.Path = $WindowsRendererReport
+$windowsArguments.ExpectedPlatform = "windows-unity-univrm"
 $windows = Read-RendererAcceptance @windowsArguments
-$questArguments = @{
-    Path = $QuestRendererReport
-    ExpectedPlatform = "android-quest-class"
-    ExpectedRevision = $head
-    ExpectedAutomatedReportHash = $reportHash
-    ExpectedPackageHash = $actualPackageHash
-    ExpectedBodyId = $bodyId
-}
+$questArguments = $commonRendererArguments.Clone()
+$questArguments.Path = $QuestRendererReport
+$questArguments.ExpectedPlatform = "android-quest-class"
 $quest = Read-RendererAcceptance @questArguments
 if ([string]::Equals($windows.Path, $quest.Path, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Windows and Quest renderer acceptance must be two distinct evidence files."
@@ -236,9 +288,9 @@ $completed = [ordered]@{
     renderer_acceptance = [ordered]@{
         windows_unity_univrm = [ordered]@{
             report_sha256 = $windows.Hash
-            runtime_manifest_sha256 = ([string]$windows.Value.runtime_manifest_sha256).ToLowerInvariant()
-            avatar_sha256 = ([string]$windows.Value.avatar_sha256).ToLowerInvariant()
-            bodyprint_sha256 = ([string]$windows.Value.bodyprint_sha256).ToLowerInvariant()
+            runtime_manifest_sha256 = $expectedRuntimeManifestHash
+            avatar_sha256 = $expectedAvatarHash
+            bodyprint_sha256 = $expectedBodyprintHash
             result = "pass"
             renderer_name = [string]$windows.Value.renderer_name
             renderer_version = [string]$windows.Value.renderer_version
@@ -247,9 +299,9 @@ $completed = [ordered]@{
         }
         android_quest_class = [ordered]@{
             report_sha256 = $quest.Hash
-            runtime_manifest_sha256 = ([string]$quest.Value.runtime_manifest_sha256).ToLowerInvariant()
-            avatar_sha256 = ([string]$quest.Value.avatar_sha256).ToLowerInvariant()
-            bodyprint_sha256 = ([string]$quest.Value.bodyprint_sha256).ToLowerInvariant()
+            runtime_manifest_sha256 = $expectedRuntimeManifestHash
+            avatar_sha256 = $expectedAvatarHash
+            bodyprint_sha256 = $expectedBodyprintHash
             result = "pass"
             renderer_name = [string]$quest.Value.renderer_name
             renderer_version = [string]$quest.Value.renderer_version
@@ -276,6 +328,8 @@ try {
 Write-Host "BodyRig release acceptance: PASS"
 Write-Host "Revision: $head"
 Write-Host "Package SHA-256: $actualPackageHash"
+Write-Host "Runtime manifest SHA-256: $expectedRuntimeManifestHash"
+Write-Host "Avatar SHA-256: $expectedAvatarHash"
 Write-Host "Windows renderer evidence SHA-256: $($windows.Hash)"
 Write-Host "Quest renderer evidence SHA-256: $($quest.Hash)"
 Write-Host "Release report: $Output"
