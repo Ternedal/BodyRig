@@ -30,6 +30,7 @@ bodyrig-sith-preflight = "bodyrig.sith_preflight:main"
 bodyrig-stash-sources = "bodyrig.stash_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
+bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
 bodyrig-materialize = "bodyrig.materialize_cli:main"
 
 [tool.hatch.build.targets.wheel]
