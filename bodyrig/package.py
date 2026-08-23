@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from .avatar import AvatarError, validate_vrm1
+
 FORMAT = "modelrig-body"
 FORMAT_VERSION = 1
 MAX_ENTRIES = 12
@@ -132,11 +134,22 @@ def _validate_glb(data: bytes, name: str) -> None:
         raise MRBodyError(f"{name}: invalid glTF/GLB v2 container")
 
 
+def _validate_vrm(data: bytes) -> None:
+    try:
+        validate_vrm1(data)
+    except AvatarError as exc:
+        raise MRBodyError(str(exc)) from exc
+
+
 def _entry_limit(name: str) -> int:
-    if name in {"manifest.json", "checksums.json", "bodyprint.json", "provenance.json"}: return MAX_JSON
-    if name == "thumbnail.png": return MAX_THUMBNAIL
-    if name == "avatar.vrm": return MAX_AVATAR
-    if name.endswith(".vrma"): return MAX_MOTION
+    if name in {"manifest.json", "checksums.json", "bodyprint.json", "provenance.json"}:
+        return MAX_JSON
+    if name == "thumbnail.png":
+        return MAX_THUMBNAIL
+    if name == "avatar.vrm":
+        return MAX_AVATAR
+    if name.endswith(".vrma"):
+        return MAX_MOTION
     return 0
 
 
@@ -154,61 +167,127 @@ def validate_package(path: str | os.PathLike[str]) -> ValidatedBody:
         raise MRBodyError("invalid .mrbody ZIP") from exc
     with archive:
         infos = archive.infolist()
-        if len(infos) > MAX_ENTRIES: raise MRBodyError("too many archive entries")
+        if len(infos) > MAX_ENTRIES:
+            raise MRBodyError("too many archive entries")
         names = [i.filename for i in infos]
-        if len(names) != len(set(names)): raise MRBodyError("duplicate archive entries")
+        if len(names) != len(set(names)):
+            raise MRBodyError("duplicate archive entries")
         total = 0
         for info in infos:
             _safe_name(info.filename)
-            if info.flag_bits & 1: raise MRBodyError("encrypted entries are not allowed")
-            if info.file_size > _entry_limit(info.filename): raise MRBodyError(f"{info.filename}: exceeds size limit")
+            if info.flag_bits & 1:
+                raise MRBodyError("encrypted entries are not allowed")
+            unix_type = (info.external_attr >> 16) & 0o170000
+            if unix_type == 0o120000:
+                raise MRBodyError("symlink entries are not allowed")
+            if info.is_dir():
+                raise MRBodyError("directory entries are not allowed")
+            if info.file_size > _entry_limit(info.filename):
+                raise MRBodyError(f"{info.filename}: exceeds size limit")
             total += info.file_size
-            if total > MAX_TOTAL_UNCOMPRESSED: raise MRBodyError("package exceeds total size limit")
+            if total > MAX_TOTAL_UNCOMPRESSED:
+                raise MRBodyError("package exceeds total size limit")
         name_set = set(names)
-        if not REQUIRED <= name_set: raise MRBodyError(f"missing required files: {sorted(REQUIRED-name_set)}")
+        if not REQUIRED <= name_set:
+            raise MRBodyError(f"missing required files: {sorted(REQUIRED-name_set)}")
         manifest = validate_manifest(_loads_json(archive.read("manifest.json"), "manifest.json"))
         bodyprint = validate_bodyprint(_loads_json(archive.read("bodyprint.json"), "bodyprint.json"))
         provenance = validate_provenance(_loads_json(archive.read("provenance.json"), "provenance.json"))
         checksums = _loads_json(archive.read("checksums.json"), "checksums.json")
         payloads = name_set - {"manifest.json", "checksums.json"}
-        if not isinstance(checksums, dict) or set(checksums) != payloads: raise MRBodyError("checksums.json: entries must exactly match payload files")
+        if not isinstance(checksums, dict) or set(checksums) != payloads:
+            raise MRBodyError("checksums.json: entries must exactly match payload files")
         for name, expected in checksums.items():
-            if not isinstance(expected, str) or not SHA_RE.fullmatch(expected): raise MRBodyError(f"checksums.json: invalid hash for {name}")
-            if hashlib.sha256(archive.read(name)).hexdigest() != expected: raise MRBodyError(f"checksum mismatch: {name}")
-        _validate_glb(archive.read("avatar.vrm"), "avatar.vrm")
-        if not archive.read("thumbnail.png").startswith(b"\x89PNG\r\n\x1a\n"): raise MRBodyError("thumbnail.png: invalid PNG signature")
-        for name in payloads & OPTIONAL: _validate_glb(archive.read(name), name)
+            if not isinstance(expected, str) or not SHA_RE.fullmatch(expected):
+                raise MRBodyError(f"checksums.json: invalid hash for {name}")
+            if hashlib.sha256(archive.read(name)).hexdigest() != expected:
+                raise MRBodyError(f"checksum mismatch: {name}")
+        _validate_vrm(archive.read("avatar.vrm"))
+        if not archive.read("thumbnail.png").startswith(b"\x89PNG\r\n\x1a\n"):
+            raise MRBodyError("thumbnail.png: invalid PNG signature")
+        for name in payloads & OPTIONAL:
+            _validate_glb(archive.read(name), name)
         return ValidatedBody(manifest, bodyprint, provenance, tuple(sorted(payloads)))
 
 
-def build_package(destination: str | os.PathLike[str], *, body_id: str, name: str, avatar_vrm: bytes, bodyprint: Mapping[str, Any], provenance: Mapping[str, Any], thumbnail_png: bytes, motions: Mapping[str, bytes] | None = None, builder_version: str = "0.1.0", builder_revision: str | None = None) -> Path:
-    if not SLUG_RE.fullmatch(body_id): raise MRBodyError("invalid body id")
+def build_package(
+    destination: str | os.PathLike[str],
+    *,
+    body_id: str,
+    name: str,
+    avatar_vrm: bytes,
+    bodyprint: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+    thumbnail_png: bytes,
+    motions: Mapping[str, bytes] | None = None,
+    builder_version: str = "0.1.0",
+    builder_revision: str | None = None,
+) -> Path:
+    if not SLUG_RE.fullmatch(body_id):
+        raise MRBodyError("invalid body id")
     motions = dict(motions or {})
-    if set(motions) - OPTIONAL: raise MRBodyError("unknown motion payload")
-    manifest: dict[str, Any] = {"format": FORMAT, "format_version": 1, "id": body_id, "name": name, "avatar": {"format":"vrm","version":"1.0","path":"avatar.vrm"}, "bodyprint":"bodyprint.json", "provenance":"provenance.json", "thumbnail":"thumbnail.png", "builder":{"name":"bodyrig","version":builder_version}}
-    if builder_revision is not None: manifest["builder"]["revision"] = builder_revision
-    validate_manifest(manifest); validate_bodyprint(dict(bodyprint)); validate_provenance(dict(provenance)); _validate_glb(avatar_vrm, "avatar.vrm")
-    if not thumbnail_png.startswith(b"\x89PNG\r\n\x1a\n"): raise MRBodyError("thumbnail_png: invalid PNG signature")
-    for n,d in motions.items(): _validate_glb(d,n)
-    payloads = {"avatar.vrm": avatar_vrm, "bodyprint.json": json.dumps(bodyprint,ensure_ascii=False,separators=(",",":"),sort_keys=True,allow_nan=False).encode(), "provenance.json": json.dumps(provenance,ensure_ascii=False,separators=(",",":"),sort_keys=True,allow_nan=False).encode(), "thumbnail.png": thumbnail_png, **motions}
-    checksums = {k: hashlib.sha256(v).hexdigest() for k,v in payloads.items()}
-    destination = Path(destination); destination.parent.mkdir(parents=True,exist_ok=True)
-    fd,temp_name = tempfile.mkstemp(prefix=destination.name+".",suffix=".tmp",dir=destination.parent); os.close(fd); temp=Path(temp_name)
+    if set(motions) - OPTIONAL:
+        raise MRBodyError("unknown motion payload")
+    manifest: dict[str, Any] = {
+        "format": FORMAT,
+        "format_version": 1,
+        "id": body_id,
+        "name": name,
+        "avatar": {"format": "vrm", "version": "1.0", "path": "avatar.vrm"},
+        "bodyprint": "bodyprint.json",
+        "provenance": "provenance.json",
+        "thumbnail": "thumbnail.png",
+        "builder": {"name": "bodyrig", "version": builder_version},
+    }
+    if builder_revision is not None:
+        manifest["builder"]["revision"] = builder_revision
+    validate_manifest(manifest)
+    validate_bodyprint(dict(bodyprint))
+    validate_provenance(dict(provenance))
+    _validate_vrm(avatar_vrm)
+    if not thumbnail_png.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise MRBodyError("thumbnail_png: invalid PNG signature")
+    for motion_name, motion_data in motions.items():
+        _validate_glb(motion_data, motion_name)
+    payloads = {
+        "avatar.vrm": avatar_vrm,
+        "bodyprint.json": json.dumps(bodyprint, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False).encode(),
+        "provenance.json": json.dumps(provenance, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False).encode(),
+        "thumbnail.png": thumbnail_png,
+        **motions,
+    }
+    checksums = {key: hashlib.sha256(value).hexdigest() for key, value in payloads.items()}
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=destination.name + ".", suffix=".tmp", dir=destination.parent)
+    os.close(fd)
+    temp = Path(temp_name)
     try:
-        with zipfile.ZipFile(temp,"w",compression=zipfile.ZIP_DEFLATED) as z:
-            z.writestr("manifest.json",json.dumps(manifest,ensure_ascii=False,indent=2,sort_keys=True)+"\n")
-            z.writestr("checksums.json",json.dumps(checksums,indent=2,sort_keys=True)+"\n")
-            for k,v in payloads.items(): z.writestr(k,v)
-        validate_package(temp); os.replace(temp,destination)
-    finally: temp.unlink(missing_ok=True)
+        with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            archive.writestr("checksums.json", json.dumps(checksums, indent=2, sort_keys=True) + "\n")
+            for payload_name, payload_data in payloads.items():
+                archive.writestr(payload_name, payload_data)
+        validate_package(temp)
+        os.replace(temp, destination)
+    finally:
+        temp.unlink(missing_ok=True)
     return destination
 
 
 def install_package(package_path: str | os.PathLike[str], library_dir: str | os.PathLike[str]) -> Path:
-    validated = validate_package(package_path); library=Path(library_dir); library.mkdir(parents=True,exist_ok=True); target=library/f"{validated.manifest['id']}.mrbody"
-    fd,temp_name=tempfile.mkstemp(prefix=target.name+".",suffix=".tmp",dir=library)
+    validated = validate_package(package_path)
+    library = Path(library_dir)
+    library.mkdir(parents=True, exist_ok=True)
+    target = library / f"{validated.manifest['id']}.mrbody"
+    fd, temp_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=library)
     try:
-        with os.fdopen(fd,"wb") as stream: stream.write(Path(package_path).read_bytes()); stream.flush(); os.fsync(stream.fileno())
-        validate_package(temp_name); os.replace(temp_name,target)
-    finally: Path(temp_name).unlink(missing_ok=True)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(Path(package_path).read_bytes())
+            stream.flush()
+            os.fsync(stream.fileno())
+        validate_package(temp_name)
+        os.replace(temp_name, target)
+    finally:
+        Path(temp_name).unlink(missing_ok=True)
     return target
