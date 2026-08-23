@@ -116,11 +116,22 @@ if ($null -eq $powerShellExe) {
 }
 
 $usingObservationSelection = -not $SkipObservationSelection
+$usingBuiltInObservationAnalyzer = $usingObservationSelection -and [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)
 if ($usingObservationSelection) {
     $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
-    if (-not [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)) {
+    if (-not $usingBuiltInObservationAnalyzer) {
         $ObservationAnalyzerConfig = Resolve-InputFile -Path $ObservationAnalyzerConfig -Label "Observation analyzer config"
     }
+
+    $observationPreflightArgs = @(
+        "-m", "bodyrig.observation_preflight",
+        "--external-python", $ExternalPython,
+        "--ffmpeg", $Ffmpeg
+    )
+    if (-not $usingBuiltInObservationAnalyzer) {
+        $observationPreflightArgs += "--ffmpeg-only"
+    }
+    Invoke-Checked -Executable $BodyRigPython -Arguments $observationPreflightArgs -Step "Observation selection preflight"
 }
 
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
@@ -169,7 +180,7 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
     throw "BodyRig display name from Stash is invalid; pass -Name explicitly."
 }
 
-if ($usingObservationSelection -and [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)) {
+if ($usingBuiltInObservationAnalyzer) {
     $bridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_observation_analyzer.py") -Label "Built-in OpenCV observation analyzer"
     $ObservationAnalyzerConfig = Join-Path $OutputDir "bodyrig-observation-analyzer-config.json"
     $builtInConfig = [ordered]@{
