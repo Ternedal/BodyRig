@@ -15,14 +15,23 @@ Run on the target machine with real, user-supplied full-body video:
   -Name "Person A"
 ```
 
-The harness creates one bounded artifact directory containing:
+The harness creates one write-once artifact directory containing:
 
 ```text
 bodyrig-recovery-preflight.json
 bodyrig-recovery-proof.json
 person-a.mrbody
+runtime/
+  runtime-manifest.json
+  avatar.vrm
+  bodyprint.json
+  provenance.json
+  thumbnail.png
+  ... optional validated motions
 bodyrig-acceptance.json
 ```
+
+The runtime directory is materialized from the already validated `.mrbody`; the renderer is never expected to choose or extract a loose VRM itself.
 
 The final automated report is bound to:
 
@@ -33,9 +42,10 @@ The final automated report is bound to:
 - package SHA-256;
 - proof/package BodyPrint identity;
 - recovery and avatar-fitting provenance;
-- VRM 1.0 validation result.
+- VRM 1.0 validation result;
+- exact materialized `runtime/runtime-manifest.json` SHA-256.
 
-The report stores the source count but not source filenames.
+The report stores the source count but not source filenames. Gate A refuses to reuse a non-empty output directory so previous evidence cannot silently be overwritten.
 
 ### Automated PASS is deliberately incomplete
 
@@ -53,14 +63,16 @@ That is intentional. A generated package has not yet proved that Unity/UniVRM ca
 
 ## Gate B — physical renderer evidence
 
-Use the **same `.mrbody`** whose SHA-256 appears in Gate A. Each supported platform produces its own immutable renderer-attestation file.
+Use the **same `runtime/runtime-manifest.json` from Gate A** on both supported platforms. The reference renderer enters through that manifest rather than a loose `avatar.vrm` path.
+
+Each platform produces its own immutable renderer-attestation file.
 
 ### Windows acceptance
 
 Required checks:
 
-- extract/load `avatar.vrm` through the BodyRig Unity/UniVRM reference path;
-- UniVRM import succeeds with VRM0 migration disabled;
+- load Gate A's `runtime-manifest.json` through the BodyRig Unity/UniVRM reference path;
+- the manifest-selected `avatar.vrm` imports successfully with VRM0 migration disabled;
 - Unity reports a valid Humanoid avatar;
 - required humanoid bones are present;
 - source-derived proportions are visibly plausible;
@@ -71,6 +83,7 @@ After those checks pass, record the evidence:
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
+  -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
@@ -83,7 +96,7 @@ After those checks pass, record the evidence:
 
 Required checks:
 
-- load the same accepted `.mrbody` / `avatar.vrm` in an Android/Quest-class build;
+- load the same Gate A runtime manifest and materialized avatar in an Android/Quest-class build;
 - avatar appears with the same identity/proportions contract;
 - no build-time HMR2/PHALP/SMPL dependency is required;
 - Motor State can be consumed without platform-specific changes to the semantic contract.
@@ -93,19 +106,32 @@ After those checks pass:
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
+  -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
-  -QualityNote "Same accepted avatar loaded on Quest-class runtime and reference Motor State executed correctly" `
+  -QualityNote "Same accepted runtime loaded on Quest-class runtime and reference Motor State executed correctly" `
   -Output "C:\path\to\bodyrig-renderer-acceptance-quest.json"
 ```
 
-Each renderer-attestation is bound to:
+Before writing either renderer attestation, `record-renderer-acceptance.ps1` independently:
+
+- re-hashes Gate A's automated acceptance report;
+- re-hashes the accepted `.mrbody`;
+- requires the exact Gate A runtime-manifest hash;
+- opens `.mrbody/checksums.json` without extracting the archive;
+- hashes materialized `avatar.vrm` and `bodyprint.json`;
+- requires those materialized bytes to match the package payload checksums.
+
+Each renderer-attestation is therefore bound to:
 
 - exact BodyRig Git revision;
 - exact Gate A report SHA-256;
 - exact accepted `.mrbody` SHA-256;
+- exact runtime-manifest SHA-256;
+- exact `avatar.vrm` SHA-256;
+- exact `bodyprint.json` SHA-256;
 - exact body id;
 - one explicit platform;
 - renderer name/version;
@@ -127,22 +153,24 @@ Only after both Gate B files exist:
 
 ## Final integrity rules
 
-`complete-acceptance.ps1` refuses to complete if:
+`complete-acceptance.ps1` independently opens the accepted package checksums again and refuses to complete if:
 
 - Gate A did not report `automated_pass=true`;
-- any required Gate A check is missing or false;
+- any required Gate A check, including runtime materialization, is missing or false;
 - Gate A is not still `physical_renderer_acceptance=pending`;
 - the current BodyRig Git revision differs from Gate A;
 - the BodyRig checkout is dirty;
 - the accepted `.mrbody` is missing or its SHA-256 differs;
+- Gate A's runtime-manifest hash is missing/invalid;
 - either renderer evidence file is missing;
 - Windows and Quest evidence are not two distinct files with the correct platform ids;
-- either renderer report references a different Gate A hash, package hash, body id, or Git revision;
+- either renderer report references a different Gate A hash, package hash, runtime-manifest hash, body id, or Git revision;
+- either renderer report's avatar/bodyprint hashes differ from the accepted package payload checksums;
 - either renderer report is not an explicit non-activating PASS;
 - renderer name/version/quality evidence is blank;
 - any input evidence file would be overwritten.
 
-The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accepted package, and both renderer evidence files. Only this Gate C artifact sets:
+The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accepted package, the materialized runtime payloads, and both renderer evidence files. Only this Gate C artifact sets:
 
 ```json
 {
@@ -151,7 +179,7 @@ The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accept
 }
 ```
 
-The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are now separately recorded and cryptographically bound to the exact package/revision they describe.
+The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are separately recorded and cryptographically bound to the exact package/runtime/revision they describe.
 
 ## What is not proven by V1 acceptance
 
