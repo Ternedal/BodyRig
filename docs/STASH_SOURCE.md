@@ -8,6 +8,8 @@ The intended normal flow is:
 Stash performer
     -> matching scenes
     -> ranked local files
+    -> sparse observation analysis
+    -> 1..10 private high-value segments
     -> BodyRig recovery / BodyPrint
     -> visual identity capture
     -> high-fidelity fitter
@@ -23,9 +25,9 @@ Stash is a **source/catalogue layer**, not a BodyRig runtime dependency.
 - the API key is never written to the source manifest, provenance or `.mrbody`;
 - Stash performer metadata is treated as an approved source grouping;
 - BodyRig still verifies that returned scenes actually contain the requested performer id;
-- later recovery/identity track binding remains authoritative for the visual subject;
-- the Stash source manifest is build-only and may contain local file paths;
-- local file paths are not copied into `.mrbody`.
+- recovery/identity track binding remains authoritative for the visual subject;
+- source/segment manifests are build-only and may contain local file paths;
+- local file paths, analyzer configuration and private video segments are not copied into `.mrbody`.
 
 BodyRig does not depend on the SkyPlayer Companion process. The adapter deliberately follows the same local GraphQL pattern so SkyPlayer and BodyRig can evolve independently while using the same Stash installation.
 
@@ -46,7 +48,7 @@ bodyrig-stash-sources search "Alice"
 
 The result includes Stash performer ids. The id is the stable input to source selection.
 
-## Select clone sources
+## Stage 1: rank source files
 
 ```powershell
 bodyrig-stash-sources select `
@@ -55,64 +57,50 @@ bodyrig-stash-sources select `
   --out .\bodyrig-stash-source-manifest.json
 ```
 
-BodyRig queries Stash scenes for that performer and evaluates local `files.path` entries.
+V1 metadata ranking prefers single-performer scenes, higher resolution, useful duration, 24/50+ fps and ordinary flat footage over VR/SBS/OU material. Missing files, wrong-performer results and duplicate local paths are discarded.
 
-V1 ranking prefers:
+The build-only `bodyrig-stash-source-manifest` v1 is defined by `contracts/stash-source-manifest-v1.schema.json`.
 
-1. a scene where the requested performer is the only tagged performer;
-2. higher spatial resolution;
-3. useful video duration;
-4. normal 24+ fps footage, with a smaller preference for 50/60 fps;
-5. ordinary flat footage over explicitly tagged VR/SBS/OU material.
+## Stage 2: select actual observations
 
-Multi-performer and VR material is not forbidden. It is deliberately ranked lower because it creates more ambiguity/distortion for automatic identity and body recovery.
+The normal Stash clone path now performs a second, visual selection stage before HMR2/4D-Humans.
 
-Missing local files and duplicate paths are discarded. A source path returned by Stash is never trusted without a local file existence check.
+The built-in analyzer is `opencv-hog-haar` v1 and runs out-of-process in the existing recovery Python environment. It samples each ranked file sparsely rather than processing every frame with the heavy recovery model.
 
-## Source manifest
+It scores candidate windows from:
 
-The build-only manifest is `bodyrig-stash-source-manifest` v1 and has a JSON Schema in `contracts/stash-source-manifest-v1.schema.json`.
+- person detector confidence;
+- target/person screen fraction;
+- frontal/profile face visibility;
+- full-body framing/clipping;
+- Laplacian sharpness;
+- person-box occlusion;
+- inter-sample motion.
 
-It includes:
+The lightweight built-in analyzer is deliberately conservative: it only performs automatic target selection for Stash scenes tagged with exactly one performer. Multi-performer footage remains available to future identity-aware analyzers but the simple analyzer will not silently guess which person is the named performer.
 
-- Stash performer id/name;
-- Stash version;
-- number of scene candidates inspected;
-- the selected 1..10 local paths;
-- scene id/title and ranking metadata.
+BodyRig core — not the external analyzer — chooses the final observations. It rejects bad ranges/unknown sources/non-finite metrics, applies a minimum quality threshold, avoids strongly overlapping windows, limits domination by one scene and rewards different sources/views plus face-strong and body-strong observations.
 
-It does **not** include:
+Selected windows are re-encoded by FFmpeg as 1..10 private H.264 MP4 segments. The segment manifest records a SHA-256 for every clip. `clone-body.ps1` re-hashes every segment before recovery, so a clip cannot be replaced between selection and cloning.
 
-- Stash URL;
-- Stash API key;
-- request headers;
-- raw GraphQL responses.
+Artifacts:
 
-## Feed the normal clone pipeline
-
-`clone-body.ps1` accepts either ordinary `-Source` clips or one `-SourceManifest`:
-
-```powershell
-.\clone-body.ps1 `
-  -SourceManifest .\bodyrig-stash-source-manifest.json `
-  -ExternalPython "C:\...\python.exe" `
-  -FourDHumansRepo "C:\...\4D-Humans" `
-  -IdentityCaptureConfig .\identity-capture.json `
-  -FitterConfig .\fitter.json `
-  -BodyId "alice" `
-  -Name "Alice"
+```text
+bodyrig-observation-selection.json   # redacted metrics/evidence; no source paths
+bodyrig-observation-segments.json    # build-only paths + segment SHA-256
+<private workspace>/selected-segments/segment-01.mp4 ...
 ```
 
-This is the same recovery/capture/fitting pipeline used for manually supplied files.
+The private observation workspace is deleted after success or failure by default.
 
 ## One-command wrapper
 
-The normal Stash operator path is:
+The normal operator path remains one command:
 
 ```powershell
 .\clone-body-from-stash.ps1 `
   -PerformerId 123 `
-  -ExternalPython "C:\...\python.exe" `
+  -ExternalPython "C:\...\recovery\python.exe" `
   -FourDHumansRepo "C:\...\4D-Humans" `
   -IdentityCaptureConfig .\identity-capture.json `
   -FitterConfig .\fitter.json `
@@ -121,14 +109,39 @@ The normal Stash operator path is:
 
 `-Name` is optional. If omitted, the Stash performer name becomes the BodyRig display name.
 
-The wrapper:
+By default the wrapper:
 
 1. queries Stash;
-2. ranks the local source files;
-3. writes the source manifest;
-4. displays the selected scene scores;
-5. starts the existing `clone-body.ps1` in a separate PowerShell process;
-6. preserves the source manifest as non-portable build evidence beside the clone output.
+2. ranks local source files;
+3. creates the Stash source manifest;
+4. runs the built-in lightweight observation analyzer;
+5. selects/diversifies the best visual windows;
+6. materializes hash-bound private segments with FFmpeg;
+7. feeds those segments into the existing `clone-body.ps1` recovery/capture/fitter pipeline;
+8. deletes private observation segments unless `-KeepPrivateWorkspace` was explicitly supplied.
+
+Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
+
+A custom analyzer can be supplied with `-ObservationAnalyzerConfig`. Its strict config format is `bodyrig-observation-analyzer-config` v1. External analyzers receive source paths only as process arguments; paths are absent from the JSON analyzer request and selection evidence.
+
+## Manual observation selection CLI
+
+The visual stage can also be run independently:
+
+```powershell
+bodyrig-select-observations .\bodyrig-stash-source-manifest.json `
+  --config .\observation-analyzer.json `
+  --workspace "$env:LOCALAPPDATA\BodyRig\observation-workspaces\test" `
+  --selection-out .\bodyrig-observation-selection.json `
+  --segments-out .\bodyrig-observation-segments.json `
+  --max-segments 10
+```
+
+Contracts:
+
+- `contracts/observation-analyzer-config-v1.schema.json`
+- `contracts/observation-selection-v1.schema.json`
+- `contracts/observation-segments-v1.schema.json`
 
 ## Schema compatibility
 
@@ -136,16 +149,6 @@ Current Stash uses `SceneFilterType.performers` with a `MultiCriterionInput`. Bo
 
 For older Stash installations, the adapter has an explicit fallback to the older `scene_filter.performer_id` form. Both paths still verify the requested performer id in every returned scene before accepting a file.
 
-## Next quality slice
+## Next quality improvements
 
-Metadata ranking is intentionally only the first filter. The next Stash-specific improvement should sample the ranked files before recovery and score actual visual coverage:
-
-- face visibility/sharpness;
-- full-body visibility;
-- front/side/rear coverage;
-- target-person screen size;
-- occlusion;
-- motion blur;
-- duplicate/near-duplicate shots.
-
-That stage should reduce large Stash libraries to the smallest set of clips/segments that maximizes BodyRig identity/body coverage instead of simply feeding ten long videos into every research model.
+The generic observation boundary is intentionally engine-neutral. Later analyzers can add stronger identity-aware multi-person selection, better front/rear orientation estimation and learned face/body quality while preserving the same source, segment and clone contracts.
