@@ -6,11 +6,11 @@ It is intentionally **not** the final Kaliv or Quest UI.
 
 ## Supported baseline
 
-- Unity 2022.3 LTS or later.
-- UniVRM VRM 1.0 package (`com.vrmc.vrm`) plus UniGLTF (`com.vrmc.gltf`).
+- Unity 2022.3 LTS or later; Unity 6.3 LTS is the current recommended LTS line for the physical proof.
+- UniVRM **v0.131.2** VRM 1.0 package (`com.vrmc.vrm`) plus UniGLTF (`com.vrmc.gltf`).
 - VRM 1.0 only: the loader sets `canLoadVrm0X: false`, so a V0 avatar cannot satisfy the BodyRig acceptance path through migration.
 
-The dependency snippet pins the documented UniVRM v0.131.0 UPM layout. That pin can advance independently after renderer acceptance; `.mrbody` remains VRM 1.0 and does not depend on a specific UniVRM release.
+The dependency snippet pins the UniVRM v0.131.2 UPM layout. That pin can advance independently after renderer acceptance; `.mrbody` remains VRM 1.0 and does not depend on a specific UniVRM release.
 
 ## Materialize the accepted package first
 
@@ -63,7 +63,7 @@ A failed load leaves the previous known-good avatar and runtime identity alive.
 
 ## Machine probe: prove what Unity actually loaded
 
-Physical acceptance now requires `BodyRigRendererProbe.cs` as well as the loader. The probe runs the same manifest-bound loader and writes immutable JSON evidence only after the VRM 1.0 instance, Unity Humanoid avatar and required bones are valid.
+Physical acceptance requires `BodyRigRendererProbe.cs` as well as the loader. The probe runs the same manifest-bound loader and writes immutable JSON evidence only after the VRM 1.0 instance, Unity Humanoid avatar and required bones are valid.
 
 Configure these fields on the probe component:
 
@@ -89,11 +89,18 @@ The machine report records and binds:
 - VRM 1.0 load success;
 - valid Unity Humanoid result;
 - required-bones result;
-- Unity runtime platform/version;
+- Unity runtime platform/version and non-empty build GUID;
+- physical device model;
 - graphics-device name;
 - renderer name/version.
 
-Windows evidence is accepted only from Unity `WindowsEditor`/`WindowsPlayer`. Quest-class evidence is accepted only from Unity `Android`. That does not replace the human check that the Android build was actually exercised on the intended Quest-class device; it prevents a Windows probe from being relabelled as Android or vice versa.
+The probe itself is a physical gate, not an Editor smoke test:
+
+- Windows evidence can be generated only by a built Unity `WindowsPlayer`; `WindowsEditor` throws before evidence is written.
+- Android evidence can be generated only when `SystemInfo.deviceModel` identifies Quest/Oculus hardware; a generic Android phone throws before evidence is written.
+- an empty Unity build GUID is rejected.
+
+`record-renderer-acceptance.ps1` independently repeats the platform/device/build checks, so a changed or hand-crafted probe still fails closed.
 
 ## Record the human visual attestation
 
@@ -132,4 +139,4 @@ Changing a probe after operator attestation, substituting an avatar/runtime/pack
 
 ## Physical acceptance still required
 
-Repository/unit tests prove the package/runtime/evidence mechanics, not visual quality. Issue #3 remains open until a source-derived `.mrbody` from the physical recovery gate is loaded on the Windows target and an Android/Quest-class build, produces the corresponding machine probes, and receives explicit human visual PASS attestations on both platforms.
+Repository/unit tests prove the package/runtime/evidence mechanics and source-level renderer contracts, not Unity compilation or visual quality. Issue #3 remains open until a source-derived `.mrbody` from the physical recovery gate is loaded in a built WindowsPlayer and an Android/Quest-class build, produces the corresponding machine probes, and receives explicit human visual PASS attestations on both platforms.
