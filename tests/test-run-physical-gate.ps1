@@ -103,10 +103,14 @@ function Save-Summary {
 
 function Invoke-Gate {
     param($Fixture)
+    # `pwsh -File` process argument binding does not accept multiple adjacent
+    # strings for a script string[] parameter. One source is sufficient here:
+    # this suite exercises the managed-environment trust boundary, while the
+    # underlying validate-rig path owns the 1..10 source-list contract.
     $args = @(
         "-NoLogo", "-NoProfile", "-NonInteractive", "-File", $Fixture.Gate,
         "-RecoveryRoot", $Fixture.Recovery,
-        "-Source", "person-a.mp4", "person-b.mp4",
+        "-Source", "person-a.mp4",
         "-BodyId", "fixture-body",
         "-Name", "Fixture Body",
         "-TrackId", "track-7",
@@ -124,7 +128,7 @@ try {
     $capture = Get-Content -LiteralPath (Join-Path $f.Output "capture.json") -Raw | ConvertFrom-Json
     if ([string]$capture.external_python -ne $f.ExternalPython -or [string]$capture.four_d_humans_repo -ne $f.FourD) { throw "managed paths were not forwarded exactly" }
     if ([string]$capture.body_id -ne "fixture-body" -or [string]$capture.track_id -ne "track-7" -or $capture.allow_cpu -ne $true) { throw "operator arguments were not forwarded" }
-    if (@($capture.source).Count -ne 2) { throw "source list was not forwarded" }
+    if (@($capture.source).Count -ne 1 -or [string]$capture.source[0] -ne "person-a.mp4") { throw "source argument was not forwarded" }
     Write-Host "PASS: exact managed environment forwards to validate-rig"
 
     $f = New-Fixture "four-d-pin"
