@@ -33,6 +33,30 @@ jobs:
         run: python -m pip install --disable-pip-version-check -e ".[test]"
       - name: Compile
         run: python -m compileall -q bodyrig tests
+      - name: Validate JSON contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("contracts").glob("*.json")):
+              json.loads(path.read_text(encoding="utf-8"))
+              print(path)
+          PY
+      - name: Parse PowerShell acceptance harness
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "./validate-rig.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - name: Test
         env:
           PYTHONDONTWRITEBYTECODE: "1"
