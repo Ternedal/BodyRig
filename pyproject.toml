@@ -25,6 +25,7 @@ bodyrig-recovery-preflight = "bodyrig.preflight_cli:main"
 bodyrig-capture-identity = "bodyrig.identity_capture_cli:main"
 bodyrig-fit-avatar = "bodyrig.avatar_cli:main"
 bodyrig-fit-avatar-external = "bodyrig.external_fitter_cli:main"
+bodyrig-wsl-adapter-bridge = "bodyrig.wsl_adapter_bridge:main"
 bodyrig-materialize = "bodyrig.materialize_cli:main"
 
 [tool.hatch.build.targets.wheel]
