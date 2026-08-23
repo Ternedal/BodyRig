@@ -34,7 +34,10 @@ function New-Fixture {
     Invoke-Git $repo @("config", "user.name", "BodyRig CI") | Out-Null
     Invoke-Git $repo @("add", "complete-acceptance.ps1", "record-renderer-acceptance.ps1") | Out-Null
     Invoke-Git $repo @("commit", "--quiet", "-m", "fixture") | Out-Null
-    $head = ([string](Invoke-Git $repo @("rev-parse", "HEAD"))[0]).Trim().ToLowerInvariant()
+    $headLines = @(Invoke-Git $repo @("rev-parse", "HEAD"))
+    if ($headLines.Count -ne 1) { throw "fixture git rev-parse returned an unexpected number of lines" }
+    $head = ([string]$headLines[0]).Trim().ToLowerInvariant()
+    if ($head -notmatch '^[0-9a-f]{40}$') { throw "fixture Git HEAD is invalid: $head" }
 
     $bodyId = "fixture-body"
     $packagePath = Join-Path $artifacts "$bodyId.mrbody"
@@ -132,6 +135,20 @@ function Invoke-RendererRecord {
     }
 }
 
+function Assert-Success {
+    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
+    if ($Result.ExitCode -ne 0) {
+        throw "$Case expected PASS, got exit $($Result.ExitCode): $($Result.Output)"
+    }
+}
+
+function Assert-Failure {
+    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
+    if ($Result.ExitCode -eq 0) {
+        throw "$Case expected FAIL, but gate returned success. Output: $($Result.Output)"
+    }
+}
+
 function New-RendererPair {
     param([Parameter(Mandatory = $true)]$Fixture)
     $windowsPath = Join-Path $Fixture.Artifacts "windows-renderer.json"
@@ -161,20 +178,6 @@ function Invoke-Gate {
     return [pscustomobject]@{
         ExitCode = $LASTEXITCODE
         Output = ($outputLines -join [Environment]::NewLine)
-    }
-}
-
-function Assert-Success {
-    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
-    if ($Result.ExitCode -ne 0) {
-        throw "$Case expected PASS, got exit $($Result.ExitCode): $($Result.Output)"
-    }
-}
-
-function Assert-Failure {
-    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
-    if ($Result.ExitCode -eq 0) {
-        throw "$Case expected FAIL, but gate returned success. Output: $($Result.Output)"
     }
 }
 
