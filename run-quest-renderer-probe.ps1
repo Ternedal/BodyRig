@@ -25,7 +25,7 @@ function Invoke-Adb {
         return $lines
     }
     & $script:AdbExe @all
-    if ($LASTEXITCODE -ne 0) { throw "adb failed with exit code $LASTEXITCODE: $($Arguments -join ' ')" }
+    if ($LASTEXITCODE -ne 0) { throw "adb failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')" }
 }
 
 function Need-Sha256 {
