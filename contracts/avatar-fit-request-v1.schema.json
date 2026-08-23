@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/avatar-fit-request-v1.schema.json",
+  "title": "BodyRig Avatar Fit Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "name", "bodyprint", "visual_identity"],
+  "properties": {
+    "format": {"const": "bodyrig-avatar-fit-request"},
+    "version": {"const": 1},
+    "name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "bodyprint": {"$ref": "bodyprint-v1.schema.json"},
+    "visual_identity": {"$ref": "visual-identity-v1.schema.json"}
+  }
+}
