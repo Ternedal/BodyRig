@@ -14,24 +14,27 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+$FourDRevision = "efe18deff163b29dff87ddbd575fa29b716a356c"
+$PhalpRevision = "96f7e6c09fb858ec3f597d59246c151ab4394bc3"
+$SmplFileName = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
+
 function Resolve-FullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     return [System.IO.Path]::GetFullPath($Path)
 }
 
-function Assert-ChildPath {
+function Assert-ExactPath {
     param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Actual,
+        [Parameter(Mandatory = $true)][string]$Expected,
         [Parameter(Mandatory = $true)][string]$Label
     )
-
-    $fullPath = Resolve-FullPath $Path
-    $fullRoot = (Resolve-FullPath $Root).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
-    if (-not $fullPath.StartsWith($fullRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "$Label escapes the managed recovery root: $fullPath"
+    $actualFull = Resolve-FullPath $Actual
+    $expectedFull = Resolve-FullPath $Expected
+    if (-not [string]::Equals($actualFull.TrimEnd('\', '/'), $expectedFull.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label does not match the managed recovery layout. Expected: $expectedFull | Actual: $actualFull"
     }
-    return $fullPath
+    return $actualFull
 }
 
 if ([string]::IsNullOrWhiteSpace($RecoveryRoot)) {
@@ -75,23 +78,35 @@ if ([string]$summary.format -ne "bodyrig-recovery-environment" -or [int]$summary
     throw "Unsupported managed recovery environment format/version."
 }
 
-$summaryRoot = Resolve-FullPath ([string]$summary.root)
-if (-not [string]::Equals($summaryRoot.TrimEnd('\', '/'), $RecoveryRoot.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Managed recovery environment summary root does not match the selected recovery root."
+$summaryRoot = Assert-ExactPath -Actual ([string]$summary.root) -Expected $RecoveryRoot -Label "Recovery root"
+if ([string]$summary.four_d_humans_revision -ne $FourDRevision) {
+    throw "Managed recovery summary 4D-Humans revision does not match BodyRig pin $FourDRevision."
+}
+if ([string]$summary.phalp_revision -ne $PhalpRevision) {
+    throw "Managed recovery summary PHALP revision does not match BodyRig pin $PhalpRevision."
 }
 if ($summary.smpl_present -ne $true) {
     throw "Managed recovery environment reports that the required SMPL model is missing. Rerun setup-recovery-windows.ps1 with -SmplModelPath."
 }
 
-$externalPython = Assert-ChildPath -Path ([string]$summary.external_python) -Root $RecoveryRoot -Label "Recovery Python"
-$fourDHumansRepo = Assert-ChildPath -Path ([string]$summary.four_d_humans_repo) -Root $RecoveryRoot -Label "4D-Humans repo"
-$smplExpectedPath = Assert-ChildPath -Path ([string]$summary.smpl_expected_path) -Root $RecoveryRoot -Label "SMPL model"
+$expectedExternalPython = Join-Path (Join-Path $RecoveryRoot "conda-env") "python.exe"
+$expectedFourDHumansRepo = Join-Path $RecoveryRoot "4D-Humans"
+$expectedPhalpRepo = Join-Path $RecoveryRoot "PHALP"
+$expectedSmplPath = Join-Path (Join-Path $expectedFourDHumansRepo "data") $SmplFileName
+
+$externalPython = Assert-ExactPath -Actual ([string]$summary.external_python) -Expected $expectedExternalPython -Label "Recovery Python"
+$fourDHumansRepo = Assert-ExactPath -Actual ([string]$summary.four_d_humans_repo) -Expected $expectedFourDHumansRepo -Label "4D-Humans repo"
+$phalpRepo = Assert-ExactPath -Actual ([string]$summary.phalp_repo) -Expected $expectedPhalpRepo -Label "PHALP repo"
+$smplExpectedPath = Assert-ExactPath -Actual ([string]$summary.smpl_expected_path) -Expected $expectedSmplPath -Label "SMPL model"
 
 if (-not (Test-Path -LiteralPath $externalPython -PathType Leaf)) {
     throw "Managed recovery Python is missing: $externalPython"
 }
 if (-not (Test-Path -LiteralPath $fourDHumansRepo -PathType Container)) {
     throw "Managed 4D-Humans checkout is missing: $fourDHumansRepo"
+}
+if (-not (Test-Path -LiteralPath $phalpRepo -PathType Container)) {
+    throw "Managed PHALP checkout is missing: $phalpRepo"
 }
 if (-not (Test-Path -LiteralPath $smplExpectedPath -PathType Leaf)) {
     throw "Managed recovery summary says SMPL is present, but the file is missing: $smplExpectedPath"
@@ -116,7 +131,7 @@ if (-not [string]::IsNullOrWhiteSpace($OutputDir)) { $validateArgs.OutputDir = $
 if ($AllowCpu) { $validateArgs.AllowCpu = $true }
 
 Write-Host "BodyRig physical Gate A"
-Write-Host "Managed recovery root: $RecoveryRoot"
+Write-Host "Managed recovery root: $summaryRoot"
 Write-Host "Source clips: $($Source.Count)"
 Write-Host "Body id: $BodyId"
 Write-Host ""
