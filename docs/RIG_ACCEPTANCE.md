@@ -181,6 +181,19 @@ The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accept
 
 The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are separately recorded and cryptographically bound to the exact package/runtime/revision they describe.
 
+## CI evidence
+
+Workflow run #66 on code/evidence head `15d6974246d01ac15ca8b42b6f3db34b4ad466c2` passed on Python 3.11 and 3.12, including:
+
+- exact-head checkout;
+- Python compile/tests;
+- JSON contract parse;
+- all PowerShell operator/test scripts parse;
+- the full package → materialized runtime → Windows/Quest evidence → release path;
+- negative cases for runtime avatar substitution, runtime-manifest mutation, package mutation, wrong evidence hashes, platform swaps, duplicate-platform evidence, dirty repo and evidence overwrite attempts.
+
+This CI proof is deliberately **not** the physical renderer proof.
+
 ## What is not proven by V1 acceptance
 
 A V1 PASS does not claim:
