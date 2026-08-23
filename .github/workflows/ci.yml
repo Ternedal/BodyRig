@@ -77,6 +77,10 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python -m pytest -q
+      - name: Test observation segment tamper gate
+        if: matrix.python == '3.11'
+        shell: pwsh
+        run: ./tests/test-clone-source-override.ps1
       - name: Test managed physical gate wrapper
         if: matrix.python == '3.11'
         shell: pwsh
