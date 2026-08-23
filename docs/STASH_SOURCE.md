@@ -11,7 +11,7 @@ Stash performer
     -> sparse observation analysis
     -> 1..10 private high-value segments
     -> BodyRig recovery / BodyPrint
-    -> visual identity capture
+    -> built-in visual identity capture
     -> high-fidelity fitter
     -> .mrbody
 ```
@@ -27,7 +27,7 @@ Stash is a **source/catalogue layer**, not a BodyRig runtime dependency.
 - BodyRig still verifies that returned scenes actually contain the requested performer id;
 - recovery/identity track binding remains authoritative for the visual subject;
 - source/segment manifests are build-only and may contain local file paths;
-- local file paths, analyzer configuration and private video segments are not copied into `.mrbody`.
+- local file paths, adapter configuration, private video segments and extracted identity frames are not `.mrbody` payloads.
 
 BodyRig does not depend on the SkyPlayer Companion process. The adapter deliberately follows the same local GraphQL pattern so SkyPlayer and BodyRig can evolve independently while using the same Stash installation.
 
@@ -63,7 +63,7 @@ The build-only `bodyrig-stash-source-manifest` v1 is defined by `contracts/stash
 
 ## Stage 2: select actual observations
 
-The normal Stash clone path now performs a second, visual selection stage before HMR2/4D-Humans.
+The normal Stash clone path performs a second, visual selection stage before HMR2/4D-Humans.
 
 The built-in analyzer is `opencv-hog-haar` v1 and runs out-of-process in the existing recovery Python environment. It samples each ranked file sparsely rather than processing every frame with the heavy recovery model.
 
@@ -93,16 +93,44 @@ bodyrig-observation-segments.json    # build-only paths + segment SHA-256
 
 The private observation workspace is deleted after success or failure by default.
 
+## Stage 3: built-in visual identity capture
+
+The normal Stash path no longer requires a hand-written identity-capture config.
+
+If `-IdentityCaptureConfig` is omitted, the wrapper uses `opencv-identity-rgba` v1. Before Stash discovery it fail-closes unless the external recovery Python can provide:
+
+- OpenCV/cv2;
+- NumPy;
+- HOG people detection;
+- frontal/profile Haar cascades;
+- GrabCut.
+
+The adapter operates on the exact source set used by recovery — normally the already selected, hash-verified private segments. It sparsely samples them and only accepts candidate frames where one person is detected, the body framing is useful and a face is visible.
+
+The best candidate is written only inside the private identity workspace as:
+
+```text
+identity-capture/
+  primary-rgb.png
+  primary-rgba.png
+  capture.json
+```
+
+`primary-rgba.png` uses a source-derived GrabCut alpha mask and is intended as build-time input for a high-fidelity reconstruction adapter such as the experimental SiTH path. `capture.json` binds the private image hashes, source index and source timestamp.
+
+The only capture artifact accepted back into BodyRig core is the strict metadata-only `bodyrig-visual-identity` profile. It contains observation counts/coverage/quality and the recovery subject track id, but no source path, image, embedding or biometric template.
+
+A custom capture adapter remains available through `-IdentityCaptureConfig <config.json>`. Direct use of `clone-body.ps1` remains generic and still requires an explicit identity-capture config; the automatic default is a Stash operator policy, not a weakened core contract.
+
 ## One-command wrapper
 
-The normal operator path remains one command:
+The normal operator path is:
 
 ```powershell
 .\clone-body-from-stash.ps1 `
   -PerformerId 123 `
   -ExternalPython "C:\...\recovery\python.exe" `
   -FourDHumansRepo "C:\...\4D-Humans" `
-  -IdentityCaptureConfig .\identity-capture.json `
   -FitterConfig .\fitter.json `
   -BodyId "alice"
 ```
@@ -111,18 +139,21 @@ The normal operator path remains one command:
 
 By default the wrapper:
 
-1. queries Stash;
-2. ranks local source files;
-3. creates the Stash source manifest;
-4. runs the built-in lightweight observation analyzer;
-5. selects/diversifies the best visual windows;
-6. materializes hash-bound private segments with FFmpeg;
-7. feeds those segments into the existing `clone-body.ps1` recovery/capture/fitter pipeline;
-8. deletes private observation segments unless `-KeepPrivateWorkspace` was explicitly supplied.
+1. preflights the built-in identity-capture environment;
+2. queries Stash;
+3. ranks local source files;
+4. creates the Stash source manifest;
+5. runs the built-in lightweight observation analyzer;
+6. selects/diversifies the best visual windows;
+7. materializes hash-bound private segments with FFmpeg;
+8. feeds those segments into the existing recovery pipeline;
+9. captures a private RGB/RGBA identity frame and strict visual-identity profile;
+10. invokes the configured high-fidelity fitter and builds `.mrbody`;
+11. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
-A custom analyzer can be supplied with `-ObservationAnalyzerConfig`. Its strict config format is `bodyrig-observation-analyzer-config` v1. External analyzers receive source paths only as process arguments; paths are absent from the JSON analyzer request and selection evidence.
+A custom observation analyzer can be supplied with `-ObservationAnalyzerConfig`. A custom identity capture adapter can be supplied with `-IdentityCaptureConfig`. Both stay behind their strict out-of-process contracts.
 
 ## Manual observation selection CLI
 
@@ -137,11 +168,13 @@ bodyrig-select-observations .\bodyrig-stash-source-manifest.json `
   --max-segments 10
 ```
 
-Contracts:
+Relevant contracts:
 
 - `contracts/observation-analyzer-config-v1.schema.json`
 - `contracts/observation-selection-v1.schema.json`
 - `contracts/observation-segments-v1.schema.json`
+- `contracts/identity-capture-config-v1.schema.json`
+- `contracts/visual-identity-v1.schema.json`
 
 ## Schema compatibility
 
@@ -151,4 +184,4 @@ For older Stash installations, the adapter has an explicit fallback to the older
 
 ## Next quality improvements
 
-The generic observation boundary is intentionally engine-neutral. Later analyzers can add stronger identity-aware multi-person selection, better front/rear orientation estimation and learned face/body quality while preserving the same source, segment and clone contracts.
+The generic observation and identity-capture boundaries are intentionally engine-neutral. Later adapters can add stronger identity-aware multi-person selection, better front/rear orientation estimation, learned matting/segmentation and multi-view identity capture while preserving the same source, recovery, visual-identity and clone contracts.
