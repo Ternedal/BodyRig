@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        output = Path(args.out).expanduser().resolve()
+        if output.exists():
+            raise IdentityCaptureError(f"identity profile output already exists: {output}")
         proof = load_recovery_proof(args.proof)
         config = validate_identity_capture_config(
             read_canonical_json(args.config, label="identity capture config")
@@ -93,7 +97,6 @@ def main(argv: list[str] | None = None) -> int:
             revision=config["revision"],
             timeout_seconds=config["timeout_seconds"],
         )
-        output = Path(args.out).expanduser().resolve()
         _write_new_json(output, identity)
     except (
         OSError,
@@ -102,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         IdentityCaptureConfigError,
         IdentityCaptureError,
     ) as exc:
-        print(f"BodyRig identity capture: {exc}", file=__import__("sys").stderr)
+        print(f"BodyRig identity capture: {exc}", file=sys.stderr)
         return 1
 
     print(output)
