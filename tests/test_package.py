@@ -1,3 +1,4 @@
+import json
 import struct
 import zipfile
 from pathlib import Path
@@ -10,6 +11,13 @@ from bodyrig.package import MRBodyError, build_package, validate_package
 
 def glb(payload: bytes = b"") -> bytes:
     return b"glTF" + struct.pack("<II", 2, 12 + len(payload)) + payload
+
+
+def plain_glb() -> bytes:
+    document = json.dumps({"asset": {"version": "2.0"}}, separators=(",", ":")).encode("utf-8")
+    document += b" " * ((-len(document)) % 4)
+    chunk = struct.pack("<I4s", len(document), b"JSON") + document
+    return b"glTF" + struct.pack("<II", 2, 12 + len(chunk)) + chunk
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"test"
@@ -106,7 +114,7 @@ def test_plain_glb_cannot_masquerade_as_vrm(tmp_path: Path):
             tmp_path / "plain-glb.mrbody",
             body_id="plain-glb",
             name="Plain GLB",
-            avatar_vrm=glb(),
+            avatar_vrm=plain_glb(),
             bodyprint=BODYPRINT,
             provenance=PROVENANCE,
             thumbnail_png=PNG,
