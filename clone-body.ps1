@@ -5,6 +5,8 @@ param(
 
     [string[]]$SourceOverride = @(),
 
+    [string]$SourceOverrideManifest = "",
+
     [Parameter(Mandatory = $true)]
     [string]$ExternalPython,
 
@@ -66,11 +68,15 @@ function Resolve-InputDirectory {
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $usingManifest = -not [string]::IsNullOrWhiteSpace($SourceManifest)
+$usingOverrideManifest = -not [string]::IsNullOrWhiteSpace($SourceOverrideManifest)
 if ($usingManifest -and $Source.Count -gt 0) {
     throw "Pass either -Source or -SourceManifest, never both."
 }
-if ($SourceOverride.Count -gt 0 -and -not $usingManifest) {
-    throw "-SourceOverride is only valid together with -SourceManifest."
+if ($SourceOverride.Count -gt 0 -and $usingOverrideManifest) {
+    throw "Pass either -SourceOverride or -SourceOverrideManifest, never both."
+}
+if (($SourceOverride.Count -gt 0 -or $usingOverrideManifest) -and -not $usingManifest) {
+    throw "Source overrides are only valid together with -SourceManifest."
 }
 if (-not $usingManifest -and ($Source.Count -lt 1 -or $Source.Count -gt 10)) {
     throw "BodyRig accepts 1..10 source clips, or one -SourceManifest."
@@ -80,6 +86,7 @@ $sourceOrigin = "direct-local-media"
 $sourcePerformerId = ""
 $sourcePerformerName = ""
 $usingSourceOverride = $false
+$sourceOverrideManifestSha256 = ""
 if ($usingManifest) {
     $SourceManifest = Resolve-InputFile -Path $SourceManifest -Label "BodyRig source manifest"
     try {
@@ -105,6 +112,37 @@ if ($usingManifest) {
         }
         $manifestSources += $path
     }
+
+    if ($usingOverrideManifest) {
+        $SourceOverrideManifest = Resolve-InputFile -Path $SourceOverrideManifest -Label "BodyRig observation segment manifest"
+        try {
+            $overrideManifest = Get-Content -LiteralPath $SourceOverrideManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            throw "BodyRig observation segment manifest is not valid JSON."
+        }
+        if ([string]$overrideManifest.format -ne "bodyrig-observation-segments" -or [int]$overrideManifest.version -ne 1) {
+            throw "Unsupported BodyRig observation segment manifest format/version."
+        }
+        $segments = @($overrideManifest.segments)
+        if ($segments.Count -lt 1 -or $segments.Count -gt 10) {
+            throw "BodyRig observation segment manifest must contain 1..10 segments."
+        }
+        $SourceOverride = @()
+        foreach ($segment in $segments) {
+            $segmentPath = Resolve-InputFile -Path ([string]$segment.path) -Label "Observation segment"
+            $expectedHash = ([string]$segment.sha256).ToLowerInvariant()
+            if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+                throw "Observation segment manifest contains an invalid SHA-256."
+            }
+            $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $segmentPath).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) {
+                throw "Observation segment SHA-256 mismatch: $segmentPath"
+            }
+            $SourceOverride += $segmentPath
+        }
+        $sourceOverrideManifestSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $SourceOverrideManifest).Hash.ToLowerInvariant()
+    }
+
     if ($SourceOverride.Count -gt 0) {
         if ($SourceOverride.Count -lt 1 -or $SourceOverride.Count -gt 10) {
             throw "BodyRig source override must contain 1..10 private observation segments."
@@ -191,6 +229,10 @@ if ($usingManifest) {
     $sourceEvidence.stash_performer_id = $sourcePerformerId
     $sourceEvidence.stash_performer_name = $sourcePerformerName
     $sourceEvidence.stash_source_manifest = [System.IO.Path]::GetFileName($SourceManifest)
+}
+if ($usingOverrideManifest) {
+    $sourceEvidence.observation_segment_manifest = [System.IO.Path]::GetFileName($SourceOverrideManifest)
+    $sourceEvidence.observation_segment_manifest_sha256 = $sourceOverrideManifestSha256
 }
 $sourceEvidence | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $sourceEvidencePath -Encoding UTF8
 
