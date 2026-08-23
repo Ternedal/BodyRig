@@ -10,6 +10,11 @@ def test_bodycue_fails_closed_on_unknown_field():
         BodyCue.model_validate({"type":"modelrig-body-cue","version":1,"utterance_id":"u-1","emotion":"thoughtful","raw_bone_rotation":42})
 
 
+def test_bodycue_requires_semantic_instruction():
+    with pytest.raises(ValidationError, match="semantic"):
+        BodyCue(utterance_id="u-empty")
+
+
 def test_runtime_rejects_stale_voice_timing():
     runtime=BodyRuntime(); runtime.apply_cue(BodyCue(utterance_id="u-new",emotion="thoughtful"))
     with pytest.raises(ValueError,match="does not match"):

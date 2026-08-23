@@ -6,10 +6,11 @@ BodyRig V1 uses 4D-Humans/HMR2 + PHALP as the first concrete video recovery cand
 
 - `shubham-goel/4D-Humans`: `efe18deff163b29dff87ddbd575fa29b716a356c`
 - `brjathu/PHALP`: `96f7e6c09fb858ec3f597d59246c151ab4394bc3`
+- expected Git blob for `phalp/trackers/PHALP.py`: `f4258ab37f2cf034e7321f7ec48ef61be6001785`
 
-4D-Humans documents Python 3.10/conda or pip setup, automatically downloaded checkpoints, an additionally required neutral SMPL model, and `track.py video.source=...` for video tracking. The bridge refuses a 4D-Humans checkout at another Git HEAD. PHALP must likewise be installed at the pinned revision in that external environment.
+The bridge requires the 4D-Humans checkout to be exactly pinned and independently computes Git's blob SHA-1 for the installed PHALP tracker source. A merely claimed PHALP version is not accepted.
 
-BodyRig does **not** redistribute the separately licensed SMPL model asset.
+4D-Humans documents Python 3.10/conda or pip setup, automatically downloaded checkpoints, an additionally required neutral SMPL model, and `track.py video.source=...` for video tracking. BodyRig does **not** redistribute the separately licensed SMPL model asset.
 
 ## Process boundary
 
@@ -35,13 +36,9 @@ BODY_25 12 -> left_hip
 BODY_25 14 -> left_ankle
 ```
 
-The nose is a head reference, not absolute top-of-head height. V1 therefore derives normalized proportions, not absolute height, from this monocular path.
-
-PHALP frames with `tracked_time != 0` are tracker predictions across missed observations and are excluded from bodyprint learning.
+The nose is a head reference, not absolute top-of-head height. V1 therefore derives normalized proportions, not absolute height, from this monocular path. PHALP frames with `tracked_time != 0` are tracker predictions and are excluded from bodyprint learning.
 
 ## First physical proof command
-
-After provisioning the pinned external environment and SMPL asset:
 
 ```powershell
 bodyrig-recover `
@@ -51,9 +48,9 @@ bodyrig-recover `
   "C:\video\person.mp4"
 ```
 
-For a clip containing multiple tracked people the command fails closed and lists candidate track ids; rerun with `--track-id s00-tN`.
+For multiple tracked people the command fails closed and lists candidate ids; rerun with `--track-id s00-tN`.
 
-The proof JSON contains no source filename, only source count, pinned adapter identity, selected track id, observed frame count and extracted bodyprint.
+The proof contains no source filename, only source count, pinned adapter identity, selected track id, observed frame count and extracted bodyprint.
 
 ## Remaining physical gate
 

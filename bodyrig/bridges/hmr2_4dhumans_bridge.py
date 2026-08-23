@@ -1,22 +1,16 @@
 #!/usr/bin/env python
-"""JSON-command bridge for pinned 4D-Humans/HMR2 + PHALP.
-
-Run this file with the external 4D-Humans Python runtime. It deliberately
-bootstraps the BodyRig package from the filesystem containing this script, so
-BodyRig does not need to be installed into the heavy recovery environment.
-"""
+"""JSON-command bridge for pinned 4D-Humans/HMR2 + PHALP."""
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-# When this script is executed directly, Python normally puts only
-# bodyrig/bridges on sys.path. Add the package parent (repo root/site-packages)
-# so the pure-Python converter/config can be imported in the external venv.
 _PACKAGE_PARENT = Path(__file__).resolve().parents[2]
 if str(_PACKAGE_PARENT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_PARENT))
@@ -25,8 +19,15 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     ADAPTER_NAME,
     ADAPTER_REVISION,
     FOUR_D_HUMANS_REVISION,
+    PHALP_TRACKER_BLOB_SHA1,
 )
 from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
+
+
+def _git_blob_sha1(path: Path) -> str:
+    data = path.read_bytes()
+    header = f"blob {len(data)}\0".encode("ascii")
+    return hashlib.sha1(header + data).hexdigest()
 
 
 def _read_request() -> list[Path]:
@@ -72,12 +73,27 @@ def _quoted_hydra_path(path: Path) -> str:
     return f'"{escaped}"'
 
 
+def _verify_phalp_install() -> None:
+    spec = importlib.util.find_spec("phalp")
+    if spec is None or not spec.submodule_search_locations:
+        raise RuntimeError("PHALP is not installed in the external recovery environment")
+    package_root = Path(next(iter(spec.submodule_search_locations))).resolve()
+    tracker = package_root / "trackers" / "PHALP.py"
+    if not tracker.is_file():
+        raise RuntimeError("PHALP tracker source could not be located")
+    actual = _git_blob_sha1(tracker)
+    if actual != PHALP_TRACKER_BLOB_SHA1:
+        raise RuntimeError(
+            "PHALP tracker source does not match the pinned BodyRig revision; "
+            f"expected blob {PHALP_TRACKER_BLOB_SHA1}, got {actual}"
+        )
+
+
 def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
     try:
         import joblib
     except ImportError as exc:
         raise RuntimeError("joblib is required in the 4D-Humans environment") from exc
-
     with tempfile.TemporaryDirectory(prefix="bodyrig-4dh-") as temp_dir_raw:
         output_dir = Path(temp_dir_raw) / "output"
         command = [
@@ -88,14 +104,7 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
             "render.enable=false",
             "overwrite=true",
         ]
-        completed = subprocess.run(
-            command,
-            cwd=repo,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        completed = subprocess.run(command, cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
         if completed.stdout:
             print(completed.stdout[-12000:], file=sys.stderr)
         if completed.returncode != 0:
@@ -103,30 +112,19 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
         pkls = sorted((output_dir / "results").glob("*.pkl"))
         if len(pkls) != 1:
             raise RuntimeError(f"expected exactly one PHALP result pickle, found {len(pkls)}")
-        # The pickle is created inside our private temp directory by the child
-        # process above. Arbitrary user-provided pickle input is never loaded.
         frame_results = joblib.load(pkls[0])
         if not isinstance(frame_results, dict):
             raise RuntimeError("unexpected PHALP result shape")
-        return canonicalize_phalp_results(
-            frame_results,
-            fps=_video_fps(source),
-            source_index=source_index,
-        )
+        return canonicalize_phalp_results(frame_results, fps=_video_fps(source), source_index=source_index)
 
 
 def _verify_repo(repo: Path) -> None:
     if not (repo / "track.py").is_file() or not (repo / "hmr2").is_dir():
         raise RuntimeError("--repo does not look like a 4D-Humans checkout")
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-    )
+    completed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     head = completed.stdout.strip().lower()
     if completed.returncode != 0 or head != FOUR_D_HUMANS_REVISION:
-        raise RuntimeError(
-            f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {head or 'unknown'}"
-        )
+        raise RuntimeError(f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {head or 'unknown'}")
 
 
 def main() -> int:
@@ -136,19 +134,14 @@ def main() -> int:
     try:
         repo = Path(args.repo).expanduser().resolve()
         _verify_repo(repo)
+        _verify_phalp_install()
         sources = _read_request()
         tracks: list[dict] = []
         for index, source in enumerate(sources):
             tracks.extend(_run_source(repo, source, index))
         if not tracks:
             raise RuntimeError("4D-Humans produced no track with at least two observed frames")
-        json.dump({
-            "format": "bodyrig-recovery",
-            "version": 1,
-            "adapter": ADAPTER_NAME,
-            "revision": ADAPTER_REVISION,
-            "tracks": tracks,
-        }, sys.stdout, separators=(",", ":"), allow_nan=False)
+        json.dump({"format":"bodyrig-recovery","version":1,"adapter":ADAPTER_NAME,"revision":ADAPTER_REVISION,"tracks":tracks}, sys.stdout, separators=(",", ":"), allow_nan=False)
         sys.stdout.write("\n")
         return 0
     except Exception as exc:

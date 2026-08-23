@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BodyCue(BaseModel):
@@ -31,10 +31,21 @@ class BodyCue(BaseModel):
                 return value
         raise ValueError("invalid gaze target")
 
-    @field_validator("duration_ms")
-    @classmethod
-    def require_semantic_cue(cls, value: int | None) -> int | None:
-        return value
+    @model_validator(mode="after")
+    def require_semantic_cue(self) -> "BodyCue":
+        semantic_fields = (
+            self.body_id,
+            self.emotion,
+            self.intensity,
+            self.energy,
+            self.gesture,
+            self.gaze,
+            self.posture,
+            self.duration_ms,
+        )
+        if all(value is None for value in semantic_fields):
+            raise ValueError("BodyCue requires at least one semantic body instruction")
+        return self
 
 
 class SpeechTiming(BaseModel):
