@@ -26,6 +26,11 @@ def _load(path: str | Path, *, label: str) -> tuple[Path, bytes, dict[str, Any]]
     return resolved, raw, value
 
 
+def _canonical_sha256(value: dict[str, Any]) -> str:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def build_observation_evidence(
     *,
     source_manifest_path: str | Path,
@@ -48,6 +53,8 @@ def build_observation_evidence(
         raise ObservationEvidenceError("unsupported observation segment manifest")
     if selection.get("source_manifest_sha256") != source_sha:
         raise ObservationEvidenceError("observation selection is not bound to this source manifest")
+    if segments.get("selection_sha256") != _canonical_sha256(selection):
+        raise ObservationEvidenceError("observation segment manifest is not bound to this selection")
 
     selected = selection.get("selected")
     segment_rows = segments.get("segments")
@@ -60,7 +67,15 @@ def build_observation_evidence(
     for item in selected:
         if not isinstance(item, dict):
             raise ObservationEvidenceError("selection row is invalid")
-        key = (str(item.get("source_id") or ""), str(item.get("scene_id") or ""), float(item.get("start_seconds") or 0), float(item.get("duration_seconds") or 0))
+        try:
+            key = (
+                str(item["source_id"]),
+                str(item["scene_id"]),
+                float(item["start_seconds"]),
+                float(item["duration_seconds"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ObservationEvidenceError("selection row identity is invalid") from exc
         if not key[0] or not key[1] or key in selected_by_key:
             raise ObservationEvidenceError("selection row identity is invalid or duplicated")
         selected_by_key[key] = item
@@ -102,14 +117,18 @@ def build_observation_evidence(
             }
         )
 
+    adapter = str(selection.get("adapter") or "")
+    revision = str(selection.get("revision") or "")
+    if not adapter or not revision:
+        raise ObservationEvidenceError("selection adapter/revision is missing")
     return {
         "format": "bodyrig-observation-evidence",
         "version": 1,
         "source_manifest_sha256": source_sha,
         "selection_sha256": selection_sha,
         "segments_manifest_sha256": segments_sha,
-        "adapter": str(selection.get("adapter") or ""),
-        "revision": str(selection.get("revision") or ""),
+        "adapter": adapter,
+        "revision": revision,
         "segments": redacted_segments,
     }
 
