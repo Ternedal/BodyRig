@@ -43,6 +43,7 @@ param(
     [string[]]$Source,
     [string]$ExternalPython,
     [string]$FourDHumansRepo,
+    [string]$PhalpRepo,
     [string]$TrackId = "",
     [string]$BodyId = "",
     [string]$Name = "",
@@ -57,6 +58,7 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
     source = @($Source)
     external_python = $ExternalPython
     four_d_humans_repo = $FourDHumansRepo
+    phalp_repo = $PhalpRepo
     track_id = $TrackId
     body_id = $BodyId
     name = $Name
@@ -126,7 +128,7 @@ try {
     $f = New-Fixture "pass"
     Assert-Success (Invoke-Gate $f) "valid managed recovery summary"
     $capture = Get-Content -LiteralPath (Join-Path $f.Output "capture.json") -Raw | ConvertFrom-Json
-    if ([string]$capture.external_python -ne $f.ExternalPython -or [string]$capture.four_d_humans_repo -ne $f.FourD) { throw "managed paths were not forwarded exactly" }
+    if ([string]$capture.external_python -ne $f.ExternalPython -or [string]$capture.four_d_humans_repo -ne $f.FourD -or [string]$capture.phalp_repo -ne $f.Phalp) { throw "managed paths were not forwarded exactly" }
     if ([string]$capture.body_id -ne "fixture-body" -or [string]$capture.track_id -ne "track-7" -or $capture.allow_cpu -ne $true) { throw "operator arguments were not forwarded" }
     if (@($capture.source).Count -ne 1 -or [string]$capture.source[0] -ne "person-a.mp4") { throw "source argument was not forwarded" }
     Write-Host "PASS: exact managed environment forwards to validate-rig"
