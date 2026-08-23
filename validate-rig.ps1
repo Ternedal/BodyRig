@@ -79,15 +79,24 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+    $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss-fff")
     $OutputDir = Join-Path ([System.IO.Path]::GetTempPath()) "bodyrig-acceptance-$stamp"
 }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+if (Test-Path -LiteralPath $OutputDir) {
+    $existing = @(Get-ChildItem -LiteralPath $OutputDir -Force -ErrorAction Stop)
+    if ($existing.Count -gt 0) {
+        throw "Acceptance output directory is not empty; refusing to overwrite evidence: $OutputDir"
+    }
+} else {
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+}
 
 $preflightPath = Join-Path $OutputDir "bodyrig-recovery-preflight.json"
 $proofPath = Join-Path $OutputDir "bodyrig-recovery-proof.json"
 $packagePath = Join-Path $OutputDir "$BodyId.mrbody"
+$runtimeDir = Join-Path $OutputDir "runtime"
+$runtimeManifestPath = Join-Path $runtimeDir "runtime-manifest.json"
 $reportPath = Join-Path $OutputDir "bodyrig-acceptance.json"
 
 Write-Host "BodyRig acceptance | revision $head"
@@ -126,12 +135,23 @@ $fitArgs = @(
 )
 Invoke-Checked -Executable $BodyRigPython -Arguments $fitArgs -Step "Avatar fitting / .mrbody build"
 
+$materializeArgs = @(
+    "-m", "bodyrig.materialize_cli",
+    $packagePath,
+    "--out", $runtimeDir
+)
+Invoke-Checked -Executable $BodyRigPython -Arguments $materializeArgs -Step "Validated runtime materialization"
+if (-not (Test-Path -LiteralPath $runtimeManifestPath -PathType Leaf)) {
+    throw "Runtime materialization completed without runtime-manifest.json"
+}
+
 $inspectCode = @'
 import hashlib, json, pathlib, sys
-from bodyrig.avatar import parse_glb_json, validate_vrm1
+from bodyrig.avatar import validate_vrm1
 from bodyrig.package import validate_package
 proof_path = pathlib.Path(sys.argv[1])
 package_path = pathlib.Path(sys.argv[2])
+runtime_manifest_path = pathlib.Path(sys.argv[3])
 proof = json.loads(proof_path.read_text(encoding="utf-8"))
 validated = validate_package(package_path)
 pipeline = validated.provenance["pipeline"]
@@ -141,6 +161,7 @@ import zipfile
 with zipfile.ZipFile(package_path, "r") as archive:
     vrm = validate_vrm1(archive.read("avatar.vrm"))
 extra = vrm.get("extras", {}).get("bodyrig", {})
+runtime = json.loads(runtime_manifest_path.read_text(encoding="utf-8"))
 result = {
     "package_sha256": hashlib.sha256(package_path.read_bytes()).hexdigest(),
     "body_id": validated.manifest["id"],
@@ -152,12 +173,21 @@ result = {
     "avatar_fitting_provenance_present": bool(fitting and fitting.get("adapter") and fitting.get("revision")),
     "vrm_spec_version": vrm["extensions"]["VRMC_vrm"]["specVersion"],
     "placeholder_avatar": extra.get("placeholder") is True,
+    "runtime_materialized": bool(
+        runtime.get("format") == "bodyrig-runtime-assets"
+        and runtime.get("version") == 1
+        and runtime.get("body_id") == validated.manifest["id"]
+        and runtime.get("package_sha256") == hashlib.sha256(package_path.read_bytes()).hexdigest()
+        and runtime.get("avatar") == "avatar.vrm"
+        and runtime.get("bodyprint") == "bodyprint.json"
+    ),
+    "runtime_manifest_sha256": hashlib.sha256(runtime_manifest_path.read_bytes()).hexdigest(),
 }
 print(json.dumps(result, separators=(",", ":"), allow_nan=False))
 '@
-$packageInfoRaw = & $BodyRigPython -c $inspectCode $proofPath $packagePath
+$packageInfoRaw = & $BodyRigPython -c $inspectCode $proofPath $packagePath $runtimeManifestPath
 if ($LASTEXITCODE -ne 0) {
-    throw "Final .mrbody inspection failed with exit code $LASTEXITCODE"
+    throw "Final .mrbody/runtime inspection failed with exit code $LASTEXITCODE"
 }
 $packageInfo = $packageInfoRaw | ConvertFrom-Json
 $preflight = Get-Content -LiteralPath $preflightPath -Raw | ConvertFrom-Json
@@ -181,9 +211,22 @@ $checks = [ordered]@{
     recovery_provenance_matches = ($packageInfo.recovery_provenance_matches -eq $true)
     avatar_fitting_provenance_present = ($packageInfo.avatar_fitting_provenance_present -eq $true)
     avatar_is_vrm_1_0 = ([string]$packageInfo.vrm_spec_version -eq "1.0")
+    runtime_materialized_from_package = ($packageInfo.runtime_materialized -eq $true)
 }
 $automatedPass = -not ($checks.Values -contains $false)
 
+$packageEvidence = [ordered]@{
+    package_sha256 = $packageInfo.package_sha256
+    body_id = $packageInfo.body_id
+    body_name = $packageInfo.body_name
+    payload_names = $packageInfo.payload_names
+    bodyprint_matches_proof = $packageInfo.bodyprint_matches_proof
+    source_count_matches = $packageInfo.source_count_matches
+    recovery_provenance_matches = $packageInfo.recovery_provenance_matches
+    avatar_fitting_provenance_present = $packageInfo.avatar_fitting_provenance_present
+    vrm_spec_version = $packageInfo.vrm_spec_version
+    placeholder_avatar = $packageInfo.placeholder_avatar
+}
 $report = [ordered]@{
     format = "bodyrig-rig-acceptance"
     version = 1
@@ -197,7 +240,12 @@ $report = [ordered]@{
         track_id = $proof.track_id
         observed_frames = $proof.observed_frames
     }
-    package = $packageInfo
+    package = $packageEvidence
+    runtime = [ordered]@{
+        manifest = "runtime/runtime-manifest.json"
+        manifest_sha256 = $packageInfo.runtime_manifest_sha256
+        materialized_from_package = ($packageInfo.runtime_materialized -eq $true)
+    }
     checks = $checks
     automated_pass = $automatedPass
     physical_renderer_acceptance = "pending"
@@ -213,6 +261,8 @@ if (-not $automatedPass) {
 Write-Host ""
 Write-Host "BodyRig automated acceptance: PASS"
 Write-Host "Package: $packagePath"
+Write-Host "Runtime: $runtimeDir"
+Write-Host "Runtime manifest: $runtimeManifestPath"
 Write-Host "Report:  $reportPath"
 Write-Host "Physical Unity/Quest renderer acceptance: PENDING"
 Write-Host "production_activation=false"
