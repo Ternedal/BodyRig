@@ -8,6 +8,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FourDHumansRepo,
 
+    [Parameter(Mandatory = $true)]
+    [string]$PhalpRepo,
+
     [string]$TrackId = "",
     [string]$BodyId = "bodyrig-acceptance",
     [string]$Name = "BodyRig Acceptance",
@@ -64,6 +67,10 @@ if (-not (Test-Path -LiteralPath $FourDHumansRepo -PathType Container)) {
     throw "4D-Humans repo not found: $FourDHumansRepo"
 }
 $FourDHumansRepo = (Resolve-Path -LiteralPath $FourDHumansRepo).Path
+if (-not (Test-Path -LiteralPath $PhalpRepo -PathType Container)) {
+    throw "PHALP repo not found: $PhalpRepo"
+}
+$PhalpRepo = (Resolve-Path -LiteralPath $PhalpRepo).Path
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -107,6 +114,7 @@ $preflightArgs = @(
     "-m", "bodyrig.preflight_cli",
     "--python", $ExternalPython,
     "--repo", $FourDHumansRepo,
+    "--phalp-repo", $PhalpRepo,
     "--out", $preflightPath
 )
 if ($AllowCpu) {
