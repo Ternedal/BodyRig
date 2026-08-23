@@ -14,9 +14,11 @@ video
   -> avatar fitter
   -> VRM 1.0
   -> .mrbody
+  -> validated runtime materialization
+  -> renderer
 ```
 
-The completed `.mrbody` must not require HMR2, PHALP, SMPL-family assets or the original source video at runtime.
+The completed `.mrbody` and materialized runtime must not require HMR2, PHALP, SMPL-family assets or the original source video at runtime.
 
 ## Current fitter
 
@@ -73,8 +75,33 @@ The resulting provenance chain records both stages:
 body-recovery -> avatar-fitting
 ```
 
+For rendering, the package is then materialized through BodyRig rather than manually extracted:
+
+```powershell
+bodyrig-materialize `
+  .\fixture-person.mrbody `
+  --out .\runtime
+```
+
+The materialized runtime is bound to the package SHA-256 through `runtime-manifest.json`. The reference Unity acceptance loader enters through that manifest and exposes no public loose-VRM acceptance path.
+
 ## Current acceptance level
 
-The interface and package path may be validated using fixture BodyPrint/recovery proofs before the physical recovery gate is complete.
+The interface and package/runtime path may be validated using fixture BodyPrint/recovery proofs before the physical recovery gate is complete.
 
-This does **not** satisfy the physical V1 gate. The first source-derived avatar acceptance remains dependent on issue #2 producing a real video recovery proof on the target rig, followed by issue #3 validation of the generated VRM in a reference renderer.
+This does **not** satisfy the physical V1 gate. The first source-derived avatar acceptance remains dependent on issue #2 producing a real video recovery proof on the target rig, followed by issue #3 validation of the **same hash-bound materialized runtime** in a Windows Unity/UniVRM renderer and an Android/Quest-class renderer.
+
+## Next fidelity adapter
+
+After the physical V1 chain is proven, visual identity should advance through a separate high-fidelity fitter adapter rather than by weakening or replacing the existing package/runtime boundaries.
+
+A future adapter should independently demonstrate at least:
+
+1. silhouette/proportion similarity on held-out source frames;
+2. face/head similarity when sufficient face evidence exists;
+3. texture/skin consistency across viewpoints;
+4. explicit hair/clothing coverage or confidence/fallback state;
+5. VRM 1.0 portability through the same materialization/renderer path;
+6. no hidden recovery/fitting-model dependency at runtime.
+
+Any model or body-representation licensing constraints remain build-time concerns and must not be silently redistributed inside `.mrbody`.
