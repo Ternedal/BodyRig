@@ -147,6 +147,7 @@ New-Item -ItemType Directory -Path $OutputDir | Out-Null
 $sourceManifest = Join-Path $OutputDir "bodyrig-stash-source-manifest.json"
 $observationSelection = Join-Path $OutputDir "bodyrig-observation-selection.json"
 $observationSegments = Join-Path $OutputDir "bodyrig-observation-segments.json"
+$observationEvidence = Join-Path $OutputDir "bodyrig-observation-evidence.json"
 $cloneOutput = Join-Path $OutputDir "clone"
 $observationWorkspace = ""
 
@@ -249,8 +250,19 @@ try {
         if ($segments.Count -lt 1 -or $segments.Count -gt 10) {
             throw "BodyRig observation selection returned an invalid segment count."
         }
+
+        $evidenceArgs = @(
+            "-m", "bodyrig.observation_evidence",
+            "--source-manifest", $sourceManifest,
+            "--selection", $observationSelection,
+            "--segments", $observationSegments,
+            "--out", $observationEvidence
+        )
+        Invoke-Checked -Executable $BodyRigPython -Arguments $evidenceArgs -Step "Observation evidence binding"
+
         Write-Host "Observation segments: $($segments.Count)"
         Write-Host "Observation selection evidence: $observationSelection"
+        Write-Host "Observation path-free evidence: $observationEvidence"
         Write-Host ""
     }
 
@@ -287,7 +299,7 @@ try {
     Copy-Item -LiteralPath $sourceManifest -Destination (Join-Path $cloneOutput "bodyrig-stash-source-manifest.json") -Force
     if ($usingObservationSelection) {
         Copy-Item -LiteralPath $observationSelection -Destination (Join-Path $cloneOutput "bodyrig-observation-selection.json") -Force
-        Copy-Item -LiteralPath $observationSegments -Destination (Join-Path $cloneOutput "bodyrig-observation-segments.json") -Force
+        Copy-Item -LiteralPath $observationEvidence -Destination (Join-Path $cloneOutput "bodyrig-observation-evidence.json") -Force
     }
     $success = $true
 } finally {
@@ -312,7 +324,7 @@ Write-Host "Performer: $Name [$PerformerId]"
 Write-Host "Source manifest: $sourceManifest"
 if ($usingObservationSelection) {
     Write-Host "Observation selection: $observationSelection"
-    Write-Host "Observation segment evidence: $observationSegments"
+    Write-Host "Observation path-free evidence: $observationEvidence"
 }
 Write-Host "Clone output: $cloneOutput"
 exit 0
