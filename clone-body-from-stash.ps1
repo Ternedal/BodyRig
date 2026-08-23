@@ -25,6 +25,10 @@ param(
     [int]$MaxSources = 10,
     [ValidateRange(1, 1000)]
     [int]$SceneLimit = 200,
+    [string]$ObservationAnalyzerConfig = "",
+    [ValidateRange(1, 10)]
+    [int]$MaxSegments = 10,
+    [string]$Ffmpeg = "",
     [string]$TrackId = "",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
@@ -48,6 +52,21 @@ function Resolve-InputFile {
         throw "$Label not found: $Path"
     }
     return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Resolve-Executable {
+    param([string]$Value, [Parameter(Mandatory = $true)][string]$Fallback, [Parameter(Mandatory = $true)][string]$Label)
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        if (Test-Path -LiteralPath $Value -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Value).Path
+        }
+        $resolvedValue = Resolve-CommandPath $Value
+        if ($null -ne $resolvedValue) { return $resolvedValue }
+        throw "$Label executable not found: $Value"
+    }
+    $resolved = Resolve-CommandPath $Fallback
+    if ($null -eq $resolved) { throw "$Label executable not found: $Fallback" }
+    return $resolved
 }
 
 function Invoke-Checked {
@@ -94,6 +113,12 @@ if ($null -eq $powerShellExe) {
     throw "PowerShell executable not found."
 }
 
+$usingObservationSelection = -not [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)
+if ($usingObservationSelection) {
+    $ObservationAnalyzerConfig = Resolve-InputFile -Path $ObservationAnalyzerConfig -Label "Observation analyzer config"
+    $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
+}
+
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path (Get-Location).Path "bodyrig-stash-$BodyId-$stamp"
@@ -105,7 +130,10 @@ if (Test-Path -LiteralPath $OutputDir) {
 New-Item -ItemType Directory -Path $OutputDir | Out-Null
 
 $sourceManifest = Join-Path $OutputDir "bodyrig-stash-source-manifest.json"
+$observationSelection = Join-Path $OutputDir "bodyrig-observation-selection.json"
+$observationSegments = Join-Path $OutputDir "bodyrig-observation-segments.json"
 $cloneOutput = Join-Path $OutputDir "clone"
+$observationWorkspace = ""
 
 $selectArgs = @(
     "-m", "bodyrig.stash_cli", "select",
@@ -139,46 +167,113 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
 
 Write-Host "BodyRig Stash clone"
 Write-Host "Performer: $Name [$PerformerId]"
-Write-Host "Selected sources: $($selected.Count)"
+Write-Host "Selected source files: $($selected.Count)"
 foreach ($item in $selected) {
     Write-Host ("  {0:N1} | {1}x{2} | performers={3} | {4}" -f [double]$item.score, [int]$item.width, [int]$item.height, [int]$item.performer_count, [string]$item.scene_title)
 }
 Write-Host ""
 
-$cloneScript = Join-Path $repoRoot "clone-body.ps1"
-if (-not (Test-Path -LiteralPath $cloneScript -PathType Leaf)) {
-    throw "clone-body.ps1 not found: $cloneScript"
+$success = $false
+try {
+    if ($usingObservationSelection) {
+        $privateBase = [string]$env:LOCALAPPDATA
+        if ([string]::IsNullOrWhiteSpace($privateBase)) {
+            $privateBase = [System.IO.Path]::GetTempPath()
+        }
+        $observationWorkspace = Join-Path $privateBase ("BodyRig\observation-workspaces\$BodyId-$stamp-" + [Guid]::NewGuid().ToString("N"))
+        $observationWorkspace = [System.IO.Path]::GetFullPath($observationWorkspace)
+        if (Test-Path -LiteralPath $observationWorkspace) {
+            throw "Observation workspace already exists; refusing cross-run reuse."
+        }
+
+        $observationArgs = @(
+            "-m", "bodyrig.observation_cli",
+            $sourceManifest,
+            "--config", $ObservationAnalyzerConfig,
+            "--workspace", $observationWorkspace,
+            "--selection-out", $observationSelection,
+            "--segments-out", $observationSegments,
+            "--max-segments", [string]$MaxSegments,
+            "--ffmpeg", $Ffmpeg
+        )
+        Invoke-Checked -Executable $BodyRigPython -Arguments $observationArgs -Step "Stash frame/segment observation selection"
+
+        try {
+            $segmentManifest = Get-Content -LiteralPath $observationSegments -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            throw "BodyRig observation segment manifest is unreadable after selection."
+        }
+        if ([string]$segmentManifest.format -ne "bodyrig-observation-segments" -or [int]$segmentManifest.version -ne 1) {
+            throw "BodyRig observation segment manifest format/version mismatch."
+        }
+        $segments = @($segmentManifest.segments)
+        if ($segments.Count -lt 1 -or $segments.Count -gt 10) {
+            throw "BodyRig observation selection returned an invalid segment count."
+        }
+        Write-Host "Observation segments: $($segments.Count)"
+        Write-Host "Observation selection: $observationSelection"
+        Write-Host ""
+    }
+
+    $cloneScript = Join-Path $repoRoot "clone-body.ps1"
+    if (-not (Test-Path -LiteralPath $cloneScript -PathType Leaf)) {
+        throw "clone-body.ps1 not found: $cloneScript"
+    }
+
+    $cloneArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $cloneScript,
+        "-SourceManifest", $sourceManifest,
+        "-ExternalPython", $ExternalPython,
+        "-FourDHumansRepo", $FourDHumansRepo,
+        "-IdentityCaptureConfig", $IdentityCaptureConfig,
+        "-FitterConfig", $FitterConfig,
+        "-BodyId", $BodyId,
+        "-Name", $Name,
+        "-OutputDir", $cloneOutput,
+        "-BodyRigPython", $BodyRigPython
+    )
+    if ($usingObservationSelection) {
+        $cloneArgs += @("-SourceOverrideManifest", $observationSegments)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($TrackId)) {
+        $cloneArgs += @("-TrackId", $TrackId)
+    }
+    if ($AllowCpu) { $cloneArgs += "-AllowCpu" }
+    if ($KeepPrivateWorkspace) { $cloneArgs += "-KeepPrivateWorkspace" }
+
+    Invoke-Checked -Executable $powerShellExe -Arguments $cloneArgs -Step "BodyRig clone pipeline"
+
+    Copy-Item -LiteralPath $sourceManifest -Destination (Join-Path $cloneOutput "bodyrig-stash-source-manifest.json") -Force
+    if ($usingObservationSelection) {
+        Copy-Item -LiteralPath $observationSelection -Destination (Join-Path $cloneOutput "bodyrig-observation-selection.json") -Force
+        Copy-Item -LiteralPath $observationSegments -Destination (Join-Path $cloneOutput "bodyrig-observation-segments.json") -Force
+    }
+    $success = $true
+} finally {
+    if ($usingObservationSelection -and -not [string]::IsNullOrWhiteSpace($observationWorkspace) -and (Test-Path -LiteralPath $observationWorkspace -PathType Container)) {
+        if ($KeepPrivateWorkspace) {
+            Write-Host "Observation workspace retained by explicit request: $observationWorkspace"
+        } else {
+            Remove-Item -LiteralPath $observationWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+            if ($success) {
+                Write-Host "Private observation workspace deleted after successful clone."
+            } else {
+                Write-Host "Private observation workspace deleted after failed clone."
+            }
+        }
+    }
 }
 
-$cloneArgs = @(
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $cloneScript,
-    "-SourceManifest", $sourceManifest,
-    "-ExternalPython", $ExternalPython,
-    "-FourDHumansRepo", $FourDHumansRepo,
-    "-IdentityCaptureConfig", $IdentityCaptureConfig,
-    "-FitterConfig", $FitterConfig,
-    "-BodyId", $BodyId,
-    "-Name", $Name,
-    "-OutputDir", $cloneOutput,
-    "-BodyRigPython", $BodyRigPython
-)
-if (-not [string]::IsNullOrWhiteSpace($TrackId)) {
-    $cloneArgs += @("-TrackId", $TrackId)
-}
-if ($AllowCpu) { $cloneArgs += "-AllowCpu" }
-if ($KeepPrivateWorkspace) { $cloneArgs += "-KeepPrivateWorkspace" }
-
-Invoke-Checked -Executable $powerShellExe -Arguments $cloneArgs -Step "BodyRig clone pipeline"
-
-# Keep the exact selection manifest beside the clone evidence. The clone
-# pipeline references this fixed filename but does not place it in .mrbody.
-Copy-Item -LiteralPath $sourceManifest -Destination (Join-Path $cloneOutput "bodyrig-stash-source-manifest.json") -Force
-
+if (-not $success) { exit 1 }
 Write-Host ""
 Write-Host "BodyRig Stash clone: PASS"
 Write-Host "Performer: $Name [$PerformerId]"
 Write-Host "Source manifest: $sourceManifest"
+if ($usingObservationSelection) {
+    Write-Host "Observation selection: $observationSelection"
+    Write-Host "Observation segment evidence: $observationSegments"
+}
 Write-Host "Clone output: $cloneOutput"
 exit 0
