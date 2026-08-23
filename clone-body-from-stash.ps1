@@ -277,7 +277,6 @@ try {
     if ($usingObservationSelection) {
         Copy-Item -LiteralPath $observationSelection -Destination (Join-Path $cloneOutput "bodyrig-observation-selection.json") -Force
         Copy-Item -LiteralPath $observationSegments -Destination (Join-Path $cloneOutput "bodyrig-observation-segments.json") -Force
-        Copy-Item -LiteralPath $ObservationAnalyzerConfig -Destination (Join-Path $cloneOutput "bodyrig-observation-analyzer-config.json") -Force
     }
     $success = $true
 } finally {
