@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .avatar import AvatarError, ProceduralAvatarFitter
+from .avatar import AvatarError
+from .fitters import fitter_names, get_fitter
+from .identity import VisualIdentityError, validate_visual_identity
 from .package import MRBodyError, build_package, validate_bodyprint
 
 
@@ -42,8 +44,7 @@ def _proof(value: Any) -> dict[str, Any]:
     if isinstance(observed, bool) or not isinstance(observed, int) or observed < 2:
         raise ProofError("observed_frames must be >= 2")
     bodyprint = validate_bodyprint(value["bodyprint"])
-    # validate_bodyprint already rejects NaN/Infinity, but keep this proof parser
-    # explicitly finite if future BodyPrint sections are extended.
+
     def walk(item: Any) -> None:
         if isinstance(item, bool) or item is None or isinstance(item, str):
             return
@@ -58,8 +59,21 @@ def _proof(value: Any) -> dict[str, Any]:
         if isinstance(item, list):
             for child in item:
                 walk(child)
+
     walk(bodyprint)
     return value
+
+
+def _read_json(path: Path, *, label: str) -> Any:
+    if not path.is_file():
+        raise ProofError(f"{label} not found: {path}")
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ProofError(f"{label} is not valid canonical JSON: {path}") from exc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,20 +84,63 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--body-id", required=True, help="Path-safe BodyRig id")
     parser.add_argument("--name", required=True, help="Display name for the avatar")
     parser.add_argument("--out", required=True, help="Output .mrbody path")
+    parser.add_argument(
+        "--fitter",
+        default="procedural-vrm1",
+        help=f"Avatar fitter id (available: {', '.join(fitter_names())})",
+    )
+    parser.add_argument(
+        "--identity-profile",
+        default="",
+        help="Optional build-only bodyrig-visual-identity v1 profile for identity-aware fitters",
+    )
     args = parser.parse_args(argv)
 
     proof_path = Path(args.proof).expanduser().resolve()
-    if not proof_path.is_file():
-        print(f"BodyRig avatar fitting: proof not found: {proof_path}", file=sys.stderr)
-        return 2
     try:
-        raw = json.loads(
-            proof_path.read_text(encoding="utf-8"),
-            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)),
+        proof = _proof(_read_json(proof_path, label="recovery proof"))
+        fitter = get_fitter(args.fitter)
+
+        identity: dict[str, Any] | None = None
+        if args.identity_profile:
+            identity_path = Path(args.identity_profile).expanduser().resolve()
+            identity = validate_visual_identity(_read_json(identity_path, label="visual identity profile"))
+            if identity["source_count"] != proof["source_count"]:
+                raise VisualIdentityError(
+                    "visual identity source_count does not match recovery proof"
+                )
+            if identity["subject_track_id"] != proof["track_id"]:
+                raise VisualIdentityError(
+                    "visual identity subject_track_id does not match recovery proof track_id"
+                )
+            if not fitter.capabilities.visual_identity:
+                raise AvatarError(
+                    f"fitter {fitter.name} does not support visual identity input"
+                )
+
+        fitted = fitter.fit(proof["bodyprint"], name=args.name, identity=identity)
+        pipeline = [
+            {
+                "stage": "body-recovery",
+                "adapter": proof["adapter"],
+                "revision": proof["revision"],
+            }
+        ]
+        if identity is not None:
+            pipeline.append(
+                {
+                    "stage": "visual-identity-capture",
+                    "adapter": identity["adapter"],
+                    "revision": identity["revision"],
+                }
+            )
+        pipeline.append(
+            {
+                "stage": "avatar-fitting",
+                "adapter": fitted.adapter,
+                "revision": fitted.revision,
+            }
         )
-        proof = _proof(raw)
-        fitter = ProceduralAvatarFitter()
-        fitted = fitter.fit(proof["bodyprint"], name=args.name)
         provenance = {
             "format": "modelrig-body-provenance",
             "version": 1,
@@ -93,18 +150,7 @@ def main(argv: list[str] | None = None) -> int:
                 "count": proof["source_count"],
             },
             "synthetic_avatar": True,
-            "pipeline": [
-                {
-                    "stage": "body-recovery",
-                    "adapter": proof["adapter"],
-                    "revision": proof["revision"],
-                },
-                {
-                    "stage": "avatar-fitting",
-                    "adapter": fitted.adapter,
-                    "revision": fitted.revision,
-                },
-            ],
+            "pipeline": pipeline,
         }
         output = Path(args.out).expanduser().resolve()
         build_package(
@@ -116,7 +162,15 @@ def main(argv: list[str] | None = None) -> int:
             provenance=provenance,
             thumbnail_png=fitted.thumbnail_png,
         )
-    except (OSError, json.JSONDecodeError, ValueError, ProofError, AvatarError, MRBodyError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        ValueError,
+        ProofError,
+        VisualIdentityError,
+        AvatarError,
+        MRBodyError,
+    ) as exc:
         print(f"BodyRig avatar fitting: {exc}", file=sys.stderr)
         return 1
 
