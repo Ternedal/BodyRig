@@ -29,6 +29,7 @@ param(
     [ValidateRange(1, 10)]
     [int]$MaxSegments = 10,
     [string]$Ffmpeg = "",
+    [switch]$SkipObservationSelection,
     [string]$TrackId = "",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
@@ -92,6 +93,7 @@ if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
     throw "-ApiKeyEnv must name the environment variable containing the Stash API key."
 }
 
+$ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
@@ -113,10 +115,12 @@ if ($null -eq $powerShellExe) {
     throw "PowerShell executable not found."
 }
 
-$usingObservationSelection = -not [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)
+$usingObservationSelection = -not $SkipObservationSelection
 if ($usingObservationSelection) {
-    $ObservationAnalyzerConfig = Resolve-InputFile -Path $ObservationAnalyzerConfig -Label "Observation analyzer config"
     $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
+    if (-not [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)) {
+        $ObservationAnalyzerConfig = Resolve-InputFile -Path $ObservationAnalyzerConfig -Label "Observation analyzer config"
+    }
 }
 
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
@@ -165,11 +169,35 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
     throw "BodyRig display name from Stash is invalid; pass -Name explicitly."
 }
 
+if ($usingObservationSelection -and [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)) {
+    $bridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_observation_analyzer.py") -Label "Built-in OpenCV observation analyzer"
+    $ObservationAnalyzerConfig = Join-Path $OutputDir "bodyrig-observation-analyzer-config.json"
+    $builtInConfig = [ordered]@{
+        format = "bodyrig-observation-analyzer-config"
+        version = 1
+        adapter = "opencv-hog-haar"
+        revision = "1"
+        command = @(
+            $ExternalPython,
+            $bridge,
+            "--bodyrig-stash-manifest",
+            $sourceManifest
+        )
+        timeout_seconds = 7200
+    }
+    $builtInConfig | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ObservationAnalyzerConfig -Encoding UTF8
+}
+
 Write-Host "BodyRig Stash clone"
 Write-Host "Performer: $Name [$PerformerId]"
 Write-Host "Selected source files: $($selected.Count)"
 foreach ($item in $selected) {
     Write-Host ("  {0:N1} | {1}x{2} | performers={3} | {4}" -f [double]$item.score, [int]$item.width, [int]$item.height, [int]$item.performer_count, [string]$item.scene_title)
+}
+if ($usingObservationSelection) {
+    Write-Host "Observation selection: enabled"
+} else {
+    Write-Host "Observation selection: SKIPPED by explicit request"
 }
 Write-Host ""
 
@@ -211,7 +239,7 @@ try {
             throw "BodyRig observation selection returned an invalid segment count."
         }
         Write-Host "Observation segments: $($segments.Count)"
-        Write-Host "Observation selection: $observationSelection"
+        Write-Host "Observation selection evidence: $observationSelection"
         Write-Host ""
     }
 
@@ -249,6 +277,7 @@ try {
     if ($usingObservationSelection) {
         Copy-Item -LiteralPath $observationSelection -Destination (Join-Path $cloneOutput "bodyrig-observation-selection.json") -Force
         Copy-Item -LiteralPath $observationSegments -Destination (Join-Path $cloneOutput "bodyrig-observation-segments.json") -Force
+        Copy-Item -LiteralPath $ObservationAnalyzerConfig -Destination (Join-Path $cloneOutput "bodyrig-observation-analyzer-config.json") -Force
     }
     $success = $true
 } finally {
