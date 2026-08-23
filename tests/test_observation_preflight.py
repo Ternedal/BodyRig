@@ -13,12 +13,16 @@ def _completed(command, *, stdout="", stderr="", returncode=0):
     return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr=stderr)
 
 
+def _is_python_probe(command) -> bool:
+    return len(command) >= 3 and command[1] == "-c"
+
+
 def test_preflight_requires_all_opencv_capabilities_and_ffmpeg(monkeypatch):
     calls = []
 
     def fake_run(command, *, timeout=30):
         calls.append(list(command))
-        if command[0] == sys.executable:
+        if _is_python_probe(command):
             return _completed(
                 command,
                 stdout=json.dumps(
@@ -40,7 +44,7 @@ def test_preflight_requires_all_opencv_capabilities_and_ffmpeg(monkeypatch):
     assert result["errors"] == []
     assert result["mode"] == "opencv+ffmpeg"
     assert len(calls) == 2
-    assert calls[0][0] == sys.executable
+    assert calls[0][1] == "-c"
     assert calls[1] == ["ffmpeg", "-hide_banner", "-version"]
 
 
@@ -67,7 +71,7 @@ def test_custom_analyzer_preflight_skips_opencv_but_keeps_ffmpeg_gate(monkeypatc
 
 def test_preflight_fails_closed_when_haar_or_hog_is_missing(monkeypatch):
     def fake_run(command, *, timeout=30):
-        if command[0] == sys.executable:
+        if _is_python_probe(command):
             return _completed(
                 command,
                 stdout=json.dumps(
@@ -92,7 +96,7 @@ def test_preflight_fails_closed_when_haar_or_hog_is_missing(monkeypatch):
 
 def test_preflight_fails_when_ffmpeg_does_not_identify_itself(monkeypatch):
     def fake_run(command, *, timeout=30):
-        if command[0] == sys.executable:
+        if _is_python_probe(command):
             return _completed(
                 command,
                 stdout=json.dumps(
