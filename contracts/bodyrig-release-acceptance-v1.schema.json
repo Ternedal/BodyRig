@@ -14,6 +14,28 @@
     "release_gate_pass",
     "production_activation"
   ],
+  "$defs": {
+    "rendererEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "report_sha256",
+        "result",
+        "renderer_name",
+        "renderer_version",
+        "quality_note",
+        "attested_at"
+      ],
+      "properties": {
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "result": {"const": "pass"},
+        "renderer_name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+        "renderer_version": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+        "quality_note": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"},
+        "attested_at": {"type": "string", "minLength": 1, "maxLength": 80}
+      }
+    }
+  },
   "properties": {
     "format": {"const": "bodyrig-release-acceptance"},
     "version": {"const": 1},
@@ -38,24 +60,10 @@
     "renderer_acceptance": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "windows_unity_univrm",
-        "android_quest_class",
-        "quality_note",
-        "attestation",
-        "attested_at"
-      ],
+      "required": ["windows_unity_univrm", "android_quest_class"],
       "properties": {
-        "windows_unity_univrm": {"const": "pass"},
-        "android_quest_class": {"const": "pass"},
-        "quality_note": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2000,
-          "pattern": ".*\\S.*"
-        },
-        "attestation": {"const": "operator-supplied"},
-        "attested_at": {"type": "string", "minLength": 1, "maxLength": 80}
+        "windows_unity_univrm": {"$ref": "#/$defs/rendererEvidence"},
+        "android_quest_class": {"$ref": "#/$defs/rendererEvidence"}
       }
     },
     "release_gate_pass": {"const": true},
