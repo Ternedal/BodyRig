@@ -4,13 +4,13 @@ import argparse
 import json
 import subprocess
 import sys
-from pathlib import PurePosixPath
 from typing import Any, Sequence
 
 SITH_REPOSITORY = "SiTH-Diffusion/SiTH"
 SITH_REVISION = "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"
 SITH_RUN_SH_BLOB = "e72216b096202f7ac34e0163f215888d01b0fba2"
 SITH_REQUIREMENTS_BLOB = "8d6672dc167fd8642583745b910e7ecbf0af641d"
+SITH_CENTRALIZE_RGBA_BLOB = "e7976fd53e86463b9e9671848aa9dbe53337e3e0"
 
 REQUIRED_CHECKPOINTS = (
     "checkpoints/recon_model.pth",
@@ -71,6 +71,7 @@ modules = (
     ("kaolin", "kaolin"),
     ("numpy", "numpy"),
     ("cv2", "cv2"),
+    ("PIL", "PIL"),
     ("smplx", "smplx"),
     ("diffusers", "diffusers"),
     ("transformers", "transformers"),
@@ -162,6 +163,7 @@ def run_preflight(
     for relative, expected in (
         ("run.sh", SITH_RUN_SH_BLOB),
         ("requirements.txt", SITH_REQUIREMENTS_BLOB),
+        ("tools/centralize_rgba.py", SITH_CENTRALIZE_RGBA_BLOB),
     ):
         try:
             actual = _checked_text(
@@ -170,7 +172,7 @@ def run_preflight(
                 command=["git", "-C", repo, "hash-object", relative],
                 label=f"SiTH {relative} blob",
             ).lower()
-            checks[f"blob_{relative.replace('.', '_')}"] = actual
+            checks[f"blob_{relative.replace('/', '_').replace('.', '_')}"] = actual
             if actual != expected:
                 errors.append(f"SiTH {relative} blob mismatch: {actual}")
         except SithPreflightError as exc:
@@ -197,6 +199,7 @@ def run_preflight(
         "kaolin",
         "numpy",
         "cv2",
+        "PIL",
         "smplx",
         "diffusers",
         "transformers",
