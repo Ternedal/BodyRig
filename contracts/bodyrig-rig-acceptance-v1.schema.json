@@ -13,6 +13,7 @@
     "source_count",
     "recovery",
     "package",
+    "runtime",
     "checks",
     "automated_pass",
     "physical_renderer_acceptance",
@@ -64,6 +65,16 @@
         "placeholder_avatar": {"type": "boolean"}
       }
     },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest", "manifest_sha256", "materialized_from_package"],
+      "properties": {
+        "manifest": {"const": "runtime/runtime-manifest.json"},
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "materialized_from_package": {"const": true}
+      }
+    },
     "checks": {
       "type": "object",
       "additionalProperties": false,
@@ -78,7 +89,8 @@
         "source_count_matches_package",
         "recovery_provenance_matches",
         "avatar_fitting_provenance_present",
-        "avatar_is_vrm_1_0"
+        "avatar_is_vrm_1_0",
+        "runtime_materialized_from_package"
       ],
       "properties": {
         "bodyrig_checkout_clean": {"type": "boolean"},
@@ -91,7 +103,8 @@
         "source_count_matches_package": {"type": "boolean"},
         "recovery_provenance_matches": {"type": "boolean"},
         "avatar_fitting_provenance_present": {"type": "boolean"},
-        "avatar_is_vrm_1_0": {"type": "boolean"}
+        "avatar_is_vrm_1_0": {"type": "boolean"},
+        "runtime_materialized_from_package": {"type": "boolean"}
       }
     },
     "automated_pass": {"type": "boolean"},
