@@ -81,7 +81,7 @@ Den første fitter (`procedural-vrm1`) er bevidst en neutral placeholder for vis
 
 ## Fysisk end-to-end acceptance
 
-På målriggen kan hele den automatiske kæde bindes sammen med ét kald:
+På målriggen kan hele den automatiske recovery/fitting-kæde bindes sammen med ét kald:
 
 ```powershell
 .\validate-rig.ps1 `
@@ -106,7 +106,46 @@ Validatoren kræver som standard:
 
 Kilde-filnavne skrives ikke i acceptance-rapporten. SMPL-filen redistribueres ikke af BodyRig; den skal være lovligt anskaffet separat.
 
-Et automatiseret PASS **er ikke** det samme som release acceptance: rapporten efterlader `physical_renderer_acceptance=pending` og `production_activation=false`, indtil den genererede avatar også er load-testet i Unity/UniVRM på Windows og Android/Quest-class runtime.
+Et automatiseret PASS **er ikke** det samme som release acceptance: rapporten efterlader `physical_renderer_acceptance=pending` og `production_activation=false`.
+
+### Bind fysisk renderer-bevis til samme package
+
+Efter fysisk load-test af den accepterede avatar oprettes én immutable attestationsfil pr. platform:
+
+```powershell
+.\record-renderer-acceptance.ps1 `
+  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
+  -Platform "windows-unity-univrm" `
+  -Pass `
+  -RendererName "BodyRig Unity/UniVRM reference renderer" `
+  -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version>" `
+  -QualityNote "Humanoid load, proportions and reference Motor State verified"
+
+.\record-renderer-acceptance.ps1 `
+  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
+  -Platform "android-quest-class" `
+  -Pass `
+  -RendererName "BodyRig Unity/UniVRM Quest renderer" `
+  -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
+  -QualityNote "Same accepted avatar and Motor State verified on Quest-class runtime"
+```
+
+Hver renderer-attestation indeholder Gate A-reportens SHA-256, `.mrbody`-SHA-256, BodyRig Git-revision, body-id og renderer-version. Den kan ikke selv aktivere production.
+
+### Final release gate
+
+Først når begge platformfiler findes, kan release-evidensen afsluttes:
+
+```powershell
+.\complete-acceptance.ps1 `
+  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
+  -WindowsRendererReport "C:\acceptance\bodyrig-renderer-acceptance-windows.json" `
+  -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json"
+```
+
+Final-gaten genverificerer hele Gate A, package-hash, Git-head og begge renderer-reporters bindinger. Kun den resulterende `bodyrig-release-acceptance.json` må have `production_activation=true`.
+
+Se `docs/RIG_ACCEPTANCE.md` for den fulde evidens- og fail-closed-model.
 
 ## Bevægelsesstil
 
@@ -129,4 +168,4 @@ video --> recovery-engine (isolated) --> canonical 3D joints/tracks
 
 Recovery-motorer og avatar-fitters holdes bag udskiftelige grænser, så research-stack, checkpoints og kropsmodel-licenser ikke bliver skjulte runtime-afhængigheder.
 
-Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md` og `docs/MOTOR_STATE.md`.
+Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/MOTOR_STATE.md` og `docs/RIG_ACCEPTANCE.md`.
