@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-rig-acceptance-v1.schema.json",
+  "title": "BodyRig Target Rig Acceptance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "created_at",
+    "bodyrig_revision",
+    "bodyrig_checkout_clean",
+    "source_count",
+    "recovery",
+    "package",
+    "checks",
+    "automated_pass",
+    "physical_renderer_acceptance",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-rig-acceptance"},
+    "version": {"const": 1},
+    "created_at": {"type": "string", "minLength": 1, "maxLength": 80},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "bodyrig_checkout_clean": {"type": "boolean"},
+    "source_count": {"type": "integer", "minimum": 1, "maximum": 10},
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "revision", "track_id", "observed_frames"],
+      "properties": {
+        "adapter": {"type": "string", "minLength": 1, "maxLength": 80},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 200},
+        "track_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "observed_frames": {"type": "integer", "minimum": 2}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_sha256",
+        "body_id",
+        "body_name",
+        "payload_names",
+        "bodyprint_matches_proof",
+        "source_count_matches",
+        "recovery_provenance_matches",
+        "avatar_fitting_provenance_present",
+        "vrm_spec_version",
+        "placeholder_avatar"
+      ],
+      "properties": {
+        "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "body_id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9æøå_-]+$"},
+        "body_name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "payload_names": {"type": "array", "minItems": 4, "maxItems": 10, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 120}},
+        "bodyprint_matches_proof": {"type": "boolean"},
+        "source_count_matches": {"type": "boolean"},
+        "recovery_provenance_matches": {"type": "boolean"},
+        "avatar_fitting_provenance_present": {"type": "boolean"},
+        "vrm_spec_version": {"const": "1.0"},
+        "placeholder_avatar": {"type": "boolean"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bodyrig_checkout_clean",
+        "preflight_ok",
+        "recovery_adapter_pinned",
+        "observed_frames_ge_2",
+        "source_derived_shape_present",
+        "source_derived_motion_present",
+        "bodyprint_matches_package",
+        "source_count_matches_package",
+        "recovery_provenance_matches",
+        "avatar_fitting_provenance_present",
+        "avatar_is_vrm_1_0"
+      ],
+      "properties": {
+        "bodyrig_checkout_clean": {"type": "boolean"},
+        "preflight_ok": {"type": "boolean"},
+        "recovery_adapter_pinned": {"type": "boolean"},
+        "observed_frames_ge_2": {"type": "boolean"},
+        "source_derived_shape_present": {"type": "boolean"},
+        "source_derived_motion_present": {"type": "boolean"},
+        "bodyprint_matches_package": {"type": "boolean"},
+        "source_count_matches_package": {"type": "boolean"},
+        "recovery_provenance_matches": {"type": "boolean"},
+        "avatar_fitting_provenance_present": {"type": "boolean"},
+        "avatar_is_vrm_1_0": {"type": "boolean"}
+      }
+    },
+    "automated_pass": {"type": "boolean"},
+    "physical_renderer_acceptance": {"const": "pending"},
+    "production_activation": {"const": false}
+  }
+}
