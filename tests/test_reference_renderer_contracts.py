@@ -30,9 +30,7 @@ def test_reference_renderer_is_directly_openable_unity_project() -> None:
 
 
 def test_machine_probe_rejects_editor_generic_android_and_empty_build_guid() -> None:
-    source = (REFERENCE / "Assets" / "BodyRig" / "BodyRigRendererProbe.cs").read_text(
-        encoding="utf-8"
-    )
+    source = (REFERENCE / "Assets" / "BodyRig" / "BodyRigRendererProbe.cs").read_text(encoding="utf-8")
     assert "case RuntimePlatform.WindowsPlayer:" in source
     assert "case RuntimePlatform.WindowsEditor:" in source
     assert "requires a built WindowsPlayer, not Unity Editor" in source
@@ -44,15 +42,9 @@ def test_machine_probe_rejects_editor_generic_android_and_empty_build_guid() -> 
 
 
 def test_probe_remains_manifest_bound_and_vrm1_only() -> None:
-    loader = (REFERENCE / "Assets" / "BodyRig" / "BodyRigAvatarLoader.cs").read_text(
-        encoding="utf-8"
-    )
-    probe = (REFERENCE / "Assets" / "BodyRig" / "BodyRigRendererProbe.cs").read_text(
-        encoding="utf-8"
-    )
-    bootstrap = (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").read_text(
-        encoding="utf-8"
-    )
+    loader = (REFERENCE / "Assets" / "BodyRig" / "BodyRigAvatarLoader.cs").read_text(encoding="utf-8")
+    probe = (REFERENCE / "Assets" / "BodyRig" / "BodyRigRendererProbe.cs").read_text(encoding="utf-8")
+    bootstrap = (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").read_text(encoding="utf-8")
     assert "LoadRuntimeAsync" in loader
     assert "canLoadVrm0X: false" in loader
     assert "await loader.LoadRuntimeAsync(fullManifestPath);" in probe
@@ -63,11 +55,26 @@ def test_probe_remains_manifest_bound_and_vrm1_only() -> None:
 
 
 def test_build_script_has_physical_windows_and_quest_targets() -> None:
-    source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(
-        encoding="utf-8"
-    )
+    source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
     assert "BuildTarget.StandaloneWindows64" in source
     assert "BuildTarget.Android" in source
     assert "AndroidArchitecture.ARM64" in source
     assert 'ApplicationId = "dk.ternedal.bodyrig.reference"' in source
     assert "BuildOptions.Development" in source
+
+
+def test_operator_wrappers_keep_gate_a_bytes_and_platform_identity() -> None:
+    windows = (REPO / "run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
+    quest = (REPO / "run-quest-renderer-probe.ps1").read_text(encoding="utf-8")
+    for source in (windows, quest):
+        assert "bodyrig-acceptance.json" in source
+        assert "runtime-manifest.json" in source
+        assert "manifest_sha256" in source
+        assert "Get-FileHash" in source
+        assert "production_activation" in source
+    assert 'unity_platform -ne "WindowsPlayer"' in windows
+    assert 'platform -ne "windows-unity-univrm"' in windows
+    assert 'platform -ne "android-quest-class"' in quest
+    assert "getprop" in quest and "ro.product.model" in quest
+    assert "quest|oculus" in quest.lower()
+    assert 'ApplicationId = "dk.ternedal.bodyrig.reference"' in quest
