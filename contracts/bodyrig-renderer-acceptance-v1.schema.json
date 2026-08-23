@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-renderer-acceptance-v1.schema.json",
+  "title": "BodyRig Physical Renderer Acceptance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "attested_at",
+    "bodyrig_revision",
+    "automated_report_sha256",
+    "package_sha256",
+    "body_id",
+    "platform",
+    "renderer_name",
+    "renderer_version",
+    "result",
+    "quality_note",
+    "attestation",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-renderer-acceptance"},
+    "version": {"const": 1},
+    "attested_at": {"type": "string", "minLength": 1, "maxLength": 80},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "automated_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "body_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z0-9æøå_-]+$"
+    },
+    "platform": {
+      "enum": ["windows-unity-univrm", "android-quest-class"]
+    },
+    "renderer_name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "renderer_version": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "result": {"const": "pass"},
+    "quality_note": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"},
+    "attestation": {"const": "operator-supplied"},
+    "production_activation": {"const": false}
+  }
+}
