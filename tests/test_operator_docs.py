@@ -16,6 +16,10 @@ VALIDATE_RIG_CALL = re.compile(
     r"(?ms)^\.\\validate-rig\.ps1 `\n"
     r"(?P<args>(?:  -[^\n]+\n?)+)"
 )
+COMPLETE_ACCEPTANCE_CALL = re.compile(
+    r"(?ms)^\.\\complete-acceptance\.ps1 `\n"
+    r"(?P<args>(?:  -[^\n]+\n?)+)"
+)
 
 
 def _calls(path: Path, pattern: re.Pattern[str]) -> list[str]:
@@ -65,4 +69,22 @@ def test_low_level_validate_rig_docs_bind_to_pinned_phalp_checkout() -> None:
         assert "-PhalpRepo " in args, (
             "docs/RIG_ACCEPTANCE.md documents validate-rig.ps1 without "
             "the mandatory -PhalpRepo checkout"
+        )
+
+
+def test_final_gate_docs_include_both_machine_probe_inputs() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    paths = [repo_root / "README.md", repo_root / "docs" / "RIG_ACCEPTANCE.md"]
+    for path in paths:
+        calls = _calls(path, COMPLETE_ACCEPTANCE_CALL)
+        assert len(calls) == 1, (
+            f"{path.relative_to(repo_root)} must document exactly one "
+            "complete-acceptance.ps1 invocation"
+        )
+        args = calls[0]
+        assert "-WindowsProbeReport " in args, (
+            f"{path.relative_to(repo_root)} final gate omits -WindowsProbeReport"
+        )
+        assert "-QuestProbeReport " in args, (
+            f"{path.relative_to(repo_root)} final gate omits -QuestProbeReport"
         )
