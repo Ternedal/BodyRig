@@ -1,6 +1,7 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string[]]$Source,
+    [string[]]$Source = @(),
+
+    [string]$SourceManifest = "",
 
     [Parameter(Mandatory = $true)]
     [string]$ExternalPython,
@@ -62,14 +63,61 @@ function Resolve-InputDirectory {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-if ($Source.Count -lt 1 -or $Source.Count -gt 10) {
-    throw "BodyRig accepts 1..10 source clips."
+$usingManifest = -not [string]::IsNullOrWhiteSpace($SourceManifest)
+if ($usingManifest -and $Source.Count -gt 0) {
+    throw "Pass either -Source or -SourceManifest, never both."
+}
+if (-not $usingManifest -and ($Source.Count -lt 1 -or $Source.Count -gt 10)) {
+    throw "BodyRig accepts 1..10 source clips, or one -SourceManifest."
+}
+
+$sourceOrigin = "direct-local-media"
+$sourcePerformerId = ""
+$sourcePerformerName = ""
+if ($usingManifest) {
+    $SourceManifest = Resolve-InputFile -Path $SourceManifest -Label "BodyRig source manifest"
+    try {
+        $manifest = Get-Content -LiteralPath $SourceManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "BodyRig source manifest is not valid JSON: $SourceManifest"
+    }
+    if ([string]$manifest.format -ne "bodyrig-stash-source-manifest" -or [int]$manifest.version -ne 1) {
+        throw "Unsupported BodyRig source manifest format/version."
+    }
+    if ([string]$manifest.source_kind -ne "stash-local") {
+        throw "Unsupported BodyRig source manifest source_kind."
+    }
+    $selected = @($manifest.selected)
+    if ($selected.Count -lt 1 -or $selected.Count -gt 10) {
+        throw "Stash source manifest must contain 1..10 selected files."
+    }
+    $Source = @()
+    foreach ($item in $selected) {
+        $path = [string]$item.path
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            throw "Stash source manifest contains an empty selected path."
+        }
+        $Source += $path
+    }
+    $sourceOrigin = "stash-local"
+    $sourcePerformerId = [string]$manifest.performer.id
+    $sourcePerformerName = [string]$manifest.performer.name
+    if ([string]::IsNullOrWhiteSpace($sourcePerformerId) -or [string]::IsNullOrWhiteSpace($sourcePerformerName)) {
+        throw "Stash source manifest performer binding is incomplete."
+    }
 }
 
 $resolvedSources = @()
 foreach ($item in $Source) {
     $resolvedSources += Resolve-InputFile -Path $item -Label "Source clip"
 }
+if ($resolvedSources.Count -lt 1 -or $resolvedSources.Count -gt 10) {
+    throw "BodyRig resolved source count must be 1..10."
+}
+if (($resolvedSources | Select-Object -Unique).Count -ne $resolvedSources.Count) {
+    throw "BodyRig source list contains duplicate local files."
+}
+
 $ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
 $FourDHumansRepo = Resolve-InputDirectory -Path $FourDHumansRepo -Label "4D-Humans repository"
 $IdentityCaptureConfig = Resolve-InputFile -Path $IdentityCaptureConfig -Label "Identity capture config"
@@ -115,11 +163,29 @@ $preflightPath = Join-Path $OutputDir "bodyrig-recovery-preflight.json"
 $proofPath = Join-Path $OutputDir "bodyrig-recovery-proof.json"
 $identityPath = Join-Path $OutputDir "bodyrig-visual-identity.json"
 $packagePath = Join-Path $OutputDir "$BodyId.mrbody"
+$sourceEvidencePath = Join-Path $OutputDir "bodyrig-source-evidence.json"
+
+$sourceEvidence = [ordered]@{
+    format = "bodyrig-source-evidence"
+    version = 1
+    source_kind = $sourceOrigin
+    source_count = $resolvedSources.Count
+}
+if ($usingManifest) {
+    $sourceEvidence.stash_performer_id = $sourcePerformerId
+    $sourceEvidence.stash_performer_name = $sourcePerformerName
+    $sourceEvidence.stash_source_manifest = [System.IO.Path]::GetFileName($SourceManifest)
+}
+$sourceEvidence | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $sourceEvidencePath -Encoding UTF8
 
 $success = $false
 try {
     Write-Host "BodyRig clone | $Name | $BodyId"
     Write-Host "Source clips: $($resolvedSources.Count)"
+    Write-Host "Source kind: $sourceOrigin"
+    if ($usingManifest) {
+        Write-Host "Stash performer: $sourcePerformerName [$sourcePerformerId]"
+    }
     Write-Host "Portable artifacts: $OutputDir"
     Write-Host "Private identity workspace: $PrivateWorkspace"
     Write-Host ""
@@ -197,6 +263,7 @@ print(json.dumps({
     Write-Host "Package SHA-256: $($validated.package_sha256)"
     Write-Host "Recovery proof: $proofPath"
     Write-Host "Visual identity profile: $identityPath"
+    Write-Host "Source evidence: $sourceEvidencePath"
 } finally {
     if (-not $KeepPrivateWorkspace -and (Test-Path -LiteralPath $PrivateWorkspace -PathType Container)) {
         Remove-Item -LiteralPath $PrivateWorkspace -Recurse -Force -ErrorAction SilentlyContinue
