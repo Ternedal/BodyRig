@@ -1,0 +1,229 @@
+using System;
+using UnityEngine;
+
+namespace BodyRig.ReferenceRenderer
+{
+    /// <summary>
+    /// Reference-only renderer for BodyRig Motor State v1.
+    ///
+    /// It consumes already-personalized amplitudes from BodyRig. It does not
+    /// reinterpret ModelRig BodyCue semantics or read BodyPrint itself.
+    /// </summary>
+    public sealed class BodyRigMotorDriver : MonoBehaviour
+    {
+        [Serializable]
+        private sealed class MotionState
+        {
+            public float energy;
+            public float head_motion;
+        }
+
+        [Serializable]
+        private sealed class GestureState
+        {
+            public string id;
+            public float amplitude;
+        }
+
+        [Serializable]
+        private sealed class GazeState
+        {
+            public string target;
+            public float strength;
+        }
+
+        [Serializable]
+        private sealed class SpeechState
+        {
+            public string state;
+            public int elapsed_ms;
+            public string viseme;
+            public float amplitude;
+        }
+
+        [Serializable]
+        private sealed class MotorState
+        {
+            public string type;
+            public int version;
+            public string body_id;
+            public string utterance_id;
+            public MotionState motion;
+            public GestureState gesture;
+            public GazeState gaze;
+            public SpeechState speech;
+        }
+
+        [SerializeField] private BodyRigAvatarLoader avatarLoader;
+        [SerializeField] private Transform userGazeTarget;
+        [SerializeField, Range(0.01f, 1.0f)] private float smoothingSeconds = 0.12f;
+
+        private Animator _boundAnimator;
+        private Transform _head;
+        private Transform _leftShoulder;
+        private Transform _rightShoulder;
+        private Quaternion _headBaseRotation;
+        private Vector3 _leftShoulderBasePosition;
+        private Vector3 _rightShoulderBasePosition;
+        private MotorState _state;
+        private float _gestureAmplitude;
+        private float _headMotion;
+        private float _gazeStrength;
+        private float _speechAmplitude;
+
+        public void ApplyMotorJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new ArgumentException("BodyRig motor JSON is required", nameof(json));
+            }
+
+            var next = JsonUtility.FromJson<MotorState>(json);
+            if (next == null || next.type != "bodyrig-motor-state" || next.version != 1)
+            {
+                throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
+            }
+            if (string.IsNullOrWhiteSpace(next.body_id) || string.IsNullOrWhiteSpace(next.utterance_id) || next.motion == null)
+            {
+                throw new ArgumentException("Incomplete BodyRig Motor State", nameof(json));
+            }
+
+            Validate01(next.motion.energy, "motion.energy");
+            Validate01(next.motion.head_motion, "motion.head_motion");
+            if (next.gesture != null)
+            {
+                Validate01(next.gesture.amplitude, "gesture.amplitude");
+            }
+            if (next.gaze != null)
+            {
+                Validate01(next.gaze.strength, "gaze.strength");
+            }
+            if (next.speech != null)
+            {
+                Validate01(next.speech.amplitude, "speech.amplitude");
+            }
+
+            _state = next;
+        }
+
+        private static void Validate01(float value, string field)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value < 0.0f || value > 1.0f)
+            {
+                throw new ArgumentOutOfRangeException(field, "BodyRig normalized motor value must be in 0..1");
+            }
+        }
+
+        private void LateUpdate()
+        {
+            BindAvatarIfNeeded();
+            if (_boundAnimator == null || _state == null)
+            {
+                return;
+            }
+
+            var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
+            var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
+
+            var targetGesture = _state.gesture != null && _state.gesture.id == "small_shrug"
+                ? _state.gesture.amplitude
+                : 0.0f;
+            var targetHead = _state.motion != null ? _state.motion.head_motion : 0.0f;
+            var targetGaze = _state.gaze != null ? _state.gaze.strength : 0.0f;
+            var targetSpeech = _state.speech != null ? _state.speech.amplitude : 0.0f;
+
+            _gestureAmplitude = Mathf.Lerp(_gestureAmplitude, targetGesture, blend);
+            _headMotion = Mathf.Lerp(_headMotion, targetHead, blend);
+            _gazeStrength = Mathf.Lerp(_gazeStrength, targetGaze, blend);
+            _speechAmplitude = Mathf.Lerp(_speechAmplitude, targetSpeech, blend);
+
+            ApplyShrug();
+            ApplyHeadMotionAndGaze();
+        }
+
+        private void BindAvatarIfNeeded()
+        {
+            var animator = avatarLoader != null ? avatarLoader.Animator : null;
+            if (animator == _boundAnimator)
+            {
+                return;
+            }
+
+            _boundAnimator = animator;
+            _head = null;
+            _leftShoulder = null;
+            _rightShoulder = null;
+            _gestureAmplitude = 0.0f;
+            _headMotion = 0.0f;
+            _gazeStrength = 0.0f;
+            _speechAmplitude = 0.0f;
+
+            if (_boundAnimator == null)
+            {
+                return;
+            }
+
+            _head = _boundAnimator.GetBoneTransform(HumanBodyBones.Head);
+            _leftShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftShoulder)
+                ?? _boundAnimator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            _rightShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.RightShoulder)
+                ?? _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+
+            if (_head != null)
+            {
+                _headBaseRotation = _head.localRotation;
+            }
+            if (_leftShoulder != null)
+            {
+                _leftShoulderBasePosition = _leftShoulder.localPosition;
+            }
+            if (_rightShoulder != null)
+            {
+                _rightShoulderBasePosition = _rightShoulder.localPosition;
+            }
+        }
+
+        private void ApplyShrug()
+        {
+            // Reference implementation only: a semantic small_shrug is rendered
+            // as a bounded local shoulder lift. The personal amplitude has
+            // already been resolved by BodyRig.
+            var lift = 0.025f * _gestureAmplitude;
+            if (_leftShoulder != null)
+            {
+                _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
+            }
+            if (_rightShoulder != null)
+            {
+                _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
+            }
+        }
+
+        private void ApplyHeadMotionAndGaze()
+        {
+            if (_head == null)
+            {
+                return;
+            }
+
+            var t = Time.unscaledTime;
+            var speechBoost = 1.0f + 0.35f * _speechAmplitude;
+            var microYaw = Mathf.Sin(t * 1.13f) * 2.0f * _headMotion * speechBoost;
+            var microPitch = Mathf.Sin(t * 1.71f + 0.7f) * 1.2f * _headMotion * speechBoost;
+            var targetRotation = _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f);
+
+            if (_state.gaze != null && _state.gaze.target == "user" && userGazeTarget != null && _head.parent != null)
+            {
+                var direction = userGazeTarget.position - _head.position;
+                if (direction.sqrMagnitude > 0.000001f)
+                {
+                    var worldLook = Quaternion.LookRotation(direction.normalized, Vector3.up);
+                    var localLook = Quaternion.Inverse(_head.parent.rotation) * worldLook;
+                    targetRotation = Quaternion.Slerp(targetRotation, localLook, Mathf.Clamp01(_gazeStrength * 0.65f));
+                }
+            }
+
+            _head.localRotation = Quaternion.Slerp(_head.localRotation, targetRotation, 0.35f);
+        }
+    }
+}
