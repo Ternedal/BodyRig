@@ -4,87 +4,57 @@
   "title": "BodyRig Release Acceptance v1",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "format",
-    "version",
-    "completed_at",
-    "bodyrig_revision",
-    "automated_acceptance",
-    "renderer_acceptance",
-    "release_gate_pass",
-    "production_activation"
-  ],
+  "required": ["format","version","completed_at","bodyrig_revision","automated_acceptance","renderer_acceptance","release_gate_pass","production_activation"],
   "$defs": {
     "rendererEvidence": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "report_sha256",
-        "probe_report_sha256",
-        "runtime_manifest_sha256",
-        "avatar_sha256",
-        "bodyprint_sha256",
-        "machine_probe",
-        "result",
-        "renderer_name",
-        "renderer_version",
-        "unity_platform",
-        "unity_version",
-        "graphics_device",
-        "quality_note",
-        "observed_at",
-        "attested_at"
+        "report_sha256","probe_report_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+        "machine_probe","result","renderer_name","renderer_version","unity_platform","unity_version","build_guid","device_model","graphics_device",
+        "quality_note","observed_at","attested_at"
       ],
       "properties": {
-        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "probe_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "runtime_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "avatar_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "bodyprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "machine_probe": {"const": true},
-        "result": {"const": "pass"},
-        "renderer_name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
-        "renderer_version": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
-        "unity_platform": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": ".*\\S.*"},
-        "unity_version": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": ".*\\S.*"},
-        "graphics_device": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": ".*\\S.*"},
-        "quality_note": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"},
-        "observed_at": {"type": "string", "minLength": 1, "maxLength": 80},
-        "attested_at": {"type": "string", "minLength": 1, "maxLength": 80}
+        "report_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "probe_report_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "runtime_manifest_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "avatar_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "bodyprint_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "machine_probe": {"const":true},
+        "result": {"const":"pass"},
+        "renderer_name": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "renderer_version": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "unity_platform": {"type":"string","minLength":1,"maxLength":80,"pattern":".*\\S.*"},
+        "unity_version": {"type":"string","minLength":1,"maxLength":80,"pattern":".*\\S.*"},
+        "build_guid": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "device_model": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
+        "graphics_device": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
+        "quality_note": {"type":"string","minLength":1,"maxLength":2000,"pattern":".*\\S.*"},
+        "observed_at": {"type":"string","minLength":1,"maxLength":80},
+        "attested_at": {"type":"string","minLength":1,"maxLength":80}
       }
     }
   },
   "properties": {
-    "format": {"const": "bodyrig-release-acceptance"},
-    "version": {"const": 1},
-    "completed_at": {"type": "string", "minLength": 1, "maxLength": 80},
-    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "format": {"const":"bodyrig-release-acceptance"},
+    "version": {"const":1},
+    "completed_at": {"type":"string","minLength":1,"maxLength":80},
+    "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
     "automated_acceptance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["report_sha256", "package_sha256", "body_id", "automated_pass"],
+      "type":"object","additionalProperties":false,
+      "required":["report_sha256","package_sha256","body_id","automated_pass"],
       "properties": {
-        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "body_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160,
-          "pattern": "^[a-z0-9æøå_-]+$"
-        },
-        "automated_pass": {"const": true}
+        "report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "package_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "body_id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+        "automated_pass":{"const":true}
       }
     },
     "renderer_acceptance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["windows_unity_univrm", "android_quest_class"],
-      "properties": {
-        "windows_unity_univrm": {"$ref": "#/$defs/rendererEvidence"},
-        "android_quest_class": {"$ref": "#/$defs/rendererEvidence"}
-      }
+      "type":"object","additionalProperties":false,"required":["windows_unity_univrm","android_quest_class"],
+      "properties":{"windows_unity_univrm":{"$ref":"#/$defs/rendererEvidence"},"android_quest_class":{"$ref":"#/$defs/rendererEvidence"}}
     },
-    "release_gate_pass": {"const": true},
-    "production_activation": {"const": true}
+    "release_gate_pass":{"const":true},
+    "production_activation":{"const":true}
   }
 }
