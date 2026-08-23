@@ -50,7 +50,7 @@ SMPL-modellen downloades eller redistribueres **ikke** af BodyRig. Hvis den ikke
 
 Upstream 4D-Humans anbefaler Python 3.10/Conda og har native dependencies, som kan være den første praktiske Windows-risiko. Derfor er setup fail-closed: installation/preflight skal faktisk bestå på målriggen; BodyRig antager ikke, at et upstream Linux-orienteret research-stack automatisk virker på Windows.
 
-Når setup er grønt, er den normale Gate A-vej kun source-klip + profil-id. `run-physical-gate.ps1` læser den managed environment-summary, kræver at recovery-Python, 4D-Humans og SMPL stadig ligger under den forventede recovery-root og sender derefter de verificerede paths videre til `validate-rig.ps1`:
+Når setup er grønt, er den normale Gate A-vej kun source-klip + profil-id. `run-physical-gate.ps1` læser den managed environment-summary, kræver at recovery-Python, 4D-Humans, PHALP og SMPL stadig matcher den eksakte managed recovery-layout og de pinned revisioner, og sender derefter de verificerede paths videre til `validate-rig.ps1`:
 
 ```powershell
 .\run-physical-gate.ps1 `
@@ -67,6 +67,7 @@ Den underliggende recovery-vej kan fortsat kaldes direkte, når der er brug for 
 bodyrig-recovery-preflight `
   --python "C:\path\to\4dh-python.exe" `
   --repo "C:\path\to\4D-Humans" `
+  --phalp-repo "C:\path\to\PHALP" `
   --out ".\bodyrig-recovery-preflight.json"
 
 bodyrig-recover `
@@ -114,7 +115,7 @@ På målriggen er `run-physical-gate.ps1` den normale one-command Gate A. Den ge
 Den underliggende validator kræver som standard:
 
 - clean BodyRig checkout og registrerer den eksakte Git-revision;
-- pinned 4D-Humans/PHALP-kode;
+- pinned og clean 4D-Humans/PHALP-checkouts, hvor recovery-Python faktisk importerer PHALP fra den pinned checkout;
 - den nødvendige neutral SMPL-model i den eksterne recovery-installation;
 - CUDA i recovery-Python;
 - rigtig recovery med mindst to observerede frames;
