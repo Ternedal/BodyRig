@@ -3,6 +3,8 @@ param(
 
     [string]$SourceManifest = "",
 
+    [string[]]$SourceOverride = @(),
+
     [Parameter(Mandatory = $true)]
     [string]$ExternalPython,
 
@@ -67,6 +69,9 @@ $usingManifest = -not [string]::IsNullOrWhiteSpace($SourceManifest)
 if ($usingManifest -and $Source.Count -gt 0) {
     throw "Pass either -Source or -SourceManifest, never both."
 }
+if ($SourceOverride.Count -gt 0 -and -not $usingManifest) {
+    throw "-SourceOverride is only valid together with -SourceManifest."
+}
 if (-not $usingManifest -and ($Source.Count -lt 1 -or $Source.Count -gt 10)) {
     throw "BodyRig accepts 1..10 source clips, or one -SourceManifest."
 }
@@ -74,6 +79,7 @@ if (-not $usingManifest -and ($Source.Count -lt 1 -or $Source.Count -gt 10)) {
 $sourceOrigin = "direct-local-media"
 $sourcePerformerId = ""
 $sourcePerformerName = ""
+$usingSourceOverride = $false
 if ($usingManifest) {
     $SourceManifest = Resolve-InputFile -Path $SourceManifest -Label "BodyRig source manifest"
     try {
@@ -91,13 +97,22 @@ if ($usingManifest) {
     if ($selected.Count -lt 1 -or $selected.Count -gt 10) {
         throw "Stash source manifest must contain 1..10 selected files."
     }
-    $Source = @()
+    $manifestSources = @()
     foreach ($item in $selected) {
         $path = [string]$item.path
         if ([string]::IsNullOrWhiteSpace($path)) {
             throw "Stash source manifest contains an empty selected path."
         }
-        $Source += $path
+        $manifestSources += $path
+    }
+    if ($SourceOverride.Count -gt 0) {
+        if ($SourceOverride.Count -lt 1 -or $SourceOverride.Count -gt 10) {
+            throw "BodyRig source override must contain 1..10 private observation segments."
+        }
+        $Source = @($SourceOverride)
+        $usingSourceOverride = $true
+    } else {
+        $Source = $manifestSources
     }
     $sourceOrigin = "stash-local"
     $sourcePerformerId = [string]$manifest.performer.id
@@ -170,6 +185,7 @@ $sourceEvidence = [ordered]@{
     version = 1
     source_kind = $sourceOrigin
     source_count = $resolvedSources.Count
+    input_selection = $(if ($usingSourceOverride) { "private-observation-segments" } else { "source-files" })
 }
 if ($usingManifest) {
     $sourceEvidence.stash_performer_id = $sourcePerformerId
@@ -185,6 +201,9 @@ try {
     Write-Host "Source kind: $sourceOrigin"
     if ($usingManifest) {
         Write-Host "Stash performer: $sourcePerformerName [$sourcePerformerId]"
+    }
+    if ($usingSourceOverride) {
+        Write-Host "Input selection: private observation segments"
     }
     Write-Host "Portable artifacts: $OutputDir"
     Write-Host "Private identity workspace: $PrivateWorkspace"
