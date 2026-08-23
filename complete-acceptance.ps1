@@ -177,20 +177,24 @@ if ($expectedPackageHash -notmatch '^[0-9a-f]{64}$' -or $actualPackageHash -ne $
 }
 $reportHash = (Get-FileHash -LiteralPath $AcceptanceReport -Algorithm SHA256).Hash.ToLowerInvariant()
 
-$windows = Read-RendererAcceptance \
-    -Path $WindowsRendererReport \
-    -ExpectedPlatform "windows-unity-univrm" \
-    -ExpectedRevision $head \
-    -ExpectedAutomatedReportHash $reportHash \
-    -ExpectedPackageHash $actualPackageHash \
-    -ExpectedBodyId $bodyId
-$quest = Read-RendererAcceptance \
-    -Path $QuestRendererReport \
-    -ExpectedPlatform "android-quest-class" \
-    -ExpectedRevision $head \
-    -ExpectedAutomatedReportHash $reportHash \
-    -ExpectedPackageHash $actualPackageHash \
-    -ExpectedBodyId $bodyId
+$windowsArguments = @{
+    Path = $WindowsRendererReport
+    ExpectedPlatform = "windows-unity-univrm"
+    ExpectedRevision = $head
+    ExpectedAutomatedReportHash = $reportHash
+    ExpectedPackageHash = $actualPackageHash
+    ExpectedBodyId = $bodyId
+}
+$windows = Read-RendererAcceptance @windowsArguments
+$questArguments = @{
+    Path = $QuestRendererReport
+    ExpectedPlatform = "android-quest-class"
+    ExpectedRevision = $head
+    ExpectedAutomatedReportHash = $reportHash
+    ExpectedPackageHash = $actualPackageHash
+    ExpectedBodyId = $bodyId
+}
+$quest = Read-RendererAcceptance @questArguments
 if ([string]::Equals($windows.Path, $quest.Path, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "Windows and Quest renderer acceptance must be two distinct evidence files."
 }
