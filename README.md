@@ -162,7 +162,7 @@ Først når begge platformfiler findes, kan release-evidensen afsluttes:
 
 Final-gaten genverificerer hele Gate A, package-checksums, runtime-manifest-hash, Git-head og begge renderer-reporters bindinger. Kun den resulterende `bodyrig-release-acceptance.json` må have `production_activation=true`.
 
-CI workflow run #66 på head `15d6974246d01ac15ca8b42b6f3db34b4ad466c2` beviste den komplette ikke-fysiske gate: Python 3.11/3.12, schema-validering, PowerShell-parser og den eksekverede package → runtime → Windows/Quest evidence → release-kæde inklusive negative tamper-cases.
+En dokumenteret CI-baseline på code/evidence-head `15d6974246d01ac15ca8b42b6f3db34b4ad466c2` (workflow run #66) beviste den komplette ikke-fysiske gate: Python 3.11/3.12, schema-validering, PowerShell-parser og den eksekverede package → runtime → Windows/Quest evidence → release-kæde inklusive negative tamper-cases. Senere dokumentationscommits ændrer ikke den fysiske acceptance-status.
 
 Det erstatter **ikke** den fysiske gate: issue #2 kræver stadig rigtig video på målriggen, og issue #3 kræver stadig fysisk Unity/UniVRM-load på Windows og Quest/Android-class hardware.
 
