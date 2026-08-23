@@ -12,12 +12,23 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from .sith_input import load_captured_identity
 from .sith_preflight import SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISION
 
 STAGE_FORMAT = "bodyrig-sith-input-stage"
 PREP_FORMAT = "bodyrig-sith-prepared-input"
 VERSION = 1
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PINNED_CENTRALIZE = {"size": 1024, "ratio": 0.85}
+PINNED_OPENPOSE = {
+    "model": "BODY_25",
+    "number_people_max": 1,
+    "net_resolution": "-1x544",
+    "scale_number": 3,
+    "scale_gap": 0.25,
+    "hand": True,
+    "face": True,
+}
 
 
 class SithPrepareError(RuntimeError):
@@ -70,6 +81,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _hash(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise SithPrepareError(f"{label} must be lowercase SHA-256")
+    return value
+
+
 def _png_size(path: Path, *, label: str) -> tuple[int, int]:
     header = path.read_bytes()[:24]
     if len(header) < 24 or header[:8] != PNG_SIGNATURE or header[12:16] != b"IHDR":
@@ -100,6 +117,11 @@ def load_stage(workspace: str | Path) -> tuple[Path, dict[str, Any], str]:
     root = Path(workspace).expanduser().resolve()
     if not root.is_dir():
         raise SithPrepareError(f"identity workspace not found: {root}")
+    try:
+        captured = load_captured_identity(root)
+    except ValueError as exc:
+        raise SithPrepareError(f"captured identity binding is invalid: {exc}") from exc
+
     stage = root / "sith-input-v1"
     raw, manifest = _read_json(stage / "stage.json", label="SiTH stage manifest")
     required = {
@@ -118,38 +140,35 @@ def load_stage(workspace: str | Path) -> tuple[Path, dict[str, Any], str]:
         raise SithPrepareError("SiTH stage manifest fields must match v1 exactly")
     if manifest["format"] != STAGE_FORMAT or manifest["version"] != VERSION:
         raise SithPrepareError("unsupported SiTH stage format/version")
+    if manifest["capture_manifest_sha256"] != captured.capture_manifest_sha256:
+        raise SithPrepareError("SiTH stage is not bound to the current private capture manifest")
+    if manifest["subject_track_id"] != captured.capture_manifest["subject_track_id"]:
+        raise SithPrepareError("SiTH stage subject track does not match private capture")
+    if _hash(manifest["source_rgba_sha256"], label="source_rgba_sha256") != captured.rgba_sha256:
+        raise SithPrepareError("SiTH stage source RGBA hash does not match private capture")
     if manifest["staged_rgba"] != "rgba/000.png":
         raise SithPrepareError("SiTH stage must use canonical rgba/000.png")
-    source_hash = manifest["source_rgba_sha256"]
-    if not isinstance(source_hash, str) or len(source_hash) != 64 or any(ch not in "0123456789abcdef" for ch in source_hash):
-        raise SithPrepareError("SiTH stage source_rgba_sha256 is invalid")
-    rgba = stage / "rgba" / "000.png"
-    if not rgba.is_file() or _sha256(rgba) != source_hash:
-        raise SithPrepareError("SiTH staged RGBA byte hash mismatch")
-    size = _png_size(rgba, label="SiTH staged RGBA")
-    if [size[0], size[1]] != [manifest["input_width"], manifest["input_height"]]:
-        raise SithPrepareError("SiTH staged RGBA dimensions do not match manifest")
-    if manifest["centralize"] != {"size": 1024, "ratio": 0.85}:
+    if isinstance(manifest["input_width"], bool) or not isinstance(manifest["input_width"], int):
+        raise SithPrepareError("SiTH stage input_width must be an integer")
+    if isinstance(manifest["input_height"], bool) or not isinstance(manifest["input_height"], int):
+        raise SithPrepareError("SiTH stage input_height must be an integer")
+    expected_size = captured.rgba_size
+    if (manifest["input_width"], manifest["input_height"]) != expected_size:
+        raise SithPrepareError("SiTH stage dimensions do not match private capture")
+    if manifest["centralize"] != PINNED_CENTRALIZE:
         raise SithPrepareError("SiTH stage centralize profile is not the pinned v1 profile")
-    if manifest["openpose"] != {
-        "model": "BODY_25",
-        "number_people_max": 1,
-        "net_resolution": "-1x544",
-        "scale_number": 3,
-        "scale_gap": 0.25,
-        "hand": True,
-        "face": True,
-    }:
+    if manifest["openpose"] != PINNED_OPENPOSE:
         raise SithPrepareError("SiTH stage OpenPose profile is not the pinned v1 profile")
+
+    rgba = stage / "rgba" / "000.png"
+    if not rgba.is_file() or _sha256(rgba) != captured.rgba_sha256:
+        raise SithPrepareError("SiTH staged RGBA byte hash mismatch")
+    if _png_size(rgba, label="SiTH staged RGBA") != expected_size:
+        raise SithPrepareError("SiTH staged RGBA dimensions do not match private capture")
     return stage, manifest, hashlib.sha256(raw).hexdigest()
 
 
-def _linux_path(
-    path: Path,
-    *,
-    wsl_exe: str,
-    distribution: str,
-) -> str:
+def _linux_path(path: Path, *, wsl_exe: str, distribution: str) -> str:
     value = _checked_wsl(
         wsl_exe=wsl_exe,
         distribution=distribution,
@@ -165,26 +184,19 @@ def _linux_path(
 def _openpose_model_root(openpose: str) -> str:
     executable = PurePosixPath(openpose)
     suffix = PurePosixPath("build/examples/openpose/openpose.bin")
-    parts = executable.parts
     suffix_parts = suffix.parts
-    if len(parts) <= len(suffix_parts) or tuple(parts[-len(suffix_parts):]) != suffix_parts:
+    if len(executable.parts) <= len(suffix_parts) or tuple(executable.parts[-len(suffix_parts):]) != suffix_parts:
         raise SithPrepareError(
             "OpenPose executable must use the standard <root>/build/examples/openpose/openpose.bin layout"
         )
-    root_parts = parts[:-len(suffix_parts)]
-    root = PurePosixPath(*root_parts)
-    value = str(root / "models")
-    if not value.startswith("/"):
+    root = PurePosixPath(*executable.parts[:-len(suffix_parts)])
+    models = str(root / "models")
+    if not models.startswith("/"):
         raise SithPrepareError("could not derive absolute OpenPose model directory")
-    return value
+    return models
 
 
-def verify_sith_authority(
-    *,
-    distribution: str,
-    repo: str,
-    wsl_exe: str,
-) -> None:
+def verify_sith_authority(*, distribution: str, repo: str, wsl_exe: str) -> None:
     if not repo.startswith("/"):
         raise SithPrepareError("SiTH repo must be an absolute Linux path")
     head = _checked_wsl(
@@ -219,24 +231,22 @@ def verify_sith_authority(
 def _triples(value: Any, *, label: str, expected_points: int) -> list[tuple[float, float, float]]:
     if not isinstance(value, list) or len(value) != expected_points * 3:
         raise SithPrepareError(f"OpenPose {label} must contain {expected_points * 3} values")
-    triples: list[tuple[float, float, float]] = []
+    result: list[tuple[float, float, float]] = []
     for index in range(expected_points):
-        chunk = value[index * 3 : index * 3 + 3]
         try:
-            x, y, confidence = (float(chunk[0]), float(chunk[1]), float(chunk[2]))
+            x, y, confidence = (float(item) for item in value[index * 3 : index * 3 + 3])
         except (TypeError, ValueError) as exc:
             raise SithPrepareError(f"OpenPose {label} contains a non-numeric value") from exc
         if not all(math.isfinite(item) for item in (x, y, confidence)):
             raise SithPrepareError(f"OpenPose {label} contains a non-finite value")
-        if confidence < 0.0 or confidence > 1.0:
+        if not 0.0 <= confidence <= 1.0:
             raise SithPrepareError(f"OpenPose {label} confidence is outside 0..1")
-        triples.append((x, y, confidence))
-    return triples
+        result.append((x, y, confidence))
+    return result
 
 
 def validate_openpose_result(path: str | Path) -> dict[str, int]:
-    keypoint_path = Path(path).expanduser().resolve()
-    _, payload = _read_json(keypoint_path, label="OpenPose keypoint result")
+    _, payload = _read_json(Path(path).expanduser().resolve(), label="OpenPose keypoint result")
     people = payload.get("people")
     if not isinstance(people, list) or len(people) != 1 or not isinstance(people[0], Mapping):
         raise SithPrepareError("OpenPose result must contain exactly one person")
@@ -245,7 +255,6 @@ def validate_openpose_result(path: str | Path) -> dict[str, int]:
     left = _triples(person.get("hand_left_keypoints_2d"), label="left hand", expected_points=21)
     right = _triples(person.get("hand_right_keypoints_2d"), label="right hand", expected_points=21)
     face = _triples(person.get("face_keypoints_2d"), label="face", expected_points=70)
-
     counts = {
         "body_confident": sum(conf >= 0.15 for _, _, conf in body),
         "left_hand_confident": sum(conf >= 0.10 for _, _, conf in left),
@@ -303,78 +312,57 @@ def prepare_sith_input(
     if prep_path.exists():
         raise SithPrepareError("SiTH input has already been prepared; refusing cross-run reuse")
     images = stage / "images"
-    if any(images.iterdir()):
-        raise SithPrepareError("SiTH images directory is not empty before preparation")
+    if not images.is_dir() or any(images.iterdir()):
+        raise SithPrepareError("SiTH images directory must exist and be empty before preparation")
 
     verify_sith_authority(distribution=distribution, repo=repo, wsl_exe=wsl_exe)
     linux_stage = _linux_path(stage, wsl_exe=wsl_exe, distribution=distribution)
     linux_rgba = f"{linux_stage}/rgba"
     linux_images = f"{linux_stage}/images"
 
-    centralizer_command = [
-        python,
-        f"{repo.rstrip('/')}/tools/centralize_rgba.py",
-        "-i",
-        linux_rgba,
-        "-o",
-        linux_images,
-        "--ratio",
-        "0.85",
-        "--size",
-        "1024",
-    ]
     _checked_wsl(
         wsl_exe=wsl_exe,
         distribution=distribution,
-        command=centralizer_command,
+        command=[
+            python,
+            f"{repo.rstrip('/')}/tools/centralize_rgba.py",
+            "-i", linux_rgba,
+            "-o", linux_images,
+            "--ratio", "0.85",
+            "--size", "1024",
+        ],
         label="SiTH RGBA centralization",
         timeout=600,
     )
-
     centralized = images / "000.png"
-    children_after_centralize = sorted(path.name for path in images.iterdir())
-    if children_after_centralize != ["000.png"]:
+    if sorted(path.name for path in images.iterdir()) != ["000.png"]:
         raise SithPrepareError("SiTH centralizer must produce exactly images/000.png")
     if _png_size(centralized, label="SiTH centralized image") != (1024, 1024):
         raise SithPrepareError("SiTH centralized image must be exactly 1024x1024")
 
-    model_folder = _openpose_model_root(openpose)
-    openpose_command = [
-        openpose,
-        "--image_dir",
-        linux_images,
-        "--write_json",
-        linux_images,
-        "--display",
-        "0",
-        "--model_pose",
-        "BODY_25",
-        "--model_folder",
-        model_folder,
-        "--net_resolution",
-        "-1x544",
-        "--scale_number",
-        "3",
-        "--scale_gap",
-        "0.25",
-        "--hand",
-        "--face",
-        "--render_pose",
-        "0",
-        "--number_people_max",
-        "1",
-    ]
     _checked_wsl(
         wsl_exe=wsl_exe,
         distribution=distribution,
-        command=openpose_command,
+        command=[
+            openpose,
+            "--image_dir", linux_images,
+            "--write_json", linux_images,
+            "--display", "0",
+            "--model_pose", "BODY_25",
+            "--model_folder", _openpose_model_root(openpose),
+            "--net_resolution", "-1x544",
+            "--scale_number", "3",
+            "--scale_gap", "0.25",
+            "--hand",
+            "--face",
+            "--render_pose", "0",
+            "--number_people_max", "1",
+        ],
         label="SiTH OpenPose keypoint extraction",
         timeout=1200,
     )
-
     keypoints = images / "000_keypoints.json"
-    final_children = sorted(path.name for path in images.iterdir())
-    if final_children != ["000.png", "000_keypoints.json"]:
+    if sorted(path.name for path in images.iterdir()) != ["000.png", "000_keypoints.json"]:
         raise SithPrepareError("SiTH OpenPose stage must contain exactly 000.png and 000_keypoints.json")
     counts = validate_openpose_result(keypoints)
 
