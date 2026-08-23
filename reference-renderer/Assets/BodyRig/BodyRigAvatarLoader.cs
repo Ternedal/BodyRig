@@ -9,11 +9,25 @@ using UnityEngine;
 namespace BodyRig.ReferenceRenderer
 {
     /// <summary>
-    /// Thin physical-acceptance loader for BodyRig avatar.vrm files.
-    /// It intentionally contains no cloning/recovery logic.
+    /// Thin physical-acceptance loader for a BodyRig materialized runtime.
+    /// It intentionally contains no cloning/recovery logic and exposes no
+    /// public loose-VRM loading path: acceptance starts from runtime-manifest.json.
     /// </summary>
     public sealed class BodyRigAvatarLoader : MonoBehaviour
     {
+        [Serializable]
+        private sealed class RuntimeManifest
+        {
+            public string format;
+            public int version;
+            public string body_id;
+            public string body_name;
+            public string package_sha256;
+            public string avatar;
+            public string bodyprint;
+            public string[] payloads;
+        }
+
         private static readonly HumanBodyBones[] RequiredBones =
         {
             HumanBodyBones.Hips,
@@ -38,22 +52,72 @@ namespace BodyRig.ReferenceRenderer
 
         public Vrm10Instance Active => _active;
         public Animator Animator => _animator;
+        public string ActiveBodyId { get; private set; }
+        public string ActivePackageSha256 { get; private set; }
+        public string ActiveRuntimeManifestPath { get; private set; }
 
-        public async Task LoadAsync(string path, CancellationToken cancellationToken = default)
+        public async Task LoadRuntimeAsync(string runtimeManifestPath, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(path))
+            if (string.IsNullOrWhiteSpace(runtimeManifestPath))
             {
-                throw new ArgumentException("VRM path is required", nameof(path));
+                throw new ArgumentException("BodyRig runtime manifest path is required", nameof(runtimeManifestPath));
             }
 
+            var fullManifestPath = Path.GetFullPath(runtimeManifestPath);
+            if (!File.Exists(fullManifestPath))
+            {
+                throw new FileNotFoundException("BodyRig runtime-manifest.json was not found", fullManifestPath);
+            }
+            if (!string.Equals(Path.GetFileName(fullManifestPath), "runtime-manifest.json", StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("BodyRig acceptance loader requires runtime-manifest.json");
+            }
+
+            RuntimeManifest manifest;
+            try
+            {
+                manifest = JsonUtility.FromJson<RuntimeManifest>(File.ReadAllText(fullManifestPath));
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidDataException("BodyRig runtime manifest is not valid JSON", exception);
+            }
+            ValidateRuntimeManifest(manifest);
+
+            var runtimeDirectory = Path.GetDirectoryName(fullManifestPath);
+            if (string.IsNullOrEmpty(runtimeDirectory))
+            {
+                throw new InvalidDataException("BodyRig runtime manifest has no parent directory");
+            }
+            var avatarPath = Path.GetFullPath(Path.Combine(runtimeDirectory, manifest.avatar));
+            var bodyprintPath = Path.GetFullPath(Path.Combine(runtimeDirectory, manifest.bodyprint));
+            var normalizedRuntimeDirectory = Path.GetFullPath(runtimeDirectory);
+            if (!string.Equals(Path.GetDirectoryName(avatarPath), normalizedRuntimeDirectory, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(Path.GetDirectoryName(bodyprintPath), normalizedRuntimeDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("BodyRig runtime payload escaped the materialized runtime directory");
+            }
+            if (!File.Exists(bodyprintPath))
+            {
+                throw new FileNotFoundException("BodyRig materialized bodyprint.json was not found", bodyprintPath);
+            }
+
+            // Keep the previous runtime identity until the replacement avatar has
+            // imported and passed all Unity/UniVRM Humanoid validation.
+            await LoadAvatarPathAsync(avatarPath, cancellationToken);
+            ActiveBodyId = manifest.body_id;
+            ActivePackageSha256 = manifest.package_sha256.ToLowerInvariant();
+            ActiveRuntimeManifestPath = fullManifestPath;
+        }
+
+        private async Task LoadAvatarPathAsync(string path, CancellationToken cancellationToken)
+        {
             var fullPath = Path.GetFullPath(path);
             if (!File.Exists(fullPath))
             {
-                throw new FileNotFoundException("BodyRig avatar.vrm was not found", fullPath);
+                throw new FileNotFoundException("BodyRig materialized avatar.vrm was not found", fullPath);
             }
 
-            // Keep the old known-good avatar until the replacement has imported
-            // and passed Unity's own Humanoid mapping checks.
             Vrm10Instance candidate = null;
             try
             {
@@ -108,6 +172,48 @@ namespace BodyRig.ReferenceRenderer
             return _animator.GetBoneTransform(bone);
         }
 
+        private static void ValidateRuntimeManifest(RuntimeManifest manifest)
+        {
+            if (manifest == null || manifest.format != "bodyrig-runtime-assets" || manifest.version != 1)
+            {
+                throw new InvalidDataException("Unsupported BodyRig runtime manifest format/version");
+            }
+            if (string.IsNullOrWhiteSpace(manifest.body_id) || string.IsNullOrWhiteSpace(manifest.body_name))
+            {
+                throw new InvalidDataException("BodyRig runtime manifest has no body identity");
+            }
+            if (!IsLowerHexSha256(manifest.package_sha256))
+            {
+                throw new InvalidDataException("BodyRig runtime manifest package SHA-256 is invalid");
+            }
+            if (manifest.avatar != "avatar.vrm" || manifest.bodyprint != "bodyprint.json")
+            {
+                throw new InvalidDataException("BodyRig runtime manifest contains unexpected payload paths");
+            }
+            if (manifest.payloads == null ||
+                Array.IndexOf(manifest.payloads, "avatar.vrm") < 0 ||
+                Array.IndexOf(manifest.payloads, "bodyprint.json") < 0)
+            {
+                throw new InvalidDataException("BodyRig runtime manifest is missing required payloads");
+            }
+        }
+
+        private static bool IsLowerHexSha256(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length != 64)
+            {
+                return false;
+            }
+            foreach (var character in value)
+            {
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private static void ValidateHumanoid(Animator animator)
         {
             if (animator == null || animator.avatar == null || !animator.avatar.isValid || !animator.avatar.isHuman)
@@ -132,6 +238,9 @@ namespace BodyRig.ReferenceRenderer
                 _active = null;
                 _animator = null;
             }
+            ActiveBodyId = null;
+            ActivePackageSha256 = null;
+            ActiveRuntimeManifestPath = null;
         }
     }
 }
