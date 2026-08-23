@@ -174,6 +174,7 @@ Write-Host ""
 Write-Host "Pinned recovery checkouts/environment prepared."
 Write-Host "External Python: $envPython"
 Write-Host "4D-Humans repo: $fourDPath"
+Write-Host "PHALP repo: $phalpPath"
 if (-not $summary.smpl_present) {
     Write-Warning "SMPL neutral model is still missing. BodyRig does not download or redistribute it. Obtain $SmplFileName under the applicable SMPL terms, then rerun with -SmplModelPath <file>."
     Write-Host "Recovery acceptance remains BLOCKED until the SMPL model is present."
@@ -195,6 +196,7 @@ Invoke-Checked -Executable $bodyRigPython -Arguments @(
     "-m", "bodyrig.preflight_cli",
     "--python", $envPython,
     "--repo", $fourDPath,
+    "--phalp-repo", $phalpPath,
     "--out", $preflightPath
 ) -Step "BodyRig recovery preflight"
 
@@ -203,5 +205,5 @@ Write-Host "Preflight: $preflightPath"
 Write-Host "Environment summary: $summaryPath"
 Write-Host ""
 Write-Host "Next:"
-Write-Host ".\validate-rig.ps1 -Source <video> -ExternalPython `"$envPython`" -FourDHumansRepo `"$fourDPath`""
+Write-Host ".\run-physical-gate.ps1 -Source <video> -BodyId <id> -Name <name>"
 exit 0
