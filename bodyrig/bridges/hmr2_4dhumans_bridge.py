@@ -1,29 +1,32 @@
 #!/usr/bin/env python
-"""BodyRig JSON-command bridge for pinned 4D-Humans/HMR2 + PHALP.
+"""JSON-command bridge for pinned 4D-Humans/HMR2 + PHALP.
 
-This script is meant to run *inside* the external 4D-Humans Python/conda
-runtime. BodyRig core talks to it through JsonCommandRecoveryAdapter.
-
-stdin:  {"format":"bodyrig-recovery-request","version":1,"sources":[...]}
-stdout: canonical BodyRig recovery v1 JSON only
-stderr: diagnostics/progress
+Run this file with the external 4D-Humans Python runtime. It deliberately
+bootstraps the BodyRig package from the filesystem containing this script, so
+BodyRig does not need to be installed into the heavy recovery environment.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from bodyrig.bridges.phalp import canonicalize_phalp_results
+# When this script is executed directly, Python normally puts only
+# bodyrig/bridges on sys.path. Add the package parent (repo root/site-packages)
+# so the pure-Python converter/config can be imported in the external venv.
+_PACKAGE_PARENT = Path(__file__).resolve().parents[2]
+if str(_PACKAGE_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PACKAGE_PARENT))
 
-FOUR_D_HUMANS_REVISION = "efe18deff163b29dff87ddbd575fa29b716a356c"
-PHALP_REVISION = "96f7e6c09fb858ec3f597d59246c151ab4394bc3"
-ADAPTER_NAME = "4dhumans-hmr2-phalp"
-ADAPTER_REVISION = f"4dh:{FOUR_D_HUMANS_REVISION};phalp:{PHALP_REVISION}"
+from bodyrig.bridges.hmr2_config import (  # noqa: E402
+    ADAPTER_NAME,
+    ADAPTER_REVISION,
+    FOUR_D_HUMANS_REVISION,
+)
+from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
 
 
 def _read_request() -> list[Path]:
@@ -65,7 +68,6 @@ def _video_fps(source: Path) -> float:
 
 
 def _quoted_hydra_path(path: Path) -> str:
-    # Forward slashes avoid Windows backslash escaping in Hydra's override grammar.
     escaped = path.as_posix().replace('"', '\\"')
     return f'"{escaped}"'
 
@@ -77,8 +79,7 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
         raise RuntimeError("joblib is required in the 4D-Humans environment") from exc
 
     with tempfile.TemporaryDirectory(prefix="bodyrig-4dh-") as temp_dir_raw:
-        temp_dir = Path(temp_dir_raw)
-        output_dir = temp_dir / "output"
+        output_dir = Path(temp_dir_raw) / "output"
         command = [
             sys.executable,
             str(repo / "track.py"),
@@ -99,12 +100,11 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
             print(completed.stdout[-12000:], file=sys.stderr)
         if completed.returncode != 0:
             raise RuntimeError(f"4D-Humans track.py failed with exit code {completed.returncode}")
-
         pkls = sorted((output_dir / "results").glob("*.pkl"))
         if len(pkls) != 1:
             raise RuntimeError(f"expected exactly one PHALP result pickle, found {len(pkls)}")
-        # This pickle is not user input. It is loaded only from the private temp
-        # directory after the child process above created it in this invocation.
+        # The pickle is created inside our private temp directory by the child
+        # process above. Arbitrary user-provided pickle input is never loaded.
         frame_results = joblib.load(pkls[0])
         if not isinstance(frame_results, dict):
             raise RuntimeError("unexpected PHALP result shape")
@@ -118,13 +118,10 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
 def _verify_repo(repo: Path) -> None:
     if not (repo / "track.py").is_file() or not (repo / "hmr2").is_dir():
         raise RuntimeError("--repo does not look like a 4D-Humans checkout")
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-        )
-    except OSError as exc:
-        raise RuntimeError("git is required to verify the 4D-Humans checkout") from exc
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
     head = completed.stdout.strip().lower()
     if completed.returncode != 0 or head != FOUR_D_HUMANS_REVISION:
         raise RuntimeError(
