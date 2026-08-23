@@ -8,8 +8,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FourDHumansRepo,
 
-    [Parameter(Mandatory = $true)]
-    [string]$IdentityCaptureConfig,
+    [string]$IdentityCaptureConfig = "",
 
     [Parameter(Mandatory = $true)]
     [string]$FitterConfig,
@@ -117,6 +116,19 @@ if ($null -eq $powerShellExe) {
 
 $usingObservationSelection = -not $SkipObservationSelection
 $usingBuiltInObservationAnalyzer = $usingObservationSelection -and [string]::IsNullOrWhiteSpace($ObservationAnalyzerConfig)
+$usingBuiltInIdentityCapture = [string]::IsNullOrWhiteSpace($IdentityCaptureConfig)
+
+if (-not $usingBuiltInIdentityCapture) {
+    $IdentityCaptureConfig = Resolve-InputFile -Path $IdentityCaptureConfig -Label "Identity capture config"
+}
+if ($usingBuiltInIdentityCapture) {
+    $identityPreflightArgs = @(
+        "-m", "bodyrig.identity_capture_preflight",
+        "--external-python", $ExternalPython
+    )
+    Invoke-Checked -Executable $BodyRigPython -Arguments $identityPreflightArgs -Step "Built-in identity capture preflight"
+}
+
 if ($usingObservationSelection) {
     $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
     if (-not $usingBuiltInObservationAnalyzer) {
@@ -150,6 +162,23 @@ $observationSegments = Join-Path $OutputDir "bodyrig-observation-segments.json"
 $observationEvidence = Join-Path $OutputDir "bodyrig-observation-evidence.json"
 $cloneOutput = Join-Path $OutputDir "clone"
 $observationWorkspace = ""
+
+if ($usingBuiltInIdentityCapture) {
+    $identityBridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_identity_capture.py") -Label "Built-in OpenCV identity capture adapter"
+    $IdentityCaptureConfig = Join-Path $OutputDir "bodyrig-identity-capture-config.json"
+    $builtInIdentityConfig = [ordered]@{
+        format = "bodyrig-identity-capture-config"
+        version = 1
+        adapter = "opencv-identity-rgba"
+        revision = "1"
+        command = @(
+            $ExternalPython,
+            $identityBridge
+        )
+        timeout_seconds = 3600
+    }
+    $builtInIdentityConfig | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $IdentityCaptureConfig -Encoding UTF8
+}
 
 $selectArgs = @(
     "-m", "bodyrig.stash_cli", "select",
@@ -210,6 +239,11 @@ if ($usingObservationSelection) {
     Write-Host "Observation selection: enabled"
 } else {
     Write-Host "Observation selection: SKIPPED by explicit request"
+}
+if ($usingBuiltInIdentityCapture) {
+    Write-Host "Identity capture: built-in opencv-identity-rgba v1"
+} else {
+    Write-Host "Identity capture: custom config"
 }
 Write-Host ""
 
