@@ -11,6 +11,20 @@ SITH_REVISION = "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"
 SITH_RUN_SH_BLOB = "e72216b096202f7ac34e0163f215888d01b0fba2"
 SITH_REQUIREMENTS_BLOB = "8d6672dc167fd8642583745b910e7ecbf0af641d"
 SITH_CENTRALIZE_RGBA_BLOB = "e7976fd53e86463b9e9671848aa9dbe53337e3e0"
+SITH_FIT_BLOB = "f5e90e7d82d06bff342335156f23902e6b88e723"
+SITH_HALLUCINATE_BLOB = "81ed3064062a47d6205c3e2cffa58dd0db06ee4d"
+SITH_RECONSTRUCT_BLOB = "6dff206cf6c487479b528bf91c491e1adef6955b"
+SITH_RECON_CONFIG_BLOB = "99df9520c2cb4768f0466282bb2560404fb11d95"
+
+PINNED_BLOBS = {
+    "run.sh": SITH_RUN_SH_BLOB,
+    "requirements.txt": SITH_REQUIREMENTS_BLOB,
+    "tools/centralize_rgba.py": SITH_CENTRALIZE_RGBA_BLOB,
+    "fit.py": SITH_FIT_BLOB,
+    "hallucinate.py": SITH_HALLUCINATE_BLOB,
+    "reconstruct.py": SITH_RECONSTRUCT_BLOB,
+    "recon/config.yaml": SITH_RECON_CONFIG_BLOB,
+}
 
 REQUIRED_CHECKPOINTS = (
     "checkpoints/recon_model.pth",
@@ -160,11 +174,7 @@ def run_preflight(
     except SithPreflightError as exc:
         errors.append(str(exc))
 
-    for relative, expected in (
-        ("run.sh", SITH_RUN_SH_BLOB),
-        ("requirements.txt", SITH_REQUIREMENTS_BLOB),
-        ("tools/centralize_rgba.py", SITH_CENTRALIZE_RGBA_BLOB),
-    ):
+    for relative, expected in PINNED_BLOBS.items():
         try:
             actual = _checked_text(
                 wsl_exe=wsl_exe,
