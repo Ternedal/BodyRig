@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 $Pwsh = (Get-Command pwsh -ErrorAction Stop).Source
 $SourceGate = (Resolve-Path (Join-Path $PSScriptRoot "../complete-acceptance.ps1")).Path
 $SourceRecorder = (Resolve-Path (Join-Path $PSScriptRoot "../record-renderer-acceptance.ps1")).Path
@@ -19,12 +21,53 @@ function Invoke-Git {
     return $output
 }
 
+function Get-ByteHash {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hash = $sha.ComputeHash($Bytes)
+        return ([System.BitConverter]::ToString($hash)).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
+function Add-ZipEntry {
+    param(
+        [Parameter(Mandatory = $true)]$Archive,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][byte[]]$Bytes
+    )
+    $entry = $Archive.CreateEntry($Name, [System.IO.Compression.CompressionLevel]::Optimal)
+    $stream = $entry.Open()
+    try {
+        $stream.Write($Bytes, 0, $Bytes.Length)
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Assert-Success {
+    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
+    if ($Result.ExitCode -ne 0) {
+        throw "$Case expected PASS, got exit $($Result.ExitCode): $($Result.Output)"
+    }
+}
+
+function Assert-Failure {
+    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
+    if ($Result.ExitCode -eq 0) {
+        throw "$Case expected FAIL, but gate returned success. Output: $($Result.Output)"
+    }
+}
+
 function New-Fixture {
     param([Parameter(Mandatory = $true)][string]$Name)
 
     $repo = Join-Path $TempRoot "$Name-repo"
     $artifacts = Join-Path $TempRoot "$Name-artifacts"
-    New-Item -ItemType Directory -Path $repo, $artifacts -Force | Out-Null
+    $runtimeDir = Join-Path $artifacts "runtime"
+    New-Item -ItemType Directory -Path $repo, $artifacts, $runtimeDir -Force | Out-Null
     Copy-Item -LiteralPath $SourceGate -Destination (Join-Path $repo "complete-acceptance.ps1")
     Copy-Item -LiteralPath $SourceRecorder -Destination (Join-Path $repo "record-renderer-acceptance.ps1")
 
@@ -40,12 +83,52 @@ function New-Fixture {
     if ($head -notmatch '^[0-9a-f]{40}$') { throw "fixture Git HEAD is invalid: $head" }
 
     $bodyId = "fixture-body"
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $avatarBytes = $utf8.GetBytes("fixture-avatar-vrm-bytes-$Name")
+    $bodyprintBytes = $utf8.GetBytes('{"format":"modelrig-bodyprint","version":1,"shape":{"shoulder_to_height":0.24}}')
+    $provenanceBytes = $utf8.GetBytes('{"format":"modelrig-body-provenance","version":1}')
+    $thumbnailBytes = [byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x66,0x69,0x78)
+
+    $checksums = [ordered]@{
+        "avatar.vrm" = Get-ByteHash $avatarBytes
+        "bodyprint.json" = Get-ByteHash $bodyprintBytes
+        "provenance.json" = Get-ByteHash $provenanceBytes
+        "thumbnail.png" = Get-ByteHash $thumbnailBytes
+    }
+    $manifestBytes = $utf8.GetBytes('{"format":"modelrig-body","format_version":1,"id":"fixture-body"}')
+    $checksumsBytes = $utf8.GetBytes(($checksums | ConvertTo-Json -Compress))
+
     $packagePath = Join-Path $artifacts "$bodyId.mrbody"
-    [System.IO.File]::WriteAllBytes(
-        $packagePath,
-        [System.Text.Encoding]::UTF8.GetBytes("BodyRig acceptance fixture: $Name")
-    )
+    $archive = [System.IO.Compression.ZipFile]::Open($packagePath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Add-ZipEntry $archive "manifest.json" $manifestBytes
+        Add-ZipEntry $archive "checksums.json" $checksumsBytes
+        Add-ZipEntry $archive "avatar.vrm" $avatarBytes
+        Add-ZipEntry $archive "bodyprint.json" $bodyprintBytes
+        Add-ZipEntry $archive "provenance.json" $provenanceBytes
+        Add-ZipEntry $archive "thumbnail.png" $thumbnailBytes
+    } finally {
+        $archive.Dispose()
+    }
     $packageHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+
+    [System.IO.File]::WriteAllBytes((Join-Path $runtimeDir "avatar.vrm"), $avatarBytes)
+    [System.IO.File]::WriteAllBytes((Join-Path $runtimeDir "bodyprint.json"), $bodyprintBytes)
+    [System.IO.File]::WriteAllBytes((Join-Path $runtimeDir "provenance.json"), $provenanceBytes)
+    [System.IO.File]::WriteAllBytes((Join-Path $runtimeDir "thumbnail.png"), $thumbnailBytes)
+    $runtimeManifest = [ordered]@{
+        format = "bodyrig-runtime-assets"
+        version = 1
+        body_id = $bodyId
+        body_name = "Fixture Body"
+        package_sha256 = $packageHash
+        avatar = "avatar.vrm"
+        bodyprint = "bodyprint.json"
+        payloads = @("avatar.vrm", "bodyprint.json", "provenance.json", "thumbnail.png")
+    }
+    $runtimeManifestPath = Join-Path $runtimeDir "runtime-manifest.json"
+    $runtimeManifest | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $runtimeManifestPath -Encoding UTF8
+    $runtimeManifestHash = (Get-FileHash -LiteralPath $runtimeManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
     $checks = [ordered]@{
         bodyrig_checkout_clean = $true
@@ -59,6 +142,7 @@ function New-Fixture {
         recovery_provenance_matches = $true
         avatar_fitting_provenance_present = $true
         avatar_is_vrm_1_0 = $true
+        runtime_materialized_from_package = $true
     }
     $report = [ordered]@{
         format = "bodyrig-rig-acceptance"
@@ -85,6 +169,11 @@ function New-Fixture {
             vrm_spec_version = "1.0"
             placeholder_avatar = $true
         }
+        runtime = [ordered]@{
+            manifest = "runtime/runtime-manifest.json"
+            manifest_sha256 = $runtimeManifestHash
+            materialized_from_package = $true
+        }
         checks = $checks
         automated_pass = $true
         physical_renderer_acceptance = "pending"
@@ -98,6 +187,8 @@ function New-Fixture {
         GateScript = Join-Path $repo "complete-acceptance.ps1"
         RecorderScript = Join-Path $repo "record-renderer-acceptance.ps1"
         Artifacts = $artifacts
+        RuntimeDir = $runtimeDir
+        RuntimeManifestPath = $runtimeManifestPath
         ReportPath = $reportPath
         Report = $report
         PackagePath = $packagePath
@@ -121,6 +212,7 @@ function Invoke-RendererRecord {
     $arguments = @(
         "-NoLogo", "-NoProfile", "-NonInteractive", "-File", $Fixture.RecorderScript,
         "-AcceptanceReport", $Fixture.ReportPath,
+        "-RuntimeManifest", $Fixture.RuntimeManifestPath,
         "-Platform", $Platform,
         "-Pass",
         "-RendererName", "BodyRig Reference Renderer",
@@ -132,20 +224,6 @@ function Invoke-RendererRecord {
     return [pscustomobject]@{
         ExitCode = $LASTEXITCODE
         Output = ($outputLines -join [Environment]::NewLine)
-    }
-}
-
-function Assert-Success {
-    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
-    if ($Result.ExitCode -ne 0) {
-        throw "$Case expected PASS, got exit $($Result.ExitCode): $($Result.Output)"
-    }
-}
-
-function Assert-Failure {
-    param([Parameter(Mandatory = $true)]$Result, [Parameter(Mandatory = $true)][string]$Case)
-    if ($Result.ExitCode -eq 0) {
-        throw "$Case expected FAIL, but gate returned success. Output: $($Result.Output)"
     }
 }
 
@@ -194,16 +272,29 @@ try {
         [string]$release.bodyrig_revision -ne $fixture.Head -or
         [string]$release.renderer_acceptance.windows_unity_univrm.result -ne "pass" -or
         [string]$release.renderer_acceptance.android_quest_class.result -ne "pass" -or
-        [string]$release.renderer_acceptance.windows_unity_univrm.report_sha256 -notmatch '^[0-9a-f]{64}$' -or
-        [string]$release.renderer_acceptance.android_quest_class.report_sha256 -notmatch '^[0-9a-f]{64}$') {
+        [string]$release.renderer_acceptance.windows_unity_univrm.runtime_manifest_sha256 -ne [string]$fixture.Report.runtime.manifest_sha256 -or
+        [string]$release.renderer_acceptance.windows_unity_univrm.avatar_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]$release.renderer_acceptance.android_quest_class.avatar_sha256 -notmatch '^[0-9a-f]{64}$') {
         throw "valid release report failed round-trip assertions"
     }
-    Write-Host "PASS: full automated + Windows + Quest evidence chain"
+    Write-Host "PASS: full package -> runtime -> Windows + Quest -> release evidence chain"
 
     $fixture = New-Fixture "blank-note"
     $blankPath = Join-Path $fixture.Artifacts "blank.json"
     Assert-Failure (Invoke-RendererRecord $fixture -Platform "windows-unity-univrm" -Output $blankPath -QualityNote "   ") "blank renderer quality note"
     Write-Host "PASS: blank renderer quality note is rejected"
+
+    $fixture = New-Fixture "runtime-avatar-tamper"
+    Add-Content -LiteralPath (Join-Path $fixture.RuntimeDir "avatar.vrm") -Value "tamper" -Encoding UTF8
+    Assert-Failure (Invoke-RendererRecord $fixture -Platform "windows-unity-univrm" -Output (Join-Path $fixture.Artifacts "windows.json")) "runtime avatar tamper"
+    Write-Host "PASS: substituted runtime avatar is rejected before attestation"
+
+    $fixture = New-Fixture "runtime-manifest-tamper"
+    $runtime = Get-Content -LiteralPath $fixture.RuntimeManifestPath -Raw | ConvertFrom-Json
+    $runtime.body_name = "Tampered Name"
+    $runtime | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $fixture.RuntimeManifestPath -Encoding UTF8
+    Assert-Failure (Invoke-RendererRecord $fixture -Platform "windows-unity-univrm" -Output (Join-Path $fixture.Artifacts "windows.json")) "runtime manifest tamper"
+    Write-Host "PASS: modified runtime manifest is rejected against Gate A hash"
 
     $fixture = New-Fixture "tampered-renderer-package"
     $renderer = New-RendererPair $fixture
@@ -212,6 +303,22 @@ try {
     $quest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $renderer.Quest -Encoding UTF8
     Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Quest) "tampered renderer package binding"
     Write-Host "PASS: tampered renderer package binding is rejected"
+
+    $fixture = New-Fixture "tampered-runtime-binding"
+    $renderer = New-RendererPair $fixture
+    $windows = Get-Content -LiteralPath $renderer.Windows -Raw | ConvertFrom-Json
+    $windows.runtime_manifest_sha256 = ("0" * 64)
+    $windows | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $renderer.Windows -Encoding UTF8
+    Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Quest) "tampered runtime binding"
+    Write-Host "PASS: tampered renderer runtime binding is rejected"
+
+    $fixture = New-Fixture "tampered-avatar-binding"
+    $renderer = New-RendererPair $fixture
+    $quest = Get-Content -LiteralPath $renderer.Quest -Raw | ConvertFrom-Json
+    $quest.avatar_sha256 = ("0" * 64)
+    $quest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $renderer.Quest -Encoding UTF8
+    Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Quest) "tampered avatar binding"
+    Write-Host "PASS: tampered renderer avatar hash is rejected against package checksum"
 
     $fixture = New-Fixture "tampered-report-binding"
     $renderer = New-RendererPair $fixture
@@ -226,6 +333,11 @@ try {
     Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Quest -QuestReport $renderer.Windows) "platform-swapped evidence"
     Write-Host "PASS: platform-swapped evidence is rejected"
 
+    $fixture = New-Fixture "same-report"
+    $renderer = New-RendererPair $fixture
+    Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Windows) "same evidence file for both platforms"
+    Write-Host "PASS: one renderer report cannot satisfy both platforms"
+
     $fixture = New-Fixture "missing-quest"
     $renderer = New-RendererPair $fixture
     Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport (Join-Path $fixture.Artifacts "missing.json")) "missing Quest report"
@@ -238,9 +350,9 @@ try {
     Write-Host "PASS: post-attestation package tamper is rejected"
 
     $fixture = New-Fixture "failed-check"
+    $renderer = New-RendererPair $fixture
     $fixture.Report.checks.preflight_ok = $false
     Save-Report $fixture
-    $renderer = New-RendererPair $fixture
     Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Quest) "false automated check"
     Write-Host "PASS: false automated check is rejected by final gate"
 
@@ -262,7 +374,7 @@ try {
     Assert-Failure (Invoke-Gate $fixture -WindowsReport $renderer.Windows -QuestReport $renderer.Quest -Output $fixture.ReportPath) "output collision"
     Write-Host "PASS: release evidence overwrite is rejected"
 
-    Write-Host "BodyRig physical renderer + final acceptance gate tests: PASS"
+    Write-Host "BodyRig byte-bound runtime + renderer + final release gate tests: PASS"
     exit 0
 } finally {
     Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
