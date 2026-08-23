@@ -65,7 +65,7 @@ That is intentional. A generated package has not yet proved that Unity/UniVRM ca
 
 Use the **same `runtime/runtime-manifest.json` from Gate A** on both supported platforms. The reference renderer enters through that manifest rather than a loose `avatar.vrm` path.
 
-Each platform produces its own immutable renderer-attestation file.
+Each built renderer first writes its own `bodyrig-renderer-probe` machine evidence for the exact runtime bytes it loaded. Only after that probe is valid does the operator record the separate visual-quality attestation. The operator script therefore requires `-ProbeReport`; a human PASS without matching machine evidence is invalid.
 
 ### Windows acceptance
 
@@ -75,15 +75,17 @@ Required checks:
 - the manifest-selected `avatar.vrm` imports successfully with VRM0 migration disabled;
 - Unity reports a valid Humanoid avatar;
 - required humanoid bones are present;
+- the machine probe comes from `WindowsPlayer`, not Unity Editor;
 - source-derived proportions are visibly plausible;
 - BodyRig Motor State can drive at least the reference shrug/head/gaze path without corruption.
 
-After those checks pass, record the evidence:
+After the built WindowsPlayer has written `windows-probe.json` and those checks pass, record the evidence:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
+  -ProbeReport "C:\path\to\windows-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
@@ -97,16 +99,18 @@ After those checks pass, record the evidence:
 Required checks:
 
 - load the same Gate A runtime manifest and materialized avatar in an Android/Quest-class build;
+- the machine probe reports Unity platform `Android` and a Quest/Oculus-identifying device model;
 - avatar appears with the same identity/proportions contract;
 - no build-time HMR2/PHALP/SMPL dependency is required;
 - Motor State can be consumed without platform-specific changes to the semantic contract.
 
-After those checks pass:
+After the Quest build has written `quest-probe.json` and those checks pass:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
+  -ProbeReport "C:\path\to\quest-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
@@ -122,12 +126,17 @@ Before writing either renderer attestation, `record-renderer-acceptance.ps1` ind
 - requires the exact Gate A runtime-manifest hash;
 - opens `.mrbody/checksums.json` without extracting the archive;
 - hashes materialized `avatar.vrm` and `bodyprint.json`;
-- requires those materialized bytes to match the package payload checksums.
+- requires those materialized bytes to match the package payload checksums;
+- validates the machine-probe format/platform and its VRM/Humanoid/bone success flags;
+- requires machine-probe package/runtime/avatar/bodyprint hashes to match the accepted bytes;
+- requires the machine-probe renderer name/version to equal the operator-supplied renderer identity;
+- rejects WindowsEditor evidence for Windows and generic Android-phone evidence for Quest-class acceptance.
 
 Each renderer-attestation is therefore bound to:
 
 - exact BodyRig Git revision;
 - exact Gate A report SHA-256;
+- exact renderer machine-probe SHA-256;
 - exact accepted `.mrbody` SHA-256;
 - exact runtime-manifest SHA-256;
 - exact `avatar.vrm` SHA-256;
@@ -179,7 +188,7 @@ The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accept
 }
 ```
 
-The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are separately recorded and cryptographically bound to the exact package/runtime/revision they describe.
+The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are separately recorded and cryptographically bound to the exact machine probe, package/runtime/revision they describe.
 
 ## CI evidence
 
