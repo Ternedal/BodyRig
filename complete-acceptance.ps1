@@ -69,6 +69,12 @@ function Read-RendererAcceptance {
             throw "Renderer acceptance is missing required evidence field '$fieldName': $resolved"
         }
     }
+    foreach ($hashField in @("runtime_manifest_sha256", "avatar_sha256", "bodyprint_sha256")) {
+        $property = $value.PSObject.Properties[$hashField]
+        if ($null -eq $property -or ([string]$property.Value).ToLowerInvariant() -notmatch '^[0-9a-f]{64}$') {
+            throw "Renderer acceptance is missing a valid $hashField: $resolved"
+        }
+    }
     return [pscustomobject]@{
         Path = $resolved
         Hash = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -230,6 +236,9 @@ $completed = [ordered]@{
     renderer_acceptance = [ordered]@{
         windows_unity_univrm = [ordered]@{
             report_sha256 = $windows.Hash
+            runtime_manifest_sha256 = ([string]$windows.Value.runtime_manifest_sha256).ToLowerInvariant()
+            avatar_sha256 = ([string]$windows.Value.avatar_sha256).ToLowerInvariant()
+            bodyprint_sha256 = ([string]$windows.Value.bodyprint_sha256).ToLowerInvariant()
             result = "pass"
             renderer_name = [string]$windows.Value.renderer_name
             renderer_version = [string]$windows.Value.renderer_version
@@ -238,6 +247,9 @@ $completed = [ordered]@{
         }
         android_quest_class = [ordered]@{
             report_sha256 = $quest.Hash
+            runtime_manifest_sha256 = ([string]$quest.Value.runtime_manifest_sha256).ToLowerInvariant()
+            avatar_sha256 = ([string]$quest.Value.avatar_sha256).ToLowerInvariant()
+            bodyprint_sha256 = ([string]$quest.Value.bodyprint_sha256).ToLowerInvariant()
             result = "pass"
             renderer_name = [string]$quest.Value.renderer_name
             renderer_version = [string]$quest.Value.renderer_version
