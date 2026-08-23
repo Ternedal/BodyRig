@@ -87,14 +87,20 @@ namespace BodyRig.ReferenceRenderer
             if (!IsLowerHexSha256(packageHash)) throw new InvalidDataException("Active BodyRig package SHA-256 is invalid");
             if (string.IsNullOrWhiteSpace(loader.ActiveBodyId)) throw new InvalidDataException("Active BodyRig body id is missing");
 
+            var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
+            var platform = ResolvePhysicalPlatform(deviceModel);
+            var buildGuid = Application.buildGUID;
+            if (string.IsNullOrWhiteSpace(buildGuid))
+                throw new InvalidDataException("Physical renderer probe requires a non-empty Unity build GUID");
+
             var report = new ProbeReport
             {
                 observed_at = DateTime.UtcNow.ToString("o"),
-                platform = ResolvePlatform(),
+                platform = platform,
                 unity_platform = Application.platform.ToString(),
                 unity_version = Application.unityVersion,
-                build_guid = string.IsNullOrWhiteSpace(Application.buildGUID) ? "editor-session" : Application.buildGUID,
-                device_model = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel,
+                build_guid = buildGuid,
+                device_model = deviceModel,
                 graphics_device = string.IsNullOrWhiteSpace(SystemInfo.graphicsDeviceName) ? "unknown" : SystemInfo.graphicsDeviceName,
                 body_id = loader.ActiveBodyId,
                 package_sha256 = packageHash,
@@ -125,14 +131,22 @@ namespace BodyRig.ReferenceRenderer
             return fullOutputPath;
         }
 
-        private static string ResolvePlatform()
+        private static string ResolvePhysicalPlatform(string deviceModel)
         {
             switch (Application.platform)
             {
+                case RuntimePlatform.WindowsPlayer:
+                    return "windows-unity-univrm";
                 case RuntimePlatform.WindowsEditor:
-                case RuntimePlatform.WindowsPlayer: return "windows-unity-univrm";
-                case RuntimePlatform.Android: return "android-quest-class";
-                default: throw new PlatformNotSupportedException($"BodyRig physical acceptance does not support Unity platform {Application.platform}");
+                    throw new PlatformNotSupportedException("BodyRig Windows physical acceptance requires a built WindowsPlayer, not Unity Editor");
+                case RuntimePlatform.Android:
+                    if (string.IsNullOrWhiteSpace(deviceModel) ||
+                        (deviceModel.IndexOf("Quest", StringComparison.OrdinalIgnoreCase) < 0 &&
+                         deviceModel.IndexOf("Oculus", StringComparison.OrdinalIgnoreCase) < 0))
+                        throw new PlatformNotSupportedException($"BodyRig Quest physical acceptance requires a Quest/Oculus device model, got '{deviceModel}'");
+                    return "android-quest-class";
+                default:
+                    throw new PlatformNotSupportedException($"BodyRig physical acceptance does not support Unity platform {Application.platform}");
             }
         }
 
