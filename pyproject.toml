@@ -28,6 +28,7 @@ bodyrig-fit-avatar-external = "bodyrig.external_fitter_cli:main"
 bodyrig-wsl-adapter-bridge = "bodyrig.wsl_adapter_bridge:main"
 bodyrig-sith-preflight = "bodyrig.sith_preflight:main"
 bodyrig-stash-sources = "bodyrig.stash_cli:main"
+bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-materialize = "bodyrig.materialize_cli:main"
 
