@@ -12,7 +12,9 @@ Stash performer
     -> 1..10 private high-value segments
     -> BodyRig recovery / BodyPrint
     -> built-in visual identity capture
-    -> high-fidelity fitter
+    -> pinned SiTH reconstruction
+    -> SMPL-X skin transfer / canonical unpose
+    -> skinned textured VRM 1.0
     -> .mrbody
 ```
 
@@ -27,7 +29,7 @@ Stash is a **source/catalogue layer**, not a BodyRig runtime dependency.
 - BodyRig still verifies that returned scenes actually contain the requested performer id;
 - recovery/identity track binding remains authoritative for the visual subject;
 - source/segment manifests are build-only and may contain local file paths;
-- local file paths, adapter configuration, private video segments and extracted identity frames are not `.mrbody` payloads.
+- local file paths, adapter configuration, private video segments, extracted identity frames, SiTH intermediate meshes and research-model paths are not `.mrbody` payloads.
 
 BodyRig does not depend on the SkyPlayer Companion process. The adapter deliberately follows the same local GraphQL pattern so SkyPlayer and BodyRig can evolve independently while using the same Stash installation.
 
@@ -95,7 +97,7 @@ The private observation workspace is deleted after success or failure by default
 
 ## Stage 3: built-in visual identity capture
 
-The normal Stash path no longer requires a hand-written identity-capture config.
+The normal Stash path does not require a hand-written identity-capture config.
 
 If `-IdentityCaptureConfig` is omitted, the wrapper uses `opencv-identity-rgba` v1. Before Stash discovery it fail-closes unless the external recovery Python can provide:
 
@@ -116,22 +118,80 @@ identity-capture/
   capture.json
 ```
 
-`primary-rgba.png` uses a source-derived GrabCut alpha mask and is intended as build-time input for a high-fidelity reconstruction adapter such as the experimental SiTH path. `capture.json` binds the private image hashes, source index and source timestamp.
+`primary-rgba.png` uses a source-derived GrabCut alpha mask and is build-time input to the default high-fidelity SiTH path. `capture.json` binds the private image hashes, source index and source timestamp.
 
 The only capture artifact accepted back into BodyRig core is the strict metadata-only `bodyrig-visual-identity` profile. It contains observation counts/coverage/quality and the recovery subject track id, but no source path, image, embedding or biometric template.
 
 A custom capture adapter remains available through `-IdentityCaptureConfig <config.json>`. Direct use of `clone-body.ps1` remains generic and still requires an explicit identity-capture config; the automatic default is a Stash operator policy, not a weakened core contract.
 
+## Stage 4: built-in high-fidelity SiTH fitter
+
+If `-FitterConfig` is omitted, the Stash wrapper now uses the built-in `sith-smplx-vrm` v1 adapter.
+
+The adapter keeps the research stack outside BodyRig core. It performs, in the private identity workspace:
+
+1. hash-bound staging of the captured RGBA frame;
+2. the pinned SiTH `centralize_rgba.py` step;
+3. OpenPose BODY_25 + hands + face with exactly one person;
+4. pinned SiTH SMPL-X fitting;
+5. offline, fixed-seed SiTH back-view generation;
+6. UV textured mesh reconstruction;
+7. numerical re-creation of the fitted SMPL-X body from the saved fit parameters;
+8. SMPL-X skin-weight transfer to the reconstructed mesh;
+9. inverse skinning from the source pose to the shape/rest pose;
+10. VRM 1.0 humanoid mapping and skinned textured avatar export.
+
+Before BodyRig even queries Stash, the wrapper runs the pinned SiTH preflight and computes a deterministic byte-bound digest of the local diffusion-model tree. A revision, dependency, asset or model-digest mismatch therefore fails early rather than after a long clone job.
+
+The built-in fitter derives the SMPL-X model directory from the pinned SiTH checkout itself (`<SiTH repo>/data/body_models/smplx`). There is deliberately no separate operator-selectable SMPL-X path, because SiTH fitting and BodyRig rig transfer must use the same licensed assets.
+
+The heavy adapter may return only:
+
+```text
+avatar.vrm
+thumbnail.png
+result.json
+```
+
+BodyRig core independently checks the returned hashes and validates VRM 1.0 before building `.mrbody`. SiTH checkpoints, SMPL-X files, source frames and intermediate meshes are never copied into the portable package.
+
+A custom high-fidelity adapter remains available through `-FitterConfig <config.json>`. Direct use of `clone-body.ps1` also remains generic and still requires an explicit fitter config.
+
+### One-time SiTH settings
+
+The built-in fitter needs the local WSL research environment to be configured once. Values can be passed as wrapper parameters, but the normal machine-level setup is environment variables:
+
+```powershell
+$env:BODYRIG_SITH_DISTRIBUTION = "Ubuntu-22.04"
+$env:BODYRIG_SITH_REPO = "/opt/sith"
+$env:BODYRIG_SITH_PYTHON = "/opt/sith/.venv/bin/python"
+$env:BODYRIG_SITH_OPENPOSE = "/opt/openpose/build/examples/openpose/openpose.bin"
+$env:BODYRIG_SITH_DIFFUSION_MODEL = "/opt/models/sith-diffusion"
+$env:BODYRIG_SITH_DIFFUSION_SHA256 = "<64-char model-tree sha256>"
+```
+
+`BODYRIG_SITH_DISTRIBUTION` defaults to `Ubuntu-22.04` if omitted. The other values are required when the built-in fitter is selected. The diffusion SHA is the output of `bodyrig-sith-model-digest` for the exact local model directory.
+
+The equivalent wrapper parameters are:
+
+- `-SithDistribution`
+- `-SithRepo`
+- `-SithPython`
+- `-SithOpenPose`
+- `-SithDiffusionModel`
+- `-SithDiffusionModelSha256`
+- optional `-SithSeed` (default `1337`)
+- optional `-WslExe` (default `wsl.exe`)
+
 ## One-command wrapper
 
-The normal operator path is:
+After the one-time Stash and SiTH environment settings are in place, the normal operator path is:
 
 ```powershell
 .\clone-body-from-stash.ps1 `
   -PerformerId 123 `
   -ExternalPython "C:\...\recovery\python.exe" `
   -FourDHumansRepo "C:\...\4D-Humans" `
-  -FitterConfig .\fitter.json `
   -BodyId "alice"
 ```
 
@@ -140,20 +200,23 @@ The normal operator path is:
 By default the wrapper:
 
 1. preflights the built-in identity-capture environment;
-2. queries Stash;
-3. ranks local source files;
-4. creates the Stash source manifest;
-5. runs the built-in lightweight observation analyzer;
-6. selects/diversifies the best visual windows;
-7. materializes hash-bound private segments with FFmpeg;
-8. feeds those segments into the existing recovery pipeline;
-9. captures a private RGB/RGBA identity frame and strict visual-identity profile;
-10. invokes the configured high-fidelity fitter and builds `.mrbody`;
-11. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
+2. preflights the pinned SiTH/WSL/OpenPose environment;
+3. re-digests and verifies the local SiTH diffusion model;
+4. queries Stash;
+5. ranks local source files;
+6. creates the Stash source manifest;
+7. runs the built-in lightweight observation analyzer;
+8. selects/diversifies the best visual windows;
+9. materializes hash-bound private segments with FFmpeg;
+10. feeds those segments into the existing recovery pipeline;
+11. captures a private RGB/RGBA identity frame and strict visual-identity profile;
+12. runs the pinned offline SiTH reconstruction and SMPL-X rig transfer;
+13. validates the returned VRM 1.0 and builds `.mrbody`;
+14. deletes private observation/identity workspaces unless `-KeepPrivateWorkspace` was explicitly supplied.
 
 Use `-SkipObservationSelection` only when you explicitly want the previous whole-file behavior.
 
-A custom observation analyzer can be supplied with `-ObservationAnalyzerConfig`. A custom identity capture adapter can be supplied with `-IdentityCaptureConfig`. Both stay behind their strict out-of-process contracts.
+A custom observation analyzer can be supplied with `-ObservationAnalyzerConfig`, a custom identity capture adapter with `-IdentityCaptureConfig`, and a custom high-fidelity fitter with `-FitterConfig`. All stay behind strict out-of-process contracts.
 
 ## Manual observation selection CLI
 
@@ -175,6 +238,7 @@ Relevant contracts:
 - `contracts/observation-segments-v1.schema.json`
 - `contracts/identity-capture-config-v1.schema.json`
 - `contracts/visual-identity-v1.schema.json`
+- `contracts/external-fitter-config-v1.schema.json`
 
 ## Schema compatibility
 
@@ -182,6 +246,14 @@ Current Stash uses `SceneFilterType.performers` with a `MultiCriterionInput`. Bo
 
 For older Stash installations, the adapter has an explicit fallback to the older `scene_filter.performer_id` form. Both paths still verify the requested performer id in every returned scene before accepting a file.
 
-## Next quality improvements
+## Remaining physical proof
 
-The generic observation and identity-capture boundaries are intentionally engine-neutral. Later adapters can add stronger identity-aware multi-person selection, better front/rear orientation estimation, learned matting/segmentation and multi-view identity capture while preserving the same source, recovery, visual-identity and clone contracts.
+The built-in high-fidelity path is now wired end-to-end in code, but it is not considered production-proven until the real rig passes the existing physical gates:
+
+- real local Stash/video input through recovery and the SiTH fitter;
+- source-derived visual-quality inspection;
+- the same `.mrbody` in a built WindowsPlayer;
+- the same `.mrbody` in a Quest-class Android build;
+- final `complete-acceptance.ps1` over the exact package and machine evidence.
+
+The adapter remains fail-closed while those physical gates are outstanding.
