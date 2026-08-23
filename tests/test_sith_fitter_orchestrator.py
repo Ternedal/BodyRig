@@ -21,7 +21,6 @@ def _boundary(tmp_path: Path) -> tuple[Path, Path, Path]:
 def test_orchestrator_runs_private_stages_then_wsl_rig_bridge(monkeypatch, tmp_path: Path):
     request, workspace, output = _boundary(tmp_path)
     calls: list[tuple[str, object]] = []
-
     monkeypatch.setattr(
         orchestrator,
         "stage_sith_input",
@@ -66,7 +65,6 @@ def test_orchestrator_runs_private_stages_then_wsl_rig_bridge(monkeypatch, tmp_p
         openpose="/opt/openpose/build/examples/openpose/openpose.bin",
         diffusion_model="/opt/models/sith-diffusion",
         diffusion_model_sha256="a" * 64,
-        smplx_model_dir="/opt/sith/data/body_models/smplx",
     )
 
     assert [name for name, _ in calls] == ["stage", "prepare", "reconstruct"]
@@ -116,7 +114,6 @@ def test_orchestrator_rejects_adapter_drift_before_private_work(monkeypatch, tmp
             openpose="/opt/openpose/build/examples/openpose/openpose.bin",
             diffusion_model="/opt/models/sith-diffusion",
             diffusion_model_sha256="a" * 64,
-            smplx_model_dir="/opt/sith/data/body_models/smplx",
         )
     assert calls == []
 
@@ -139,6 +136,5 @@ def test_orchestrator_requires_linux_research_paths_before_staging(monkeypatch, 
             openpose="/opt/openpose/build/examples/openpose/openpose.bin",
             diffusion_model="/opt/models/sith-diffusion",
             diffusion_model_sha256="a" * 64,
-            smplx_model_dir="/opt/sith/data/body_models/smplx",
         )
     assert calls == []
