@@ -38,9 +38,31 @@ def test_preflight_requires_all_opencv_capabilities_and_ffmpeg(monkeypatch):
 
     assert result["ok"] is True
     assert result["errors"] == []
+    assert result["mode"] == "opencv+ffmpeg"
     assert len(calls) == 2
     assert calls[0][0] == sys.executable
     assert calls[1] == ["ffmpeg", "-hide_banner", "-version"]
+
+
+def test_custom_analyzer_preflight_skips_opencv_but_keeps_ffmpeg_gate(monkeypatch):
+    calls = []
+
+    def fake_run(command, *, timeout=30):
+        calls.append(list(command))
+        assert command[0] == "ffmpeg"
+        return _completed(command, stdout="ffmpeg version 7.1 fixture\n")
+
+    monkeypatch.setattr(preflight, "_run", fake_run)
+    result = preflight.run_preflight(
+        external_python=sys.executable,
+        ffmpeg="ffmpeg",
+        require_opencv=False,
+    )
+
+    assert result["ok"] is True
+    assert result["mode"] == "ffmpeg-only"
+    assert "opencv" not in result["checks"]
+    assert calls == [["ffmpeg", "-hide_banner", "-version"]]
 
 
 def test_preflight_fails_closed_when_haar_or_hog_is_missing(monkeypatch):
