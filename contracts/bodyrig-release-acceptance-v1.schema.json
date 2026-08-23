@@ -20,24 +20,36 @@
       "additionalProperties": false,
       "required": [
         "report_sha256",
+        "probe_report_sha256",
         "runtime_manifest_sha256",
         "avatar_sha256",
         "bodyprint_sha256",
+        "machine_probe",
         "result",
         "renderer_name",
         "renderer_version",
+        "unity_platform",
+        "unity_version",
+        "graphics_device",
         "quality_note",
+        "observed_at",
         "attested_at"
       ],
       "properties": {
         "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "probe_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "runtime_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "avatar_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "bodyprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "machine_probe": {"const": true},
         "result": {"const": "pass"},
         "renderer_name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
         "renderer_version": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+        "unity_platform": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": ".*\\S.*"},
+        "unity_version": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": ".*\\S.*"},
+        "graphics_device": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": ".*\\S.*"},
         "quality_note": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"},
+        "observed_at": {"type": "string", "minLength": 1, "maxLength": 80},
         "attested_at": {"type": "string", "minLength": 1, "maxLength": 80}
       }
     }
