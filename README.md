@@ -50,9 +50,18 @@ SMPL-modellen downloades eller redistribueres **ikke** af BodyRig. Hvis den ikke
 
 Upstream 4D-Humans anbefaler Python 3.10/Conda og har native dependencies, som kan være den første praktiske Windows-risiko. Derfor er setup fail-closed: installation/preflight skal faktisk bestå på målriggen; BodyRig antager ikke, at et upstream Linux-orienteret research-stack automatisk virker på Windows.
 
+Når setup er grønt, er den normale Gate A-vej kun source-klip + profil-id. `run-physical-gate.ps1` læser den managed environment-summary, kræver at recovery-Python, 4D-Humans og SMPL stadig ligger under den forventede recovery-root og sender derefter de verificerede paths videre til `validate-rig.ps1`:
+
+```powershell
+.\run-physical-gate.ps1 `
+  -Source "C:\video\person-1.mp4","C:\video\person-2.mp4" `
+  -BodyId "min-avatar" `
+  -Name "Min avatar"
+```
+
 ## Fra video til `.mrbody`
 
-Den fysiske recovery-vej bruger den pinned 4D-Humans/HMR2 + PHALP-adapter:
+Den underliggende recovery-vej kan fortsat kaldes direkte, når der er brug for diagnostik eller et ikke-standard recovery-root:
 
 ```powershell
 bodyrig-recovery-preflight `
@@ -93,18 +102,16 @@ Det giver bl.a. `runtime/runtime-manifest.json`, `runtime/avatar.vrm` og `runtim
 
 ## Fysisk end-to-end acceptance
 
-På målriggen kan hele den automatiske recovery/fitting/materialiseringskæde bindes sammen med ét kald:
+På målriggen er `run-physical-gate.ps1` den normale one-command Gate A. Den genbruger kun den managed recovery-installation, som `setup-recovery-windows.ps1` har beskrevet i `bodyrig-recovery-environment.json`:
 
 ```powershell
-.\validate-rig.ps1 `
+.\run-physical-gate.ps1 `
   -Source "C:\video\person-1.mp4","C:\video\person-2.mp4" `
-  -ExternalPython "C:\path\to\4dh-python.exe" `
-  -FourDHumansRepo "C:\path\to\4D-Humans" `
   -BodyId "min-avatar" `
   -Name "Min avatar"
 ```
 
-Validatoren kræver som standard:
+Den underliggende validator kræver som standard:
 
 - clean BodyRig checkout og registrerer den eksakte Git-revision;
 - pinned 4D-Humans/PHALP-kode;
