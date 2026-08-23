@@ -18,11 +18,7 @@ class SithFitterOrchestratorError(RuntimeError):
     pass
 
 
-def _run(
-    command: Sequence[str],
-    *,
-    timeout: int = 86_400,
-) -> subprocess.CompletedProcess[str]:
+def _run(command: Sequence[str], *, timeout: int = 86_400) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         list(command),
         stdin=subprocess.DEVNULL,
@@ -35,12 +31,7 @@ def _run(
     )
 
 
-def _wsl_path(
-    path: str | Path,
-    *,
-    distribution: str,
-    wsl_exe: str,
-) -> str:
+def _wsl_path(path: str | Path, *, distribution: str, wsl_exe: str) -> str:
     source = str(Path(path).expanduser().resolve())
     try:
         completed = _run(
@@ -60,7 +51,7 @@ def _wsl_path(
 def _validate_linux_path(value: str, *, label: str) -> str:
     if not isinstance(value, str) or not value.startswith("/") or "\n" in value or "\r" in value:
         raise SithFitterOrchestratorError(f"{label} must be an absolute Linux path")
-    return value
+    return value.rstrip("/") or "/"
 
 
 def orchestrate_sith_fitter(
@@ -76,7 +67,6 @@ def orchestrate_sith_fitter(
     openpose: str,
     diffusion_model: str,
     diffusion_model_sha256: str,
-    smplx_model_dir: str,
     seed: int = DEFAULT_SEED,
     wsl_exe: str = "wsl.exe",
 ) -> None:
@@ -90,7 +80,7 @@ def orchestrate_sith_fitter(
     sith_python = _validate_linux_path(sith_python, label="SiTH Python")
     openpose = _validate_linux_path(openpose, label="OpenPose executable")
     diffusion_model = _validate_linux_path(diffusion_model, label="SiTH diffusion model")
-    smplx_model_dir = _validate_linux_path(smplx_model_dir, label="SMPL-X model directory")
+    smplx_model_dir = f"{sith_repo}/data/body_models/smplx"
 
     request_path = Path(request).expanduser().resolve()
     workspace_path = Path(workspace).expanduser().resolve()
@@ -171,7 +161,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--openpose", required=True)
     parser.add_argument("--diffusion-model", required=True)
     parser.add_argument("--diffusion-model-sha256", required=True)
-    parser.add_argument("--smplx-model-dir", required=True)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--bodyrig-request", required=True)
@@ -194,7 +183,6 @@ def main(argv: list[str] | None = None) -> int:
             openpose=args.openpose,
             diffusion_model=args.diffusion_model,
             diffusion_model_sha256=args.diffusion_model_sha256,
-            smplx_model_dir=args.smplx_model_dir,
             seed=args.seed,
             wsl_exe=args.wsl_exe,
         )
