@@ -85,6 +85,13 @@ if ([string]$report.format -ne "bodyrig-rig-acceptance" -or [int]$report.version
 if ($report.automated_pass -ne $true -or $report.production_activation -ne $false -or [string]$report.physical_renderer_acceptance -ne "pending") {
     throw "Automated rig acceptance is not in a valid pending-renderer PASS state."
 }
+if ([string]$report.runtime.manifest -ne "runtime/runtime-manifest.json" -or $report.runtime.materialized_from_package -ne $true) {
+    throw "Automated acceptance does not contain valid materialized runtime evidence."
+}
+$acceptedRuntimeManifestHash = ([string]$report.runtime.manifest_sha256).ToLowerInvariant()
+if ($acceptedRuntimeManifestHash -notmatch '^[0-9a-f]{64}$') {
+    throw "Automated acceptance contains an invalid runtime manifest hash."
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
@@ -149,6 +156,10 @@ $payloads = @($runtime.payloads)
 if ($payloads -notcontains "avatar.vrm" -or $payloads -notcontains "bodyprint.json") {
     throw "Runtime manifest does not include required avatar/bodyprint payloads."
 }
+$runtimeManifestHash = (Get-FileHash -LiteralPath $RuntimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($runtimeManifestHash -ne $acceptedRuntimeManifestHash) {
+    throw "Runtime manifest SHA-256 no longer matches the Gate A acceptance report."
+}
 
 $runtimeDir = Split-Path -Parent $RuntimeManifest
 $avatarPath = Join-Path $runtimeDir "avatar.vrm"
@@ -172,7 +183,6 @@ if ($expectedAvatarHash -notmatch '^[0-9a-f]{64}$' -or $avatarHash -ne $expected
 if ($expectedBodyprintHash -notmatch '^[0-9a-f]{64}$' -or $bodyprintHash -ne $expectedBodyprintHash) {
     throw "Materialized bodyprint.json does not match the accepted .mrbody payload checksum."
 }
-$runtimeManifestHash = (Get-FileHash -LiteralPath $RuntimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
 
 if ([string]::IsNullOrWhiteSpace($Output)) {
     $suffix = if ($Platform -eq "windows-unity-univrm") { "windows" } else { "quest" }
