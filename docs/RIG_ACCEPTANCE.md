@@ -74,6 +74,18 @@ The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity` and ha
 
 `run-physical-gate.ps1` / `validate-rig.ps1` remain useful for lower-level recovery and procedural-avatar diagnostics. They are no longer sufficient to enter renderer/release production acceptance. A procedural placeholder can therefore prove recovery mechanics without ever becoming `production_activation=true`.
 
+The lower-level diagnostic path must still bind recovery to both pinned 4D-Humans and PHALP checkouts; omitting PHALP is not a supported shortcut:
+
+```powershell
+.\validate-rig.ps1 `
+  -Source "C:\video\person-1.mp4","C:\video\person-2.mp4" `
+  -ExternalPython "C:\Users\you\AppData\Local\BodyRig\recovery\conda-env\python.exe" `
+  -FourDHumansRepo "C:\Users\you\AppData\Local\BodyRig\recovery\4D-Humans" `
+  -PhalpRepo "C:\Users\you\AppData\Local\BodyRig\recovery\PHALP" `
+  -BodyId "person-a" `
+  -Name "Person A"
+```
+
 ## Gate B — physical renderer evidence
 
 Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
