@@ -22,6 +22,19 @@ def test_ready_launcher_binds_exact_clean_bodyrig_checkout():
     assert "BodyRig Git HEAD changed during the physical clone session; refusing PASS evidence." in text
 
 
+def test_ready_launcher_binds_python_import_to_checkout_before_session_start():
+    text = _launcher()
+    expected = text.index('$expectedBodyRigModule = Resolve-InputFile')
+    authority = text.index('$bodyRigAuthorityRaw = @(& $BodyRigPython -c')
+    mismatch = text.index('BodyRig Python imports bodyrig from unexpected location')
+    session_start = text.index("Invoke-SessionCommand -Arguments @(")
+
+    assert 'bodyrig\\__init__.py' in text
+    assert 'pathlib.Path(bodyrig.__file__).resolve()' in text
+    assert "could not prove a single checkout-bound bodyrig import before physical session start" in text
+    assert expected < authority < mismatch < session_start
+
+
 def test_ready_launcher_binds_live_readiness_before_clone():
     text = _launcher()
     readiness = text.index("& $powerShellExe @readinessArgs")
