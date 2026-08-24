@@ -33,6 +33,7 @@ namespace BodyRig.ReferenceRenderer
             public string format = "bodyrig-deformation-probe";
             public int version = 1;
             public string observed_at;
+            public string bodyrig_revision;
             public string platform;
             public string unity_platform;
             public string unity_version;
@@ -153,6 +154,7 @@ namespace BodyRig.ReferenceRenderer
             if (string.IsNullOrEmpty(runtimeDirectory)) throw new InvalidDataException("Active runtime manifest has no parent directory");
             var avatarPath = Path.Combine(runtimeDirectory, "avatar.vrm");
             var bodyprintPath = Path.Combine(runtimeDirectory, "bodyprint.json");
+            var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
             var buildGuid = Application.buildGUID;
             if (string.IsNullOrWhiteSpace(buildGuid)) throw new InvalidDataException("Deformation probe requires a non-empty Unity build GUID");
@@ -160,6 +162,7 @@ namespace BodyRig.ReferenceRenderer
             var report = new DeformationReport
             {
                 observed_at = DateTime.UtcNow.ToString("o"),
+                bodyrig_revision = bodyRigRevision,
                 platform = ResolvePhysicalPlatform(deviceModel),
                 unity_platform = Application.platform.ToString(),
                 unity_version = Application.unityVersion,
@@ -191,7 +194,7 @@ namespace BodyRig.ReferenceRenderer
 
             LastReportPath = fullOutputPath;
             status?.Invoke("Deformation sweep evidence: PASS");
-            Debug.Log($"BodyRig deformation probe: PASS | {report.platform} | {fullOutputPath}", this);
+            Debug.Log($"BodyRig deformation probe: PASS | {report.platform} | revision {report.bodyrig_revision} | {fullOutputPath}", this);
             return fullOutputPath;
         }
 
