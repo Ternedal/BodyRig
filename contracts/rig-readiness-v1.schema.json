@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/rig-readiness-v1.schema.json",
+  "title": "BodyRig live rig readiness report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "rig_setup_report", "rig_setup_sha256", "checks", "environment", "ready"],
+  "properties": {
+    "format": {"const": "bodyrig-rig-readiness"},
+    "version": {"const": 1},
+    "rig_setup_report": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "rig_setup_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["master_setup", "recovery", "sith_openpose", "diffusion_model", "stash"],
+      "properties": {
+        "master_setup": {"const": true},
+        "recovery": {"const": true},
+        "sith_openpose": {"const": true},
+        "diffusion_model": {"const": true},
+        "stash": {"const": true}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stash_version", "diffusion_model_sha256", "diffusion_model_file_count", "diffusion_model_byte_count"],
+      "properties": {
+        "stash_version": {"type": "string", "minLength": 1, "maxLength": 160},
+        "diffusion_model_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "diffusion_model_file_count": {"type": "integer", "minimum": 1},
+        "diffusion_model_byte_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "ready": {"const": true}
+  }
+}
