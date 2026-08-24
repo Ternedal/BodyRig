@@ -43,10 +43,13 @@ $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
 
 $contract = (Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract").Value
+$expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
+if (@(Compare-Object -ReferenceObject $expectedContractFields -DifferenceObject @($contract.PSObject.Properties.Name)).Count -ne 0) { throw "Reference renderer contract fields are not canonical." }
 if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
-foreach ($field in @("renderer_name","renderer_version","unity_editor_version","deformation_sequence_revision")) {
+foreach ($field in @("renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")) {
     if ([string]::IsNullOrWhiteSpace([string]$contract.$field)) { throw "Reference renderer contract is missing '$field'." }
 }
+if ([string]$contract.univrm_revision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
 if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract uses an unsupported deformation sequence." }
 
 $acceptanceReport = Join-Path $AcceptanceDir "bodyrig-acceptance.json"
@@ -103,5 +106,5 @@ if (-not [string]::IsNullOrWhiteSpace($Output)) { $args.Output = $Output }
 & $core @args
 if ($LASTEXITCODE -ne 0) { throw "Core final acceptance failed with exit code $LASTEXITCODE." }
 
-Write-Host "BodyRig reference release acceptance: PASS | renderer $($contract.renderer_version) | Unity $($contract.unity_editor_version) | quality=bodyrig-human-quality-v1"
+Write-Host "BodyRig reference release acceptance: PASS | renderer $($contract.renderer_version) | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision) | quality=bodyrig-human-quality-v1"
 exit 0
