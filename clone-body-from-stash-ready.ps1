@@ -107,6 +107,7 @@ Set-RequiredEnvironment -Values @{
     BODYRIG_SITH_OPENPOSE_REPO = [string]$sith.openpose.repository
     BODYRIG_SITH_OPENPOSE = [string]$sith.openpose.executable
     BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sith.openpose.sha256).ToLowerInvariant()
+    BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$sith.openpose.models_sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = [string]$sith.diffusion_model.path
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sith.diffusion_model.sha256).ToLowerInvariant()
 }
@@ -132,7 +133,7 @@ Write-Host "BodyRig ready-rig Stash clone"
 Write-Host "Rig setup: $RigSetupReport"
 Write-Host "Performer id: $PerformerId"
 Write-Host "Body id: $BodyId"
-Write-Host "Live readiness: checking recovery, SiTH/OpenPose source + binary, diffusion model and Stash"
+Write-Host "Live readiness: checking recovery, SiTH/OpenPose source + binary + models, diffusion model and Stash"
 Write-Host ""
 & $powerShellExe @readinessArgs
 if ($LASTEXITCODE -ne 0) { throw "BodyRig live rig readiness failed with exit code $LASTEXITCODE; clone not started." }
