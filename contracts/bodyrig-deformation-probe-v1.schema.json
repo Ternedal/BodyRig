@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "format","version","observed_at","platform","unity_platform","unity_version","build_guid","device_model",
+    "format","version","observed_at","bodyrig_revision","platform","unity_platform","unity_version","build_guid","device_model",
     "body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
     "sequence_revision","pose_count","poses","required_muscles_resolved","restored_neutral","complete","manual_review_required"
   ],
@@ -13,6 +13,7 @@
     "format": {"const":"bodyrig-deformation-probe"},
     "version": {"const":1},
     "observed_at": {"type":"string","minLength":1,"maxLength":80},
+    "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
     "platform": {"enum":["windows-unity-univrm","android-quest-class"]},
     "unity_platform": {"type":"string","minLength":1,"maxLength":80},
     "unity_version": {"type":"string","minLength":1,"maxLength":80},
