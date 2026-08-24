@@ -82,6 +82,24 @@ $sithArgs = @(
 )
 Invoke-Checked -Arguments $sithArgs -Step "Live SiTH/OpenPose preflight" | Out-Null
 
+$openPoseRaw = Invoke-Checked -Arguments @(
+    "-m", "bodyrig.wsl_file_digest",
+    "--distribution", [string]$sith.distribution,
+    "--python", [string]$sith.sith.python,
+    "--path", [string]$sith.openpose.executable,
+    "--wsl-exe", $WslExe
+) -Step "Live OpenPose binary digest"
+try { $openPose = ($openPoseRaw -join "`n") | ConvertFrom-Json }
+catch { throw "Live OpenPose binary digest returned unreadable JSON." }
+$expectedOpenPoseHash = ([string]$sith.openpose.sha256).ToLowerInvariant()
+$actualOpenPoseHash = ([string]$openPose.sha256).ToLowerInvariant()
+if ($actualOpenPoseHash -ne $expectedOpenPoseHash) {
+    throw "Live OpenPose binary SHA-256 mismatch: expected $expectedOpenPoseHash, got $actualOpenPoseHash"
+}
+if ([int64]$openPose.byte_count -ne [int64]$sith.openpose.byte_count) {
+    throw "Live OpenPose binary byte count differs from setup evidence."
+}
+
 $modelRaw = Invoke-Checked -Arguments @(
     "-m", "bodyrig.sith_model",
     "--distribution", [string]$sith.distribution,
@@ -120,11 +138,14 @@ $report = [ordered]@{
         master_setup = $true
         recovery = $true
         sith_openpose = $true
+        openpose_binary = $true
         diffusion_model = $true
         stash = $true
     }
     environment = [ordered]@{
         stash_version = [string]$stash.version
+        openpose_sha256 = $actualOpenPoseHash
+        openpose_byte_count = [int64]$openPose.byte_count
         diffusion_model_sha256 = $actualModelHash
         diffusion_model_file_count = [int64]$model.file_count
         diffusion_model_byte_count = [int64]$model.byte_count
@@ -144,6 +165,7 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
 
 Write-Host "BodyRig rig readiness: READY"
 Write-Host "Stash: $([string]$stash.version)"
+Write-Host "OpenPose binary SHA-256: $actualOpenPoseHash"
 Write-Host "Diffusion model SHA-256: $actualModelHash"
 if (-not [string]::IsNullOrWhiteSpace($Out)) { Write-Host "Report: $Out" }
 exit 0
