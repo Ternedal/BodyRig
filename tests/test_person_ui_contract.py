@@ -92,16 +92,25 @@ def test_component_model_or_prompt_change_invalidates_previous_audition() -> Non
     assert "Testprompt ændret — kør audition igen." in js
 
 
-def test_modelrig_token_is_transport_only_and_service_identity_is_checked_before_protected_calls() -> None:
+def test_modelrig_token_is_transport_only_and_execution_provenance_is_request_local() -> None:
     app = Path("bodyrig/app.py").read_text(encoding="utf-8")
-    client = Path("bodyrig/modelrig_client.py").read_text(encoding="utf-8")
+    modelrig_client = Path("bodyrig/modelrig_client.py").read_text(encoding="utf-8")
+    voicerig_client = Path("bodyrig/voicerig_client.py").read_text(encoding="utf-8")
+    provenance = Path("bodyrig/execution_provenance.py").read_text(encoding="utf-8")
     audition = Path("bodyrig/person_audition.py").read_text(encoding="utf-8")
     profile = Path("bodyrig/person_profiles.py").read_text(encoding="utf-8")
 
     assert 'os.environ.get("MODELRIG_TOKEN"' in app
     assert "client.health()\n        models = client.models()" in app
     assert "modelrig.health()\n        reply = modelrig.chat" in app
-    assert '"Authorization"' in client and 'f"Bearer {self.config.token}"' in client
+    assert '"Authorization"' in modelrig_client and 'f"Bearer {self.config.token}"' in modelrig_client
+    assert 'record_runtime("modelrig-server"' in modelrig_client
+    assert 'record_runtime("voicerig"' in voicerig_client
+    assert "self.health()" in voicerig_client
+    assert "ContextVar" in provenance
+    assert "consume_runtime_provenance" in audition
+    for field in ("modelrig_service", "modelrig_version", "voicerig_service", "voicerig_version"):
+        assert field in audition
     assert "MODELRIG_TOKEN" not in audition
     assert "MODELRIG_TOKEN" not in profile
     assert '"token"' not in audition
@@ -110,6 +119,7 @@ def test_modelrig_token_is_transport_only_and_service_identity_is_checked_before
 def test_windows_product_launcher_is_checkout_bound_and_opens_person_ui() -> None:
     script = Path("start-windows.ps1").read_text(encoding="utf-8")
     doc = Path("docs/PERSON_UI.md").read_text(encoding="utf-8")
+    spec = Path("docs/PERSON_PROFILE.md").read_text(encoding="utf-8")
 
     for token in (
         ".venv\\Scripts\\python.exe",
@@ -133,3 +143,6 @@ def test_windows_product_launcher_is_checkout_bound_and_opens_person_ui() -> Non
     assert "audition_id" in doc
     assert "MODELRIG_TOKEN" in doc
     assert "transport" in doc
+    for field in ("modelrig_service", "modelrig_version", "voicerig_service", "voicerig_version"):
+        assert field in doc
+        assert field in spec
