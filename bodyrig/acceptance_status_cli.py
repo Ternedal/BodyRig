@@ -71,6 +71,7 @@ def _operator_command(status: AcceptanceStatus, operator_root: Path | None = Non
                 f"{_script_invocation('record-reference-renderer-acceptance.ps1', operator_root)} "
                 f"-AcceptanceDir {_quote(status.acceptance_dir)} "
                 '-Platform "windows-unity-univrm" '
+                '-ConfirmQualityChecklist '
                 '-QualityNote "<your physical review>"'
             ),
         )
@@ -89,6 +90,7 @@ def _operator_command(status: AcceptanceStatus, operator_root: Path | None = Non
                 f"{_script_invocation('record-reference-renderer-acceptance.ps1', operator_root)} "
                 f"-AcceptanceDir {_quote(status.acceptance_dir)} "
                 '-Platform "android-quest-class" '
+                '-ConfirmQualityChecklist '
                 '-QualityNote "<your physical headset review>"'
             ),
         )
