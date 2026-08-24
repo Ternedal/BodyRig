@@ -35,12 +35,26 @@ class _FakeVoiceRig:
         return b"RIFF" + b"\x00" * 64
 
 
+class _FakeModelRig:
+    def health(self):
+        return {"status": "ok", "service": "modelrig-server", "version": "test"}
+
+    def models(self):
+        return [{"name": "fixture-model", "size": 1}]
+
+    def chat(self, *, model: str, system: str, prompt: str) -> str:
+        assert model == "fixture-model"
+        assert system and prompt
+        return "Jeg er Anna; dette er den faktisk udførte personality."
+
+
 def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, _FakeVoiceRig]:
     people = tmp_path / "people"
     voice = _FakeVoiceRig()
     monkeypatch.setenv("BODYRIG_ALLOW_REMOTE", "1")
     monkeypatch.setattr(app_module, "person_library", lambda: people)
     monkeypatch.setattr(app_module, "_voicerig_client", lambda: voice)
+    monkeypatch.setattr(app_module, "_modelrig_client", lambda: _FakeModelRig())
     monkeypatch.setattr(app_module, "_body_bytes_match", lambda item: Path(item["package_path"]))
     return TestClient(app_module.app), voice
 
@@ -74,15 +88,16 @@ def _create_components(client: TestClient, root: Path, person_id: str) -> None:
     assert personality.status_code == 200
 
 
+def _selection(personality: str = "personality-r0001") -> dict:
+    return {
+        "body_revision": "body-r0001",
+        "voice_revision": "voice-r0001",
+        "personality_revision": personality,
+    }
+
+
 def _assembly(client: TestClient, person_id: str, personality: str = "personality-r0001") -> dict:
-    response = client.post(
-        f"/api/v1/people/{person_id}/assembly",
-        json={
-            "body_revision": "body-r0001",
-            "voice_revision": "voice-r0001",
-            "personality_revision": personality,
-        },
-    )
+    response = client.post(f"/api/v1/people/{person_id}/assembly", json=_selection(personality))
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["assembly_fingerprint"]) == 64
@@ -91,17 +106,28 @@ def _assembly(client: TestClient, person_id: str, personality: str = "personalit
     return payload
 
 
-def _approval_payload(fingerprint: str, *, personality: str = "personality-r0001") -> dict:
+def _audition(client: TestClient, person_id: str, personality: str = "personality-r0001") -> dict:
+    response = client.post(
+        f"/api/v1/people/{person_id}/auditions",
+        json={**_selection(personality), "model": "fixture-model", "prompt": "Præsenter dig selv kort."},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["audition_id"].startswith("audition-")
+    assert payload["reply"].startswith("Jeg er Anna")
+    return payload
+
+
+def _approval_payload(fingerprint: str, audition_id: str, *, personality: str = "personality-r0001") -> dict:
     return {
-        "body_revision": "body-r0001",
-        "voice_revision": "voice-r0001",
-        "personality_revision": personality,
+        **_selection(personality),
         "assembly_fingerprint": fingerprint,
+        "audition_id": audition_id,
         "body_voice_match": True,
         "voice_personality_match": True,
         "body_personality_match": True,
         "overall_coherent": True,
-        "compatibility_note": "Krop, stemme og personality opleves som samme Anna.",
+        "compatibility_note": "Krop, stemme og faktisk ModelRig-personality opleves som samme Anna.",
         "feedback": "first coherent person",
         "activate": True,
     }
@@ -122,7 +148,9 @@ def test_components_remain_candidates_until_exact_assembly_is_reviewed(tmp_path:
     assert old_path.status_code == 409
 
     assembly = _assembly(client, person_id)
-    bad = _approval_payload(assembly["assembly_fingerprint"])
+    audition = _audition(client, person_id)
+    assert audition["assembly_fingerprint"] == assembly["assembly_fingerprint"]
+    bad = _approval_payload(assembly["assembly_fingerprint"], audition["audition_id"])
     bad["voice_personality_match"] = False
     rejected = client.post(f"/api/v1/people/{person_id}/revisions", json=bad)
     assert rejected.status_code == 422
@@ -131,16 +159,18 @@ def test_components_remain_candidates_until_exact_assembly_is_reviewed(tmp_path:
 
     approved = client.post(
         f"/api/v1/people/{person_id}/revisions",
-        json=_approval_payload(assembly["assembly_fingerprint"]),
+        json=_approval_payload(assembly["assembly_fingerprint"], audition["audition_id"]),
     )
     assert approved.status_code == 200
     payload = approved.json()
     assert payload["active_person_revision"] == "person-r0001"
     receipt = read_receipt(root, person_id=person_id, person_revision="person-r0001")
+    assert receipt["version"] == 2
     assert receipt["assembly_fingerprint"] == assembly["assembly_fingerprint"]
     assert receipt["body"]["revision_id"] == "body-r0001"
     assert receipt["voice"]["revision_id"] == "voice-r0001"
     assert receipt["personality"]["revision_id"] == "personality-r0001"
+    assert receipt["audition"]["audition_id"] == audition["audition_id"]
 
 
 def test_old_fingerprint_cannot_approve_a_different_component_combination(tmp_path: Path, monkeypatch) -> None:
@@ -149,6 +179,7 @@ def test_old_fingerprint_cannot_approve_a_different_component_combination(tmp_pa
     root = app_module.person_library()
     _create_components(client, root, person_id)
     first = _assembly(client, person_id)
+    audition = _audition(client, person_id)
     second_personality = client.post(
         f"/api/v1/people/{person_id}/personality/revisions",
         json={
@@ -161,7 +192,7 @@ def test_old_fingerprint_cannot_approve_a_different_component_combination(tmp_pa
     assert second_personality.status_code == 200
     wrong = client.post(
         f"/api/v1/people/{person_id}/revisions",
-        json=_approval_payload(first["assembly_fingerprint"], personality="personality-r0002"),
+        json=_approval_payload(first["assembly_fingerprint"], audition["audition_id"], personality="personality-r0002"),
     )
     assert wrong.status_code == 409
     assert "changed after audition" in wrong.json()["detail"]
@@ -174,7 +205,11 @@ def test_voice_bytes_must_still_match_during_audition_and_activation(tmp_path: P
     root = app_module.person_library()
     _create_components(client, root, person_id)
     assembly = _assembly(client, person_id)
-    approved = client.post(f"/api/v1/people/{person_id}/revisions", json=_approval_payload(assembly["assembly_fingerprint"]))
+    audition = _audition(client, person_id)
+    approved = client.post(
+        f"/api/v1/people/{person_id}/revisions",
+        json=_approval_payload(assembly["assembly_fingerprint"], audition["audition_id"]),
+    )
     assert approved.status_code == 200
 
     voice.package_raw = b"changed-under-same-name"
@@ -191,7 +226,11 @@ def test_new_personality_candidate_does_not_mutate_active_person(tmp_path: Path,
     root = app_module.person_library()
     _create_components(client, root, person_id)
     assembly = _assembly(client, person_id)
-    approved = client.post(f"/api/v1/people/{person_id}/revisions", json=_approval_payload(assembly["assembly_fingerprint"]))
+    audition = _audition(client, person_id)
+    approved = client.post(
+        f"/api/v1/people/{person_id}/revisions",
+        json=_approval_payload(assembly["assembly_fingerprint"], audition["audition_id"]),
+    )
     assert approved.status_code == 200
 
     candidate = client.post(
