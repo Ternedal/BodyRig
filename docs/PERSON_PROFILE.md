@@ -121,11 +121,15 @@ Audition-rummet skal derfor vise/høre samme kombination:
 
 Compatibility-review låses, indtil body-preview er loadet, personality-kilden er vist, ModelRig-svaret er modtaget og VoiceRig-WAV'en er afspillet til ende. Ændres kandidat, ModelRig-model eller audition-prompt, nulstilles reviewet.
 
-### ModelRig trust boundary
+### Execution trust boundary
 
-Standard ModelRig endpoint er loopback `http://127.0.0.1:8080`.
+Standard ModelRig endpoint er loopback `http://127.0.0.1:8080`; standard VoiceRig endpoint er loopback `http://127.0.0.1:8765`.
 
-BodyRig kalder først unauthenticated `/healthz` og kræver `service=modelrig-server`. **Først derefter** må bearer-tokenet bruges mod beskyttede ModelRig-routes. En fremmed lokal proces på porten får derfor ikke tokenet blot ved at svare på en TCP/HTTP-forbindelse.
+BodyRig kalder først ModelRig unauthenticated `/healthz` og kræver `service=modelrig-server` samt en gyldig `version`. **Først derefter** må bearer-tokenet bruges mod beskyttede ModelRig-routes. En fremmed lokal proces på porten får derfor ikke tokenet blot ved at svare på en TCP/HTTP-forbindelse.
+
+Umiddelbart før TTS kalder den virkelige VoiceRig-klient `/api/health` og kræver `ok=true`, `service=voicerig` samt en gyldig `version`. Kun derefter udføres `/api/tts/synthesize`.
+
+De validerede runtime-identiteter registreres request-lokalt og forbruges, når audition-receiptet materialiseres. Mangler én af runtime-identiteterne, skrives der ingen audition-evidence.
 
 `MODELRIG_TOKEN` er process-env/transport-only og må ikke ende i Person Profile, audition receipt, assembly receipt eller andre artifacts.
 
@@ -142,7 +146,11 @@ audition-receipts/<person_id>/audition-<32hex>.wav
 
 - `person_id`,
 - `assembly_fingerprint`,
-- ModelRig model,
+- `modelrig_service = modelrig-server`,
+- `modelrig_version` fra det validerede ModelRig health-svar,
+- valgt ModelRig-model,
+- `voicerig_service = voicerig`,
+- `voicerig_version` fra VoiceRig health-preflightet umiddelbart før synthesis,
 - SHA-256 af audition-prompten,
 - SHA-256 af ModelRig-replyet,
 - SHA-256 af VoiceRig-WAV'en,
@@ -150,7 +158,7 @@ audition-receipts/<person_id>/audition-<32hex>.wav
 
 Raw prompt og raw reply gemmes ikke i receiptet; UI kan vise replyet fra den aktuelle request, men den permanente evidence gemmer kun hashes. ModelRig-token, URL og VoiceRig-secrets gemmes aldrig.
 
-Audio bytes re-hashes ved senere approval/reaktivering. Manipuleres WAV'en, bliver auditionen ugyldig.
+Audio bytes re-hashes ved senere approval/reaktivering. Manipuleres WAV'en eller receiptets runtime-provenance, bliver auditionen ugyldig i den assembly-receipt-kæde, der hash-binder audition-receiptet.
 
 ## Person Revision — atomic activation unit
 
@@ -201,6 +209,8 @@ Receiptet binder:
 - `audition_id`,
 - SHA-256 af det konkrete audition receipt.
 
+Da den eksakte audition-receipt hash-bindes, bliver ModelRig/VoiceRig service/version, model, prompt/reply-hashes og WAV-hash transitivt en del af den godkendte Person Revision-evidence.
+
 Ved reaktivering revalideres `.mrbody`, `.mrvoice`, personality fingerprint, audition receipt, audition WAV og assembly receipt. Alle skal stadig passe sammen.
 
 Legacy assembly receipt v1 kan læses som historik, men **kan ikke genaktiveres under den nye policy**. Kombinationen skal auditioneres igen, så den får en v2 receipt med faktisk ModelRig/VoiceRig audition-binding.
@@ -229,8 +239,9 @@ vælg body-kandidat
   + vælg ModelRig-model + audition-prompt
   -> revalidate exact artifacts/text
   -> beregn assembly_fingerprint
-  -> ModelRig udfører personality
-  -> VoiceRig siger ModelRig-replyet
+  -> ModelRig health/version + personality execution
+  -> VoiceRig health/version + TTS af ModelRig-replyet
+  -> create-only runtime-bound audition evidence
   -> se body + læs reply + hør WAV
   -> compatibility review
   -> revalidate samme assembly + audition evidence
