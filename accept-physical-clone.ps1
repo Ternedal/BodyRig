@@ -54,7 +54,6 @@ try { $session = $sessionRaw | ConvertFrom-Json } catch { throw "Physical clone 
 if ([string]$session.status -ne "pass" -or [string]$session.stage -ne "complete") { throw "Physical clone session is not a completed PASS." }
 if ($session.bodyrig_checkout_clean -ne $true) { throw "Physical clone session did not start from a clean BodyRig checkout." }
 if (([string]$session.bodyrig_revision).ToLowerInvariant() -ne $head) { throw "Current BodyRig HEAD does not match the physical clone session revision." }
-$sessionHash = Sha256 $SessionReport
 
 $readinessPath = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
 $readinessFile = Read-Json $readinessPath "Physical clone readiness report"
@@ -136,12 +135,25 @@ if ([string]$packageInfo.vrm_spec_version -ne "1.0") { throw "High-fidelity avat
 if ($packageInfo.placeholder_avatar -eq $true) { throw "Physical Gate A refuses a placeholder avatar; the accepted package must be source-derived high fidelity." }
 if ([int64]$packageInfo.observed_frames -lt 2 -or $packageInfo.shape_present -ne $true -or $packageInfo.motion_present -ne $true) { throw "Recovery proof lacks required source-derived shape/motion evidence." }
 
+$packageHash = Sha256 $packagePath
+if ($packageHash -ne ([string]$packageInfo.package_sha256).ToLowerInvariant()) { throw "High-fidelity package changed during Gate A inspection." }
+
+$skinQaPath = Join-Path $OutputDir "bodyrig-skin-qa.json"
+& $BodyRigPython -m bodyrig.skin_qa $packagePath --out $skinQaPath | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Anatomical skin QA failed; high-fidelity Gate A cannot continue." }
+$skinQaFile = Read-Json $skinQaPath "Anatomical skin QA report"
+$skinQa = $skinQaFile.Value
+if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or [int]$skinQa.version -ne 1) { throw "Anatomical skin QA report format/version mismatch." }
+if ([string]$skinQa.body_id -ne $bodyId -or ([string]$skinQa.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Anatomical skin QA is not bound to the accepted package." }
+if ($skinQa.structural_pass -ne $true -or $skinQa.manual_review_required -ne $true) { throw "Anatomical skin QA did not produce the required structural/manual-review state." }
+$skinAssessment = [string]$skinQa.automated_assessment
+if ($skinAssessment -notin @("low-risk", "review", "high-risk")) { throw "Anatomical skin QA assessment is unsupported." }
+
 $runtimeDir = Join-Path $OutputDir "runtime"
 & $BodyRigPython -m bodyrig.materialize_cli $packagePath --out $runtimeDir | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Runtime materialization from accepted high-fidelity .mrbody failed." }
 $runtimeManifestPath = Resolve-InputFile -Path (Join-Path $runtimeDir "runtime-manifest.json") -Label "Materialized runtime manifest"
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$packageHash = Sha256 $packagePath
 if ([string]$runtimeManifest.format -ne "bodyrig-runtime-assets" -or [int]$runtimeManifest.version -ne 1 -or [string]$runtimeManifest.body_id -ne $bodyId -or ([string]$runtimeManifest.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Materialized runtime identity does not match the accepted high-fidelity package." }
 $runtimeHash = Sha256 $runtimeManifestPath
 
@@ -170,6 +182,12 @@ $report = [ordered]@{
         session_sha256 = (Sha256 $sessionCopy)
         readiness_sha256 = (Sha256 $readinessCopy)
         mode = "stash-sith-high-fidelity"
+    }
+    skin_qa = [ordered]@{
+        report_sha256 = $skinQaFile.Hash
+        structural_pass = $true
+        automated_assessment = $skinAssessment
+        manual_review_required = $true
     }
     recovery = [ordered]@{
         adapter = [string]$packageInfo.recovery_adapter
@@ -212,7 +230,8 @@ Write-Host "BodyRig high-fidelity Gate A: PASS"
 Write-Host "Revision: $head"
 Write-Host "Package: $packagePath"
 Write-Host "Package SHA-256: $packageHash"
+Write-Host "Skin QA: $skinAssessment | $skinQaPath"
 Write-Host "Runtime manifest: $runtimeManifestPath"
 Write-Host "Acceptance report: $reportPath"
-Write-Host "Next: load the same runtime manifest in built WindowsPlayer and Quest-class Android renderer."
+Write-Host "Next: physically inspect deformation and load the same runtime manifest in built WindowsPlayer and Quest-class Android renderer."
 exit 0
