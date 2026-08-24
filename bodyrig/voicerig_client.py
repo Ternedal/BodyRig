@@ -7,6 +7,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from .execution_provenance import ExecutionProvenanceError, record_runtime
+
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_VOICE_PACKAGE_BYTES = 160 * 1024 * 1024
 MAX_AUDIO_BYTES = 64 * 1024 * 1024
@@ -100,6 +102,10 @@ class VoiceRigClient:
         value = self._json(raw, "health")
         if value.get("ok") is not True or value.get("service") != "voicerig":
             raise VoiceRigClientError("VoiceRig health did not report the expected service")
+        try:
+            record_runtime("voicerig", value.get("version"))
+        except ExecutionProvenanceError as exc:
+            raise VoiceRigClientError("VoiceRig health did not report a valid version") from exc
         return value
 
     def voices(self) -> list[dict[str, Any]]:
@@ -148,6 +154,9 @@ class VoiceRigClient:
     def synthesize(self, package: str, text: str) -> bytes:
         if not text.strip() or len(text) > 4000:
             raise VoiceRigClientError("Voice preview text must be 1..4000 characters")
+        # Synthesis is execution evidence, not just artifact retrieval. Verify and
+        # record the exact VoiceRig runtime identity/version immediately before TTS.
+        self.health()
         package, _ = _package_name(package)
         raw, headers = self._request(
             "/api/tts/synthesize",
