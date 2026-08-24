@@ -67,84 +67,122 @@ $expectedRuntimeHash = Need-Sha256 ([string]$acceptance.runtime.manifest_sha256)
 $actualRuntimeHash = (Get-FileHash -LiteralPath $runtimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualRuntimeHash -ne $expectedRuntimeHash) { throw "Runtime manifest bytes no longer match Gate A acceptance." }
 
-$adbCommand = Get-Command $AdbExe -ErrorAction SilentlyContinue
-if ($null -eq $adbCommand) { throw "adb not found: $AdbExe" }
-$script:AdbExe = $adbCommand.Source
-$script:Serial = $Serial
-
-if ([string]::IsNullOrWhiteSpace($Serial)) {
-    $devices = @(Invoke-Adb -Arguments @("devices") -Capture | Select-Object -Skip 1 | Where-Object { $_ -match '^\S+\s+device$' })
-    if ($devices.Count -ne 1) { throw "Expected exactly one online adb device; found $($devices.Count). Pass -Serial when multiple devices are attached." }
-    $script:Serial = ($devices[0] -split '\s+')[0]
+$customProbe = -not [string]::IsNullOrWhiteSpace($ProbeOutput)
+$customDeformation = -not [string]::IsNullOrWhiteSpace($DeformationOutput)
+if ($customProbe -ne $customDeformation) { throw "Pass both -ProbeOutput and -DeformationOutput together, or neither." }
+if (-not $customProbe) {
+    $evidenceDir = Join-Path $AcceptanceDir "quest-evidence"
+    $ProbeOutput = Join-Path $evidenceDir "quest-probe.json"
+    $DeformationOutput = Join-Path $evidenceDir "quest-deformation-probe.json"
+} else {
+    $ProbeOutput = [System.IO.Path]::GetFullPath($ProbeOutput)
+    $DeformationOutput = [System.IO.Path]::GetFullPath($DeformationOutput)
+    $probeParent = Split-Path -Parent $ProbeOutput
+    $deformationParent = Split-Path -Parent $DeformationOutput
+    if (-not [string]::Equals($probeParent, $deformationParent, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Custom Quest probe/deformation outputs must share one dedicated evidence directory."
+    }
+    $evidenceDir = $probeParent
 }
-
-$model = ((Invoke-Adb -Arguments @("shell", "getprop", "ro.product.model") -Capture) -join "").Trim()
-if ($model -notmatch '(?i)quest|oculus') { throw "Connected adb device is not Quest/Oculus-class: '$model'" }
-
-$rendererRoot = Join-Path $repoRoot "reference-renderer"
-$buildScript = Join-Path $rendererRoot "build-reference-renderer.ps1"
-$apk = Join-Path $rendererRoot "Builds\Quest\BodyRigReferenceProbe.apk"
-if (-not $SkipBuild) {
-    $buildArgs = @{ Platform = "Quest"; Output = $apk }
-    if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
-    & $buildScript @buildArgs
-    if ($LASTEXITCODE -ne 0) { throw "BodyRig Quest reference renderer build failed with exit code $LASTEXITCODE" }
-}
-if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Built Quest reference renderer APK not found: $apk" }
-
-if ([string]::IsNullOrWhiteSpace($ProbeOutput)) { $ProbeOutput = Join-Path $AcceptanceDir "quest-probe.json" }
-if ([string]::IsNullOrWhiteSpace($DeformationOutput)) { $DeformationOutput = Join-Path $AcceptanceDir "quest-deformation-probe.json" }
+$evidenceDir = [System.IO.Path]::GetFullPath($evidenceDir)
 $ProbeOutput = [System.IO.Path]::GetFullPath($ProbeOutput)
 $DeformationOutput = [System.IO.Path]::GetFullPath($DeformationOutput)
-foreach ($output in @($ProbeOutput, $DeformationOutput)) { if (Test-Path -LiteralPath $output) { throw "Quest physical evidence already exists: $output" } }
+if ([string]::Equals($ProbeOutput, $DeformationOutput, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Quest probe and deformation outputs must be distinct files." }
+if (Test-Path -LiteralPath $evidenceDir) { throw "Quest canonical evidence directory already exists; refusing cross-attempt reuse: $evidenceDir" }
+$evidenceParent = Split-Path -Parent $evidenceDir
+if (-not (Test-Path -LiteralPath $evidenceParent -PathType Container)) { throw "Quest evidence parent directory not found: $evidenceParent" }
 
-$remoteRoot = "/sdcard/Android/data/$ApplicationId/files/BodyRig"
-$remoteRuntime = "$remoteRoot/runtime"
-$remoteProbe = "$remoteRoot/bodyrig-renderer-probe.json"
-$remoteDeformation = "$remoteRoot/bodyrig-deformation-probe.json"
+$attemptDir = Join-Path $evidenceParent (".bodyrig-quest-attempt-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $attemptDir | Out-Null
+$stagedProbe = Join-Path $attemptDir ([IO.Path]::GetFileName($ProbeOutput))
+$stagedDeformation = Join-Path $attemptDir ([IO.Path]::GetFileName($DeformationOutput))
+$committed = $false
 
-Write-Host "BodyRig Quest renderer Gate B physical probe"
-Write-Host "Revision:     $acceptedRevision"
-Write-Host "ADB device:   $($script:Serial) | $model"
-Write-Host "Runtime:      $runtimeDir"
-Write-Host "Machine:      $ProbeOutput"
-Write-Host "Deformation:  $DeformationOutput"
+try {
+    $adbCommand = Get-Command $AdbExe -ErrorAction SilentlyContinue
+    if ($null -eq $adbCommand) { throw "adb not found: $AdbExe" }
+    $script:AdbExe = $adbCommand.Source
+    $script:Serial = $Serial
 
-Invoke-Adb -Arguments @("install", "-r", $apk)
-Invoke-Adb -Arguments @("shell", "sh", "-c", "rm -rf '$remoteRuntime' && mkdir -p '$remoteRuntime' && rm -f '$remoteProbe' '$remoteDeformation'")
-Invoke-Adb -Arguments @("push", (Join-Path $runtimeDir "."), "$remoteRuntime/")
-Invoke-Adb -Arguments @("shell", "monkey", "-p", $ApplicationId, "1")
+    if ([string]::IsNullOrWhiteSpace($Serial)) {
+        $devices = @(Invoke-Adb -Arguments @("devices") -Capture | Select-Object -Skip 1 | Where-Object { $_ -match '^\S+\s+device$' })
+        if ($devices.Count -ne 1) { throw "Expected exactly one online adb device; found $($devices.Count). Pass -Serial when multiple devices are attached." }
+        $script:Serial = ($devices[0] -split '\s+')[0]
+    }
 
-$ready = $false
-for ($attempt = 0; $attempt -lt 90; $attempt++) {
-    Start-Sleep -Seconds 1
-    $check = ((Invoke-Adb -Arguments @("shell", "sh", "-c", "if [ -f '$remoteProbe' ] && [ -f '$remoteDeformation' ]; then echo ready; fi") -Capture) -join "").Trim()
-    if ($check -eq "ready") { $ready = $true; break }
+    $model = ((Invoke-Adb -Arguments @("shell", "getprop", "ro.product.model") -Capture) -join "").Trim()
+    if ($model -notmatch '(?i)quest|oculus') { throw "Connected adb device is not Quest/Oculus-class: '$model'" }
+
+    $rendererRoot = Join-Path $repoRoot "reference-renderer"
+    $buildScript = Join-Path $rendererRoot "build-reference-renderer.ps1"
+    $apk = Join-Path $rendererRoot "Builds\Quest\BodyRigReferenceProbe.apk"
+    if (-not $SkipBuild) {
+        $buildArgs = @{ Platform = "Quest"; Output = $apk }
+        if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
+        & $buildScript @buildArgs
+        if ($LASTEXITCODE -ne 0) { throw "BodyRig Quest reference renderer build failed with exit code $LASTEXITCODE" }
+    }
+    if (-not (Test-Path -LiteralPath $apk -PathType Leaf)) { throw "Built Quest reference renderer APK not found: $apk" }
+
+    $remoteRoot = "/sdcard/Android/data/$ApplicationId/files/BodyRig"
+    $remoteRuntime = "$remoteRoot/runtime"
+    $remoteProbe = "$remoteRoot/bodyrig-renderer-probe.json"
+    $remoteDeformation = "$remoteRoot/bodyrig-deformation-probe.json"
+
+    Write-Host "BodyRig Quest renderer Gate B physical probe"
+    Write-Host "Revision:     $acceptedRevision"
+    Write-Host "ADB device:   $($script:Serial) | $model"
+    Write-Host "Runtime:      $runtimeDir"
+    Write-Host "Staging:      $attemptDir"
+    Write-Host "Commit dir:   $evidenceDir"
+
+    Invoke-Adb -Arguments @("install", "-r", $apk)
+    Invoke-Adb -Arguments @("shell", "sh", "-c", "rm -rf '$remoteRuntime' && mkdir -p '$remoteRuntime' && rm -f '$remoteProbe' '$remoteDeformation'")
+    Invoke-Adb -Arguments @("push", (Join-Path $runtimeDir "."), "$remoteRuntime/")
+    Invoke-Adb -Arguments @("shell", "monkey", "-p", $ApplicationId, "1")
+
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 90; $attempt++) {
+        Start-Sleep -Seconds 1
+        $check = ((Invoke-Adb -Arguments @("shell", "sh", "-c", "if [ -f '$remoteProbe' ] && [ -f '$remoteDeformation' ]; then echo ready; fi") -Capture) -join "").Trim()
+        if ($check -eq "ready") { $ready = $true; break }
+    }
+    if (-not $ready) { throw "Quest player did not produce both machine and deformation evidence. Inspect the headset and adb logcat before retrying; local canonical evidence was not committed." }
+
+    Invoke-Adb -Arguments @("pull", $remoteProbe, $stagedProbe)
+    Invoke-Adb -Arguments @("pull", $remoteDeformation, $stagedDeformation)
+    foreach ($required in @($stagedProbe, $stagedDeformation)) { if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "adb reported staged evidence pull success but local evidence is missing: $required" } }
+
+    try { $probe = Get-Content -LiteralPath $stagedProbe -Raw | ConvertFrom-Json } catch { throw "Quest machine probe is not valid JSON: $stagedProbe" }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "android-quest-class" -or [string]$probe.unity_platform -ne "Android") { throw "Quest machine probe has the wrong format/platform." }
+    if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Quest player was not built from the exact Gate A BodyRig revision." }
+    if ([string]$probe.device_model -notmatch '(?i)quest|oculus') { throw "Quest machine probe does not identify Quest/Oculus hardware." }
+    if ([string]::IsNullOrWhiteSpace([string]$probe.build_guid)) { throw "Quest machine probe has no Unity build GUID." }
+    if ([string]$probe.active_renderer.name -ne $RendererName -or [string]$probe.active_renderer.version -ne $RendererVersion) { throw "Quest machine probe renderer identity differs from the reference build contract." }
+    if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $actualRuntimeHash) { throw "Quest machine probe does not identify the Gate A runtime manifest bytes." }
+
+    try { $deformation = Get-Content -LiteralPath $stagedDeformation -Raw | ConvertFrom-Json } catch { throw "Quest deformation probe is not valid JSON: $stagedDeformation" }
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "android-quest-class" -or [string]$deformation.unity_platform -ne "Android") { throw "Quest deformation probe has the wrong format/platform." }
+    if ((Need-Revision ([string]$deformation.bodyrig_revision) "deformation.bodyrig_revision") -ne $acceptedRevision -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Quest deformation evidence was not produced by the same exact BodyRig revision as Gate A/machine probe." }
+    if ([string]$deformation.device_model -notmatch '(?i)quest|oculus') { throw "Quest deformation probe does not identify Quest/Oculus hardware." }
+    if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Quest deformation probe did not complete the fixed BodyRig pose sequence." }
+    if ((Need-Sha256 ([string]$deformation.runtime_manifest_sha256) "deformation.runtime_manifest_sha256") -ne $actualRuntimeHash -or [string]$deformation.body_id -ne [string]$probe.body_id -or [string]$deformation.package_sha256 -ne [string]$probe.package_sha256 -or [string]$deformation.avatar_sha256 -ne [string]$probe.avatar_sha256 -or [string]$deformation.bodyprint_sha256 -ne [string]$probe.bodyprint_sha256 -or [string]$deformation.build_guid -ne [string]$probe.build_guid) { throw "Quest deformation evidence is not byte/build-bound to the renderer machine probe." }
+    $poseIds = @($deformation.poses | ForEach-Object { [string]$_.id })
+    if (($poseIds -join ',') -ne 'neutral,arms_abduction,elbows_flexed,arms_forward,left_leg_lift,knee_flexion') { throw "Quest deformation probe pose sequence/order mismatch." }
+
+    Move-Item -LiteralPath $attemptDir -Destination $evidenceDir
+    $committed = $true
+} finally {
+    if (-not $committed -and (Test-Path -LiteralPath $attemptDir -PathType Container)) {
+        Remove-Item -LiteralPath $attemptDir -Recurse -Force
+    }
 }
-if (-not $ready) { throw "Quest player did not produce both machine and deformation evidence. Inspect the headset and adb logcat before retrying; evidence was not fabricated." }
 
-Invoke-Adb -Arguments @("pull", $remoteProbe, $ProbeOutput)
-Invoke-Adb -Arguments @("pull", $remoteDeformation, $DeformationOutput)
-foreach ($required in @($ProbeOutput, $DeformationOutput)) { if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "adb reported evidence pull success but local evidence is missing: $required" } }
-
-try { $probe = Get-Content -LiteralPath $ProbeOutput -Raw | ConvertFrom-Json } catch { throw "Quest machine probe is not valid JSON: $ProbeOutput" }
-if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "android-quest-class" -or [string]$probe.unity_platform -ne "Android") { throw "Quest machine probe has the wrong format/platform." }
-if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Quest player was not built from the exact Gate A BodyRig revision." }
-if ([string]$probe.device_model -notmatch '(?i)quest|oculus') { throw "Quest machine probe does not identify Quest/Oculus hardware." }
-if ([string]::IsNullOrWhiteSpace([string]$probe.build_guid)) { throw "Quest machine probe has no Unity build GUID." }
-if ([string]$probe.active_renderer.name -ne $RendererName -or [string]$probe.active_renderer.version -ne $RendererVersion) { throw "Quest machine probe renderer identity differs from the reference build contract." }
-if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $actualRuntimeHash) { throw "Quest machine probe does not identify the Gate A runtime manifest bytes." }
-
-try { $deformation = Get-Content -LiteralPath $DeformationOutput -Raw | ConvertFrom-Json } catch { throw "Quest deformation probe is not valid JSON: $DeformationOutput" }
-if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "android-quest-class" -or [string]$deformation.unity_platform -ne "Android") { throw "Quest deformation probe has the wrong format/platform." }
-if ((Need-Revision ([string]$deformation.bodyrig_revision) "deformation.bodyrig_revision") -ne $acceptedRevision -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Quest deformation evidence was not produced by the same exact BodyRig revision as Gate A/machine probe." }
-if ([string]$deformation.device_model -notmatch '(?i)quest|oculus') { throw "Quest deformation probe does not identify Quest/Oculus hardware." }
-if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Quest deformation probe did not complete the fixed BodyRig pose sequence." }
-if ((Need-Sha256 ([string]$deformation.runtime_manifest_sha256) "deformation.runtime_manifest_sha256") -ne $actualRuntimeHash -or [string]$deformation.body_id -ne [string]$probe.body_id -or [string]$deformation.package_sha256 -ne [string]$probe.package_sha256 -or [string]$deformation.avatar_sha256 -ne [string]$probe.avatar_sha256 -or [string]$deformation.bodyprint_sha256 -ne [string]$probe.bodyprint_sha256 -or [string]$deformation.build_guid -ne [string]$probe.build_guid) { throw "Quest deformation evidence is not byte/build-bound to the renderer machine probe." }
-$poseIds = @($deformation.poses | ForEach-Object { [string]$_.id })
-if (($poseIds -join ',') -ne 'neutral,arms_abduction,elbows_flexed,arms_forward,left_leg_lift,knee_flexion') { throw "Quest deformation probe pose sequence/order mismatch." }
-
+if (-not (Test-Path -LiteralPath $ProbeOutput -PathType Leaf) -or -not (Test-Path -LiteralPath $DeformationOutput -PathType Leaf)) {
+    throw "Quest evidence directory commit completed without both canonical files."
+}
 Write-Host "BodyRig Quest physical evidence: PASS | revision $acceptedRevision"
+Write-Host "Evidence directory:   $evidenceDir"
 Write-Host "Machine evidence:     $ProbeOutput"
 Write-Host "Deformation evidence: $DeformationOutput"
 Write-Host "The app remains on the headset cycling the same sequence for human visual inspection."
