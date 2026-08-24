@@ -68,6 +68,10 @@ def _operator_command(status: AcceptanceStatus) -> AcceptanceStatus:
     return status
 
 
+def _status_exit_code(status: AcceptanceStatus) -> int:
+    return 3 if status.state == "blocked" else 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Read-only BodyRig physical acceptance status checker")
     inputs = parser.add_mutually_exclusive_group(required=True)
@@ -104,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         if status.next_command:
             print("Next command:")
             print(status.next_command)
-    return 0
+    return _status_exit_code(status)
 
 
 if __name__ == "__main__":
