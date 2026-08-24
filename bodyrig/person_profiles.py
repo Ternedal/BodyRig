@@ -1,0 +1,440 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+FORMAT = "modelrig-person-profile"
+VERSION = 1
+PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
+BODY_ID_RE = re.compile(r"^[a-z0-9æøå_-]{1,160}$")
+VOICE_ID_RE = BODY_ID_RE
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+REVISION_RE = re.compile(r"^(body|voice|personality)-r[0-9]{4}$")
+LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
+
+TOP_FIELDS = {
+    "format",
+    "version",
+    "person_id",
+    "display_name",
+    "aliases",
+    "created_utc",
+    "updated_utc",
+    "source",
+    "active",
+    "body_revisions",
+    "voice_revisions",
+    "personality_revisions",
+}
+ACTIVE_FIELDS = {"body_revision", "voice_revision", "personality_revision"}
+SOURCE_FIELDS = {"kind", "performer_id", "performer_name", "disambiguation"}
+BODY_FIELDS = {
+    "revision_id",
+    "created_utc",
+    "body_id",
+    "package_sha256",
+    "package_path",
+    "preview_path",
+    "feedback",
+}
+VOICE_FIELDS = {
+    "revision_id",
+    "created_utc",
+    "voice_id",
+    "package_sha256",
+    "package_path",
+    "feedback",
+}
+PERSONALITY_FIELDS = {
+    "revision_id",
+    "created_utc",
+    "instructions",
+    "default_language",
+    "style_notes",
+    "feedback",
+}
+
+
+class PersonProfileError(ValueError):
+    pass
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _text(value: Any, *, field: str, maximum: int, empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise PersonProfileError(f"{field} must be text")
+    cleaned = value.strip()
+    if (not empty and not cleaned) or len(cleaned) > maximum or any(ord(ch) < 32 and ch not in "\n\t" for ch in cleaned):
+        raise PersonProfileError(f"{field} is invalid")
+    return cleaned
+
+
+def _nullable_text(value: Any, *, field: str, maximum: int) -> str | None:
+    if value is None:
+        return None
+    return _text(value, field=field, maximum=maximum)
+
+
+def _timestamp(value: Any, *, field: str) -> str:
+    text = _text(value, field=field, maximum=80)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PersonProfileError(f"{field} must be ISO-8601") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise PersonProfileError(f"{field} must include timezone")
+    return text
+
+
+def _sha(value: Any, *, field: str, nullable: bool = False) -> str | None:
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+        raise PersonProfileError(f"{field} must be lowercase SHA-256")
+    return value
+
+
+def _validate_revision_id(value: Any, *, kind: str) -> str:
+    text = _text(value, field="revision_id", maximum=24)
+    if not REVISION_RE.fullmatch(text) or not text.startswith(f"{kind}-r"):
+        raise PersonProfileError(f"invalid {kind} revision id")
+    return text
+
+
+def _validate_source(value: Any) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != SOURCE_FIELDS or value.get("kind") != "stash-performer":
+        raise PersonProfileError("source must be null or an exact stash-performer binding")
+    return {
+        "kind": "stash-performer",
+        "performer_id": _text(value["performer_id"], field="source.performer_id", maximum=160),
+        "performer_name": _text(value["performer_name"], field="source.performer_name", maximum=160),
+        "disambiguation": _text(value["disambiguation"], field="source.disambiguation", maximum=240, empty=True),
+    }
+
+
+def _validate_body_revision(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != BODY_FIELDS:
+        raise PersonProfileError("body revision fields must match v1 exactly")
+    body_id = _text(value["body_id"], field="body_id", maximum=160)
+    if not BODY_ID_RE.fullmatch(body_id):
+        raise PersonProfileError("body_id is invalid")
+    return {
+        "revision_id": _validate_revision_id(value["revision_id"], kind="body"),
+        "created_utc": _timestamp(value["created_utc"], field="created_utc"),
+        "body_id": body_id,
+        "package_sha256": _sha(value["package_sha256"], field="package_sha256"),
+        "package_path": _text(value["package_path"], field="package_path", maximum=4096),
+        "preview_path": _nullable_text(value["preview_path"], field="preview_path", maximum=4096),
+        "feedback": _text(value["feedback"], field="feedback", maximum=8000, empty=True),
+    }
+
+
+def _validate_voice_revision(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != VOICE_FIELDS:
+        raise PersonProfileError("voice revision fields must match v1 exactly")
+    voice_id = _text(value["voice_id"], field="voice_id", maximum=160)
+    if not VOICE_ID_RE.fullmatch(voice_id):
+        raise PersonProfileError("voice_id is invalid")
+    return {
+        "revision_id": _validate_revision_id(value["revision_id"], kind="voice"),
+        "created_utc": _timestamp(value["created_utc"], field="created_utc"),
+        "voice_id": voice_id,
+        "package_sha256": _sha(value["package_sha256"], field="package_sha256", nullable=True),
+        "package_path": _nullable_text(value["package_path"], field="package_path", maximum=4096),
+        "feedback": _text(value["feedback"], field="feedback", maximum=8000, empty=True),
+    }
+
+
+def _validate_personality_revision(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != PERSONALITY_FIELDS:
+        raise PersonProfileError("personality revision fields must match v1 exactly")
+    language = _text(value["default_language"], field="default_language", maximum=16)
+    if not LANGUAGE_RE.fullmatch(language):
+        raise PersonProfileError("default_language is invalid")
+    return {
+        "revision_id": _validate_revision_id(value["revision_id"], kind="personality"),
+        "created_utc": _timestamp(value["created_utc"], field="created_utc"),
+        "instructions": _text(value["instructions"], field="instructions", maximum=64_000),
+        "default_language": language,
+        "style_notes": _text(value["style_notes"], field="style_notes", maximum=16_000, empty=True),
+        "feedback": _text(value["feedback"], field="feedback", maximum=8000, empty=True),
+    }
+
+
+def validate_profile(value: Mapping[str, Any] | Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
+        raise PersonProfileError("person profile fields must match v1 exactly")
+    if value.get("format") != FORMAT or value.get("version") != VERSION:
+        raise PersonProfileError("unsupported person profile format/version")
+
+    person_id = value.get("person_id")
+    if not isinstance(person_id, str) or not PERSON_ID_RE.fullmatch(person_id):
+        raise PersonProfileError("person_id is invalid")
+
+    aliases = value.get("aliases")
+    if not isinstance(aliases, list) or len(aliases) > 50:
+        raise PersonProfileError("aliases must be a list with at most 50 items")
+    clean_aliases: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        clean = _text(alias, field="alias", maximum=160)
+        key = clean.casefold()
+        if key in seen:
+            raise PersonProfileError("aliases must be unique")
+        seen.add(key)
+        clean_aliases.append(clean)
+
+    active = value.get("active")
+    if not isinstance(active, Mapping) or set(active) != ACTIVE_FIELDS:
+        raise PersonProfileError("active bindings must match v1 exactly")
+
+    body_revisions = [_validate_body_revision(item) for item in value.get("body_revisions", [])] if isinstance(value.get("body_revisions"), list) else None
+    voice_revisions = [_validate_voice_revision(item) for item in value.get("voice_revisions", [])] if isinstance(value.get("voice_revisions"), list) else None
+    personality_revisions = [_validate_personality_revision(item) for item in value.get("personality_revisions", [])] if isinstance(value.get("personality_revisions"), list) else None
+    if body_revisions is None or voice_revisions is None or personality_revisions is None:
+        raise PersonProfileError("revision collections must be lists")
+
+    def _unique(items: list[dict[str, Any]], kind: str) -> set[str]:
+        ids = [item["revision_id"] for item in items]
+        if len(ids) != len(set(ids)):
+            raise PersonProfileError(f"duplicate {kind} revision id")
+        return set(ids)
+
+    body_ids = _unique(body_revisions, "body")
+    voice_ids = _unique(voice_revisions, "voice")
+    personality_ids = _unique(personality_revisions, "personality")
+    refs = {
+        "body_revision": body_ids,
+        "voice_revision": voice_ids,
+        "personality_revision": personality_ids,
+    }
+    clean_active: dict[str, str | None] = {}
+    for field, valid in refs.items():
+        ref = active[field]
+        if ref is not None and (not isinstance(ref, str) or ref not in valid):
+            raise PersonProfileError(f"active.{field} does not reference an existing revision")
+        clean_active[field] = ref
+
+    created = _timestamp(value["created_utc"], field="created_utc")
+    updated = _timestamp(value["updated_utc"], field="updated_utc")
+
+    return {
+        "format": FORMAT,
+        "version": VERSION,
+        "person_id": person_id,
+        "display_name": _text(value["display_name"], field="display_name", maximum=160),
+        "aliases": clean_aliases,
+        "created_utc": created,
+        "updated_utc": updated,
+        "source": _validate_source(value["source"]),
+        "active": clean_active,
+        "body_revisions": body_revisions,
+        "voice_revisions": voice_revisions,
+        "personality_revisions": personality_revisions,
+    }
+
+
+def _path(root: Path, person_id: str) -> Path:
+    if not PERSON_ID_RE.fullmatch(person_id):
+        raise PersonProfileError("person_id is invalid")
+    return root / f"{person_id}.json"
+
+
+def _write_create(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    try:
+        with path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(payload)
+    except FileExistsError as exc:
+        raise PersonProfileError(f"person profile already exists: {path.name}") from exc
+
+
+def _write_replace(path: Path, value: Mapping[str, Any]) -> None:
+    payload = json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
+    temp = path.with_name(f"{path.name}.tmp-{uuid.uuid4().hex}")
+    try:
+        temp.write_text(payload, encoding="utf-8", newline="\n")
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def load_profile(root: str | os.PathLike[str], person_id: str) -> dict[str, Any]:
+    path = _path(Path(root).expanduser().resolve(), person_id)
+    if not path.is_file():
+        raise PersonProfileError(f"person profile not found: {person_id}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise PersonProfileError(f"person profile is invalid JSON: {person_id}") from exc
+    return validate_profile(value)
+
+
+def list_profiles(root: str | os.PathLike[str]) -> list[dict[str, Any]]:
+    directory = Path(root).expanduser().resolve()
+    if not directory.exists():
+        return []
+    profiles: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("person-*.json")):
+        try:
+            profiles.append(load_profile(directory, path.stem))
+        except PersonProfileError:
+            continue
+    return sorted(profiles, key=lambda item: (item["display_name"].casefold(), item["person_id"]))
+
+
+def create_profile(
+    root: str | os.PathLike[str],
+    *,
+    display_name: str,
+    aliases: list[str] | None = None,
+    stash_performer: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    now = _utc_now()
+    source = None
+    if stash_performer is not None:
+        source = {
+            "kind": "stash-performer",
+            "performer_id": str(stash_performer.get("id") or ""),
+            "performer_name": str(stash_performer.get("name") or ""),
+            "disambiguation": str(stash_performer.get("disambiguation") or ""),
+        }
+    value = validate_profile(
+        {
+            "format": FORMAT,
+            "version": VERSION,
+            "person_id": f"person-{uuid.uuid4().hex}",
+            "display_name": display_name,
+            "aliases": list(aliases or []),
+            "created_utc": now,
+            "updated_utc": now,
+            "source": source,
+            "active": {"body_revision": None, "voice_revision": None, "personality_revision": None},
+            "body_revisions": [],
+            "voice_revisions": [],
+            "personality_revisions": [],
+        }
+    )
+    _write_create(_path(Path(root).expanduser().resolve(), value["person_id"]), value)
+    return value
+
+
+def _next_revision(profile: Mapping[str, Any], kind: str) -> str:
+    collection = profile[f"{kind}_revisions"]
+    return f"{kind}-r{len(collection) + 1:04d}"
+
+
+def _save(root: str | os.PathLike[str], profile: Mapping[str, Any]) -> dict[str, Any]:
+    value = dict(profile)
+    value["updated_utc"] = _utc_now()
+    value = validate_profile(value)
+    path = _path(Path(root).expanduser().resolve(), value["person_id"])
+    if not path.is_file():
+        raise PersonProfileError(f"person profile not found: {value['person_id']}")
+    _write_replace(path, value)
+    return value
+
+
+def add_body_revision(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_id: str,
+    package_sha256: str,
+    package_path: str,
+    preview_path: str | None = None,
+    feedback: str = "",
+    activate: bool = False,
+) -> dict[str, Any]:
+    profile = load_profile(root, person_id)
+    revision = _validate_body_revision(
+        {
+            "revision_id": _next_revision(profile, "body"),
+            "created_utc": _utc_now(),
+            "body_id": body_id,
+            "package_sha256": package_sha256,
+            "package_path": package_path,
+            "preview_path": preview_path,
+            "feedback": feedback,
+        }
+    )
+    profile["body_revisions"].append(revision)
+    if activate:
+        profile["active"]["body_revision"] = revision["revision_id"]
+    return _save(root, profile)
+
+
+def add_voice_revision(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    voice_id: str,
+    package_sha256: str | None = None,
+    package_path: str | None = None,
+    feedback: str = "",
+    activate: bool = False,
+) -> dict[str, Any]:
+    profile = load_profile(root, person_id)
+    revision = _validate_voice_revision(
+        {
+            "revision_id": _next_revision(profile, "voice"),
+            "created_utc": _utc_now(),
+            "voice_id": voice_id,
+            "package_sha256": package_sha256,
+            "package_path": package_path,
+            "feedback": feedback,
+        }
+    )
+    profile["voice_revisions"].append(revision)
+    if activate:
+        profile["active"]["voice_revision"] = revision["revision_id"]
+    return _save(root, profile)
+
+
+def add_personality_revision(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    instructions: str,
+    default_language: str = "da",
+    style_notes: str = "",
+    feedback: str = "",
+    activate: bool = False,
+) -> dict[str, Any]:
+    profile = load_profile(root, person_id)
+    revision = _validate_personality_revision(
+        {
+            "revision_id": _next_revision(profile, "personality"),
+            "created_utc": _utc_now(),
+            "instructions": instructions,
+            "default_language": default_language,
+            "style_notes": style_notes,
+            "feedback": feedback,
+        }
+    )
+    profile["personality_revisions"].append(revision)
+    if activate:
+        profile["active"]["personality_revision"] = revision["revision_id"]
+    return _save(root, profile)
+
+
+def activate_revision(root: str | os.PathLike[str], person_id: str, *, kind: str, revision_id: str) -> dict[str, Any]:
+    if kind not in {"body", "voice", "personality"}:
+        raise PersonProfileError("unsupported revision kind")
+    profile = load_profile(root, person_id)
+    valid = {item["revision_id"] for item in profile[f"{kind}_revisions"]}
+    if revision_id not in valid:
+        raise PersonProfileError(f"unknown {kind} revision")
+    profile["active"][f"{kind}_revision"] = revision_id
+    return _save(root, profile)
