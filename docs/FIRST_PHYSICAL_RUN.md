@@ -17,20 +17,20 @@ git rev-parse HEAD
 
 The BodyRig Python used by the ready launcher must import `bodyrig` from this exact checkout. The launcher verifies that automatically before creating session evidence.
 
-## 1. Configure local Stash transport
+## 1. Configure local Stash transport with the fresh test token
 
-Keep Stash credentials in process environment rather than command history:
+For the first physical acceptance run, create/use a **fresh local Stash API token** for BodyRig and put it only in the current PowerShell process environment. Do not paste the token into GitHub, chat, command arguments or evidence files.
 
 ```powershell
 $env:STASH_URL = "http://127.0.0.1:9999"
-$env:STASH_API_KEY = "<local Stash API key if required>"
+$env:STASH_API_KEY = "<fresh local Stash API key>"
 ```
 
-If the local Stash instance does not require an API key, leave `STASH_API_KEY` unset/empty.
+If the local Stash instance truly does not require authentication, `STASH_API_KEY` may be unset/empty. Otherwise the fresh token is a hard prerequisite for the physical test.
 
 The API key is transport-only configuration. It must not appear in source manifests, portable identity, `.mrbody` provenance or runtime assets.
 
-## 2. Prove Stash is reachable
+## 2. Prove the fresh Stash token works before search or clone
 
 Use the checkout-bound PowerShell wrapper:
 
@@ -38,13 +38,15 @@ Use the checkout-bound PowerShell wrapper:
 .\stash-sources.ps1 health
 ```
 
+This `health` call is the authentication gate for the future physical test. **Do not continue to performer search or clone unless it succeeds with the fresh token.** If it fails because the token is invalid, expired, revoked or missing, replace the token and repeat `health`; do not work around the failure by editing evidence or bypassing readiness.
+
 Do not rely on `bodyrig-stash-sources` being present on the shell `PATH`. A repo-local `.venv\Scripts\python.exe` is not automatically added to `PATH` by `setup-rig-windows.ps1`, so the wrapper resolves the same repo-local Python authority used by the physical launcher, verifies that `bodyrig.__file__` points at this checkout and then invokes `python -m bodyrig.stash_cli`.
 
 A successful call prints a small JSON object containing `ok=true` and the Stash version. Do not continue to a long physical clone while this probe fails.
 
 ## 3. Find the performer id
 
-Search by performer name:
+Only after the token-backed `health` gate is green, search by performer name:
 
 ```powershell
 .\stash-sources.ps1 search "<performer name>" -Limit 10
@@ -96,7 +98,7 @@ See `docs/PORTABLE_IDENTITY.md` for the identity authority and source-byte TOCTO
 
 ## 5. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report, run:
+After `setup-rig-windows.ps1` has produced a valid rig setup report **and the fresh-token `health` gate has passed**, run:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
@@ -184,6 +186,7 @@ The same canonical body id, accepted package bytes and runtime identity must sur
 
 The first run is useful physical evidence only if all of the following are true:
 
+- the fresh Stash token passed the checkout-bound `health` gate before source discovery/clone;
 - real local Stash performer/video sources were used;
 - source-byte TOCTOU binding held through clone;
 - the create-only portable identity receipt is present and canonical;
