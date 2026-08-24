@@ -33,6 +33,23 @@ catch { throw "Reference renderer contract is not valid JSON: $contractPath" }
 if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
 $expectedUnityVersion = ([string]$contract.unity_editor_version).Trim()
 if ($expectedUnityVersion -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an invalid Unity editor version." }
+$expectedUniVrmVersion = ([string]$contract.univrm_version).Trim()
+if ($expectedUniVrmVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Reference renderer contract contains an invalid UniVRM version." }
+$expectedUniVrmRevision = ([string]$contract.univrm_revision).Trim().ToLowerInvariant()
+if ($expectedUniVrmRevision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
+if ([string]$contract.renderer_version -notmatch [regex]::Escape("univrm-$expectedUniVrmVersion")) { throw "Renderer version does not identify the contracted UniVRM version." }
+
+$manifestPath = Join-Path $projectRoot "Packages\manifest.json"
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Unity package manifest not found: $manifestPath" }
+try { $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "Unity package manifest is not valid JSON: $manifestPath" }
+$expectedGltf = "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#$expectedUniVrmRevision"
+$expectedVrm = "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#$expectedUniVrmRevision"
+$gltfDependency = [string]$manifest.dependencies.PSObject.Properties["com.vrmc.gltf"].Value
+$vrmDependency = [string]$manifest.dependencies.PSObject.Properties["com.vrmc.vrm"].Value
+if ($gltfDependency -ne $expectedGltf -or $vrmDependency -ne $expectedVrm) {
+    throw "Unity package manifest does not pin both UniVRM packages to renderer-contract revision $expectedUniVrmRevision."
+}
 
 $headLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) { throw "Could not resolve exact BodyRig Git HEAD before renderer build." }
@@ -56,6 +73,7 @@ $Output = [System.IO.Path]::GetFullPath($Output)
 Write-Host "BodyRig reference renderer build"
 Write-Host "Unity:     $UnityExe"
 Write-Host "Unity pin: $expectedUnityVersion"
+Write-Host "UniVRM:    $expectedUniVrmVersion | $expectedUniVrmRevision"
 Write-Host "Project:   $projectRoot"
 Write-Host "Revision:  $bodyRigRevision"
 Write-Host "Platform:  $Platform"
@@ -71,9 +89,11 @@ if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returne
 $dirtyAfter = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0) { throw "Could not re-check BodyRig checkout after renderer build." }
 if ($dirtyAfter.Count -gt 0) { throw "Renderer build changed tracked/unignored BodyRig checkout state; refusing physical build evidence." }
-$currentHead = ([string]@(& git -C $repoRoot rev-parse HEAD 2>&1)[0]).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $currentHead -ne $bodyRigRevision) { throw "BodyRig Git HEAD changed during renderer build." }
+$currentHeadLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+if ($LASTEXITCODE -ne 0 -or $currentHeadLines.Count -ne 1) { throw "Could not re-resolve BodyRig Git HEAD after renderer build." }
+$currentHead = ([string]$currentHeadLines[0]).Trim().ToLowerInvariant()
+if ($currentHead -ne $bodyRigRevision) { throw "BodyRig Git HEAD changed during renderer build." }
 
-Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion"
+Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision"
 Write-Host $Output
 exit 0
