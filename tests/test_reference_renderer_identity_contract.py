@@ -39,7 +39,7 @@ def test_physical_probe_wrappers_emit_canonical_renderer_identity() -> None:
         assert contract["renderer_version"] in source
 
 
-def test_reference_attestation_derives_identity_and_pinned_unity_version() -> None:
+def test_reference_attestation_derives_identity_pinned_unity_and_exact_evidence_pair() -> None:
     source = (REPO / "record-reference-renderer-acceptance.ps1").read_text(encoding="utf-8")
     assert "reference-renderer\\renderer-contract.json" in source
     assert "active_renderer.name" in source
@@ -51,3 +51,7 @@ def test_reference_attestation_derives_identity_and_pinned_unity_version() -> No
     assert "QualityNote" in source
     assert "Resolve-EvidencePair" in source
     assert '"$Prefix-evidence"' in source
+    assert 'ProbeReport = $probeFile.Path' in source
+    assert 'DeformationReport = $deformationFile.Path' in source
+    assert 'record-renderer-acceptance.ps1' in source
+    assert '& $recordScript @args' in source
