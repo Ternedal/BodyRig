@@ -101,6 +101,18 @@ Equivalent CLI:
 bodyrig-acceptance-status --acceptance-dir "C:\path\to\acceptance"
 ```
 
+A normal wheel installation is an **inspection authority only**. The wheel carries the exact renderer contract so it can validate evidence, but site-packages is not a BodyRig Git checkout and cannot authorize a physical next command. If no operator checkout is available, the checker keeps the evidence status (`ready` / `human-review`) but clears `next_command` and appends an `Inspection-only` explanation.
+
+To use an installed CLI while still receiving an executable next command, bind it to the real BodyRig checkout explicitly:
+
+```powershell
+bodyrig-acceptance-status `
+  --acceptance-dir "C:\path\to\acceptance" `
+  --operator-root "C:\path\to\BodyRig"
+```
+
+Before rendering a physical next command, the V1 status adapter verifies that operator-root exists, contains `.git` and all canonical operator scripts, resolves an exact Git HEAD equal to the acceptance revision, and is clean according to `git status --porcelain`. A wrong revision or dirty checkout is `BLOCKED` with exit code `3`. An invalid operator-root or malformed/tampered evidence is `ERROR` with exit code `2`. A valid checkout gets an absolute PowerShell script path so the suggested command is independent of the current working directory.
+
 The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. The generic status core can inspect complete legacy root-file pairs for backward compatibility, but the public V1 status adapter blocks unfinished legacy layouts and routes Windows, Quest and final-release steps through the contract-bound reference wrappers. It also fails early if renderer identity, Unity version or deformation sequence drifts from `reference-renderer/renderer-contract.json`. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
