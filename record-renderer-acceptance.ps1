@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$AcceptanceReport,
     [Parameter(Mandatory = $true)][string]$RuntimeManifest,
     [Parameter(Mandatory = $true)][string]$ProbeReport,
+    [Parameter(Mandatory = $true)][string]$DeformationReport,
     [Parameter(Mandatory = $true)][ValidateSet("windows-unity-univrm", "android-quest-class")][string]$Platform,
     [Parameter(Mandatory = $true)][switch]$Pass,
     [Parameter(Mandatory = $true)][ValidateLength(1, 160)][string]$RendererName,
@@ -107,13 +108,24 @@ if ($Platform -eq "android-quest-class") {
 }
 $probeHash = Sha256 $ProbeReport
 
+$deformationFile = Read-JsonFile $DeformationReport "Deformation machine probe"; $DeformationReport = $deformationFile.Path; $deformation = $deformationFile.Value
+$expectedDeformationFields = @("format","version","observed_at","platform","unity_platform","unity_version","build_guid","device_model","body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256","sequence_revision","pose_count","poses","required_muscles_resolved","restored_neutral","complete","manual_review_required")
+if (@(Compare-Object -ReferenceObject $expectedDeformationFields -DifferenceObject @($deformation.PSObject.Properties.Name)).Count -ne 0) { throw "Deformation machine probe fields do not match BodyRig deformation probe v1." }
+if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne $Platform) { throw "Deformation machine probe format/platform mismatch." }
+if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Deformation machine probe did not complete the fixed review sequence." }
+$poseIds = @($deformation.poses | ForEach-Object { [string]$_.id })
+if (($poseIds -join ",") -ne "neutral,arms_abduction,elbows_flexed,arms_forward,left_leg_lift,knee_flexion") { throw "Deformation machine probe pose sequence/order mismatch." }
+if ([string]$deformation.body_id -ne $bodyId -or (Require-Sha ([string]$deformation.package_sha256) "deformation.package_sha256") -ne $actualPackageHash -or (Require-Sha ([string]$deformation.runtime_manifest_sha256) "deformation.runtime_manifest_sha256") -ne $runtimeManifestHash -or (Require-Sha ([string]$deformation.avatar_sha256) "deformation.avatar_sha256") -ne $avatarHash -or (Require-Sha ([string]$deformation.bodyprint_sha256) "deformation.bodyprint_sha256") -ne $bodyprintHash) { throw "Deformation machine probe byte identity does not match accepted runtime." }
+if ([string]$deformation.build_guid -ne [string]$probe.build_guid -or [string]$deformation.unity_platform -ne [string]$probe.unity_platform -or [string]$deformation.unity_version -ne [string]$probe.unity_version -or [string]$deformation.device_model -ne [string]$probe.device_model) { throw "Deformation machine probe does not come from the same physical build/device as renderer probe." }
+$deformationHash = Sha256 $DeformationReport
+
 if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $reportDir (if ($Platform -eq "windows-unity-univrm") { "bodyrig-renderer-acceptance-windows.json" } else { "bodyrig-renderer-acceptance-quest.json" }) }
 $Output = [System.IO.Path]::GetFullPath($Output)
-foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport,$sessionEvidencePath,$readinessEvidencePath,$skinQaEvidencePath)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
+foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport,$DeformationReport,$sessionEvidencePath,$readinessEvidencePath,$skinQaEvidencePath)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
 if (Test-Path $Output) { throw "Renderer acceptance output already exists; refusing to overwrite evidence: $Output" }
 $outputDir = Split-Path -Parent $Output; if (-not (Test-Path $outputDir -PathType Container)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 
-$attestation = [ordered]@{ format="bodyrig-renderer-acceptance"; version=1; attested_at=[DateTime]::UtcNow.ToString("o"); bodyrig_revision=$head; automated_report_sha256=$reportHash; probe_report_sha256=$probeHash; package_sha256=$actualPackageHash; runtime_manifest_sha256=$runtimeManifestHash; avatar_sha256=$avatarHash; bodyprint_sha256=$bodyprintHash; body_id=$bodyId; platform=$Platform; renderer_name=$RendererName; renderer_version=$RendererVersion; unity_platform=[string]$probe.unity_platform; unity_version=[string]$probe.unity_version; graphics_device=[string]$probe.graphics_device; machine_probe=$true; result="pass"; quality_note=$QualityNote; attestation="operator-supplied"; production_activation=$false }
+$attestation = [ordered]@{ format="bodyrig-renderer-acceptance"; version=1; attested_at=[DateTime]::UtcNow.ToString("o"); bodyrig_revision=$head; automated_report_sha256=$reportHash; probe_report_sha256=$probeHash; deformation_report_sha256=$deformationHash; deformation_sequence_revision=[string]$deformation.sequence_revision; package_sha256=$actualPackageHash; runtime_manifest_sha256=$runtimeManifestHash; avatar_sha256=$avatarHash; bodyprint_sha256=$bodyprintHash; body_id=$bodyId; platform=$Platform; renderer_name=$RendererName; renderer_version=$RendererVersion; unity_platform=[string]$probe.unity_platform; unity_version=[string]$probe.unity_version; graphics_device=[string]$probe.graphics_device; machine_probe=$true; deformation_probe=$true; result="pass"; quality_note=$QualityNote; attestation="operator-supplied"; production_activation=$false }
 $temp = Join-Path $outputDir ("."+[IO.Path]::GetFileName($Output)+"."+[Guid]::NewGuid().ToString("N")+".tmp")
 try { $attestation | ConvertTo-Json -Depth 8 | Set-Content $temp -Encoding UTF8; Move-Item $temp $Output } finally { if (Test-Path $temp) { Remove-Item $temp -Force } }
-Write-Host "BodyRig renderer acceptance: PASS | $Platform | $($probe.device_model) | skin=$($skinQa.automated_assessment) | probe $probeHash"; Write-Host "Report: $Output"; exit 0
+Write-Host "BodyRig renderer acceptance: PASS | $Platform | $($probe.device_model) | skin=$($skinQa.automated_assessment) | probe $probeHash | deformation $deformationHash"; Write-Host "Report: $Output"; exit 0
