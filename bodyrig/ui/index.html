@@ -26,7 +26,7 @@
       <section id="emptyState" class="empty-state">
         <div class="empty-icon">BR</div>
         <h2>Byg og finpuds personer</h2>
-        <p>Opret en person, bind den til Stash, og hold krop, stemme og personlighed som separate revisioner.</p>
+        <p>Opret flere personer og hold krop, stemme og personlighed som versionsstyrede kandidater, der først aktiveres samlet.</p>
         <button id="emptyCreateButton" class="primary">Opret første person</button>
       </section>
 
@@ -38,6 +38,7 @@
             <div id="personSource" class="muted-text"></div>
           </div>
           <div class="active-summary">
+            <span id="personActive" class="pill">Person —</span>
             <span id="bodyActive" class="pill">Krop —</span>
             <span id="voiceActive" class="pill">Stemme —</span>
             <span id="personalityActive" class="pill">Personlighed —</span>
@@ -49,42 +50,53 @@
           <button data-tab="body" class="tab">Krop</button>
           <button data-tab="voice" class="tab">Stemme</button>
           <button data-tab="personality" class="tab">Personlighed</button>
+          <button data-tab="assemble" class="tab">Saml person</button>
           <button data-tab="history" class="tab">Historik</button>
         </nav>
 
         <section id="tab-overview" class="tab-panel">
-          <div class="grid-3">
-            <article class="card"><div class="card-label">Krop</div><div id="overviewBody" class="metric">Ingen</div><p>BodyRig-revision og preview.</p></article>
-            <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>VoiceRig-binding.</p></article>
-            <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig persona-revision.</p></article>
+          <article class="card">
+            <div class="card-row">
+              <div>
+                <div class="card-label">Aktiv Person Revision</div>
+                <div id="overviewPersonRevision" class="metric">Ingen</div>
+              </div>
+              <span id="overviewCompatibility" class="badge muted">Ikke samlet</span>
+            </div>
+            <p id="overviewCompatibilityNote">Krop, stemme og personlighed skal godkendes som én samlet person før aktivering.</p>
+          </article>
+          <div class="grid-3 space-top">
+            <article class="card"><div class="card-label">Krop</div><div id="overviewBody" class="metric">Ingen</div><p>BodyRig-revision i den aktive person.</p></article>
+            <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>VoiceRig-revision i den aktive person.</p></article>
+            <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig personality-revision i den aktive person.</p></article>
           </div>
           <article class="card space-top">
             <div class="card-label">Princip</div>
-            <p class="large-copy">Personen er stabil. Krop, stemme og personlighed kan ændres uafhængigt og har hver sin historik.</p>
+            <p class="large-copy">Krop, stemme og personlighed kan forbedres hver for sig, men de bliver kun aktive som en samlet, compatibility-godkendt Person Revision.</p>
           </article>
         </section>
 
         <section id="tab-body" class="tab-panel hidden">
           <div class="split">
             <article class="card preview-card">
-              <div class="card-row"><div class="card-label">Preview</div><span id="bodyRevisionLabel" class="badge muted">Ingen revision</span></div>
-              <div id="previewEmpty" class="preview-empty">Ingen godkendt body-revision endnu.</div>
+              <div class="card-row"><div class="card-label">Preview af body-kandidat</div><span id="bodyRevisionLabel" class="badge muted">Ingen revision</span></div>
+              <div id="previewEmpty" class="preview-empty">Ingen body-revision endnu.</div>
               <img id="bodyPreview" class="body-preview hidden" alt="Body preview">
             </article>
             <article class="card">
               <div class="card-label">Byg fra Stash</div>
               <p id="buildSourceText">Bind personen til en Stash performer først.</p>
-              <button id="buildBodyButton" class="primary full" disabled>Byg krop</button>
+              <button id="buildBodyButton" class="primary full" disabled>Byg ny body-kandidat</button>
               <div class="divider"></div>
               <label for="bodyFeedback">Kommentar til næste revision</label>
               <textarea id="bodyFeedback" rows="5" placeholder="Fx: Armene er lidt for lange, og skuldrene skal være en smule bredere."></textarea>
               <button id="proposeBodyChanges" class="secondary full">Foreslå konkrete ændringer</button>
               <div id="bodyProposal" class="proposal muted-text">Ingen forslag endnu.</div>
-              <p class="fine-print">Fri tekst ændrer aldrig kroppen direkte. Du ser først de konkrete ændringer, før en ny revision må bygges.</p>
+              <p class="fine-print">Fri tekst ændrer aldrig kroppen direkte. En ny body-revision er kun en kandidat, indtil en samlet Person Revision godkendes.</p>
             </article>
           </div>
           <div class="card space-top">
-            <div class="card-row"><div class="card-label">Body-revisioner</div><span id="bodyCount" class="badge muted">0</span></div>
+            <div class="card-row"><div class="card-label">Body-kandidater</div><span id="bodyCount" class="badge muted">0</span></div>
             <div id="bodyRevisions" class="revision-list"></div>
           </div>
         </section>
@@ -99,10 +111,11 @@
               <input id="voicePathInput" placeholder="C:\\...\\voice.mrvoice">
               <label for="voiceFeedbackInput">Note</label>
               <textarea id="voiceFeedbackInput" rows="3"></textarea>
-              <button id="attachVoiceButton" class="primary full">Gem som ny voice-revision</button>
+              <button id="attachVoiceButton" class="primary full">Gem som voice-kandidat</button>
+              <p class="fine-print">Stemmen bliver ikke aktiv alene. Den skal bagefter samles med en body- og personality-revision.</p>
             </article>
             <article class="card">
-              <div class="card-label">Voice-revisioner</div>
+              <div class="card-label">Voice-kandidater</div>
               <div id="voiceRevisions" class="revision-list"></div>
             </article>
           </div>
@@ -111,7 +124,7 @@
         <section id="tab-personality" class="tab-panel hidden">
           <div class="split">
             <article class="card">
-              <div class="card-label">Ny personality-revision</div>
+              <div class="card-label">Ny personality-kandidat</div>
               <label for="personalityInstructions">Persona / system instructions</label>
               <textarea id="personalityInstructions" rows="10" placeholder="Beskriv hvordan personen tænker, taler og reagerer."></textarea>
               <div class="field-row">
@@ -120,14 +133,45 @@
               </div>
               <label for="personalityFeedback">Hvad ændrede du?</label>
               <textarea id="personalityFeedback" rows="3" placeholder="Fx: mindre formel, mere tør humor"></textarea>
-              <button id="savePersonalityButton" class="primary full">Gem og aktivér revision</button>
-              <p class="fine-print">Personality eksekveres af ModelRig. BodyRig gemmer revisionsbindingen under den samme person.</p>
+              <button id="savePersonalityButton" class="primary full">Gem som personality-kandidat</button>
+              <p class="fine-print">Personality eksekveres af ModelRig. Den bliver først aktiv sammen med en compatibility-godkendt body og stemme.</p>
             </article>
             <article class="card">
-              <div class="card-label">Personality-revisioner</div>
+              <div class="card-label">Personality-kandidater</div>
               <div id="personalityRevisions" class="revision-list"></div>
             </article>
           </div>
+        </section>
+
+        <section id="tab-assemble" class="tab-panel hidden">
+          <div class="split">
+            <article class="card">
+              <div class="card-label">Vælg komponenter</div>
+              <label for="assembleBody">Krop</label>
+              <select id="assembleBody"></select>
+              <label for="assembleVoice">Stemme</label>
+              <select id="assembleVoice"></select>
+              <label for="assemblePersonality">Personlighed</label>
+              <select id="assemblePersonality"></select>
+              <p class="fine-print">Valget er kun et forslag, indtil compatibility-reviewet er grønt og en Person Revision er oprettet.</p>
+            </article>
+            <article class="card">
+              <div class="card-label">Passer de sammen?</div>
+              <label class="check-row"><input id="matchBodyVoice" type="checkbox"> Krop og stemme opleves som samme person</label>
+              <label class="check-row"><input id="matchVoicePersonality" type="checkbox"> Stemme og personlighed passer sammen</label>
+              <label class="check-row"><input id="matchBodyPersonality" type="checkbox"> Krop og personlighed passer sammen</label>
+              <label class="check-row"><input id="matchOverall" type="checkbox"> Helheden føles som én sammenhængende person</label>
+              <label for="compatibilityNote">Review-note</label>
+              <textarea id="compatibilityNote" rows="4" placeholder="Fx: Stemmealder, tempo, attitude og kropsudtryk hænger naturligt sammen."></textarea>
+              <label for="personRevisionFeedback">Hvad er nyt i denne person-revision?</label>
+              <textarea id="personRevisionFeedback" rows="3"></textarea>
+              <button id="approvePersonButton" class="primary full">Godkend og aktivér person-revision</button>
+            </article>
+          </div>
+          <article class="card space-top">
+            <div class="card-label">Godkendte Person Revisions</div>
+            <div id="personRevisions" class="revision-list"></div>
+          </article>
         </section>
 
         <section id="tab-history" class="tab-panel hidden">
