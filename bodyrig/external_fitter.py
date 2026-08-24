@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .avatar import AvatarError, AvatarFitResult, validate_vrm1
+from .bridges.bodyprint_shape_adjust import (
+    BodyprintAdjustmentError,
+    validate_adjustment_payload,
+)
 from .identity import validate_visual_identity
 from .package import validate_bodyprint
 
@@ -35,25 +39,34 @@ def build_external_fit_request(
     bodyprint: Mapping[str, Any],
     name: str,
     identity: Mapping[str, Any],
+    bodyprint_adjustment: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build metadata passed to an isolated reconstruction engine.
 
     The private identity workspace path is deliberately *not* part of the JSON
     request. An invoker passes that path separately to the process, and BodyRig
-    never writes it to provenance or the portable package.
+    never writes it to provenance or the portable package. A reviewed BodyPrint
+    adjustment contains only bounded semantic deltas and a feedback hash; no raw
+    operator comment or source-media path crosses the fitter boundary.
     """
 
     if not isinstance(name, str) or not name.strip() or len(name) > 160:
         raise ExternalFitterError("avatar name must contain 1..160 characters")
     validated_bodyprint = validate_bodyprint(dict(bodyprint))
     validated_identity = validate_visual_identity(identity)
-    return {
+    request: dict[str, Any] = {
         "format": REQUEST_FORMAT,
         "version": VERSION,
         "name": name.strip(),
         "bodyprint": validated_bodyprint,
         "visual_identity": validated_identity,
     }
+    if bodyprint_adjustment is not None:
+        try:
+            request["bodyprint_adjustment"] = validate_adjustment_payload(dict(bodyprint_adjustment))
+        except BodyprintAdjustmentError as exc:
+            raise ExternalFitterError(str(exc)) from exc
+    return request
 
 
 def validate_external_fit_output(
@@ -145,6 +158,7 @@ def run_external_fitter(
     identity: Mapping[str, Any],
     adapter: str,
     revision: str,
+    bodyprint_adjustment: Mapping[str, Any] | None = None,
     timeout_seconds: int = 3600,
 ) -> ExternalFitterResult:
     """Run an operator-selected high-fidelity engine behind a file boundary.
@@ -169,7 +183,12 @@ def run_external_fitter(
     if not workspace_path.is_dir():
         raise ExternalFitterError(f"visual identity workspace not found: {workspace_path}")
 
-    request = build_external_fit_request(bodyprint=bodyprint, name=name, identity=identity)
+    request = build_external_fit_request(
+        bodyprint=bodyprint,
+        name=name,
+        identity=identity,
+        bodyprint_adjustment=bodyprint_adjustment,
+    )
     with tempfile.TemporaryDirectory(prefix="bodyrig-external-fit-") as temp_name:
         temp = Path(temp_name)
         request_path = temp / "request.json"
