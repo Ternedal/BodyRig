@@ -101,7 +101,7 @@ Equivalent CLI:
 bodyrig-acceptance-status --acceptance-dir "C:\path\to\acceptance"
 ```
 
-The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. It prefers the canonical `windows-evidence/` and `quest-evidence/` directories, accepts a complete legacy root-file pair for backward compatibility, but rejects ambiguous mixed layouts. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. The public status adapter routes Quest and final-release steps through the contract-bound reference wrappers. Use `-Json` / `--json` for machine-readable output.
+The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. The generic status core can inspect complete legacy root-file pairs for backward compatibility, but the public V1 status adapter blocks unfinished legacy layouts and routes Windows, Quest and final-release steps through the contract-bound reference wrappers. It also fails early if renderer identity, Unity version or deformation sequence drifts from `reference-renderer/renderer-contract.json`. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
 
@@ -142,7 +142,7 @@ The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequen
 
 The runtime necessarily produces the machine probe before the deformation probe. The platform wrappers therefore never point the player directly at canonical evidence filenames. Each attempt gets a unique local staging directory.
 
-Windows validates renderer identity, exact Unity version and deformation sequence while staged, then atomically commits:
+Windows uses `run-reference-windows-renderer-probe.ps1` as its canonical outer transaction. The lower-level player/build wrapper writes to a unique non-canonical stage directory; the outer wrapper validates renderer identity, exact Unity version and deformation sequence before atomically committing:
 
 ```text
 windows-evidence/
@@ -162,14 +162,14 @@ If player, ADB, build or contract validation fails before canonical commit, no c
 
 ### Windows acceptance
 
-Build/run the physical WindowsPlayer against the Gate A directory:
+The canonical production entrypoint is the contract-bound wrapper:
 
 ```powershell
-.\run-windows-renderer-probe.ps1 `
+.\run-reference-windows-renderer-probe.ps1 `
   -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-The wrapper requires both staged outputs before it atomically commits `windows-evidence/`. It checks exact Gate A BodyRig revision, contract renderer identity, exact pinned Unity version, ordered six-pose sequence and matching build/body/package/runtime/avatar/BodyPrint identity.
+The lower-level `run-windows-renderer-probe.ps1` still performs player/build work and its own staged pair checks, but it is an implementation detail rather than V1's production entrypoint. The outer wrapper independently revalidates renderer name/version, exact Unity version, deformation revision and shared BodyRig build revision/GUID before canonical `windows-evidence/` exists.
 
 After watching the player cycle the same sequence and confirming actual visual quality, record the human observation with the reference helper:
 
