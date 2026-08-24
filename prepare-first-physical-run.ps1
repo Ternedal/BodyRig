@@ -4,6 +4,7 @@ param(
     [string]$StashUrl = "",
     [string]$ApiKeyEnv = "STASH_API_KEY",
     [string]$WslExe = "wsl.exe",
+    [string]$Ffmpeg = "",
     [string]$PerformerId = "",
     [ValidatePattern('^[a-z0-9æøå_-]{1,160}$')]
     [string]$BodyId = ""
@@ -28,6 +29,25 @@ function Resolve-InputFile {
         throw "$Label not found: $Path"
     }
     return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Resolve-Executable {
+    param(
+        [string]$Value,
+        [Parameter(Mandatory = $true)][string]$Fallback,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        if (Test-Path -LiteralPath $Value -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Value).Path
+        }
+        $resolvedValue = Resolve-CommandPath $Value
+        if ($null -ne $resolvedValue) { return $resolvedValue }
+        throw "$Label executable not found: $Value"
+    }
+    $resolved = Resolve-CommandPath $Fallback
+    if ($null -eq $resolved) { throw "$Label executable not found: $Fallback" }
+    return $resolved
 }
 
 function Quote-PowerShellLiteral {
@@ -106,6 +126,9 @@ $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
 if ($hasPerformer -xor $hasBodyId) {
     throw "Pass -PerformerId and -BodyId together, or omit both."
 }
+if ($hasPerformer) {
+    $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
+}
 
 $rendererReadinessScript = Join-Path $repoRoot "check-reference-renderer-ready.ps1"
 if (-not (Test-Path -LiteralPath $rendererReadinessScript -PathType Leaf)) {
@@ -123,6 +146,7 @@ Write-Host "PowerShell: $($PSVersionTable.PSVersion.ToString()) | pwsh: $powerSh
 Write-Host "BodyRig Python: $BodyRigPython"
 Write-Host "Rig setup: $RigSetupReport"
 Write-Host "Stash URL: $StashUrl"
+if ($hasPerformer) { Write-Host "FFmpeg decode authority: $Ffmpeg" }
 Write-Host ""
 Write-Host "Checking Unity/Quest reference-renderer toolchain..."
 & $rendererReadinessScript
@@ -149,20 +173,23 @@ if ($LASTEXITCODE -ne 0) {
 
 if ($hasPerformer) {
     Write-Host ""
-    Write-Host "Probing selected Stash performer and local source pool..."
-    $probeRaw = @(& $BodyRigPython -m bodyrig.stash_cli probe --performer-id $PerformerId --url $StashUrl --api-key-env $ApiKeyEnv)
+    Write-Host "Probing selected Stash performer and local source pool with one-frame FFmpeg decode..."
+    $probeRaw = @(& $BodyRigPython -m bodyrig.stash_cli probe --performer-id $PerformerId --url $StashUrl --api-key-env $ApiKeyEnv --ffmpeg $Ffmpeg)
     if ($LASTEXITCODE -ne 0) {
-        throw "Selected Stash performer/source probe failed with exit code $LASTEXITCODE. No physical session was started."
+        throw "Selected Stash performer/source decode probe failed with exit code $LASTEXITCODE. No physical session was started."
     }
     try { $probe = ($probeRaw -join "`n") | ConvertFrom-Json }
-    catch { throw "Selected Stash performer/source probe returned unreadable JSON. No physical session was started." }
+    catch { throw "Selected Stash performer/source decode probe returned unreadable JSON. No physical session was started." }
     if ($probe.ok -ne $true -or [int]$probe.usable_source_count -lt 1) {
-        throw "Selected Stash performer/source probe did not prove at least one usable local video. No physical session was started."
+        throw "Selected Stash performer/source decode probe did not prove at least one decodable local video. No physical session was started."
+    }
+    if ([string]$probe.decode_gate -ne "ffmpeg-one-frame-v1") {
+        throw "Selected Stash performer/source probe did not use the canonical ffmpeg-one-frame-v1 decode gate. No physical session was started."
     }
     if ([string]$probe.performer.id -ne $PerformerId) {
         throw "Selected Stash performer/source probe returned a different performer id. No physical session was started."
     }
-    Write-Host "Selected performer: $([string]$probe.performer.name) [$([string]$probe.performer.id)] | candidates: $([int]$probe.candidate_count) | usable local sources: $([int]$probe.usable_source_count)"
+    Write-Host "Selected performer: $([string]$probe.performer.name) [$([string]$probe.performer.id)] | candidates: $([int]$probe.candidate_count) | rankable local sources: $([int]$probe.rankable_source_count) | decodable local sources: $([int]$probe.usable_source_count)"
 }
 
 $finalHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
@@ -183,7 +210,7 @@ if ($finalDirty.Count -gt 0) {
 
 Write-Host ""
 Write-Host "BodyRig pre-session doctor: READY"
-Write-Host "Recovery, Stash, Unity and Quest build toolchains are ready."
+Write-Host "Recovery, selected-source decode, Stash, Unity and Quest build toolchains are ready."
 Write-Host "No Unity project was opened and no physical clone session or acceptance evidence was created."
 
 if ($hasPerformer -and $hasBodyId) {
