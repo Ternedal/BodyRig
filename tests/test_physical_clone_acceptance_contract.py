@@ -19,6 +19,18 @@ def test_high_fidelity_gate_a_requires_exact_session_revision_and_clean_checkout
     assert "bodyrig.physical_session validate" in text
 
 
+def test_high_fidelity_gate_a_binds_python_import_to_same_checkout_before_validation_or_output():
+    text = _script()
+    authority = text.index('import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())')
+    validate = text.index("-m bodyrig.physical_session validate")
+    output = text.index("New-Item -ItemType Directory -Path $OutputDir")
+    assert authority < validate < output
+    assert 'Join-Path $repoRoot "bodyrig\\__init__.py"' in text
+    assert "BodyRig Python could not prove its imported bodyrig module authority." in text
+    assert "BodyRig Python imports bodyrig from a different checkout/package:" in text
+    assert "[System.StringComparison]::OrdinalIgnoreCase" in text
+
+
 def test_high_fidelity_gate_a_binds_readiness_and_same_package_bytes():
     text = _script()
     assert "Readiness report SHA-256 no longer matches the physical clone session." in text
