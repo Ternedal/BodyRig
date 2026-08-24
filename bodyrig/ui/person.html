@@ -176,13 +176,38 @@
       <label for="newPersonName">Navn</label><input id="newPersonName" required maxlength="160" placeholder="Fx Anna">
       <div class="divider"></div>
       <div class="card-label">Stash performer (valgfri)</div>
-      <div class="search-row"><input id="stashSearchInput" placeholder="Søg navn"><button id="stashSearchButton" type="button" class="secondary">Søg</button></div>
+      <div class="search-row"><input id="stashSearchInput" placeholder="Søg navn"><button id="stashSearchButton" type="button" class="secondary" disabled>Søg</button></div>
       <div id="stashStatus" class="muted-text"></div><div id="stashResults" class="stash-results"></div><div id="selectedStash" class="selected-source hidden"></div>
       <div class="dialog-actions"><button value="cancel" class="secondary">Annuller</button><button id="createPersonButton" type="button" class="primary">Opret person</button></div>
     </form>
   </dialog>
 
   <div id="toast" class="toast hidden"></div>
+  <script>
+    (() => {
+      async function gateStashSearch() {
+        const button = document.getElementById("stashSearchButton");
+        const status = document.getElementById("stashStatus");
+        button.disabled = true;
+        status.textContent = "Kontrollerer Stash health …";
+        try {
+          const response = await fetch("/api/v1/stash/health", { headers: { Accept: "application/json" } });
+          const payload = await response.json();
+          if (!response.ok || payload.ok !== true || payload.performer_read !== true) {
+            throw new Error(payload.detail || "performer-read capability mangler");
+          }
+          status.textContent = `Stash ${payload.version || "?"} · performer-read klar`;
+          button.disabled = false;
+        } catch (error) {
+          status.textContent = `Stash ikke klar: ${error.message}`;
+        }
+      }
+
+      for (const id of ["newPersonButton", "emptyCreateButton"]) {
+        document.getElementById(id)?.addEventListener("click", () => { void gateStashSearch(); });
+      }
+    })();
+  </script>
   <script src="/ui/person_app.js" defer></script>
 </body>
 </html>
