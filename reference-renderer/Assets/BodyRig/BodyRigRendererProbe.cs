@@ -18,6 +18,7 @@ namespace BodyRig.ReferenceRenderer
             public string format = "bodyrig-renderer-probe";
             public int version = 1;
             public string observed_at;
+            public string bodyrig_revision;
             public string platform;
             public string unity_platform;
             public string unity_version;
@@ -96,6 +97,7 @@ namespace BodyRig.ReferenceRenderer
             if (!IsLowerHexSha256(packageHash)) throw new InvalidDataException("Active BodyRig package SHA-256 is invalid");
             if (string.IsNullOrWhiteSpace(loader.ActiveBodyId)) throw new InvalidDataException("Active BodyRig body id is missing");
 
+            var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
             var platform = ResolvePhysicalPlatform(deviceModel);
             var buildGuid = Application.buildGUID;
@@ -105,6 +107,7 @@ namespace BodyRig.ReferenceRenderer
             var report = new ProbeReport
             {
                 observed_at = DateTime.UtcNow.ToString("o"),
+                bodyrig_revision = bodyRigRevision,
                 platform = platform,
                 unity_platform = Application.platform.ToString(),
                 unity_version = Application.unityVersion,
@@ -136,7 +139,7 @@ namespace BodyRig.ReferenceRenderer
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
 
             LastProbePath = fullOutputPath;
-            Debug.Log($"BodyRig renderer probe: PASS | {report.platform} | {report.device_model} | {fullOutputPath}", this);
+            Debug.Log($"BodyRig renderer probe: PASS | {report.platform} | revision {report.bodyrig_revision} | {report.device_model} | {fullOutputPath}", this);
             return fullOutputPath;
         }
 
