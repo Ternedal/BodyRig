@@ -17,9 +17,11 @@ The session report is deliberately local operator evidence. It is not part of `.
   -BodyId "performer-123"
 ```
 
-Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` when it is used. A dirty diagnostic run may exercise readiness and clone execution, but it cannot become `status=pass`: both the session transition and strict v1 validator reject dirty PASS evidence. It therefore also cannot satisfy the high-fidelity production Gate A.
+Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` whenever that switch is used, even if the checkout happened to be clean at launch. A dirty/diagnostic run may exercise readiness and clone execution, but it cannot become `status=pass`: both the session transition and strict v1 validator reject non-authoritative PASS evidence. It therefore also cannot satisfy the high-fidelity production Gate A.
 
-The launcher then resolves the master rig setup report, starts a create-only session report, runs live readiness, hashes the resulting readiness report, and starts the existing Stash clone pipeline. Before a PASS session is written, Git HEAD is checked again; if HEAD changed during the potentially long clone, PASS evidence is refused.
+The selected `BodyRigPython` is also proven before the session file is created. The interpreter must import `bodyrig` from exactly `<checkout>\bodyrig\__init__.py`; a global wheel or another checkout is rejected before `physical_session start`, so session evidence cannot be stamped with one Git revision while executing BodyRig Python from somewhere else.
+
+The launcher then resolves the master rig setup report, starts a create-only session report, runs live readiness, hashes the resulting readiness report, and starts the existing Stash clone pipeline. Before a PASS session is written, Git HEAD **and** `git status --porcelain` are checked again. If HEAD changed or the default production checkout became dirty during the potentially long clone, PASS evidence is refused. This means an edit made while the clone is running cannot silently retain the launch-time clean-checkout claim.
 
 If `-OutputDir` is omitted, a unique timestamped clone output directory is written outside the Git checkout under `%LOCALAPPDATA%\BodyRig\physical-clones` (or the system temporary directory when `LOCALAPPDATA` is unavailable). If `-SessionReport` is omitted, the local session report is written below `%LOCALAPPDATA%\BodyRig\physical-clone-sessions` with the same run suffix. Keeping generated artifacts outside the checkout prevents the operator flow itself from making later clean-checkout gates fail.
 
@@ -66,7 +68,7 @@ The session report contains only:
 
 - session UUID and timestamps;
 - performer id and BodyRig body id;
-- exact 40-character BodyRig Git revision and whether the checkout was clean at launch;
+- exact 40-character BodyRig Git revision and whether the checkout was authoritative/clean for production;
 - master rig setup SHA-256;
 - live readiness report SHA-256;
 - final local clone output path on success;
@@ -97,6 +99,6 @@ Promote the exact resulting `.mrbody` bytes with:
   -SessionReport "C:\path\to\physical-clone-session.json"
 ```
 
-That bridge revalidates the session/readiness lineage, recovery proof, visual-identity binding, built-in `sith-smplx-vrm` v1 provenance and non-placeholder VRM 1.0 package. It then copies the exact `.mrbody` bytes into a write-once Gate A bundle and materializes renderer runtime from that package; it does not refit or rebuild the avatar.
+That bridge revalidates the session/readiness lineage, recovery proof, visual-identity binding, built-in `sith-smplx-vrm` v1 provenance and non-placeholder VRM 1.0 package. It also independently binds its selected BodyRig Python import back to the same checkout. It then copies the exact `.mrbody` bytes into a write-once Gate A bundle and materializes renderer runtime from that package; it does not refit or rebuild the avatar.
 
 The same accepted high-fidelity `.mrbody` must then pass physical WindowsPlayer and Quest-class renderer probes, human visual-quality attestations and `complete-acceptance.ps1` before `production_activation=true` is allowed.
