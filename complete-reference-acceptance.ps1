@@ -34,15 +34,13 @@ $questProbe = Join-Path $AcceptanceDir "quest-evidence\quest-probe.json"
 $questDeformation = Join-Path $AcceptanceDir "quest-evidence\quest-deformation-probe.json"
 $questAttestation = Join-Path $AcceptanceDir "bodyrig-renderer-acceptance-quest.json"
 
-$windowsLegacy = @(
-    Join-Path $AcceptanceDir "windows-probe.json",
-    Join-Path $AcceptanceDir "windows-deformation-probe.json"
+$legacyPaths = @(
+    (Join-Path $AcceptanceDir "windows-probe.json"),
+    (Join-Path $AcceptanceDir "windows-deformation-probe.json"),
+    (Join-Path $AcceptanceDir "quest-probe.json"),
+    (Join-Path $AcceptanceDir "quest-deformation-probe.json")
 )
-$questLegacy = @(
-    Join-Path $AcceptanceDir "quest-probe.json",
-    Join-Path $AcceptanceDir "quest-deformation-probe.json"
-)
-foreach ($legacy in @($windowsLegacy + $questLegacy)) {
+foreach ($legacy in $legacyPaths) {
     if (Test-Path -LiteralPath $legacy -PathType Leaf) { throw "Canonical reference release refuses legacy root renderer evidence: $legacy" }
 }
 
