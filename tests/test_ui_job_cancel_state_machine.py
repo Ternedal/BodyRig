@@ -58,14 +58,14 @@ def test_canceled_queued_job_cannot_be_resurrected_by_worker(tmp_path: Path, mon
     persisted = manager.get(job["job_id"])
     assert persisted["status"] == "canceled"
     assert persisted["started_utc"] is None
-    assert persisted["error"] == "Canceled by operator"
+    assert persisted["error"] == "Canceled by operator before physical subprocess start"
 
 
 def test_run_command_refuses_subprocess_after_cancel(tmp_path: Path, monkeypatch) -> None:
     manager = _manager(tmp_path, monkeypatch)
     job = _job(tmp_path, status="canceled")
     job["completed_utc"] = "2026-08-24T00:00:01Z"
-    job["error"] = "Canceled by operator"
+    job["error"] = "Canceled by operator before physical subprocess start"
     ui_jobs_module._write_job(job)
 
     def forbidden_popen(*args, **kwargs):
@@ -80,7 +80,36 @@ def test_run_command_refuses_subprocess_after_cancel(tmp_path: Path, monkeypatch
     assert persisted["pid"] is None
 
 
+def test_running_physical_job_cannot_be_marked_canceled(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    job = _job(tmp_path, status="running")
+    job["started_utc"] = "2026-08-24T00:00:01Z"
+    job["pid"] = 4242
+    ui_jobs_module._write_job(job)
+
+    class ActiveProcess:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise AssertionError("running physical process must not be falsely terminated/marked canceled")
+
+    manager._processes[job["job_id"]] = ActiveProcess()  # type: ignore[assignment]
+
+    with pytest.raises(ui_jobs_module.UiJobError, match="cannot be safely canceled"):
+        manager.cancel(job["job_id"])
+
+    persisted = manager.get(job["job_id"])
+    assert persisted["status"] == "running"
+    assert persisted["pid"] == 4242
+    assert persisted["completed_utc"] is None
+
+
 def test_worker_failure_never_overwrites_terminal_state() -> None:
     source = Path("bodyrig/ui_jobs.py").read_text(encoding="utf-8")
     assert 'if job.get("status") not in _FINAL:' in source
     assert 'if current.get("status") != "running":' in source
+    assert 'if job.get("status") == "running":' in source
+    assert "WSL/child-process termination cannot be proven" in source
