@@ -25,6 +25,7 @@ def test_reference_renderer_is_directly_openable_unity_project() -> None:
     version = (REFERENCE / "ProjectSettings" / "ProjectVersion.txt").read_text(encoding="utf-8")
     assert "m_EditorVersion: 6000.3.13f1" in version
     assert (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").is_file()
+    assert (REFERENCE / "Assets" / "BodyRig" / "BodyRigBuildProvenance.cs").is_file()
     assert (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").is_file()
     assert (REFERENCE / "Assets" / "BodyRig" / "BodyRigDeformationSweep.cs").is_file()
     assert (REFERENCE / "build-reference-renderer.ps1").is_file()
@@ -42,15 +43,20 @@ def test_machine_probe_rejects_editor_generic_android_and_empty_build_guid() -> 
     assert '"editor-session"' not in source
 
 
-def test_probe_remains_manifest_bound_and_vrm1_only() -> None:
+def test_probe_remains_manifest_bound_vrm1_only_and_embedded_revision_bound() -> None:
     loader = (REFERENCE / "Assets" / "BodyRig" / "BodyRigAvatarLoader.cs").read_text(encoding="utf-8")
     probe = (REFERENCE / "Assets" / "BodyRig" / "BodyRigRendererProbe.cs").read_text(encoding="utf-8")
+    provenance = (REFERENCE / "Assets" / "BodyRig" / "BodyRigBuildProvenance.cs").read_text(encoding="utf-8")
     bootstrap = (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").read_text(encoding="utf-8")
     assert "LoadRuntimeAsync" in loader
     assert "canLoadVrm0X: false" in loader
     assert "await loader.LoadRuntimeAsync(fullManifestPath);" in probe
     assert 'Path.Combine(runtimeDirectory, "avatar.vrm")' in probe
     assert 'Path.Combine(runtimeDirectory, "bodyprint.json")' in probe
+    assert "BodyRigBuildProvenance.RequireRevision()" in probe
+    assert 'Resources.Load<TextAsset>(ResourceName)' in provenance
+    assert 'ResourceName = "bodyrig-build-provenance"' in provenance
+    assert "runtime command-line arguments" in provenance
     assert "probe.RunProbeAsync(manifestPath, probePath)" in bootstrap
     assert 'Path.Combine(defaultRoot, "runtime", "runtime-manifest.json")' in bootstrap
 
@@ -64,6 +70,7 @@ def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() ->
     assert machine < deformation < review
     assert '"--bodyrig-deformation-output"' in bootstrap
     assert '"humanoid-muscle-sweep-v1"' in sweep
+    assert "BodyRigBuildProvenance.RequireRevision()" in sweep
     expected_poses = (
         '"neutral"',
         '"arms_abduction"',
@@ -80,6 +87,22 @@ def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() ->
     assert "restored_neutral = true" in sweep
 
 
+def test_build_script_embeds_exact_clean_git_revision() -> None:
+    wrapper = (REFERENCE / "build-reference-renderer.ps1").read_text(encoding="utf-8")
+    source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
+    ignore = (REFERENCE / ".gitignore").read_text(encoding="utf-8")
+    assert "git -C $repoRoot rev-parse HEAD" in wrapper
+    assert "git -C $repoRoot status --porcelain" in wrapper
+    assert "checkout is dirty" in wrapper
+    assert "-bodyrigRevision $bodyRigRevision" in wrapper
+    assert "BodyRig Git HEAD changed during renderer build" in wrapper
+    assert 'GetArgument("-bodyrigRevision")' in source
+    assert 'GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json"' in source
+    assert '"bodyrig-build-provenance"' in source
+    assert "AssetDatabase.ImportAsset(GeneratedProvenancePath" in source
+    assert "Assets/BodyRigGenerated/" in ignore
+
+
 def test_build_script_has_physical_windows_and_quest_targets() -> None:
     source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
     assert "BuildTarget.StandaloneWindows64" in source
@@ -89,7 +112,7 @@ def test_build_script_has_physical_windows_and_quest_targets() -> None:
     assert "BuildOptions.Development" in source
 
 
-def test_operator_wrappers_keep_gate_a_bytes_platform_and_deformation_identity() -> None:
+def test_operator_wrappers_keep_gate_a_bytes_platform_deformation_and_build_revision_identity() -> None:
     windows = (REPO / "run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
     quest = (REPO / "run-quest-renderer-probe.ps1").read_text(encoding="utf-8")
     for source in (windows, quest):
@@ -104,6 +127,10 @@ def test_operator_wrappers_keep_gate_a_bytes_platform_and_deformation_identity()
         assert "deformation.package_sha256" in source
         assert "deformation.avatar_sha256" in source
         assert "deformation.bodyprint_sha256" in source
+        assert "acceptance.bodyrig_revision" in source
+        assert "probe.bodyrig_revision" in source
+        assert "deformation.bodyrig_revision" in source
+        assert "checkout is dirty" in source
     assert 'unity_platform -ne "WindowsPlayer"' in windows
     assert 'platform -ne "windows-unity-univrm"' in windows
     assert 'platform -ne "android-quest-class"' in quest
