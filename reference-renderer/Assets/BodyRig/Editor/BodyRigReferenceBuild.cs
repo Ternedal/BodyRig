@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
@@ -11,6 +12,7 @@ namespace BodyRig.ReferenceRenderer.Editor
     public static class BodyRigReferenceBuild
     {
         private const string GeneratedScenePath = "Assets/BodyRigGenerated/PhysicalProbe.unity";
+        private const string GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json";
         private const string ApplicationId = "dk.ternedal.bodyrig.reference";
 
         [MenuItem("BodyRig/Build/Windows Physical Probe")]
@@ -25,7 +27,9 @@ namespace BodyRig.ReferenceRenderer.Editor
 
         private static void Build(BuildTarget target, string defaultOutput)
         {
+            var revision = RequireRevisionArgument();
             EnsureProbeScene();
+            EnsureBuildProvenance(revision);
             ConfigurePlayer(target);
 
             var output = GetArgument("-bodyrigOutput") ?? defaultOutput;
@@ -45,7 +49,33 @@ namespace BodyRig.ReferenceRenderer.Editor
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException($"BodyRig reference renderer build failed: {report.summary.result} | {report.summary.totalErrors} errors");
 
-            Debug.Log($"BodyRig reference renderer build: PASS | {target} | {output}");
+            Debug.Log($"BodyRig reference renderer build: PASS | {target} | revision {revision} | {output}");
+        }
+
+        private static string RequireRevisionArgument()
+        {
+            var revision = (GetArgument("-bodyrigRevision") ?? string.Empty).Trim().ToLowerInvariant();
+            if (revision.Length != 40) throw new InvalidOperationException("Physical reference build requires -bodyrigRevision with an exact 40-character Git SHA");
+            foreach (var character in revision)
+            {
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+                    throw new InvalidOperationException("Physical reference build received a non-canonical BodyRig Git SHA");
+            }
+            return revision;
+        }
+
+        private static void EnsureBuildProvenance(string revision)
+        {
+            var directory = Path.GetDirectoryName(GeneratedProvenancePath);
+            if (string.IsNullOrEmpty(directory)) throw new InvalidOperationException("BodyRig generated provenance path has no parent directory");
+            Directory.CreateDirectory(directory);
+            var json = "{\n" +
+                       "  \"format\": \"bodyrig-build-provenance\",\n" +
+                       "  \"version\": 1,\n" +
+                       $"  \"bodyrig_revision\": \"{revision}\"\n" +
+                       "}\n";
+            File.WriteAllText(GeneratedProvenancePath, json, new UTF8Encoding(false));
+            AssetDatabase.ImportAsset(GeneratedProvenancePath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
         }
 
         private static void EnsureProbeScene()
