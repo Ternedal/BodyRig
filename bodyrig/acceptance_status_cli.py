@@ -23,6 +23,16 @@ CANONICAL_OPERATOR_SCRIPTS = (
     "run-reference-quest-renderer-probe.ps1",
     "complete-reference-acceptance.ps1",
 )
+CANONICAL_OPERATOR_FILES = CANONICAL_OPERATOR_SCRIPTS + (
+    "run-windows-renderer-probe.ps1",
+    "record-renderer-acceptance.ps1",
+    "run-quest-renderer-probe.ps1",
+    "complete-acceptance.ps1",
+    "reference-renderer/renderer-contract.json",
+    "reference-renderer/build-reference-renderer.ps1",
+    "reference-renderer/ProjectSettings/ProjectVersion.txt",
+    "reference-renderer/Packages/manifest.json",
+)
 ACTIONABLE_GATES = {
     "gate-a",
     "windows-probe",
@@ -106,13 +116,17 @@ def _absolutize_existing_command(status: AcceptanceStatus, operator_root: Path |
     return status
 
 
+def _operator_files_present(root: Path) -> tuple[bool, tuple[str, ...]]:
+    missing = tuple(name for name in CANONICAL_OPERATOR_FILES if not (root / name).is_file())
+    return not missing, missing
+
+
 def _auto_operator_root() -> Path | None:
     candidate = Path(__file__).resolve().parents[1]
     if not (candidate / ".git").exists():
         return None
-    if any(not (candidate / name).is_file() for name in CANONICAL_OPERATOR_SCRIPTS):
-        return None
-    return candidate
+    complete, _ = _operator_files_present(candidate)
+    return candidate if complete else None
 
 
 def _resolve_operator_root(explicit: Path | None) -> Path | None:
@@ -123,10 +137,10 @@ def _resolve_operator_root(explicit: Path | None) -> Path | None:
         raise AcceptanceStatusError(f"BodyRig operator root not found: {root}")
     if not (root / ".git").exists():
         raise AcceptanceStatusError(f"BodyRig operator root is not a Git checkout: {root}")
-    missing = [name for name in CANONICAL_OPERATOR_SCRIPTS if not (root / name).is_file()]
-    if missing:
+    complete, missing = _operator_files_present(root)
+    if not complete:
         raise AcceptanceStatusError(
-            "BodyRig operator root is missing canonical scripts: " + ", ".join(missing)
+            "BodyRig operator root is missing canonical operator dependencies: " + ", ".join(missing)
         )
     return root
 
@@ -139,18 +153,18 @@ def _git_checkout_state(root: Path) -> tuple[str, bool]:
             text=True,
             check=False,
         )
+        status_result = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     except OSError as exc:
         raise AcceptanceStatusError("Git executable unavailable for BodyRig operator checkout validation.") from exc
+
     head = head_result.stdout.strip().lower()
     if head_result.returncode != 0 or not SHA40.fullmatch(head):
         raise AcceptanceStatusError(f"Could not resolve exact BodyRig operator checkout revision: {root}")
-
-    status_result = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
     if status_result.returncode != 0:
         raise AcceptanceStatusError(f"Could not inspect BodyRig operator checkout cleanliness: {root}")
     return head, not bool(status_result.stdout.strip())
@@ -173,7 +187,7 @@ def _bind_operator_checkout(status: AcceptanceStatus, explicit_root: Path | None
             next_command=None,
             message=(
                 status.message
-                + " Inspection-only: no BodyRig Git checkout with canonical operator scripts is available. "
+                + " Inspection-only: no complete BodyRig Git checkout with canonical operator dependencies is available. "
                 "Run the status checker from the exact BodyRig checkout or pass --operator-root <checkout> "
                 "to receive an executable next command."
             ),
@@ -181,7 +195,15 @@ def _bind_operator_checkout(status: AcceptanceStatus, explicit_root: Path | None
 
     head, clean = _git_checkout_state(root)
     expected = (status.bodyrig_revision or "").lower()
-    if expected and head != expected:
+    if not expected or not SHA40.fullmatch(expected):
+        return replace(
+            status,
+            state="blocked",
+            gate="operator-checkout",
+            next_command=None,
+            message="Acceptance status has no canonical BodyRig revision; refusing to authorize a physical next command.",
+        )
+    if head != expected:
         return replace(
             status,
             state="blocked",
