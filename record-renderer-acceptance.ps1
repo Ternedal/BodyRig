@@ -25,14 +25,14 @@ function Sha256([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algori
 function Require-Sha([string]$Value, [string]$Field) {
     $v = $Value.ToLowerInvariant(); if ($v -notmatch '^[0-9a-f]{64}$') { throw "$Field is not a canonical SHA-256." }; return $v
 }
-function Read-PackageChecksums([string]$PackagePath) {
+function Read-PackageJson([string]$PackagePath,[string]$EntryName,[string]$Label) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
     try {
-        $entry = $archive.GetEntry("checksums.json"); if ($null -eq $entry) { throw "Accepted .mrbody has no checksums.json." }
+        $entry = $archive.GetEntry($EntryName); if ($null -eq $entry) { throw "Accepted .mrbody has no $EntryName." }
         $stream = $entry.Open(); $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8, $true, 4096, $false)
         try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        try { return $text | ConvertFrom-Json } catch { throw "Accepted .mrbody checksums.json is invalid JSON." }
+        try { return $text | ConvertFrom-Json } catch { throw "Accepted .mrbody $Label is invalid JSON." }
     } finally { $archive.Dispose() }
 }
 
@@ -44,6 +44,14 @@ $acceptanceFile = Read-JsonFile $AcceptanceReport "Acceptance report"; $Acceptan
 if ([string]$report.format -ne "bodyrig-rig-acceptance" -or [int]$report.version -ne 1) { throw "Unsupported BodyRig acceptance report format/version." }
 if ($report.automated_pass -ne $true -or $report.production_activation -ne $false -or [string]$report.physical_renderer_acceptance -ne "pending") { throw "Automated rig acceptance is not in a valid pending-renderer PASS state." }
 if ([string]$report.runtime.manifest -ne "runtime/runtime-manifest.json" -or $report.runtime.materialized_from_package -ne $true) { throw "Automated acceptance does not contain valid materialized runtime evidence." }
+if ($report.package.placeholder_avatar -ne $false) { throw "Renderer acceptance requires a non-placeholder high-fidelity package." }
+if ([string]$report.physical_clone.mode -ne "stash-sith-high-fidelity") { throw "Renderer acceptance requires Stash/SiTH physical-clone lineage." }
+$acceptedSessionHash = Require-Sha ([string]$report.physical_clone.session_sha256) "physical_clone.session_sha256"
+$acceptedReadinessHash = Require-Sha ([string]$report.physical_clone.readiness_sha256) "physical_clone.readiness_sha256"
+$sessionEvidencePath = Join-Path $reportDir "bodyrig-physical-clone-session.json"
+$readinessEvidencePath = Join-Path $reportDir "bodyrig-rig-readiness.json"
+if (-not (Test-Path -LiteralPath $sessionEvidencePath -PathType Leaf) -or (Sha256 $sessionEvidencePath) -ne $acceptedSessionHash) { throw "Physical clone session evidence is missing or changed." }
+if (-not (Test-Path -LiteralPath $readinessEvidencePath -PathType Leaf) -or (Sha256 $readinessEvidencePath) -ne $acceptedReadinessHash) { throw "Physical clone readiness evidence is missing or changed." }
 $acceptedRuntimeManifestHash = Require-Sha ([string]$report.runtime.manifest_sha256) "runtime.manifest_sha256"
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path; $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
@@ -54,6 +62,11 @@ if (@(& git -C $repoRoot status --porcelain).Count -gt 0) { throw "BodyRig check
 $bodyId = [string]$report.package.body_id; if ([string]::IsNullOrWhiteSpace($bodyId) -or $bodyId -notmatch '^[a-z0-9æøå_-]{1,160}$') { throw "Acceptance report contains an invalid body id." }
 $packagePath = Join-Path $reportDir "$bodyId.mrbody"; if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { throw "Accepted .mrbody package not found beside report: $packagePath" }; $packagePath = (Resolve-Path $packagePath).Path
 $actualPackageHash = Sha256 $packagePath; if ($actualPackageHash -ne (Require-Sha ([string]$report.package.package_sha256) "package.package_sha256")) { throw "Accepted .mrbody SHA-256 no longer matches automated acceptance." }
+$provenance = Read-PackageJson $packagePath "provenance.json" "provenance.json"
+$visualStages = @($provenance.pipeline | Where-Object { [string]$_.stage -eq "visual-identity-capture" })
+$fittingStages = @($provenance.pipeline | Where-Object { [string]$_.stage -eq "avatar-fitting" })
+if ($visualStages.Count -ne 1) { throw "Accepted .mrbody does not contain exactly one visual-identity-capture provenance stage." }
+if ($fittingStages.Count -ne 1 -or [string]$fittingStages[0].adapter -ne "sith-smplx-vrm" -or [string]$fittingStages[0].revision -ne "1") { throw "Accepted .mrbody was not produced by the built-in sith-smplx-vrm v1 fitter." }
 $reportHash = Sha256 $AcceptanceReport
 
 $runtimeFile = Read-JsonFile $RuntimeManifest "Runtime manifest"; $RuntimeManifest = $runtimeFile.Path; $runtime = $runtimeFile.Value
@@ -66,7 +79,7 @@ $runtimeManifestHash = Sha256 $RuntimeManifest; if ($runtimeManifestHash -ne $ac
 
 $runtimeDir = Split-Path -Parent $RuntimeManifest; $avatarPath = Join-Path $runtimeDir "avatar.vrm"; $bodyprintPath = Join-Path $runtimeDir "bodyprint.json"
 if (-not (Test-Path $avatarPath -PathType Leaf) -or -not (Test-Path $bodyprintPath -PathType Leaf)) { throw "Materialized runtime is missing avatar.vrm or bodyprint.json." }
-$avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath; $checksums = Read-PackageChecksums $packagePath
+$avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath; $checksums = Read-PackageJson $packagePath "checksums.json" "checksums.json"
 $expectedAvatarHash = Require-Sha ([string]$checksums.PSObject.Properties["avatar.vrm"].Value) "checksums.avatar.vrm"; $expectedBodyprintHash = Require-Sha ([string]$checksums.PSObject.Properties["bodyprint.json"].Value) "checksums.bodyprint.json"
 if ($avatarHash -ne $expectedAvatarHash -or $bodyprintHash -ne $expectedBodyprintHash) { throw "Materialized runtime payload hashes do not match the accepted .mrbody." }
 
@@ -87,7 +100,7 @@ $probeHash = Sha256 $ProbeReport
 
 if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $reportDir (if ($Platform -eq "windows-unity-univrm") { "bodyrig-renderer-acceptance-windows.json" } else { "bodyrig-renderer-acceptance-quest.json" }) }
 $Output = [System.IO.Path]::GetFullPath($Output)
-foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
+foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport,$sessionEvidencePath,$readinessEvidencePath)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
 if (Test-Path $Output) { throw "Renderer acceptance output already exists; refusing to overwrite evidence: $Output" }
 $outputDir = Split-Path -Parent $Output; if (-not (Test-Path $outputDir -PathType Container)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 
