@@ -7,11 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from .sith_preflight import SITH_REVISION
+from .sith_preflight import OPENPOSE_REVISION, SITH_REVISION
 
 FORMAT = "bodyrig-sith-setup"
-VERSION = 1
-OPENPOSE_REVISION = "8ca5c1d95a42340b323e9273654d1db98bec779c"
+VERSION = 2
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -38,10 +37,16 @@ def _positive_int(value: Any, *, field: str) -> int:
     return value
 
 
+def _sha256(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+        raise SithSetupError(f"{field} must be lowercase SHA-256")
+    return value
+
+
 def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     required = {"format", "version", "distribution", "sith", "openpose", "diffusion_model"}
     if not isinstance(value, Mapping) or set(value) != required:
-        raise SithSetupError("SiTH setup report fields must match v1 exactly")
+        raise SithSetupError("SiTH setup report fields must match v2 exactly")
     if value["format"] != FORMAT or value["version"] != VERSION:
         raise SithSetupError("unsupported SiTH setup report format/version")
 
@@ -49,27 +54,28 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
 
     sith = value["sith"]
     if not isinstance(sith, Mapping) or set(sith) != {"repository", "revision", "python"}:
-        raise SithSetupError("SiTH setup sith fields must match v1 exactly")
+        raise SithSetupError("SiTH setup sith fields must match v2 exactly")
     sith_repo = _linux_path(sith["repository"], field="sith.repository")
     sith_python = _linux_path(sith["python"], field="sith.python")
     if sith["revision"] != SITH_REVISION:
         raise SithSetupError("SiTH setup revision does not match BodyRig pinned revision")
 
     openpose = value["openpose"]
-    if not isinstance(openpose, Mapping) or set(openpose) != {"repository", "revision", "executable"}:
-        raise SithSetupError("SiTH setup openpose fields must match v1 exactly")
+    openpose_fields = {"repository", "revision", "executable", "sha256", "byte_count"}
+    if not isinstance(openpose, Mapping) or set(openpose) != openpose_fields:
+        raise SithSetupError("SiTH setup openpose fields must match v2 exactly")
     openpose_repo = _linux_path(openpose["repository"], field="openpose.repository")
     openpose_exe = _linux_path(openpose["executable"], field="openpose.executable")
     if openpose["revision"] != OPENPOSE_REVISION:
         raise SithSetupError("OpenPose setup revision does not match BodyRig pinned revision")
+    openpose_sha256 = _sha256(openpose["sha256"], field="openpose.sha256")
+    openpose_byte_count = _positive_int(openpose["byte_count"], field="openpose.byte_count")
 
     diffusion = value["diffusion_model"]
     if not isinstance(diffusion, Mapping) or set(diffusion) != {"path", "sha256", "file_count", "byte_count"}:
-        raise SithSetupError("SiTH setup diffusion_model fields must match v1 exactly")
+        raise SithSetupError("SiTH setup diffusion_model fields must match v2 exactly")
     diffusion_path = _linux_path(diffusion["path"], field="diffusion_model.path")
-    sha256 = diffusion["sha256"]
-    if not isinstance(sha256, str) or not SHA256_RE.fullmatch(sha256):
-        raise SithSetupError("diffusion_model.sha256 must be lowercase SHA-256")
+    diffusion_sha256 = _sha256(diffusion["sha256"], field="diffusion_model.sha256")
     file_count = _positive_int(diffusion["file_count"], field="diffusion_model.file_count")
     byte_count = _positive_int(diffusion["byte_count"], field="diffusion_model.byte_count")
 
@@ -78,10 +84,16 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "version": VERSION,
         "distribution": distribution,
         "sith": {"repository": sith_repo, "revision": SITH_REVISION, "python": sith_python},
-        "openpose": {"repository": openpose_repo, "revision": OPENPOSE_REVISION, "executable": openpose_exe},
+        "openpose": {
+            "repository": openpose_repo,
+            "revision": OPENPOSE_REVISION,
+            "executable": openpose_exe,
+            "sha256": openpose_sha256,
+            "byte_count": openpose_byte_count,
+        },
         "diffusion_model": {
             "path": diffusion_path,
-            "sha256": sha256,
+            "sha256": diffusion_sha256,
             "file_count": file_count,
             "byte_count": byte_count,
         },
