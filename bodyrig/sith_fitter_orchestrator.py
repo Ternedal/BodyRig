@@ -112,7 +112,7 @@ def orchestrate_sith_fitter(
         wsl_exe=wsl_exe,
     )
 
-    bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter.py"
+    bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_adjusted.py"
     if not bridge.is_file():
         raise SithFitterOrchestratorError("builtin SiTH SMPL-X VRM bridge is missing")
     linux_bridge = _wsl_path(bridge, distribution=distribution.strip(), wsl_exe=wsl_exe)
