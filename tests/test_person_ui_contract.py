@@ -82,6 +82,22 @@ def test_voice_candidates_come_from_voicerig_library_not_manual_ids_or_paths() -
     assert "package_path" not in js
 
 
+def test_stash_search_is_health_gated_and_never_receives_the_api_key() -> None:
+    html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
+    js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
+    app = Path("bodyrig/app.py").read_text(encoding="utf-8")
+
+    assert 'id="stashSearchButton" type="button" class="secondary" disabled' in html
+    assert 'fetch("/api/v1/stash/health"' in html
+    assert "payload.ok !== true" in html
+    assert "payload.performer_read !== true" in html
+    assert "performer-read klar" in html
+    assert "/api/v1/stash/search" in js
+    assert 'return {"ok": True, "version": version, "performer_read": True}' in app
+    assert "STASH_API_KEY" not in html
+    assert "STASH_API_KEY" not in js
+
+
 def test_component_model_or_prompt_change_invalidates_previous_audition() -> None:
     js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
     assert 'for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"])' in js
