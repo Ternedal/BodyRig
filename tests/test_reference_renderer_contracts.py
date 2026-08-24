@@ -26,6 +26,7 @@ def test_reference_renderer_is_directly_openable_unity_project() -> None:
     assert "m_EditorVersion: 6000.3.13f1" in version
     assert (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").is_file()
     assert (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").is_file()
+    assert (REFERENCE / "Assets" / "BodyRig" / "BodyRigDeformationSweep.cs").is_file()
     assert (REFERENCE / "build-reference-renderer.ps1").is_file()
 
 
@@ -54,6 +55,31 @@ def test_probe_remains_manifest_bound_and_vrm1_only() -> None:
     assert 'Path.Combine(defaultRoot, "runtime", "runtime-manifest.json")' in bootstrap
 
 
+def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() -> None:
+    bootstrap = (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").read_text(encoding="utf-8")
+    sweep = (REFERENCE / "Assets" / "BodyRig" / "BodyRigDeformationSweep.cs").read_text(encoding="utf-8")
+    machine = bootstrap.index("await probe.RunProbeAsync(manifestPath, probePath);")
+    deformation = bootstrap.index("await sweep.RunSweepAsync(deformationPath, UpdateSweepStatus);")
+    review = bootstrap.index("sweep.BeginReviewLoop(UpdateReviewStatus);")
+    assert machine < deformation < review
+    assert '"--bodyrig-deformation-output"' in bootstrap
+    assert '"humanoid-muscle-sweep-v1"' in sweep
+    expected_poses = (
+        '"neutral"',
+        '"arms_abduction"',
+        '"elbows_flexed"',
+        '"arms_forward"',
+        '"left_leg_lift"',
+        '"knee_flexion"',
+    )
+    for pose in expected_poses:
+        assert pose in sweep
+    assert "new HumanPoseHandler(_animator.avatar, _animator.transform)" in sweep
+    assert "HumanTrait.MuscleName" in sweep
+    assert "manual_review_required = true" in sweep
+    assert "restored_neutral = true" in sweep
+
+
 def test_build_script_has_physical_windows_and_quest_targets() -> None:
     source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
     assert "BuildTarget.StandaloneWindows64" in source
@@ -63,7 +89,7 @@ def test_build_script_has_physical_windows_and_quest_targets() -> None:
     assert "BuildOptions.Development" in source
 
 
-def test_operator_wrappers_keep_gate_a_bytes_and_platform_identity() -> None:
+def test_operator_wrappers_keep_gate_a_bytes_platform_and_deformation_identity() -> None:
     windows = (REPO / "run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
     quest = (REPO / "run-quest-renderer-probe.ps1").read_text(encoding="utf-8")
     for source in (windows, quest):
@@ -72,6 +98,12 @@ def test_operator_wrappers_keep_gate_a_bytes_and_platform_identity() -> None:
         assert "manifest_sha256" in source
         assert "Get-FileHash" in source
         assert "production_activation" in source
+        assert "bodyrig-deformation-probe" in source
+        assert "humanoid-muscle-sweep-v1" in source
+        assert "neutral,arms_abduction,elbows_flexed,arms_forward,left_leg_lift,knee_flexion" in source
+        assert "deformation.package_sha256" in source
+        assert "deformation.avatar_sha256" in source
+        assert "deformation.bodyprint_sha256" in source
     assert 'unity_platform -ne "WindowsPlayer"' in windows
     assert 'platform -ne "windows-unity-univrm"' in windows
     assert 'platform -ne "android-quest-class"' in quest
