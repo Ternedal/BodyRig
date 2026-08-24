@@ -13,7 +13,7 @@
         "bodyrig_revision","report_sha256","probe_report_sha256","deformation_report_sha256","deformation_sequence_revision","deformation_observed_at",
         "runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
         "machine_probe","result","renderer_name","renderer_version","unity_platform","unity_version","build_guid","device_model","graphics_device",
-        "quality_note","observed_at","attested_at"
+        "quality_review_revision","quality_review_pass","quality_note","observed_at","attested_at"
       ],
       "properties": {
         "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
@@ -34,6 +34,8 @@
         "build_guid": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
         "device_model": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
         "graphics_device": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
+        "quality_review_revision": {"const":"bodyrig-human-quality-v1"},
+        "quality_review_pass": {"const":true},
         "quality_note": {"type":"string","minLength":1,"maxLength":2000,"pattern":".*\\S.*"},
         "observed_at": {"type":"string","minLength":1,"maxLength":80},
         "attested_at": {"type":"string","minLength":1,"maxLength":80}
