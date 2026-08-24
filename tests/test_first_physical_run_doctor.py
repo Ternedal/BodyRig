@@ -44,6 +44,18 @@ def test_first_physical_run_doctor_requires_powershell_7_and_pwsh() -> None:
     assert 'Resolve-CommandPath "powershell"' not in script
 
 
+def test_first_physical_run_doctor_probes_selected_performer_without_creating_source_manifest() -> None:
+    script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    assert "Probing selected Stash performer and local source pool" in script
+    assert "-m bodyrig.stash_cli probe --performer-id $PerformerId" in script
+    assert "usable_source_count" in script
+    assert "Selected Stash performer/source probe failed" in script
+    assert "at least one usable local video" in script
+    assert "--out" not in script
+    assert "bodyrig.stash_cli select" not in script
+
+
 def test_first_physical_run_doctor_prints_canonical_clone_command_only_with_complete_identity_pair() -> None:
     script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
 
