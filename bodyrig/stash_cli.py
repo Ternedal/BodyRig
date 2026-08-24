@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from typing import Any, Sequence
+from typing import Sequence
 
 from .stash_source import (
     SourceCandidate,
@@ -19,6 +19,7 @@ from .stash_source import (
 
 
 _HEALTH_PROBE_TERM = "__bodyrig_auth_capability_probe__"
+_DECODE_GATE = "ffmpeg-one-frame-v1"
 
 
 def _config(args: argparse.Namespace) -> StashConfig:
@@ -128,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     _add_decode_probe(probe)
     _add_common(probe)
 
-    select = sub.add_parser("select", help="Select ranked local video sources for one performer")
+    select = sub.add_parser("select", help="Select ranked, locally decodable video sources for one performer")
     select.add_argument("--performer-id", required=True)
     select.add_argument("--scene-limit", type=int, default=200)
     select.add_argument("--max-sources", type=int, default=10)
@@ -139,9 +140,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Print selected local paths one per line after writing the manifest",
     )
     select.add_argument(
-        "--require-decodable",
+        "--skip-decode-probe",
         action="store_true",
-        help="Filter ranked sources through the same one-frame FFmpeg decode gate used by physical preflight",
+        help="Diagnostics only: skip the one-frame FFmpeg decode gate before writing the source manifest",
     )
     _add_decode_probe(select)
     _add_common(select)
@@ -202,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
                         "candidate_count": len(scenes),
                         "rankable_source_count": len(ranked),
                         "usable_source_count": len(selected),
-                        "decode_gate": "ffmpeg-one-frame-v1",
+                        "decode_gate": _DECODE_GATE,
                     },
                     separators=(",", ":"),
                     ensure_ascii=False,
@@ -219,7 +220,11 @@ def main(argv: list[str] | None = None) -> int:
             max_sources=args.max_sources,
             require_local=True,
         )
-        if args.require_decodable:
+        if not selected:
+            raise StashSourceError(
+                f"performer {args.performer_id!r} has no rankable local video sources"
+            )
+        if not args.skip_decode_probe:
             selected = _filter_decodable_sources(
                 selected,
                 ffmpeg=args.ffmpeg,
