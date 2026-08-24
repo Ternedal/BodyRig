@@ -265,6 +265,18 @@ class UiJobManager:
                     raise UiJobError(
                         f"UI job is no longer running; refusing subprocess start from state {current.get('status')!r}"
                     )
+                authority = operator_checkout_status()
+                if not authority.get("ok"):
+                    raise UiJobError(
+                        str(authority.get("reason") or "BodyRig operator checkout is no longer authoritative")
+                    )
+                expected_revision = str(current.get("bodyrig_revision") or "").strip().lower()
+                actual_revision = str(authority.get("revision") or "").strip().lower()
+                if actual_revision != expected_revision:
+                    raise UiJobError(
+                        "BodyRig checkout revision changed after UI job enqueue; "
+                        f"expected {expected_revision}, got {actual_revision}. Refusing physical subprocess start."
+                    )
                 process = subprocess.Popen(
                     args,
                     cwd=str(_repo_root()),
