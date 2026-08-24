@@ -99,16 +99,16 @@ if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
 $RigSetupReport = Resolve-InputFile -Path $RigSetupReport -Label "BodyRig rig setup report"
 
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
+$runSuffix = [Guid]::NewGuid().ToString("N").Substring(0, 8)
+$artifactBase = [string]$env:LOCALAPPDATA
+if ([string]::IsNullOrWhiteSpace($artifactBase)) { $artifactBase = [System.IO.Path]::GetTempPath() }
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path (Get-Location).Path "bodyrig-stash-$BodyId-$stamp"
+    $OutputDir = Join-Path $artifactBase "BodyRig\physical-clones\$BodyId-$stamp-$runSuffix"
 }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
 if ([string]::IsNullOrWhiteSpace($SessionReport)) {
-    $sessionBase = [string]$env:LOCALAPPDATA
-    if ([string]::IsNullOrWhiteSpace($sessionBase)) { $sessionBase = [System.IO.Path]::GetTempPath() }
-    $sessionIdSuffix = [Guid]::NewGuid().ToString("N").Substring(0, 8)
-    $SessionReport = Join-Path $sessionBase "BodyRig\physical-clone-sessions\$BodyId-$stamp-$sessionIdSuffix.json"
+    $SessionReport = Join-Path $artifactBase "BodyRig\physical-clone-sessions\$BodyId-$stamp-$runSuffix.json"
 }
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
 $readinessReport = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
