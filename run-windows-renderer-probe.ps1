@@ -100,6 +100,10 @@ try {
     $buildScript = Join-Path $rendererRoot "build-reference-renderer.ps1"
     $playerExe = Join-Path $rendererRoot "Builds\Windows\BodyRigReferenceProbe.exe"
     if (-not $SkipBuild) {
+        $buildDir = Split-Path -Parent $playerExe
+        if (Test-Path -LiteralPath $buildDir) {
+            Remove-Item -LiteralPath $buildDir -Recurse -Force
+        }
         $buildArgs = @{ Platform = "Windows"; Output = $playerExe }
         if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
         & $buildScript @buildArgs
