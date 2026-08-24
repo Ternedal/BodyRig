@@ -134,6 +134,8 @@ Windows og Quest skal loade **samme Gate A runtime-manifest og samme package-byt
 
 Renderer-builden kræver clean BodyRig checkout og embedder den eksakte Git-revision i player/APK som build provenance. Machine- og deformation-proberne læser revisionen fra de byggede bytes, og Gate B/C kræver den lig Gate A-revisionen.
 
+Reference-rendererens identitet er maskin-authoritative i `reference-renderer/renderer-contract.json`. Kontrakten binder renderer-navn/version samt de pinned Unity/UniVRM-versioner. Operatøren skal derfor **ikke** skrive eller gætte renderer-versionen ved human attestation.
+
 Hver platform-wrapper bruger en staging-directory og materialiserer først den canonical evidence-directory, når **begge** probe-filer er produceret og valideret. Et crash mellem machine- og deformation-proben efterlader derfor ikke et halvt canonical create-only evidence-par.
 
 Reference-rendereren kører efter normal VRM/Humanoid-validering en fast `humanoid-muscle-sweep-v1` med seks poser i denne rækkefølge:
@@ -159,18 +161,12 @@ windows-evidence/
   windows-deformation-probe.json
 ```
 
-Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering. `-DeformationReport` gør attesteringen direkte hash-bundet til det konkrete sweep, operatøren har vurderet:
+Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering. Reference-helperen læser den eksakte renderer-identitet fra kontrakten og machine-proben og sender den videre til den hårde acceptance-gate:
 
 ```powershell
-.\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\acceptance\windows-evidence\windows-probe.json" `
-  -DeformationReport "C:\acceptance\windows-evidence\windows-deformation-probe.json" `
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\acceptance" `
   -Platform "windows-unity-univrm" `
-  -Pass `
-  -RendererName "BodyRig Reference Renderer" `
-  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2" `
   -QualityNote "Fixed deformation sweep reviewed: identity, proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
 
@@ -194,19 +190,13 @@ quest-evidence/
 Efter samme sweep er gennemgået i headsettet:
 
 ```powershell
-.\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\acceptance\quest-evidence\quest-probe.json" `
-  -DeformationReport "C:\acceptance\quest-evidence\quest-deformation-probe.json" `
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\acceptance" `
   -Platform "android-quest-class" `
-  -Pass `
-  -RendererName "BodyRig Reference Renderer" `
-  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2 / Quest build <id>" `
   -QualityNote "Same fixed deformation sweep and accepted high-fidelity runtime reviewed on Quest-class hardware"
 ```
 
-Renderer-attesteringen genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet, machine-proben, deformation-proben og den embedded renderer build-revision. Attesteringen gemmer både `deformation_report_sha256` og `deformation_sequence_revision`, så QualityNote er bundet til det konkrete fysiske sweep. Final release-gaten revaliderer samme deformationfil mod samme package/runtime/avatar/BodyPrint og samme konkrete build/device/revision som machine-proben.
+`record-reference-renderer-acceptance.ps1` er kun en operator-wrapper: den afleder renderer-navn/version fra `renderer-contract.json`, kræver at machine-proben har samme identitet og kalder derefter den eksisterende `record-renderer-acceptance.ps1`. Den hårde gate genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet, machine-proben, deformation-proben og den embedded renderer build-revision. Human `QualityNote` forbliver direkte hash-bundet til det konkrete deformation-run.
 
 Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultatet med den faste fysiske sweep ved arm/torso, ben, hænder, skuldre, albuer og knæ. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
 
