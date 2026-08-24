@@ -6,14 +6,17 @@ It does **not** replace the hard evidence gates. It exists to remove operator gu
 
 ## 0. Start from the verified operator checkout
 
-Use the V1 branch that PR #1 identifies as the current exact CI-green authority. Before starting a production-valid physical session:
+Use the V1 branch that PR #1 identifies as the current exact CI-green authority. The production physical path is intentionally standardized on **PowerShell 7+ (`pwsh`)**, matching the tested operator/CI runtime. Do not use Windows PowerShell 5.1 for the physical acceptance run.
+
+Verify the shell and checkout before starting:
 
 ```powershell
+$PSVersionTable.PSVersion
 git status --porcelain
 git rev-parse HEAD
 ```
 
-`git status --porcelain` must be empty. Do not use `-AllowDirty` for production evidence; that switch is diagnostics-only and produces non-authoritative session state.
+PowerShell major version must be `7` or newer, and `Get-Command pwsh` must resolve successfully. `git status --porcelain` must be empty. Do not use `-AllowDirty` for production evidence; that switch is diagnostics-only and produces non-authoritative session state.
 
 The BodyRig Python used by the ready launcher must import `bodyrig` from this exact checkout. The launcher verifies that automatically before creating session evidence.
 
@@ -98,7 +101,7 @@ See `docs/PORTABLE_IDENTITY.md` for the identity authority and source-byte TOCTO
 
 ## 5. Run the pre-session doctor before creating physical evidence
 
-Before the production launcher creates a `bodyrig-physical-clone-session`, run the read-only/pre-session doctor:
+Before the production launcher creates a `bodyrig-physical-clone-session`, run the read-only/pre-session doctor from **PowerShell 7+ (`pwsh`)**:
 
 ```powershell
 .\prepare-first-physical-run.ps1 `
@@ -106,7 +109,7 @@ Before the production launcher creates a `bodyrig-physical-clone-session`, run t
   -BodyId "performer-123"
 ```
 
-The doctor verifies the exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. It deliberately calls `check-rig-ready.ps1` **without** `-Out`, so it does not create authoritative readiness evidence, physical clone session state, clone output or acceptance evidence.
+The doctor verifies PowerShell 7+, exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. It deliberately calls `check-rig-ready.ps1` **without** `-Out`, so it does not create authoritative readiness evidence, physical clone session state, clone output or acceptance evidence.
 
 A successful run ends with:
 
@@ -128,7 +131,7 @@ In that mode it proves the rig is ready and points you to the performer-search s
 
 ## 6. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, and the pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
+After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, and the PowerShell-7 pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
@@ -216,6 +219,7 @@ The same canonical body id, accepted package bytes and runtime identity must sur
 
 The first run is useful physical evidence only if all of the following are true:
 
+- PowerShell 7+ (`pwsh`) was used for the canonical pre-session path;
 - the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
 - the pre-session doctor passed without creating physical evidence;
 - real local Stash performer/video sources were used;
