@@ -7,11 +7,32 @@ from fastapi.testclient import TestClient
 import bodyrig.app as app_module
 from bodyrig.person_profiles import add_body_revision, load_profile
 
+VOICE_BYTES = b"fixture-mrvoice-bytes"
+
+
+class _FakeVoiceRig:
+    def voices(self):
+        return [{"id": "anna-voice-0001", "name": "Anna", "language": "da", "package": "anna.mrvoice", "is_default": False, "compatibility": {}}]
+
+    def package_bytes(self, package: str) -> bytes:
+        assert package == "anna.mrvoice"
+        return VOICE_BYTES
+
+    def preview(self, package: str) -> bytes:
+        assert package == "anna.mrvoice"
+        return b"RIFF" + b"\x00" * 64
+
+    def synthesize(self, package: str, text: str) -> bytes:
+        assert package == "anna.mrvoice"
+        assert text
+        return b"RIFF" + b"\x00" * 64
+
 
 def _client(tmp_path: Path, monkeypatch) -> TestClient:
     people = tmp_path / "people"
     monkeypatch.setenv("BODYRIG_ALLOW_REMOTE", "1")
     monkeypatch.setattr(app_module, "person_library", lambda: people)
+    monkeypatch.setattr(app_module, "_voicerig_client", lambda: _FakeVoiceRig())
     return TestClient(app_module.app)
 
 
@@ -26,9 +47,12 @@ def _create_components(client: TestClient, root: Path, person_id: str) -> None:
     )
     voice = client.post(
         f"/api/v1/people/{person_id}/voice/revisions",
-        json={"voice_id": "anna-voice-0001", "package_path": None, "feedback": "voice candidate"},
+        json={"voice_package": "anna.mrvoice", "feedback": "voice candidate"},
     )
     assert voice.status_code == 200
+    voice_item = voice.json()["voice_revisions"][0]
+    assert voice_item["voice_id"] == "anna-voice-0001"
+    assert voice_item["voice_package"] == "anna.mrvoice"
     personality = client.post(
         f"/api/v1/people/{person_id}/personality/revisions",
         json={
@@ -135,3 +159,22 @@ def test_new_personality_candidate_does_not_mutate_active_person(tmp_path: Path,
     assert payload["active_person_revision"] == "person-r0001"
     assert len(payload["personality_revisions"]) == 2
     assert payload["person_revisions"][0]["personality_revision"] == "personality-r0001"
+
+
+def test_voice_preview_and_synthesis_are_bound_to_registered_package_bytes(tmp_path: Path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    created = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()
+    person_id = created["person_id"]
+    voice = client.post(f"/api/v1/people/{person_id}/voice/revisions", json={"voice_package": "anna.mrvoice", "feedback": "audition"})
+    assert voice.status_code == 200
+
+    preview = client.get(f"/api/v1/people/{person_id}/voice/preview?revision=voice-r0001")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("audio/wav")
+
+    synthesized = client.post(
+        f"/api/v1/people/{person_id}/voice/synthesize",
+        json={"revision": "voice-r0001", "text": "Hej, det er Anna."},
+    )
+    assert synthesized.status_code == 200
+    assert synthesized.content.startswith(b"RIFF")
