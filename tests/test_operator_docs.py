@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 
 
-RENDERER_ACCEPTANCE_CALL = re.compile(
-    r"(?ms)^\.\\record-renderer-acceptance\.ps1 `\n"
+REFERENCE_RENDERER_ACCEPTANCE_CALL = re.compile(
+    r"(?ms)^\.\\record-reference-renderer-acceptance\.ps1 `\n"
     r"(?P<args>(?:  -[^\n]+\n?)+)"
 )
 RECOVERY_PREFLIGHT_CALL = re.compile(
@@ -27,7 +27,7 @@ def _calls(path: Path, pattern: re.Pattern[str]) -> list[str]:
     return [match.group("args") for match in pattern.finditer(text)]
 
 
-def test_operator_docs_bind_every_renderer_attestation_to_machine_and_deformation_probes() -> None:
+def test_operator_docs_use_machine_authoritative_reference_renderer_attestation() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     expected_calls = {
         repo_root / "README.md": 2,
@@ -35,20 +35,22 @@ def test_operator_docs_bind_every_renderer_attestation_to_machine_and_deformatio
     }
 
     for path, expected_count in expected_calls.items():
-        calls = _calls(path, RENDERER_ACCEPTANCE_CALL)
+        calls = _calls(path, REFERENCE_RENDERER_ACCEPTANCE_CALL)
         assert len(calls) == expected_count, (
             f"{path.relative_to(repo_root)} must document exactly {expected_count} "
-            "record-renderer-acceptance.ps1 invocations"
+            "record-reference-renderer-acceptance.ps1 invocations"
+        )
+        text = path.read_text(encoding="utf-8")
+        assert ".\\record-renderer-acceptance.ps1 `" not in text, (
+            f"{path.relative_to(repo_root)} must not expose the lower-level renderer "
+            "identity fields in the canonical operator flow"
         )
         for args in calls:
-            assert "-ProbeReport " in args, (
-                f"{path.relative_to(repo_root)} documents a renderer attestation "
-                "without the mandatory -ProbeReport machine evidence"
-            )
-            assert "-DeformationReport " in args, (
-                f"{path.relative_to(repo_root)} documents a renderer attestation "
-                "without the mandatory -DeformationReport physical sweep evidence"
-            )
+            assert "-AcceptanceDir " in args
+            assert "-Platform " in args
+            assert "-QualityNote " in args
+            assert "-RendererName " not in args
+            assert "-RendererVersion " not in args
 
 
 def test_recovery_preflight_docs_bind_to_pinned_phalp_checkout() -> None:
