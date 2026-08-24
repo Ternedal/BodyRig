@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from bodyrig.acceptance_status import AcceptanceStatus
@@ -47,6 +48,20 @@ def test_quest_status_command_uses_reference_attestation_helper() -> None:
     assert "-QualityNote" in status.next_command
     assert "RendererName" not in status.next_command
     assert "RendererVersion" not in status.next_command
+
+
+def test_release_status_command_uses_contract_bound_final_wrapper() -> None:
+    ready = replace(_status("release"), state="ready")
+    status = _operator_command(ready)
+    assert status.next_command is not None
+    assert ".\\complete-reference-acceptance.ps1" in status.next_command
+    assert "-AcceptanceDir" in status.next_command
+    assert ".\\complete-acceptance.ps1" not in status.next_command
+
+
+def test_completed_release_status_is_not_rewritten() -> None:
+    complete = replace(_status("release"), state="complete", next_command=None)
+    assert _operator_command(complete) == complete
 
 
 def test_non_attestation_status_command_is_unchanged() -> None:
