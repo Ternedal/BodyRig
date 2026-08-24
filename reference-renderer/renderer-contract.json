@@ -1,0 +1,10 @@
+{
+  "format": "bodyrig-reference-renderer-contract",
+  "version": 1,
+  "renderer_name": "BodyRig Reference Renderer",
+  "renderer_version": "reference-v1/univrm-0.131.2",
+  "unity_editor_version": "6000.3.13f1",
+  "univrm_version": "0.131.2",
+  "application_id": "dk.ternedal.bodyrig.reference",
+  "deformation_sequence_revision": "humanoid-muscle-sweep-v1"
+}
