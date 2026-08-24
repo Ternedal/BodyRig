@@ -11,6 +11,7 @@ from .acceptance_status import (
     _session_status,
     inspect_acceptance_dir,
 )
+from .reference_acceptance_policy import apply_reference_policy
 
 
 def _quote(path: str) -> str:
@@ -72,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         status = _session_status(args.session_report) if args.session_report else inspect_acceptance_dir(args.acceptance_dir)
+        status = apply_reference_policy(status)
         status = _operator_command(status)
     except AcceptanceStatusError as exc:
         if args.json:
