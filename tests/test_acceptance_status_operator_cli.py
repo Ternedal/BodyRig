@@ -4,11 +4,14 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from bodyrig.acceptance_status import AcceptanceStatus
+import pytest
+
+from bodyrig.acceptance_status import AcceptanceStatus, AcceptanceStatusError
 from bodyrig.acceptance_status_cli import (
-    CANONICAL_OPERATOR_SCRIPTS,
+    CANONICAL_OPERATOR_FILES,
     _bind_operator_checkout,
     _operator_command,
+    _resolve_operator_root,
     _status_exit_code,
 )
 from bodyrig.reference_acceptance_policy import _load_contract, apply_reference_policy
@@ -31,8 +34,10 @@ def _status(gate: str) -> AcceptanceStatus:
 
 def _operator_root(tmp_path: Path) -> Path:
     (tmp_path / ".git").mkdir()
-    for name in CANONICAL_OPERATOR_SCRIPTS:
-        (tmp_path / name).write_text("# test operator script\n", encoding="utf-8")
+    for name in CANONICAL_OPERATOR_FILES:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# test operator dependency\n", encoding="utf-8")
     return tmp_path
 
 
@@ -199,6 +204,31 @@ def test_dirty_operator_checkout_blocks_before_command(tmp_path: Path, monkeypat
     assert blocked.next_command is None
     assert "checkout is dirty" in blocked.message
     assert _status_exit_code(blocked) == 3
+
+
+def test_missing_acceptance_revision_blocks_before_command(tmp_path: Path, monkeypatch) -> None:
+    root = _operator_root(tmp_path)
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._git_checkout_state", lambda _: ("a" * 40, True))
+    ready = replace(_status("windows-probe"), state="ready", bodyrig_revision=None)
+
+    blocked = _bind_operator_checkout(ready, root)
+
+    assert blocked.state == "blocked"
+    assert blocked.gate == "operator-checkout"
+    assert blocked.next_command is None
+    assert "no canonical BodyRig revision" in blocked.message
+    assert _status_exit_code(blocked) == 3
+
+
+def test_operator_root_requires_lower_level_and_renderer_dependencies(tmp_path: Path) -> None:
+    root = _operator_root(tmp_path)
+    missing = root / "run-windows-renderer-probe.ps1"
+    missing.unlink()
+
+    with pytest.raises(AcceptanceStatusError, match="missing canonical operator dependencies") as excinfo:
+        _resolve_operator_root(root)
+
+    assert "run-windows-renderer-probe.ps1" in str(excinfo.value)
 
 
 def test_reference_policy_leaves_empty_transactional_layout_unchanged(tmp_path: Path) -> None:
