@@ -10,6 +10,41 @@
     "version": {"const": 1},
     "name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
     "bodyprint": {"$ref": "bodyprint-v1.schema.json"},
-    "visual_identity": {"$ref": "visual-identity-v1.schema.json"}
+    "visual_identity": {"$ref": "visual-identity-v1.schema.json"},
+    "bodyprint_adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "version", "feedback_sha256", "changes"],
+      "properties": {
+        "format": {"const": "bodyrig-bodyprint-adjustment"},
+        "version": {"const": 1},
+        "feedback_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "delta", "reason"],
+            "properties": {
+              "field": {
+                "enum": [
+                  "shape.arm_to_height",
+                  "shape.shoulder_to_height",
+                  "shape.hip_to_height",
+                  "shape.leg_to_height",
+                  "shape.height_scale",
+                  "motion.gesture_amplitude",
+                  "motion.energy"
+                ]
+              },
+              "delta": {"type": "number"},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 240}
+            }
+          }
+        }
+      }
+    }
   }
 }
