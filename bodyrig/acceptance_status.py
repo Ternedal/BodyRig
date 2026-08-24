@@ -18,6 +18,64 @@ POSES = (
     "left_leg_lift",
     "knee_flexion",
 )
+QUALITY_REVIEW_FIELDS = {
+    "revision",
+    "full_deformation_sequence_reviewed",
+    "source_identity_texture_acceptable",
+    "geometry_proportions_acceptable",
+    "upper_body_deformation_acceptable",
+    "lower_body_deformation_acceptable",
+    "cross_limb_leakage_absent",
+    "skin_qa_considered",
+}
+QUALITY_REVIEW_BOOLEAN_FIELDS = QUALITY_REVIEW_FIELDS - {"revision"}
+RELEASE_FIELDS = {
+    "format",
+    "version",
+    "completed_at",
+    "bodyrig_revision",
+    "automated_acceptance",
+    "renderer_acceptance",
+    "release_gate_pass",
+    "production_activation",
+}
+RELEASE_AUTOMATED_FIELDS = {
+    "report_sha256",
+    "package_sha256",
+    "body_id",
+    "automated_pass",
+    "physical_clone_mode",
+    "physical_clone_session_sha256",
+    "physical_clone_readiness_sha256",
+    "skin_qa_report_sha256",
+    "skin_qa_assessment",
+    "skin_qa_manual_review_required",
+}
+RELEASE_RENDERER_FIELDS = {
+    "bodyrig_revision",
+    "report_sha256",
+    "probe_report_sha256",
+    "deformation_report_sha256",
+    "deformation_sequence_revision",
+    "deformation_observed_at",
+    "runtime_manifest_sha256",
+    "avatar_sha256",
+    "bodyprint_sha256",
+    "machine_probe",
+    "result",
+    "renderer_name",
+    "renderer_version",
+    "unity_platform",
+    "unity_version",
+    "build_guid",
+    "device_model",
+    "graphics_device",
+    "quality_review_revision",
+    "quality_review_pass",
+    "quality_note",
+    "observed_at",
+    "attested_at",
+}
 
 
 class AcceptanceStatusError(RuntimeError):
@@ -295,6 +353,166 @@ def _platform_stage(acceptance_dir: Path, *, platform: str, prefix: str, attesta
     return "complete", paths
 
 
+def _validate_release_quality_review(attestation: dict[str, Any], label: str) -> None:
+    review = attestation.get("quality_review")
+    if not isinstance(review, dict):
+        raise AcceptanceStatusError(f"Final release {label} attestation has no structured quality_review.")
+    if set(review) != QUALITY_REVIEW_FIELDS:
+        raise AcceptanceStatusError(f"Final release {label} quality_review fields are not canonical.")
+    if review.get("revision") != "bodyrig-human-quality-v1":
+        raise AcceptanceStatusError(f"Final release {label} quality_review revision is unsupported.")
+    for field in QUALITY_REVIEW_BOOLEAN_FIELDS:
+        if review.get(field) is not True:
+            raise AcceptanceStatusError(f"Final release {label} quality_review did not pass {field}.")
+
+
+def _validate_release_artifact(
+    release_path: Path,
+    *,
+    acceptance_dir: Path,
+    gate: GateAInfo,
+    windows: PlatformPaths,
+    quest: PlatformPaths,
+) -> None:
+    release = _read_json(release_path, "Final release acceptance")
+    if set(release) != RELEASE_FIELDS:
+        raise AcceptanceStatusError("Final release acceptance fields do not match BodyRig release acceptance v1.")
+    if release.get("format") != "bodyrig-release-acceptance" or release.get("version") != 1:
+        raise AcceptanceStatusError("Final release acceptance format/version is invalid.")
+    if not str(release.get("completed_at") or "").strip():
+        raise AcceptanceStatusError("Final release acceptance has no completed_at timestamp.")
+    if release.get("release_gate_pass") is not True or release.get("production_activation") is not True:
+        raise AcceptanceStatusError("Final release artifact exists but is not an activating PASS.")
+    if _need_sha40(release.get("bodyrig_revision"), "release.bodyrig_revision") != gate.revision:
+        raise AcceptanceStatusError("Final release acceptance revision no longer matches Gate A.")
+
+    gate_report = _read_json(gate.path, "Gate A acceptance report")
+    physical_clone = gate_report.get("physical_clone") if isinstance(gate_report.get("physical_clone"), dict) else {}
+    skin_qa = gate_report.get("skin_qa") if isinstance(gate_report.get("skin_qa"), dict) else {}
+    automated = release.get("automated_acceptance")
+    if not isinstance(automated, dict) or set(automated) != RELEASE_AUTOMATED_FIELDS:
+        raise AcceptanceStatusError("Final release automated_acceptance summary is not canonical.")
+    expected_automated_hashes = {
+        "report_sha256": _sha256(gate.path),
+        "package_sha256": gate.package_hash,
+        "physical_clone_session_sha256": _need_sha256(
+            physical_clone.get("session_sha256"), "Gate A physical clone session SHA-256"
+        ),
+        "physical_clone_readiness_sha256": _need_sha256(
+            physical_clone.get("readiness_sha256"), "Gate A readiness SHA-256"
+        ),
+        "skin_qa_report_sha256": _need_sha256(skin_qa.get("report_sha256"), "Gate A skin QA SHA-256"),
+    }
+    for field, expected in expected_automated_hashes.items():
+        if _need_sha256(automated.get(field), f"release.automated_acceptance.{field}") != expected:
+            raise AcceptanceStatusError(f"Final release automated_acceptance {field} no longer matches Gate A evidence.")
+    if str(automated.get("body_id") or "") != gate.body_id:
+        raise AcceptanceStatusError("Final release automated_acceptance body_id no longer matches Gate A.")
+    if automated.get("automated_pass") is not True:
+        raise AcceptanceStatusError("Final release automated_acceptance is not a PASS.")
+    if automated.get("physical_clone_mode") != "stash-sith-high-fidelity":
+        raise AcceptanceStatusError("Final release physical clone mode is not Stash/SiTH high fidelity.")
+    assessment = str(skin_qa.get("automated_assessment") or "")
+    if assessment not in {"low-risk", "review", "high-risk"}:
+        raise AcceptanceStatusError("Gate A skin QA assessment is invalid for final release verification.")
+    if automated.get("skin_qa_assessment") != assessment or automated.get("skin_qa_manual_review_required") is not True:
+        raise AcceptanceStatusError("Final release skin QA summary no longer matches Gate A.")
+
+    renderers = release.get("renderer_acceptance")
+    if not isinstance(renderers, dict) or set(renderers) != {"windows_unity_univrm", "android_quest_class"}:
+        raise AcceptanceStatusError("Final release renderer_acceptance summary is not canonical.")
+
+    for key, paths in (("windows_unity_univrm", windows), ("android_quest_class", quest)):
+        summary = renderers.get(key)
+        if not isinstance(summary, dict) or set(summary) != RELEASE_RENDERER_FIELDS:
+            raise AcceptanceStatusError(f"Final release {key} renderer summary fields are not canonical.")
+
+        probe = _read_json(paths.probe, f"Final release {key} renderer probe")
+        deformation = _read_json(paths.deformation, f"Final release {key} deformation probe")
+        attestation = _read_json(paths.attestation, f"Final release {key} renderer attestation")
+        _validate_release_quality_review(attestation, key)
+
+        if _need_sha40(summary.get("bodyrig_revision"), f"release.{key}.bodyrig_revision") != gate.revision:
+            raise AcceptanceStatusError(f"Final release {key} renderer revision mismatch.")
+        for field, expected in {
+            "report_sha256": _sha256(paths.attestation),
+            "probe_report_sha256": _sha256(paths.probe),
+            "deformation_report_sha256": _sha256(paths.deformation),
+            "runtime_manifest_sha256": gate.runtime_hash,
+        }.items():
+            if _need_sha256(summary.get(field), f"release.{key}.{field}") != expected:
+                raise AcceptanceStatusError(f"Final release {key} {field} no longer matches physical evidence.")
+
+        avatar_hash = _need_sha256(probe.get("avatar_sha256"), f"{key} probe avatar_sha256")
+        bodyprint_hash = _need_sha256(probe.get("bodyprint_sha256"), f"{key} probe bodyprint_sha256")
+        for field, expected in (("avatar_sha256", avatar_hash), ("bodyprint_sha256", bodyprint_hash)):
+            if _need_sha256(summary.get(field), f"release.{key}.{field}") != expected:
+                raise AcceptanceStatusError(f"Final release {key} {field} no longer matches renderer evidence.")
+            if _need_sha256(deformation.get(field), f"{key} deformation {field}") != expected:
+                raise AcceptanceStatusError(f"Final release {key} deformation {field} no longer matches renderer probe.")
+            if _need_sha256(attestation.get(field), f"{key} attestation {field}") != expected:
+                raise AcceptanceStatusError(f"Final release {key} attestation {field} no longer matches renderer probe.")
+
+        if summary.get("deformation_sequence_revision") != "humanoid-muscle-sweep-v1":
+            raise AcceptanceStatusError(f"Final release {key} deformation sequence revision is invalid.")
+        if str(summary.get("deformation_observed_at") or "") != str(deformation.get("observed_at") or ""):
+            raise AcceptanceStatusError(f"Final release {key} deformation observation timestamp no longer matches evidence.")
+        if summary.get("machine_probe") is not True or summary.get("result") != "pass":
+            raise AcceptanceStatusError(f"Final release {key} renderer summary is not a machine-backed PASS.")
+
+        renderer = probe.get("active_renderer") if isinstance(probe.get("active_renderer"), dict) else {}
+        expected_text = {
+            "renderer_name": attestation.get("renderer_name"),
+            "renderer_version": attestation.get("renderer_version"),
+            "unity_platform": probe.get("unity_platform"),
+            "unity_version": probe.get("unity_version"),
+            "build_guid": probe.get("build_guid"),
+            "device_model": probe.get("device_model"),
+            "graphics_device": probe.get("graphics_device"),
+            "quality_note": attestation.get("quality_note"),
+            "observed_at": probe.get("observed_at"),
+            "attested_at": attestation.get("attested_at"),
+        }
+        for field, expected in expected_text.items():
+            if not str(expected or "").strip() or str(summary.get(field) or "") != str(expected):
+                raise AcceptanceStatusError(f"Final release {key} {field} no longer matches renderer evidence.")
+        if renderer.get("name") != expected_text["renderer_name"] or renderer.get("version") != expected_text["renderer_version"]:
+            raise AcceptanceStatusError(f"Final release {key} renderer identity no longer matches machine probe.")
+        if str(deformation.get("build_guid") or "") != str(probe.get("build_guid") or ""):
+            raise AcceptanceStatusError(f"Final release {key} deformation build GUID no longer matches machine probe.")
+        if str(deformation.get("unity_platform") or "") != str(probe.get("unity_platform") or ""):
+            raise AcceptanceStatusError(f"Final release {key} deformation Unity platform no longer matches machine probe.")
+        if str(deformation.get("unity_version") or "") != str(probe.get("unity_version") or ""):
+            raise AcceptanceStatusError(f"Final release {key} deformation Unity version no longer matches machine probe.")
+        if str(deformation.get("device_model") or "") != str(probe.get("device_model") or ""):
+            raise AcceptanceStatusError(f"Final release {key} deformation device no longer matches machine probe.")
+        if summary.get("quality_review_revision") != "bodyrig-human-quality-v1" or summary.get("quality_review_pass") is not True:
+            raise AcceptanceStatusError(f"Final release {key} structured human quality summary is not a PASS.")
+
+    # Re-hash the Gate A sidecars again at final status time. Gate A validation above
+    # already checked these bytes, but keeping the checks adjacent to release summary
+    # validation makes the release artifact's self-description explicitly auditable.
+    for path, expected, label in (
+        (
+            acceptance_dir / "bodyrig-physical-clone-session.json",
+            expected_automated_hashes["physical_clone_session_sha256"],
+            "Final release physical clone session",
+        ),
+        (
+            acceptance_dir / "bodyrig-rig-readiness.json",
+            expected_automated_hashes["physical_clone_readiness_sha256"],
+            "Final release readiness evidence",
+        ),
+        (
+            acceptance_dir / "bodyrig-skin-qa.json",
+            expected_automated_hashes["skin_qa_report_sha256"],
+            "Final release skin QA evidence",
+        ),
+    ):
+        if _sha256(path) != expected:
+            raise AcceptanceStatusError(f"{label} no longer matches final release summary.")
+
+
 def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
     acceptance_dir = directory.expanduser().resolve()
     if not acceptance_dir.is_dir():
@@ -346,20 +564,13 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
 
     release_path = acceptance_dir / "bodyrig-release-acceptance.json"
     if release_path.exists():
-        release = _read_json(release_path, "Final release acceptance")
-        if release.get("format") != "bodyrig-release-acceptance" or release.get("version") != 1:
-            raise AcceptanceStatusError("Final release acceptance format/version is invalid.")
-        if release.get("release_gate_pass") is not True or release.get("production_activation") is not True:
-            raise AcceptanceStatusError("Final release artifact exists but is not an activating PASS.")
-        if _need_sha40(release.get("bodyrig_revision"), "release.bodyrig_revision") != gate.revision:
-            raise AcceptanceStatusError("Final release acceptance revision no longer matches Gate A.")
-        renderers = release.get("renderer_acceptance") or {}
-        for key, paths in (("windows_unity_univrm", windows), ("android_quest_class", quest)):
-            summary = renderers.get(key) or {}
-            if _need_sha40(summary.get("renderer_bodyrig_revision"), f"release.{key}.renderer_bodyrig_revision") != gate.revision:
-                raise AcceptanceStatusError(f"Final release {key} renderer revision mismatch.")
-            if _need_sha256(summary.get("report_sha256"), f"release.{key}.report_sha256") != _sha256(paths.attestation):
-                raise AcceptanceStatusError(f"Final release {key} attestation hash no longer matches evidence.")
+        _validate_release_artifact(
+            release_path,
+            acceptance_dir=acceptance_dir,
+            gate=gate,
+            windows=windows,
+            quest=quest,
+        )
         return AcceptanceStatus(
             "complete", "release", str(acceptance_dir), gate.body_id, gate.revision,
             "Final BodyRig release acceptance is a production-activating PASS for the exact physical evidence chain.", None,
