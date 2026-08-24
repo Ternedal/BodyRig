@@ -11,6 +11,10 @@ def test_reference_release_wrapper_validates_contract_before_core_gate() -> None
 
     assert "reference-renderer\\renderer-contract.json" in source
     assert '"bodyrig-reference-renderer-contract"' in source
+    assert "univrm_version" in source
+    assert "univrm_revision" in source
+    assert "Reference renderer contract fields are not canonical." in source
+    assert "Reference renderer contract contains an invalid UniVRM revision." in source
     assert '"windows-evidence\\windows-probe.json"' in source
     assert '"windows-evidence\\windows-deformation-probe.json"' in source
     assert '"quest-evidence\\quest-probe.json"' in source
