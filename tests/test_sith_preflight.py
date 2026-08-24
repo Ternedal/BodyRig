@@ -78,13 +78,14 @@ def _runner(
     return run
 
 
-def _run(monkeypatch, *, pin_openpose: bool = False, **runner_args):
+def _run(monkeypatch, *, pin_openpose: bool = False, infer_openpose: bool = False, **runner_args):
     monkeypatch.setattr(sith, "_run_wsl", _runner(**runner_args))
+    openpose = "/opt/openpose/build/examples/openpose/openpose.bin" if (pin_openpose or infer_openpose) else "/opt/custom-openpose.bin"
     return sith.run_preflight(
         distribution="Ubuntu-22.04",
         repo="/opt/sith",
         python="/opt/sith/.venv/bin/python",
-        openpose="/opt/openpose/build/examples/openpose/openpose.bin",
+        openpose=openpose,
         openpose_repo="/opt/openpose" if pin_openpose else None,
     )
 
@@ -102,26 +103,28 @@ def test_sith_preflight_accepts_exact_pinned_environment(monkeypatch):
     assert result["errors"] == []
 
 
-def test_sith_preflight_accepts_pinned_openpose_checkout(monkeypatch):
-    result = _run(monkeypatch, pin_openpose=True)
-    assert result["ok"] is True
-    assert result["openpose_authority_pinned"] is True
-    assert result["openpose_revision"] == sith.OPENPOSE_REVISION
-    assert result["openpose_tracked_clean"] is True
-    assert result["openpose_cmakelists_blob"] == sith.OPENPOSE_CMAKE_BLOB
+def test_sith_preflight_accepts_explicit_or_inferred_pinned_openpose_checkout(monkeypatch):
+    explicit = _run(monkeypatch, pin_openpose=True)
+    inferred = _run(monkeypatch, infer_openpose=True)
+    for result in (explicit, inferred):
+        assert result["ok"] is True
+        assert result["openpose_authority_pinned"] is True
+        assert result["openpose_revision"] == sith.OPENPOSE_REVISION
+        assert result["openpose_tracked_clean"] is True
+        assert result["openpose_cmakelists_blob"] == sith.OPENPOSE_CMAKE_BLOB
 
 
 def test_sith_preflight_rejects_openpose_revision_or_blob_drift(monkeypatch):
-    revision = _run(monkeypatch, pin_openpose=True, openpose_head="0" * 40)
+    revision = _run(monkeypatch, infer_openpose=True, openpose_head="0" * 40)
     assert revision["ok"] is False
     assert any("OpenPose revision mismatch" in error for error in revision["errors"])
-    blob = _run(monkeypatch, pin_openpose=True, openpose_blob="0" * 40)
+    blob = _run(monkeypatch, infer_openpose=True, openpose_blob="0" * 40)
     assert blob["ok"] is False
     assert any("OpenPose CMakeLists.txt blob mismatch" in error for error in blob["errors"])
 
 
 def test_sith_preflight_rejects_dirty_openpose(monkeypatch):
-    result = _run(monkeypatch, pin_openpose=True, openpose_dirty=True)
+    result = _run(monkeypatch, infer_openpose=True, openpose_dirty=True)
     assert result["ok"] is False
     assert "OpenPose has modified tracked files" in result["errors"]
 
