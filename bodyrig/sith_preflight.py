@@ -18,6 +18,7 @@ SITH_RECON_CONFIG_BLOB = "99df9520c2cb4768f0466282bb2560404fb11d95"
 OPENPOSE_REPOSITORY = "CMU-Perceptual-Computing-Lab/openpose"
 OPENPOSE_REVISION = "8ca5c1d95a42340b323e9273654d1db98bec779c"
 OPENPOSE_CMAKE_BLOB = "2328e66ba9642d324c30bd6fe4d7f9711af7595f"
+OPENPOSE_EXECUTABLE_SUFFIX = "/build/examples/openpose/openpose.bin"
 
 PINNED_BLOBS = {
     "run.sh": SITH_RUN_SH_BLOB,
@@ -59,16 +60,15 @@ def _run_wsl(*, wsl_exe: str, distribution: str, command: Sequence[str]) -> subp
     )
 
 
+def stderr_or_stdout(completed: subprocess.CompletedProcess[str]) -> str:
+    return (completed.stderr or completed.stdout or "").strip()
+
+
 def _checked_text(*, wsl_exe: str, distribution: str, command: Sequence[str], label: str) -> str:
     completed = _run_wsl(wsl_exe=wsl_exe, distribution=distribution, command=command)
     if completed.returncode != 0:
-        detail = stderr_or_stdout(completed)[-1500:]
-        raise SithPreflightError(f"{label} failed: {detail}")
+        raise SithPreflightError(f"{label} failed: {stderr_or_stdout(completed)[-1500:]}")
     return completed.stdout.strip()
-
-
-def stderr_or_stdout(completed: subprocess.CompletedProcess[str]) -> str:
-    return (completed.stderr or completed.stdout or "").strip()
 
 
 def _python_probe_script(repo: str, openpose: str) -> str:
@@ -171,6 +171,11 @@ def run_preflight(
             raise SithPreflightError(f"SiTH {label} is required")
     if not repo.startswith("/") or not python.startswith("/") or not openpose.startswith("/"):
         raise SithPreflightError("SiTH repo/python/openpose paths must be absolute Linux paths")
+
+    if openpose_repo is None and openpose.endswith(OPENPOSE_EXECUTABLE_SUFFIX):
+        inferred = openpose[: -len(OPENPOSE_EXECUTABLE_SUFFIX)]
+        if inferred.startswith("/"):
+            openpose_repo = inferred
     if openpose_repo is not None and (not isinstance(openpose_repo, str) or not openpose_repo.startswith("/")):
         raise SithPreflightError("SiTH openpose_repo must be an absolute Linux path when supplied")
 
