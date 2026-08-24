@@ -21,7 +21,9 @@ The launcher:
 3. runs live readiness for recovery, SiTH/OpenPose, diffusion model and Stash;
 4. hashes that readiness report into the physical-clone session;
 5. runs the existing Stash source-selection/recovery/identity/SiTH pipeline;
-6. refuses PASS if Git HEAD changed while the long clone was running.
+6. refuses PASS if Git HEAD changed or the production checkout became dirty while the long clone was running.
+
+Before session creation the selected `BodyRigPython` must also prove that `import bodyrig` resolves to exactly the current checkout's `bodyrig\__init__.py`. `-AllowDirty` is diagnostics-only and always records a non-authoritative dirty session, even when the checkout happened to be clean at launch.
 
 Default physical clone artifacts live outside the checkout under `%LOCALAPPDATA%\BodyRig\physical-clones`. Session/readiness evidence lives under `%LOCALAPPDATA%\BodyRig\physical-clone-sessions`. This prevents the operator path itself from making the repository dirty.
 
@@ -115,7 +117,7 @@ bodyrig-acceptance-status `
 
 Before rendering a physical next command, the V1 status adapter requires the complete canonical operator dependency closure to be materialized: reference wrappers, the lower-level Windows/Quest/attestation/release scripts, `reference-renderer/renderer-contract.json`, the renderer build script, Unity `ProjectSettings/ProjectVersion.txt`, and `Packages/manifest.json`. A sparse checkout is therefore acceptable only when it contains that complete closure. The adapter then verifies exact Git HEAD equal to the acceptance revision and a clean `git status --porcelain`. A wrong revision or dirty checkout is `BLOCKED` with exit code `3`. Missing operator dependencies, an invalid operator-root, or malformed/tampered evidence is `ERROR` with exit code `2`. A valid checkout gets an absolute PowerShell script path so the suggested command is independent of the current working directory.
 
-The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. The generic status core can inspect complete legacy root-file pairs for backward compatibility, but the public V1 status adapter blocks unfinished legacy layouts and routes Windows, Quest and final-release steps through the contract-bound reference wrappers. It also fails early if renderer identity, Unity version or deformation sequence drifts from `reference-renderer/renderer-contract.json`. Use `-Json` / `--json` for machine-readable output.
+The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. The generic status core can inspect complete legacy root-file pairs for backward compatibility, but the public V1 status adapter blocks unfinished legacy layouts and routes Windows, Quest and final-release steps through the contract-bound reference wrappers. It also fails early if renderer identity, Unity version, deformation sequence or structured human quality review drifts from the canonical V1 policy. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
 
@@ -151,6 +153,18 @@ The reference player first writes the renderer machine probe and then executes t
 The sequence uses Unity Humanoid muscles through `HumanPoseHandler`, not avatar-specific local bone axes. Every pose is held for the fixed evidence interval, all required muscle names must resolve, and the baseline HumanPose is restored after the evidence run. The player then loops the same poses for human inspection.
 
 The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequence actually ran. It binds the exact BodyRig build revision, package/runtime/avatar/BodyPrint bytes plus Unity build GUID, platform/version and physical device model. It does **not** claim that the visual deformation was good; `manual_review_required=true` remains mandatory.
+
+A human PASS is also structured rather than a bare text note. `-ConfirmQualityChecklist` attests `bodyrig-human-quality-v1` with all of these conditions true:
+
+- the complete fixed deformation sequence was reviewed;
+- source identity/texture is acceptable;
+- geometry/proportions are acceptable;
+- upper-body deformation is acceptable;
+- lower-body deformation is acceptable;
+- no visible cross-limb leakage was observed;
+- Gate A's automated skin-QA was considered during the review.
+
+The free-text `QualityNote` records details and caveats, but it does not replace the structured checklist. Both the reference release policy and the lower-level core final gate fail closed if the checklist is missing, non-canonical or contains any `false` result.
 
 ### Atomic evidence-pair commit
 
@@ -191,10 +205,11 @@ After watching the player cycle the same sequence and confirming actual visual q
 .\record-reference-renderer-acceptance.ps1 `
   -AcceptanceDir "C:\path\to\acceptance" `
   -Platform "windows-unity-univrm" `
+  -ConfirmQualityChecklist `
   -QualityNote "Fixed deformation sweep reviewed: identity/proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
 
-The helper reads renderer identity and exact Unity version from `reference-renderer/renderer-contract.json`, requires machine/deformation evidence to match that contract, resolves the canonical evidence pair, and calls the lower-level `record-renderer-acceptance.ps1`. The operator therefore attests only the physical quality observation; renderer identity is not free-text human input.
+The helper reads renderer identity and exact Unity version from `reference-renderer/renderer-contract.json`, requires machine/deformation evidence to match that contract, resolves the canonical evidence pair, and calls the lower-level `record-renderer-acceptance.ps1`. The operator therefore attests the physical quality through the fixed checklist plus a free-text note; renderer identity is not human input.
 
 ### Quest-class acceptance
 
@@ -213,10 +228,11 @@ After inspecting the fixed sequence in the headset:
 .\record-reference-renderer-acceptance.ps1 `
   -AcceptanceDir "C:\path\to\acceptance" `
   -Platform "android-quest-class" `
+  -ConfirmQualityChecklist `
   -QualityNote "Same fixed deformation sweep and accepted runtime reviewed on Quest-class hardware"
 ```
 
-Before accepting either human quality attestation, the helper verifies machine/deformation evidence against the canonical renderer contract. The lower-level `record-renderer-acceptance.ps1` then independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, embedded renderer revision, machine probe and deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1` and `deformation_probe=true`, so the operator's QualityNote is explicitly tied to the exact sweep that was reviewed. Each renderer report remains non-activating: `production_activation=false`.
+Before accepting either human quality attestation, the helper verifies machine/deformation evidence against the canonical renderer contract. The lower-level `record-renderer-acceptance.ps1` then independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, embedded renderer revision, machine probe and deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1`, `deformation_probe=true` and a strict `quality_review` object with `revision=bodyrig-human-quality-v1`, so the human review is tied to the exact sweep and package that were observed. Each renderer report remains non-activating: `production_activation=false`.
 
 The first physical high-fidelity clone must compare static skin-QA measurements with the fixed sweep around arm/torso contact, shoulders, elbows, wrists/hands, hips, knees and legs. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
@@ -235,9 +251,10 @@ Only after both canonical renderer evidence pairs and both operator attestations
 - renderer name/version equal `renderer-contract.json`;
 - probe, deformation and human attestation all report exact Unity `6000.3.13f1`;
 - deformation and attestation both use `humanoid-muscle-sweep-v1`;
+- strict `bodyrig-human-quality-v1` with every required human QA criterion explicitly true;
 - platform-specific PASS attestation.
 
-Only after those checks does it call the generic `complete-acceptance.ps1`. The generic gate still owns the full high-fidelity clone lineage, non-placeholder requirement, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, physical renderer/deformation byte identity, build/device identity and human-attestation hash bindings.
+Only after those checks does it call the generic `complete-acceptance.ps1`. The generic gate independently validates the same structured human-QA again and still owns the full high-fidelity clone lineage, non-placeholder requirement, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, physical renderer/deformation byte identity, build/device identity and human-attestation hash bindings.
 
 Only the resulting `bodyrig-release-acceptance` artifact can contain:
 
@@ -248,12 +265,12 @@ Only the resulting `bodyrig-release-acceptance` artifact can contain:
 }
 ```
 
-Its automated-acceptance summary remains traceable back to exact source-derived package/runtime bytes, physical devices and deformation runs. The reference policy adds the guarantee that the canonical V1 path also used the exact renderer contract and Unity toolchain pin.
+Its automated-acceptance summary remains traceable back to exact source-derived package/runtime bytes, physical devices, deformation runs and create-only human attestations. The reference policy adds the guarantee that the canonical V1 path also used the exact renderer contract, Unity toolchain pin and structured human-quality review.
 
 ## What the gates still do not automate
 
-The scripts do not pretend to inspect visual quality. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
+The scripts do not pretend to inspect visual quality themselves. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
 
-Skin QA narrows uncertainty by measuring structural weight validity and cross-region leakage risk. The deterministic sweep narrows it further by proving that the same set of stress poses was actually exercised on both builds. Neither component decides whether the deformation *looks* acceptable.
+Skin QA narrows uncertainty by measuring structural weight validity and cross-region leakage risk. The deterministic sweep narrows it further by proving that the same set of stress poses was actually exercised on both builds. `bodyrig-human-quality-v1` only records the operator's explicit judgement against a fixed checklist; it does not turn subjective visual assessment into an automated metric.
 
 A production PASS also does not claim photorealistic face identity, perfect hair/clothing reconstruction, perfect anthropometric accuracy, emotional understanding, consciousness, or legal rights/consent verification for source material.
