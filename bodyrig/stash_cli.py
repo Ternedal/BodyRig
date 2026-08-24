@@ -51,6 +51,15 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--limit", type=int, default=25)
     _add_common(search)
 
+    probe = sub.add_parser(
+        "probe",
+        help="Verify one performer resolves and has rankable local video sources without writing a source manifest",
+    )
+    probe.add_argument("--performer-id", required=True)
+    probe.add_argument("--scene-limit", type=int, default=200)
+    probe.add_argument("--max-sources", type=int, default=10)
+    _add_common(probe)
+
     select = sub.add_parser("select", help="Select ranked local video sources for one performer")
     select.add_argument("--performer-id", required=True)
     select.add_argument("--scene-limit", type=int, default=200)
@@ -83,6 +92,38 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             performers = client.search_performers(args.term, limit=args.limit)
             print(json.dumps(performers, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
+        if args.command == "probe":
+            performer = client.performer(args.performer_id)
+            scenes = client.scenes_for_performer(args.performer_id, limit=args.scene_limit)
+            selected = rank_sources(
+                scenes,
+                performer_id=args.performer_id,
+                max_sources=args.max_sources,
+                require_local=True,
+            )
+            if not selected:
+                raise StashSourceError(
+                    f"performer {args.performer_id!r} has no usable local video sources"
+                )
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "version": client.version(),
+                        "performer": {
+                            "id": str(performer.get("id") or ""),
+                            "name": str(performer.get("name") or ""),
+                            "disambiguation": str(performer.get("disambiguation") or ""),
+                        },
+                        "candidate_count": len(scenes),
+                        "usable_source_count": len(selected),
+                    },
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                )
+            )
             return 0
 
         performer = client.performer(args.performer_id)
