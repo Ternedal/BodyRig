@@ -100,6 +100,7 @@ if ([string]::IsNullOrWhiteSpace($OpenPoseExecutable)) {
     $OpenPoseExecutable = "$OpenPoseRepo/build/examples/openpose/openpose.bin"
 }
 if (-not $OpenPoseExecutable.StartsWith("/")) { throw "OpenPose executable must be an absolute Linux path." }
+$OpenPoseModels = "$OpenPoseRepo/models"
 
 $setupSith = Join-Path $repoRoot "setup-sith-wsl.ps1"
 if (-not (Test-Path -LiteralPath $setupSith -PathType Leaf)) { throw "setup-sith-wsl.ps1 not found." }
@@ -135,6 +136,13 @@ catch { throw "OpenPose executable digest returned unreadable JSON." }
 if ([string]$openPoseDigest.sha256 -notmatch '^[0-9a-f]{64}$') { throw "OpenPose executable SHA-256 is invalid." }
 if ([int64]$openPoseDigest.byte_count -lt 1) { throw "OpenPose executable byte count is invalid." }
 
+$openPoseModelsRaw = & $BodyRigPython -m bodyrig.wsl_tree_digest --distribution $Distribution --python $SithPython --path $OpenPoseModels --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) { throw "OpenPose model tree digest failed." }
+try { $openPoseModelsDigest = $openPoseModelsRaw | ConvertFrom-Json }
+catch { throw "OpenPose model tree digest returned unreadable JSON." }
+if ([string]$openPoseModelsDigest.sha256 -notmatch '^[0-9a-f]{64}$') { throw "OpenPose model tree SHA-256 is invalid." }
+if ([int64]$openPoseModelsDigest.file_count -lt 1 -or [int64]$openPoseModelsDigest.byte_count -lt 1) { throw "OpenPose model tree counts are invalid." }
+
 $digestArgs = @(
     "-m", "bodyrig.sith_model",
     "--distribution", $Distribution,
@@ -160,7 +168,7 @@ New-Item -ItemType Directory -Path $reportParent -Force | Out-Null
 $tempReport = "$ReportPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 $report = [ordered]@{
     format = "bodyrig-sith-setup"
-    version = 2
+    version = 3
     distribution = $Distribution
     sith = [ordered]@{
         repository = $SithInstallRoot
@@ -173,6 +181,9 @@ $report = [ordered]@{
         executable = $OpenPoseExecutable
         sha256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()
         byte_count = [int64]$openPoseDigest.byte_count
+        models_sha256 = ([string]$openPoseModelsDigest.sha256).ToLowerInvariant()
+        models_file_count = [int64]$openPoseModelsDigest.file_count
+        models_byte_count = [int64]$openPoseModelsDigest.byte_count
     }
     diffusion_model = [ordered]@{
         path = $DiffusionModel
@@ -194,6 +205,7 @@ $settings = [ordered]@{
     BODYRIG_SITH_OPENPOSE_REPO = $OpenPoseRepo
     BODYRIG_SITH_OPENPOSE = $OpenPoseExecutable
     BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()
+    BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$openPoseModelsDigest.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = $DiffusionModel
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$digest.sha256).ToLowerInvariant()
 }
@@ -209,6 +221,7 @@ Write-Host "BodyRig high-fidelity WSL setup: PASS"
 Write-Host "SiTH revision: $SithRevision"
 Write-Host "OpenPose revision: $OpenPoseRevision"
 Write-Host "OpenPose binary SHA-256: $([string]$openPoseDigest.sha256)"
+Write-Host "OpenPose model tree SHA-256: $([string]$openPoseModelsDigest.sha256)"
 Write-Host "Setup report: $ReportPath"
 Write-Host "Diffusion model SHA-256: $([string]$digest.sha256)"
 if ($PersistUserEnvironment) { Write-Host "BODYRIG_SITH_* settings persisted to the current Windows user." }
