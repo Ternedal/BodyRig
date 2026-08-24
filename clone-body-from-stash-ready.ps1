@@ -135,6 +135,22 @@ Invoke-SessionCommand -Arguments @(
     "--rig-setup-sha256", $rigSetupHash
 ) -Step "Physical clone session start"
 
+$startedSessionRaw = @(& $BodyRigPython -m bodyrig.physical_session validate $SessionReport)
+if ($LASTEXITCODE -ne 0 -or $startedSessionRaw.Count -ne 1) {
+    throw "New physical clone session failed immediate strict validation."
+}
+try { $startedSession = ([string]$startedSessionRaw[0]) | ConvertFrom-Json }
+catch { throw "New physical clone session validator returned unreadable JSON." }
+$sessionId = [string]$startedSession.session_id
+$parsedSessionId = [Guid]::Empty
+if (-not [Guid]::TryParse($sessionId, [ref]$parsedSessionId)) {
+    throw "New physical clone session did not contain a valid session UUID."
+}
+$sessionId = $parsedSessionId.ToString()
+if (([string]$startedSession.bodyrig_revision).ToLowerInvariant() -ne $head) {
+    throw "New physical clone session revision did not match current BodyRig HEAD."
+}
+
 $sessionStage = "initializing"
 try {
     $validatedRaw = & $BodyRigPython -m bodyrig.rig_setup $RigSetupReport
@@ -186,6 +202,8 @@ try {
         "-BodyRigPython", $BodyRigPython,
         "-ApiKeyEnv", $ApiKeyEnv,
         "-WslExe", $WslExe,
+        "-SessionId", $sessionId,
+        "-BodyRigRevision", $head,
         "-Out", $readinessReport
     )
     if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $readinessArgs += @("-StashUrl", $StashUrl) }
@@ -196,6 +214,7 @@ try {
     Write-Host "Rig setup: $RigSetupReport"
     Write-Host "Performer id: $PerformerId"
     Write-Host "Body id: $BodyId"
+    Write-Host "Session id: $sessionId"
     Write-Host "Session report: $SessionReport"
     Write-Host "Clone output: $OutputDir"
     Write-Host "Live readiness: checking recovery, SiTH/OpenPose source + binary + models, diffusion model and Stash"
@@ -206,6 +225,18 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "BodyRig live rig readiness failed with exit code $LASTEXITCODE; clone not started." }
     if (-not (Test-Path -LiteralPath $readinessReport -PathType Leaf)) {
         throw "BodyRig live rig readiness passed without writing its evidence report."
+    }
+    $readinessValidatedRaw = @(& $BodyRigPython -m bodyrig.rig_readiness $readinessReport)
+    if ($LASTEXITCODE -ne 0 -or $readinessValidatedRaw.Count -ne 1) {
+        throw "BodyRig live rig readiness evidence failed strict validation after publication."
+    }
+    try { $readinessValidated = ([string]$readinessValidatedRaw[0]) | ConvertFrom-Json }
+    catch { throw "BodyRig rig readiness validator returned unreadable JSON after publication." }
+    if ([string]$readinessValidated.session_id -ne $sessionId) {
+        throw "BodyRig rig readiness evidence is bound to a different physical session."
+    }
+    if (([string]$readinessValidated.bodyrig_revision).ToLowerInvariant() -ne $head) {
+        throw "BodyRig rig readiness evidence is bound to a different BodyRig revision."
     }
     $readinessHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $readinessReport).Hash.ToLowerInvariant()
     Invoke-SessionCommand -Arguments @(
