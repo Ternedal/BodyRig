@@ -122,6 +122,9 @@ try {
         --bodyrig-renderer-name $RendererName `
         --bodyrig-renderer-version $RendererVersion
     $playerExit = $LASTEXITCODE
+    if ($playerExit -ne 0) {
+        throw "Windows player exited with non-zero code $playerExit; staged evidence is not authoritative."
+    }
     foreach ($required in @($stagedProbe, $stagedDeformation)) {
         if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Windows player exited without producing the complete staged evidence pair (exit $playerExit): $required" }
     }
@@ -154,7 +157,7 @@ try {
 if (-not (Test-Path -LiteralPath $ProbeOutput -PathType Leaf) -or -not (Test-Path -LiteralPath $DeformationOutput -PathType Leaf)) {
     throw "Windows evidence directory commit completed without both canonical files."
 }
-Write-Host "BodyRig Windows physical evidence: PASS | revision $acceptedRevision | Unity $expectedUnityVersion"
+Write-Host "BodyRig Windows physical evidence: PASS | revision $acceptedRevision"
 Write-Host "Evidence directory:   $evidenceDir"
 Write-Host "Machine evidence:     $ProbeOutput"
 Write-Host "Deformation evidence: $DeformationOutput"
