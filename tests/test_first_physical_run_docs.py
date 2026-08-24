@@ -29,7 +29,8 @@ def test_first_physical_run_requires_fresh_stash_token_health_before_clone() -> 
     assert '$env:STASH_API_KEY = "<fresh local Stash API key>"' in text
     assert 'fresh Stash token works before search or clone' in text
     assert 'Do not continue to performer search or clone unless it succeeds with the fresh token.' in text
-    assert 'the fresh Stash token passed the checkout-bound `health` gate before source discovery/clone' in text
+    assert '`performer_read=true`' in text
+    assert 'the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true`' in text
     assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 search')
     assert text.index('.\\stash-sources.ps1 health') < text.index('.\\clone-body-from-stash-ready.ps1')
 
