@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .execution_provenance import consume_runtime_provenance
+
 FORMAT = "bodyrig-person-audition"
 VERSION = 1
 PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
@@ -125,29 +127,64 @@ def _validate(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     return result
 
 
+def _resolve_runtime_provenance(
+    *,
+    modelrig_service: str | None,
+    modelrig_version: str | None,
+    voicerig_service: str | None,
+    voicerig_version: str | None,
+) -> tuple[str, str, str, str]:
+    # Consume request-local provenance on every materialization attempt so a
+    # failed/abandoned audition can never bleed runtime identity into the next one.
+    observed = consume_runtime_provenance()
+    explicit = (modelrig_service, modelrig_version, voicerig_service, voicerig_version)
+    if any(item is not None for item in explicit):
+        if not all(item is not None for item in explicit):
+            raise PersonAuditionError("explicit audition runtime provenance is incomplete")
+        mr_service = str(modelrig_service or "").strip()
+        vr_service = str(voicerig_service or "").strip()
+        mr_version = _runtime_version(modelrig_version, field="modelrig_version")
+        vr_version = _runtime_version(voicerig_version, field="voicerig_version")
+    else:
+        mr_service = "modelrig-server"
+        vr_service = "voicerig"
+        mr_version = observed.get(mr_service, "")
+        vr_version = observed.get(vr_service, "")
+        if not mr_version or not vr_version:
+            raise PersonAuditionError("audition execution runtime provenance is incomplete")
+        mr_version = _runtime_version(mr_version, field="modelrig_version")
+        vr_version = _runtime_version(vr_version, field="voicerig_version")
+
+    if mr_service != "modelrig-server":
+        raise PersonAuditionError("modelrig_service must be modelrig-server")
+    if vr_service != "voicerig":
+        raise PersonAuditionError("voicerig_service must be voicerig")
+    return mr_service, mr_version, vr_service, vr_version
+
+
 def write_audition(
     root: str | os.PathLike[str],
     *,
     person_id: str,
     assembly_fingerprint: str,
-    modelrig_service: str,
-    modelrig_version: str,
     model: str,
-    voicerig_service: str,
-    voicerig_version: str,
     prompt: str,
     reply: str,
     audio: bytes,
+    modelrig_service: str | None = None,
+    modelrig_version: str | None = None,
+    voicerig_service: str | None = None,
+    voicerig_version: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(assembly_fingerprint, str) or not SHA256_RE.fullmatch(assembly_fingerprint):
         raise PersonAuditionError("assembly_fingerprint is invalid")
-    if str(modelrig_service or "").strip() != "modelrig-server":
-        raise PersonAuditionError("modelrig_service must be modelrig-server")
-    modelrig_version = _runtime_version(modelrig_version, field="modelrig_version")
+    mr_service, mr_version, vr_service, vr_version = _resolve_runtime_provenance(
+        modelrig_service=modelrig_service,
+        modelrig_version=modelrig_version,
+        voicerig_service=voicerig_service,
+        voicerig_version=voicerig_version,
+    )
     model = str(model or "").strip()
-    if str(voicerig_service or "").strip() != "voicerig":
-        raise PersonAuditionError("voicerig_service must be voicerig")
-    voicerig_version = _runtime_version(voicerig_version, field="voicerig_version")
     prompt = str(prompt or "").strip()
     reply = str(reply or "").strip()
     if not model or len(model) > 256 or any(ord(ch) < 32 for ch in model):
@@ -167,11 +204,11 @@ def write_audition(
         "person_id": person_id,
         "created_utc": _now(),
         "assembly_fingerprint": assembly_fingerprint,
-        "modelrig_service": "modelrig-server",
-        "modelrig_version": modelrig_version,
+        "modelrig_service": mr_service,
+        "modelrig_version": mr_version,
         "model": model,
-        "voicerig_service": "voicerig",
-        "voicerig_version": voicerig_version,
+        "voicerig_service": vr_service,
+        "voicerig_version": vr_version,
         "prompt_sha256": _sha256_text(prompt),
         "reply_sha256": _sha256_text(reply),
         "audio_sha256": _sha256_bytes(audio),
