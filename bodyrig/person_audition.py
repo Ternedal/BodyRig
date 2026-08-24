@@ -58,6 +58,15 @@ def audio_path(root: str | os.PathLike[str], person_id: str, audition_id: str) -
     return _root(root, person_id) / f"{audition_id}.wav"
 
 
+def _runtime_version(value: Any, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise PersonAuditionError(f"{field} is invalid")
+    text = value.strip()
+    if not text or len(text) > 160 or any(ord(ch) < 32 for ch in text):
+        raise PersonAuditionError(f"{field} is invalid")
+    return text
+
+
 def _validate(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     expected = {
         "format",
@@ -66,7 +75,11 @@ def _validate(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "person_id",
         "created_utc",
         "assembly_fingerprint",
+        "modelrig_service",
+        "modelrig_version",
         "model",
+        "voicerig_service",
+        "voicerig_version",
         "prompt_sha256",
         "reply_sha256",
         "audio_sha256",
@@ -91,16 +104,25 @@ def _validate(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         raise PersonAuditionError("created_utc is invalid") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise PersonAuditionError("created_utc must include timezone")
+    if value.get("modelrig_service") != "modelrig-server":
+        raise PersonAuditionError("modelrig_service must be modelrig-server")
+    modelrig_version = _runtime_version(value.get("modelrig_version"), field="modelrig_version")
     model = value.get("model")
     if not isinstance(model, str) or not model.strip() or len(model) > 256 or any(ord(ch) < 32 for ch in model):
         raise PersonAuditionError("model is invalid")
+    if value.get("voicerig_service") != "voicerig":
+        raise PersonAuditionError("voicerig_service must be voicerig")
+    voicerig_version = _runtime_version(value.get("voicerig_version"), field="voicerig_version")
     for field in ("assembly_fingerprint", "prompt_sha256", "reply_sha256", "audio_sha256"):
         item = value.get(field)
         if not isinstance(item, str) or not SHA256_RE.fullmatch(item):
             raise PersonAuditionError(f"{field} must be lowercase SHA-256")
     if value.get("complete") is not True:
         raise PersonAuditionError("audition receipt must be complete")
-    return dict(value)
+    result = dict(value)
+    result["modelrig_version"] = modelrig_version
+    result["voicerig_version"] = voicerig_version
+    return result
 
 
 def write_audition(
@@ -108,14 +130,24 @@ def write_audition(
     *,
     person_id: str,
     assembly_fingerprint: str,
+    modelrig_service: str,
+    modelrig_version: str,
     model: str,
+    voicerig_service: str,
+    voicerig_version: str,
     prompt: str,
     reply: str,
     audio: bytes,
 ) -> dict[str, Any]:
     if not isinstance(assembly_fingerprint, str) or not SHA256_RE.fullmatch(assembly_fingerprint):
         raise PersonAuditionError("assembly_fingerprint is invalid")
+    if str(modelrig_service or "").strip() != "modelrig-server":
+        raise PersonAuditionError("modelrig_service must be modelrig-server")
+    modelrig_version = _runtime_version(modelrig_version, field="modelrig_version")
     model = str(model or "").strip()
+    if str(voicerig_service or "").strip() != "voicerig":
+        raise PersonAuditionError("voicerig_service must be voicerig")
+    voicerig_version = _runtime_version(voicerig_version, field="voicerig_version")
     prompt = str(prompt or "").strip()
     reply = str(reply or "").strip()
     if not model or len(model) > 256 or any(ord(ch) < 32 for ch in model):
@@ -135,7 +167,11 @@ def write_audition(
         "person_id": person_id,
         "created_utc": _now(),
         "assembly_fingerprint": assembly_fingerprint,
+        "modelrig_service": "modelrig-server",
+        "modelrig_version": modelrig_version,
         "model": model,
+        "voicerig_service": "voicerig",
+        "voicerig_version": voicerig_version,
         "prompt_sha256": _sha256_text(prompt),
         "reply_sha256": _sha256_text(reply),
         "audio_sha256": _sha256_bytes(audio),
