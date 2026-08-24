@@ -278,15 +278,14 @@ class UiJobManager:
                 package_path=str(installed),
                 preview_path=None,
                 feedback="Source-derived Stash/SiTH build via BodyRig UI",
-                activate=True,
             )
-            job["body_revision"] = updated["active"]["body_revision"]
+            job["body_revision"] = updated["body_revisions"][-1]["revision_id"]
             job["canonical_body_id"] = body_id
             job["status"] = "succeeded"
             job["completed_utc"] = _now()
             job["pid"] = None
             _write_job(job)
-        except Exception as exc:  # job boundary: persist failure for UI rather than lose it with thread
+        except Exception as exc:
             job = self.get(job_id)
             if job.get("status") != "canceled":
                 job["status"] = "failed"
