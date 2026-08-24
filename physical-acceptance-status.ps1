@@ -26,7 +26,7 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 if (-not (Test-Path -LiteralPath $BodyRigPython -PathType Leaf)) { throw "BodyRig Python not found: $BodyRigPython" }
 $BodyRigPython = (Resolve-Path -LiteralPath $BodyRigPython).Path
 
-$argsList = @("-m", "bodyrig.acceptance_status")
+$argsList = @("-m", "bodyrig.acceptance_status_cli")
 if (-not [string]::IsNullOrWhiteSpace($SessionReport)) {
     if (-not (Test-Path -LiteralPath $SessionReport -PathType Leaf)) { throw "Physical clone session report not found: $SessionReport" }
     $argsList += @("--session-report", (Resolve-Path -LiteralPath $SessionReport).Path)
