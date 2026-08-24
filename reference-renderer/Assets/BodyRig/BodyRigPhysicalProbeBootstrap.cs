@@ -14,6 +14,7 @@ namespace BodyRig.ReferenceRenderer
     {
         private const string RuntimeManifestArg = "--bodyrig-runtime-manifest";
         private const string ProbeOutputArg = "--bodyrig-probe-output";
+        private const string DeformationOutputArg = "--bodyrig-deformation-output";
         private const string RendererNameArg = "--bodyrig-renderer-name";
         private const string RendererVersionArg = "--bodyrig-renderer-version";
         private const string QuitAfterProbeArg = "--bodyrig-quit-after-probe";
@@ -52,6 +53,7 @@ namespace BodyRig.ReferenceRenderer
             var defaultRoot = Path.Combine(Application.persistentDataPath, "BodyRig");
             var manifestPath = GetArgument(RuntimeManifestArg) ?? Path.Combine(defaultRoot, "runtime", "runtime-manifest.json");
             var probePath = GetArgument(ProbeOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-renderer-probe.json");
+            var deformationPath = GetArgument(DeformationOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-deformation-probe.json");
             var rendererName = GetArgument(RendererNameArg) ?? "BodyRig Reference Renderer";
             var rendererVersion = GetArgument(RendererVersionArg) ?? "reference-v1/univrm-0.131.2";
 
@@ -62,9 +64,34 @@ namespace BodyRig.ReferenceRenderer
 
             await probe.RunProbeAsync(manifestPath, probePath);
             FrameActiveAvatar(loader);
-            _status = "BodyRig physical probe: PASS\n" + probe.LastProbePath + "\nVisual quality still requires human acceptance.";
 
-            if (HasFlag(QuitAfterProbeArg)) Application.Quit(0);
+            var sweep = gameObject.AddComponent<BodyRigDeformationSweep>();
+            sweep.Configure(loader);
+            _status = "Renderer machine probe: PASS\nStarting fixed deformation sweep...";
+            await sweep.RunSweepAsync(deformationPath, UpdateSweepStatus);
+
+            _status = "BodyRig physical evidence: PASS\n" +
+                      probe.LastProbePath + "\n" + sweep.LastReportPath +
+                      "\nHuman visual deformation acceptance is still required.";
+
+            if (HasFlag(QuitAfterProbeArg))
+            {
+                Application.Quit(0);
+                return;
+            }
+
+            sweep.BeginReviewLoop(UpdateReviewStatus);
+        }
+
+        private void UpdateSweepStatus(string message)
+        {
+            _status = "Renderer machine probe: PASS\n" + message + "\nWatch shoulders, elbows, wrists, hips and knees.";
+        }
+
+        private void UpdateReviewStatus(string message)
+        {
+            _status = "BodyRig physical evidence: PASS\n" + message +
+                      "\nInspect cross-limb leakage, collapse, clipping and unnatural folds.\nClose player when visual review is complete.";
         }
 
         private static void CreateVisualRig()
@@ -111,7 +138,7 @@ namespace BodyRig.ReferenceRenderer
 
         private void OnGUI()
         {
-            var width = Mathf.Min(Screen.width - 24f, 760f);
+            var width = Mathf.Min(Screen.width - 24f, 820f);
             var style = new GUIStyle(GUI.skin.box)
             {
                 alignment = TextAnchor.UpperLeft,
@@ -119,7 +146,7 @@ namespace BodyRig.ReferenceRenderer
                 wordWrap = true,
                 normal = { textColor = _failed ? new Color(1f, 0.55f, 0.55f) : Color.white },
             };
-            GUI.Box(new Rect(12f, 12f, width, 110f), _status, style);
+            GUI.Box(new Rect(12f, 12f, width, 150f), _status, style);
         }
 
         private static string GetArgument(string name)
