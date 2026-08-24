@@ -364,7 +364,11 @@ class UiJobManager:
                 current = self.get(job_id)
                 if current.get("status") != "running":
                     return
-                installed = install_package(package_path, body_library())
+                installed = install_package(
+                    package_path,
+                    body_library(),
+                    expected_sha256=expected_hash,
+                )
                 feedback_note = str(current.get("body_feedback") or "").strip()
                 if not feedback_note:
                     feedback_note = "Source-derived Stash/SiTH build via BodyRig UI"
