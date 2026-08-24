@@ -1,191 +1,147 @@
 # BodyRig rig acceptance
 
-BodyRig separates **automated physical recovery acceptance**, **platform renderer acceptance**, and **final release acceptance** so CI, a successful ML run, or a single operator switch cannot silently declare the product ready.
+BodyRig production acceptance is a byte-bound chain from one real Stash/SiTH clone to the same materialized runtime on WindowsPlayer and Quest-class Android.
 
-## Gate A — automated target-rig acceptance
+CI proves software and tamper boundaries. It never substitutes for the physical clone or the human visual-quality observations.
 
-Run on the target machine with real, user-supplied full-body video. The canonical managed path is `run-physical-gate.ps1`; the lower-level command below is for diagnostics or a non-standard recovery root:
+## Gate 0 — real high-fidelity physical clone
+
+Run the canonical launcher on the target rig with a clean BodyRig checkout:
 
 ```powershell
-.\validate-rig.ps1 `
-  -Source "C:\video\person-1.mp4","C:\video\person-2.mp4" `
-  -ExternalPython "C:\Users\you\AppData\Local\BodyRig\recovery\conda-env\python.exe" `
-  -FourDHumansRepo "C:\Users\you\AppData\Local\BodyRig\recovery\4D-Humans" `
-  -PhalpRepo "C:\Users\you\AppData\Local\BodyRig\recovery\PHALP" `
-  -BodyId "person-a" `
-  -Name "Person A"
+.\clone-body-from-stash-ready.ps1 `
+  -PerformerId 123 `
+  -BodyId "performer-123"
 ```
 
-The recovery preflight requires both 4D-Humans and PHALP to be on BodyRig's exact pinned revisions with clean tracked files. It also requires the external recovery Python to import `phalp` from that exact PHALP checkout, rather than from another installed copy.
+The launcher:
 
-The harness creates one write-once artifact directory containing:
+1. binds the session to exact BodyRig Git HEAD and clean/dirty state;
+2. validates the pinned target-rig setup;
+3. runs live readiness for recovery, SiTH/OpenPose, diffusion model and Stash;
+4. hashes that readiness report into the physical-clone session;
+5. runs the existing Stash source-selection/recovery/identity/SiTH pipeline;
+6. refuses PASS if Git HEAD changed while the long clone was running.
+
+Default physical clone artifacts live outside the checkout under `%LOCALAPPDATA%\BodyRig\physical-clones`. Session/readiness evidence lives under `%LOCALAPPDATA%\BodyRig\physical-clone-sessions`. This prevents the operator path itself from making the repository dirty.
+
+A successful clone session is still **not Gate A acceptance**. It only proves that the canonical physical clone reached a source-derived output.
+
+## Gate A — promote the exact high-fidelity clone
+
+Use the PASS session report from Gate 0:
+
+```powershell
+.\accept-physical-clone.ps1 `
+  -SessionReport "C:\Users\you\AppData\Local\BodyRig\physical-clone-sessions\performer-123-....json"
+```
+
+`accept-physical-clone.ps1` does not fit or rebuild an avatar. It promotes the existing clone bytes into the renderer acceptance chain.
+
+It independently requires:
+
+- current clean BodyRig HEAD equals the clone-session revision;
+- session is strict `pass/complete` and started from a clean checkout;
+- the immutable readiness report still hashes to the session binding;
+- readiness and session agree on the master rig-setup SHA-256;
+- recovery preflight reported success;
+- package BodyPrint, source count and recovery provenance match the recovery proof;
+- package visual-identity provenance matches the visual-identity profile;
+- exactly one `visual-identity-capture` stage exists;
+- avatar fitting is exactly built-in `sith-smplx-vrm` revision `1`;
+- the accepted avatar is VRM 1.0 and is **not** a placeholder;
+- source-derived shape/motion evidence exists;
+- the runtime is materialized from the exact accepted `.mrbody` package.
+
+The resulting write-once acceptance directory contains at least:
 
 ```text
-bodyrig-recovery-preflight.json
-bodyrig-recovery-proof.json
-person-a.mrbody
+bodyrig-acceptance.json
+bodyrig-physical-clone-session.json
+bodyrig-rig-readiness.json
+<BodyId>.mrbody
 runtime/
   runtime-manifest.json
   avatar.vrm
   bodyprint.json
   provenance.json
   thumbnail.png
-  ... optional validated motions
-bodyrig-acceptance.json
 ```
 
-The runtime directory is materialized from the already validated `.mrbody`; the renderer is never expected to choose or extract a loose VRM itself.
+The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity` and hashes of the copied clone-session and readiness evidence. It records `placeholder_avatar=false`, `automated_pass=true`, `physical_renderer_acceptance=pending`, and `production_activation=false`.
 
-The final automated report is bound to:
+### Legacy recovery Gate A
 
-- exact BodyRig Git revision;
-- clean/dirty state;
-- recovery adapter + revision;
-- selected track and observed-frame count;
-- package SHA-256;
-- proof/package BodyPrint identity;
-- recovery and avatar-fitting provenance;
-- VRM 1.0 validation result;
-- exact materialized `runtime/runtime-manifest.json` SHA-256.
-
-The report stores the source count but not source filenames. Gate A refuses to reuse a non-empty output directory so previous evidence cannot silently be overwritten.
-
-### Automated PASS is deliberately incomplete
-
-A valid Gate A report always leaves:
-
-```json
-{
-  "automated_pass": true,
-  "physical_renderer_acceptance": "pending",
-  "production_activation": false
-}
-```
-
-That is intentional. A generated package has not yet proved that Unity/UniVRM can load and render it correctly on the supported clients.
+`run-physical-gate.ps1` / `validate-rig.ps1` remain useful for lower-level recovery and procedural-avatar diagnostics. They are no longer sufficient to enter renderer/release production acceptance. A procedural placeholder can therefore prove recovery mechanics without ever becoming `production_activation=true`.
 
 ## Gate B — physical renderer evidence
 
-Use the **same `runtime/runtime-manifest.json` from Gate A** on both supported platforms. The reference renderer enters through that manifest rather than a loose `avatar.vrm` path.
+Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
 
-Each built renderer first writes its own `bodyrig-renderer-probe` machine evidence for the exact runtime bytes it loaded. Only after that probe is valid does the operator record the separate visual-quality attestation. The operator script therefore requires `-ProbeReport`; a human PASS without matching machine evidence is invalid.
+Before accepting a human quality attestation, `record-renderer-acceptance.ps1` independently revalidates the lineage:
+
+- high-fidelity Gate A mode and `placeholder_avatar=false`;
+- clone-session/readiness evidence hashes;
+- exact clean BodyRig revision;
+- accepted `.mrbody` package hash;
+- package provenance contains one visual-identity stage and built-in `sith-smplx-vrm` v1 fitting;
+- runtime manifest hash and materialized avatar/bodyprint hashes;
+- machine probe byte identity;
+- actual `WindowsPlayer` for Windows;
+- actual Android + Quest/Oculus-identifying device model for Quest-class acceptance.
 
 ### Windows acceptance
 
-Required checks:
-
-- load Gate A's `runtime-manifest.json` through the BodyRig Unity/UniVRM reference path;
-- the manifest-selected `avatar.vrm` imports successfully with VRM0 migration disabled;
-- Unity reports a valid Humanoid avatar;
-- required humanoid bones are present;
-- the machine probe comes from `WindowsPlayer`, not Unity Editor;
-- source-derived proportions are visibly plausible;
-- BodyRig Motor State can drive at least the reference shrug/head/gaze path without corruption.
-
-After the built WindowsPlayer has written `windows-probe.json` and those checks pass, record the evidence:
+After the built WindowsPlayer writes its machine probe and the avatar visibly passes the required quality checks:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
+  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
+  -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
   -ProbeReport "C:\path\to\windows-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version>" `
-  -QualityNote "Avatar loaded as Humanoid; proportions and reference Motor State looked correct" `
-  -Output "C:\path\to\bodyrig-renderer-acceptance-windows.json"
+  -QualityNote "Source-derived identity/proportions and reference motion looked correct"
 ```
 
-### Android / Quest-class acceptance
+The first high-fidelity physical clone must specifically be inspected for cross-limb skin-weight leakage around arm/torso, legs and hands. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
-Required checks:
+### Quest-class acceptance
 
-- load the same Gate A runtime manifest and materialized avatar in an Android/Quest-class build;
-- the machine probe reports Unity platform `Android` and a Quest/Oculus-identifying device model;
-- avatar appears with the same identity/proportions contract;
-- no build-time HMR2/PHALP/SMPL dependency is required;
-- Motor State can be consumed without platform-specific changes to the semantic contract.
-
-After the Quest build has written `quest-probe.json` and those checks pass:
+After the same runtime is loaded by the Quest-class Android build and its machine probe is written:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\path\to\runtime\runtime-manifest.json" `
+  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
+  -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
   -ProbeReport "C:\path\to\quest-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
-  -QualityNote "Same accepted runtime loaded on Quest-class runtime and reference Motor State executed correctly" `
-  -Output "C:\path\to\bodyrig-renderer-acceptance-quest.json"
+  -QualityNote "Same source-derived accepted runtime rendered correctly on Quest-class hardware"
 ```
 
-Before writing either renderer attestation, `record-renderer-acceptance.ps1` independently:
-
-- re-hashes Gate A's automated acceptance report;
-- re-hashes the accepted `.mrbody`;
-- requires the exact Gate A runtime-manifest hash;
-- opens `.mrbody/checksums.json` without extracting the archive;
-- hashes materialized `avatar.vrm` and `bodyprint.json`;
-- requires those materialized bytes to match the package payload checksums;
-- validates the machine-probe format/platform and its VRM/Humanoid/bone success flags;
-- requires machine-probe package/runtime/avatar/bodyprint hashes to match the accepted bytes;
-- requires the machine-probe renderer name/version to equal the operator-supplied renderer identity;
-- rejects WindowsEditor evidence for Windows and generic Android-phone evidence for Quest-class acceptance.
-
-Each renderer-attestation is therefore bound to:
-
-- exact BodyRig Git revision;
-- exact Gate A report SHA-256;
-- exact renderer machine-probe SHA-256;
-- exact accepted `.mrbody` SHA-256;
-- exact runtime-manifest SHA-256;
-- exact `avatar.vrm` SHA-256;
-- exact `bodyprint.json` SHA-256;
-- exact body id;
-- one explicit platform;
-- renderer name/version;
-- a non-empty operator quality observation.
-
-A renderer-attestation always contains `production_activation=false`. One platform can never activate production by itself.
+Each renderer report remains non-activating: `production_activation=false`.
 
 ## Gate C — final release acceptance
 
-Only after both Gate B operator reports and the exact machine probes they attest to exist:
+Only after both machine probes and both operator attestations exist:
 
 ```powershell
 .\complete-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\bodyrig-acceptance.json" `
+  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
   -WindowsRendererReport "C:\path\to\bodyrig-renderer-acceptance-windows.json" `
   -WindowsProbeReport "C:\path\to\windows-probe.json" `
   -QuestRendererReport "C:\path\to\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\path\to\quest-probe.json" `
-  -Output "C:\path\to\bodyrig-release-acceptance.json"
+  -QuestProbeReport "C:\path\to\quest-probe.json"
 ```
 
-## Final integrity rules
+The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, WindowsPlayer evidence, Quest device evidence, and all cross-file hash bindings.
 
-`complete-acceptance.ps1` independently opens the accepted package checksums again and refuses to complete if:
-
-- Gate A did not report `automated_pass=true`;
-- any required Gate A check, including runtime materialization, is missing or false;
-- Gate A is not still `physical_renderer_acceptance=pending`;
-- the current BodyRig Git revision differs from Gate A;
-- the BodyRig checkout is dirty;
-- the accepted `.mrbody` is missing or its SHA-256 differs;
-- Gate A's runtime-manifest hash is missing/invalid;
-- either renderer evidence file or corresponding machine probe is missing;
-- Windows and Quest evidence are not two distinct files with the correct platform ids;
-- either renderer report references a different Gate A hash, machine-probe hash, package hash, runtime-manifest hash, body id, or Git revision;
-- either renderer report's avatar/bodyprint hashes differ from the accepted package payload checksums;
-- either machine probe no longer matches the hash recorded by its operator attestation;
-- either renderer report is not an explicit non-activating PASS;
-- renderer name/version/quality evidence is blank;
-- any input evidence file would be overwritten.
-
-The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accepted package, the materialized runtime payloads, both machine probes and both renderer evidence files. Only this Gate C artifact sets:
+Only the final `bodyrig-release-acceptance` artifact can contain:
 
 ```json
 {
@@ -194,20 +150,10 @@ The final `bodyrig-release-acceptance.json` records hashes of Gate A, the accept
 }
 ```
 
-The scripts do **not** inspect the operator's eyes or pretend visual quality can be established by CI. The physical observations remain human attestations, but they are separately recorded and cryptographically bound to the exact machine probe, package/runtime/revision they describe.
+Its automated-acceptance summary also records the physical clone mode and the clone-session/readiness SHA-256 values, so the final release artifact remains traceable back to the physical clone that produced the accepted body.
 
-## CI evidence
+## What the gates still do not automate
 
-CI covers exact-head checkout, Python 3.11/3.12, JSON contracts, PowerShell parsing, the managed Gate A trust boundary, the complete non-physical evidence chain, and negative tamper cases. This CI proof is deliberately **not** the physical renderer proof.
+The scripts do not pretend to inspect visual quality. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
 
-## What is not proven by V1 acceptance
-
-A V1 PASS does not claim:
-
-- photorealistic face identity;
-- high-fidelity hair/clothing reconstruction;
-- perfect anthropometric accuracy;
-- emotional understanding or consciousness;
-- legal rights/consent verification for the source person.
-
-The current `procedural-vrm1` fitter is explicitly marked as a placeholder visual identity. V1 acceptance proves the source-derived body/motion pipeline and portable embodiment contract, not a final photorealistic digital human.
+A production PASS also does not claim photorealistic face identity, perfect hair/clothing reconstruction, perfect anthropometric accuracy, emotional understanding, consciousness, or legal rights/consent verification for source material.
