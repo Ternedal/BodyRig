@@ -38,6 +38,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Use local Stash performers/scenes as BodyRig clone sources.")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    health = sub.add_parser("health", help="Probe Stash GraphQL without selecting or reading media")
+    _add_common(health)
+
     search = sub.add_parser("search", help="Search Stash performers")
     search.add_argument("term")
     search.add_argument("--limit", type=int, default=25)
@@ -58,6 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         client = StashClient(_config(args))
+        if args.command == "health":
+            print(json.dumps({"ok": True, "version": client.version()}, separators=(",", ":"), ensure_ascii=False))
+            return 0
         if args.command == "search":
             performers = client.search_performers(args.term, limit=args.limit)
             print(json.dumps(performers, ensure_ascii=False, indent=2, allow_nan=False))
