@@ -55,6 +55,8 @@ It independently requires:
 - anatomical skin QA is run on the exact package/avatar bytes;
 - the runtime is materialized from the exact accepted `.mrbody` package.
 
+Gate A also binds the Python implementation to that same checkout. The selected `BodyRigPython` interpreter may live elsewhere, but `import bodyrig` must resolve `bodyrig.__file__` to exactly `<checkout>\bodyrig\__init__.py`. A globally installed BodyRig wheel or a different checkout is rejected before session validation and before the acceptance output directory is created.
+
 The resulting write-once acceptance directory contains at least:
 
 ```text
