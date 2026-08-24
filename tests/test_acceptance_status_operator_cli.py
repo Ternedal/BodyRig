@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
 from bodyrig.acceptance_status import AcceptanceStatus
 from bodyrig.acceptance_status_cli import _operator_command
-from bodyrig.reference_acceptance_policy import apply_reference_policy
+from bodyrig.reference_acceptance_policy import _load_contract, apply_reference_policy
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -20,6 +21,36 @@ def _status(gate: str) -> AcceptanceStatus:
         bodyrig_revision="a" * 40,
         message="review required",
         next_command="unsafe legacy command",
+    )
+
+
+def _write_reference_pair(directory: Path, *, renderer_version: str | None = None, unity_version: str | None = None, sequence: str | None = None) -> None:
+    contract = _load_contract()
+    assert contract is not None
+    evidence = directory / "windows-evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "windows-probe.json").write_text(
+        json.dumps(
+            {
+                "active_renderer": {
+                    "name": contract["renderer_name"],
+                    "version": renderer_version or contract["renderer_version"],
+                },
+                "unity_version": unity_version or contract["unity_editor_version"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (evidence / "windows-deformation-probe.json").write_text(
+        json.dumps(
+            {
+                "unity_version": unity_version or contract["unity_editor_version"],
+                "sequence_revision": sequence or contract["deformation_sequence_revision"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
 
@@ -70,9 +101,46 @@ def test_non_attestation_status_command_is_unchanged() -> None:
     assert _operator_command(original) == original
 
 
-def test_reference_policy_leaves_transactional_layout_unchanged(tmp_path: Path) -> None:
-    status = replace(_status("quest-probe"), acceptance_dir=str(tmp_path), state="ready")
+def test_reference_policy_leaves_empty_transactional_layout_unchanged(tmp_path: Path) -> None:
+    status = replace(_status("windows-probe"), acceptance_dir=str(tmp_path), state="ready")
     assert apply_reference_policy(status) == status
+
+
+def test_reference_policy_accepts_contract_matching_transactional_evidence(tmp_path: Path) -> None:
+    _write_reference_pair(tmp_path)
+    status = replace(_status("windows-attestation"), acceptance_dir=str(tmp_path))
+    assert apply_reference_policy(status) == status
+
+
+def test_reference_policy_blocks_wrong_renderer_version_before_human_review(tmp_path: Path) -> None:
+    _write_reference_pair(tmp_path, renderer_version="wrong-renderer")
+    status = replace(_status("windows-attestation"), acceptance_dir=str(tmp_path))
+
+    blocked = apply_reference_policy(status)
+    assert blocked.state == "blocked"
+    assert blocked.gate == "reference-contract"
+    assert blocked.next_command is None
+    assert "renderer version" in blocked.message
+
+
+def test_reference_policy_blocks_wrong_unity_before_human_review(tmp_path: Path) -> None:
+    _write_reference_pair(tmp_path, unity_version="6000.3.99f1")
+    status = replace(_status("windows-attestation"), acceptance_dir=str(tmp_path))
+
+    blocked = apply_reference_policy(status)
+    assert blocked.state == "blocked"
+    assert blocked.gate == "reference-contract"
+    assert "Unity version" in blocked.message
+
+
+def test_reference_policy_blocks_wrong_deformation_sequence_before_human_review(tmp_path: Path) -> None:
+    _write_reference_pair(tmp_path, sequence="different-sequence")
+    status = replace(_status("windows-attestation"), acceptance_dir=str(tmp_path))
+
+    blocked = apply_reference_policy(status)
+    assert blocked.state == "blocked"
+    assert blocked.gate == "reference-contract"
+    assert "deformation sequence" in blocked.message
 
 
 def test_reference_policy_blocks_unfinished_legacy_root_evidence(tmp_path: Path) -> None:
