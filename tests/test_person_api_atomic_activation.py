@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import bodyrig.app as app_module
+from bodyrig.execution_provenance import record_runtime
 from bodyrig.person_assembly import read_receipt
 from bodyrig.person_profiles import add_body_revision, load_profile
 
@@ -16,6 +17,7 @@ class _FakeVoiceRig:
         self.package_raw = VOICE_BYTES
 
     def health(self):
+        record_runtime("voicerig", "test")
         return {"ok": True, "service": "voicerig", "version": "test"}
 
     def voices(self):
@@ -32,11 +34,13 @@ class _FakeVoiceRig:
     def synthesize(self, package: str, text: str) -> bytes:
         assert package == "anna.mrvoice"
         assert text
+        self.health()
         return b"RIFF" + b"\x00" * 64
 
 
 class _FakeModelRig:
     def health(self):
+        record_runtime("modelrig-server", "test")
         return {"status": "ok", "service": "modelrig-server", "version": "test"}
 
     def models(self):
