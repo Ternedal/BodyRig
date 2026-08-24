@@ -4,10 +4,24 @@
   "title": "BodyRig live rig readiness report v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "version", "rig_setup_report", "rig_setup_sha256", "checks", "environment", "ready"],
+  "required": [
+    "format",
+    "version",
+    "session_id",
+    "bodyrig_revision",
+    "observed_utc",
+    "rig_setup_report",
+    "rig_setup_sha256",
+    "checks",
+    "environment",
+    "ready"
+  ],
   "properties": {
     "format": {"const": "bodyrig-rig-readiness"},
     "version": {"const": 1},
+    "session_id": {"type": "string", "format": "uuid"},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "observed_utc": {"type": "string", "format": "date-time", "maxLength": 80},
     "rig_setup_report": {"type": "string", "minLength": 1, "maxLength": 4000},
     "rig_setup_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "checks": {
