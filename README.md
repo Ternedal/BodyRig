@@ -158,6 +158,8 @@ Reference-rendereren kører efter normal VRM/Humanoid-validering en fast `humano
 
 Sweepet bruger Unity Humanoid-muscles via `HumanPoseHandler`, skriver create-only `bodyrig-deformation-probe` v1 og fortsætter derefter samme sekvens i loop, så operatøren kan inspicere skulder, albue, håndled, hofte, knæ og cross-limb deformation. Evidence beviser kun, at de faste poser faktisk blev anvendt på den konkrete build/runtime; **det graderer ikke visuelt resultatet**.
 
+Et human PASS kræver derfor eksplicit `-ConfirmQualityChecklist`. Switchen attesterer `bodyrig-human-quality-v1`: hele deformation-sweepet er gennemgået, source identity/texture og geometri/proportioner er acceptable, upper- og lower-body deformation er acceptable, der er ingen synlig cross-limb leakage, og Gate A's automatiske skin-QA er blevet taget med i vurderingen. `QualityNote` er stadig fri tekst til konkrete observationer; den erstatter ikke checklisten.
+
 ### WindowsPlayer
 
 Canonical Windows-kørslen bruger samme contract-bound transaction-lag som Quest:
@@ -175,6 +177,7 @@ Efter fysisk visuel review:
 .\record-reference-renderer-acceptance.ps1 `
   -AcceptanceDir "C:\acceptance" `
   -Platform "windows-unity-univrm" `
+  -ConfirmQualityChecklist `
   -QualityNote "Fixed deformation sweep reviewed: identity, proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
 
@@ -195,10 +198,11 @@ Efter samme sweep er gennemgået i headsettet:
 .\record-reference-renderer-acceptance.ps1 `
   -AcceptanceDir "C:\acceptance" `
   -Platform "android-quest-class" `
+  -ConfirmQualityChecklist `
   -QualityNote "Same fixed deformation sweep and accepted high-fidelity runtime reviewed on Quest-class hardware"
 ```
 
-`record-reference-renderer-acceptance.ps1` afleder renderer-navn/version og exact Unity-version fra `renderer-contract.json`, kræver at machine/deformation evidence matcher kontrakten og kalder derefter den eksisterende hårde `record-renderer-acceptance.ps1`. Human `QualityNote` forbliver direkte hash-bundet til det konkrete deformation-run.
+`record-reference-renderer-acceptance.ps1` afleder renderer-navn/version og exact Unity-version fra `renderer-contract.json`, kræver at machine/deformation evidence matcher kontrakten og kalder derefter den eksisterende hårde `record-renderer-acceptance.ps1`. Human `QualityNote` og den strukturerede `quality_review` bliver begge en del af den create-only attestation, som er hash-bundet ind i release-kæden.
 
 Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultatet med den faste fysiske sweep ved arm/torso, ben, hænder, skuldre, albuer og knæ. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
 
@@ -211,7 +215,7 @@ Når begge platformers canonical machine/deformation-par og reference-attesterin
   -AcceptanceDir "C:\acceptance"
 ```
 
-Wrapperen kræver canonical `windows-evidence/` og `quest-evidence/`, genverificerer renderer name/version, exact Unity `6000.3.13f1` samt `humanoid-muscle-sweep-v1` på begge platformes probe/deformation/attestation og kalder derefter den generiske `complete-acceptance.ps1`, som fortsat ejer den fulde byte-, hash-, provenance-, platform-, device- og revision-binding.
+Wrapperen kræver canonical `windows-evidence/` og `quest-evidence/`, genverificerer renderer name/version, exact Unity `6000.3.13f1`, `humanoid-muscle-sweep-v1` samt `bodyrig-human-quality-v1` på begge platformes attestationer og kalder derefter den generiske `complete-acceptance.ps1`. Core-gaten genvaliderer selv den strukturerede human-QA igen sammen med den fulde byte-, hash-, provenance-, platform-, device- og revision-binding.
 
 Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
@@ -241,7 +245,7 @@ Stash/video --> pinned recovery + PHALP --> canonical tracks/BodyPrint
             --> visual identity --> pinned SiTH/SMPL-X --> VRM 1.0
             --> .mrbody --> anatomical skin QA --> validated runtime materialization
             --> exact-revision renderer build --> deterministic Humanoid deformation sweep
-            --> atomic Windows/Quest evidence pairs --> contract-bound human review
+            --> atomic Windows/Quest evidence pairs --> contract-bound structured human review
             --> reference release policy --> byte/build/revision-bound production acceptance
 ```
 
