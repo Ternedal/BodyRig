@@ -37,6 +37,19 @@ def test_high_fidelity_gate_a_refuses_placeholder_or_non_sith_fit():
     assert "visual_identity_provenance_matches" in text
 
 
+def test_high_fidelity_gate_a_runs_and_binds_anatomical_skin_qa():
+    text = _script()
+    qa = text.index("-m bodyrig.skin_qa $packagePath --out $skinQaPath")
+    materialize = text.index("-m bodyrig.materialize_cli $packagePath --out $runtimeDir")
+    report = text.index('skin_qa = [ordered]@{')
+    assert qa < materialize < report
+    assert 'report_sha256 = $skinQaFile.Hash' in text
+    assert 'structural_pass = $true' in text
+    assert 'automated_assessment = $skinAssessment' in text
+    assert 'manual_review_required = $true' in text
+    assert "Anatomical skin QA is not bound to the accepted package." in text
+
+
 def test_high_fidelity_gate_a_materializes_renderer_runtime_from_accepted_package():
     text = _script()
     copy_package = text.index("Copy-Exact $packageSource $packagePath")
