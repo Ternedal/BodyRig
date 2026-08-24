@@ -4,6 +4,8 @@ param(
     [string]$StashUrl = "",
     [string]$ApiKeyEnv = "STASH_API_KEY",
     [string]$WslExe = "wsl.exe",
+    [string]$SessionId = "",
+    [string]$BodyRigRevision = "",
     [string]$Out = ""
 )
 
@@ -149,43 +151,62 @@ catch { throw "Stash health probe returned unreadable JSON." }
 if ($stash.ok -ne $true) { throw "Stash health probe did not report ok=true." }
 if ($stash.performer_read -ne $true) { throw "Stash health probe did not prove performer-read capability." }
 
-$report = [ordered]@{
-    format = "bodyrig-rig-readiness"
-    version = 1
-    rig_setup_report = $RigSetupReport
-    rig_setup_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
-    checks = [ordered]@{
-        master_setup = $true
-        recovery = $true
-        sith_openpose = $true
-        openpose_binary = $true
-        openpose_models = $true
-        diffusion_model = $true
-        stash = $true
-        stash_performer_read = $true
-    }
-    environment = [ordered]@{
-        stash_version = [string]$stash.version
-        openpose_sha256 = $actualOpenPoseHash
-        openpose_byte_count = [int64]$openPose.byte_count
-        openpose_models_sha256 = $actualOpenPoseModelsHash
-        openpose_models_file_count = [int64]$openPoseModels.file_count
-        openpose_models_byte_count = [int64]$openPoseModels.byte_count
-        diffusion_model_sha256 = $actualModelHash
-        diffusion_model_file_count = [int64]$model.file_count
-        diffusion_model_byte_count = [int64]$model.byte_count
-    }
-    ready = $true
-}
-
 if (-not [string]::IsNullOrWhiteSpace($Out)) {
+    $parsedSessionId = [Guid]::Empty
+    if (-not [Guid]::TryParse($SessionId, [ref]$parsedSessionId)) {
+        throw "Authoritative readiness evidence requires a valid -SessionId UUID."
+    }
+    $SessionId = $parsedSessionId.ToString()
+    $BodyRigRevision = $BodyRigRevision.Trim().ToLowerInvariant()
+    if ($BodyRigRevision -notmatch '^[0-9a-f]{40}$') {
+        throw "Authoritative readiness evidence requires a lowercase 40-character -BodyRigRevision."
+    }
+
+    $report = [ordered]@{
+        format = "bodyrig-rig-readiness"
+        version = 1
+        session_id = $SessionId
+        bodyrig_revision = $BodyRigRevision
+        observed_utc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        rig_setup_report = $RigSetupReport
+        rig_setup_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
+        checks = [ordered]@{
+            master_setup = $true
+            recovery = $true
+            sith_openpose = $true
+            openpose_binary = $true
+            openpose_models = $true
+            diffusion_model = $true
+            stash = $true
+            stash_performer_read = $true
+        }
+        environment = [ordered]@{
+            stash_version = [string]$stash.version
+            openpose_sha256 = $actualOpenPoseHash
+            openpose_byte_count = [int64]$openPose.byte_count
+            openpose_models_sha256 = $actualOpenPoseModelsHash
+            openpose_models_file_count = [int64]$openPoseModels.file_count
+            openpose_models_byte_count = [int64]$openPoseModels.byte_count
+            diffusion_model_sha256 = $actualModelHash
+            diffusion_model_file_count = [int64]$model.file_count
+            diffusion_model_byte_count = [int64]$model.byte_count
+        }
+        ready = $true
+    }
+
     $Out = [System.IO.Path]::GetFullPath($Out)
     if (Test-Path -LiteralPath $Out) { throw "Readiness report output already exists: $Out" }
     $parent = Split-Path -Parent $Out
     if (-not [string]::IsNullOrWhiteSpace($parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     $temp = "$Out.tmp-$([Guid]::NewGuid().ToString('N'))"
-    [System.IO.File]::WriteAllText($temp, ($report | ConvertTo-Json -Depth 8) + "`n", [System.Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $Out
+    try {
+        [System.IO.File]::WriteAllText($temp, ($report | ConvertTo-Json -Depth 8) + "`n", [System.Text.UTF8Encoding]::new($false))
+        & $BodyRigPython -m bodyrig.rig_readiness $temp | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Generated readiness evidence failed strict validation." }
+        Move-Item -LiteralPath $temp -Destination $Out
+    } finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
 }
 
 Write-Host "BodyRig rig readiness: READY"
