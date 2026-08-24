@@ -47,8 +47,8 @@ VOICE_FIELDS = {
     "revision_id",
     "created_utc",
     "voice_id",
+    "voice_package",
     "package_sha256",
-    "package_path",
     "feedback",
 }
 PERSONALITY_FIELDS = {
@@ -119,6 +119,13 @@ def _sha(value: Any, *, field: str, nullable: bool = False) -> str | None:
     return value
 
 
+def _voice_package(value: Any) -> str:
+    package = _text(value, field="voice_package", maximum=255)
+    if "/" in package or "\\" in package or package in {".", ".."} or not package.lower().endswith(".mrvoice"):
+        raise PersonProfileError("voice_package must be a safe .mrvoice filename")
+    return package
+
+
 def _component_revision_id(value: Any, *, kind: str) -> str:
     text = _text(value, field="revision_id", maximum=24)
     if not COMPONENT_REVISION_RE.fullmatch(text) or not text.startswith(f"{kind}-r"):
@@ -173,8 +180,8 @@ def _validate_voice_revision(value: Any) -> dict[str, Any]:
         "revision_id": _component_revision_id(value["revision_id"], kind="voice"),
         "created_utc": _timestamp(value["created_utc"], field="created_utc"),
         "voice_id": voice_id,
-        "package_sha256": _sha(value["package_sha256"], field="package_sha256", nullable=True),
-        "package_path": _nullable_text(value["package_path"], field="package_path", maximum=4096),
+        "voice_package": _voice_package(value["voice_package"]),
+        "package_sha256": _sha(value["package_sha256"], field="package_sha256"),
         "feedback": _text(value["feedback"], field="feedback", maximum=8000, empty=True),
     }
 
@@ -415,7 +422,7 @@ def add_body_revision(root: str | os.PathLike[str], person_id: str, *, body_id: 
     return _save(root, profile)
 
 
-def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id: str, package_sha256: str | None = None, package_path: str | None = None, feedback: str = "", activate: bool = False) -> dict[str, Any]:
+def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id: str, voice_package: str, package_sha256: str, feedback: str = "", activate: bool = False) -> dict[str, Any]:
     if activate:
         raise PersonProfileError("voice revisions cannot be activated independently; create an approved person revision")
     profile = load_profile(root, person_id)
@@ -423,8 +430,8 @@ def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id
         "revision_id": _next_revision(profile, "voice"),
         "created_utc": _utc_now(),
         "voice_id": voice_id,
+        "voice_package": voice_package,
         "package_sha256": package_sha256,
-        "package_path": package_path,
         "feedback": feedback,
     })
     profile["voice_revisions"].append(revision)
