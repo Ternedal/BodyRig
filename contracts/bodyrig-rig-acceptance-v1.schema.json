@@ -19,6 +19,25 @@
     "physical_renderer_acceptance",
     "production_activation"
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["package"],
+        "properties": {
+          "package": {
+            "type": "object",
+            "required": ["placeholder_avatar"],
+            "properties": {
+              "placeholder_avatar": {"const": false}
+            }
+          }
+        }
+      },
+      "then": {
+        "required": ["physical_clone", "skin_qa"]
+      }
+    }
+  ],
   "properties": {
     "format": {"const": "bodyrig-rig-acceptance"},
     "version": {"const": 1},
