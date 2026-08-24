@@ -11,6 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .bodyprint_adjustment import (
+    BodyprintAdjustmentEvidenceError,
+    build_adjustment_request,
+)
 from .package import install_package
 from .person_profiles import add_body_revision, load_profile
 from .storage import body_library, person_library, ui_jobs_dir
@@ -18,6 +22,7 @@ from .storage import body_library, person_library, ui_jobs_dir
 FORMAT = "bodyrig-ui-job"
 VERSION = 1
 _FINAL = {"succeeded", "failed", "canceled", "interrupted"}
+_ADJUSTMENT_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
 
 
 class UiJobError(RuntimeError):
@@ -45,6 +50,14 @@ def _write_job(job: dict[str, Any]) -> None:
         os.replace(temp, path)
     finally:
         temp.unlink(missing_ok=True)
+
+
+def _write_create_only_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise UiJobError(f"refusing to overwrite UI build input: {path}")
+    with path.open("x", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n")
 
 
 def _read_job(path: Path) -> dict[str, Any]:
@@ -140,7 +153,13 @@ class UiJobManager:
                 jobs.append(job)
         return sorted(jobs, key=lambda item: str(item.get("created_utc", "")), reverse=True)
 
-    def start_body_build(self, person_id: str) -> dict[str, Any]:
+    def start_body_build(
+        self,
+        person_id: str,
+        *,
+        feedback: str = "",
+        changes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         profile = load_profile(person_library(), person_id)
         source = profile.get("source")
         if not source or source.get("kind") != "stash-performer":
@@ -153,12 +172,29 @@ class UiJobManager:
         if not os.environ.get("STASH_API_KEY", "").strip():
             raise UiJobError("STASH_API_KEY is not configured in the BodyRig service environment")
 
+        adjustment_request: dict[str, Any] | None = None
+        normalized_feedback = str(feedback or "").strip()
+        if normalized_feedback or changes:
+            if not normalized_feedback:
+                raise UiJobError("Body adjustment changes require the operator feedback they were reviewed from")
+            try:
+                adjustment_request = build_adjustment_request(
+                    normalized_feedback,
+                    changes=changes,
+                )
+            except BodyprintAdjustmentEvidenceError as exc:
+                raise UiJobError(str(exc)) from exc
+
         with self._lock:
             active = [job for job in self.list(person_id=person_id) if job.get("status") in {"queued", "running"}]
             if active:
                 raise UiJobError("A body build is already running for this person")
             job_id = f"job-{uuid.uuid4().hex}"
             job_root = ui_jobs_dir() / job_id
+            adjustment_path: Path | None = None
+            if adjustment_request is not None:
+                adjustment_path = job_root / "bodyprint-adjustment-request.json"
+                _write_create_only_json(adjustment_path, adjustment_request)
             job = {
                 "format": FORMAT,
                 "version": VERSION,
@@ -175,6 +211,9 @@ class UiJobManager:
                 "clone_output": str(job_root / "clone-output"),
                 "acceptance_dir": str(job_root / "acceptance"),
                 "log_path": str(job_root / "job.log"),
+                "adjustment_request": str(adjustment_path) if adjustment_path is not None else None,
+                "adjustment_feedback_sha256": adjustment_request["feedback_sha256"] if adjustment_request else None,
+                "body_feedback": normalized_feedback if adjustment_request else "",
                 "body_revision": None,
                 "canonical_body_id": None,
                 "error": None,
@@ -189,13 +228,19 @@ class UiJobManager:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(f"\n[{_now()}] RUN {' '.join(args[:4])} ...\n")
+            child_env = os.environ.copy()
+            adjustment_request = str(job.get("adjustment_request") or "").strip()
+            if adjustment_request:
+                child_env[_ADJUSTMENT_ENV] = adjustment_request
+            else:
+                child_env.pop(_ADJUSTMENT_ENV, None)
             process = subprocess.Popen(
                 args,
                 cwd=str(_repo_root()),
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 text=True,
-                env=os.environ.copy(),
+                env=child_env,
             )
             with self._lock:
                 self._processes[job["job_id"]] = process
@@ -270,6 +315,9 @@ class UiJobManager:
                 raise UiJobError("Gate A passed without a canonical .mrbody package")
 
             installed = install_package(package_path, body_library())
+            feedback_note = str(job.get("body_feedback") or "").strip()
+            if not feedback_note:
+                feedback_note = "Source-derived Stash/SiTH build via BodyRig UI"
             updated = add_body_revision(
                 person_library(),
                 job["person_id"],
@@ -277,7 +325,7 @@ class UiJobManager:
                 package_sha256=expected_hash,
                 package_path=str(installed),
                 preview_path=None,
-                feedback="Source-derived Stash/SiTH build via BodyRig UI",
+                feedback=feedback_note,
             )
             job["body_revision"] = updated["body_revisions"][-1]["revision_id"]
             job["canonical_body_id"] = body_id
