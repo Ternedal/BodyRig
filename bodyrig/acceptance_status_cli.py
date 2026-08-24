@@ -21,6 +21,14 @@ def _quote(path: str) -> str:
 def _operator_command(status: AcceptanceStatus) -> AcceptanceStatus:
     if not status.acceptance_dir:
         return status
+    if status.gate == "windows-probe":
+        return replace(
+            status,
+            next_command=(
+                ".\\run-reference-windows-renderer-probe.ps1 "
+                f"-AcceptanceDir {_quote(status.acceptance_dir)}"
+            ),
+        )
     if status.gate == "windows-attestation":
         return replace(
             status,
