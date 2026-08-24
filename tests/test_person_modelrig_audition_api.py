@@ -6,7 +6,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import bodyrig.app as app_module
-from bodyrig.person_audition import audio_path
+from bodyrig.execution_provenance import record_runtime
+from bodyrig.person_audition import audio_path, read_audition
 from bodyrig.person_profiles import (
     add_body_revision,
     add_personality_revision,
@@ -20,7 +21,8 @@ class FakeModelRig:
         self.calls: list[dict[str, str]] = []
 
     def health(self) -> dict:
-        return {"status": "ok", "service": "modelrig-server", "version": "test"}
+        record_runtime("modelrig-server", "modelrig-test-runtime")
+        return {"status": "ok", "service": "modelrig-server", "version": "modelrig-test-runtime"}
 
     def models(self) -> list[dict]:
         return [{"name": "fixture-model", "size": 123}]
@@ -40,6 +42,7 @@ class FakeVoiceRig:
     def synthesize(self, package: str, text: str) -> bytes:
         assert package == "anna.mrvoice"
         assert text == "Jeg er Anna. Tør nok til en integrationstest."
+        record_runtime("voicerig", "voicerig-test-runtime")
         return b"RIFF" + b"\x00" * 80
 
 
@@ -81,7 +84,7 @@ def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, dict, FakeModelRig
     return TestClient(app_module.app), profile, fake_modelrig
 
 
-def test_modelrig_reply_is_synthesized_and_bound_to_approved_person_revision(tmp_path: Path, monkeypatch) -> None:
+def test_modelrig_reply_is_synthesized_and_runtime_bound_to_approved_person_revision(tmp_path: Path, monkeypatch) -> None:
     client, profile, modelrig = _client(tmp_path, monkeypatch)
     person_id = profile["person_id"]
     selection = {
@@ -108,6 +111,11 @@ def test_modelrig_reply_is_synthesized_and_bound_to_approved_person_revision(tmp
         "system": "Du er Anna. Svar roligt, kort og med tør humor.\n\nStyle notes:\ntør, rolig\n\nDefault language: da. Reply in this language unless the user explicitly asks for another language.",
         "prompt": "Præsenter dig selv kort.",
     }]
+    receipt = read_audition(tmp_path, person_id=person_id, audition_id=evidence["audition_id"])
+    assert receipt["modelrig_service"] == "modelrig-server"
+    assert receipt["modelrig_version"] == "modelrig-test-runtime"
+    assert receipt["voicerig_service"] == "voicerig"
+    assert receipt["voicerig_version"] == "voicerig-test-runtime"
 
     audio = client.get(evidence["audio_url"])
     assert audio.status_code == 200
