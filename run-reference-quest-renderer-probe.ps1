@@ -2,8 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
     [string]$UnityExe = "",
     [string]$AdbExe = "adb",
-    [string]$Serial = "",
-    [switch]$SkipBuild
+    [string]$Serial = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,7 +43,6 @@ try {
         AdbExe = $AdbExe
         ProbeOutput = $stagedProbe
         DeformationOutput = $stagedDeformation
-        SkipBuild = $SkipBuild
     }
     if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $args.UnityExe = $UnityExe }
     if (-not [string]::IsNullOrWhiteSpace($Serial)) { $args.Serial = $Serial }
