@@ -159,8 +159,17 @@ class BodyProposalRequest(BaseModel):
     feedback: str = Field(min_length=1, max_length=8000)
 
 
+class BodyChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(min_length=1, max_length=80)
+    delta: float
+    reason: str = Field(min_length=1, max_length=240)
+
+
 class BodyBuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    feedback: str = Field(default="", max_length=8000)
+    changes: list[BodyChangeRequest] = Field(default_factory=list, max_length=7)
 
 
 def _stash_client() -> StashClient:
@@ -648,14 +657,23 @@ def propose_body_revision(person_id: str, request: BodyProposalRequest) -> dict:
     except PersonProfileError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     changes = [item.to_json() for item in propose_bodyprint_changes(request.feedback)]
-    return {"person_id": person_id, "feedback": request.feedback, "changes": changes, "applied": False}
+    return {
+        "person_id": person_id,
+        "feedback": request.feedback,
+        "changes": changes,
+        "applied": False,
+        "buildable": bool(changes),
+    }
 
 
 @app.post("/api/v1/people/{person_id}/body/build")
 def start_body_build(person_id: str, request: BodyBuildRequest) -> dict:
-    del request
     try:
-        return ui_jobs.start_body_build(person_id)
+        return ui_jobs.start_body_build(
+            person_id,
+            feedback=request.feedback,
+            changes=[item.model_dump() for item in request.changes] if request.changes else None,
+        )
     except (UiJobError, PersonProfileError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
