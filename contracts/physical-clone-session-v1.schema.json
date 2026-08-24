@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/physical-clone-session-v1.schema.json",
+  "title": "BodyRig Physical Clone Session v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "session_id",
+    "started_utc",
+    "completed_utc",
+    "status",
+    "stage",
+    "performer_id",
+    "body_id",
+    "bodyrig_revision",
+    "bodyrig_checkout_clean",
+    "rig_setup_sha256",
+    "readiness_sha256",
+    "clone_output",
+    "error"
+  ],
+  "properties": {
+    "format": { "const": "bodyrig-physical-clone-session" },
+    "version": { "const": 1 },
+    "session_id": { "type": "string", "format": "uuid" },
+    "started_utc": { "type": "string", "format": "date-time" },
+    "completed_utc": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "enum": ["running", "pass", "fail"] },
+    "stage": { "enum": ["initializing", "readiness", "clone", "complete"] },
+    "performer_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "body_id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9æøå_-]+$" },
+    "bodyrig_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "bodyrig_checkout_clean": { "type": "boolean" },
+    "rig_setup_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "readiness_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "clone_output": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
+    "error": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 }
+  }
+}
