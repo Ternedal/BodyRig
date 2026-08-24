@@ -279,6 +279,8 @@ def _platform_stage(acceptance_dir: Path, *, platform: str, prefix: str, attesta
     paths = _platform_paths(acceptance_dir, prefix, attestation_name)
     probe_exists = paths.probe.is_file()
     deformation_exists = paths.deformation.is_file()
+    if paths.layout == "dedicated" and not probe_exists and not deformation_exists:
+        raise AcceptanceStatusError(f"{prefix} canonical evidence directory exists without its committed machine/deformation pair.")
     if probe_exists != deformation_exists:
         raise AcceptanceStatusError(f"{prefix} canonical evidence is incomplete: machine/deformation must appear as one pair.")
     if paths.attestation.exists() and not (probe_exists and deformation_exists):
