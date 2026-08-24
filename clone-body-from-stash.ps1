@@ -33,7 +33,10 @@ param(
     [string]$SithDistribution = "",
     [string]$SithRepo = "",
     [string]$SithPython = "",
+    [string]$SithOpenPoseRepo = "",
     [string]$SithOpenPose = "",
+    [string]$SithOpenPoseSha256 = "",
+    [string]$SithOpenPoseModelsSha256 = "",
     [string]$SithDiffusionModel = "",
     [string]$SithDiffusionModelSha256 = "",
     [ValidateRange(0, 2147483647)]
@@ -162,16 +165,29 @@ if (-not $usingBuiltInFitter) {
     $SithDistribution = Resolve-Setting -Value $SithDistribution -EnvironmentName "BODYRIG_SITH_DISTRIBUTION" -Label "SiTH WSL distribution" -DefaultValue "Ubuntu-22.04"
     $SithRepo = Resolve-Setting -Value $SithRepo -EnvironmentName "BODYRIG_SITH_REPO" -Label "SiTH repository"
     $SithPython = Resolve-Setting -Value $SithPython -EnvironmentName "BODYRIG_SITH_PYTHON" -Label "SiTH Python"
+    $SithOpenPoseRepo = Resolve-Setting -Value $SithOpenPoseRepo -EnvironmentName "BODYRIG_SITH_OPENPOSE_REPO" -Label "SiTH OpenPose repository"
     $SithOpenPose = Resolve-Setting -Value $SithOpenPose -EnvironmentName "BODYRIG_SITH_OPENPOSE" -Label "SiTH OpenPose executable"
+    $SithOpenPoseSha256 = Resolve-Setting -Value $SithOpenPoseSha256 -EnvironmentName "BODYRIG_SITH_OPENPOSE_SHA256" -Label "SiTH OpenPose executable SHA-256"
+    $SithOpenPoseModelsSha256 = Resolve-Setting -Value $SithOpenPoseModelsSha256 -EnvironmentName "BODYRIG_SITH_OPENPOSE_MODELS_SHA256" -Label "SiTH OpenPose model tree SHA-256"
     $SithDiffusionModel = Resolve-Setting -Value $SithDiffusionModel -EnvironmentName "BODYRIG_SITH_DIFFUSION_MODEL" -Label "SiTH diffusion model"
     $SithDiffusionModelSha256 = Resolve-Setting -Value $SithDiffusionModelSha256 -EnvironmentName "BODYRIG_SITH_DIFFUSION_SHA256" -Label "SiTH diffusion model SHA-256"
+
+    $SithOpenPoseSha256 = $SithOpenPoseSha256.ToLowerInvariant()
+    $SithOpenPoseModelsSha256 = $SithOpenPoseModelsSha256.ToLowerInvariant()
     $SithDiffusionModelSha256 = $SithDiffusionModelSha256.ToLowerInvariant()
-    if ($SithDiffusionModelSha256 -notmatch '^[0-9a-f]{64}$') {
-        throw "SiTH diffusion model SHA-256 must be exactly 64 hexadecimal characters."
+    foreach ($hashSetting in @(
+        @{ Label = "SiTH OpenPose executable SHA-256"; Value = $SithOpenPoseSha256 },
+        @{ Label = "SiTH OpenPose model tree SHA-256"; Value = $SithOpenPoseModelsSha256 },
+        @{ Label = "SiTH diffusion model SHA-256"; Value = $SithDiffusionModelSha256 }
+    )) {
+        if ([string]$hashSetting.Value -notmatch '^[0-9a-f]{64}$') {
+            throw "$($hashSetting.Label) must be exactly 64 hexadecimal characters."
+        }
     }
     foreach ($linuxSetting in @(
         @{ Label = "SiTH repository"; Value = $SithRepo },
         @{ Label = "SiTH Python"; Value = $SithPython },
+        @{ Label = "SiTH OpenPose repository"; Value = $SithOpenPoseRepo },
         @{ Label = "SiTH OpenPose executable"; Value = $SithOpenPose },
         @{ Label = "SiTH diffusion model"; Value = $SithDiffusionModel }
     )) {
@@ -179,6 +195,7 @@ if (-not $usingBuiltInFitter) {
             throw "$($linuxSetting.Label) must be an absolute Linux path."
         }
     }
+    $SithOpenPoseRepo = $SithOpenPoseRepo.TrimEnd("/")
     $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
 
     $sithPreflightArgs = @(
@@ -187,9 +204,36 @@ if (-not $usingBuiltInFitter) {
         "--repo", $SithRepo,
         "--python", $SithPython,
         "--openpose", $SithOpenPose,
+        "--openpose-repo", $SithOpenPoseRepo,
         "--wsl-exe", $WslExe
     )
     Invoke-Checked -Executable $BodyRigPython -Arguments $sithPreflightArgs -Step "Built-in SiTH fitter preflight"
+
+    $openPoseRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $SithDistribution --python $SithPython --path $SithOpenPose --wsl-exe $WslExe
+    if ($LASTEXITCODE -ne 0) {
+        throw "SiTH OpenPose executable digest failed with exit code $LASTEXITCODE"
+    }
+    try {
+        $openPoseDigest = $openPoseRaw | ConvertFrom-Json
+    } catch {
+        throw "SiTH OpenPose executable digest returned unreadable JSON."
+    }
+    if ([string]$openPoseDigest.sha256 -ne $SithOpenPoseSha256) {
+        throw "SiTH OpenPose executable SHA-256 mismatch: expected $SithOpenPoseSha256, got $([string]$openPoseDigest.sha256)"
+    }
+
+    $openPoseModelsRaw = & $BodyRigPython -m bodyrig.wsl_tree_digest --distribution $SithDistribution --python $SithPython --path "$SithOpenPoseRepo/models" --wsl-exe $WslExe
+    if ($LASTEXITCODE -ne 0) {
+        throw "SiTH OpenPose model tree digest failed with exit code $LASTEXITCODE"
+    }
+    try {
+        $openPoseModelsDigest = $openPoseModelsRaw | ConvertFrom-Json
+    } catch {
+        throw "SiTH OpenPose model tree digest returned unreadable JSON."
+    }
+    if ([string]$openPoseModelsDigest.sha256 -ne $SithOpenPoseModelsSha256) {
+        throw "SiTH OpenPose model tree SHA-256 mismatch: expected $SithOpenPoseModelsSha256, got $([string]$openPoseModelsDigest.sha256)"
+    }
 
     $digestArgs = @(
         "-m", "bodyrig.sith_model",
@@ -359,7 +403,7 @@ if ($usingBuiltInIdentityCapture) {
     Write-Host "Identity capture: custom config"
 }
 if ($usingBuiltInFitter) {
-    Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1"
+    Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1 (OpenPose source/binary/models + diffusion bytes verified)"
 } else {
     Write-Host "High-fidelity fitter: custom config"
 }
