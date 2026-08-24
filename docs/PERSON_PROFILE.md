@@ -2,7 +2,7 @@
 
 BodyRig UI arbejder med **personer**, ikke med én global krop.
 
-En person har én stabil identitet. Krop, stemme og personlighed versionsstyres hver for sig, men de **aktiveres aldrig hver for sig**. Den aktive person er altid en samlet, auditioneret og compatibility-godkendt **Person Revision**.
+En person har én stabil identitet. Krop, stemme og personlighed versionsstyres hver for sig, men de **aktiveres aldrig hver for sig**. Den aktive person er altid en samlet, faktisk auditioneret og compatibility-godkendt **Person Revision**.
 
 ```text
 Person
@@ -13,10 +13,8 @@ Person
 
   Component candidates
     body-r0001        -> .mrbody / bodyid-... / SHA-256
-    body-r0002        -> .mrbody / bodyid-... / SHA-256
     voice-r0001       -> VoiceRig .mrvoice / voice-id / SHA-256
     personality-r0001 -> ModelRig persona instructions
-    personality-r0002 -> ModelRig persona instructions
 
   Approved person revisions
     person-r0001 = body-r0001 + voice-r0001 + personality-r0001
@@ -27,9 +25,7 @@ Person
 
 ## Identity rule
 
-`person_id` er den eneste stabile personidentitet.
-
-Den må **ikke** være BodyRigs `bodyid-*`, VoiceRigs voice-id, Stash performer-id, display name eller alias.
+`person_id` er den eneste stabile personidentitet. Den må **ikke** være BodyRigs `bodyid-*`, VoiceRigs voice-id, Stash performer-id, display name eller alias.
 
 Format:
 
@@ -37,7 +33,7 @@ Format:
 person-<32 lowercase hex>
 ```
 
-ID'et genereres tilfældigt én gang ved oprettelse og ændres ikke, når komponenter eller Person Revisions ændres.
+ID'et genereres tilfældigt én gang og ændres ikke, når komponenter eller Person Revisions ændres.
 
 ## Person record
 
@@ -50,11 +46,11 @@ Den lokale registry-record er `modelrig-person-profile` v1 og indeholder:
 - `person_revisions`,
 - `active_person_revision`.
 
-`source` kan være `null`; en person kan oprettes uden Stash-binding.
+`source` kan være `null`. Person Profile gemmer ikke ModelRig-token, Stash-token eller andre credentials.
 
 ## Component revision rule
 
-Alle komponentændringer skaber en ny immutable kandidatrevision:
+Alle komponentændringer skaber en ny immutable kandidat:
 
 ```text
 body-r0001
@@ -62,63 +58,103 @@ voice-r0001
 personality-r0001
 ```
 
-En ny body-, voice- eller personality-revision må **ikke** automatisk ændre den aktive person.
+En kandidat må **ikke** automatisk ændre den aktive person.
 
 ### Body revision
 
-Binder til canonical `bodyid-*`, `.mrbody` SHA-256, package-path/preview og feedback.
-
-BodyRig re-hasher og validerer `.mrbody` igen, før kandidaten kan indgå i en audition eller senere reaktivering.
+Binder til canonical `bodyid-*`, `.mrbody` SHA-256, package-path/preview og feedback. BodyRig re-hasher og validerer `.mrbody` igen før audition og reaktivering.
 
 ### Voice revision
 
-VoiceRig ejer voice-artifactet. BodyRig må ikke bede operatøren skrive et løst voice-id eller en vilkårlig lokal path.
-
-UI'et læser i stedet VoiceRigs lokale, validerede bibliotek og binder kandidaten til:
+VoiceRig ejer voice-artifactet. BodyRig læser VoiceRigs lokale validerede bibliotek og binder kandidaten til:
 
 - VoiceRig `voice_id`,
 - konkret safe `.mrvoice`-pakkenavn,
-- SHA-256 af de faktiske package-bytes på bindingstidspunktet,
+- SHA-256 af de faktiske package-bytes,
 - feedback.
 
 Før audition og reaktivering downloader BodyRig den samme package fra VoiceRig over loopback og re-hasher bytes. Et nyt artifact under samme filnavn kan derfor ikke stille og roligt overtage en gammel voice-revision.
 
 ### Personality revision
 
-Ejes/exekveres af ModelRig og indeholder mindst persona/system instructions, default language, optional style/behaviour notes og feedback.
+ModelRig ejer personality-execution. Kandidaten indeholder mindst persona/system instructions, default language, optional style notes og feedback.
 
-Personality må ændres uden at rebygge body eller voice, men den nye personality bliver kun aktiv som del af en ny godkendt Person Revision.
+**Statisk visning af instructions er ikke compatibility-evidence.** En personality-kandidat skal køres gennem ModelRig i den eksakte Person Assembly, og det resulterende svar skal høres med den valgte VoiceRig-stemme, før Person Revision kan godkendes.
 
 ## Exact audition assembly
 
-Før compatibility-review beregner BodyRig et deterministisk `bodyrig-person-assembly` v1 for **præcis** de tre valgte kandidater.
+Før audition beregner BodyRig et deterministisk `bodyrig-person-assembly` v1 for præcis de tre valgte kandidater.
 
 Fingerprintet binder:
 
 - `person_id`,
 - body revision + `body_id` + `.mrbody` SHA-256,
 - voice revision + `voice_id` + `.mrvoice` pakkenavn + SHA-256,
-- personality revision + SHA-256 af instructions og style notes + default language.
-
-Resultatet får:
+- personality revision + SHA-256 af instructions/style notes + default language.
 
 ```text
 assembly_fingerprint = sha256(canonical assembly JSON)
 ```
 
-UI'et viser samme assembly som ét audition-rum:
+Skiftes body, voice eller personality, ændres fingerprintet og en tidligere audition kan ikke genbruges.
 
-1. den valgte body-preview loades fra hash-valideret `.mrbody`,
-2. den valgte VoiceRig-stemme afspilles/syntetiseres fra den hash-bundne `.mrvoice`,
-3. den valgte personality vises ved siden af.
+## ModelRig-executed audition
 
-Skiftes body-, voice- eller personality-selector, nulstilles audition og compatibility-review.
+BodyRig bruger ModelRigs eksisterende lokale `POST /api/v1/chat` uden at ændre ModelRigs globale/default state.
 
-UI'et åbner først compatibility-reviewet, når body-previewet er loadet, personality'en er vist, og den valgte stemmeprøve er afspillet til ende.
+For den valgte personality sendes én isoleret request:
+
+```text
+system = personality instructions + style + default language
+user   = operatorens audition-prompt
+stream = false
+```
+
+ModelRigs faktiske reply sendes derefter til VoiceRig, som syntetiserer **netop det svar** med den hash-bundne `.mrvoice`.
+
+Audition-rummet skal derfor vise/høre samme kombination:
+
+1. body-preview fra den hash-validerede `.mrbody`,
+2. den valgte personality-kilde,
+3. det faktiske ModelRig-svar,
+4. VoiceRig-WAV af præcis det ModelRig-svar.
+
+Compatibility-review låses, indtil body-preview er loadet, personality-kilden er vist, ModelRig-svaret er modtaget og VoiceRig-WAV'en er afspillet til ende. Ændres kandidat, ModelRig-model eller audition-prompt, nulstilles reviewet.
+
+### ModelRig trust boundary
+
+Standard ModelRig endpoint er loopback `http://127.0.0.1:8080`.
+
+BodyRig kalder først unauthenticated `/healthz` og kræver `service=modelrig-server`. **Først derefter** må bearer-tokenet bruges mod beskyttede ModelRig-routes. En fremmed lokal proces på porten får derfor ikke tokenet blot ved at svare på en TCP/HTTP-forbindelse.
+
+`MODELRIG_TOKEN` er process-env/transport-only og må ikke ende i Person Profile, audition receipt, assembly receipt eller andre artifacts.
+
+## Create-only audition evidence
+
+En gennemført audition materialiserer:
+
+```text
+audition-receipts/<person_id>/audition-<32hex>.json
+audition-receipts/<person_id>/audition-<32hex>.wav
+```
+
+`bodyrig-person-audition` v1 binder:
+
+- `person_id`,
+- `assembly_fingerprint`,
+- ModelRig model,
+- SHA-256 af audition-prompten,
+- SHA-256 af ModelRig-replyet,
+- SHA-256 af VoiceRig-WAV'en,
+- create timestamp og `complete=true`.
+
+Raw prompt og raw reply gemmes ikke i receiptet; UI kan vise replyet fra den aktuelle request, men den permanente evidence gemmer kun hashes. ModelRig-token, URL og VoiceRig-secrets gemmes aldrig.
+
+Audio bytes re-hashes ved senere approval/reaktivering. Manipuleres WAV'en, bliver auditionen ugyldig.
 
 ## Person Revision — atomic activation unit
 
-En Person Revision binder **præcis én** eksisterende revision fra hvert lag:
+En Person Revision binder præcis én eksisterende revision fra hvert lag:
 
 ```json
 {
@@ -131,84 +167,95 @@ En Person Revision binder **præcis én** eksisterende revision fra hvert lag:
     "voice_personality_match": true,
     "body_personality_match": true,
     "overall_coherent": true,
-    "note": "Samme oplevede person på tværs af krop, stemme og adfærd."
+    "note": "Samme oplevede person på tværs af krop, stemme og faktisk adfærd."
   }
 }
 ```
 
-Approval-requesten skal samtidig medbringe det `assembly_fingerprint`, som blev auditioneret. Serveren re-hasher body- og voice-artifacts og genberegner personality-bindingen **igen ved approval**. Hvis fingerprintet ikke længere matcher, afvises approval med krav om ny audition.
+Approval-requesten skal medbringe både det auditionerede `assembly_fingerprint` og det konkrete `audition_id`.
 
-Person Revision må kun oprettes, når alle fire compatibility-kriterier er **eksplicit true** og review-noten er ikke-tom.
+Ved approval:
 
-Det betyder fx, at “stemmen virker for ung til kroppen” **ikke** kan godkendes. Brugeren skal først skabe en ny voice- eller body-kandidat og derefter auditionere den nye kombination.
+1. re-hasher BodyRig `.mrbody` og VoiceRig `.mrvoice`,
+2. genberegner personality-binding og assembly fingerprint,
+3. verificerer audition receipt + WAV mod samme fingerprint,
+4. kræver alle fire compatibility-kriterier eksplicit `true` og en ikke-tom review-note,
+5. opretter Person Revision,
+6. skriver assembly receipt v2,
+7. aktiverer først derefter bundlet atomisk, hvis requested.
 
-## Create-only assembly receipt
+En vurdering som “stemmen virker for ung til kroppen” må derfor ikke godkendes; lav en ny kandidat og kør en ny samlet audition.
 
-Når en Person Revision er godkendt, materialiserer BodyRig en create-only `bodyrig-person-assembly-receipt` v1 under personbibliotekets `assembly-receipts/<person_id>/person-rXXXX.json`.
+## Create-only assembly receipt v2
 
-Receiptet indeholder den godkendte assembly-fingerprint og de hash-/revisionbindingsdata, der blev reviewet. Det indeholder ikke Stash-token, VoiceRig-secret eller ModelRig-token.
+Godkendte Person Revisions bruger `bodyrig-person-assembly-receipt` **v2** under:
 
-En tidligere `person-rXXXX` må kun reaktiveres gennem UI/API-policyen, hvis:
+```text
+assembly-receipts/<person_id>/person-rXXXX.json
+```
 
-- body package stadig matcher den registrerede SHA/identity,
-- VoiceRig package stadig matcher den registrerede SHA,
-- personality-data stadig producerer samme fingerprint,
-- create-only receiptet matcher den genberegnede assembly byte-for-byte semantisk.
+Receiptet binder:
 
-Gamle historiske Person Revisions uden receipt kan fortsat læses som historik, men de bliver ikke automatisk opgraderet til denne stærkere aktiveringspolicy.
+- den eksakte assembly fingerprint,
+- body/voice/personality bindings,
+- `audition_id`,
+- SHA-256 af det konkrete audition receipt.
 
-Kun `active_person_revision` må skifte den aktive profil. Et tidligere godkendt `person-rXXXX` med gyldigt receipt kan aktiveres igen atomisk.
+Ved reaktivering revalideres `.mrbody`, `.mrvoice`, personality fingerprint, audition receipt, audition WAV og assembly receipt. Alle skal stadig passe sammen.
+
+Legacy assembly receipt v1 kan læses som historik, men **kan ikke genaktiveres under den nye policy**. Kombinationen skal auditioneres igen, så den får en v2 receipt med faktisk ModelRig/VoiceRig audition-binding.
+
+Kun `active_person_revision` må skifte den aktive profil.
 
 ## UI model
 
 Hovednavigationen er **Mine personer**. For hver person vises:
 
-1. **Overblik** — aktiv Person Revision og de tre komponenter den binder.
+1. **Overblik** — aktiv Person Revision og dens tre komponenter.
 2. **Krop** — build, preview, feedback og body-kandidater.
-3. **Stemme** — VoiceRig-bibliotek, hash-bundne voice-kandidater og preview/test.
-4. **Personlighed** — personality-kandidater og test.
-5. **Saml person** — vælg body + voice + personality, auditionér dem sammen, udfør compatibility-review og opret ny Person Revision.
+3. **Stemme** — VoiceRig-bibliotek, voice-kandidater og preview.
+4. **Personlighed** — personality-kandidater.
+5. **Saml person** — vælg body + voice + personality + ModelRig-model + testprompt, kør faktisk audition, review og opret Person Revision.
 6. **Historik** — immutable komponent- og Person Revision-historik.
 
 ## Feedback flow
 
-Body-feedback må ikke ændre data skjult. BodyRig viser først strukturerede forslag, fx `arm_to_height -0.015`, og en anvendt ændring skaber en ny body-kandidat.
-
-Det samme princip gælder voice og personality: feedback skaber en ny kandidat, ikke en mutation af den aktive person.
-
-Derefter:
+Feedback muterer aldrig den aktive person skjult. Den skaber en ny kandidat.
 
 ```text
 vælg body-kandidat
   + vælg VoiceRig-kandidat
   + vælg personality-kandidat
-  -> revalidate exact artifact/text bytes
+  + vælg ModelRig-model + audition-prompt
+  -> revalidate exact artifacts/text
   -> beregn assembly_fingerprint
-  -> se + hør + læs samlet
+  -> ModelRig udfører personality
+  -> VoiceRig siger ModelRig-replyet
+  -> se body + læs reply + hør WAV
   -> compatibility review
-  -> revalidate samme fingerprint
-  -> create-only assembly receipt
+  -> revalidate samme assembly + audition evidence
+  -> create-only assembly receipt v2
   -> Godkend Person Revision
   -> atomisk aktivering
 ```
 
 ## Multi-person rule
 
-Der er ingen singleton-person. Biblioteket kan indeholde mange personer samtidig, hver med egen komponent- og Person Revision-historik. Aktivering af én person må ikke overskrive andre profiler.
+Der er ingen singleton-person. Biblioteket kan indeholde mange personer samtidig, hver med egen komponent-, audition- og Person Revision-historik. Aktivering af én person må ikke overskrive andre profiler.
 
-BodyRig runtime kan stadig have én aktiv krop ad gangen; ModelRig/Kaliv vælger en person eksplicit og anvender den aktive Person Revisions body/voice/personality-bindings som ét samlet valg.
+ModelRig/Kaliv vælger en person eksplicit og skal anvende den aktive Person Revisions body/voice/personality bindings som ét samlet valg.
 
 ## Cross-product ownership
 
-- **BodyRig** ejer body build/preview/body revisions samt Person Profile UI/registry og assembly/compatibility-bindingen.
-- **VoiceRig** ejer `.mrvoice`, voice library og TTS/preview execution.
-- **ModelRig** ejer personality/persona execution.
+- **BodyRig** ejer body build/preview, Person Profile UI/registry, assembly fingerprint, audition-orchestration og compatibility-bindingen.
+- **VoiceRig** ejer `.mrvoice`, voice library og TTS execution.
+- **ModelRig** ejer personality/persona execution og LLM-response.
 - **Person Revision** er den tværgående, atomiske kompatibilitetsbinding.
 
 `.mrbody` må ikke indeholde personality, og `.mrvoice` må ikke indeholde body/personality blot for at skabe identitet.
 
 ## Security/privacy
 
-Person registry og assembly receipts må ikke indeholde Stash API keys, ModelRig tokens eller VoiceRig secrets. Stash performer-id er lokal source metadata; tokens forbliver transport-only.
+Person registry, audition receipts og assembly receipts må ikke indeholde Stash API keys, ModelRig bearer tokens eller VoiceRig secrets. Tokens er transport-only.
 
-BodyRig→VoiceRig integration er loopback-only som standard. En ikke-loopback `VOICERIG_URL` afvises af BodyRig-klienten.
+BodyRig→VoiceRig og BodyRig→ModelRig er loopback-only som standard. Non-loopback integration URLs afvises af klienterne.
