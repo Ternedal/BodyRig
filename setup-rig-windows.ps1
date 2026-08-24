@@ -143,6 +143,7 @@ $sithEnvironment = @{
     BODYRIG_SITH_PYTHON = [string]$sithSetup.sith.python
     BODYRIG_SITH_OPENPOSE_REPO = [string]$sithSetup.openpose.repository
     BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable
+    BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sithSetup.openpose.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()
 }
