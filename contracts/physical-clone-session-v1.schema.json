@@ -37,5 +37,16 @@
     "readiness_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
     "clone_output": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
     "error": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "pass" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "bodyrig_checkout_clean": { "const": true } }
+      }
+    }
+  ]
 }
