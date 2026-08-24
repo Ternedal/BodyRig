@@ -5,7 +5,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from bodyrig.acceptance_status import AcceptanceStatus
-from bodyrig.acceptance_status_cli import _operator_command, _status_exit_code
+from bodyrig.acceptance_status_cli import (
+    CANONICAL_OPERATOR_SCRIPTS,
+    _bind_operator_checkout,
+    _operator_command,
+    _status_exit_code,
+)
 from bodyrig.reference_acceptance_policy import _load_contract, apply_reference_policy
 
 
@@ -22,6 +27,13 @@ def _status(gate: str) -> AcceptanceStatus:
         message="review required",
         next_command="unsafe legacy command",
     )
+
+
+def _operator_root(tmp_path: Path) -> Path:
+    (tmp_path / ".git").mkdir()
+    for name in CANONICAL_OPERATOR_SCRIPTS:
+        (tmp_path / name).write_text("# test operator script\n", encoding="utf-8")
+    return tmp_path
 
 
 def _write_reference_pair(directory: Path, *, renderer_version: str | None = None, unity_version: str | None = None, sequence: str | None = None) -> None:
@@ -114,6 +126,79 @@ def test_blocked_reference_status_is_nonzero_but_normal_states_are_success() -> 
     assert _status_exit_code(replace(_status("windows-probe"), state="ready")) == 0
     assert _status_exit_code(_status("windows-attestation")) == 0
     assert _status_exit_code(replace(_status("release"), state="complete", next_command=None)) == 0
+
+
+def test_wheel_style_status_without_checkout_is_inspection_only(monkeypatch) -> None:
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._auto_operator_root", lambda: None)
+    ready = replace(_status("windows-probe"), state="ready")
+
+    inspected = _bind_operator_checkout(ready, None)
+
+    assert inspected.state == "ready"
+    assert inspected.gate == "windows-probe"
+    assert inspected.next_command is None
+    assert "Inspection-only" in inspected.message
+    assert "--operator-root <checkout>" in inspected.message
+    assert _status_exit_code(inspected) == 0
+
+
+def test_matching_clean_operator_checkout_emits_absolute_reference_command(tmp_path: Path, monkeypatch) -> None:
+    root = _operator_root(tmp_path)
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._git_checkout_state", lambda _: ("a" * 40, True))
+    ready = replace(_status("windows-probe"), state="ready")
+
+    bound = _bind_operator_checkout(ready, root)
+
+    expected_script = str((root / "run-reference-windows-renderer-probe.ps1").resolve())
+    assert bound.state == "ready"
+    assert bound.next_command is not None
+    assert bound.next_command.startswith(f'& "{expected_script}"')
+    assert '-AcceptanceDir "C:\\acceptance"' in bound.next_command
+
+
+def test_gate_a_existing_command_is_absolutized_after_checkout_binding(tmp_path: Path, monkeypatch) -> None:
+    root = _operator_root(tmp_path)
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._git_checkout_state", lambda _: ("a" * 40, True))
+    gate_a = replace(
+        _status("gate-a"),
+        state="ready",
+        next_command='.\\accept-physical-clone.ps1 -SessionReport "C:\\session.json"',
+    )
+
+    bound = _bind_operator_checkout(gate_a, root)
+
+    expected_script = str((root / "accept-physical-clone.ps1").resolve())
+    assert bound.next_command is not None
+    assert bound.next_command.startswith(f'& "{expected_script}"')
+    assert '-SessionReport "C:\\session.json"' in bound.next_command
+
+
+def test_wrong_operator_checkout_revision_blocks_before_command(tmp_path: Path, monkeypatch) -> None:
+    root = _operator_root(tmp_path)
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._git_checkout_state", lambda _: ("b" * 40, True))
+    ready = replace(_status("quest-probe"), state="ready")
+
+    blocked = _bind_operator_checkout(ready, root)
+
+    assert blocked.state == "blocked"
+    assert blocked.gate == "operator-checkout"
+    assert blocked.next_command is None
+    assert "does not match acceptance revision" in blocked.message
+    assert _status_exit_code(blocked) == 3
+
+
+def test_dirty_operator_checkout_blocks_before_command(tmp_path: Path, monkeypatch) -> None:
+    root = _operator_root(tmp_path)
+    monkeypatch.setattr("bodyrig.acceptance_status_cli._git_checkout_state", lambda _: ("a" * 40, False))
+    ready = replace(_status("release"), state="ready")
+
+    blocked = _bind_operator_checkout(ready, root)
+
+    assert blocked.state == "blocked"
+    assert blocked.gate == "operator-checkout"
+    assert blocked.next_command is None
+    assert "checkout is dirty" in blocked.message
+    assert _status_exit_code(blocked) == 3
 
 
 def test_reference_policy_leaves_empty_transactional_layout_unchanged(tmp_path: Path) -> None:
