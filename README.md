@@ -204,22 +204,14 @@ Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultate
 
 ## Final release gate
 
-Først når begge platformers machine probes, deformation-prober og operatorattesteringer findes, kan release-evidensen afsluttes:
+Når begge platformers canonical machine/deformation-par og reference-attesteringer findes, afsluttes V1 gennem reference policy-wrapperen:
 
 ```powershell
-.\complete-acceptance.ps1 `
-  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
-  -WindowsRendererReport "C:\acceptance\bodyrig-renderer-acceptance-windows.json" `
-  -WindowsProbeReport "C:\acceptance\windows-evidence\windows-probe.json" `
-  -WindowsDeformationReport "C:\acceptance\windows-evidence\windows-deformation-probe.json" `
-  -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\acceptance\quest-evidence\quest-probe.json" `
-  -QuestDeformationReport "C:\acceptance\quest-evidence\quest-deformation-probe.json"
+.\complete-reference-acceptance.ps1 `
+  -AcceptanceDir "C:\acceptance"
 ```
 
-Final-gaten genverificerer high-fidelity Stash/SiTH-lineage, `placeholder_avatar=false`, package provenance, clone-session/readiness/skin-QA-evidence, package-checksums, runtime-manifest, Git-head, embedded renderer revision, begge machine probes, begge deformation-prober og begge renderer-reporters hashbindinger.
-
-Hver deformation-probe skal have den faste seks-pose-rækkefølge og samme BodyRig build-revision, build GUID, Unity-platform/version, device-model, body-id og package/runtime/avatar/BodyPrint hashes som den tilsvarende machine probe. Desuden skal den tilsvarende operator-attestering indeholde præcis deformation-probens SHA-256 og `humanoid-muscle-sweep-v1`. Final release-evidence bærer skin-QA, renderer revision og deformation-probe SHA-256/revision med frem.
+Wrapperen kræver canonical `windows-evidence/` og `quest-evidence/`, afviser legacy root evidence og genverificerer renderer name/version, exact Unity `6000.3.13f1` samt `humanoid-muscle-sweep-v1` på begge platformes probe/deformation/attestation. Først derefter kalder den den generiske `complete-acceptance.ps1`, som fortsat ejer den fulde byte-, hash-, provenance-, platform-, device- og revision-binding.
 
 Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
@@ -249,7 +241,8 @@ Stash/video --> pinned recovery + PHALP --> canonical tracks/BodyPrint
             --> visual identity --> pinned SiTH/SMPL-X --> VRM 1.0
             --> .mrbody --> anatomical skin QA --> validated runtime materialization
             --> exact-revision renderer build --> deterministic Humanoid deformation sweep
-            --> atomic Windows/Quest evidence pairs --> byte/build/revision-bound acceptance
+            --> atomic Windows/Quest evidence pairs --> contract-bound human review
+            --> reference release policy --> byte/build/revision-bound production acceptance
 ```
 
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
