@@ -100,6 +100,25 @@ if ([int64]$openPose.byte_count -ne [int64]$sith.openpose.byte_count) {
     throw "Live OpenPose binary byte count differs from setup evidence."
 }
 
+$openPoseModelsPath = ([string]$sith.openpose.repository).TrimEnd('/') + "/models"
+$openPoseModelsRaw = Invoke-Checked -Arguments @(
+    "-m", "bodyrig.wsl_tree_digest",
+    "--distribution", [string]$sith.distribution,
+    "--python", [string]$sith.sith.python,
+    "--path", $openPoseModelsPath,
+    "--wsl-exe", $WslExe
+) -Step "Live OpenPose model tree digest"
+try { $openPoseModels = ($openPoseModelsRaw -join "`n") | ConvertFrom-Json }
+catch { throw "Live OpenPose model tree digest returned unreadable JSON." }
+$expectedOpenPoseModelsHash = ([string]$sith.openpose.models_sha256).ToLowerInvariant()
+$actualOpenPoseModelsHash = ([string]$openPoseModels.sha256).ToLowerInvariant()
+if ($actualOpenPoseModelsHash -ne $expectedOpenPoseModelsHash) {
+    throw "Live OpenPose model tree SHA-256 mismatch: expected $expectedOpenPoseModelsHash, got $actualOpenPoseModelsHash"
+}
+if ([int64]$openPoseModels.file_count -ne [int64]$sith.openpose.models_file_count -or [int64]$openPoseModels.byte_count -ne [int64]$sith.openpose.models_byte_count) {
+    throw "Live OpenPose model tree counts differ from setup evidence."
+}
+
 $modelRaw = Invoke-Checked -Arguments @(
     "-m", "bodyrig.sith_model",
     "--distribution", [string]$sith.distribution,
@@ -139,6 +158,7 @@ $report = [ordered]@{
         recovery = $true
         sith_openpose = $true
         openpose_binary = $true
+        openpose_models = $true
         diffusion_model = $true
         stash = $true
     }
@@ -146,6 +166,9 @@ $report = [ordered]@{
         stash_version = [string]$stash.version
         openpose_sha256 = $actualOpenPoseHash
         openpose_byte_count = [int64]$openPose.byte_count
+        openpose_models_sha256 = $actualOpenPoseModelsHash
+        openpose_models_file_count = [int64]$openPoseModels.file_count
+        openpose_models_byte_count = [int64]$openPoseModels.byte_count
         diffusion_model_sha256 = $actualModelHash
         diffusion_model_file_count = [int64]$model.file_count
         diffusion_model_byte_count = [int64]$model.byte_count
@@ -166,6 +189,7 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
 Write-Host "BodyRig rig readiness: READY"
 Write-Host "Stash: $([string]$stash.version)"
 Write-Host "OpenPose binary SHA-256: $actualOpenPoseHash"
+Write-Host "OpenPose model tree SHA-256: $actualOpenPoseModelsHash"
 Write-Host "Diffusion model SHA-256: $actualModelHash"
 if (-not [string]::IsNullOrWhiteSpace($Out)) { Write-Host "Report: $Out" }
 exit 0
