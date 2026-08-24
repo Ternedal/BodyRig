@@ -8,8 +8,7 @@ import pytest
 
 from bodyrig.bridges.hmr2_config import FOUR_D_HUMANS_REVISION, PHALP_REVISION
 from bodyrig.rig_setup import RigSetupError, load_rig_setup
-from bodyrig.sith_preflight import SITH_REVISION
-from bodyrig.sith_setup import OPENPOSE_REVISION
+from bodyrig.sith_preflight import OPENPOSE_REVISION, SITH_REVISION
 
 
 def _write(path: Path, value: dict) -> str:
@@ -39,10 +38,16 @@ def _fixture(tmp_path: Path) -> Path:
     preflight_sha = _write(preflight, {"format": "bodyrig-recovery-preflight", "version": 1, "ok": True})
     sith_sha = _write(sith, {
         "format": "bodyrig-sith-setup",
-        "version": 1,
+        "version": 2,
         "distribution": "Ubuntu-22.04",
         "sith": {"repository": "/opt/sith", "revision": SITH_REVISION, "python": "/opt/sith/.venv/bin/python"},
-        "openpose": {"repository": "/opt/openpose", "revision": OPENPOSE_REVISION, "executable": "/opt/openpose/build/examples/openpose/openpose.bin"},
+        "openpose": {
+            "repository": "/opt/openpose",
+            "revision": OPENPOSE_REVISION,
+            "executable": "/opt/openpose/build/examples/openpose/openpose.bin",
+            "sha256": "b" * 64,
+            "byte_count": 987654,
+        },
         "diffusion_model": {"path": "/opt/models/sith", "sha256": "a" * 64, "file_count": 5, "byte_count": 1234},
     })
     rig = tmp_path / "rig.json"
