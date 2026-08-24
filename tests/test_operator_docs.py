@@ -72,7 +72,7 @@ def test_low_level_validate_rig_docs_bind_to_pinned_phalp_checkout() -> None:
         )
 
 
-def test_final_gate_docs_include_both_machine_probe_inputs() -> None:
+def test_final_gate_docs_include_machine_and_deformation_probe_inputs() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     paths = [repo_root / "README.md", repo_root / "docs" / "RIG_ACCEPTANCE.md"]
     for path in paths:
@@ -82,9 +82,12 @@ def test_final_gate_docs_include_both_machine_probe_inputs() -> None:
             "complete-acceptance.ps1 invocation"
         )
         args = calls[0]
-        assert "-WindowsProbeReport " in args, (
-            f"{path.relative_to(repo_root)} final gate omits -WindowsProbeReport"
-        )
-        assert "-QuestProbeReport " in args, (
-            f"{path.relative_to(repo_root)} final gate omits -QuestProbeReport"
-        )
+        for argument in (
+            "-WindowsProbeReport ",
+            "-WindowsDeformationReport ",
+            "-QuestProbeReport ",
+            "-QuestDeformationReport ",
+        ):
+            assert argument in args, (
+                f"{path.relative_to(repo_root)} final gate omits {argument.strip()}"
+            )
