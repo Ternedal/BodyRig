@@ -48,6 +48,7 @@ def test_operator_docs_use_machine_authoritative_reference_renderer_attestation(
         for args in calls:
             assert "-AcceptanceDir " in args
             assert "-Platform " in args
+            assert "-ConfirmQualityChecklist" in args
             assert "-QualityNote " in args
             assert "-RendererName " not in args
             assert "-RendererVersion " not in args
