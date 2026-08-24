@@ -8,6 +8,7 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
         "git -C $repoRoot rev-parse HEAD",
         "git -C $repoRoot status --porcelain",
         "bodyrig.__file__",
+        "check-reference-renderer-ready.ps1",
         "check-rig-ready.ps1",
         "-RigSetupReport",
         "-BodyRigPython",
@@ -15,7 +16,7 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
         "-ApiKeyEnv",
         "-WslExe",
         "BodyRig pre-session doctor: READY",
-        "No physical clone session or acceptance evidence was created.",
+        "No Unity project was opened and no physical clone session or acceptance evidence was created.",
     ):
         assert token in script
 
