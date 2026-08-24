@@ -5,18 +5,25 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import bodyrig.app as app_module
+from bodyrig.person_assembly import read_receipt
 from bodyrig.person_profiles import add_body_revision, load_profile
 
 VOICE_BYTES = b"fixture-mrvoice-bytes"
 
 
 class _FakeVoiceRig:
+    def __init__(self) -> None:
+        self.package_raw = VOICE_BYTES
+
+    def health(self):
+        return {"ok": True, "service": "voicerig", "version": "test"}
+
     def voices(self):
         return [{"id": "anna-voice-0001", "name": "Anna", "language": "da", "package": "anna.mrvoice", "is_default": False, "compatibility": {}}]
 
     def package_bytes(self, package: str) -> bytes:
         assert package == "anna.mrvoice"
-        return VOICE_BYTES
+        return self.package_raw
 
     def preview(self, package: str) -> bytes:
         assert package == "anna.mrvoice"
@@ -28,12 +35,14 @@ class _FakeVoiceRig:
         return b"RIFF" + b"\x00" * 64
 
 
-def _client(tmp_path: Path, monkeypatch) -> TestClient:
+def _client(tmp_path: Path, monkeypatch) -> tuple[TestClient, _FakeVoiceRig]:
     people = tmp_path / "people"
+    voice = _FakeVoiceRig()
     monkeypatch.setenv("BODYRIG_ALLOW_REMOTE", "1")
     monkeypatch.setattr(app_module, "person_library", lambda: people)
-    monkeypatch.setattr(app_module, "_voicerig_client", lambda: _FakeVoiceRig())
-    return TestClient(app_module.app)
+    monkeypatch.setattr(app_module, "_voicerig_client", lambda: voice)
+    monkeypatch.setattr(app_module, "_body_bytes_match", lambda item: Path(item["package_path"]))
+    return TestClient(app_module.app), voice
 
 
 def _create_components(client: TestClient, root: Path, person_id: str) -> None:
@@ -65,8 +74,41 @@ def _create_components(client: TestClient, root: Path, person_id: str) -> None:
     assert personality.status_code == 200
 
 
-def test_components_remain_candidates_until_person_revision_is_approved(tmp_path: Path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
+def _assembly(client: TestClient, person_id: str, personality: str = "personality-r0001") -> dict:
+    response = client.post(
+        f"/api/v1/people/{person_id}/assembly",
+        json={
+            "body_revision": "body-r0001",
+            "voice_revision": "voice-r0001",
+            "personality_revision": personality,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["assembly_fingerprint"]) == 64
+    assert payload["voice"]["voice_package"] == "anna.mrvoice"
+    assert payload["personality_preview"]["instructions"].startswith("Du er Anna")
+    return payload
+
+
+def _approval_payload(fingerprint: str, *, personality: str = "personality-r0001") -> dict:
+    return {
+        "body_revision": "body-r0001",
+        "voice_revision": "voice-r0001",
+        "personality_revision": personality,
+        "assembly_fingerprint": fingerprint,
+        "body_voice_match": True,
+        "voice_personality_match": True,
+        "body_personality_match": True,
+        "overall_coherent": True,
+        "compatibility_note": "Krop, stemme og personality opleves som samme Anna.",
+        "feedback": "first coherent person",
+        "activate": True,
+    }
+
+
+def test_components_remain_candidates_until_exact_assembly_is_reviewed(tmp_path: Path, monkeypatch) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
     created = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None})
     assert created.status_code == 200
     person_id = created.json()["person_id"]
@@ -78,71 +120,78 @@ def test_components_remain_candidates_until_person_revision_is_approved(tmp_path
 
     old_path = client.post(f"/api/v1/people/{person_id}/activate/body/body-r0001")
     assert old_path.status_code == 409
-    assert "cannot be activated independently" in old_path.json()["detail"]
 
-    bad = client.post(
-        f"/api/v1/people/{person_id}/revisions",
-        json={
-            "body_revision": "body-r0001",
-            "voice_revision": "voice-r0001",
-            "personality_revision": "personality-r0001",
-            "body_voice_match": True,
-            "voice_personality_match": False,
-            "body_personality_match": True,
-            "overall_coherent": True,
-            "compatibility_note": "Stemmen føles ikke som samme person.",
-            "feedback": "reject",
-            "activate": True,
-        },
-    )
-    assert bad.status_code == 422
-    assert "voice_personality_match" in bad.json()["detail"]
+    assembly = _assembly(client, person_id)
+    bad = _approval_payload(assembly["assembly_fingerprint"])
+    bad["voice_personality_match"] = False
+    rejected = client.post(f"/api/v1/people/{person_id}/revisions", json=bad)
+    assert rejected.status_code == 422
+    assert "voice_personality_match" in rejected.json()["detail"]
     assert load_profile(root, person_id)["active_person_revision"] is None
 
     approved = client.post(
         f"/api/v1/people/{person_id}/revisions",
-        json={
-            "body_revision": "body-r0001",
-            "voice_revision": "voice-r0001",
-            "personality_revision": "personality-r0001",
-            "body_voice_match": True,
-            "voice_personality_match": True,
-            "body_personality_match": True,
-            "overall_coherent": True,
-            "compatibility_note": "Krop, stemme og personality opleves som samme Anna.",
-            "feedback": "first coherent person",
-            "activate": True,
-        },
+        json=_approval_payload(assembly["assembly_fingerprint"]),
     )
     assert approved.status_code == 200
     payload = approved.json()
     assert payload["active_person_revision"] == "person-r0001"
-    assert payload["person_revisions"][0]["body_revision"] == "body-r0001"
-    assert payload["person_revisions"][0]["voice_revision"] == "voice-r0001"
-    assert payload["person_revisions"][0]["personality_revision"] == "personality-r0001"
+    receipt = read_receipt(root, person_id=person_id, person_revision="person-r0001")
+    assert receipt["assembly_fingerprint"] == assembly["assembly_fingerprint"]
+    assert receipt["body"]["revision_id"] == "body-r0001"
+    assert receipt["voice"]["revision_id"] == "voice-r0001"
+    assert receipt["personality"]["revision_id"] == "personality-r0001"
+
+
+def test_old_fingerprint_cannot_approve_a_different_component_combination(tmp_path: Path, monkeypatch) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()["person_id"]
+    root = app_module.person_library()
+    _create_components(client, root, person_id)
+    first = _assembly(client, person_id)
+    second_personality = client.post(
+        f"/api/v1/people/{person_id}/personality/revisions",
+        json={
+            "instructions": "Du er Anna v2. Mere direkte og mere tør.",
+            "default_language": "da",
+            "style_notes": "direkte",
+            "feedback": "candidate 2",
+        },
+    )
+    assert second_personality.status_code == 200
+    wrong = client.post(
+        f"/api/v1/people/{person_id}/revisions",
+        json=_approval_payload(first["assembly_fingerprint"], personality="personality-r0002"),
+    )
+    assert wrong.status_code == 409
+    assert "changed after audition" in wrong.json()["detail"]
+    assert load_profile(root, person_id)["active_person_revision"] is None
+
+
+def test_voice_bytes_must_still_match_during_audition_and_activation(tmp_path: Path, monkeypatch) -> None:
+    client, voice = _client(tmp_path, monkeypatch)
+    person_id = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()["person_id"]
+    root = app_module.person_library()
+    _create_components(client, root, person_id)
+    assembly = _assembly(client, person_id)
+    approved = client.post(f"/api/v1/people/{person_id}/revisions", json=_approval_payload(assembly["assembly_fingerprint"]))
+    assert approved.status_code == 200
+
+    voice.package_raw = b"changed-under-same-name"
+    preview = client.get(f"/api/v1/people/{person_id}/voice/preview?revision=voice-r0001")
+    assert preview.status_code == 409
+    reactivate = client.post(f"/api/v1/people/{person_id}/revisions/person-r0001/activate")
+    assert reactivate.status_code == 409
+    assert "VoiceRig package bytes" in reactivate.json()["detail"]
 
 
 def test_new_personality_candidate_does_not_mutate_active_person(tmp_path: Path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
-    created = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()
-    person_id = created["person_id"]
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()["person_id"]
     root = app_module.person_library()
     _create_components(client, root, person_id)
-    approved = client.post(
-        f"/api/v1/people/{person_id}/revisions",
-        json={
-            "body_revision": "body-r0001",
-            "voice_revision": "voice-r0001",
-            "personality_revision": "personality-r0001",
-            "body_voice_match": True,
-            "voice_personality_match": True,
-            "body_personality_match": True,
-            "overall_coherent": True,
-            "compatibility_note": "Version 1 hænger sammen.",
-            "feedback": "v1",
-            "activate": True,
-        },
-    )
+    assembly = _assembly(client, person_id)
+    approved = client.post(f"/api/v1/people/{person_id}/revisions", json=_approval_payload(assembly["assembly_fingerprint"]))
     assert approved.status_code == 200
 
     candidate = client.post(
@@ -162,9 +211,8 @@ def test_new_personality_candidate_does_not_mutate_active_person(tmp_path: Path,
 
 
 def test_voice_preview_and_synthesis_are_bound_to_registered_package_bytes(tmp_path: Path, monkeypatch) -> None:
-    client = _client(tmp_path, monkeypatch)
-    created = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()
-    person_id = created["person_id"]
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post("/api/v1/people", json={"display_name": "Anna", "aliases": [], "stash_performer": None}).json()["person_id"]
     voice = client.post(f"/api/v1/people/{person_id}/voice/revisions", json={"voice_package": "anna.mrvoice", "feedback": "audition"})
     assert voice.status_code == 200
 
