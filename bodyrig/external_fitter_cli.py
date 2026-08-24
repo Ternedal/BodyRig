@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -9,8 +10,10 @@ from typing import Any
 
 from .bodyprint_adjustment import (
     BodyprintAdjustmentEvidenceError,
+    _write_create_only,
     adjustment_evidence_sha256,
     apply_adjustment_to_bodyprint,
+    bind_request_to_proof,
     load_adjustment_evidence,
 )
 from .external_fitter import ExternalFitterError, run_external_fitter
@@ -27,6 +30,8 @@ from .proof import ProofError, load_recovery_proof, read_canonical_json
 CONFIG_FORMAT = "bodyrig-external-fitter-config"
 CONFIG_VERSION = 1
 ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+ADJUSTMENT_REQUEST_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
+BOUND_ADJUSTMENT_FILENAME = "bodyrig-bodyprint-adjustment.json"
 
 
 class ExternalFitterConfigError(ValueError):
@@ -76,6 +81,25 @@ def validate_external_fitter_config(value: Any) -> dict[str, Any]:
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 86_400:
         raise ExternalFitterConfigError("external fitter timeout_seconds must be in 1..86400")
     return value
+
+
+def _resolve_adjustment_path(args: argparse.Namespace) -> str:
+    explicit = str(args.bodyprint_adjustment or "").strip()
+    request_path = os.environ.get(ADJUSTMENT_REQUEST_ENV, "").strip()
+    if explicit and request_path:
+        raise BodyprintAdjustmentEvidenceError(
+            f"pass --bodyprint-adjustment or {ADJUSTMENT_REQUEST_ENV}, never both"
+        )
+    if explicit:
+        return explicit
+    if not request_path:
+        return ""
+
+    request = read_canonical_json(request_path, label="BodyPrint adjustment request")
+    evidence = bind_request_to_proof(request, proof_path=args.proof)
+    evidence_path = Path(args.proof).expanduser().resolve().parent / BOUND_ADJUSTMENT_FILENAME
+    _write_create_only(evidence_path, evidence)
+    return str(evidence_path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -129,9 +153,10 @@ def main(argv: list[str] | None = None) -> int:
         adjustment_request = None
         effective_bodyprint = proof["bodyprint"]
         adjustment_hash = None
-        if args.bodyprint_adjustment:
+        adjustment_path = _resolve_adjustment_path(args)
+        if adjustment_path:
             adjustment_evidence = load_adjustment_evidence(
-                args.bodyprint_adjustment,
+                adjustment_path,
                 proof_path=args.proof,
             )
             adjustment_request = adjustment_evidence["adjustment"]
@@ -139,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
                 proof["bodyprint"],
                 adjustment_evidence,
             )
-            adjustment_hash = adjustment_evidence_sha256(args.bodyprint_adjustment)
+            adjustment_hash = adjustment_evidence_sha256(adjustment_path)
 
         fitted = run_external_fitter(
             config["command"],
