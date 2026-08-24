@@ -31,6 +31,14 @@ def test_windows_status_command_uses_reference_attestation_helper() -> None:
     assert "RendererVersion" not in status.next_command
 
 
+def test_quest_probe_status_command_uses_contract_bound_wrapper() -> None:
+    status = _operator_command(_status("quest-probe"))
+    assert status.next_command is not None
+    assert ".\\run-reference-quest-renderer-probe.ps1" in status.next_command
+    assert "-AcceptanceDir" in status.next_command
+    assert ".\\run-quest-renderer-probe.ps1" not in status.next_command
+
+
 def test_quest_status_command_uses_reference_attestation_helper() -> None:
     status = _operator_command(_status("quest-attestation"))
     assert status.next_command is not None
