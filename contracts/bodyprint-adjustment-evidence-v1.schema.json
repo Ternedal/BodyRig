@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyprint-adjustment-evidence-v1.schema.json",
+  "title": "BodyRig BodyPrint adjustment evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "recovery_proof_sha256", "adjustment"],
+  "properties": {
+    "format": {"const": "bodyrig-bodyprint-adjustment-evidence"},
+    "version": {"const": 1},
+    "recovery_proof_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "version", "feedback_sha256", "changes"],
+      "properties": {
+        "format": {"const": "bodyrig-bodyprint-adjustment"},
+        "version": {"const": 1},
+        "feedback_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "delta", "reason"],
+            "properties": {
+              "field": {
+                "enum": [
+                  "shape.arm_to_height",
+                  "shape.shoulder_to_height",
+                  "shape.hip_to_height",
+                  "shape.leg_to_height",
+                  "shape.height_scale",
+                  "motion.gesture_amplitude",
+                  "motion.energy"
+                ]
+              },
+              "delta": {"type": "number"},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 240}
+            }
+          }
+        }
+      }
+    }
+  }
+}
