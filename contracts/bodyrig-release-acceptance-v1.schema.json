@@ -42,7 +42,7 @@
     "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
     "automated_acceptance": {
       "type":"object","additionalProperties":false,
-      "required":["report_sha256","package_sha256","body_id","automated_pass","physical_clone_mode","physical_clone_session_sha256","physical_clone_readiness_sha256"],
+      "required":["report_sha256","package_sha256","body_id","automated_pass","physical_clone_mode","physical_clone_session_sha256","physical_clone_readiness_sha256","skin_qa_report_sha256","skin_qa_assessment","skin_qa_manual_review_required"],
       "properties": {
         "report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
         "package_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
@@ -50,7 +50,10 @@
         "automated_pass":{"const":true},
         "physical_clone_mode":{"const":"stash-sith-high-fidelity"},
         "physical_clone_session_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
-        "physical_clone_readiness_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}
+        "physical_clone_readiness_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_assessment":{"enum":["low-risk","review","high-risk"]},
+        "skin_qa_manual_review_required":{"const":true}
       }
     },
     "renderer_acceptance": {
