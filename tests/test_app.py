@@ -5,8 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import bodyrig.app as app_module
+import bodyrig.ui_jobs as ui_jobs_module
 from bodyrig.avatar import ProceduralAvatarFitter
 from bodyrig.package import build_package
+from bodyrig.person_profiles import create_profile
 from bodyrig.runtime import BodyRuntime
 
 
@@ -111,3 +113,37 @@ def test_motor_state_requires_activated_bodyprint(tmp_path: Path, monkeypatch):
     client = _client(monkeypatch)
     response = client.get("/api/v1/runtime/motor-state")
     assert response.status_code == 409
+
+
+def test_body_build_api_rejects_changes_not_generated_from_same_feedback(tmp_path: Path, monkeypatch):
+    people = tmp_path / "people"
+    profile = create_profile(
+        people,
+        display_name="Reviewed Body",
+        stash_performer={"id": "stash-1", "name": "Reviewed Body", "disambiguation": ""},
+    )
+    monkeypatch.setattr(ui_jobs_module, "person_library", lambda: people)
+    monkeypatch.setattr(
+        ui_jobs_module,
+        "operator_checkout_status",
+        lambda: {"ok": True, "revision": "a" * 40, "root": str(tmp_path)},
+    )
+    monkeypatch.setenv("STASH_URL", "http://127.0.0.1:9999")
+    monkeypatch.setenv("STASH_API_KEY", "test-only-token")
+    client = _client(monkeypatch)
+
+    response = client.post(
+        f"/api/v1/people/{profile['person_id']}/body/build",
+        json={
+            "feedback": "Armene skal være kortere",
+            "changes": [
+                {
+                    "field": "shape.shoulder_to_height",
+                    "delta": 0.010,
+                    "reason": "shoulders should be broader",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 409
+    assert "exact subset" in response.json()["detail"]
