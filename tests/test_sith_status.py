@@ -3,6 +3,28 @@ from __future__ import annotations
 import bodyrig.sith_status as status
 
 
+def _kwargs() -> dict:
+    return {
+        "repo": "/opt/sith",
+        "python": "/opt/sith/.venv/bin/python",
+        "openpose_repo": "/opt/openpose",
+        "openpose": "/opt/openpose/build/examples/openpose/openpose.bin",
+        "openpose_sha256": "b" * 64,
+        "openpose_models_sha256": "c" * 64,
+        "diffusion_model": "/opt/models/sith",
+        "diffusion_sha256": "a" * 64,
+    }
+
+
+def _green_preflight(**_):
+    return {
+        "ok": True,
+        "errors": [],
+        "revision": "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d",
+        "environment": {"cuda_device": "RTX test"},
+    }
+
+
 def test_status_reports_missing_environment_without_running_preflight(monkeypatch):
     for name in status.ENVIRONMENT.values():
         monkeypatch.delenv(name, raising=False)
@@ -14,19 +36,22 @@ def test_status_reports_missing_environment_without_running_preflight(monkeypatc
     assert result["ready"] is False
     assert result["configured"] is False
     assert "BODYRIG_SITH_REPO" in result["missing_settings"]
+    assert "BODYRIG_SITH_OPENPOSE_SHA256" in result["missing_settings"]
+    assert "BODYRIG_SITH_OPENPOSE_MODELS_SHA256" in result["missing_settings"]
     assert called == []
 
 
-def test_status_ready_requires_preflight_and_exact_model_digest(monkeypatch):
+def test_status_ready_requires_preflight_openpose_and_exact_model_digests(monkeypatch):
+    monkeypatch.setattr(status, "run_preflight", _green_preflight)
     monkeypatch.setattr(
         status,
-        "run_preflight",
-        lambda **_: {
-            "ok": True,
-            "errors": [],
-            "revision": "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d",
-            "environment": {"cuda_device": "RTX test"},
-        },
+        "digest_wsl_file",
+        lambda **_: {"sha256": "b" * 64, "byte_count": 2345},
+    )
+    monkeypatch.setattr(
+        status,
+        "digest_wsl_tree",
+        lambda **_: {"sha256": "c" * 64, "file_count": 17, "byte_count": 4567},
     )
     monkeypatch.setattr(
         status,
@@ -34,56 +59,83 @@ def test_status_ready_requires_preflight_and_exact_model_digest(monkeypatch):
         lambda **_: {"sha256": "a" * 64, "file_count": 12, "byte_count": 12345},
     )
 
-    result = status.collect_status(
-        repo="/opt/sith",
-        python="/opt/sith/.venv/bin/python",
-        openpose="/opt/openpose/openpose.bin",
-        diffusion_model="/opt/models/sith",
-        diffusion_sha256="a" * 64,
-    )
+    result = status.collect_status(**_kwargs())
 
+    assert result["version"] == 2
     assert result["ready"] is True
     assert result["preflight"]["cuda_device"] == "RTX test"
+    assert result["openpose_binary"]["matches"] is True
+    assert result["openpose_models"]["matches"] is True
     assert result["diffusion_model"]["matches"] is True
 
 
-def test_status_rejects_model_tree_drift(monkeypatch):
-    monkeypatch.setattr(status, "run_preflight", lambda **_: {"ok": True, "errors": [], "revision": "x", "environment": {}})
+def test_status_rejects_openpose_binary_drift_before_model_trees(monkeypatch):
+    calls = []
+    monkeypatch.setattr(status, "run_preflight", _green_preflight)
+    monkeypatch.setattr(
+        status,
+        "digest_wsl_file",
+        lambda **_: {"sha256": "d" * 64, "byte_count": 2345},
+    )
+    monkeypatch.setattr(status, "digest_wsl_tree", lambda **_: calls.append("openpose-models"))
+    monkeypatch.setattr(status, "digest_model_tree", lambda **_: calls.append("diffusion"))
+
+    result = status.collect_status(**_kwargs())
+
+    assert result["ready"] is False
+    assert result["openpose_binary"]["matches"] is False
+    assert "OpenPose binary digest mismatch" in result["errors"]
+    assert calls == []
+
+
+def test_status_rejects_openpose_model_tree_drift_before_diffusion(monkeypatch):
+    calls = []
+    monkeypatch.setattr(status, "run_preflight", _green_preflight)
+    monkeypatch.setattr(status, "digest_wsl_file", lambda **_: {"sha256": "b" * 64, "byte_count": 2345})
+    monkeypatch.setattr(
+        status,
+        "digest_wsl_tree",
+        lambda **_: {"sha256": "d" * 64, "file_count": 17, "byte_count": 4567},
+    )
+    monkeypatch.setattr(status, "digest_model_tree", lambda **_: calls.append("diffusion"))
+
+    result = status.collect_status(**_kwargs())
+
+    assert result["ready"] is False
+    assert result["openpose_models"]["matches"] is False
+    assert "OpenPose model tree digest mismatch" in result["errors"]
+    assert calls == []
+
+
+def test_status_rejects_diffusion_model_tree_drift(monkeypatch):
+    monkeypatch.setattr(status, "run_preflight", _green_preflight)
+    monkeypatch.setattr(status, "digest_wsl_file", lambda **_: {"sha256": "b" * 64, "byte_count": 2345})
+    monkeypatch.setattr(status, "digest_wsl_tree", lambda **_: {"sha256": "c" * 64, "file_count": 17, "byte_count": 4567})
     monkeypatch.setattr(
         status,
         "digest_model_tree",
-        lambda **_: {"sha256": "b" * 64, "file_count": 2, "byte_count": 10},
+        lambda **_: {"sha256": "d" * 64, "file_count": 2, "byte_count": 10},
     )
 
-    result = status.collect_status(
-        repo="/opt/sith",
-        python="/opt/sith/.venv/bin/python",
-        openpose="/opt/openpose/openpose.bin",
-        diffusion_model="/opt/models/sith",
-        diffusion_sha256="a" * 64,
-    )
+    result = status.collect_status(**_kwargs())
 
     assert result["ready"] is False
     assert result["diffusion_model"]["matches"] is False
     assert "SiTH diffusion model tree digest mismatch" in result["errors"]
 
 
-def test_status_stops_on_preflight_errors_before_model_digest(monkeypatch):
+def test_status_stops_on_preflight_errors_before_any_digest(monkeypatch):
     calls = []
     monkeypatch.setattr(
         status,
         "run_preflight",
         lambda **_: {"ok": False, "errors": ["missing OpenPose"], "revision": "x", "environment": {}},
     )
-    monkeypatch.setattr(status, "digest_model_tree", lambda **_: calls.append("digest"))
+    monkeypatch.setattr(status, "digest_wsl_file", lambda **_: calls.append("binary"))
+    monkeypatch.setattr(status, "digest_wsl_tree", lambda **_: calls.append("models"))
+    monkeypatch.setattr(status, "digest_model_tree", lambda **_: calls.append("diffusion"))
 
-    result = status.collect_status(
-        repo="/opt/sith",
-        python="/opt/sith/.venv/bin/python",
-        openpose="/opt/openpose/openpose.bin",
-        diffusion_model="/opt/models/sith",
-        diffusion_sha256="a" * 64,
-    )
+    result = status.collect_status(**_kwargs())
 
     assert result["ready"] is False
     assert "missing OpenPose" in result["errors"]
