@@ -17,11 +17,11 @@ The session report is deliberately local operator evidence. It is not part of `.
   -BodyId "performer-123"
 ```
 
-Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout, matching the existing Gate A acceptance discipline. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` when it is used.
+Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` when it is used. A dirty-session clone cannot later satisfy the high-fidelity production Gate A.
 
 The launcher then resolves the master rig setup report, starts a create-only session report, runs live readiness, hashes the resulting readiness report, and starts the existing Stash clone pipeline. Before a PASS session is written, Git HEAD is checked again; if HEAD changed during the potentially long clone, PASS evidence is refused.
 
-If `-OutputDir` is omitted, a unique timestamped clone output directory is chosen in the current working directory. If `-SessionReport` is omitted, the local session report is written below `%LOCALAPPDATA%\BodyRig\physical-clone-sessions` (or the system temporary directory when `LOCALAPPDATA` is unavailable).
+If `-OutputDir` is omitted, a unique timestamped clone output directory is written outside the Git checkout under `%LOCALAPPDATA%\BodyRig\physical-clones` (or the system temporary directory when `LOCALAPPDATA` is unavailable). If `-SessionReport` is omitted, the local session report is written below `%LOCALAPPDATA%\BodyRig\physical-clone-sessions` with the same run suffix. Keeping generated artifacts outside the checkout prevents the operator flow itself from making later clean-checkout gates fail.
 
 Both locations can be supplied explicitly:
 
@@ -86,8 +86,17 @@ python -m bodyrig.physical_session validate "C:\path\to\session.json"
 
 The validator is strict about exact v1 fields, Git revision syntax, boolean checkout status, lowercase SHA-256 values, state transitions, timestamps and BodyRig body-id syntax. The JSON shape is also documented in `contracts/physical-clone-session-v1.schema.json`.
 
-## Relationship to release acceptance
+## Promote a PASS clone into production Gate A
 
-A successful physical clone session is evidence that one exact BodyRig revision running the canonical ready-launcher reached a real source-derived clone output after a fresh rig-readiness check. It is not production activation.
+A successful physical clone session proves that one exact BodyRig revision reached a real source-derived clone after a fresh rig-readiness check. It is not yet renderer acceptance.
 
-The same source-derived `.mrbody` still has to pass the existing physical WindowsPlayer and Quest-class renderer probes, human visual-quality attestations and `complete-acceptance.ps1` before `production_activation=true` is allowed.
+Promote the exact resulting `.mrbody` bytes with:
+
+```powershell
+.\accept-physical-clone.ps1 `
+  -SessionReport "C:\path\to\physical-clone-session.json"
+```
+
+That bridge revalidates the session/readiness lineage, recovery proof, visual-identity binding, built-in `sith-smplx-vrm` v1 provenance and non-placeholder VRM 1.0 package. It then copies the exact `.mrbody` bytes into a write-once Gate A bundle and materializes renderer runtime from that package; it does not refit or rebuild the avatar.
+
+The same accepted high-fidelity `.mrbody` must then pass physical WindowsPlayer and Quest-class renderer probes, human visual-quality attestations and `complete-acceptance.ps1` before `production_activation=true` is allowed.
