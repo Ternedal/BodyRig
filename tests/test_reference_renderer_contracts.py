@@ -71,15 +71,10 @@ def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() ->
     assert '"--bodyrig-deformation-output"' in bootstrap
     assert '"humanoid-muscle-sweep-v1"' in sweep
     assert "BodyRigBuildProvenance.RequireRevision()" in sweep
-    expected_poses = (
-        '"neutral"',
-        '"arms_abduction"',
-        '"elbows_flexed"',
-        '"arms_forward"',
-        '"left_leg_lift"',
-        '"knee_flexion"',
-    )
-    for pose in expected_poses:
+    for pose in (
+        '"neutral"', '"arms_abduction"', '"elbows_flexed"',
+        '"arms_forward"', '"left_leg_lift"', '"knee_flexion"',
+    ):
         assert pose in sweep
     assert "new HumanPoseHandler(_animator.avatar, _animator.transform)" in sweep
     assert "HumanTrait.MuscleName" in sweep
@@ -137,3 +132,23 @@ def test_operator_wrappers_keep_gate_a_bytes_platform_deformation_and_build_revi
     assert "getprop" in quest and "ro.product.model" in quest
     assert "quest|oculus" in quest.lower()
     assert 'ApplicationId = "dk.ternedal.bodyrig.reference"' in quest
+
+
+def test_physical_wrappers_commit_machine_and_deformation_as_one_directory_pair() -> None:
+    windows = (REPO / "run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
+    quest = (REPO / "run-quest-renderer-probe.ps1").read_text(encoding="utf-8")
+    expected = (
+        (windows, "windows-evidence", ".bodyrig-windows-attempt-"),
+        (quest, "quest-evidence", ".bodyrig-quest-attempt-"),
+    )
+    for source, evidence_dir, attempt_prefix in expected:
+        assert evidence_dir in source
+        assert attempt_prefix in source
+        assert '$committed = $false' in source
+        assert 'Move-Item -LiteralPath $attemptDir -Destination $evidenceDir' in source
+        assert '$committed = $true' in source
+        assert 'if (-not $committed -and (Test-Path -LiteralPath $attemptDir -PathType Container))' in source
+        assert 'Remove-Item -LiteralPath $attemptDir -Recurse -Force' in source
+        assert 'canonical evidence directory already exists' in source
+        assert 'Pass both -ProbeOutput and -DeformationOutput together, or neither.' in source
+        assert 'must share one dedicated evidence directory' in source
