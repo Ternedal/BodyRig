@@ -123,7 +123,7 @@ if ([string]::IsNullOrWhiteSpace($SessionReport)) {
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
 $readinessReport = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
 $rigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
-$checkoutCleanText = $(if ($checkoutClean) { "true" } else { "false" })
+$checkoutCleanText = $(if ($checkoutClean -and -not $AllowDirty) { "true" } else { "false" })
 
 Invoke-SessionCommand -Arguments @(
     "start",
@@ -251,6 +251,13 @@ try {
     $finalHead = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
     if ($LASTEXITCODE -ne 0 -or $finalHead -ne $head) {
         throw "BodyRig Git HEAD changed during the physical clone session; refusing PASS evidence."
+    }
+    $finalDirty = @(& git -C $repoRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not re-check BodyRig Git status after physical clone."
+    }
+    if (-not $AllowDirty -and $finalDirty.Count -gt 0) {
+        throw "BodyRig checkout became dirty during the physical clone session; refusing PASS evidence."
     }
 
     Invoke-SessionCommand -Arguments @(
