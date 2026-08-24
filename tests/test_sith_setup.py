@@ -12,7 +12,7 @@ from bodyrig.sith_setup import SithSetupError, load_setup_report, validate_setup
 def _report() -> dict:
     return {
         "format": "bodyrig-sith-setup",
-        "version": 2,
+        "version": 3,
         "distribution": "Ubuntu-22.04",
         "sith": {
             "repository": "/home/test/.local/share/bodyrig/sith",
@@ -25,6 +25,9 @@ def _report() -> dict:
             "executable": "/home/test/.local/share/bodyrig/openpose/build/examples/openpose/openpose.bin",
             "sha256": "b" * 64,
             "byte_count": 987654,
+            "models_sha256": "c" * 64,
+            "models_file_count": 17,
+            "models_byte_count": 456789012,
         },
         "diffusion_model": {
             "path": "/home/test/.cache/bodyrig/sith-diffusion",
@@ -43,6 +46,9 @@ def test_setup_report_roundtrip(tmp_path: Path):
     assert value["openpose"]["revision"] == OPENPOSE_REVISION
     assert value["openpose"]["sha256"] == "b" * 64
     assert value["openpose"]["byte_count"] == 987654
+    assert value["openpose"]["models_sha256"] == "c" * 64
+    assert value["openpose"]["models_file_count"] == 17
+    assert value["openpose"]["models_byte_count"] == 456789012
     assert value["diffusion_model"]["sha256"] == "a" * 64
 
 
@@ -50,11 +56,14 @@ def test_setup_report_roundtrip(tmp_path: Path):
     ("mutate", "message"),
     [
         (lambda value: value.update(extra=True), "fields must match"),
-        (lambda value: value.update(version=1), "unsupported SiTH setup report"),
+        (lambda value: value.update(version=2), "unsupported SiTH setup report"),
         (lambda value: value["sith"].update(revision="deadbeef"), "pinned revision"),
         (lambda value: value["openpose"].update(revision="deadbeef"), "OpenPose setup revision"),
         (lambda value: value["openpose"].update(sha256="B" * 64), "openpose.sha256"),
         (lambda value: value["openpose"].update(byte_count=0), "openpose.byte_count"),
+        (lambda value: value["openpose"].update(models_sha256="C" * 64), "openpose.models_sha256"),
+        (lambda value: value["openpose"].update(models_file_count=0), "openpose.models_file_count"),
+        (lambda value: value["openpose"].update(models_byte_count=0), "openpose.models_byte_count"),
         (lambda value: value["diffusion_model"].update(sha256="A" * 64), "lowercase SHA-256"),
         (lambda value: value["sith"].update(repository="relative/path"), "absolute Linux path"),
     ],
