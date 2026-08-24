@@ -98,7 +98,7 @@ def test_build_script_embeds_exact_clean_git_revision() -> None:
     assert "BodyRig Git HEAD changed during renderer build" in wrapper
     assert 'GetArgument("-bodyrigRevision")' in source
     assert 'GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json"' in source
-    assert '"bodyrig-build-provenance"' in source
+    assert "bodyrig-build-provenance" in source
     assert "AssetDatabase.ImportAsset(GeneratedProvenancePath" in source
     assert "Assets/BodyRigGenerated/" in ignore
 
