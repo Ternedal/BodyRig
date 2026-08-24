@@ -15,6 +15,17 @@ LEGACY_RENDERER_EVIDENCE = (
     "quest-deformation-probe.json",
 )
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "reference-renderer" / "renderer-contract.json"
+QUALITY_REVIEW_FIELDS = {
+    "revision",
+    "full_deformation_sequence_reviewed",
+    "source_identity_texture_acceptable",
+    "geometry_proportions_acceptable",
+    "upper_body_deformation_acceptable",
+    "lower_body_deformation_acceptable",
+    "cross_limb_leakage_absent",
+    "skin_qa_considered",
+}
+QUALITY_REVIEW_BOOLEAN_FIELDS = QUALITY_REVIEW_FIELDS - {"revision"}
 
 
 def _blocked(status: AcceptanceStatus, gate: str, message: str) -> AcceptanceStatus:
@@ -55,6 +66,20 @@ def _load_contract() -> dict[str, Any] | None:
     return contract
 
 
+def _quality_review_mismatch(attestation: dict[str, Any], prefix: str) -> str | None:
+    review = attestation.get("quality_review")
+    if not isinstance(review, dict):
+        return f"{prefix} human attestation is missing structured quality_review."
+    if set(review) != QUALITY_REVIEW_FIELDS:
+        return f"{prefix} human attestation quality_review fields are not canonical."
+    if review.get("revision") != "bodyrig-human-quality-v1":
+        return f"{prefix} human attestation quality_review revision is unsupported."
+    for field in QUALITY_REVIEW_BOOLEAN_FIELDS:
+        if review.get(field) is not True:
+            return f"{prefix} human attestation quality_review did not explicitly pass {field}."
+    return None
+
+
 def _reference_mismatch(acceptance_dir: Path, contract: dict[str, Any]) -> str | None:
     for prefix in ("windows", "quest"):
         evidence_dir = acceptance_dir / f"{prefix}-evidence"
@@ -89,6 +114,9 @@ def _reference_mismatch(acceptance_dir: Path, contract: dict[str, Any]) -> str |
                 return f"{prefix} human attestation Unity version does not match renderer-contract.json."
             if attestation.get("deformation_sequence_revision") != contract["deformation_sequence_revision"]:
                 return f"{prefix} human attestation deformation sequence does not match renderer-contract.json."
+            quality_mismatch = _quality_review_mismatch(attestation, prefix)
+            if quality_mismatch:
+                return quality_mismatch
     return None
 
 
@@ -99,7 +127,8 @@ def apply_reference_policy(status: AcceptanceStatus) -> AcceptanceStatus:
     renderer evidence. The canonical reference-renderer path, however, only releases
     dedicated transactional ``windows-evidence/`` and ``quest-evidence/`` bundles.
     It also requires every physical evidence layer to match the single renderer
-    contract before more physical work or human review is proposed.
+    contract and every human PASS attestation to carry the complete structured
+    ``bodyrig-human-quality-v1`` review before more physical work or release is proposed.
 
     Already-complete historical release artifacts remain readable; this policy does
     not retroactively rewrite or invalidate an existing activating release artifact.
