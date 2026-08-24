@@ -122,6 +122,8 @@ def validate_session(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         if stage == "complete" or completed is not None or error is not None:
             raise PhysicalSessionError("running session state is inconsistent")
     elif status == "pass":
+        if not checkout_clean:
+            raise PhysicalSessionError("passed session requires a clean BodyRig checkout")
         if stage != "complete" or completed is None or readiness_hash is None or clone_output is None or error is not None:
             raise PhysicalSessionError("passed session state is incomplete")
     else:
@@ -231,6 +233,8 @@ def mark_pass(path: str | Path, *, clone_output: str) -> dict[str, Any]:
     value = _read(report_path)
     if value["status"] != "running" or value["stage"] != "clone":
         raise PhysicalSessionError("session can only pass after readiness and clone execution")
+    if not value["bodyrig_checkout_clean"]:
+        raise PhysicalSessionError("dirty checkout diagnostic session cannot be marked pass")
     value["status"] = "pass"
     value["stage"] = "complete"
     value["completed_utc"] = _utc_now()

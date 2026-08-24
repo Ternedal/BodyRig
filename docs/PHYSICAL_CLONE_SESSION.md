@@ -17,7 +17,7 @@ The session report is deliberately local operator evidence. It is not part of `.
   -BodyId "performer-123"
 ```
 
-Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` when it is used. A dirty-session clone cannot later satisfy the high-fidelity production Gate A.
+Before creating session evidence, the launcher resolves the exact BodyRig Git HEAD and checks `git status --porcelain`. The default physical-clone path refuses a dirty checkout. `-AllowDirty` exists only as an explicit diagnostic escape hatch, and the session records `bodyrig_checkout_clean=false` when it is used. A dirty diagnostic run may exercise readiness and clone execution, but it cannot become `status=pass`: both the session transition and strict v1 validator reject dirty PASS evidence. It therefore also cannot satisfy the high-fidelity production Gate A.
 
 The launcher then resolves the master rig setup report, starts a create-only session report, runs live readiness, hashes the resulting readiness report, and starts the existing Stash clone pipeline. Before a PASS session is written, Git HEAD is checked again; if HEAD changed during the potentially long clone, PASS evidence is refused.
 
@@ -49,7 +49,7 @@ status=running
 stage=clone
 ```
 
-A successful clone finishes as:
+A successful clone from a clean checkout finishes as:
 
 ```text
 status=pass
@@ -58,7 +58,7 @@ stage=complete
 
 Any failure before completion is recorded as `status=fail` with the failing stage (`initializing`, `readiness`, or `clone`) and a bounded diagnostic message.
 
-A passed session is impossible without readiness evidence. A clone-stage failure is also impossible to record unless readiness evidence was already bound.
+A passed session is impossible without readiness evidence and a clean checkout. A clone-stage failure is also impossible to record unless readiness evidence was already bound.
 
 ## Trust and privacy boundary
 
@@ -84,11 +84,11 @@ Validate an existing session report with:
 python -m bodyrig.physical_session validate "C:\path\to\session.json"
 ```
 
-The validator is strict about exact v1 fields, Git revision syntax, boolean checkout status, lowercase SHA-256 values, state transitions, timestamps and BodyRig body-id syntax. The JSON shape is also documented in `contracts/physical-clone-session-v1.schema.json`.
+The validator is strict about exact v1 fields, Git revision syntax, boolean checkout status, lowercase SHA-256 values, state transitions, timestamps and BodyRig body-id syntax. A `status=pass` report additionally requires `bodyrig_checkout_clean=true`; hand-edited or replayed dirty PASS JSON fails closed. The JSON shape and the same conditional rule are documented in `contracts/physical-clone-session-v1.schema.json`.
 
 ## Promote a PASS clone into production Gate A
 
-A successful physical clone session proves that one exact BodyRig revision reached a real source-derived clone after a fresh rig-readiness check. It is not yet renderer acceptance.
+A successful physical clone session proves that one exact, clean BodyRig revision reached a real source-derived clone after a fresh rig-readiness check. It is not yet renderer acceptance.
 
 Promote the exact resulting `.mrbody` bytes with:
 

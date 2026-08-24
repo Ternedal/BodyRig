@@ -59,6 +59,32 @@ def test_physical_session_can_record_explicit_dirty_checkout(tmp_path: Path) -> 
     assert value["bodyrig_checkout_clean"] is False
 
 
+def test_dirty_checkout_session_cannot_be_marked_pass(tmp_path: Path) -> None:
+    report = tmp_path / "session.json"
+    _start(report, clean=False)
+    mark_readiness_pass(report, readiness_sha256=HASH_B)
+
+    with pytest.raises(PhysicalSessionError, match="dirty checkout diagnostic session cannot be marked pass"):
+        mark_pass(report, clone_output=str(tmp_path / "clone-run"))
+
+    persisted = json.loads(report.read_text(encoding="utf-8"))
+    assert persisted["status"] == "running"
+    assert persisted["stage"] == "clone"
+    assert persisted["bodyrig_checkout_clean"] is False
+
+
+def test_validator_rejects_tampered_dirty_pass_evidence(tmp_path: Path) -> None:
+    report = tmp_path / "session.json"
+    _start(report)
+    mark_readiness_pass(report, readiness_sha256=HASH_B)
+    passed = mark_pass(report, clone_output=str(tmp_path / "clone-run"))
+
+    tampered = dict(passed)
+    tampered["bodyrig_checkout_clean"] = False
+    with pytest.raises(PhysicalSessionError, match="passed session requires a clean BodyRig checkout"):
+        validate_session(tampered)
+
+
 def test_physical_session_failure_preserves_stage(tmp_path: Path) -> None:
     report = tmp_path / "session.json"
     _start(report, performer_id="456", body_id="performer-456")
