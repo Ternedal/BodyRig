@@ -87,4 +87,4 @@ Write-Host "UniVRM:  $($contract.univrm_version) | $univrmRevision"
 Write-Host "Android: SDK=$sdk | NDK=$ndk | OpenJDK=$openJdk | adb=$adb"
 Write-Host "Git:     $($git.Source)"
 Write-Host "No Unity project was opened and no physical evidence was created."
-exit 0
+return
