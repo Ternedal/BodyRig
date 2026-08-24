@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-deformation-probe-v1.schema.json",
+  "title": "BodyRig Deformation Probe v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format","version","observed_at","platform","unity_platform","unity_version","build_guid","device_model",
+    "body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+    "sequence_revision","pose_count","poses","required_muscles_resolved","restored_neutral","complete","manual_review_required"
+  ],
+  "properties": {
+    "format": {"const":"bodyrig-deformation-probe"},
+    "version": {"const":1},
+    "observed_at": {"type":"string","minLength":1,"maxLength":80},
+    "platform": {"enum":["windows-unity-univrm","android-quest-class"]},
+    "unity_platform": {"type":"string","minLength":1,"maxLength":80},
+    "unity_version": {"type":"string","minLength":1,"maxLength":80},
+    "build_guid": {"type":"string","minLength":1,"maxLength":160},
+    "device_model": {"type":"string","minLength":1,"maxLength":240},
+    "body_id": {"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+    "package_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "runtime_manifest_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "avatar_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "bodyprint_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "sequence_revision": {"const":"humanoid-muscle-sweep-v1"},
+    "pose_count": {"const":6},
+    "poses": {
+      "type":"array","minItems":6,"maxItems":6,
+      "prefixItems": [
+        {"$ref":"#/$defs/neutral"},
+        {"$ref":"#/$defs/arms"},
+        {"$ref":"#/$defs/elbows"},
+        {"$ref":"#/$defs/cross"},
+        {"$ref":"#/$defs/leg"},
+        {"$ref":"#/$defs/squat"}
+      ],
+      "items": false
+    },
+    "required_muscles_resolved": {"const":true},
+    "restored_neutral": {"const":true},
+    "complete": {"const":true},
+    "manual_review_required": {"const":true}
+  },
+  "$defs": {
+    "poseBase": {
+      "type":"object","additionalProperties":false,
+      "required":["id","hold_seconds","applied"],
+      "properties": {
+        "id":{"type":"string"},
+        "hold_seconds":{"type":"number","minimum":1.0,"maximum":5.0},
+        "applied":{"const":true}
+      }
+    },
+    "neutral": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"neutral"}}}]},
+    "arms": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"arms_abduction"}}}]},
+    "elbows": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"elbows_flexed"}}}]},
+    "cross": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"arms_forward"}}}]},
+    "leg": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"left_leg_lift"}}}]},
+    "squat": {"allOf":[{"$ref":"#/$defs/poseBase"},{"properties":{"id":{"const":"knee_flexion"}}}]}
+  }
+}
