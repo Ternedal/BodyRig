@@ -3,10 +3,10 @@ const state = {
   selected: null,
   selectedStash: null,
   voiceLibrary: [],
+  modelLibrary: [],
   tab: "overview",
   jobTimer: null,
   assembly: null,
-  voiceObjectUrl: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -31,25 +31,6 @@ async function api(path, options = {}) {
     throw new Error(detail || `HTTP ${response.status}`);
   }
   return payload;
-}
-
-async function apiBlob(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-  });
-  if (!response.ok) {
-    const type = response.headers.get("content-type") || "";
-    let detail = `HTTP ${response.status}`;
-    if (type.includes("application/json")) {
-      const payload = await response.json();
-      detail = payload.detail || JSON.stringify(payload);
-    } else {
-      detail = (await response.text()) || detail;
-    }
-    throw new Error(detail);
-  }
-  return response.blob();
 }
 
 function escapeHtml(value) {
@@ -83,16 +64,39 @@ function latestRevision(profile, kind) {
 }
 
 function selectedAssemblyKey() {
-  return [$("assembleBody")?.value || "", $("assembleVoice")?.value || "", $("assemblePersonality")?.value || ""].join("|");
+  return [
+    $("assembleBody")?.value || "",
+    $("assembleVoice")?.value || "",
+    $("assemblePersonality")?.value || "",
+  ].join("|");
 }
 
-function revokeVoiceUrl() {
-  if (state.voiceObjectUrl) URL.revokeObjectURL(state.voiceObjectUrl);
-  state.voiceObjectUrl = null;
+function selectedAuditionKey() {
+  return [
+    selectedAssemblyKey(),
+    $("assemblyModel")?.value || "",
+    $("assemblyPrompt")?.value.trim() || "",
+  ].join("|");
 }
 
-function resetAssembly(message = "Ingen audition forberedt.") {
-  revokeVoiceUrl();
+function setReviewEnabled(enabled) {
+  for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall", "compatibilityNote", "personRevisionFeedback"]) {
+    $(id).disabled = !enabled;
+  }
+  if (!enabled) {
+    for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall"]) $(id).checked = false;
+    $("assemblyReadyBadge").textContent = "Låst";
+    $("assemblyReadyBadge").classList.add("muted");
+    $("assemblyReviewStatus").textContent = "ModelRig-audition skal være komplet før review åbnes.";
+  } else {
+    $("assemblyReadyBadge").textContent = "Klar til review";
+    $("assemblyReadyBadge").classList.remove("muted");
+    $("assemblyReviewStatus").textContent = "Du har set kroppen, set personality-kilden og hørt det faktiske ModelRig-svar med den valgte VoiceRig-stemme.";
+  }
+  updateApprovalButton();
+}
+
+function resetAssembly(message = "Ingen audition kørt.") {
   state.assembly = null;
   $("assemblyFingerprint").textContent = message;
   $("assemblyBodyState").textContent = "Ikke loadet";
@@ -104,49 +108,35 @@ function resetAssembly(message = "Ingen audition forberedt.") {
   $("assemblyVoiceState").classList.add("muted");
   $("assemblyVoiceAudio").removeAttribute("src");
   $("assemblyVoiceAudio").load();
-  $("synthesizeAssemblyVoiceButton").disabled = true;
+  $("assemblyReply").textContent = "Kør audition først.";
   $("assemblyPersonalityState").textContent = "Ikke vist";
   $("assemblyPersonalityState").classList.add("muted");
   $("assemblyPersonalityMeta").textContent = "";
-  $("assemblyPersonalityText").textContent = "Forbered audition først.";
+  $("assemblyPersonalityText").textContent = "Kør audition først.";
   setReviewEnabled(false);
 }
 
-function setReviewEnabled(enabled) {
-  for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall", "compatibilityNote", "personRevisionFeedback"]) {
-    $(id).disabled = !enabled;
-  }
-  if (!enabled) {
-    for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall"]) $(id).checked = false;
-    $("assemblyReadyBadge").textContent = "Låst";
-    $("assemblyReadyBadge").classList.add("muted");
-    $("assemblyReviewStatus").textContent = "Audition skal være komplet før review åbnes.";
-  } else {
-    $("assemblyReadyBadge").textContent = "Klar til review";
-    $("assemblyReadyBadge").classList.remove("muted");
-    $("assemblyReviewStatus").textContent = "Du har set den valgte krop, hørt den valgte stemme og fået den valgte personality vist.";
-  }
-  updateApprovalButton();
+function auditionReady() {
+  const a = state.assembly;
+  return Boolean(
+    a &&
+    a.key === selectedAuditionKey() &&
+    a.bodyLoaded &&
+    a.voiceHeard &&
+    a.personalityShown &&
+    a.replyShown &&
+    a.auditionId
+  );
 }
 
 function updateAssemblyReadiness() {
-  const a = state.assembly;
-  const ready = Boolean(
-    a &&
-    a.key === selectedAssemblyKey() &&
-    a.bodyLoaded &&
-    a.voiceHeard &&
-    a.personalityShown
-  );
-  setReviewEnabled(ready);
+  setReviewEnabled(auditionReady());
 }
 
 function updateApprovalButton() {
-  const a = state.assembly;
   const allChecked = ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall"].every((id) => $(id).checked);
   const note = $("compatibilityNote").value.trim();
-  const auditionReady = Boolean(a && a.key === selectedAssemblyKey() && a.bodyLoaded && a.voiceHeard && a.personalityShown);
-  $("approvePersonButton").disabled = !(auditionReady && allChecked && note);
+  $("approvePersonButton").disabled = !(auditionReady() && allChecked && note);
 }
 
 function renderPeople() {
@@ -297,7 +287,7 @@ function renderSelected() {
   fillSelect("assembleBody", p.body_revisions, activeBody, "body_id");
   fillSelect("assembleVoice", p.voice_revisions, activeVoice, "voice_package");
   fillSelect("assemblePersonality", p.personality_revisions, activePersonality, "default_language");
-  resetAssembly("Vælg kandidater og forbered en ny audition.");
+  resetAssembly("Vælg kandidater, ModelRig-model og prompt og kør en ny audition.");
 }
 
 async function loadPeople(preferId = null) {
@@ -345,6 +335,30 @@ async function loadVoiceLibrary() {
   } catch (error) {
     state.voiceLibrary = [];
     $("voiceLibraryStatus").textContent = `VoiceRig er ikke klar: ${error.message}`;
+  }
+}
+
+async function loadModelLibrary() {
+  const select = $("assemblyModel");
+  const previous = select.value;
+  select.innerHTML = '<option value="">Vælg ModelRig-model</option>';
+  $("assemblyModelStatus").textContent = "Forbinder til ModelRig…";
+  try {
+    await api("/api/v1/modelrig/health");
+    const payload = await api("/api/v1/modelrig/models");
+    state.modelLibrary = payload.models || [];
+    for (const model of state.modelLibrary) {
+      const option = document.createElement("option");
+      option.value = model.name;
+      option.textContent = model.name;
+      select.appendChild(option);
+    }
+    if (previous && state.modelLibrary.some((item) => item.name === previous)) select.value = previous;
+    else if (state.modelLibrary.length) select.value = state.modelLibrary[0].name;
+    $("assemblyModelStatus").textContent = `${state.modelLibrary.length} ModelRig-modeller klar. MODELRIG_TOKEN bruges kun som transport.`;
+  } catch (error) {
+    state.modelLibrary = [];
+    $("assemblyModelStatus").textContent = `ModelRig er ikke klar: ${error.message}`;
   }
 }
 
@@ -425,7 +439,7 @@ async function attachVoice() {
 function useCandidate(kind, revisionId) {
   const select = $(`assemble${kind[0].toUpperCase()}${kind.slice(1)}`);
   if (select) select.value = revisionId;
-  resetAssembly("Kandidatvalg ændret — forbered audition igen.");
+  resetAssembly("Kandidatvalg ændret — kør audition igen.");
   switchTab("assemble");
 }
 
@@ -434,69 +448,72 @@ async function prepareAssembly() {
   const body_revision = $("assembleBody").value;
   const voice_revision = $("assembleVoice").value;
   const personality_revision = $("assemblePersonality").value;
+  const model = $("assemblyModel").value;
+  const prompt = $("assemblyPrompt").value.trim();
   if (!body_revision || !voice_revision || !personality_revision) return toast("Vælg krop, stemme og personlighed.", true);
-  resetAssembly("Validerer de valgte kandidater…");
+  if (!model) return toast("Vælg en ModelRig-model.", true);
+  if (!prompt) return toast("Skriv en testprompt til personen.", true);
+
+  resetAssembly("Validerer assembly og kører personality gennem ModelRig…");
+  const key = selectedAuditionKey();
   try {
-    const payload = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/assembly`, {
+    const assembly = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/assembly`, {
       method: "POST",
       body: JSON.stringify({ body_revision, voice_revision, personality_revision }),
     });
     state.assembly = {
-      key: selectedAssemblyKey(),
-      fingerprint: payload.assembly_fingerprint,
+      key,
+      fingerprint: assembly.assembly_fingerprint,
+      auditionId: null,
       bodyLoaded: false,
       voiceHeard: false,
       personalityShown: true,
-      voiceRevision: voice_revision,
+      replyShown: false,
     };
-    $("assemblyFingerprint").textContent = `Assembly ${payload.assembly_fingerprint.slice(0, 16)}… · ${body_revision} + ${voice_revision} + ${personality_revision}`;
-    $("assemblyPersonalityMeta").textContent = `${payload.personality_preview.default_language} · ${payload.personality_preview.style_notes || "ingen stilnote"}`;
-    $("assemblyPersonalityText").textContent = payload.personality_preview.instructions;
+    $("assemblyFingerprint").textContent = `Assembly ${assembly.assembly_fingerprint.slice(0, 16)}… · kører ModelRig…`;
+    $("assemblyPersonalityMeta").textContent = `${assembly.personality_preview.default_language} · ${assembly.personality_preview.style_notes || "ingen stilnote"}`;
+    $("assemblyPersonalityText").textContent = assembly.personality_preview.instructions;
     $("assemblyPersonalityState").textContent = "Vist";
     $("assemblyPersonalityState").classList.remove("muted");
     $("assemblyBodyEmpty").classList.add("hidden");
     $("assemblyBodyPreview").classList.remove("hidden");
-    $("assemblyBodyPreview").src = `${payload.body_preview_url}&v=${encodeURIComponent(payload.assembly_fingerprint)}`;
-    $("assemblyVoiceAudio").src = `${payload.voice_preview_url}&v=${encodeURIComponent(payload.assembly_fingerprint)}`;
+    $("assemblyBodyPreview").src = `${assembly.body_preview_url}&v=${encodeURIComponent(assembly.assembly_fingerprint)}`;
+
+    const audition = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/auditions`, {
+      method: "POST",
+      body: JSON.stringify({ body_revision, voice_revision, personality_revision, model, prompt }),
+    });
+    if (!state.assembly || state.assembly.key !== key || selectedAuditionKey() !== key) {
+      resetAssembly("Valget blev ændret under audition — kør igen.");
+      return;
+    }
+    if (audition.assembly_fingerprint !== state.assembly.fingerprint) throw new Error("ModelRig-audition blev lavet mod en anden assembly.");
+    state.assembly.auditionId = audition.audition_id;
+    state.assembly.replyShown = true;
+    $("assemblyReply").textContent = audition.reply;
+    $("assemblyVoiceState").textContent = "Afspil hele ModelRig-svaret";
+    $("assemblyVoiceState").classList.add("muted");
+    $("assemblyVoiceAudio").src = `${audition.audio_url}?v=${encodeURIComponent(audition.audition_id)}`;
     $("assemblyVoiceAudio").load();
-    $("synthesizeAssemblyVoiceButton").disabled = false;
+    $("assemblyFingerprint").textContent = `Assembly ${state.assembly.fingerprint.slice(0, 16)}… · ${audition.audition_id} · ${audition.model}`;
     updateAssemblyReadiness();
   } catch (error) {
-    resetAssembly(`Audition kunne ikke forberedes: ${error.message}`);
+    resetAssembly(`Audition fejlede: ${error.message}`);
     toast(error.message, true);
   }
-}
-
-async function synthesizeAssemblyVoice() {
-  if (!state.selected || !state.assembly) return;
-  const text = $("assemblyVoiceText").value.trim();
-  if (!text) return toast("Skriv en testreplik.", true);
-  try {
-    const blob = await apiBlob(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/voice/synthesize`, {
-      method: "POST",
-      body: JSON.stringify({ revision: state.assembly.voiceRevision, text }),
-    });
-    revokeVoiceUrl();
-    state.voiceObjectUrl = URL.createObjectURL(blob);
-    state.assembly.voiceHeard = false;
-    $("assemblyVoiceState").textContent = "Afspil hele prøven";
-    $("assemblyVoiceState").classList.add("muted");
-    $("assemblyVoiceAudio").src = state.voiceObjectUrl;
-    $("assemblyVoiceAudio").load();
-    updateAssemblyReadiness();
-  } catch (error) { toast(error.message, true); }
 }
 
 async function approvePersonRevision() {
   if (!state.selected || !state.assembly) return;
   updateApprovalButton();
-  if ($("approvePersonButton").disabled) return toast("Audition og alle compatibility-kriterier skal være færdige først.", true);
+  if ($("approvePersonButton").disabled) return toast("Den samlede ModelRig/VoiceRig/body-audition og alle compatibility-kriterier skal være færdige først.", true);
   try {
     const payload = {
       body_revision: $("assembleBody").value,
       voice_revision: $("assembleVoice").value,
       personality_revision: $("assemblePersonality").value,
       assembly_fingerprint: state.assembly.fingerprint,
+      audition_id: state.assembly.auditionId,
       body_voice_match: $("matchBodyVoice").checked,
       voice_personality_match: $("matchVoicePersonality").checked,
       body_personality_match: $("matchBodyPersonality").checked,
@@ -508,7 +525,7 @@ async function approvePersonRevision() {
     state.selected = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/revisions`, { method: "POST", body: JSON.stringify(payload) });
     const active = state.selected.active_person_revision;
     renderSelected();
-    toast(`${active} er godkendt og aktiv som samlet person.`);
+    toast(`${active} er audition-bundet, godkendt og aktiv som samlet person.`);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -517,7 +534,7 @@ async function activatePersonRevision(revisionId) {
   try {
     state.selected = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/revisions/${encodeURIComponent(revisionId)}/activate`, { method: "POST" });
     renderSelected();
-    toast(`${revisionId} er revalideret og aktiv som samlet person.`);
+    toast(`${revisionId} er revalideret inklusive audition-evidence og aktiv som samlet person.`);
   } catch (error) { toast(error.message, true); }
 }
 
@@ -564,6 +581,11 @@ function switchTab(name) {
   document.querySelectorAll(".tab-panel").forEach((el) => el.classList.add("hidden"));
   $(`tab-${name}`).classList.remove("hidden");
   if (name === "voice") loadVoiceLibrary();
+  if (name === "assemble") loadModelLibrary();
+}
+
+function invalidateAudition(message) {
+  if (state.assembly) resetAssembly(message);
 }
 
 function wire() {
@@ -576,15 +598,17 @@ function wire() {
   $("refreshVoicesButton").addEventListener("click", loadVoiceLibrary);
   $("attachVoiceButton").addEventListener("click", attachVoice);
   $("prepareAssemblyButton").addEventListener("click", prepareAssembly);
-  $("synthesizeAssemblyVoiceButton").addEventListener("click", synthesizeAssemblyVoice);
   $("approvePersonButton").addEventListener("click", approvePersonRevision);
   $("proposeBodyChanges").addEventListener("click", proposeBodyChanges);
   $("buildBodyButton").addEventListener("click", buildBody);
-  for (const id of ["assembleBody", "assembleVoice", "assemblePersonality"]) $(id).addEventListener("change", () => resetAssembly("Kandidatvalg ændret — forbered audition igen."));
+  for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"]) {
+    $(id).addEventListener("change", () => invalidateAudition("Kandidat eller model ændret — kør audition igen."));
+  }
+  $("assemblyPrompt").addEventListener("input", () => invalidateAudition("Testprompt ændret — kør audition igen."));
   for (const id of ["matchBodyVoice", "matchVoicePersonality", "matchBodyPersonality", "matchOverall"]) $(id).addEventListener("change", updateApprovalButton);
   $("compatibilityNote").addEventListener("input", updateApprovalButton);
   $("assemblyBodyPreview").addEventListener("load", () => {
-    if (!state.assembly) return;
+    if (!state.assembly || state.assembly.key !== selectedAuditionKey()) return;
     state.assembly.bodyLoaded = true;
     $("assemblyBodyState").textContent = "Loadet";
     $("assemblyBodyState").classList.remove("muted");
@@ -597,9 +621,9 @@ function wire() {
     updateAssemblyReadiness();
   });
   $("assemblyVoiceAudio").addEventListener("ended", () => {
-    if (!state.assembly) return;
+    if (!state.assembly || state.assembly.key !== selectedAuditionKey() || !state.assembly.auditionId) return;
     state.assembly.voiceHeard = true;
-    $("assemblyVoiceState").textContent = "Hørt til ende";
+    $("assemblyVoiceState").textContent = "ModelRig-svar hørt til ende";
     $("assemblyVoiceState").classList.remove("muted");
     updateAssemblyReadiness();
   });
@@ -611,5 +635,6 @@ function wire() {
   resetAssembly();
   await health();
   loadVoiceLibrary();
+  loadModelLibrary();
   try { await loadPeople(); } catch (error) { toast(error.message, true); }
 })();
