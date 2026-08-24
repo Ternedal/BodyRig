@@ -34,7 +34,7 @@ def test_ui_uses_atomic_person_revision_flow() -> None:
     assert "Person Revision — atomic activation unit" in spec
 
 
-def test_person_ui_requires_cross_modal_audition_before_approval() -> None:
+def test_person_ui_requires_modelrig_executed_cross_modal_audition_before_approval() -> None:
     html = Path("bodyrig/ui/person.html").read_text(encoding="utf-8")
     js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
     app = Path("bodyrig/app.py").read_text(encoding="utf-8")
@@ -44,8 +44,11 @@ def test_person_ui_requires_cross_modal_audition_before_approval() -> None:
         "assemblyBodyPreview",
         "assemblyVoiceAudio",
         "assemblyPersonalityText",
-        "Forbered audition",
-        "Hørt til ende",
+        "assemblyModel",
+        "assemblyPrompt",
+        "assemblyReply",
+        "Kør samlet audition",
+        "ModelRig-svar hørt til ende",
     ):
         assert token in html or token in js
 
@@ -53,9 +56,16 @@ def test_person_ui_requires_cross_modal_audition_before_approval() -> None:
     assert "bodyLoaded" in js
     assert "voiceHeard" in js
     assert "personalityShown" in js
+    assert "replyShown" in js
+    assert "auditionId" in js
     assert "assembly_fingerprint" in js
+    assert "audition_id: state.assembly.auditionId" in js
+    assert "/api/v1/modelrig/models" in js
+    assert "/auditions" in js
     assert "/assembly" in js
     assert "changed after audition" in app
+    assert "verify_audition" in app
+    assert "audition_receipt_sha256" in app
     assert "verify_receipt" in app
     assert "write_receipt" in app
 
@@ -72,12 +82,29 @@ def test_voice_candidates_come_from_voicerig_library_not_manual_ids_or_paths() -
     assert "package_path" not in js
 
 
-def test_component_selection_change_invalidates_previous_review() -> None:
+def test_component_model_or_prompt_change_invalidates_previous_audition() -> None:
     js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
-    assert 'for (const id of ["assembleBody", "assembleVoice", "assemblePersonality"])' in js
-    assert "Kandidatvalg ændret — forbered audition igen." in js
-    assert "selectedAssemblyKey" in js
-    assert "a.key === selectedAssemblyKey()" in js
+    assert 'for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"])' in js
+    assert '$("assemblyPrompt").addEventListener("input"' in js
+    assert "selectedAuditionKey" in js
+    assert "a.key === selectedAuditionKey()" in js
+    assert "Kandidat eller model ændret — kør audition igen." in js
+    assert "Testprompt ændret — kør audition igen." in js
+
+
+def test_modelrig_token_is_transport_only_and_service_identity_is_checked_before_protected_calls() -> None:
+    app = Path("bodyrig/app.py").read_text(encoding="utf-8")
+    client = Path("bodyrig/modelrig_client.py").read_text(encoding="utf-8")
+    audition = Path("bodyrig/person_audition.py").read_text(encoding="utf-8")
+    profile = Path("bodyrig/person_profiles.py").read_text(encoding="utf-8")
+
+    assert 'os.environ.get("MODELRIG_TOKEN"' in app
+    assert "client.health()\n        models = client.models()" in app
+    assert "modelrig.health()\n        reply = modelrig.chat" in app
+    assert '"Authorization"' in client and 'f"Bearer {self.config.token}"' in client
+    assert "MODELRIG_TOKEN" not in audition
+    assert "MODELRIG_TOKEN" not in profile
+    assert '"token"' not in audition
 
 
 def test_windows_product_launcher_is_checkout_bound_and_opens_person_ui() -> None:
