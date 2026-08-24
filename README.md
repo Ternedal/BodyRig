@@ -114,7 +114,7 @@ Status-checkeren **muterer ingen evidence**. Den læser og re-hasher den eksiste
 
 `Gate A → Windows probe → Windows human attestation → Quest probe → Quest human attestation → final release`.
 
-Hvis evidence er inkonsistent — fx deformation uden machine probe, forkert embedded BodyRig build-revision eller en attestation der ikke længere hasher til sine eksakte probe-filer — returnerer den `ERROR` i stedet for at foreslå et næste trin. `-Json` / `--json` kan bruges til maskinlæsbar status.
+Hvis evidence er inkonsistent — fx et ufuldstændigt machine/deformation-par, både nyt og legacy layout, forkert embedded BodyRig build-revision eller en attestation der ikke længere hasher til sine eksakte probe-filer — returnerer den `ERROR` i stedet for at foreslå et næste trin. `-Json` / `--json` kan bruges til maskinlæsbar status.
 
 ## `.mrbody` → renderer-runtime
 
@@ -134,6 +134,8 @@ Windows og Quest skal loade **samme Gate A runtime-manifest og samme package-byt
 
 Renderer-builden kræver clean BodyRig checkout og embedder den eksakte Git-revision i player/APK som build provenance. Machine- og deformation-proberne læser revisionen fra de byggede bytes, og Gate B/C kræver den lig Gate A-revisionen.
 
+Hver platform-wrapper bruger en staging-directory og materialiserer først den canonical evidence-directory, når **begge** probe-filer er produceret og valideret. Et crash mellem machine- og deformation-proben efterlader derfor ikke et halvt canonical create-only evidence-par.
+
 Reference-rendereren kører efter normal VRM/Humanoid-validering en fast `humanoid-muscle-sweep-v1` med seks poser i denne rækkefølge:
 
 `neutral → arms_abduction → elbows_flexed → arms_forward → left_leg_lift → knee_flexion`.
@@ -149,11 +151,12 @@ Byg/kør reference-rendereren og få både machine- og deformation-evidence:
   -AcceptanceDir "C:\acceptance"
 ```
 
-Det producerer som standard:
+Efter validering commit'es parret samlet som:
 
 ```text
-windows-probe.json
-windows-deformation-probe.json
+windows-evidence/
+  windows-probe.json
+  windows-deformation-probe.json
 ```
 
 Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering. `-DeformationReport` gør attesteringen direkte hash-bundet til det konkrete sweep, operatøren har vurderet:
@@ -162,8 +165,8 @@ Efter den synlige sweep/loop er gennemgået, optages den menneskelige attesterin
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\acceptance\windows-probe.json" `
-  -DeformationReport "C:\acceptance\windows-deformation-probe.json" `
+  -ProbeReport "C:\acceptance\windows-evidence\windows-probe.json" `
+  -DeformationReport "C:\acceptance\windows-evidence\windows-deformation-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Reference Renderer" `
@@ -180,11 +183,12 @@ Byg/installér/kør den samme reference-renderer mod den samme Gate A-runtime:
   -AcceptanceDir "C:\acceptance"
 ```
 
-Det producerer som standard:
+Efter ADB-pull og lokal validering commit'es parret samlet som:
 
 ```text
-quest-probe.json
-quest-deformation-probe.json
+quest-evidence/
+  quest-probe.json
+  quest-deformation-probe.json
 ```
 
 Efter samme sweep er gennemgået i headsettet:
@@ -193,8 +197,8 @@ Efter samme sweep er gennemgået i headsettet:
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\acceptance\quest-probe.json" `
-  -DeformationReport "C:\acceptance\quest-deformation-probe.json" `
+  -ProbeReport "C:\acceptance\quest-evidence\quest-probe.json" `
+  -DeformationReport "C:\acceptance\quest-evidence\quest-deformation-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Reference Renderer" `
@@ -214,11 +218,11 @@ Først når begge platformers machine probes, deformation-prober og operatoratte
 .\complete-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -WindowsRendererReport "C:\acceptance\bodyrig-renderer-acceptance-windows.json" `
-  -WindowsProbeReport "C:\acceptance\windows-probe.json" `
-  -WindowsDeformationReport "C:\acceptance\windows-deformation-probe.json" `
+  -WindowsProbeReport "C:\acceptance\windows-evidence\windows-probe.json" `
+  -WindowsDeformationReport "C:\acceptance\windows-evidence\windows-deformation-probe.json" `
   -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\acceptance\quest-probe.json" `
-  -QuestDeformationReport "C:\acceptance\quest-deformation-probe.json"
+  -QuestProbeReport "C:\acceptance\quest-evidence\quest-probe.json" `
+  -QuestDeformationReport "C:\acceptance\quest-evidence\quest-deformation-probe.json"
 ```
 
 Final-gaten genverificerer high-fidelity Stash/SiTH-lineage, `placeholder_avatar=false`, package provenance, clone-session/readiness/skin-QA-evidence, package-checksums, runtime-manifest, Git-head, embedded renderer revision, begge machine probes, begge deformation-prober og begge renderer-reporters hashbindinger.
@@ -253,7 +257,7 @@ Stash/video --> pinned recovery + PHALP --> canonical tracks/BodyPrint
             --> visual identity --> pinned SiTH/SMPL-X --> VRM 1.0
             --> .mrbody --> anatomical skin QA --> validated runtime materialization
             --> exact-revision renderer build --> deterministic Humanoid deformation sweep
-            --> WindowsPlayer + Quest byte/build/revision-bound acceptance
+            --> atomic Windows/Quest evidence pairs --> byte/build/revision-bound acceptance
 ```
 
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
