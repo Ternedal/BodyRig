@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BodyRig</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div>
+          <div class="eyebrow">MODELRIG EMBODIMENT</div>
+          <h1>BodyRig</h1>
+        </div>
+        <span id="healthBadge" class="badge muted">…</span>
+      </div>
+
+      <button id="newPersonButton" class="primary full">+ Ny person</button>
+      <div class="section-label">Mine personer</div>
+      <div id="personList" class="person-list"></div>
+    </aside>
+
+    <main class="main">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-icon">BR</div>
+        <h2>Byg og finpuds personer</h2>
+        <p>Opret en person, bind den til Stash, og hold krop, stemme og personlighed som separate revisioner.</p>
+        <button id="emptyCreateButton" class="primary">Opret første person</button>
+      </section>
+
+      <section id="personView" class="person-view hidden">
+        <header class="person-header">
+          <div>
+            <div class="eyebrow" id="personId"></div>
+            <h2 id="personName"></h2>
+            <div id="personSource" class="muted-text"></div>
+          </div>
+          <div class="active-summary">
+            <span id="bodyActive" class="pill">Krop —</span>
+            <span id="voiceActive" class="pill">Stemme —</span>
+            <span id="personalityActive" class="pill">Personlighed —</span>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="Personprofil">
+          <button data-tab="overview" class="tab active">Overblik</button>
+          <button data-tab="body" class="tab">Krop</button>
+          <button data-tab="voice" class="tab">Stemme</button>
+          <button data-tab="personality" class="tab">Personlighed</button>
+          <button data-tab="history" class="tab">Historik</button>
+        </nav>
+
+        <section id="tab-overview" class="tab-panel">
+          <div class="grid-3">
+            <article class="card"><div class="card-label">Krop</div><div id="overviewBody" class="metric">Ingen</div><p>BodyRig-revision og preview.</p></article>
+            <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>VoiceRig-binding.</p></article>
+            <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig persona-revision.</p></article>
+          </div>
+          <article class="card space-top">
+            <div class="card-label">Princip</div>
+            <p class="large-copy">Personen er stabil. Krop, stemme og personlighed kan ændres uafhængigt og har hver sin historik.</p>
+          </article>
+        </section>
+
+        <section id="tab-body" class="tab-panel hidden">
+          <div class="split">
+            <article class="card preview-card">
+              <div class="card-row"><div class="card-label">Preview</div><span id="bodyRevisionLabel" class="badge muted">Ingen revision</span></div>
+              <div id="previewEmpty" class="preview-empty">Ingen godkendt body-revision endnu.</div>
+              <img id="bodyPreview" class="body-preview hidden" alt="Body preview">
+            </article>
+            <article class="card">
+              <div class="card-label">Byg fra Stash</div>
+              <p id="buildSourceText">Bind personen til en Stash performer først.</p>
+              <button id="buildBodyButton" class="primary full" disabled>Byg krop</button>
+              <div class="divider"></div>
+              <label for="bodyFeedback">Kommentar til næste revision</label>
+              <textarea id="bodyFeedback" rows="5" placeholder="Fx: Armene er lidt for lange, og skuldrene skal være en smule bredere."></textarea>
+              <button id="proposeBodyChanges" class="secondary full">Foreslå konkrete ændringer</button>
+              <div id="bodyProposal" class="proposal muted-text">Ingen forslag endnu.</div>
+              <p class="fine-print">Fri tekst ændrer aldrig kroppen direkte. Du ser først de konkrete ændringer, før en ny revision må bygges.</p>
+            </article>
+          </div>
+          <div class="card space-top">
+            <div class="card-row"><div class="card-label">Body-revisioner</div><span id="bodyCount" class="badge muted">0</span></div>
+            <div id="bodyRevisions" class="revision-list"></div>
+          </div>
+        </section>
+
+        <section id="tab-voice" class="tab-panel hidden">
+          <div class="split">
+            <article class="card">
+              <div class="card-label">Tilknyt VoiceRig-stemme</div>
+              <label for="voiceIdInput">Voice ID</label>
+              <input id="voiceIdInput" placeholder="fx anna-da-a1b2c3d4">
+              <label for="voicePathInput">Lokal .mrvoice path (valgfri)</label>
+              <input id="voicePathInput" placeholder="C:\\...\\voice.mrvoice">
+              <label for="voiceFeedbackInput">Note</label>
+              <textarea id="voiceFeedbackInput" rows="3"></textarea>
+              <button id="attachVoiceButton" class="primary full">Gem som ny voice-revision</button>
+            </article>
+            <article class="card">
+              <div class="card-label">Voice-revisioner</div>
+              <div id="voiceRevisions" class="revision-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tab-personality" class="tab-panel hidden">
+          <div class="split">
+            <article class="card">
+              <div class="card-label">Ny personality-revision</div>
+              <label for="personalityInstructions">Persona / system instructions</label>
+              <textarea id="personalityInstructions" rows="10" placeholder="Beskriv hvordan personen tænker, taler og reagerer."></textarea>
+              <div class="field-row">
+                <div><label for="personalityLanguage">Standardsprog</label><input id="personalityLanguage" value="da"></div>
+                <div><label for="personalityStyle">Stilnoter</label><input id="personalityStyle" placeholder="fx rolig, tør, analytisk"></div>
+              </div>
+              <label for="personalityFeedback">Hvad ændrede du?</label>
+              <textarea id="personalityFeedback" rows="3" placeholder="Fx: mindre formel, mere tør humor"></textarea>
+              <button id="savePersonalityButton" class="primary full">Gem og aktivér revision</button>
+              <p class="fine-print">Personality eksekveres af ModelRig. BodyRig gemmer revisionsbindingen under den samme person.</p>
+            </article>
+            <article class="card">
+              <div class="card-label">Personality-revisioner</div>
+              <div id="personalityRevisions" class="revision-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tab-history" class="tab-panel hidden">
+          <article class="card">
+            <div class="card-label">Samlet revisionshistorik</div>
+            <div id="historyList" class="revision-list"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="newPersonDialog">
+    <form method="dialog" id="newPersonForm" class="dialog-form">
+      <div class="card-row"><h3>Ny person</h3><button value="cancel" class="icon-button" aria-label="Luk">×</button></div>
+      <label for="newPersonName">Navn</label>
+      <input id="newPersonName" required maxlength="160" placeholder="Fx Anna">
+
+      <div class="divider"></div>
+      <div class="card-label">Stash performer (valgfri)</div>
+      <div class="search-row"><input id="stashSearchInput" placeholder="Søg navn"><button id="stashSearchButton" type="button" class="secondary">Søg</button></div>
+      <div id="stashStatus" class="muted-text"></div>
+      <div id="stashResults" class="stash-results"></div>
+      <div id="selectedStash" class="selected-source hidden"></div>
+
+      <div class="dialog-actions"><button value="cancel" class="secondary">Annuller</button><button id="createPersonButton" type="button" class="primary">Opret person</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>
