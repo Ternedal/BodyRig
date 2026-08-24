@@ -72,17 +72,21 @@ def test_builtin_sith_fitter_fails_fast_on_authority_and_model_digest():
     assert digest < discovery
 
 
-def test_production_stash_selection_uses_cli_decode_gate_by_default():
+def test_production_stash_selection_uses_same_exact_ffmpeg_decode_gate_as_observation_selection():
     wrapper = _wrapper()
     cli = (Path(__file__).resolve().parents[1] / "bodyrig" / "stash_cli.py").read_text(encoding="utf-8")
 
     assert '$Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"' in wrapper
     assert '"-m", "bodyrig.stash_cli", "select"' in wrapper
+    assert '$selectArgs += @("--ffmpeg", $Ffmpeg)' in wrapper
+    assert '$selectArgs += "--skip-decode-probe"' in wrapper
     assert 'select.add_argument(\n        "--skip-decode-probe"' in cli
     assert 'if not args.skip_decode_probe:' in cli
     assert '_filter_decodable_sources(' in cli
-    # Canonical wrapper must not opt out of the decode gate.
-    assert '"--skip-decode-probe"' not in wrapper
+    production_branch = wrapper.index('if ($usingObservationSelection) {\n    $selectArgs += @("--ffmpeg", $Ffmpeg)')
+    diagnostics_branch = wrapper.index('$selectArgs += "--skip-decode-probe"', production_branch)
+    selection_call = wrapper.index('Invoke-Checked -Executable $BodyRigPython -Arguments $selectArgs', production_branch)
+    assert production_branch < diagnostics_branch < selection_call
 
 
 def test_stash_wrapper_preserves_custom_fitter_escape_hatch():
