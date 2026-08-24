@@ -78,3 +78,26 @@ def test_component_selection_change_invalidates_previous_review() -> None:
     assert "Kandidatvalg ændret — forbered audition igen." in js
     assert "selectedAssemblyKey" in js
     assert "a.key === selectedAssemblyKey()" in js
+
+
+def test_windows_product_launcher_is_checkout_bound_and_opens_person_ui() -> None:
+    script = Path("start-windows.ps1").read_text(encoding="utf-8")
+    doc = Path("docs/PERSON_UI.md").read_text(encoding="utf-8")
+
+    for token in (
+        ".venv\\Scripts\\python.exe",
+        ".venv\\Scripts\\bodyrig.exe",
+        "bodyrig\\__init__.py",
+        "git rev-parse HEAD",
+        "git status --porcelain",
+        "127.0.0.1:8775/api/v1/health",
+        "bodyrig-ui-service",
+        "ui-service.json",
+        "Start-Process \"http://127.0.0.1:8775/\"",
+    ):
+        assert token in script
+
+    assert "start-windows.ps1" in doc
+    assert "Mine personer" in doc
+    assert "assembly_fingerprint" in doc
+    assert "VoiceRig" in doc
