@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$DeformationReport,
     [Parameter(Mandatory = $true)][ValidateSet("windows-unity-univrm", "android-quest-class")][string]$Platform,
     [Parameter(Mandatory = $true)][switch]$Pass,
+    [Parameter(Mandatory = $true)][switch]$ConfirmQualityChecklist,
     [Parameter(Mandatory = $true)][ValidateLength(1, 160)][string]$RendererName,
     [Parameter(Mandatory = $true)][ValidateLength(1, 160)][string]$RendererVersion,
     [Parameter(Mandatory = $true)][ValidateLength(1, 2000)][string]$QualityNote,
@@ -40,6 +41,7 @@ function Read-PackageJson([string]$PackagePath,[string]$EntryName,[string]$Label
 foreach ($value in @($RendererName, $RendererVersion, $QualityNote)) { if ([string]::IsNullOrWhiteSpace($value)) { throw "RendererName, RendererVersion and QualityNote must contain non-whitespace text." } }
 $RendererName = $RendererName.Trim(); $RendererVersion = $RendererVersion.Trim(); $QualityNote = $QualityNote.Trim()
 if (-not $Pass) { throw "Renderer acceptance requires an explicit -Pass attestation." }
+if (-not $ConfirmQualityChecklist) { throw "Renderer acceptance requires explicit -ConfirmQualityChecklist after the complete physical review." }
 
 $acceptanceFile = Read-JsonFile $AcceptanceReport "Acceptance report"; $AcceptanceReport = $acceptanceFile.Path; $report = $acceptanceFile.Value; $reportDir = Split-Path -Parent $AcceptanceReport
 if ([string]$report.format -ne "bodyrig-rig-acceptance" -or [int]$report.version -ne 1) { throw "Unsupported BodyRig acceptance report format/version." }
@@ -127,7 +129,17 @@ foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bo
 if (Test-Path $Output) { throw "Renderer acceptance output already exists; refusing to overwrite evidence: $Output" }
 $outputDir = Split-Path -Parent $Output; if (-not (Test-Path $outputDir -PathType Container)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 
-$attestation = [ordered]@{ format="bodyrig-renderer-acceptance"; version=1; attested_at=[DateTime]::UtcNow.ToString("o"); bodyrig_revision=$head; automated_report_sha256=$reportHash; probe_report_sha256=$probeHash; deformation_report_sha256=$deformationHash; deformation_sequence_revision=[string]$deformation.sequence_revision; package_sha256=$actualPackageHash; runtime_manifest_sha256=$runtimeManifestHash; avatar_sha256=$avatarHash; bodyprint_sha256=$bodyprintHash; body_id=$bodyId; platform=$Platform; renderer_name=$RendererName; renderer_version=$RendererVersion; unity_platform=[string]$probe.unity_platform; unity_version=[string]$probe.unity_version; graphics_device=[string]$probe.graphics_device; machine_probe=$true; deformation_probe=$true; result="pass"; quality_note=$QualityNote; attestation="operator-supplied"; production_activation=$false }
+$qualityReview = [ordered]@{
+    revision = "bodyrig-human-quality-v1"
+    full_deformation_sequence_reviewed = $true
+    source_identity_texture_acceptable = $true
+    geometry_proportions_acceptable = $true
+    upper_body_deformation_acceptable = $true
+    lower_body_deformation_acceptable = $true
+    cross_limb_leakage_absent = $true
+    skin_qa_considered = $true
+}
+$attestation = [ordered]@{ format="bodyrig-renderer-acceptance"; version=1; attested_at=[DateTime]::UtcNow.ToString("o"); bodyrig_revision=$head; automated_report_sha256=$reportHash; probe_report_sha256=$probeHash; deformation_report_sha256=$deformationHash; deformation_sequence_revision=[string]$deformation.sequence_revision; package_sha256=$actualPackageHash; runtime_manifest_sha256=$runtimeManifestHash; avatar_sha256=$avatarHash; bodyprint_sha256=$bodyprintHash; body_id=$bodyId; platform=$Platform; renderer_name=$RendererName; renderer_version=$RendererVersion; unity_platform=[string]$probe.unity_platform; unity_version=[string]$probe.unity_version; graphics_device=[string]$probe.graphics_device; machine_probe=$true; deformation_probe=$true; result="pass"; quality_review=$qualityReview; quality_note=$QualityNote; attestation="operator-supplied"; production_activation=$false }
 $temp = Join-Path $outputDir ("."+[IO.Path]::GetFileName($Output)+"."+[Guid]::NewGuid().ToString("N")+".tmp")
 try { $attestation | ConvertTo-Json -Depth 8 | Set-Content $temp -Encoding UTF8; Move-Item $temp $Output } finally { if (Test-Path $temp) { Remove-Item $temp -Force } }
-Write-Host "BodyRig renderer acceptance: PASS | $Platform | revision $head | $($probe.device_model) | skin=$($skinQa.automated_assessment) | probe $probeHash | deformation $deformationHash"; Write-Host "Report: $Output"; exit 0
+Write-Host "BodyRig renderer acceptance: PASS | $Platform | revision $head | $($probe.device_model) | skin=$($skinQa.automated_assessment) | quality=bodyrig-human-quality-v1 | probe $probeHash | deformation $deformationHash"; Write-Host "Report: $Output"; exit 0
