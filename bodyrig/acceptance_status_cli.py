@@ -30,6 +30,14 @@ def _operator_command(status: AcceptanceStatus) -> AcceptanceStatus:
                 '-QualityNote "<your physical review>"'
             ),
         )
+    if status.gate == "quest-probe":
+        return replace(
+            status,
+            next_command=(
+                ".\\run-reference-quest-renderer-probe.ps1 "
+                f"-AcceptanceDir {_quote(status.acceptance_dir)}"
+            ),
+        )
     if status.gate == "quest-attestation":
         return replace(
             status,
