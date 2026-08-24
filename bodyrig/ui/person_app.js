@@ -7,6 +7,7 @@ const state = {
   tab: "overview",
   jobTimer: null,
   assembly: null,
+  bodyProposal: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -303,6 +304,9 @@ async function loadPeople(preferId = null) {
 async function selectPerson(personId) {
   try {
     state.selected = await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+    state.bodyProposal = null;
+    $("bodyProposal").textContent = "";
+    $("bodyFeedback").value = "";
     renderSelected();
   } catch (error) { toast(error.message, true); }
 }
@@ -545,11 +549,16 @@ async function proposeBodyChanges() {
   try {
     const proposal = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/body/propose`, { method: "POST", body: JSON.stringify({ feedback }) });
     if (!proposal.changes.length) {
+      state.bodyProposal = null;
       $("bodyProposal").textContent = "Ingen sikker struktureret ændring fundet. BodyRig ændrer ikke noget på et gæt.";
       return;
     }
-    $("bodyProposal").innerHTML = `<strong>Forslag — ikke anvendt endnu</strong>\n${proposal.changes.map((c) => `${c.field}: ${c.delta > 0 ? "+" : ""}${c.delta}`).join("\n")}`;
-  } catch (error) { toast(error.message, true); }
+    state.bodyProposal = proposal;
+    $("bodyProposal").innerHTML = `<strong>Reviewet forslag — bruges ved næste body-build</strong>\n${proposal.changes.map((c) => `${c.field}: ${c.delta > 0 ? "+" : ""}${c.delta}`).join("\n")}`;
+  } catch (error) {
+    state.bodyProposal = null;
+    toast(error.message, true);
+  }
 }
 
 async function pollJob(jobId) {
@@ -568,9 +577,20 @@ async function pollJob(jobId) {
 
 async function buildBody() {
   if (!state.selected?.source) return;
+  const feedback = $("bodyFeedback").value.trim();
+  let payload = {};
+  if (feedback) {
+    const proposal = state.bodyProposal;
+    if (!proposal || proposal.person_id !== state.selected.person_id || proposal.feedback !== feedback || !proposal.changes?.length) {
+      return toast("Kommentaren har ingen aktuel reviewet proposal. Klik ‘Foreslå konkrete ændringer’ igen før build.", true);
+    }
+    payload = { feedback, changes: proposal.changes };
+  }
   try {
-    const result = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/body/build`, { method: "POST", body: JSON.stringify({}) });
-    toast(`Body-build startet: ${result.job_id}`);
+    const result = await api(`/api/v1/people/${encodeURIComponent(state.selected.person_id)}/body/build`, { method: "POST", body: JSON.stringify(payload) });
+    state.bodyProposal = null;
+    $("bodyProposal").textContent = feedback ? "Adjustment er låst til build-jobbet. Ændringer i kommentaren gælder først et nyt proposal/build." : "";
+    toast(`Body-build startet: ${result.job_id}${feedback ? " · reviewed adjustment" : ""}`);
     pollJob(result.job_id);
   } catch (error) { toast(error.message, true); }
 }
@@ -588,6 +608,14 @@ function invalidateAudition(message) {
   if (state.assembly) resetAssembly(message);
 }
 
+function invalidateBodyProposal() {
+  const feedback = $("bodyFeedback").value.trim();
+  if (state.bodyProposal && state.bodyProposal.feedback !== feedback) {
+    state.bodyProposal = null;
+    $("bodyProposal").textContent = "Kommentaren er ændret. Kør et nyt konkret forslag før adjusted build.";
+  }
+}
+
 function wire() {
   $("newPersonButton").addEventListener("click", openNewPerson);
   $("emptyCreateButton").addEventListener("click", openNewPerson);
@@ -601,6 +629,7 @@ function wire() {
   $("approvePersonButton").addEventListener("click", approvePersonRevision);
   $("proposeBodyChanges").addEventListener("click", proposeBodyChanges);
   $("buildBodyButton").addEventListener("click", buildBody);
+  $("bodyFeedback").addEventListener("input", invalidateBodyProposal);
   for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"]) {
     $(id).addEventListener("change", () => invalidateAudition("Kandidat eller model ændret — kør audition igen."));
   }
