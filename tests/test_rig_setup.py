@@ -38,7 +38,7 @@ def _fixture(tmp_path: Path) -> Path:
     preflight_sha = _write(preflight, {"format": "bodyrig-recovery-preflight", "version": 1, "ok": True})
     sith_sha = _write(sith, {
         "format": "bodyrig-sith-setup",
-        "version": 2,
+        "version": 3,
         "distribution": "Ubuntu-22.04",
         "sith": {"repository": "/opt/sith", "revision": SITH_REVISION, "python": "/opt/sith/.venv/bin/python"},
         "openpose": {
@@ -47,6 +47,9 @@ def _fixture(tmp_path: Path) -> Path:
             "executable": "/opt/openpose/build/examples/openpose/openpose.bin",
             "sha256": "b" * 64,
             "byte_count": 987654,
+            "models_sha256": "c" * 64,
+            "models_file_count": 17,
+            "models_byte_count": 456789012,
         },
         "diffusion_model": {"path": "/opt/models/sith", "sha256": "a" * 64, "file_count": 5, "byte_count": 1234},
     })
