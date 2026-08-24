@@ -86,6 +86,16 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) { throw "BodyRig Python not found." }
 $BodyRigPython = Resolve-InputFile -Path $BodyRigPython -Label "BodyRig Python"
 
+$expectedBodyRigModule = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\__init__.py") -Label "BodyRig checkout module"
+$bodyRigAuthorityRaw = @(& $BodyRigPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())")
+if ($LASTEXITCODE -ne 0 -or $bodyRigAuthorityRaw.Count -ne 1) {
+    throw "BodyRig Python could not prove a single checkout-bound bodyrig import before physical session start."
+}
+$actualBodyRigModule = Resolve-InputFile -Path ([string]$bodyRigAuthorityRaw[0]).Trim() -Label "Imported BodyRig module"
+if (-not [string]::Equals($actualBodyRigModule, $expectedBodyRigModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "BodyRig Python imports bodyrig from unexpected location: $actualBodyRigModule. Expected checkout authority: $expectedBodyRigModule"
+}
+
 if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
     $RigSetupReport = [string][Environment]::GetEnvironmentVariable("BODYRIG_RIG_SETUP_REPORT")
 }
