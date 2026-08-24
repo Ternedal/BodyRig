@@ -32,6 +32,7 @@ from .stash_source import StashClient, StashConfig, StashSourceError
 from .storage import body_library as _body_library
 from .storage import person_library as _person_library
 from .ui_jobs import UiJobError, manager as ui_jobs, operator_checkout_status
+from .voicerig_client import VoiceRigClient, VoiceRigClientError, VoiceRigConfig
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8775
@@ -103,9 +104,14 @@ class PersonalityRevisionRequest(BaseModel):
 
 class VoiceRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    voice_id: str = Field(min_length=1, max_length=160)
-    package_path: str | None = Field(default=None, max_length=4096)
+    voice_package: str = Field(min_length=1, max_length=255)
     feedback: str = Field(default="", max_length=8000)
+
+
+class VoiceSynthesizeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: str = Field(min_length=1, max_length=24)
+    text: str = Field(min_length=1, max_length=4000)
 
 
 class PersonRevisionRequest(BaseModel):
@@ -144,12 +150,24 @@ def _stash_client() -> StashClient:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+def _voicerig_client() -> VoiceRigClient:
+    url = os.environ.get("VOICERIG_URL", "http://127.0.0.1:8765").strip()
+    try:
+        return VoiceRigClient(VoiceRigConfig(url=url))
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _sha256_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _revision(profile: dict[str, Any], kind: str, revision_id: str | None) -> dict[str, Any]:
@@ -166,6 +184,15 @@ def _revision(profile: dict[str, Any], kind: str, revision_id: str | None) -> di
         if item["revision_id"] == selected:
             return item
     raise HTTPException(status_code=404, detail=f"{kind} revision not found.")
+
+
+def _voice_bytes_match(item: dict[str, Any], client: VoiceRigClient) -> None:
+    try:
+        raw = client.package_bytes(str(item["voice_package"]))
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if _sha256_bytes(raw) != item["package_sha256"]:
+        raise HTTPException(status_code=409, detail="VoiceRig package bytes no longer match the registered voice revision.")
 
 
 @app.get("/", include_in_schema=False)
@@ -206,6 +233,24 @@ def stash_search(q: str = Query(min_length=1, max_length=160), limit: int = Quer
     except StashSourceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"ok": True, "version": version, "performers": performers}
+
+
+@app.get("/api/v1/voicerig/health")
+def voicerig_health() -> dict:
+    try:
+        health_payload = _voicerig_client().health()
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True, "service": "voicerig", "version": health_payload.get("version")}
+
+
+@app.get("/api/v1/voicerig/voices")
+def voicerig_voices() -> dict:
+    try:
+        voices = _voicerig_client().voices()
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True, "voices": voices}
 
 
 @app.get("/api/v1/people")
@@ -251,25 +296,58 @@ def create_personality_revision(person_id: str, request: PersonalityRevisionRequ
 
 @app.post("/api/v1/people/{person_id}/voice/revisions")
 def create_voice_revision(person_id: str, request: VoiceRevisionRequest) -> dict:
-    package_path = None
-    package_hash = None
-    if request.package_path:
-        candidate = Path(request.package_path).expanduser().resolve()
-        if not candidate.is_file() or candidate.suffix.lower() != ".mrvoice":
-            raise HTTPException(status_code=422, detail="Voice package path must reference an existing .mrvoice file.")
-        package_path = str(candidate)
-        package_hash = _sha256(candidate)
+    client = _voicerig_client()
+    try:
+        voices = client.voices()
+        selected = next((item for item in voices if item["package"] == request.voice_package), None)
+        if selected is None:
+            raise VoiceRigClientError("The selected VoiceRig package is not present in VoiceRig's validated library")
+        package_raw = client.package_bytes(request.voice_package)
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         return add_voice_revision(
             person_library(),
             person_id,
-            voice_id=request.voice_id,
-            package_sha256=package_hash,
-            package_path=package_path,
+            voice_id=str(selected["id"]),
+            voice_package=str(selected["package"]),
+            package_sha256=_sha256_bytes(package_raw),
             feedback=request.feedback,
         )
     except PersonProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/people/{person_id}/voice/preview")
+def voice_preview(person_id: str, revision: str | None = None):
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "voice", revision)
+    client = _voicerig_client()
+    _voice_bytes_match(item, client)
+    try:
+        raw = client.preview(str(item["voice_package"]))
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(content=raw, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/v1/people/{person_id}/voice/synthesize")
+def voice_synthesize(person_id: str, request: VoiceSynthesizeRequest):
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "voice", request.revision)
+    client = _voicerig_client()
+    _voice_bytes_match(item, client)
+    try:
+        raw = client.synthesize(str(item["voice_package"]), request.text)
+    except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(content=raw, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/v1/people/{person_id}/revisions")
