@@ -27,6 +27,7 @@ namespace BodyRig.ReferenceRenderer.Editor
 
         private static void Build(BuildTarget target, string defaultOutput)
         {
+            var unityVersion = RequireUnityVersionArgument();
             var revision = RequireRevisionArgument();
             EnsureProbeScene();
             EnsureBuildProvenance(revision);
@@ -49,7 +50,17 @@ namespace BodyRig.ReferenceRenderer.Editor
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException($"BodyRig reference renderer build failed: {report.summary.result} | {report.summary.totalErrors} errors");
 
-            Debug.Log($"BodyRig reference renderer build: PASS | {target} | revision {revision} | {output}");
+            Debug.Log($"BodyRig reference renderer build: PASS | {target} | revision {revision} | Unity {unityVersion} | {output}");
+        }
+
+        private static string RequireUnityVersionArgument()
+        {
+            var expected = (GetArgument("-bodyrigUnityVersion") ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(expected))
+                throw new InvalidOperationException("Physical reference build requires -bodyrigUnityVersion from renderer-contract.json");
+            if (!string.Equals(Application.unityVersion, expected, StringComparison.Ordinal))
+                throw new InvalidOperationException($"Physical reference build requires Unity {expected}; actual editor is {Application.unityVersion}");
+            return expected;
         }
 
         private static string RequireRevisionArgument()
