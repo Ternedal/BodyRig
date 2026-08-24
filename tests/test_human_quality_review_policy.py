@@ -98,3 +98,20 @@ def test_reference_release_script_checks_quality_before_core_gate() -> None:
     core = source.index("& $core @args")
     assert quality < core
     assert '"bodyrig-human-quality-v1"' in source
+
+
+def test_final_release_summary_exposes_structured_quality_policy() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "complete-acceptance.ps1").read_text(encoding="utf-8")
+    assert "quality_review_revision=[string]$Att.Value.quality_review.revision" in source
+    assert "quality_review_pass=$true" in source
+
+    schema = json.loads(
+        (root / "contracts" / "bodyrig-release-acceptance-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    evidence = schema["$defs"]["rendererEvidence"]
+    assert {"quality_review_revision", "quality_review_pass"} <= set(evidence["required"])
+    assert evidence["properties"]["quality_review_revision"]["const"] == "bodyrig-human-quality-v1"
+    assert evidence["properties"]["quality_review_pass"]["const"] is True
