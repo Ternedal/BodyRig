@@ -119,7 +119,8 @@ def _body_id_from_material(value: Mapping[str, Any]) -> str:
 def validate_portable_identity(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != FIELDS:
         raise PortableIdentityError("portable identity fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if value.get("format") != FORMAT or type(version) is not int or version != VERSION:
         raise PortableIdentityError("unsupported portable identity format/version")
 
     body_id = value.get("body_id")
