@@ -35,10 +35,14 @@ def test_full_rig_bootstrap_rehydrates_sith_environment_in_parent_process():
     assert "Set-BodyRigEnvironment -Values $sithEnvironment -Persist:$PersistUserEnvironment" in text
 
 
-def test_full_rig_bootstrap_points_operator_to_live_ready_launcher():
+def test_full_rig_bootstrap_points_operator_to_authenticated_stash_discovery_then_ready_launcher():
     text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
-    assert "Next physical clone (runs live readiness before clone):" in text
-    assert '.\\clone-body-from-stash-ready.ps1 -PerformerId <id> -BodyId <id>' in text
+    assert "configure a fresh local Stash API token" in text
+    assert '.\\stash-sources.ps1 health' in text
+    assert '.\\stash-sources.ps1 search' in text
+    assert 'docs\\FIRST_PHYSICAL_RUN.md' in text
+    assert 'clone-body-from-stash-ready.ps1' in text
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 search')
     assert 'Write-Host ".\\clone-body-from-stash.ps1 ' not in text
 
 
