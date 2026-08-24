@@ -18,7 +18,9 @@ from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
 from .person_profiles import (
     PersonProfileError,
-    activate_revision,
+    activate_person_revision,
+    active_bundle,
+    add_person_revision,
     add_personality_revision,
     add_voice_revision,
     create_profile,
@@ -63,7 +65,11 @@ async def _loopback_only(request: Request, call_next):
         if not _is_loopback(peer):
             return JSONResponse(
                 status_code=403,
-                content={"detail": "BodyRig is loopback-only; set BODYRIG_ALLOW_REMOTE=1 only for an intentional remote deployment."},
+                content={
+                    "detail": (
+                        "BodyRig is loopback-only; set BODYRIG_ALLOW_REMOTE=1 only for an intentional remote deployment."
+                    )
+                },
             )
     return await call_next(request)
 
@@ -93,13 +99,25 @@ class PersonalityRevisionRequest(BaseModel):
     default_language: str = Field(default="da", min_length=2, max_length=16)
     style_notes: str = Field(default="", max_length=16_000)
     feedback: str = Field(default="", max_length=8000)
-    activate: bool = True
 
 
 class VoiceRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     voice_id: str = Field(min_length=1, max_length=160)
     package_path: str | None = Field(default=None, max_length=4096)
+    feedback: str = Field(default="", max_length=8000)
+
+
+class PersonRevisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body_revision: str = Field(min_length=1, max_length=24)
+    voice_revision: str = Field(min_length=1, max_length=24)
+    personality_revision: str = Field(min_length=1, max_length=24)
+    body_voice_match: bool
+    voice_personality_match: bool
+    body_personality_match: bool
+    overall_coherent: bool
+    compatibility_note: str = Field(min_length=1, max_length=8000)
     feedback: str = Field(default="", max_length=8000)
     activate: bool = True
 
@@ -135,9 +153,15 @@ def _sha256(path: Path) -> str:
 
 
 def _revision(profile: dict[str, Any], kind: str, revision_id: str | None) -> dict[str, Any]:
-    selected = revision_id or profile["active"].get(f"{kind}_revision")
+    selected = revision_id
     if not selected:
-        raise HTTPException(status_code=404, detail=f"No active {kind} revision for this person.")
+        bundle = active_bundle(profile)
+        if bundle is not None:
+            selected = str(bundle[f"{kind}_revision"])
+        elif profile[f"{kind}_revisions"]:
+            selected = str(profile[f"{kind}_revisions"][-1]["revision_id"])
+    if not selected:
+        raise HTTPException(status_code=404, detail=f"No {kind} revision for this person.")
     for item in profile[f"{kind}_revisions"]:
         if item["revision_id"] == selected:
             return item
@@ -220,7 +244,6 @@ def create_personality_revision(person_id: str, request: PersonalityRevisionRequ
             default_language=request.default_language,
             style_notes=request.style_notes,
             feedback=request.feedback,
-            activate=request.activate,
         )
     except PersonProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -244,18 +267,50 @@ def create_voice_revision(person_id: str, request: VoiceRevisionRequest) -> dict
             package_sha256=package_hash,
             package_path=package_path,
             feedback=request.feedback,
+        )
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/people/{person_id}/revisions")
+def create_person_revision(person_id: str, request: PersonRevisionRequest) -> dict:
+    review = {
+        "body_voice_match": request.body_voice_match,
+        "voice_personality_match": request.voice_personality_match,
+        "body_personality_match": request.body_personality_match,
+        "overall_coherent": request.overall_coherent,
+        "note": request.compatibility_note,
+    }
+    try:
+        return add_person_revision(
+            person_library(),
+            person_id,
+            body_revision=request.body_revision,
+            voice_revision=request.voice_revision,
+            personality_revision=request.personality_revision,
+            compatibility_review=review,
+            feedback=request.feedback,
             activate=request.activate,
         )
     except PersonProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/api/v1/people/{person_id}/activate/{kind}/{revision_id}")
-def activate_person_revision(person_id: str, kind: str, revision_id: str) -> dict:
+@app.post("/api/v1/people/{person_id}/revisions/{revision_id}/activate")
+def activate_bundle(person_id: str, revision_id: str) -> dict:
     try:
-        return activate_revision(person_library(), person_id, kind=kind, revision_id=revision_id)
+        return activate_person_revision(person_library(), person_id, revision_id)
     except PersonProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/people/{person_id}/activate/{kind}/{revision_id}", include_in_schema=False)
+def reject_component_activation(person_id: str, kind: str, revision_id: str) -> dict:
+    del person_id, kind, revision_id
+    raise HTTPException(
+        status_code=409,
+        detail="Body, voice and personality cannot be activated independently. Create or activate an approved person revision.",
+    )
 
 
 @app.post("/api/v1/people/{person_id}/body/propose")
