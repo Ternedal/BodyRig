@@ -101,7 +101,7 @@ Equivalent CLI:
 bodyrig-acceptance-status --acceptance-dir "C:\path\to\acceptance"
 ```
 
-The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. It prefers the canonical `windows-evidence/` and `quest-evidence/` directories, accepts a complete legacy root-file pair for backward compatibility, but rejects ambiguous mixed layouts. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. Use `-Json` / `--json` for machine-readable output.
+The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. It prefers the canonical `windows-evidence/` and `quest-evidence/` directories, accepts a complete legacy root-file pair for backward compatibility, but rejects ambiguous mixed layouts. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. The public status adapter routes Quest and final-release steps through the contract-bound reference wrappers. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
 
@@ -206,36 +206,26 @@ Before accepting either human quality attestation, the helper verifies machine/d
 
 The first physical high-fidelity clone must compare static skin-QA measurements with the fixed sweep around arm/torso contact, shoulders, elbows, wrists/hands, hips, knees and legs. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
-## Gate C — final release acceptance
+## Gate C — reference release policy + final byte-bound acceptance
 
-Only after both ordinary machine probes, both deterministic deformation probes and both operator attestations exist:
+Only after both canonical renderer evidence pairs and both operator attestations exist:
 
 ```powershell
-.\complete-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
-  -WindowsRendererReport "C:\path\to\acceptance\bodyrig-renderer-acceptance-windows.json" `
-  -WindowsProbeReport "C:\path\to\acceptance\windows-evidence\windows-probe.json" `
-  -WindowsDeformationReport "C:\path\to\acceptance\windows-evidence\windows-deformation-probe.json" `
-  -QuestRendererReport "C:\path\to\acceptance\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\path\to\acceptance\quest-evidence\quest-probe.json" `
-  -QuestDeformationReport "C:\path\to\acceptance\quest-evidence\quest-deformation-probe.json"
+.\complete-reference-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, both embedded renderer revisions, both physical renderer probes, both deformation probes, and both human attestations.
+`complete-reference-acceptance.ps1` is the V1 policy layer. It refuses legacy root probe files and requires, for both Windows and Quest:
 
-Each deformation report must:
+- canonical evidence directories;
+- renderer name/version equal `renderer-contract.json`;
+- probe, deformation and human attestation all report exact Unity `6000.3.13f1`;
+- deformation and attestation both use `humanoid-muscle-sweep-v1`;
+- platform-specific PASS attestation.
 
-- have exact `humanoid-muscle-sweep-v1` revision;
-- contain all six poses in the canonical order;
-- report `required_muscles_resolved=true`, `restored_neutral=true`, `complete=true` and `manual_review_required=true`;
-- carry the exact accepted BodyRig build revision;
-- match the corresponding renderer probe's Unity build GUID/platform/version/device;
-- match the accepted body id and package/runtime/avatar/BodyPrint hashes;
-- have its exact SHA-256 and sequence revision copied into the corresponding operator attestation.
+Only after those checks does it call the generic `complete-acceptance.ps1`. The generic gate still owns the full high-fidelity clone lineage, non-placeholder requirement, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, physical renderer/deformation byte identity, build/device identity and human-attestation hash bindings.
 
-Final release therefore rejects a renderer attestation that points at a substituted, modified or different deformation run, or a player built from another BodyRig revision, even if that alternate evidence otherwise looks structurally valid.
-
-Only the final `bodyrig-release-acceptance` artifact can contain:
+Only the resulting `bodyrig-release-acceptance` artifact can contain:
 
 ```json
 {
@@ -244,7 +234,7 @@ Only the final `bodyrig-release-acceptance` artifact can contain:
 }
 ```
 
-Its automated-acceptance summary records physical clone lineage and skin-QA evidence. Each platform summary also records the renderer BodyRig revision, deformation-report SHA-256, sequence revision and deformation observation time, so final release evidence is traceable back to the exact code/build and stress-pose run on each physical device.
+Its automated-acceptance summary remains traceable back to exact source-derived package/runtime bytes, physical devices and deformation runs. The reference policy adds the guarantee that the canonical V1 path also used the exact renderer contract and Unity toolchain pin.
 
 ## What the gates still do not automate
 
