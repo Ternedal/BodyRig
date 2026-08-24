@@ -11,6 +11,7 @@ def test_first_physical_run_documents_stash_discovery_and_canonical_clone() -> N
     required = (
         '.\\stash-sources.ps1 health',
         '.\\stash-sources.ps1 search "<performer name>" -Limit 10',
+        '.\\stash-sources.ps1 probe -PerformerId "123"',
         '.\\clone-body-from-stash-ready.ps1',
         '-PerformerId "123"',
         '-BodyId "performer-123"',
@@ -32,7 +33,19 @@ def test_first_physical_run_requires_fresh_stash_token_health_before_clone() -> 
     assert '`performer_read=true`' in text
     assert 'the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true`' in text
     assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 search')
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 probe')
     assert text.index('.\\stash-sources.ps1 health') < text.index('.\\clone-body-from-stash-ready.ps1')
+
+
+def test_first_physical_run_probes_exact_performer_without_leaking_paths_or_writing_evidence() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    assert '.\\stash-sources.ps1 probe -PerformerId "123"' in text
+    assert 'usable_source_count' in text
+    assert 'does **not** print local source paths' in text
+    assert 'does **not** write a source manifest' in text
+    assert 'repeats this same selected-performer/source-pool gate automatically' in text
+    assert text.index('.\\stash-sources.ps1 search') < text.index('.\\stash-sources.ps1 probe')
+    assert text.index('.\\stash-sources.ps1 probe') < text.index('.\\clone-body-from-stash-ready.ps1')
 
 
 def test_first_physical_run_keeps_stash_credentials_out_of_command_arguments() -> None:
