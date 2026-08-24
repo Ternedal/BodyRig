@@ -75,15 +75,17 @@ Example result:
 ]
 ```
 
-Before starting a physical session, prove that the exact selected performer still resolves and has at least one rankable local video source:
+Before starting a physical session, prove that the exact selected performer still resolves and has at least one **locally decodable** ranked video source:
 
 ```powershell
 .\stash-sources.ps1 probe -PerformerId "123"
 ```
 
-The probe is read-only/pre-session. It does **not** write a source manifest, segment, clone output or acceptance evidence. Its output is metadata-only: Stash version, performer `id`/`name`/`disambiguation`, total candidate count and usable local-source count. It deliberately does **not** print local source paths.
+The wrapper resolves the local FFmpeg executable and the probe attempts to decode exactly one video frame from each ranked candidate using the `ffmpeg-one-frame-v1` gate. A candidate only counts as usable if that decode exits successfully. A timeout, unreadable/corrupt file, missing video stream, permissions problem or unsupported media failure therefore cannot produce a pre-session PASS merely because the path exists.
 
-Do not continue if `ok=true` is absent, the returned performer id differs, or `usable_source_count` is below `1`. The pre-session doctor repeats this same selected-performer/source-pool gate automatically when `-PerformerId` and `-BodyId` are supplied.
+The probe is read-only/pre-session. It does **not** write a source manifest, segment, clone output or acceptance evidence. Its output is metadata-only: Stash version, performer `id`/`name`/`disambiguation`, total candidate count, rankable local-source count, decodable/usable local-source count and the decode-gate id. It deliberately does **not** print local source paths or FFmpeg stderr containing those paths.
+
+Do not continue if `ok=true` is absent, the returned performer id differs, `decode_gate` is not `ffmpeg-one-frame-v1`, or `usable_source_count` is below `1`. The pre-session doctor repeats this same exact selected-performer/source-decode gate automatically when `-PerformerId` and `-BodyId` are supplied.
 
 The Stash performer id is a **source-selection identifier**, not the portable BodyRig runtime identity.
 
@@ -119,7 +121,7 @@ Before the production launcher creates a `bodyrig-physical-clone-session`, run t
   -BodyId "performer-123"
 ```
 
-The doctor verifies PowerShell 7+, exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. When the performer/body pair is supplied, it also repeats the metadata-only selected-performer probe and requires at least one usable local video source. It deliberately calls `check-rig-ready.ps1` **without** `-Out` and the performer probe without a source-manifest output, so it does not create authoritative readiness evidence, source manifests, physical clone session state, clone output or acceptance evidence.
+The doctor verifies PowerShell 7+, exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. When the performer/body pair is supplied, it resolves the local FFmpeg executable and repeats the selected-performer probe, requiring at least one local source that passes `ffmpeg-one-frame-v1`. It also verifies that the probe explicitly reports that canonical decode gate. It deliberately calls `check-rig-ready.ps1` **without** `-Out` and the performer probe without a source-manifest output, so it does not create authoritative readiness evidence, source manifests, physical clone session state, clone output or acceptance evidence.
 
 A successful run ends with:
 
@@ -129,7 +131,7 @@ BodyRig pre-session doctor: READY
 
 and prints the exact canonical `clone-body-from-stash-ready.ps1` command for the selected performer/alias.
 
-If the doctor fails, fix that prerequisite and rerun it. This keeps setup/auth/environment/source-selection failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness/source evidence; the doctor is not a substitute for those gates.
+If the doctor fails, fix that prerequisite and rerun it. This keeps setup/auth/environment/source-decode/source-selection failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness/source evidence; the doctor is not a substitute for those gates.
 
 You can also run the doctor before choosing a performer:
 
@@ -141,13 +143,15 @@ In that mode it proves the general rig/Stash capability is ready and points you 
 
 ## 6. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one usable local video, and the PowerShell-7 pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
+After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one FFmpeg-decodable local video, and the PowerShell-7 pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
   -PerformerId "123" `
   -BodyId "performer-123"
 ```
+
+The normal production Stash selection uses the **same resolved FFmpeg executable** for source decode qualification and observation selection. `stash_cli select` applies the one-frame decode gate by default. `--skip-decode-probe` exists only behind the explicit diagnostics path associated with skipping observation selection; it is not part of the canonical production run.
 
 The ready launcher performs, in order:
 
@@ -156,7 +160,7 @@ The ready launcher performs, in order:
 3. rig-setup / SiTH-setup validation;
 4. fresh recovery + SiTH/OpenPose/model + Stash readiness, including performer-read capability;
 5. SHA-256 binding of the readiness report into the physical session;
-6. local Stash source selection and private observation-segment path;
+6. local Stash source ranking + one-frame FFmpeg decode qualification + private observation-segment path;
 7. recovery + visual identity + source-byte TOCTOU check;
 8. create-only portable identity receipt and derived canonical `bodyid-*`;
 9. built-in `sith-smplx-vrm` high-fidelity fitting/package generation;
@@ -231,9 +235,10 @@ The first run is useful physical evidence only if all of the following are true:
 
 - PowerShell 7+ (`pwsh`) was used for the canonical pre-session path;
 - the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
-- the exact selected performer passed the metadata-only source probe with at least one usable local video before session creation;
-- the pre-session doctor passed without creating physical evidence;
+- the exact selected performer passed the metadata-only source probe with at least one local video that passed `ffmpeg-one-frame-v1` before session creation;
+- the pre-session doctor repeated the same decode-qualified source gate without creating physical evidence;
 - real local Stash performer/video sources were used;
+- normal production source selection reused the same resolved FFmpeg authority and did not skip the decode gate;
 - source-byte TOCTOU binding held through clone;
 - the create-only portable identity receipt is present and canonical;
 - the `.mrbody` manifest uses the derived `bodyid-*`;
@@ -243,4 +248,4 @@ The first run is useful physical evidence only if all of the following are true:
 - WindowsPlayer and Quest use the same accepted body/package/runtime identity;
 - final release gate is the only step that sets `production_activation=true`.
 
-CI, fixtures, a procedural placeholder or a successful Stash search do not satisfy these physical gates.
+CI, fixtures, a procedural placeholder, a successful Stash search or a file that merely exists on disk do not satisfy these physical gates.
