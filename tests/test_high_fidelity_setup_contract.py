@@ -20,18 +20,23 @@ def test_openpose_setup_pins_revision_and_cuda_build():
     assert "sudo" not in text.lower()
 
 
-def test_top_level_setup_binds_sith_openpose_and_model_report():
+def test_top_level_setup_binds_sith_openpose_binary_and_model_report():
     text = (ROOT / "setup-high-fidelity-wsl.ps1").read_text(encoding="utf-8")
     assert SITH_REVISION in text
     assert OPENPOSE_REVISION in text
     assert "setup-openpose-wsl.ps1" in text
     assert "setup-sith-wsl.ps1" in text
     assert '"--openpose-repo", $OpenPoseRepo' in text
+    assert "bodyrig.wsl_file_digest" in text
     assert '"-m", "bodyrig.sith_model"' in text
     assert 'format = "bodyrig-sith-setup"' in text
+    assert "version = 2" in text
+    assert "sha256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()" in text
+    assert "byte_count = [int64]$openPoseDigest.byte_count" in text
     assert '"-m", "bodyrig.sith_setup", $tempReport' in text
     assert "BODYRIG_SITH_SETUP_REPORT" in text
     assert "BODYRIG_SITH_OPENPOSE_REPO" in text
+    assert "BODYRIG_SITH_OPENPOSE_SHA256" in text
 
 
 def test_setup_report_documentation_keeps_licensed_assets_explicit():
@@ -39,5 +44,7 @@ def test_setup_report_documentation_keeps_licensed_assets_explicit():
     assert "BodyRig never downloads, redistributes or embeds them in `.mrbody`" in text
     assert "setup-high-fidelity-wsl.ps1" in text
     assert "setup-report.json" in text
+    assert "`bodyrig-sith-setup` v2" in text
+    assert "OpenPose executable bytes" in text
     assert OPENPOSE_REVISION in text
     assert SITH_REVISION in text
