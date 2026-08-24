@@ -53,6 +53,7 @@ def _load_contract() -> dict[str, Any] | None:
         "renderer_version",
         "unity_editor_version",
         "univrm_version",
+        "univrm_revision",
         "application_id",
         "deformation_sequence_revision",
     }
@@ -63,6 +64,10 @@ def _load_contract() -> dict[str, Any] | None:
     for field in expected_fields - {"format", "version"}:
         if not str(contract.get(field) or "").strip():
             return None
+    if len(str(contract.get("univrm_revision"))) != 40 or any(
+        character not in "0123456789abcdef" for character in str(contract.get("univrm_revision"))
+    ):
+        return None
     return contract
 
 
