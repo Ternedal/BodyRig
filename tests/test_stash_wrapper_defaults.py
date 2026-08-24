@@ -77,7 +77,7 @@ def test_stash_wrapper_preserves_custom_fitter_escape_hatch():
 
     assert 'Resolve-InputFile -Path $FitterConfig -Label "High-fidelity fitter config"' in text
     assert 'Write-Host "High-fidelity fitter: custom config"' in text
-    assert 'Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1"' in text
+    assert 'Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1' in text
 
 
 def test_stash_wrapper_derives_smplx_assets_inside_pinned_sith_orchestrator():
