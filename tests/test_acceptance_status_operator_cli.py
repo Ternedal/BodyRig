@@ -54,6 +54,14 @@ def _write_reference_pair(directory: Path, *, renderer_version: str | None = Non
     )
 
 
+def test_windows_probe_status_command_uses_contract_bound_wrapper() -> None:
+    status = _operator_command(_status("windows-probe"))
+    assert status.next_command is not None
+    assert ".\\run-reference-windows-renderer-probe.ps1" in status.next_command
+    assert "-AcceptanceDir" in status.next_command
+    assert ".\\run-windows-renderer-probe.ps1" not in status.next_command
+
+
 def test_windows_status_command_uses_reference_attestation_helper() -> None:
     status = _operator_command(_status("windows-attestation"))
     assert status.next_command is not None
@@ -96,8 +104,8 @@ def test_completed_release_status_is_not_rewritten() -> None:
     assert _operator_command(complete) == complete
 
 
-def test_non_attestation_status_command_is_unchanged() -> None:
-    original = _status("windows-probe")
+def test_unrelated_status_command_is_unchanged() -> None:
+    original = _status("gate-a")
     assert _operator_command(original) == original
 
 
