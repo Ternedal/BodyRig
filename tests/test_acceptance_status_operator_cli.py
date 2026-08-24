@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from bodyrig.acceptance_status import AcceptanceStatus
-from bodyrig.acceptance_status_cli import _operator_command
+from bodyrig.acceptance_status_cli import _operator_command, _status_exit_code
 from bodyrig.reference_acceptance_policy import _load_contract, apply_reference_policy
 
 
@@ -107,6 +107,13 @@ def test_completed_release_status_is_not_rewritten() -> None:
 def test_unrelated_status_command_is_unchanged() -> None:
     original = _status("gate-a")
     assert _operator_command(original) == original
+
+
+def test_blocked_reference_status_is_nonzero_but_normal_states_are_success() -> None:
+    assert _status_exit_code(replace(_status("reference-contract"), state="blocked", next_command=None)) == 3
+    assert _status_exit_code(replace(_status("windows-probe"), state="ready")) == 0
+    assert _status_exit_code(_status("windows-attestation")) == 0
+    assert _status_exit_code(replace(_status("release"), state="complete", next_command=None)) == 0
 
 
 def test_reference_policy_leaves_empty_transactional_layout_unchanged(tmp_path: Path) -> None:
