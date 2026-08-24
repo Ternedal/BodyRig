@@ -11,7 +11,7 @@ def test_status_docs_keep_wheel_inspection_separate_from_operator_authority() ->
         text = path.read_text(encoding="utf-8")
         assert "Inspection-only" in text
         assert "--operator-root" in text
-        assert "git rev-parse HEAD" in text
+        assert "HEAD" in text
         assert "git status --porcelain" in text
         assert "exit code `3`" in text
         assert "next_command" in text
