@@ -38,11 +38,11 @@ Use the checkout-bound PowerShell wrapper:
 .\stash-sources.ps1 health
 ```
 
-This `health` call is the authentication gate for the future physical test. **Do not continue to performer search or clone unless it succeeds with the fresh token.** If it fails because the token is invalid, expired, revoked or missing, replace the token and repeat `health`; do not work around the failure by editing evidence or bypassing readiness.
+This `health` call is the authentication/capability gate for the future physical test. **Do not continue to performer search or clone unless it succeeds with the fresh token.** If it fails because the token is invalid, expired, revoked, missing or lacks performer-read access, replace/fix the token and repeat `health`; do not work around the failure by editing evidence or bypassing readiness.
 
 Do not rely on `bodyrig-stash-sources` being present on the shell `PATH`. A repo-local `.venv\Scripts\python.exe` is not automatically added to `PATH` by `setup-rig-windows.ps1`, so the wrapper resolves the same repo-local Python authority used by the physical launcher, verifies that `bodyrig.__file__` points at this checkout and then invokes `python -m bodyrig.stash_cli`.
 
-A successful call prints a small JSON object containing `ok=true` and the Stash version. Do not continue to a long physical clone while this probe fails.
+A successful call prints a small JSON object containing `ok=true`, the Stash version and **`performer_read=true`**. `health` proves the same read capability used by the following performer-search step while discarding the probe result and reading no media. Do not continue to a long physical clone unless all of those fields indicate PASS.
 
 ## 3. Find the performer id
 
@@ -98,7 +98,7 @@ See `docs/PORTABLE_IDENTITY.md` for the identity authority and source-byte TOCTO
 
 ## 5. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report **and the fresh-token `health` gate has passed**, run:
+After `setup-rig-windows.ps1` has produced a valid rig setup report **and the fresh-token `health` gate has passed with `performer_read=true`**, run:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
@@ -111,7 +111,7 @@ The ready launcher performs, in order:
 1. exact Git HEAD + clean-checkout authority;
 2. checkout-bound BodyRig Python authority;
 3. rig-setup / SiTH-setup validation;
-4. fresh recovery + SiTH/OpenPose/model + Stash readiness;
+4. fresh recovery + SiTH/OpenPose/model + Stash readiness, including performer-read capability;
 5. SHA-256 binding of the readiness report into the physical session;
 6. local Stash source selection and private observation-segment path;
 7. recovery + visual identity + source-byte TOCTOU check;
@@ -186,7 +186,7 @@ The same canonical body id, accepted package bytes and runtime identity must sur
 
 The first run is useful physical evidence only if all of the following are true:
 
-- the fresh Stash token passed the checkout-bound `health` gate before source discovery/clone;
+- the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
 - real local Stash performer/video sources were used;
 - source-byte TOCTOU binding held through clone;
 - the create-only portable identity receipt is present and canonical;
