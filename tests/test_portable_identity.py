@@ -8,6 +8,7 @@ import pytest
 
 from bodyrig.portable_identity import (
     PortableIdentityError,
+    bind_portable_identity_to_evidence,
     build_portable_identity,
     provenance_identity_stage,
     validate_portable_identity,
@@ -74,6 +75,16 @@ def _sources(tmp_path: Path) -> tuple[Path, Path]:
     first.write_bytes(b"first source bytes")
     second.write_bytes(b"second source bytes")
     return first, second
+
+
+def _receipt(tmp_path: Path) -> dict:
+    first, second = _sources(tmp_path)
+    return build_portable_identity(
+        proof=_proof(),
+        visual_identity=_identity(),
+        source_files=[first, second],
+        requested_alias="performer-123",
+    )
 
 
 def test_body_id_is_path_alias_and_order_independent(tmp_path: Path):
@@ -187,3 +198,79 @@ def test_provenance_stage_binds_canonical_body_id(tmp_path: Path):
         "adapter": "bodyrig.portable_identity",
         "revision": receipt["body_id"].removeprefix("bodyid-"),
     }
+
+
+def test_receipt_rebinds_to_same_clone_evidence_without_source_files(tmp_path: Path):
+    receipt = _receipt(tmp_path)
+    rebound = bind_portable_identity_to_evidence(
+        receipt,
+        proof=_proof(),
+        visual_identity=_identity(),
+        requested_alias="performer-123",
+    )
+    assert rebound == receipt
+    for path in tmp_path.iterdir():
+        if path.is_file():
+            path.unlink()
+    rebound_after_source_cleanup = bind_portable_identity_to_evidence(
+        receipt,
+        proof=_proof(),
+        visual_identity=_identity(),
+        requested_alias="performer-123",
+    )
+    assert rebound_after_source_cleanup == receipt
+
+
+def test_receipt_rebind_rejects_alias_proof_and_identity_mismatch(tmp_path: Path):
+    receipt = _receipt(tmp_path)
+    with pytest.raises(PortableIdentityError, match="session alias"):
+        bind_portable_identity_to_evidence(
+            receipt,
+            proof=_proof(),
+            visual_identity=_identity(),
+            requested_alias="performer-999",
+        )
+
+    changed_proof = copy.deepcopy(_proof())
+    changed_proof["bodyprint"]["motion"]["energy"] = 0.43
+    with pytest.raises(PortableIdentityError, match="recovery proof digest"):
+        bind_portable_identity_to_evidence(
+            receipt,
+            proof=changed_proof,
+            visual_identity=_identity(),
+            requested_alias="performer-123",
+        )
+
+    changed_identity = copy.deepcopy(_identity())
+    changed_identity["quality"]["sharpness"] = 0.81
+    with pytest.raises(PortableIdentityError, match="visual identity digest"):
+        bind_portable_identity_to_evidence(
+            receipt,
+            proof=_proof(),
+            visual_identity=changed_identity,
+            requested_alias="performer-123",
+        )
+
+
+def test_receipt_rebind_rejects_track_or_source_count_tamper(tmp_path: Path):
+    receipt = _receipt(tmp_path)
+
+    changed_track = copy.deepcopy(receipt)
+    changed_track["subject_track_id"] = "8"
+    with pytest.raises(PortableIdentityError):
+        bind_portable_identity_to_evidence(
+            changed_track,
+            proof=_proof(),
+            visual_identity=_identity(),
+            requested_alias="performer-123",
+        )
+
+    changed_count = copy.deepcopy(receipt)
+    changed_count["source_count"] = 1
+    with pytest.raises(PortableIdentityError):
+        bind_portable_identity_to_evidence(
+            changed_count,
+            proof=_proof(),
+            visual_identity=_identity(),
+            requested_alias="performer-123",
+        )

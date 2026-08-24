@@ -215,6 +215,7 @@ if (Test-Path -LiteralPath $PrivateWorkspace) {
 $preflightPath = Join-Path $OutputDir "bodyrig-recovery-preflight.json"
 $proofPath = Join-Path $OutputDir "bodyrig-recovery-proof.json"
 $identityPath = Join-Path $OutputDir "bodyrig-visual-identity.json"
+$portableIdentityPath = Join-Path $OutputDir "bodyrig-portable-identity.json"
 $packagePath = Join-Path $OutputDir "$BodyId.mrbody"
 $sourceEvidencePath = Join-Path $OutputDir "bodyrig-source-evidence.json"
 
@@ -238,7 +239,7 @@ $sourceEvidence | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $sourceEvid
 
 $success = $false
 try {
-    Write-Host "BodyRig clone | $Name | $BodyId"
+    Write-Host "BodyRig clone | $Name | alias=$BodyId"
     Write-Host "Source clips: $($resolvedSources.Count)"
     Write-Host "Source kind: $sourceOrigin"
     if ($usingManifest) {
@@ -284,6 +285,36 @@ try {
     )
     Invoke-Checked -Executable $BodyRigPython -Arguments $captureArgs -Step "Visual identity capture"
 
+    $portableIdentityArgs = @(
+        "-m", "bodyrig.portable_identity",
+        $proofPath
+    )
+    $portableIdentityArgs += $resolvedSources
+    $portableIdentityArgs += @(
+        "--identity-profile", $identityPath,
+        "--requested-alias", $BodyId,
+        "--out", $portableIdentityPath
+    )
+    Invoke-Checked -Executable $BodyRigPython -Arguments $portableIdentityArgs -Step "Portable identity binding"
+
+    $identityInspectCode = @'
+import json, sys
+from bodyrig.portable_identity import load_portable_identity
+r = load_portable_identity(sys.argv[1])
+print(json.dumps({"body_id": r["body_id"], "requested_alias": r["requested_alias"]}, separators=(",", ":")))
+'@
+    $portableIdentityRaw = & $BodyRigPython -c $identityInspectCode $portableIdentityPath
+    if ($LASTEXITCODE -ne 0) { throw "Portable identity receipt failed strict reload." }
+    try { $portableIdentity = $portableIdentityRaw | ConvertFrom-Json }
+    catch { throw "Portable identity strict reload returned unreadable JSON." }
+    $canonicalBodyId = [string]$portableIdentity.body_id
+    if ($canonicalBodyId -notmatch '^bodyid-[0-9a-f]{24}$') {
+        throw "Portable identity did not produce a canonical bodyid."
+    }
+    if ([string]$portableIdentity.requested_alias -ne $BodyId) {
+        throw "Portable identity requested alias does not match clone alias."
+    }
+
     $fitArgs = @(
         "-m", "bodyrig.external_fitter_cli",
         $proofPath,
@@ -291,6 +322,7 @@ try {
         "--identity-workspace", $PrivateWorkspace,
         "--config", $FitterConfig,
         "--body-id", $BodyId,
+        "--portable-identity", $portableIdentityPath,
         "--name", $Name,
         "--out", $packagePath
     )
@@ -301,27 +333,41 @@ import hashlib, json, pathlib, sys
 from bodyrig.package import validate_package
 p = pathlib.Path(sys.argv[1]).resolve()
 v = validate_package(p)
+identity_stages = [s for s in v.provenance["pipeline"] if s.get("stage") == "identity_content"]
 print(json.dumps({
   "body_id": v.manifest["id"],
   "package_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
   "payloads": list(v.payload_names),
   "pipeline": v.provenance["pipeline"],
+  "identity_stages": identity_stages,
 }, separators=(",", ":")))
 '@
     $validatedRaw = & $BodyRigPython -c $validateCode $packagePath
     if ($LASTEXITCODE -ne 0) {
         throw "Final .mrbody validation failed with exit code $LASTEXITCODE"
     }
-    $validated = $validatedRaw | ConvertFrom-Json
-    if ([string]$validated.body_id -ne $BodyId) {
-        throw "Final .mrbody body id mismatch."
+    try { $validated = $validatedRaw | ConvertFrom-Json }
+    catch { throw "Final .mrbody validation returned unreadable JSON." }
+    if ([string]$validated.body_id -ne $canonicalBodyId) {
+        throw "Final .mrbody canonical body id mismatch."
+    }
+    $identityStages = @($validated.identity_stages)
+    if ($identityStages.Count -ne 1) {
+        throw "Final .mrbody must contain exactly one identity_content provenance stage."
+    }
+    $identityStage = $identityStages[0]
+    if ([string]$identityStage.adapter -ne "bodyrig.portable_identity" -or [string]$identityStage.revision -ne $canonicalBodyId.Substring(7)) {
+        throw "Final .mrbody portable identity provenance mismatch."
     }
 
     $success = $true
     Write-Host ""
     Write-Host "BodyRig clone: PASS"
+    Write-Host "Requested alias: $BodyId"
+    Write-Host "Canonical body id: $canonicalBodyId"
     Write-Host "Package: $packagePath"
     Write-Host "Package SHA-256: $($validated.package_sha256)"
+    Write-Host "Portable identity: $portableIdentityPath"
     Write-Host "Recovery proof: $proofPath"
     Write-Host "Visual identity profile: $identityPath"
     Write-Host "Source evidence: $sourceEvidencePath"
