@@ -11,6 +11,7 @@ param(
     [string]$BodyRigPython = "",
     [string]$StashUrl = "",
     [string]$ApiKeyEnv = "STASH_API_KEY",
+    [string]$WslExe = "wsl.exe",
     [ValidateRange(1, 10)]
     [int]$MaxSources = 10,
     [ValidateRange(1, 1000)]
@@ -105,6 +106,7 @@ Set-RequiredEnvironment -Values @{
     BODYRIG_SITH_PYTHON = [string]$sith.sith.python
     BODYRIG_SITH_OPENPOSE_REPO = [string]$sith.openpose.repository
     BODYRIG_SITH_OPENPOSE = [string]$sith.openpose.executable
+    BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sith.openpose.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = [string]$sith.diffusion_model.path
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sith.diffusion_model.sha256).ToLowerInvariant()
 }
@@ -112,9 +114,31 @@ Set-RequiredEnvironment -Values @{
 $powerShellExe = Resolve-CommandPath "pwsh"
 if ($null -eq $powerShellExe) { $powerShellExe = Resolve-CommandPath "powershell" }
 if ($null -eq $powerShellExe) { throw "PowerShell executable not found." }
+
+$readinessScript = Join-Path $repoRoot "check-rig-ready.ps1"
+if (-not (Test-Path -LiteralPath $readinessScript -PathType Leaf)) { throw "check-rig-ready.ps1 not found." }
+$readinessArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $readinessScript,
+    "-RigSetupReport", $RigSetupReport,
+    "-BodyRigPython", $BodyRigPython,
+    "-ApiKeyEnv", $ApiKeyEnv,
+    "-WslExe", $WslExe
+)
+if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $readinessArgs += @("-StashUrl", $StashUrl) }
+
+Write-Host "BodyRig ready-rig Stash clone"
+Write-Host "Rig setup: $RigSetupReport"
+Write-Host "Performer id: $PerformerId"
+Write-Host "Body id: $BodyId"
+Write-Host "Live readiness: checking recovery, SiTH/OpenPose source + binary, diffusion model and Stash"
+Write-Host ""
+& $powerShellExe @readinessArgs
+if ($LASTEXITCODE -ne 0) { throw "BodyRig live rig readiness failed with exit code $LASTEXITCODE; clone not started." }
+
 $cloneScript = Join-Path $repoRoot "clone-body-from-stash.ps1"
 if (-not (Test-Path -LiteralPath $cloneScript -PathType Leaf)) { throw "clone-body-from-stash.ps1 not found." }
-
 $cloneArgs = @(
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
@@ -139,11 +163,9 @@ if ($SkipObservationSelection) { $cloneArgs += "-SkipObservationSelection" }
 if ($AllowCpu) { $cloneArgs += "-AllowCpu" }
 if ($KeepPrivateWorkspace) { $cloneArgs += "-KeepPrivateWorkspace" }
 
-Write-Host "BodyRig ready-rig Stash clone"
-Write-Host "Rig setup: $RigSetupReport"
-Write-Host "Performer id: $PerformerId"
-Write-Host "Body id: $BodyId"
 Write-Host ""
+Write-Host "Live readiness: PASS"
+Write-Host "Starting Stash clone pipeline."
 & $powerShellExe @cloneArgs
 if ($LASTEXITCODE -ne 0) { throw "BodyRig Stash clone failed with exit code $LASTEXITCODE" }
 exit 0
