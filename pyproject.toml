@@ -46,5 +46,8 @@ bodyrig-acceptance-status = "bodyrig.acceptance_status_cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["bodyrig"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"reference-renderer/renderer-contract.json" = "reference-renderer/renderer-contract.json"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
