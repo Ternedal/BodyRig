@@ -77,40 +77,6 @@ def _powershell() -> str:
     return command
 
 
-def _stop_process_tree(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        try:
-            result = subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise UiJobError(f"Could not stop the Windows UI job process tree for PID {process.pid}: {exc}") from exc
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or "taskkill failed").strip()
-            raise UiJobError(f"Could not confirm Windows UI job process-tree cancellation for PID {process.pid}: {detail}")
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired as exc:
-            raise UiJobError(f"Windows UI job PID {process.pid} remained alive after taskkill /T /F") from exc
-        return
-
-    process.terminate()
-    try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired as exc:
-            raise UiJobError(f"UI job PID {process.pid} could not be stopped") from exc
-
-
 def operator_checkout_status() -> dict[str, Any]:
     root = _repo_root()
     required = [
@@ -397,13 +363,17 @@ class UiJobManager:
             job = self.get(job_id)
             if job.get("status") in _FINAL:
                 return job
-            process = self._processes.get(job_id)
-            if process is not None and process.poll() is None:
-                _stop_process_tree(process)
+            if job.get("status") == "running":
+                raise UiJobError(
+                    "Running physical body builds cannot be safely canceled because WSL/child-process termination cannot be proven. "
+                    "Let the active command reach a terminal state, then inspect the persisted session/evidence before retrying."
+                )
+            if job.get("status") != "queued":
+                raise UiJobError(f"UI job cannot be canceled from state {job.get('status')!r}")
             job["status"] = "canceled"
             job["completed_utc"] = _now()
             job["pid"] = None
-            job["error"] = "Canceled by operator after confirming the active process tree stopped"
+            job["error"] = "Canceled by operator before physical subprocess start"
             _write_job(job)
             return job
 
