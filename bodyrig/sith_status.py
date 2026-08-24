@@ -9,6 +9,8 @@ from typing import Any
 
 from .sith_model import SithModelError, digest_model_tree
 from .sith_preflight import SithPreflightError, run_preflight
+from .wsl_file_digest import WslFileDigestError, digest_wsl_file
+from .wsl_tree_digest import WslTreeDigestError, digest_wsl_tree
 
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -16,7 +18,10 @@ ENVIRONMENT = {
     "distribution": "BODYRIG_SITH_DISTRIBUTION",
     "repo": "BODYRIG_SITH_REPO",
     "python": "BODYRIG_SITH_PYTHON",
+    "openpose_repo": "BODYRIG_SITH_OPENPOSE_REPO",
     "openpose": "BODYRIG_SITH_OPENPOSE",
+    "openpose_sha256": "BODYRIG_SITH_OPENPOSE_SHA256",
+    "openpose_models_sha256": "BODYRIG_SITH_OPENPOSE_MODELS_SHA256",
     "diffusion_model": "BODYRIG_SITH_DIFFUSION_MODEL",
     "diffusion_sha256": "BODYRIG_SITH_DIFFUSION_SHA256",
 }
@@ -34,7 +39,10 @@ def collect_status(
     distribution: str | None = None,
     repo: str | None = None,
     python: str | None = None,
+    openpose_repo: str | None = None,
     openpose: str | None = None,
+    openpose_sha256: str | None = None,
+    openpose_models_sha256: str | None = None,
     diffusion_model: str | None = None,
     diffusion_sha256: str | None = None,
     wsl_exe: str = "wsl.exe",
@@ -43,33 +51,44 @@ def collect_status(
         "distribution": _setting(distribution, "distribution", default="Ubuntu-22.04"),
         "repo": _setting(repo, "repo"),
         "python": _setting(python, "python"),
+        "openpose_repo": _setting(openpose_repo, "openpose_repo"),
         "openpose": _setting(openpose, "openpose"),
+        "openpose_sha256": _setting(openpose_sha256, "openpose_sha256").lower(),
+        "openpose_models_sha256": _setting(openpose_models_sha256, "openpose_models_sha256").lower(),
         "diffusion_model": _setting(diffusion_model, "diffusion_model"),
         "diffusion_sha256": _setting(diffusion_sha256, "diffusion_sha256").lower(),
     }
-    missing = [
-        ENVIRONMENT[key]
-        for key in ("repo", "python", "openpose", "diffusion_model", "diffusion_sha256")
-        if not settings[key]
-    ]
+    required_keys = (
+        "repo",
+        "python",
+        "openpose_repo",
+        "openpose",
+        "openpose_sha256",
+        "openpose_models_sha256",
+        "diffusion_model",
+        "diffusion_sha256",
+    )
+    missing = [ENVIRONMENT[key] for key in required_keys if not settings[key]]
     result: dict[str, Any] = {
         "format": "bodyrig-sith-status",
-        "version": 1,
+        "version": 2,
         "ready": False,
         "distribution": settings["distribution"],
         "configured": not missing,
         "missing_settings": missing,
         "preflight": None,
+        "openpose_binary": None,
+        "openpose_models": None,
         "diffusion_model": None,
         "errors": [],
     }
     if missing:
         result["errors"].append("SiTH settings are incomplete")
         return result
-    if not SHA_RE.fullmatch(settings["diffusion_sha256"]):
-        result["errors"].append("BODYRIG_SITH_DIFFUSION_SHA256 is not a lowercase SHA-256")
-        return result
-    for key in ("repo", "python", "openpose", "diffusion_model"):
+    for key in ("openpose_sha256", "openpose_models_sha256", "diffusion_sha256"):
+        if not SHA_RE.fullmatch(settings[key]):
+            result["errors"].append(f"{ENVIRONMENT[key]} is not a lowercase SHA-256")
+    for key in ("repo", "python", "openpose_repo", "openpose", "diffusion_model"):
         if not settings[key].startswith("/"):
             result["errors"].append(f"{ENVIRONMENT[key]} must be an absolute Linux path")
     if result["errors"]:
@@ -81,6 +100,7 @@ def collect_status(
             repo=settings["repo"],
             python=settings["python"],
             openpose=settings["openpose"],
+            openpose_repo=settings["openpose_repo"],
             wsl_exe=wsl_exe,
         )
     except (OSError, SithPreflightError) as exc:
@@ -94,6 +114,49 @@ def collect_status(
     }
     if not preflight.get("ok"):
         result["errors"].extend(str(item) for item in preflight.get("errors", []))
+        return result
+
+    try:
+        binary = digest_wsl_file(
+            distribution=settings["distribution"],
+            python=settings["python"],
+            path=settings["openpose"],
+            wsl_exe=wsl_exe,
+        )
+    except (OSError, WslFileDigestError) as exc:
+        result["errors"].append(f"OpenPose binary digest could not complete: {exc}")
+        return result
+    binary_matches = binary["sha256"] == settings["openpose_sha256"]
+    result["openpose_binary"] = {
+        "sha256": binary["sha256"],
+        "byte_count": binary["byte_count"],
+        "expected_sha256": settings["openpose_sha256"],
+        "matches": binary_matches,
+    }
+    if not binary_matches:
+        result["errors"].append("OpenPose binary digest mismatch")
+        return result
+
+    try:
+        models = digest_wsl_tree(
+            distribution=settings["distribution"],
+            python=settings["python"],
+            path=settings["openpose_repo"].rstrip("/") + "/models",
+            wsl_exe=wsl_exe,
+        )
+    except (OSError, WslTreeDigestError) as exc:
+        result["errors"].append(f"OpenPose model tree digest could not complete: {exc}")
+        return result
+    models_match = models["sha256"] == settings["openpose_models_sha256"]
+    result["openpose_models"] = {
+        "sha256": models["sha256"],
+        "file_count": models["file_count"],
+        "byte_count": models["byte_count"],
+        "expected_sha256": settings["openpose_models_sha256"],
+        "matches": models_match,
+    }
+    if not models_match:
+        result["errors"].append("OpenPose model tree digest mismatch")
         return result
 
     try:
@@ -126,7 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--distribution")
     parser.add_argument("--repo")
     parser.add_argument("--python")
+    parser.add_argument("--openpose-repo")
     parser.add_argument("--openpose")
+    parser.add_argument("--openpose-sha256")
+    parser.add_argument("--openpose-models-sha256")
     parser.add_argument("--diffusion-model")
     parser.add_argument("--diffusion-model-sha256")
     parser.add_argument("--wsl-exe", default="wsl.exe")
@@ -137,7 +203,10 @@ def main(argv: list[str] | None = None) -> int:
         distribution=args.distribution,
         repo=args.repo,
         python=args.python,
+        openpose_repo=args.openpose_repo,
         openpose=args.openpose,
+        openpose_sha256=args.openpose_sha256,
+        openpose_models_sha256=args.openpose_models_sha256,
         diffusion_model=args.diffusion_model,
         diffusion_sha256=args.diffusion_model_sha256,
         wsl_exe=args.wsl_exe,
