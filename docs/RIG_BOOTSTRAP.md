@@ -59,17 +59,28 @@ It then writes:
 
 The final report records SHA-256 for all three nested evidence files and the exact Windows recovery paths needed by the physical clone flow. `bodyrig.rig_setup` re-opens and verifies the nested reports, pinned 4D-Humans/PHALP revisions, recovery `ok=true`, SMPL presence and the strict SiTH/OpenPose setup report before the master report is committed.
 
-With `-PersistUserEnvironment`, `BODYRIG_RIG_SETUP_REPORT` and the existing `BODYRIG_SITH_*` settings are saved for the current Windows user.
+The bootstrap also rehydrates the validated `BODYRIG_SITH_*` values into its own PowerShell environment after the isolated high-fidelity setup process returns. With `-PersistUserEnvironment`, the SiTH settings plus `BODYRIG_RIG_SETUP_REPORT` are saved for the current Windows user.
 
-## First clone
+## Normal clone after bootstrap
 
-After bootstrap completes with `READY`, use the recovery paths printed by the script:
+After bootstrap completes with `READY`, the shortest Stash path is:
 
 ```powershell
-.\clone-body-from-stash.ps1 `
+.\clone-body-from-stash-ready.ps1 `
   -PerformerId <stash-performer-id> `
-  -ExternalPython "<recovery python from bootstrap>" `
-  -FourDHumansRepo "<4D-Humans repo from bootstrap>" `
+  -BodyId <body-id>
+```
+
+The ready-rig launcher resolves `BODYRIG_RIG_SETUP_REPORT` (or `%LOCALAPPDATA%\BodyRig\bodyrig-rig-setup.json`), revalidates all nested byte-bound setup evidence, rehydrates the SiTH settings and then invokes the existing `clone-body-from-stash.ps1` with the recovery Python and 4D-Humans checkout from the verified master report.
+
+It is deliberately only a launcher. Recovery, observation selection, identity capture, high-fidelity fitting and `.mrbody` packaging still happen in the single existing Stash clone pipeline.
+
+If a non-default master report is required:
+
+```powershell
+.\clone-body-from-stash-ready.ps1 `
+  -RigSetupReport "D:\BodyRig\bodyrig-rig-setup.json" `
+  -PerformerId <stash-performer-id> `
   -BodyId <body-id>
 ```
 
