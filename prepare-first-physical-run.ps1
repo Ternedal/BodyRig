@@ -107,6 +107,10 @@ if ($hasPerformer -xor $hasBodyId) {
     throw "Pass -PerformerId and -BodyId together, or omit both."
 }
 
+$rendererReadinessScript = Join-Path $repoRoot "check-reference-renderer-ready.ps1"
+if (-not (Test-Path -LiteralPath $rendererReadinessScript -PathType Leaf)) {
+    throw "check-reference-renderer-ready.ps1 not found."
+}
 $readinessScript = Join-Path $repoRoot "check-rig-ready.ps1"
 if (-not (Test-Path -LiteralPath $readinessScript -PathType Leaf)) {
     throw "check-rig-ready.ps1 not found."
@@ -120,7 +124,13 @@ Write-Host "BodyRig Python: $BodyRigPython"
 Write-Host "Rig setup: $RigSetupReport"
 Write-Host "Stash URL: $StashUrl"
 Write-Host ""
-Write-Host "Running live non-session readiness checks..."
+Write-Host "Checking Unity/Quest reference-renderer toolchain..."
+& $rendererReadinessScript
+if ($LASTEXITCODE -ne 0) {
+    throw "BodyRig reference-renderer toolchain readiness failed with exit code $LASTEXITCODE. No physical session was started."
+}
+Write-Host ""
+Write-Host "Running live non-session recovery/SiTH/Stash readiness checks..."
 
 $readinessArgs = @(
     "-NoProfile",
@@ -155,7 +165,8 @@ if ($finalDirty.Count -gt 0) {
 
 Write-Host ""
 Write-Host "BodyRig pre-session doctor: READY"
-Write-Host "No physical clone session or acceptance evidence was created."
+Write-Host "Recovery, Stash, Unity and Quest build toolchains are ready."
+Write-Host "No Unity project was opened and no physical clone session or acceptance evidence was created."
 
 if ($hasPerformer -and $hasBodyId) {
     $quotedPerformer = Quote-PowerShellLiteral -Value $PerformerId
