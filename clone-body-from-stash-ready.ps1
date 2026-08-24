@@ -26,6 +26,7 @@ param(
     [int]$SithSeed = 1337,
     [switch]$SkipObservationSelection,
     [switch]$AllowCpu,
+    [switch]$AllowDirty,
     [switch]$KeepPrivateWorkspace
 )
 
@@ -64,6 +65,19 @@ function Invoke-SessionCommand {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
+    throw "Could not bind physical clone session to BodyRig Git HEAD."
+}
+$dirty = @(& git -C $repoRoot status --porcelain)
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not inspect BodyRig Git status."
+}
+$checkoutClean = ($dirty.Count -eq 0)
+if (-not $AllowDirty -and -not $checkoutClean) {
+    throw "BodyRig checkout is dirty. Commit/stash changes or rerun explicitly with -AllowDirty for diagnostic work."
+}
+
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venv -PathType Leaf) { $BodyRigPython = $venv }
@@ -99,12 +113,15 @@ if ([string]::IsNullOrWhiteSpace($SessionReport)) {
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
 $readinessReport = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
 $rigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
+$checkoutCleanText = $(if ($checkoutClean) { "true" } else { "false" })
 
 Invoke-SessionCommand -Arguments @(
     "start",
     "--out", $SessionReport,
     "--performer-id", $PerformerId,
     "--body-id", $BodyId,
+    "--bodyrig-revision", $head,
+    "--bodyrig-checkout-clean", $checkoutCleanText,
     "--rig-setup-sha256", $rigSetupHash
 ) -Step "Physical clone session start"
 
@@ -164,6 +181,8 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $readinessArgs += @("-StashUrl", $StashUrl) }
 
     Write-Host "BodyRig ready-rig Stash clone"
+    Write-Host "BodyRig revision: $head"
+    Write-Host "Checkout clean: $checkoutClean"
     Write-Host "Rig setup: $RigSetupReport"
     Write-Host "Performer id: $PerformerId"
     Write-Host "Body id: $BodyId"
@@ -218,6 +237,11 @@ try {
     $sessionStage = "clone"
     & $powerShellExe @cloneArgs
     if ($LASTEXITCODE -ne 0) { throw "BodyRig Stash clone failed with exit code $LASTEXITCODE" }
+
+    $finalHead = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
+    if ($LASTEXITCODE -ne 0 -or $finalHead -ne $head) {
+        throw "BodyRig Git HEAD changed during the physical clone session; refusing PASS evidence."
+    }
 
     Invoke-SessionCommand -Arguments @(
         "pass",
