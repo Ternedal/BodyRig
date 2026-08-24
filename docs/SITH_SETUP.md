@@ -104,9 +104,25 @@ That means a `PASS` requires, among other things:
 - all six SMPL-X files;
 - OpenPose executable.
 
+## Diagnose before cloning
+
+After setup, run:
+
+```powershell
+bodyrig-sith-status
+```
+
+For machine-readable output:
+
+```powershell
+bodyrig-sith-status --json
+```
+
+The status command reads the same `BODYRIG_SITH_*` settings as the Stash wrapper. It reports `READY` only when the pinned preflight passes and the currently installed diffusion-model tree still matches `BODYRIG_SITH_DIFFUSION_SHA256`. Missing settings, modified SiTH files, missing local assets, CUDA/import failures and model-tree drift return a non-zero exit code without touching Stash or starting reconstruction.
+
 ## Clone from Stash
 
-After a successful persisted setup, the built-in high-fidelity path no longer needs hand-written identity/fitter configs:
+After a successful persisted setup and `bodyrig-sith-status` reporting `READY`, the built-in high-fidelity path no longer needs hand-written identity/fitter configs:
 
 ```powershell
 .\clone-body-from-stash.ps1 `
