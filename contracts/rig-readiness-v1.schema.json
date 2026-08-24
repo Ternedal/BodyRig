@@ -13,21 +13,48 @@
     "checks": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["master_setup", "recovery", "sith_openpose", "diffusion_model", "stash"],
+      "required": [
+        "master_setup",
+        "recovery",
+        "sith_openpose",
+        "openpose_binary",
+        "openpose_models",
+        "diffusion_model",
+        "stash",
+        "stash_performer_read"
+      ],
       "properties": {
         "master_setup": {"const": true},
         "recovery": {"const": true},
         "sith_openpose": {"const": true},
+        "openpose_binary": {"const": true},
+        "openpose_models": {"const": true},
         "diffusion_model": {"const": true},
-        "stash": {"const": true}
+        "stash": {"const": true},
+        "stash_performer_read": {"const": true}
       }
     },
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stash_version", "diffusion_model_sha256", "diffusion_model_file_count", "diffusion_model_byte_count"],
+      "required": [
+        "stash_version",
+        "openpose_sha256",
+        "openpose_byte_count",
+        "openpose_models_sha256",
+        "openpose_models_file_count",
+        "openpose_models_byte_count",
+        "diffusion_model_sha256",
+        "diffusion_model_file_count",
+        "diffusion_model_byte_count"
+      ],
       "properties": {
         "stash_version": {"type": "string", "minLength": 1, "maxLength": 160},
+        "openpose_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "openpose_byte_count": {"type": "integer", "minimum": 1},
+        "openpose_models_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "openpose_models_file_count": {"type": "integer", "minimum": 1},
+        "openpose_models_byte_count": {"type": "integer", "minimum": 1},
         "diffusion_model_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "diffusion_model_file_count": {"type": "integer", "minimum": 1},
         "diffusion_model_byte_count": {"type": "integer", "minimum": 1}
