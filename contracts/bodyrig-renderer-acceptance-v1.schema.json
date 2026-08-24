@@ -27,6 +27,7 @@
     "machine_probe",
     "deformation_probe",
     "result",
+    "quality_review",
     "quality_note",
     "attestation",
     "production_activation"
@@ -59,6 +60,30 @@
     "machine_probe": {"const": true},
     "deformation_probe": {"const": true},
     "result": {"const": "pass"},
+    "quality_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "full_deformation_sequence_reviewed",
+        "source_identity_texture_acceptable",
+        "geometry_proportions_acceptable",
+        "upper_body_deformation_acceptable",
+        "lower_body_deformation_acceptable",
+        "cross_limb_leakage_absent",
+        "skin_qa_considered"
+      ],
+      "properties": {
+        "revision": {"const": "bodyrig-human-quality-v1"},
+        "full_deformation_sequence_reviewed": {"const": true},
+        "source_identity_texture_acceptable": {"const": true},
+        "geometry_proportions_acceptable": {"const": true},
+        "upper_body_deformation_acceptable": {"const": true},
+        "lower_body_deformation_acceptable": {"const": true},
+        "cross_limb_leakage_absent": {"const": true},
+        "skin_qa_considered": {"const": true}
+      }
+    },
     "quality_note": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": ".*\\S.*"},
     "attestation": {"const": "operator-supplied"},
     "production_activation": {"const": false}
