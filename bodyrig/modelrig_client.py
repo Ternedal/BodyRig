@@ -8,6 +8,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from .execution_provenance import ExecutionProvenanceError, record_runtime
+
 MAX_JSON_BYTES = 4 * 1024 * 1024
 
 
@@ -119,6 +121,11 @@ class ModelRigClient:
         value = self._json(self._request("/healthz", require_auth=False), "health")
         if value.get("status") != "ok" or value.get("service") != "modelrig-server":
             raise ModelRigClientError("ModelRig health did not report the expected service")
+        version = value.get("version")
+        try:
+            record_runtime("modelrig-server", version)
+        except ExecutionProvenanceError as exc:
+            raise ModelRigClientError("ModelRig health did not report a valid version") from exc
         return value
 
     def models(self) -> list[dict[str, Any]]:
