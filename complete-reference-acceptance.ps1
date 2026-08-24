@@ -15,6 +15,29 @@ function Read-JsonFile {
     return [pscustomobject]@{ Path = $resolved; Value = $value }
 }
 
+function Assert-QualityReview {
+    param([Parameter(Mandatory = $true)]$Attestation,[Parameter(Mandatory = $true)][string]$Label)
+    $review = $Attestation.quality_review
+    if ($null -eq $review) { throw "$Label human quality review is missing." }
+    $expectedFields = @(
+        "revision",
+        "full_deformation_sequence_reviewed",
+        "source_identity_texture_acceptable",
+        "geometry_proportions_acceptable",
+        "upper_body_deformation_acceptable",
+        "lower_body_deformation_acceptable",
+        "cross_limb_leakage_absent",
+        "skin_qa_considered"
+    )
+    if (@(Compare-Object -ReferenceObject $expectedFields -DifferenceObject @($review.PSObject.Properties.Name)).Count -ne 0) {
+        throw "$Label human quality review fields are not canonical."
+    }
+    if ([string]$review.revision -ne "bodyrig-human-quality-v1") { throw "$Label human quality review revision mismatch." }
+    foreach ($field in $expectedFields | Where-Object { $_ -ne "revision" }) {
+        if ($review.$field -ne $true) { throw "$Label human quality review did not explicitly pass '$field'." }
+    }
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
@@ -62,6 +85,7 @@ foreach ($entry in $platforms) {
     if ([string]$attestation.renderer_name -ne [string]$contract.renderer_name -or [string]$attestation.renderer_version -ne [string]$contract.renderer_version) { throw "$($entry.Name) human attestation renderer identity does not match renderer-contract.json." }
     if ([string]$probe.unity_version -ne [string]$contract.unity_editor_version -or [string]$deformation.unity_version -ne [string]$contract.unity_editor_version -or [string]$attestation.unity_version -ne [string]$contract.unity_editor_version) { throw "$($entry.Name) renderer evidence does not use the exact contract-pinned Unity version." }
     if ([string]$deformation.sequence_revision -ne [string]$contract.deformation_sequence_revision -or [string]$attestation.deformation_sequence_revision -ne [string]$contract.deformation_sequence_revision) { throw "$($entry.Name) renderer evidence does not use the contract-pinned deformation sequence." }
+    Assert-QualityReview -Attestation $attestation -Label $entry.Name
 }
 
 $core = Join-Path $repoRoot "complete-acceptance.ps1"
@@ -79,5 +103,5 @@ if (-not [string]::IsNullOrWhiteSpace($Output)) { $args.Output = $Output }
 & $core @args
 if ($LASTEXITCODE -ne 0) { throw "Core final acceptance failed with exit code $LASTEXITCODE." }
 
-Write-Host "BodyRig reference release acceptance: PASS | renderer $($contract.renderer_version) | Unity $($contract.unity_editor_version)"
+Write-Host "BodyRig reference release acceptance: PASS | renderer $($contract.renderer_version) | Unity $($contract.unity_editor_version) | quality=bodyrig-human-quality-v1"
 exit 0
