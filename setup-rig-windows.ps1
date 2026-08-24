@@ -144,6 +144,7 @@ $sithEnvironment = @{
     BODYRIG_SITH_OPENPOSE_REPO = [string]$sithSetup.openpose.repository
     BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable
     BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sithSetup.openpose.sha256).ToLowerInvariant()
+    BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$sithSetup.openpose.models_sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()
 }
@@ -188,6 +189,6 @@ Write-Host "PHALP: $([string]$recovery.phalp_repo)"
 Write-Host "SiTH setup: $SithSetupReport"
 Write-Host "Combined rig setup: $RigSetupReport"
 Write-Host ""
-Write-Host "Next physical clone:"
-Write-Host ".\clone-body-from-stash.ps1 -PerformerId <id> -ExternalPython `"$([string]$recovery.external_python)`" -FourDHumansRepo `"$([string]$recovery.four_d_humans_repo)`" -BodyId <id>"
+Write-Host "Next physical clone (runs live readiness before clone):"
+Write-Host ".\clone-body-from-stash-ready.ps1 -PerformerId <id> -BodyId <id>"
 exit 0
