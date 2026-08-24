@@ -10,6 +10,11 @@ from typing import Any
 from .external_fitter import ExternalFitterError, run_external_fitter
 from .identity import VisualIdentityError, bind_visual_identity_to_proof
 from .package import MRBodyError, build_package
+from .portable_identity import (
+    PortableIdentityError,
+    load_portable_identity,
+    provenance_identity_stage,
+)
 from .proof import ProofError, load_recovery_proof, read_canonical_json
 
 CONFIG_FORMAT = "bodyrig-external-fitter-config"
@@ -78,7 +83,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Private local workspace containing source-derived material for the external fitter",
     )
     parser.add_argument("--config", required=True, help="Local bodyrig-external-fitter-config v1 JSON")
-    parser.add_argument("--body-id", required=True, help="Path-safe BodyRig id")
+    parser.add_argument("--body-id", required=True, help="Operator-facing BodyRig alias")
+    parser.add_argument(
+        "--portable-identity",
+        default="",
+        help="Optional bodyrig-portable-identity v1 receipt; when present it is the canonical package identity authority",
+    )
     parser.add_argument("--name", required=True, help="Display name for the avatar")
     parser.add_argument("--out", required=True, help="Output .mrbody path")
     args = parser.parse_args(argv)
@@ -92,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
         config = validate_external_fitter_config(
             read_canonical_json(args.config, label="external fitter config")
         )
+        portable_identity = None
+        package_body_id = args.body_id
+        if args.portable_identity:
+            portable_identity = load_portable_identity(args.portable_identity)
+            if portable_identity["requested_alias"] != args.body_id:
+                raise PortableIdentityError(
+                    "portable identity requested_alias does not match --body-id"
+                )
+            package_body_id = portable_identity["body_id"]
+
         fitted = run_external_fitter(
             config["command"],
             workspace=args.identity_workspace,
@@ -103,34 +123,39 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=config["timeout_seconds"],
         )
 
+        pipeline = [
+            {
+                "stage": "body-recovery",
+                "adapter": proof["adapter"],
+                "revision": proof["revision"],
+            },
+            {
+                "stage": "visual-identity-capture",
+                "adapter": identity["adapter"],
+                "revision": identity["revision"],
+            },
+        ]
+        if portable_identity is not None:
+            pipeline.append(provenance_identity_stage(portable_identity))
+        pipeline.append(
+            {
+                "stage": "avatar-fitting",
+                "adapter": fitted.fit.adapter,
+                "revision": fitted.fit.revision,
+            }
+        )
         provenance = {
             "format": "modelrig-body-provenance",
             "version": 1,
             "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "source": {"kind": "user-supplied-local-media", "count": proof["source_count"]},
             "synthetic_avatar": True,
-            "pipeline": [
-                {
-                    "stage": "body-recovery",
-                    "adapter": proof["adapter"],
-                    "revision": proof["revision"],
-                },
-                {
-                    "stage": "visual-identity-capture",
-                    "adapter": identity["adapter"],
-                    "revision": identity["revision"],
-                },
-                {
-                    "stage": "avatar-fitting",
-                    "adapter": fitted.fit.adapter,
-                    "revision": fitted.fit.revision,
-                },
-            ],
+            "pipeline": pipeline,
         }
         output = Path(args.out).expanduser().resolve()
         build_package(
             output,
-            body_id=args.body_id,
+            body_id=package_body_id,
             name=args.name,
             avatar_vrm=fitted.fit.avatar_vrm,
             bodyprint=proof["bodyprint"],
@@ -142,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         ValueError,
         ProofError,
         VisualIdentityError,
+        PortableIdentityError,
         ExternalFitterConfigError,
         ExternalFitterError,
         MRBodyError,
