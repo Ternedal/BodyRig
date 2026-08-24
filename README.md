@@ -114,7 +114,7 @@ Status-checkeren **muterer ingen evidence**. Den læser og re-hasher den eksiste
 
 `Gate A → Windows probe → Windows human attestation → Quest probe → Quest human attestation → final release`.
 
-Hvis evidence er inkonsistent — fx et ufuldstændigt machine/deformation-par, både nyt og legacy layout, forkert embedded BodyRig build-revision eller en attestation der ikke længere hasher til sine eksakte probe-filer — returnerer den `ERROR` i stedet for at foreslå et næste trin. `-Json` / `--json` kan bruges til maskinlæsbar status.
+Hvis evidence er inkonsistent — fx et ufuldstændigt machine/deformation-par, både nyt og legacy layout, forkert embedded BodyRig build-revision eller en attestation der ikke længere hasher til sine eksakte probe-filer — returnerer den `ERROR` i stedet for at foreslå et næste trin. Complete legacy root-par kan stadig inspiceres for backward compatibility, men den canonical V1 release-policy kræver de nye contract-bound evidence-directories. `-Json` / `--json` kan bruges til maskinlæsbar status.
 
 ## `.mrbody` → renderer-runtime
 
@@ -146,22 +146,12 @@ Sweepet bruger Unity Humanoid-muscles via `HumanPoseHandler`, skriver create-onl
 
 ### WindowsPlayer
 
-Byg/kør reference-rendereren og få både machine- og deformation-evidence:
-
 ```powershell
 .\run-windows-renderer-probe.ps1 `
   -AcceptanceDir "C:\acceptance"
 ```
 
-Efter validering commit'es parret samlet som:
-
-```text
-windows-evidence/
-  windows-probe.json
-  windows-deformation-probe.json
-```
-
-Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering. Reference-helperen læser den eksakte renderer-identitet fra kontrakten og machine-proben og sender den videre til den hårde acceptance-gate:
+Efter validering commit'es parret samlet som `windows-evidence/`. Efter fysisk visuel review:
 
 ```powershell
 .\record-reference-renderer-acceptance.ps1 `
@@ -172,22 +162,14 @@ Efter den synlige sweep/loop er gennemgået, optages den menneskelige attesterin
 
 ### Quest-class Android
 
-Canonical Quest-kørslen bruger et ekstra contract-bound transaction-lag omkring den lavniveau ADB-wrapper. Det sikrer, at renderer-identitet, exact Unity-version og deformation-sekvens er valideret **før** `quest-evidence/` bliver canonical:
+Canonical Quest-kørslen bruger et ekstra contract-bound transaction-lag omkring den lavniveau ADB-wrapper:
 
 ```powershell
 .\run-reference-quest-renderer-probe.ps1 `
   -AcceptanceDir "C:\acceptance"
 ```
 
-Efter ADB-pull og begge valideringslag commit'es parret samlet som:
-
-```text
-quest-evidence/
-  quest-probe.json
-  quest-deformation-probe.json
-```
-
-`run-quest-renderer-probe.ps1` er fortsat den interne/lavniveau ADB-implementation, men er ikke V1's canonical production entrypoint.
+Efter ADB-pull og begge valideringslag commit'es parret samlet som `quest-evidence/`. `run-quest-renderer-probe.ps1` er fortsat den interne/lavniveau ADB-implementation, men er ikke V1's canonical production entrypoint.
 
 Efter samme sweep er gennemgået i headsettet:
 
@@ -198,7 +180,7 @@ Efter samme sweep er gennemgået i headsettet:
   -QualityNote "Same fixed deformation sweep and accepted high-fidelity runtime reviewed on Quest-class hardware"
 ```
 
-`record-reference-renderer-acceptance.ps1` er kun en operator-wrapper: den afleder renderer-navn/version fra `renderer-contract.json`, kræver at machine-proben har samme identitet og kalder derefter den eksisterende `record-renderer-acceptance.ps1`. Den hårde gate genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet, machine-proben, deformation-proben og den embedded renderer build-revision. Human `QualityNote` forbliver direkte hash-bundet til det konkrete deformation-run.
+`record-reference-renderer-acceptance.ps1` afleder renderer-navn/version og exact Unity-version fra `renderer-contract.json`, kræver at machine/deformation evidence matcher kontrakten og kalder derefter den eksisterende hårde `record-renderer-acceptance.ps1`. Human `QualityNote` forbliver direkte hash-bundet til det konkrete deformation-run.
 
 Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultatet med den faste fysiske sweep ved arm/torso, ben, hænder, skuldre, albuer og knæ. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
 
@@ -211,7 +193,7 @@ Når begge platformers canonical machine/deformation-par og reference-attesterin
   -AcceptanceDir "C:\acceptance"
 ```
 
-Wrapperen kræver canonical `windows-evidence/` og `quest-evidence/`, afviser legacy root evidence og genverificerer renderer name/version, exact Unity `6000.3.13f1` samt `humanoid-muscle-sweep-v1` på begge platformes probe/deformation/attestation. Først derefter kalder den den generiske `complete-acceptance.ps1`, som fortsat ejer den fulde byte-, hash-, provenance-, platform-, device- og revision-binding.
+Wrapperen kræver canonical `windows-evidence/` og `quest-evidence/`, genverificerer renderer name/version, exact Unity `6000.3.13f1` samt `humanoid-muscle-sweep-v1` på begge platformes probe/deformation/attestation og kalder derefter den generiske `complete-acceptance.ps1`, som fortsat ejer den fulde byte-, hash-, provenance-, platform-, device- og revision-binding.
 
 Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
