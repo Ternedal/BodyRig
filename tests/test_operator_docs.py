@@ -27,7 +27,7 @@ def _calls(path: Path, pattern: re.Pattern[str]) -> list[str]:
     return [match.group("args") for match in pattern.finditer(text)]
 
 
-def test_operator_docs_bind_every_renderer_attestation_to_machine_probe() -> None:
+def test_operator_docs_bind_every_renderer_attestation_to_machine_and_deformation_probes() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     expected_calls = {
         repo_root / "README.md": 2,
@@ -44,6 +44,10 @@ def test_operator_docs_bind_every_renderer_attestation_to_machine_probe() -> Non
             assert "-ProbeReport " in args, (
                 f"{path.relative_to(repo_root)} documents a renderer attestation "
                 "without the mandatory -ProbeReport machine evidence"
+            )
+            assert "-DeformationReport " in args, (
+                f"{path.relative_to(repo_root)} documents a renderer attestation "
+                "without the mandatory -DeformationReport physical sweep evidence"
             )
 
 
