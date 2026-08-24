@@ -147,6 +147,7 @@ $stashRaw = Invoke-Checked -Arguments @(
 try { $stash = ($stashRaw -join "`n") | ConvertFrom-Json }
 catch { throw "Stash health probe returned unreadable JSON." }
 if ($stash.ok -ne $true) { throw "Stash health probe did not report ok=true." }
+if ($stash.performer_read -ne $true) { throw "Stash health probe did not prove performer-read capability." }
 
 $report = [ordered]@{
     format = "bodyrig-rig-readiness"
@@ -161,6 +162,7 @@ $report = [ordered]@{
         openpose_models = $true
         diffusion_model = $true
         stash = $true
+        stash_performer_read = $true
     }
     environment = [ordered]@{
         stash_version = [string]$stash.version
@@ -187,7 +189,7 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
 }
 
 Write-Host "BodyRig rig readiness: READY"
-Write-Host "Stash: $([string]$stash.version)"
+Write-Host "Stash: $([string]$stash.version) | performer read: PASS"
 Write-Host "OpenPose binary SHA-256: $actualOpenPoseHash"
 Write-Host "OpenPose model tree SHA-256: $actualOpenPoseModelsHash"
 Write-Host "Diffusion model SHA-256: $actualModelHash"
