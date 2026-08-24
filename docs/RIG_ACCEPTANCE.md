@@ -95,28 +95,42 @@ The lower-level diagnostic path must still bind recovery to both pinned 4D-Human
   -Name "Person A"
 ```
 
-## Gate B — physical renderer evidence
+## Gate B — physical renderer + deformation evidence
 
 Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
 
-Before accepting a human quality attestation, `record-renderer-acceptance.ps1` independently revalidates the lineage:
+The reference player first writes the existing renderer machine probe and then executes the fixed `humanoid-muscle-sweep-v1` sequence:
 
-- high-fidelity Gate A mode and `placeholder_avatar=false`;
-- clone-session/readiness evidence hashes;
-- anatomical skin-QA report SHA, package SHA, avatar SHA, body id and assessment;
-- exact clean BodyRig revision;
-- accepted `.mrbody` package hash;
-- package provenance contains one visual-identity stage and built-in `sith-smplx-vrm` v1 fitting;
-- runtime manifest hash and materialized avatar/bodyprint hashes;
-- machine probe byte identity;
-- actual `WindowsPlayer` for Windows;
-- actual Android + Quest/Oculus-identifying device model for Quest-class acceptance.
+1. `neutral`;
+2. `arms_abduction`;
+3. `elbows_flexed`;
+4. `arms_forward`;
+5. `left_leg_lift`;
+6. `knee_flexion`.
 
-A missing or modified `bodyrig-skin-qa.json` is therefore treated as evidence tampering and blocks renderer acceptance.
+The sequence uses Unity Humanoid muscles through `HumanPoseHandler`, not avatar-specific local bone axes. Every pose is held for the fixed evidence interval, all required muscle names must resolve, and the baseline HumanPose is restored after the evidence run. The player then loops the same poses for human inspection.
+
+The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequence actually ran. It binds the exact package/runtime/avatar/BodyPrint bytes plus Unity build GUID, platform/version and physical device model. It does **not** claim that the visual deformation was good; `manual_review_required=true` remains mandatory.
 
 ### Windows acceptance
 
-After the built WindowsPlayer writes its machine probe and the avatar visibly passes the required quality checks:
+Build/run the physical WindowsPlayer against the Gate A directory:
+
+```powershell
+.\run-windows-renderer-probe.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
+```
+
+The wrapper requires both:
+
+```text
+windows-probe.json
+windows-deformation-probe.json
+```
+
+It checks that the deformation probe completed the exact ordered six-pose sequence and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
+
+After watching the player cycle the same sequence and confirming actual visual quality:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
@@ -127,14 +141,28 @@ After the built WindowsPlayer writes its machine probe and the avatar visibly pa
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version>" `
-  -QualityNote "Source-derived identity/proportions and deformation looked correct; skin-QA assessment reviewed"
+  -QualityNote "Fixed deformation sweep reviewed: identity/proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
-
-The first high-fidelity physical clone must compare the automated skin-QA measurements with actual deformation around arm/torso contact, shoulders, elbows, wrists/hands, legs, knees and hips. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
 ### Quest-class acceptance
 
-After the same runtime is loaded by the Quest-class Android build and its machine probe is written:
+Build/install/run the same reference project against the same Gate A runtime:
+
+```powershell
+.\run-quest-renderer-probe.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
+```
+
+The wrapper requires both:
+
+```text
+quest-probe.json
+quest-deformation-probe.json
+```
+
+The deformation probe must come from Unity Android on Quest/Oculus-identifying hardware and match the Quest machine probe's build/device and all accepted byte identities.
+
+After inspecting the fixed sequence in the headset:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
@@ -145,25 +173,37 @@ After the same runtime is loaded by the Quest-class Android build and its machin
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
-  -QualityNote "Same source-derived accepted runtime and deformation reviewed on Quest-class hardware"
+  -QualityNote "Same fixed deformation sweep and accepted runtime reviewed on Quest-class hardware"
 ```
 
-Each renderer report remains non-activating: `production_activation=false`.
+Before accepting either human quality attestation, `record-renderer-acceptance.ps1` independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes and the ordinary machine probe. Each renderer report remains non-activating: `production_activation=false`.
+
+The first physical high-fidelity clone must compare static skin-QA measurements with the fixed sweep around arm/torso contact, shoulders, elbows, wrists/hands, hips, knees and legs. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
 ## Gate C — final release acceptance
 
-Only after both machine probes and both operator attestations exist:
+Only after both ordinary machine probes, both deterministic deformation probes and both operator attestations exist:
 
 ```powershell
 .\complete-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
   -WindowsRendererReport "C:\path\to\bodyrig-renderer-acceptance-windows.json" `
   -WindowsProbeReport "C:\path\to\windows-probe.json" `
+  -WindowsDeformationReport "C:\path\to\windows-deformation-probe.json" `
   -QuestRendererReport "C:\path\to\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\path\to\quest-probe.json"
+  -QuestProbeReport "C:\path\to\quest-probe.json" `
+  -QuestDeformationReport "C:\path\to\quest-deformation-probe.json"
 ```
 
-The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, WindowsPlayer evidence, Quest device evidence, and all cross-file hash bindings.
+The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, both physical renderer probes, both deformation probes, and both human attestations.
+
+Each deformation report must:
+
+- have exact `humanoid-muscle-sweep-v1` revision;
+- contain all six poses in the canonical order;
+- report `required_muscles_resolved=true`, `restored_neutral=true`, `complete=true` and `manual_review_required=true`;
+- match the corresponding renderer probe's Unity build GUID/platform/version/device;
+- match the accepted body id and package/runtime/avatar/BodyPrint hashes.
 
 Only the final `bodyrig-release-acceptance` artifact can contain:
 
@@ -174,12 +214,12 @@ Only the final `bodyrig-release-acceptance` artifact can contain:
 }
 ```
 
-Its automated-acceptance summary records the physical clone mode, clone-session/readiness SHA-256 values, skin-QA SHA-256, skin-QA assessment and `skin_qa_manual_review_required=true`, so release evidence remains traceable back to both the clone and the automated deformation-risk analysis of the exact accepted avatar.
+Its automated-acceptance summary records physical clone lineage and skin-QA evidence. Each platform summary also records the deformation-report SHA-256, sequence revision and deformation observation time, so final release evidence is traceable back to the exact stress-pose run on each physical build.
 
 ## What the gates still do not automate
 
 The scripts do not pretend to inspect visual quality. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
 
-Skin QA narrows that uncertainty by measuring structural weight validity and cross-region leakage risk, but it is not a renderer and is not a substitute for posing and moving the actual avatar.
+Skin QA narrows uncertainty by measuring structural weight validity and cross-region leakage risk. The deterministic sweep narrows it further by proving that the same set of stress poses was actually exercised on both builds. Neither component decides whether the deformation *looks* acceptable.
 
 A production PASS also does not claim photorealistic face identity, perfect hair/clothing reconstruction, perfect anthropometric accuracy, emotional understanding, consciousness, or legal rights/consent verification for source material.
