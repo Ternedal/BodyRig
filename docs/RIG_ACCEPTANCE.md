@@ -51,6 +51,8 @@ It independently requires:
 - avatar fitting is exactly built-in `sith-smplx-vrm` revision `1`;
 - the accepted avatar is VRM 1.0 and is **not** a placeholder;
 - source-derived shape/motion evidence exists;
+- skin weights are structurally valid;
+- anatomical skin QA is run on the exact package/avatar bytes;
 - the runtime is materialized from the exact accepted `.mrbody` package.
 
 The resulting write-once acceptance directory contains at least:
@@ -59,6 +61,7 @@ The resulting write-once acceptance directory contains at least:
 bodyrig-acceptance.json
 bodyrig-physical-clone-session.json
 bodyrig-rig-readiness.json
+bodyrig-skin-qa.json
 <BodyId>.mrbody
 runtime/
   runtime-manifest.json
@@ -68,7 +71,13 @@ runtime/
   thumbnail.png
 ```
 
-The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity` and hashes of the copied clone-session and readiness evidence. It records `placeholder_avatar=false`, `automated_pass=true`, `physical_renderer_acceptance=pending`, and `production_activation=false`.
+The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity`, hashes of clone-session/readiness evidence, and a hash-bound `skin_qa` summary. Skin QA classifies anatomically suspicious cross-region weight transfer as `low-risk`, `review`, or `high-risk`, but every report keeps `manual_review_required=true`.
+
+This distinction is deliberate: automated analysis can detect suspicious weight topology, but it cannot prove that shoulders, elbows, knees, wrists, clothes and the full body deform visually well in motion. Even `low-risk` therefore still needs physical inspection. Conversely, `high-risk` is a strong review signal rather than an automatic veto if direct physical evidence shows acceptable deformation.
+
+Gate A records `placeholder_avatar=false`, `automated_pass=true`, `physical_renderer_acceptance=pending`, and `production_activation=false`.
+
+See `SKIN_QA.md` for the algorithm, thresholds and limitations.
 
 ### Legacy recovery Gate A
 
@@ -94,6 +103,7 @@ Before accepting a human quality attestation, `record-renderer-acceptance.ps1` i
 
 - high-fidelity Gate A mode and `placeholder_avatar=false`;
 - clone-session/readiness evidence hashes;
+- anatomical skin-QA report SHA, package SHA, avatar SHA, body id and assessment;
 - exact clean BodyRig revision;
 - accepted `.mrbody` package hash;
 - package provenance contains one visual-identity stage and built-in `sith-smplx-vrm` v1 fitting;
@@ -101,6 +111,8 @@ Before accepting a human quality attestation, `record-renderer-acceptance.ps1` i
 - machine probe byte identity;
 - actual `WindowsPlayer` for Windows;
 - actual Android + Quest/Oculus-identifying device model for Quest-class acceptance.
+
+A missing or modified `bodyrig-skin-qa.json` is therefore treated as evidence tampering and blocks renderer acceptance.
 
 ### Windows acceptance
 
@@ -115,10 +127,10 @@ After the built WindowsPlayer writes its machine probe and the avatar visibly pa
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version>" `
-  -QualityNote "Source-derived identity/proportions and reference motion looked correct"
+  -QualityNote "Source-derived identity/proportions and deformation looked correct; skin-QA assessment reviewed"
 ```
 
-The first high-fidelity physical clone must specifically be inspected for cross-limb skin-weight leakage around arm/torso, legs and hands. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
+The first high-fidelity physical clone must compare the automated skin-QA measurements with actual deformation around arm/torso contact, shoulders, elbows, wrists/hands, legs, knees and hips. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
 ### Quest-class acceptance
 
@@ -133,7 +145,7 @@ After the same runtime is loaded by the Quest-class Android build and its machin
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
   -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
-  -QualityNote "Same source-derived accepted runtime rendered correctly on Quest-class hardware"
+  -QualityNote "Same source-derived accepted runtime and deformation reviewed on Quest-class hardware"
 ```
 
 Each renderer report remains non-activating: `production_activation=false`.
@@ -151,7 +163,7 @@ Only after both machine probes and both operator attestations exist:
   -QuestProbeReport "C:\path\to\quest-probe.json"
 ```
 
-The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, WindowsPlayer evidence, Quest device evidence, and all cross-file hash bindings.
+The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, WindowsPlayer evidence, Quest device evidence, and all cross-file hash bindings.
 
 Only the final `bodyrig-release-acceptance` artifact can contain:
 
@@ -162,10 +174,12 @@ Only the final `bodyrig-release-acceptance` artifact can contain:
 }
 ```
 
-Its automated-acceptance summary also records the physical clone mode and the clone-session/readiness SHA-256 values, so the final release artifact remains traceable back to the physical clone that produced the accepted body.
+Its automated-acceptance summary records the physical clone mode, clone-session/readiness SHA-256 values, skin-QA SHA-256, skin-QA assessment and `skin_qa_manual_review_required=true`, so release evidence remains traceable back to both the clone and the automated deformation-risk analysis of the exact accepted avatar.
 
 ## What the gates still do not automate
 
 The scripts do not pretend to inspect visual quality. Human observations remain required for identity/proportion plausibility, skinning, deformation and motion quality. CI fixtures cannot close those gates.
+
+Skin QA narrows that uncertainty by measuring structural weight validity and cross-region leakage risk, but it is not a renderer and is not a substitute for posing and moving the actual avatar.
 
 A production PASS also does not claim photorealistic face identity, perfect hair/clothing reconstruction, perfect anthropometric accuracy, emotional understanding, consciousness, or legal rights/consent verification for source material.
