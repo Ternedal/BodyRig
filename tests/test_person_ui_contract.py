@@ -128,3 +128,8 @@ def test_windows_product_launcher_is_checkout_bound_and_opens_person_ui() -> Non
     assert "Mine personer" in doc
     assert "assembly_fingerprint" in doc
     assert "VoiceRig" in doc
+    assert "ModelRig" in doc
+    assert "Kør samlet audition" in doc
+    assert "audition_id" in doc
+    assert "MODELRIG_TOKEN" in doc
+    assert "transport" in doc
