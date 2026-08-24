@@ -84,6 +84,8 @@ Denne Gate A-bro kræver bl.a.:
 - en create-only anatomisk skin-QA bundet til package- og avatar-SHA;
 - runtime materialiseret fra den **samme** accepterede `.mrbody`.
 
+Gate A binder også Python-koden til samme checkout. Den valgte `BodyRigPython` — som default repoets `.venv\Scripts\python.exe`, ellers en eksplicit/fundet interpreter — skal kunne importere `bodyrig`, og `bodyrig.__file__` skal resolve til netop `<checkout>\bodyrig\__init__.py`. En global wheel eller et andet checkout afvises derfor, selv hvis selve PowerShell-scriptet ligger på den korrekte Git-revision.
+
 Gate A-bundlen indeholder den accepterede `.mrbody`, `bodyrig-skin-qa.json`, runtime-manifest/payloads samt kopier af physical-clone session- og readiness-evidence. Skin-QA klassificerer cross-region weight leakage som `low-risk`, `review` eller `high-risk`, men markerer altid `manual_review_required=true`; den erstatter altså ikke den fysiske deformationstest. Gate A efterlader fortsat `physical_renderer_acceptance=pending` og `production_activation=false`.
 
 Se `docs/SKIN_QA.md` for metode, thresholds og trust boundary.
