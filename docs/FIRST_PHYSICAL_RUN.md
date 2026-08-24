@@ -32,9 +32,13 @@ The API key is transport-only configuration. It must not appear in source manife
 
 ## 2. Prove Stash is reachable
 
+Use the checkout-bound PowerShell wrapper:
+
 ```powershell
-bodyrig-stash-sources health
+.\stash-sources.ps1 health
 ```
+
+Do not rely on `bodyrig-stash-sources` being present on the shell `PATH`. A repo-local `.venv\Scripts\python.exe` is not automatically added to `PATH` by `setup-rig-windows.ps1`, so the wrapper resolves the same repo-local Python authority used by the physical launcher, verifies that `bodyrig.__file__` points at this checkout and then invokes `python -m bodyrig.stash_cli`.
 
 A successful call prints a small JSON object containing `ok=true` and the Stash version. Do not continue to a long physical clone while this probe fails.
 
@@ -43,7 +47,7 @@ A successful call prints a small JSON object containing `ok=true` and the Stash 
 Search by performer name:
 
 ```powershell
-bodyrig-stash-sources search "<performer name>" --limit 10
+.\stash-sources.ps1 search "<performer name>" -Limit 10
 ```
 
 The search result is deliberately minimal and returns only:
