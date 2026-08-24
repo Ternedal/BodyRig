@@ -88,6 +88,41 @@ def test_effective_bodyprint_changes_only_reviewed_fields(tmp_path: Path) -> Non
     assert proof["bodyprint"]["shape"]["arm_to_height"] == 0.35
 
 
+def test_reviewed_subset_of_generated_proposal_is_allowed() -> None:
+    feedback = "Armene er for lange og der skal være mere energi"
+    proposals = propose_bodyprint_changes(feedback)
+    request = build_adjustment_request(feedback, changes=[proposals[0]])
+    assert request["changes"] == [proposals[0].to_json()]
+
+
+def test_explicit_changes_must_match_same_feedback_proposal() -> None:
+    with pytest.raises(BodyprintAdjustmentEvidenceError, match="exact subset"):
+        build_adjustment_request(
+            "Armene skal være kortere",
+            changes=[
+                {
+                    "field": "shape.shoulder_to_height",
+                    "delta": 0.010,
+                    "reason": "shoulders should be broader",
+                }
+            ],
+        )
+
+
+def test_explicit_change_cannot_modify_generated_delta_or_reason() -> None:
+    with pytest.raises(BodyprintAdjustmentEvidenceError, match="exact subset"):
+        build_adjustment_request(
+            "Armene skal være kortere",
+            changes=[
+                {
+                    "field": "shape.arm_to_height",
+                    "delta": -0.010,
+                    "reason": "arm length should be reduced",
+                }
+            ],
+        )
+
+
 def test_height_scale_uses_neutral_one_when_source_bodyprint_has_no_height_scale(tmp_path: Path) -> None:
     proof = _proof()
     proof_path = tmp_path / "proof.json"
