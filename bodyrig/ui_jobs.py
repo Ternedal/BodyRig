@@ -177,6 +177,8 @@ class UiJobManager:
         if normalized_feedback or changes:
             if not normalized_feedback:
                 raise UiJobError("Body adjustment changes require the operator feedback they were reviewed from")
+            if not changes:
+                raise UiJobError("Body adjustment feedback requires the exact reviewed proposal changes")
             try:
                 adjustment_request = build_adjustment_request(
                     normalized_feedback,
