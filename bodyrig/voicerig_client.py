@@ -22,6 +22,13 @@ def _loopback_host(host: str | None) -> bool:
     return host.lower() == "localhost" or host in {"127.0.0.1", "::1"}
 
 
+def _package_name(value: str) -> tuple[str, str]:
+    package = str(value or "").strip()
+    if not package or len(package) > 255 or "/" in package or "\\" in package or package in {".", ".."} or not package.lower().endswith(".mrvoice"):
+        raise VoiceRigClientError("Invalid VoiceRig package name")
+    return package, urllib.parse.quote(package, safe="")
+
+
 @dataclass(frozen=True)
 class VoiceRigConfig:
     url: str = "http://127.0.0.1:8765"
@@ -108,7 +115,11 @@ class VoiceRigClient:
             package = str(item.get("package") or "")
             voice_id = str(item.get("id") or "")
             name = str(item.get("name") or "")
-            if not package.endswith(".mrvoice") or urllib.parse.quote(package, safe="._-") != package or not voice_id or not name:
+            try:
+                package, _ = _package_name(package)
+            except VoiceRigClientError:
+                continue
+            if not voice_id or not name:
                 continue
             result.append({
                 "id": voice_id,
@@ -122,17 +133,13 @@ class VoiceRigClient:
         return result
 
     def package_bytes(self, package: str) -> bytes:
-        safe = urllib.parse.quote(package, safe="._-")
-        if safe != package or not package.endswith(".mrvoice"):
-            raise VoiceRigClientError("Invalid VoiceRig package name")
-        raw, _ = self._request(f"/api/packages/{safe}", limit=MAX_VOICE_PACKAGE_BYTES)
+        _, encoded = _package_name(package)
+        raw, _ = self._request(f"/api/packages/{encoded}", limit=MAX_VOICE_PACKAGE_BYTES)
         return raw
 
     def preview(self, package: str) -> bytes:
-        safe = urllib.parse.quote(package, safe="._-")
-        if safe != package or not package.endswith(".mrvoice"):
-            raise VoiceRigClientError("Invalid VoiceRig package name")
-        raw, headers = self._request(f"/api/voices/{safe}/preview", limit=MAX_AUDIO_BYTES)
+        _, encoded = _package_name(package)
+        raw, headers = self._request(f"/api/voices/{encoded}/preview", limit=MAX_AUDIO_BYTES)
         content_type = headers.get("content-type", "")
         if "audio/wav" not in content_type or not raw.startswith(b"RIFF"):
             raise VoiceRigClientError("VoiceRig preview did not return WAV audio")
@@ -141,9 +148,7 @@ class VoiceRigClient:
     def synthesize(self, package: str, text: str) -> bytes:
         if not text.strip() or len(text) > 4000:
             raise VoiceRigClientError("Voice preview text must be 1..4000 characters")
-        safe = urllib.parse.quote(package, safe="._-")
-        if safe != package or not package.endswith(".mrvoice"):
-            raise VoiceRigClientError("Invalid VoiceRig package name")
+        package, _ = _package_name(package)
         raw, headers = self._request(
             "/api/tts/synthesize",
             method="POST",
