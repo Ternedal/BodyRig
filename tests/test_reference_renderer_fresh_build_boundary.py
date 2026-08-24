@@ -18,3 +18,11 @@ def test_low_level_renderer_wrappers_keep_skip_build_for_diagnostics_only() -> N
 
     assert "[switch]$SkipBuild" in windows
     assert "[switch]$SkipBuild" in quest
+
+
+def test_windows_renderer_probe_rejects_nonzero_player_exit_even_if_evidence_exists() -> None:
+    windows = Path("run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
+
+    assert "$playerExit = $LASTEXITCODE" in windows
+    assert "if ($playerExit -ne 0)" in windows
+    assert "staged evidence is not authoritative" in windows
