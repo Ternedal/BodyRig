@@ -38,11 +38,18 @@ class AcceptanceStatus:
 @dataclass(frozen=True)
 class GateAInfo:
     path: Path
-    report: dict[str, Any]
     body_id: str
     revision: str
     package_hash: str
     runtime_hash: str
+
+
+@dataclass(frozen=True)
+class PlatformPaths:
+    probe: Path
+    deformation: Path
+    attestation: Path
+    layout: str
 
 
 def _read_json(path: Path, label: str) -> dict[str, Any]:
@@ -98,7 +105,6 @@ def _session_status(session_path: Path) -> AcceptanceStatus:
     session = _read_json(session_path, "Physical clone session")
     if session.get("format") != "bodyrig-physical-clone-session" or session.get("version") != 1:
         raise AcceptanceStatusError("Unsupported physical clone session format/version.")
-
     body_id = str(session.get("body_id") or "") or None
     revision = _need_sha40(session.get("bodyrig_revision"), "session.bodyrig_revision")
     state = str(session.get("status") or "")
@@ -117,9 +123,7 @@ def _session_status(session_path: Path) -> AcceptanceStatus:
         raise AcceptanceStatusError("Completed physical clone session was not bound to a clean checkout.")
     readiness_hash = _need_sha256(session.get("readiness_sha256"), "session.readiness_sha256")
     _need_sha256(session.get("rig_setup_sha256"), "session.rig_setup_sha256")
-    readiness_path = session_path.with_suffix(".readiness.json")
-    _require_hash(readiness_path, readiness_hash, "Physical clone readiness evidence")
-
+    _require_hash(session_path.with_suffix(".readiness.json"), readiness_hash, "Physical clone readiness evidence")
     clone_output = str(session.get("clone_output") or "")
     if not clone_output:
         raise AcceptanceStatusError("Completed physical clone session has no clone_output.")
@@ -174,23 +178,34 @@ def _validate_gate_a(path: Path) -> GateAInfo:
     _require_hash(directory / "bodyrig-physical-clone-session.json", session_hash, "Physical clone session evidence")
     _require_hash(directory / "bodyrig-rig-readiness.json", readiness_hash, "Physical clone readiness evidence")
     _require_hash(directory / "bodyrig-skin-qa.json", skin_qa_hash, "Anatomical skin QA evidence")
+    return GateAInfo(path, body_id, revision, package_hash, runtime_hash)
 
-    return GateAInfo(
-        path=path,
-        report=report,
-        body_id=body_id,
-        revision=revision,
-        package_hash=package_hash,
-        runtime_hash=runtime_hash,
-    )
+
+def _platform_paths(acceptance_dir: Path, prefix: str, attestation_name: str) -> PlatformPaths:
+    dedicated = acceptance_dir / f"{prefix}-evidence"
+    dedicated_probe = dedicated / f"{prefix}-probe.json"
+    dedicated_deformation = dedicated / f"{prefix}-deformation-probe.json"
+    legacy_probe = acceptance_dir / f"{prefix}-probe.json"
+    legacy_deformation = acceptance_dir / f"{prefix}-deformation-probe.json"
+    attestation = acceptance_dir / attestation_name
+
+    dedicated_any = dedicated.exists()
+    legacy_any = legacy_probe.exists() or legacy_deformation.exists()
+    if dedicated_any and legacy_any:
+        raise AcceptanceStatusError(f"Ambiguous {prefix} evidence: both dedicated and legacy layouts exist.")
+    if dedicated_any:
+        if not dedicated.is_dir():
+            raise AcceptanceStatusError(f"{prefix} evidence path is not a directory: {dedicated}")
+        return PlatformPaths(dedicated_probe, dedicated_deformation, attestation, "dedicated")
+    if legacy_any:
+        return PlatformPaths(legacy_probe, legacy_deformation, attestation, "legacy")
+    return PlatformPaths(dedicated_probe, dedicated_deformation, attestation, "pending")
 
 
 def _validate_probe(path: Path, *, platform: str, gate: GateAInfo) -> dict[str, Any]:
     probe = _read_json(path, "Renderer machine probe")
-    if probe.get("format") != "bodyrig-renderer-probe" or probe.get("version") != 1:
+    if probe.get("format") != "bodyrig-renderer-probe" or probe.get("version") != 1 or probe.get("platform") != platform:
         raise AcceptanceStatusError(f"Invalid renderer machine probe: {path}")
-    if probe.get("platform") != platform:
-        raise AcceptanceStatusError(f"Renderer machine probe platform mismatch: {path}")
     if _need_sha40(probe.get("bodyrig_revision"), "probe.bodyrig_revision") != gate.revision:
         raise AcceptanceStatusError(f"Renderer machine probe was built from a different BodyRig revision: {path}")
     if str(probe.get("body_id") or "") != gate.body_id:
@@ -206,12 +221,10 @@ def _validate_probe(path: Path, *, platform: str, gate: GateAInfo) -> dict[str, 
     return probe
 
 
-def _validate_deformation(path: Path, *, platform: str, probe: dict[str, Any], gate: GateAInfo) -> dict[str, Any]:
+def _validate_deformation(path: Path, *, platform: str, probe: dict[str, Any], gate: GateAInfo) -> None:
     deformation = _read_json(path, "Deformation probe")
-    if deformation.get("format") != "bodyrig-deformation-probe" or deformation.get("version") != 1:
+    if deformation.get("format") != "bodyrig-deformation-probe" or deformation.get("version") != 1 or deformation.get("platform") != platform:
         raise AcceptanceStatusError(f"Invalid deformation probe: {path}")
-    if deformation.get("platform") != platform:
-        raise AcceptanceStatusError(f"Deformation probe platform mismatch: {path}")
     if _need_sha40(deformation.get("bodyrig_revision"), "deformation.bodyrig_revision") != gate.revision:
         raise AcceptanceStatusError(f"Deformation probe was built from a different BodyRig revision: {path}")
     if str(deformation.get("body_id") or "") != gate.body_id:
@@ -231,17 +244,9 @@ def _validate_deformation(path: Path, *, platform: str, probe: dict[str, Any], g
     for field in ("bodyrig_revision", "build_guid", "unity_platform", "unity_version", "device_model"):
         if str(deformation.get(field) or "") != str(probe.get(field) or ""):
             raise AcceptanceStatusError(f"Deformation probe does not match machine probe field {field}: {path}")
-    return deformation
 
 
-def _validate_attestation(
-    path: Path,
-    *,
-    platform: str,
-    gate: GateAInfo,
-    probe_path: Path,
-    deformation_path: Path,
-) -> dict[str, Any]:
+def _validate_attestation(path: Path, *, platform: str, gate: GateAInfo, paths: PlatformPaths) -> None:
     attestation = _read_json(path, "Renderer attestation")
     if attestation.get("format") != "bodyrig-renderer-acceptance" or attestation.get("version") != 1:
         raise AcceptanceStatusError(f"Invalid renderer attestation: {path}")
@@ -257,53 +262,35 @@ def _validate_attestation(
         raise AcceptanceStatusError(f"Renderer attestation package mismatch: {path}")
     if _need_sha256(attestation.get("runtime_manifest_sha256"), "attestation.runtime_manifest_sha256") != gate.runtime_hash:
         raise AcceptanceStatusError(f"Renderer attestation runtime mismatch: {path}")
-    expected_hashes = {
+    for field, expected in {
         "automated_report_sha256": _sha256(gate.path),
-        "probe_report_sha256": _sha256(probe_path),
-        "deformation_report_sha256": _sha256(deformation_path),
-    }
-    for field, expected in expected_hashes.items():
+        "probe_report_sha256": _sha256(paths.probe),
+        "deformation_report_sha256": _sha256(paths.deformation),
+    }.items():
         if _need_sha256(attestation.get(field), f"attestation.{field}") != expected:
             raise AcceptanceStatusError(f"Renderer attestation no longer binds the exact evidence file {field}: {path}")
     if attestation.get("deformation_sequence_revision") != "humanoid-muscle-sweep-v1":
         raise AcceptanceStatusError(f"Renderer attestation deformation revision mismatch: {path}")
     if not str(attestation.get("quality_note") or "").strip():
         raise AcceptanceStatusError(f"Renderer attestation has no quality note: {path}")
-    return attestation
 
 
-def _platform_stage(
-    acceptance_dir: Path,
-    *,
-    platform: str,
-    prefix: str,
-    attestation_name: str,
-    gate: GateAInfo,
-) -> str:
-    probe_path = acceptance_dir / f"{prefix}-probe.json"
-    deformation_path = acceptance_dir / f"{prefix}-deformation-probe.json"
-    attestation_path = acceptance_dir / attestation_name
-
-    if deformation_path.exists() and not probe_path.exists():
-        raise AcceptanceStatusError(f"{prefix} deformation evidence exists without its machine probe.")
-    if attestation_path.exists() and (not probe_path.exists() or not deformation_path.exists()):
+def _platform_stage(acceptance_dir: Path, *, platform: str, prefix: str, attestation_name: str, gate: GateAInfo) -> tuple[str, PlatformPaths]:
+    paths = _platform_paths(acceptance_dir, prefix, attestation_name)
+    probe_exists = paths.probe.is_file()
+    deformation_exists = paths.deformation.is_file()
+    if probe_exists != deformation_exists:
+        raise AcceptanceStatusError(f"{prefix} canonical evidence is incomplete: machine/deformation must appear as one pair.")
+    if paths.attestation.exists() and not (probe_exists and deformation_exists):
         raise AcceptanceStatusError(f"{prefix} attestation exists without complete machine/deformation evidence.")
-    if not probe_path.exists():
-        return "probe"
-    probe = _validate_probe(probe_path, platform=platform, gate=gate)
-    if not deformation_path.exists():
-        raise AcceptanceStatusError(f"{prefix} machine probe exists without its required deformation probe.")
-    _validate_deformation(deformation_path, platform=platform, probe=probe, gate=gate)
-    if not attestation_path.exists():
-        return "attestation"
-    _validate_attestation(
-        attestation_path,
-        platform=platform,
-        gate=gate,
-        probe_path=probe_path,
-        deformation_path=deformation_path,
-    )
-    return "complete"
+    if not probe_exists:
+        return "probe", paths
+    probe = _validate_probe(paths.probe, platform=platform, gate=gate)
+    _validate_deformation(paths.deformation, platform=platform, probe=probe, gate=gate)
+    if not paths.attestation.exists():
+        return "attestation", paths
+    _validate_attestation(paths.attestation, platform=platform, gate=gate, paths=paths)
+    return "complete", paths
 
 
 def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
@@ -311,67 +298,51 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
     if not acceptance_dir.is_dir():
         raise AcceptanceStatusError(f"Acceptance directory not found: {acceptance_dir}")
     gate_a_path = acceptance_dir / "bodyrig-acceptance.json"
-    if not gate_a_path.is_file():
-        raise AcceptanceStatusError(f"Gate A acceptance report not found: {gate_a_path}")
     gate = _validate_gate_a(gate_a_path)
 
-    release_path = acceptance_dir / "bodyrig-release-acceptance.json"
-    windows_stage = _platform_stage(
-        acceptance_dir,
-        platform="windows-unity-univrm",
-        prefix="windows",
-        attestation_name="bodyrig-renderer-acceptance-windows.json",
-        gate=gate,
+    windows_stage, windows = _platform_stage(
+        acceptance_dir, platform="windows-unity-univrm", prefix="windows",
+        attestation_name="bodyrig-renderer-acceptance-windows.json", gate=gate,
     )
     if windows_stage == "probe":
         return AcceptanceStatus(
-            state="ready", gate="windows-probe", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-            message="Gate A PASS exists; next physical gate is the built WindowsPlayer machine + deformation probe.",
-            next_command=f".\\run-windows-renderer-probe.ps1 -AcceptanceDir {_quote(acceptance_dir)}",
+            "ready", "windows-probe", str(acceptance_dir), gate.body_id, gate.revision,
+            "Gate A PASS exists; next physical gate is the built WindowsPlayer machine + deformation probe.",
+            f".\\run-windows-renderer-probe.ps1 -AcceptanceDir {_quote(acceptance_dir)}",
         )
     if windows_stage == "attestation":
         return AcceptanceStatus(
-            state="human-review", gate="windows-attestation", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-            message="Windows machine/deformation evidence is coherent. Human visual review and attestation are still required.",
-            next_command=(
-                ".\\record-renderer-acceptance.ps1 "
-                f"-AcceptanceReport {_quote(gate_a_path)} "
-                f"-RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
-                f"-ProbeReport {_quote(acceptance_dir / 'windows-probe.json')} "
-                f"-DeformationReport {_quote(acceptance_dir / 'windows-deformation-probe.json')} "
-                '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
-                '-RendererVersion "<exact version>" -QualityNote "<your physical review>"'
-            ),
+            "human-review", "windows-attestation", str(acceptance_dir), gate.body_id, gate.revision,
+            "Windows machine/deformation evidence is coherent. Human visual review and attestation are still required.",
+            ".\\record-renderer-acceptance.ps1 "
+            f"-AcceptanceReport {_quote(gate.path)} -RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
+            f"-ProbeReport {_quote(windows.probe)} -DeformationReport {_quote(windows.deformation)} "
+            '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
+            '-RendererVersion "<exact version>" -QualityNote "<your physical review>"',
         )
 
-    quest_stage = _platform_stage(
-        acceptance_dir,
-        platform="android-quest-class",
-        prefix="quest",
-        attestation_name="bodyrig-renderer-acceptance-quest.json",
-        gate=gate,
+    quest_stage, quest = _platform_stage(
+        acceptance_dir, platform="android-quest-class", prefix="quest",
+        attestation_name="bodyrig-renderer-acceptance-quest.json", gate=gate,
     )
     if quest_stage == "probe":
         return AcceptanceStatus(
-            state="ready", gate="quest-probe", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-            message="Windows physical review is accepted; next gate is the same runtime on Quest-class hardware.",
-            next_command=f".\\run-quest-renderer-probe.ps1 -AcceptanceDir {_quote(acceptance_dir)}",
+            "ready", "quest-probe", str(acceptance_dir), gate.body_id, gate.revision,
+            "Windows physical review is accepted; next gate is the same runtime on Quest-class hardware.",
+            f".\\run-quest-renderer-probe.ps1 -AcceptanceDir {_quote(acceptance_dir)}",
         )
     if quest_stage == "attestation":
         return AcceptanceStatus(
-            state="human-review", gate="quest-attestation", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-            message="Quest machine/deformation evidence is coherent. Human headset review and attestation are still required.",
-            next_command=(
-                ".\\record-renderer-acceptance.ps1 "
-                f"-AcceptanceReport {_quote(gate_a_path)} "
-                f"-RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
-                f"-ProbeReport {_quote(acceptance_dir / 'quest-probe.json')} "
-                f"-DeformationReport {_quote(acceptance_dir / 'quest-deformation-probe.json')} "
-                '-Platform "android-quest-class" -Pass -RendererName "BodyRig Reference Renderer" '
-                '-RendererVersion "<exact version>" -QualityNote "<your physical headset review>"'
-            ),
+            "human-review", "quest-attestation", str(acceptance_dir), gate.body_id, gate.revision,
+            "Quest machine/deformation evidence is coherent. Human headset review and attestation are still required.",
+            ".\\record-renderer-acceptance.ps1 "
+            f"-AcceptanceReport {_quote(gate.path)} -RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
+            f"-ProbeReport {_quote(quest.probe)} -DeformationReport {_quote(quest.deformation)} "
+            '-Platform "android-quest-class" -Pass -RendererName "BodyRig Reference Renderer" '
+            '-RendererVersion "<exact version>" -QualityNote "<your physical headset review>"',
         )
 
+    release_path = acceptance_dir / "bodyrig-release-acceptance.json"
     if release_path.exists():
         release = _read_json(release_path, "Final release acceptance")
         if release.get("format") != "bodyrig-release-acceptance" or release.get("version") != 1:
@@ -381,33 +352,24 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
         if _need_sha40(release.get("bodyrig_revision"), "release.bodyrig_revision") != gate.revision:
             raise AcceptanceStatusError("Final release acceptance revision no longer matches Gate A.")
         renderers = release.get("renderer_acceptance") or {}
-        for key, attestation_name in (
-            ("windows_unity_univrm", "bodyrig-renderer-acceptance-windows.json"),
-            ("android_quest_class", "bodyrig-renderer-acceptance-quest.json"),
-        ):
+        for key, paths in (("windows_unity_univrm", windows), ("android_quest_class", quest)):
             summary = renderers.get(key) or {}
             if _need_sha40(summary.get("renderer_bodyrig_revision"), f"release.{key}.renderer_bodyrig_revision") != gate.revision:
                 raise AcceptanceStatusError(f"Final release {key} renderer revision mismatch.")
-            if _need_sha256(summary.get("report_sha256"), f"release.{key}.report_sha256") != _sha256(acceptance_dir / attestation_name):
+            if _need_sha256(summary.get("report_sha256"), f"release.{key}.report_sha256") != _sha256(paths.attestation):
                 raise AcceptanceStatusError(f"Final release {key} attestation hash no longer matches evidence.")
         return AcceptanceStatus(
-            state="complete", gate="release", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-            message="Final BodyRig release acceptance is a production-activating PASS for the exact physical evidence chain.", next_command=None,
+            "complete", "release", str(acceptance_dir), gate.body_id, gate.revision,
+            "Final BodyRig release acceptance is a production-activating PASS for the exact physical evidence chain.", None,
         )
 
     return AcceptanceStatus(
-        state="ready", gate="release", acceptance_dir=str(acceptance_dir), body_id=gate.body_id, bodyrig_revision=gate.revision,
-        message="Windows and Quest physical attestations are coherent; final release gate is the next step.",
-        next_command=(
-            ".\\complete-acceptance.ps1 "
-            f"-AcceptanceReport {_quote(gate_a_path)} "
-            f"-WindowsRendererReport {_quote(acceptance_dir / 'bodyrig-renderer-acceptance-windows.json')} "
-            f"-WindowsProbeReport {_quote(acceptance_dir / 'windows-probe.json')} "
-            f"-WindowsDeformationReport {_quote(acceptance_dir / 'windows-deformation-probe.json')} "
-            f"-QuestRendererReport {_quote(acceptance_dir / 'bodyrig-renderer-acceptance-quest.json')} "
-            f"-QuestProbeReport {_quote(acceptance_dir / 'quest-probe.json')} "
-            f"-QuestDeformationReport {_quote(acceptance_dir / 'quest-deformation-probe.json')}"
-        ),
+        "ready", "release", str(acceptance_dir), gate.body_id, gate.revision,
+        "Windows and Quest physical attestations are coherent; final release gate is the next step.",
+        ".\\complete-acceptance.ps1 "
+        f"-AcceptanceReport {_quote(gate.path)} "
+        f"-WindowsRendererReport {_quote(windows.attestation)} -WindowsProbeReport {_quote(windows.probe)} -WindowsDeformationReport {_quote(windows.deformation)} "
+        f"-QuestRendererReport {_quote(quest.attestation)} -QuestProbeReport {_quote(quest.probe)} -QuestDeformationReport {_quote(quest.deformation)}",
     )
 
 
@@ -430,7 +392,6 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"BodyRig acceptance status: ERROR | {exc}")
         return 2
-
     if args.json:
         print(json.dumps(asdict(status), ensure_ascii=False, sort_keys=True))
     else:
