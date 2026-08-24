@@ -58,12 +58,13 @@ $QualityNote = $QualityNote.Trim()
 
 $contractFile = Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
 $contract = $contractFile.Value
-$expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","application_id","deformation_sequence_revision")
+$expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
 if (@(Compare-Object -ReferenceObject $expectedContractFields -DifferenceObject @($contract.PSObject.Properties.Name)).Count -ne 0) { throw "Reference renderer contract fields are not canonical." }
 if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
-foreach ($field in @("renderer_name","renderer_version","unity_editor_version","univrm_version","application_id","deformation_sequence_revision")) {
+foreach ($field in @("renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")) {
     if ([string]::IsNullOrWhiteSpace([string]$contract.$field)) { throw "Reference renderer contract is missing '$field'." }
 }
+if ([string]$contract.univrm_revision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
 if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract uses an unsupported deformation sequence." }
 
 if ($Platform -eq "windows-unity-univrm") {
@@ -115,6 +116,6 @@ $args = @{
 if ($LASTEXITCODE -ne 0) { throw "Core renderer acceptance failed with exit code $LASTEXITCODE." }
 
 Write-Host "BodyRig reference renderer attestation: PASS | $Platform | quality=bodyrig-human-quality-v1"
-Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version) | Unity $($contract.unity_editor_version)"
+Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version) | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision)"
 Write-Host "Evidence: $($probeFile.Path) + $($deformationFile.Path)"
 exit 0
