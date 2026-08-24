@@ -172,20 +172,22 @@ Efter den synlige sweep/loop er gennemgået, optages den menneskelige attesterin
 
 ### Quest-class Android
 
-Byg/installér/kør den samme reference-renderer mod den samme Gate A-runtime:
+Canonical Quest-kørslen bruger et ekstra contract-bound transaction-lag omkring den lavniveau ADB-wrapper. Det sikrer, at renderer-identitet, exact Unity-version og deformation-sekvens er valideret **før** `quest-evidence/` bliver canonical:
 
 ```powershell
-.\run-quest-renderer-probe.ps1 `
+.\run-reference-quest-renderer-probe.ps1 `
   -AcceptanceDir "C:\acceptance"
 ```
 
-Efter ADB-pull og lokal validering commit'es parret samlet som:
+Efter ADB-pull og begge valideringslag commit'es parret samlet som:
 
 ```text
 quest-evidence/
   quest-probe.json
   quest-deformation-probe.json
 ```
+
+`run-quest-renderer-probe.ps1` er fortsat den interne/lavniveau ADB-implementation, men er ikke V1's canonical production entrypoint.
 
 Efter samme sweep er gennemgået i headsettet:
 
