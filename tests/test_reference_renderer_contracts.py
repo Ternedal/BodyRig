@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 REFERENCE = REPO / "reference-renderer"
+UNIVRM_REVISION = "a4711bbf8c4d10659d3e5568c2e3d7d595005e51"
 
 
 def test_reference_renderer_pins_current_univrm_vrm1_packages() -> None:
@@ -14,11 +15,12 @@ def test_reference_renderer_pins_current_univrm_vrm1_packages() -> None:
     )
     project = json.loads((REFERENCE / "Packages" / "manifest.json").read_text(encoding="utf-8"))
     expected = {
-        "com.vrmc.gltf": "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#v0.131.2",
-        "com.vrmc.vrm": "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#v0.131.2",
+        "com.vrmc.gltf": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#{UNIVRM_REVISION}",
+        "com.vrmc.vrm": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#{UNIVRM_REVISION}",
     }
     assert snippet["dependencies"] == expected
     assert project["dependencies"] == expected
+    assert "#v0.131.2" not in json.dumps(project)
 
 
 def test_reference_renderer_is_directly_openable_unity_project() -> None:
@@ -82,7 +84,7 @@ def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() ->
     assert "restored_neutral = true" in sweep
 
 
-def test_build_script_embeds_exact_clean_git_revision_and_exact_unity_pin() -> None:
+def test_build_script_embeds_exact_clean_git_revision_exact_unity_and_univrm_pins() -> None:
     wrapper = (REFERENCE / "build-reference-renderer.ps1").read_text(encoding="utf-8")
     source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
     ignore = (REFERENCE / ".gitignore").read_text(encoding="utf-8")
@@ -95,6 +97,10 @@ def test_build_script_embeds_exact_clean_git_revision_and_exact_unity_pin() -> N
     assert "-bodyrigRevision $bodyRigRevision" in wrapper
     assert "-bodyrigUnityVersion $expectedUnityVersion" in wrapper
     assert "BodyRig Git HEAD changed during renderer build" in wrapper
+    assert "univrm_revision" in wrapper
+    assert "Packages\\manifest.json" in wrapper
+    assert "does not pin both UniVRM packages" in wrapper
+    assert UNIVRM_REVISION in (REFERENCE / "renderer-contract.json").read_text(encoding="utf-8")
     assert 'GetArgument("-bodyrigRevision")' in source
     assert 'GetArgument("-bodyrigUnityVersion")' in source
     assert "Application.unityVersion" in source
