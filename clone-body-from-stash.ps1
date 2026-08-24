@@ -346,6 +346,11 @@ $selectArgs = @(
     "--url", $StashUrl,
     "--api-key-env", $ApiKeyEnv
 )
+if ($usingObservationSelection) {
+    $selectArgs += @("--ffmpeg", $Ffmpeg)
+} else {
+    $selectArgs += "--skip-decode-probe"
+}
 Invoke-Checked -Executable $BodyRigPython -Arguments $selectArgs -Step "Stash performer source selection"
 
 try {
