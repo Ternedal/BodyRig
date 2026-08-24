@@ -28,6 +28,19 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
 
+$contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
+if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) { throw "Reference renderer contract not found: $contractPath" }
+try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "Reference renderer contract is not valid JSON: $contractPath" }
+if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractRendererName = [string]$contract.renderer_name
+$contractRendererVersion = [string]$contract.renderer_version
+$expectedUnityVersion = [string]$contract.unity_editor_version
+$expectedDeformationRevision = [string]$contract.deformation_sequence_revision
+if ([string]::IsNullOrWhiteSpace($contractRendererName) -or [string]::IsNullOrWhiteSpace($contractRendererVersion) -or [string]::IsNullOrWhiteSpace($expectedUnityVersion)) { throw "Reference renderer contract is incomplete." }
+if ($RendererName -ne $contractRendererName -or $RendererVersion -ne $contractRendererVersion) { throw "Windows renderer name/version must match reference-renderer/renderer-contract.json." }
+if ($expectedDeformationRevision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract uses an unsupported deformation sequence." }
+
 $acceptancePath = Join-Path $AcceptanceDir "bodyrig-acceptance.json"
 $runtimeManifest = Join-Path (Join-Path $AcceptanceDir "runtime") "runtime-manifest.json"
 foreach ($required in @($acceptancePath, $runtimeManifest)) {
@@ -96,6 +109,7 @@ try {
 
     Write-Host "BodyRig Windows renderer Gate B physical probe"
     Write-Host "Revision:     $acceptedRevision"
+    Write-Host "Unity pin:    $expectedUnityVersion"
     Write-Host "Runtime:      $runtimeManifest"
     Write-Host "Staging:      $attemptDir"
     Write-Host "Commit dir:   $evidenceDir"
@@ -116,13 +130,15 @@ try {
     if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "windows-unity-univrm" -or [string]$probe.unity_platform -ne "WindowsPlayer") { throw "Windows machine probe has the wrong format/platform." }
     if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Windows player was not built from the exact Gate A BodyRig revision." }
     if ([string]::IsNullOrWhiteSpace([string]$probe.build_guid)) { throw "Windows machine probe has no Unity build GUID." }
-    if ([string]$probe.active_renderer.name -ne $RendererName -or [string]$probe.active_renderer.version -ne $RendererVersion) { throw "Windows machine probe renderer identity does not match the requested build identity." }
+    if ([string]$probe.active_renderer.name -ne $contractRendererName -or [string]$probe.active_renderer.version -ne $contractRendererVersion) { throw "Windows machine probe renderer identity does not match the reference renderer contract." }
+    if ([string]$probe.unity_version -ne $expectedUnityVersion) { throw "Windows machine probe Unity version does not match the reference renderer contract." }
     if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $actualRuntimeHash) { throw "Windows machine probe does not identify the Gate A runtime manifest bytes." }
 
     try { $deformation = Get-Content -LiteralPath $stagedDeformation -Raw | ConvertFrom-Json } catch { throw "Windows deformation probe is not valid JSON: $stagedDeformation" }
     if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "windows-unity-univrm" -or [string]$deformation.unity_platform -ne "WindowsPlayer") { throw "Windows deformation probe has the wrong format/platform." }
     if ((Need-Revision ([string]$deformation.bodyrig_revision) "deformation.bodyrig_revision") -ne $acceptedRevision -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Windows deformation evidence was not produced by the same exact BodyRig revision as Gate A/machine probe." }
-    if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Windows deformation probe did not complete the fixed BodyRig pose sequence." }
+    if ([string]$deformation.unity_version -ne $expectedUnityVersion) { throw "Windows deformation probe Unity version does not match the reference renderer contract." }
+    if ([string]$deformation.sequence_revision -ne $expectedDeformationRevision -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Windows deformation probe did not complete the fixed BodyRig pose sequence." }
     if ((Need-Sha256 ([string]$deformation.runtime_manifest_sha256) "deformation.runtime_manifest_sha256") -ne $actualRuntimeHash -or [string]$deformation.body_id -ne [string]$probe.body_id -or [string]$deformation.package_sha256 -ne [string]$probe.package_sha256 -or [string]$deformation.avatar_sha256 -ne [string]$probe.avatar_sha256 -or [string]$deformation.bodyprint_sha256 -ne [string]$probe.bodyprint_sha256 -or [string]$deformation.build_guid -ne [string]$probe.build_guid) { throw "Windows deformation evidence is not byte/build-bound to the renderer machine probe." }
     $poseIds = @($deformation.poses | ForEach-Object { [string]$_.id })
     if (($poseIds -join ',') -ne 'neutral,arms_abduction,elbows_flexed,arms_forward,left_leg_lift,knee_flexion') { throw "Windows deformation probe pose sequence/order mismatch." }
@@ -138,9 +154,9 @@ try {
 if (-not (Test-Path -LiteralPath $ProbeOutput -PathType Leaf) -or -not (Test-Path -LiteralPath $DeformationOutput -PathType Leaf)) {
     throw "Windows evidence directory commit completed without both canonical files."
 }
-Write-Host "BodyRig Windows physical evidence: PASS | revision $acceptedRevision"
+Write-Host "BodyRig Windows physical evidence: PASS | revision $acceptedRevision | Unity $expectedUnityVersion"
 Write-Host "Evidence directory:   $evidenceDir"
 Write-Host "Machine evidence:     $ProbeOutput"
 Write-Host "Deformation evidence: $DeformationOutput"
-Write-Host "Human visual attestation is still required with record-renderer-acceptance.ps1."
+Write-Host "Human visual attestation is still required with record-reference-renderer-acceptance.ps1."
 exit 0
