@@ -13,6 +13,7 @@ from typing import Any, Mapping
 FORMAT = "bodyrig-physical-clone-session"
 VERSION = 1
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 BODY_ID_RE = re.compile(r"^[a-z0-9æøå_-]{1,160}$")
 STAGES = {"initializing", "readiness", "clone", "complete"}
 STATUSES = {"running", "pass", "fail"}
@@ -26,6 +27,8 @@ FIELDS = {
     "stage",
     "performer_id",
     "body_id",
+    "bodyrig_revision",
+    "bodyrig_checkout_clean",
     "rig_setup_sha256",
     "readiness_sha256",
     "clone_output",
@@ -61,6 +64,12 @@ def _sha(value: Any, *, field: str, nullable: bool = False) -> str | None:
     return value
 
 
+def _git_revision(value: Any) -> str:
+    if not isinstance(value, str) or not GIT_REVISION_RE.fullmatch(value):
+        raise PhysicalSessionError("bodyrig_revision must be a lowercase 40-character Git SHA")
+    return value
+
+
 def _timestamp(value: Any, *, field: str, nullable: bool = False) -> str | None:
     if value is None and nullable:
         return None
@@ -89,6 +98,11 @@ def validate_session(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     body_id = _nonempty(value["body_id"], field="body_id", maximum=160)
     if not BODY_ID_RE.fullmatch(body_id):
         raise PhysicalSessionError("body_id has invalid characters")
+
+    revision = _git_revision(value["bodyrig_revision"])
+    checkout_clean = value["bodyrig_checkout_clean"]
+    if not isinstance(checkout_clean, bool):
+        raise PhysicalSessionError("bodyrig_checkout_clean must be boolean")
 
     started = _timestamp(value["started_utc"], field="started_utc")
     completed = _timestamp(value["completed_utc"], field="completed_utc", nullable=True)
@@ -127,6 +141,8 @@ def validate_session(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "stage": stage,
         "performer_id": performer_id,
         "body_id": body_id,
+        "bodyrig_revision": revision,
+        "bodyrig_checkout_clean": checkout_clean,
         "rig_setup_sha256": rig_hash,
         "readiness_sha256": readiness_hash,
         "clone_output": clone_output,
@@ -165,7 +181,15 @@ def _atomic_replace(path: Path, value: Mapping[str, Any]) -> None:
             temp.unlink()
 
 
-def start_session(path: str | Path, *, performer_id: str, body_id: str, rig_setup_sha256: str) -> dict[str, Any]:
+def start_session(
+    path: str | Path,
+    *,
+    performer_id: str,
+    body_id: str,
+    bodyrig_revision: str,
+    bodyrig_checkout_clean: bool,
+    rig_setup_sha256: str,
+) -> dict[str, Any]:
     report_path = Path(path).expanduser().resolve()
     value = validate_session(
         {
@@ -178,6 +202,8 @@ def start_session(path: str | Path, *, performer_id: str, body_id: str, rig_setu
             "stage": "initializing",
             "performer_id": performer_id,
             "body_id": body_id,
+            "bodyrig_revision": bodyrig_revision,
+            "bodyrig_checkout_clean": bodyrig_checkout_clean,
             "rig_setup_sha256": rig_setup_sha256,
             "readiness_sha256": None,
             "clone_output": None,
@@ -244,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
     start.add_argument("--out", required=True)
     start.add_argument("--performer-id", required=True)
     start.add_argument("--body-id", required=True)
+    start.add_argument("--bodyrig-revision", required=True)
+    start.add_argument("--bodyrig-checkout-clean", required=True, choices=("true", "false"))
     start.add_argument("--rig-setup-sha256", required=True)
 
     readiness = sub.add_parser("readiness-pass")
@@ -265,7 +293,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "start":
-            value = start_session(args.out, performer_id=args.performer_id, body_id=args.body_id, rig_setup_sha256=args.rig_setup_sha256)
+            value = start_session(
+                args.out,
+                performer_id=args.performer_id,
+                body_id=args.body_id,
+                bodyrig_revision=args.bodyrig_revision,
+                bodyrig_checkout_clean=args.bodyrig_checkout_clean == "true",
+                rig_setup_sha256=args.rig_setup_sha256,
+            )
         elif args.command == "readiness-pass":
             value = mark_readiness_pass(args.report, readiness_sha256=args.readiness_sha256)
         elif args.command == "pass":
