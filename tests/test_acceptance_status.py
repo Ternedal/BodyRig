@@ -83,9 +83,21 @@ def gate_a(directory: Path) -> GateFixture:
     return GateFixture(directory, gate_path, package_hash, runtime_hash)
 
 
-def probe(fixture: GateFixture, prefix: str, platform: str, unity_platform: str, device: str) -> Path:
+def evidence_path(fixture: GateFixture, prefix: str, name: str, *, legacy: bool = False) -> Path:
+    return fixture.directory / name if legacy else fixture.directory / f"{prefix}-evidence" / name
+
+
+def probe(
+    fixture: GateFixture,
+    prefix: str,
+    platform: str,
+    unity_platform: str,
+    device: str,
+    *,
+    legacy: bool = False,
+) -> Path:
     return write_json(
-        fixture.directory / f"{prefix}-probe.json",
+        evidence_path(fixture, prefix, f"{prefix}-probe.json", legacy=legacy),
         {
             "format": "bodyrig-renderer-probe",
             "version": 1,
@@ -109,9 +121,17 @@ def probe(fixture: GateFixture, prefix: str, platform: str, unity_platform: str,
     )
 
 
-def deformation(fixture: GateFixture, prefix: str, platform: str, unity_platform: str, device: str) -> Path:
+def deformation(
+    fixture: GateFixture,
+    prefix: str,
+    platform: str,
+    unity_platform: str,
+    device: str,
+    *,
+    legacy: bool = False,
+) -> Path:
     return write_json(
-        fixture.directory / f"{prefix}-deformation-probe.json",
+        evidence_path(fixture, prefix, f"{prefix}-deformation-probe.json", legacy=legacy),
         {
             "format": "bodyrig-deformation-probe",
             "version": 1,
@@ -137,10 +157,10 @@ def deformation(fixture: GateFixture, prefix: str, platform: str, unity_platform
     )
 
 
-def attestation(fixture: GateFixture, prefix: str, platform: str) -> Path:
+def attestation(fixture: GateFixture, prefix: str, platform: str, *, legacy: bool = False) -> Path:
     name = "bodyrig-renderer-acceptance-windows.json" if prefix == "windows" else "bodyrig-renderer-acceptance-quest.json"
-    probe_path = fixture.directory / f"{prefix}-probe.json"
-    deformation_path = fixture.directory / f"{prefix}-deformation-probe.json"
+    probe_path = evidence_path(fixture, prefix, f"{prefix}-probe.json", legacy=legacy)
+    deformation_path = evidence_path(fixture, prefix, f"{prefix}-deformation-probe.json", legacy=legacy)
     return write_json(
         fixture.directory / name,
         {
@@ -166,16 +186,16 @@ def attestation(fixture: GateFixture, prefix: str, platform: str) -> Path:
     )
 
 
-def complete_windows(fixture: GateFixture) -> None:
-    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
-    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
-    attestation(fixture, "windows", "windows-unity-univrm")
+def complete_windows(fixture: GateFixture, *, legacy: bool = False) -> None:
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig", legacy=legacy)
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig", legacy=legacy)
+    attestation(fixture, "windows", "windows-unity-univrm", legacy=legacy)
 
 
-def complete_quest(fixture: GateFixture) -> None:
-    probe(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2")
-    deformation(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2")
-    attestation(fixture, "quest", "android-quest-class")
+def complete_quest(fixture: GateFixture, *, legacy: bool = False) -> None:
+    probe(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2", legacy=legacy)
+    deformation(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2", legacy=legacy)
+    attestation(fixture, "quest", "android-quest-class", legacy=legacy)
 
 
 def test_session_pass_points_to_gate_a_without_mutating(tmp_path: Path) -> None:
@@ -204,32 +224,51 @@ def test_session_pass_points_to_gate_a_without_mutating(tmp_path: Path) -> None:
     assert not (clone_root / "acceptance").exists()
 
 
-def test_acceptance_state_machine_reports_exact_next_gate(tmp_path: Path) -> None:
+def test_acceptance_state_machine_uses_atomic_evidence_directories(tmp_path: Path) -> None:
     fixture = gate_a(tmp_path)
     status = inspect_acceptance_dir(tmp_path)
     assert status.gate == "windows-probe"
-    assert "run-windows-renderer-probe.ps1" in (status.next_command or "")
 
     probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
     deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
     status = inspect_acceptance_dir(tmp_path)
     assert status.gate == "windows-attestation"
-    assert "-DeformationReport" in (status.next_command or "")
+    assert "windows-evidence" in (status.next_command or "")
 
     attestation(fixture, "windows", "windows-unity-univrm")
-    status = inspect_acceptance_dir(tmp_path)
-    assert status.gate == "quest-probe"
+    assert inspect_acceptance_dir(tmp_path).gate == "quest-probe"
 
     probe(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2")
     deformation(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2")
     status = inspect_acceptance_dir(tmp_path)
     assert status.gate == "quest-attestation"
+    assert "quest-evidence" in (status.next_command or "")
 
     attestation(fixture, "quest", "android-quest-class")
     status = inspect_acceptance_dir(tmp_path)
     assert status.gate == "release"
-    assert status.state == "ready"
-    assert "complete-acceptance.ps1" in (status.next_command or "")
+    assert "windows-evidence" in (status.next_command or "")
+    assert "quest-evidence" in (status.next_command or "")
+
+
+def test_complete_legacy_root_layout_remains_readable(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    complete_windows(fixture, legacy=True)
+    status = inspect_acceptance_dir(tmp_path)
+    assert status.gate == "quest-probe"
+    probe(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2", legacy=True)
+    deformation(fixture, "quest", "android-quest-class", "Android", "Meta Quest 2", legacy=True)
+    assert inspect_acceptance_dir(tmp_path).gate == "quest-attestation"
+
+
+def test_dedicated_and_legacy_layout_together_is_ambiguous(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig", legacy=True)
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig", legacy=True)
+    with pytest.raises(AcceptanceStatusError, match="Ambiguous windows evidence"):
+        inspect_acceptance_dir(tmp_path)
 
 
 def test_release_status_verifies_attestation_hashes_and_renderer_revision(tmp_path: Path) -> None:
@@ -271,7 +310,7 @@ def test_wrong_embedded_renderer_revision_fails_closed(tmp_path: Path) -> None:
 def test_attestation_hash_tamper_fails_closed(tmp_path: Path) -> None:
     fixture = gate_a(tmp_path)
     complete_windows(fixture)
-    probe_path = tmp_path / "windows-probe.json"
+    probe_path = tmp_path / "windows-evidence" / "windows-probe.json"
     value = json.loads(probe_path.read_text(encoding="utf-8"))
     value["graphics_device"] = "mutated after attestation"
     write_json(probe_path, value)
@@ -280,7 +319,7 @@ def test_attestation_hash_tamper_fails_closed(tmp_path: Path) -> None:
 
 
 def test_gate_a_package_tamper_fails_closed(tmp_path: Path) -> None:
-    fixture = gate_a(tmp_path)
+    gate_a(tmp_path)
     (tmp_path / f"{BODY_ID}.mrbody").write_bytes(b"mutated package\n")
     with pytest.raises(AcceptanceStatusError, match="Accepted .mrbody bytes no longer match Gate A"):
         inspect_acceptance_dir(tmp_path)
@@ -293,8 +332,8 @@ def test_gate_a_skin_qa_tamper_fails_closed(tmp_path: Path) -> None:
         inspect_acceptance_dir(tmp_path)
 
 
-def test_deformation_without_machine_probe_is_inconsistent(tmp_path: Path) -> None:
+def test_partial_dedicated_pair_is_inconsistent(tmp_path: Path) -> None:
     fixture = gate_a(tmp_path)
-    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
-    with pytest.raises(AcceptanceStatusError, match="without its machine probe"):
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    with pytest.raises(AcceptanceStatusError, match="canonical evidence is incomplete"):
         inspect_acceptance_dir(tmp_path)
