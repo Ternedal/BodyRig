@@ -80,7 +80,8 @@ def test_decode_gate_keeps_only_sources_that_ffmpeg_can_decode_one_video_frame(m
 
     def fake_run(command, **kwargs):
         calls.append((list(command), dict(kwargs)))
-        return subprocess.CompletedProcess(command, 0 if "good.mp4" in command else 1)
+        can_decode = any(str(argument).endswith("good.mp4") for argument in command)
+        return subprocess.CompletedProcess(command, 0 if can_decode else 1)
 
     monkeypatch.setattr(stash_cli.subprocess, "run", fake_run)
     result = stash_cli._filter_decodable_sources(candidates, ffmpeg="C:/tools/ffmpeg.exe", timeout_seconds=20)
