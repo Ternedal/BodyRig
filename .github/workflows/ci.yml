@@ -49,6 +49,7 @@ jobs:
           $scripts = @(
             Get-ChildItem -LiteralPath . -Filter "*.ps1" -File
             Get-ChildItem -LiteralPath ./tests -Filter "*.ps1" -File
+            Get-ChildItem -LiteralPath ./reference-renderer -Filter "*.ps1" -File
           ) | Sort-Object FullName
           if ($scripts.Count -eq 0) {
             Write-Error "No PowerShell operator/test scripts found."
