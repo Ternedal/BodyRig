@@ -41,6 +41,31 @@ def test_high_fidelity_gate_a_binds_readiness_and_same_package_bytes():
     assert 'mode = "stash-sith-high-fidelity"' in text
 
 
+def test_high_fidelity_gate_a_resolves_session_alias_to_canonical_portable_identity():
+    text = _script()
+    alias = text.index('$requestedAlias = [string]$session.body_id')
+    alias_package = text.index('Join-Path $cloneDir "$requestedAlias.mrbody"')
+    receipt = text.index('"bodyrig-portable-identity.json"')
+    bind = text.index("bind_portable_identity_to_evidence")
+    canonical = text.index('$bodyId = [string]$identityBinding.body_id')
+    output = text.index('New-Item -ItemType Directory -Path $OutputDir')
+    canonical_package = text.index('Join-Path $OutputDir "$bodyId.mrbody"')
+    assert alias < alias_package < receipt < bind < canonical < output < canonical_package
+    assert 'requested_alias=sys.argv[4]' in text
+    assert "Portable identity alias does not match the physical session alias." in text
+    assert "Copy-Exact $portableIdentitySource $portableIdentityCopy" in text
+    assert 'body_id = $bodyId' in text
+
+
+def test_high_fidelity_gate_a_requires_portable_identity_package_provenance():
+    text = _script()
+    assert 's.get("stage") == "identity_content"' in text
+    assert 'identity_stages[0].get("adapter") == "bodyrig.portable_identity"' in text
+    assert 'identity_stages[0].get("revision") == expected_identity_revision' in text
+    assert "High-fidelity package is not bound to the canonical portable identity authority." in text
+    assert "Canonical portable identity does not match .mrbody manifest id." in text
+
+
 def test_high_fidelity_gate_a_refuses_placeholder_or_non_sith_fit():
     text = _script()
     assert '[string]$packageInfo.fitting_adapter -ne "sith-smplx-vrm"' in text
@@ -60,6 +85,7 @@ def test_high_fidelity_gate_a_runs_and_binds_anatomical_skin_qa():
     assert 'automated_assessment = $skinAssessment' in text
     assert 'manual_review_required = $true' in text
     assert "Anatomical skin QA is not bound to the accepted package." in text
+    assert '[string]$skinQa.body_id -ne $bodyId' in text
 
 
 def test_high_fidelity_gate_a_materializes_renderer_runtime_from_accepted_package():
@@ -69,6 +95,7 @@ def test_high_fidelity_gate_a_materializes_renderer_runtime_from_accepted_packag
     report = text.index('format = "bodyrig-rig-acceptance"')
     assert copy_package < materialize < report
     assert 'manifest = "runtime/runtime-manifest.json"' in text
+    assert '[string]$runtimeManifest.body_id -ne $bodyId' in text
     assert 'physical_renderer_acceptance = "pending"' in text
     assert 'production_activation = $false' in text
 
