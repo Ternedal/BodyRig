@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import sys
-from pathlib import Path
 
 from .stash_source import (
     StashClient,
@@ -14,6 +13,9 @@ from .stash_source import (
     rank_sources,
     write_source_manifest,
 )
+
+
+_HEALTH_PROBE_TERM = "__bodyrig_auth_capability_probe__"
 
 
 def _config(args: argparse.Namespace) -> StashConfig:
@@ -38,7 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Use local Stash performers/scenes as BodyRig clone sources.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    health = sub.add_parser("health", help="Probe Stash GraphQL without selecting or reading media")
+    health = sub.add_parser(
+        "health",
+        help="Probe Stash GraphQL plus performer-read capability without selecting or reading media",
+    )
     _add_common(health)
 
     search = sub.add_parser("search", help="Search Stash performers")
@@ -62,7 +67,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         client = StashClient(_config(args))
         if args.command == "health":
-            print(json.dumps({"ok": True, "version": client.version()}, separators=(",", ":"), ensure_ascii=False))
+            version = client.version()
+            # Prove the same read capability used by the next operator step. The
+            # deliberately unlikely term keeps the probe metadata-only and its
+            # result is discarded; success itself is the capability evidence.
+            client.search_performers(_HEALTH_PROBE_TERM, limit=1)
+            print(
+                json.dumps(
+                    {"ok": True, "version": version, "performer_read": True},
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+            )
             return 0
         if args.command == "search":
             performers = client.search_performers(args.term, limit=args.limit)
