@@ -50,14 +50,15 @@ def build_adjustment_request(
 ) -> dict[str, Any]:
     """Build the reviewable bounded request before recovery evidence exists.
 
-    If explicit changes are supplied they are still validated by the same hard
-    V1 limits as parser-generated proposals. This lets Person Studio show the
-    proposal first and submit the exact reviewed subset without allowing an
-    unbounded hidden edit.
+    Explicit changes are allowed only as an exact subset of the deterministic
+    proposal produced from the same feedback. Person Studio may therefore let
+    an operator review/deselect proposed edits, while a direct API caller cannot
+    smuggle in a different field, delta or reason under reviewed feedback.
     """
 
+    generated = [item.to_json() for item in propose_bodyprint_changes(feedback)]
     selected: Sequence[Mapping[str, Any] | ProposedBodyChange]
-    selected = propose_bodyprint_changes(feedback) if changes is None else changes
+    selected = generated if changes is None else changes
     serialized: list[dict[str, Any]] = []
     for item in selected:
         if isinstance(item, ProposedBodyChange):
@@ -73,9 +74,29 @@ def build_adjustment_request(
         "changes": serialized,
     }
     try:
-        return validate_adjustment_payload(payload)
+        validated = validate_adjustment_payload(payload)
+        generated_validated = validate_adjustment_payload(
+            {
+                "format": "bodyrig-bodyprint-adjustment",
+                "version": 1,
+                "feedback_sha256": feedback_sha256(feedback),
+                "changes": generated,
+            }
+        )
     except BodyprintAdjustmentError as exc:
         raise BodyprintAdjustmentEvidenceError(str(exc)) from exc
+
+    if changes is not None:
+        generated_by_field = {
+            item["field"]: item for item in generated_validated["changes"]
+        }
+        for item in validated["changes"]:
+            expected = generated_by_field.get(item["field"])
+            if expected != item:
+                raise BodyprintAdjustmentEvidenceError(
+                    "explicit adjustment changes must be an exact subset of the proposal generated from the same feedback"
+                )
+    return validated
 
 
 def validate_adjustment_evidence(value: Any) -> dict[str, Any]:
