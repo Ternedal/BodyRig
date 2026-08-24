@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
     [Parameter(Mandatory = $true)][ValidateSet("windows-unity-univrm", "android-quest-class")][string]$Platform,
+    [Parameter(Mandatory = $true)][switch]$ConfirmQualityChecklist,
     [Parameter(Mandatory = $true)][ValidateLength(1, 2000)][string]$QualityNote,
     [string]$Output = ""
 )
@@ -51,6 +52,7 @@ function Resolve-EvidencePair {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+if (-not $ConfirmQualityChecklist) { throw "Reference renderer attestation requires explicit -ConfirmQualityChecklist after the full physical quality review." }
 if ([string]::IsNullOrWhiteSpace($QualityNote)) { throw "QualityNote must contain the operator's physical review." }
 $QualityNote = $QualityNote.Trim()
 
@@ -103,6 +105,7 @@ $args = @{
     DeformationReport = $deformationFile.Path
     Platform = $Platform
     Pass = $true
+    ConfirmQualityChecklist = $true
     RendererName = [string]$contract.renderer_name
     RendererVersion = [string]$contract.renderer_version
     QualityNote = $QualityNote
@@ -111,7 +114,7 @@ $args = @{
 & $recordScript @args
 if ($LASTEXITCODE -ne 0) { throw "Core renderer acceptance failed with exit code $LASTEXITCODE." }
 
-Write-Host "BodyRig reference renderer attestation: PASS | $Platform"
+Write-Host "BodyRig reference renderer attestation: PASS | $Platform | quality=bodyrig-human-quality-v1"
 Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version) | Unity $($contract.unity_editor_version)"
 Write-Host "Evidence: $($probeFile.Path) + $($deformationFile.Path)"
 exit 0
