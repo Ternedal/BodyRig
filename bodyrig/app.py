@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import threading
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,12 @@ from . import __version__
 from .body_feedback import propose_bodyprint_changes
 from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
+from .person_assembly import (
+    PersonAssemblyError,
+    build_assembly,
+    verify_receipt,
+    write_receipt,
+)
 from .person_profiles import (
     PersonProfileError,
     activate_person_revision,
@@ -40,6 +47,7 @@ runtime = BodyRuntime()
 app = FastAPI(title="BodyRig", version=__version__)
 UI_DIR = Path(__file__).resolve().parent / "ui"
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
+_APPROVAL_LOCK = threading.Lock()
 
 
 def body_library() -> Path:
@@ -67,9 +75,7 @@ async def _loopback_only(request: Request, call_next):
             return JSONResponse(
                 status_code=403,
                 content={
-                    "detail": (
-                        "BodyRig is loopback-only; set BODYRIG_ALLOW_REMOTE=1 only for an intentional remote deployment."
-                    )
+                    "detail": "BodyRig is loopback-only; set BODYRIG_ALLOW_REMOTE=1 only for an intentional remote deployment."
                 },
             )
     return await call_next(request)
@@ -114,11 +120,15 @@ class VoiceSynthesizeRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
 
 
-class PersonRevisionRequest(BaseModel):
+class PersonAssemblyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     body_revision: str = Field(min_length=1, max_length=24)
     voice_revision: str = Field(min_length=1, max_length=24)
     personality_revision: str = Field(min_length=1, max_length=24)
+
+
+class PersonRevisionRequest(PersonAssemblyRequest):
+    assembly_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     body_voice_match: bool
     voice_personality_match: bool
     body_personality_match: bool
@@ -186,6 +196,21 @@ def _revision(profile: dict[str, Any], kind: str, revision_id: str | None) -> di
     raise HTTPException(status_code=404, detail=f"{kind} revision not found.")
 
 
+def _body_bytes_match(item: dict[str, Any]) -> Path:
+    package = Path(item["package_path"]).expanduser().resolve()
+    if not package.is_file():
+        raise HTTPException(status_code=404, detail="Body package for revision is missing.")
+    if _sha256(package) != item["package_sha256"]:
+        raise HTTPException(status_code=409, detail="Body package bytes no longer match the registered revision.")
+    try:
+        validated = validate_package(package)
+    except (MRBodyError, OSError) as exc:
+        raise HTTPException(status_code=422, detail=f"Body package is invalid: {exc}") from exc
+    if validated.manifest["id"] != item["body_id"]:
+        raise HTTPException(status_code=409, detail="Body package identity no longer matches the registered revision.")
+    return package
+
+
 def _voice_bytes_match(item: dict[str, Any], client: VoiceRigClient) -> None:
     try:
         raw = client.package_bytes(str(item["voice_package"]))
@@ -195,9 +220,26 @@ def _voice_bytes_match(item: dict[str, Any], client: VoiceRigClient) -> None:
         raise HTTPException(status_code=409, detail="VoiceRig package bytes no longer match the registered voice revision.")
 
 
+def _validated_assembly(profile: dict[str, Any], request: PersonAssemblyRequest) -> dict[str, Any]:
+    try:
+        assembly = build_assembly(
+            profile,
+            body_revision=request.body_revision,
+            voice_revision=request.voice_revision,
+            personality_revision=request.personality_revision,
+        )
+    except PersonAssemblyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    body = _revision(profile, "body", request.body_revision)
+    voice = _revision(profile, "voice", request.voice_revision)
+    _body_bytes_match(body)
+    _voice_bytes_match(voice, _voicerig_client())
+    return assembly
+
+
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(UI_DIR / "index.html", media_type="text/html")
+    return FileResponse(UI_DIR / "person.html", media_type="text/html")
 
 
 @app.get("/api/v1/health")
@@ -238,10 +280,10 @@ def stash_search(q: str = Query(min_length=1, max_length=160), limit: int = Quer
 @app.get("/api/v1/voicerig/health")
 def voicerig_health() -> dict:
     try:
-        health_payload = _voicerig_client().health()
+        value = _voicerig_client().health()
     except VoiceRigClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {"ok": True, "service": "voicerig", "version": health_payload.get("version")}
+    return {"ok": True, "service": "voicerig", "version": value.get("version")}
 
 
 @app.get("/api/v1/voicerig/voices")
@@ -350,6 +392,21 @@ def voice_synthesize(person_id: str, request: VoiceSynthesizeRequest):
     return Response(content=raw, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/v1/people/{person_id}/assembly")
+def prepare_person_assembly(person_id: str, request: PersonAssemblyRequest) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    assembly = _validated_assembly(profile, request)
+    return {
+        **assembly,
+        "body_preview_url": f"/api/v1/people/{person_id}/body/preview?revision={request.body_revision}",
+        "voice_preview_url": f"/api/v1/people/{person_id}/voice/preview?revision={request.voice_revision}",
+        "voice_synthesize_url": f"/api/v1/people/{person_id}/voice/synthesize",
+    }
+
+
 @app.post("/api/v1/people/{person_id}/revisions")
 def create_person_revision(person_id: str, request: PersonRevisionRequest) -> dict:
     review = {
@@ -359,27 +416,55 @@ def create_person_revision(person_id: str, request: PersonRevisionRequest) -> di
         "overall_coherent": request.overall_coherent,
         "note": request.compatibility_note,
     }
-    try:
-        return add_person_revision(
-            person_library(),
-            person_id,
-            body_revision=request.body_revision,
-            voice_revision=request.voice_revision,
-            personality_revision=request.personality_revision,
-            compatibility_review=review,
-            feedback=request.feedback,
-            activate=request.activate,
-        )
-    except PersonProfileError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _APPROVAL_LOCK:
+        try:
+            profile = load_profile(person_library(), person_id)
+        except PersonProfileError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        assembly = _validated_assembly(profile, request)
+        if assembly["assembly_fingerprint"] != request.assembly_fingerprint:
+            raise HTTPException(status_code=409, detail="The selected person assembly changed after audition. Audition it again before approval.")
+        try:
+            profile = add_person_revision(
+                person_library(),
+                person_id,
+                body_revision=request.body_revision,
+                voice_revision=request.voice_revision,
+                personality_revision=request.personality_revision,
+                compatibility_review=review,
+                feedback=request.feedback,
+                activate=False,
+            )
+            person_revision = profile["person_revisions"][-1]["revision_id"]
+            write_receipt(person_library(), person_revision=person_revision, assembly=assembly)
+            if request.activate:
+                profile = activate_person_revision(person_library(), person_id, person_revision)
+            return profile
+        except (PersonProfileError, PersonAssemblyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/people/{person_id}/revisions/{revision_id}/activate")
 def activate_bundle(person_id: str, revision_id: str) -> dict:
-    try:
-        return activate_person_revision(person_library(), person_id, revision_id)
-    except PersonProfileError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _APPROVAL_LOCK:
+        try:
+            profile = load_profile(person_library(), person_id)
+        except PersonProfileError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        item = next((value for value in profile["person_revisions"] if value["revision_id"] == revision_id), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Unknown approved person revision.")
+        request = PersonAssemblyRequest(
+            body_revision=item["body_revision"],
+            voice_revision=item["voice_revision"],
+            personality_revision=item["personality_revision"],
+        )
+        assembly = _validated_assembly(profile, request)
+        try:
+            verify_receipt(person_library(), person_revision=revision_id, assembly=assembly)
+            return activate_person_revision(person_library(), person_id, revision_id)
+        except (PersonAssemblyError, PersonProfileError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/people/{person_id}/activate/{kind}/{revision_id}", include_in_schema=False)
@@ -438,18 +523,11 @@ def body_preview(person_id: str, revision: str | None = None):
     except PersonProfileError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     item = _revision(profile, "body", revision)
-    package = Path(item["package_path"]).expanduser().resolve()
-    if not package.is_file():
-        raise HTTPException(status_code=404, detail="Body package for revision is missing.")
-    if _sha256(package) != item["package_sha256"]:
-        raise HTTPException(status_code=409, detail="Body package bytes no longer match the registered revision.")
+    package = _body_bytes_match(item)
     try:
-        validated = validate_package(package)
-        if validated.manifest["id"] != item["body_id"]:
-            raise MRBodyError("body id mismatch")
         with zipfile.ZipFile(package, "r") as archive:
             payload = archive.read("thumbnail.png")
-    except (MRBodyError, OSError, zipfile.BadZipFile, KeyError) as exc:
+    except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Body preview is invalid: {exc}") from exc
     return Response(content=payload, media_type="image/png", headers={"Cache-Control": "no-store"})
 
@@ -461,16 +539,11 @@ def body_avatar(person_id: str, revision: str | None = None):
     except PersonProfileError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     item = _revision(profile, "body", revision)
-    package = Path(item["package_path"]).expanduser().resolve()
-    if not package.is_file() or _sha256(package) != item["package_sha256"]:
-        raise HTTPException(status_code=409, detail="Body package is missing or changed.")
+    package = _body_bytes_match(item)
     try:
-        validated = validate_package(package)
-        if validated.manifest["id"] != item["body_id"]:
-            raise MRBodyError("body id mismatch")
         with zipfile.ZipFile(package, "r") as archive:
             payload = archive.read("avatar.vrm")
-    except (MRBodyError, OSError, zipfile.BadZipFile, KeyError) as exc:
+    except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Body avatar is invalid: {exc}") from exc
     return Response(content=payload, media_type="model/gltf-binary", headers={"Cache-Control": "no-store"})
 
