@@ -146,12 +146,16 @@ Sweepet bruger Unity Humanoid-muscles via `HumanPoseHandler`, skriver create-onl
 
 ### WindowsPlayer
 
+Canonical Windows-kørslen bruger samme contract-bound transaction-lag som Quest:
+
 ```powershell
-.\run-windows-renderer-probe.ps1 `
+.\run-reference-windows-renderer-probe.ps1 `
   -AcceptanceDir "C:\acceptance"
 ```
 
-Efter validering commit'es parret samlet som `windows-evidence/`. Efter fysisk visuel review:
+Efter begge valideringslag commit'es parret samlet som `windows-evidence/`. `run-windows-renderer-probe.ps1` er fortsat den interne/lavniveau player/build-implementation, men er ikke V1's canonical production entrypoint.
+
+Efter fysisk visuel review:
 
 ```powershell
 .\record-reference-renderer-acceptance.ps1 `
