@@ -77,6 +77,40 @@ def _powershell() -> str:
     return command
 
 
+def _stop_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise UiJobError(f"Could not stop the Windows UI job process tree for PID {process.pid}: {exc}") from exc
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "taskkill failed").strip()
+            raise UiJobError(f"Could not confirm Windows UI job process-tree cancellation for PID {process.pid}: {detail}")
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired as exc:
+            raise UiJobError(f"Windows UI job PID {process.pid} remained alive after taskkill /T /F") from exc
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as exc:
+            raise UiJobError(f"UI job PID {process.pid} could not be stopped") from exc
+
+
 def operator_checkout_status() -> dict[str, Any]:
     root = _repo_root()
     required = [
@@ -365,11 +399,11 @@ class UiJobManager:
                 return job
             process = self._processes.get(job_id)
             if process is not None and process.poll() is None:
-                process.terminate()
+                _stop_process_tree(process)
             job["status"] = "canceled"
             job["completed_utc"] = _now()
             job["pid"] = None
-            job["error"] = "Canceled by operator"
+            job["error"] = "Canceled by operator after confirming the active process tree stopped"
             _write_job(job)
             return job
 
