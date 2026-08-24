@@ -10,6 +10,18 @@ def _clone() -> str:
     return (ROOT / "clone-body.ps1").read_text(encoding="utf-8")
 
 
+def test_clone_snapshots_source_bytes_before_recovery_and_rechecks_at_identity_build():
+    text = _clone()
+    snapshot = text.index("from bodyrig.portable_identity import source_set_sha256")
+    recovery = text.index('Invoke-Checked -Executable $BodyRigPython -Arguments $recoverArgs')
+    capture = text.index('Invoke-Checked -Executable $BodyRigPython -Arguments $captureArgs')
+    identity = text.index('Invoke-Checked -Executable $BodyRigPython -Arguments $portableIdentityArgs')
+    assert snapshot < recovery < capture < identity
+    assert '$sourceSnapshotArgs += $resolvedSources' in text
+    assert '"--expected-source-set-sha256", $sourceSetSnapshot' in text
+    assert "Could not create the pre-recovery source byte-set snapshot." in text
+
+
 def test_clone_builds_portable_identity_after_recovery_and_visual_capture_before_fitting():
     text = _clone()
     recovery = text.index('Invoke-Checked -Executable $BodyRigPython -Arguments $recoverArgs')

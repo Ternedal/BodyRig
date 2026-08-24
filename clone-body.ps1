@@ -261,6 +261,19 @@ try {
     if ($AllowCpu) { $preflightArgs += "--allow-cpu" }
     Invoke-Checked -Executable $BodyRigPython -Arguments $preflightArgs -Step "Recovery preflight"
 
+    $sourceSnapshotCode = @'
+import sys
+from bodyrig.portable_identity import source_set_sha256
+print(source_set_sha256(sys.argv[1:]))
+'@
+    $sourceSnapshotArgs = @("-c", $sourceSnapshotCode)
+    $sourceSnapshotArgs += $resolvedSources
+    $sourceSetSnapshot = [string](& $BodyRigPython @sourceSnapshotArgs)
+    if ($LASTEXITCODE -ne 0 -or $sourceSetSnapshot.Trim() -notmatch '^[0-9a-f]{64}$') {
+        throw "Could not create the pre-recovery source byte-set snapshot."
+    }
+    $sourceSetSnapshot = $sourceSetSnapshot.Trim()
+
     $recoverArgs = @(
         "-m", "bodyrig.recover_cli",
         "--python", $ExternalPython,
@@ -293,6 +306,7 @@ try {
     $portableIdentityArgs += @(
         "--identity-profile", $identityPath,
         "--requested-alias", $BodyId,
+        "--expected-source-set-sha256", $sourceSetSnapshot,
         "--out", $portableIdentityPath
     )
     Invoke-Checked -Executable $BodyRigPython -Arguments $portableIdentityArgs -Step "Portable identity binding"

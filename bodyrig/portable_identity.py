@@ -69,9 +69,17 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _source_set_digest(source_files: Iterable[str | Path], *, expected_count: int) -> str:
+def source_set_sha256(
+    source_files: Iterable[str | Path],
+    *,
+    expected_count: int | None = None,
+) -> str:
+    """Hash a source set without incorporating paths or caller ordering."""
+
     paths = [Path(item).expanduser().resolve() for item in source_files]
-    if len(paths) != expected_count or not 1 <= len(paths) <= 10:
+    if not 1 <= len(paths) <= 10:
+        raise PortableIdentityError("source media count must be 1..10")
+    if expected_count is not None and len(paths) != expected_count:
         raise PortableIdentityError("source media count must match recovery proof source_count")
     seen: set[str] = set()
     digests: list[str] = []
@@ -146,14 +154,29 @@ def build_portable_identity(
     visual_identity: Mapping[str, Any],
     source_files: Iterable[str | Path],
     requested_alias: str,
+    expected_source_set_sha256: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(requested_alias, str) or ALIAS_RE.fullmatch(requested_alias) is None:
         raise PortableIdentityError("requested_alias is invalid")
+    if expected_source_set_sha256 is not None and (
+        not isinstance(expected_source_set_sha256, str)
+        or SHA256_RE.fullmatch(expected_source_set_sha256) is None
+    ):
+        raise PortableIdentityError("expected_source_set_sha256 must be lowercase SHA-256")
     try:
         validated_proof = validate_recovery_proof(dict(proof))
         validated_identity = bind_visual_identity_to_proof(visual_identity, validated_proof)
     except (ProofError, VisualIdentityError, ValueError) as exc:
         raise PortableIdentityError(str(exc)) from exc
+
+    source_digest = source_set_sha256(
+        source_files,
+        expected_count=validated_proof["source_count"],
+    )
+    if expected_source_set_sha256 is not None and source_digest != expected_source_set_sha256:
+        raise PortableIdentityError(
+            "source media byte set changed after the pre-recovery snapshot"
+        )
 
     value: dict[str, Any] = {
         "format": FORMAT,
@@ -161,10 +184,7 @@ def build_portable_identity(
         "body_id": "bodyid-" + ("0" * 24),
         "requested_alias": requested_alias,
         "source_count": validated_proof["source_count"],
-        "source_set_sha256": _source_set_digest(
-            source_files,
-            expected_count=validated_proof["source_count"],
-        ),
+        "source_set_sha256": source_digest,
         "recovery_proof_sha256": _digest_json(validated_proof),
         "visual_identity_sha256": _digest_json(validated_identity),
         "subject_track_id": validated_proof["track_id"],
@@ -284,6 +304,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("sources", nargs="+", help="Exact source media used by recovery/identity capture")
     parser.add_argument("--identity-profile", required=True, help="bodyrig-visual-identity v1 JSON")
     parser.add_argument("--requested-alias", required=True, help="Operator-facing BodyRig alias")
+    parser.add_argument(
+        "--expected-source-set-sha256",
+        default="",
+        help="Optional pre-recovery path-free source-set SHA-256; clone fails if bytes changed",
+    )
     parser.add_argument("--out", required=True, help="Create-only portable identity receipt")
     args = parser.parse_args(argv)
 
@@ -296,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
             visual_identity=identity,
             source_files=args.sources,
             requested_alias=args.requested_alias,
+            expected_source_set_sha256=args.expected_source_set_sha256 or None,
         )
         _write_create_only(output, receipt)
     except (OSError, ProofError, PortableIdentityError, VisualIdentityError, ValueError) as exc:

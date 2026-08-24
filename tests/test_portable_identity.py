@@ -11,6 +11,7 @@ from bodyrig.portable_identity import (
     bind_portable_identity_to_evidence,
     build_portable_identity,
     provenance_identity_stage,
+    source_set_sha256,
     validate_portable_identity,
 )
 
@@ -133,6 +134,42 @@ def test_source_byte_change_changes_body_id(tmp_path: Path):
         requested_alias="performer-123",
     )
     assert changed["body_id"] != baseline["body_id"]
+
+
+def test_pre_recovery_source_snapshot_is_order_independent_and_detects_mutation(tmp_path: Path):
+    first, second = _sources(tmp_path)
+    snapshot = source_set_sha256([first, second])
+    assert snapshot == source_set_sha256([second, first])
+    receipt = build_portable_identity(
+        proof=_proof(),
+        visual_identity=_identity(),
+        source_files=[second, first],
+        requested_alias="performer-123",
+        expected_source_set_sha256=snapshot,
+    )
+    assert receipt["source_set_sha256"] == snapshot
+
+    second.write_bytes(b"mutated while clone was running")
+    with pytest.raises(PortableIdentityError, match="changed after the pre-recovery snapshot"):
+        build_portable_identity(
+            proof=_proof(),
+            visual_identity=_identity(),
+            source_files=[first, second],
+            requested_alias="performer-123",
+            expected_source_set_sha256=snapshot,
+        )
+
+
+def test_invalid_expected_source_snapshot_fails_closed(tmp_path: Path):
+    first, second = _sources(tmp_path)
+    with pytest.raises(PortableIdentityError, match="expected_source_set_sha256"):
+        build_portable_identity(
+            proof=_proof(),
+            visual_identity=_identity(),
+            source_files=[first, second],
+            requested_alias="performer-123",
+            expected_source_set_sha256="not-a-sha",
+        )
 
 
 def test_recovery_or_visual_identity_change_changes_body_id(tmp_path: Path):
