@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [ValidateSet("health", "search")]
+    [ValidateSet("health", "search", "probe")]
     [string]$Command,
 
     [Parameter(Position = 1)]
@@ -8,6 +8,8 @@ param(
 
     [ValidateRange(1, 100)]
     [int]$Limit = 25,
+
+    [string]$PerformerId = "",
 
     [string]$BodyRigPython = ""
 )
@@ -60,6 +62,12 @@ try {
             throw "Search requires a performer name as the second argument."
         }
         $stashArgs += @($Term, "--limit", [string]$Limit)
+    }
+    elseif ($Command -eq "probe") {
+        if ([string]::IsNullOrWhiteSpace($PerformerId)) {
+            throw "Probe requires -PerformerId."
+        }
+        $stashArgs += @("--performer-id", $PerformerId)
     }
 
     & $BodyRigPython -m bodyrig.stash_cli @stashArgs
