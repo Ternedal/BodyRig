@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/skin-qa-v1.schema.json",
+  "title": "BodyRig Skin QA v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format","version","created_at","package_sha256","avatar_sha256","body_id","fitter","rig_transfer","mesh","weights","cross_region","thresholds","automated_assessment","structural_pass","manual_review_required"
+  ],
+  "properties": {
+    "format": {"const":"bodyrig-skin-qa"},
+    "version": {"const":1},
+    "created_at": {"type":"string","minLength":1,"maxLength":80},
+    "package_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "avatar_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "body_id": {"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+    "fitter": {
+      "type":"object","additionalProperties":false,"required":["adapter","revision"],
+      "properties":{"adapter":{"const":"sith-smplx-vrm"},"revision":{"const":"1"}}
+    },
+    "rig_transfer": {
+      "type":"object","additionalProperties":false,"required":["method","nearest_distance_p95","nearest_distance_max"],
+      "properties": {
+        "method":{"const":"nearest-smplx-vertex-lbs-inverse"},
+        "nearest_distance_p95":{"type":"number","minimum":0},
+        "nearest_distance_max":{"type":"number","minimum":0}
+      }
+    },
+    "mesh": {
+      "type":"object","additionalProperties":false,"required":["vertex_count","joint_count","sample_stride","analyzed_vertex_count","limb_classified_vertex_count"],
+      "properties": {
+        "vertex_count":{"type":"integer","minimum":1},
+        "joint_count":{"type":"integer","minimum":15},
+        "sample_stride":{"type":"integer","minimum":1},
+        "analyzed_vertex_count":{"type":"integer","minimum":1},
+        "limb_classified_vertex_count":{"type":"integer","minimum":1}
+      }
+    },
+    "weights": {
+      "type":"object","additionalProperties":false,"required":["sum_error_max","zero_weight_vertices","invalid_joint_indices"],
+      "properties": {
+        "sum_error_max":{"type":"number","minimum":0},
+        "zero_weight_vertices":{"const":0},
+        "invalid_joint_indices":{"const":0}
+      }
+    },
+    "cross_region": {
+      "type":"object","additionalProperties":false,
+      "required":["suspicious_vertices","severe_vertices","suspicious_ratio","severe_ratio","forbidden_weight_mean","forbidden_weight_p95","forbidden_weight_max","regions"],
+      "properties": {
+        "suspicious_vertices":{"type":"integer","minimum":0},
+        "severe_vertices":{"type":"integer","minimum":0},
+        "suspicious_ratio":{"type":"number","minimum":0,"maximum":1},
+        "severe_ratio":{"type":"number","minimum":0,"maximum":1},
+        "forbidden_weight_mean":{"type":"number","minimum":0,"maximum":1},
+        "forbidden_weight_p95":{"type":"number","minimum":0,"maximum":1},
+        "forbidden_weight_max":{"type":"number","minimum":0,"maximum":1},
+        "regions": {
+          "type":"object","additionalProperties":false,"required":["left_arm","right_arm","left_leg","right_leg"],
+          "properties": {
+            "left_arm":{"$ref":"#/$defs/region"},
+            "right_arm":{"$ref":"#/$defs/region"},
+            "left_leg":{"$ref":"#/$defs/region"},
+            "right_leg":{"$ref":"#/$defs/region"}
+          }
+        }
+      }
+    },
+    "thresholds": {
+      "type":"object","additionalProperties":false,
+      "required":["suspicious_weight","severe_weight","high_risk_severe_ratio","high_risk_p95","review_suspicious_ratio","review_p95"],
+      "properties": {
+        "suspicious_weight":{"const":0.1},
+        "severe_weight":{"const":0.35},
+        "high_risk_severe_ratio":{"const":0.002},
+        "high_risk_p95":{"const":0.15},
+        "review_suspicious_ratio":{"const":0.01},
+        "review_p95":{"const":0.05}
+      }
+    },
+    "automated_assessment":{"enum":["low-risk","review","high-risk"]},
+    "structural_pass":{"const":true},
+    "manual_review_required":{"const":true}
+  },
+  "$defs": {
+    "region": {
+      "type":"object","additionalProperties":false,"required":["classified","suspicious","severe","suspicious_ratio","severe_ratio"],
+      "properties": {
+        "classified":{"type":"integer","minimum":0},
+        "suspicious":{"type":"integer","minimum":0},
+        "severe":{"type":"integer","minimum":0},
+        "suspicious_ratio":{"type":"number","minimum":0,"maximum":1},
+        "severe_ratio":{"type":"number","minimum":0,"maximum":1}
+      }
+    }
+  }
+}
