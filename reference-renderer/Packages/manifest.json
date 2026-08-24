@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.vrmc.gltf": "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#v0.131.2",
-    "com.vrmc.vrm": "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#v0.131.2"
+    "com.vrmc.gltf": "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#a4711bbf8c4d10659d3e5568c2e3d7d595005e51",
+    "com.vrmc.vrm": "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#a4711bbf8c4d10659d3e5568c2e3d7d595005e51"
   }
 }
