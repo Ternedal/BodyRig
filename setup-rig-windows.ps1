@@ -51,6 +51,24 @@ function Get-Sha256 {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Set-BodyRigEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Values,
+        [switch]$Persist
+    )
+    foreach ($entry in $Values.GetEnumerator()) {
+        $name = [string]$entry.Key
+        $value = [string]$entry.Value
+        if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($value)) {
+            throw "BodyRig environment hydration contains an empty name/value."
+        }
+        Set-Item -Path "Env:$name" -Value $value
+        if ($Persist) {
+            [Environment]::SetEnvironmentVariable($name, $value, "User")
+        }
+    }
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $script:PowerShellExe = Resolve-CommandPath "pwsh"
 if ($null -eq $script:PowerShellExe) { $script:PowerShellExe = Resolve-CommandPath "powershell" }
@@ -115,6 +133,20 @@ Invoke-SetupScript -Script $highScript -Arguments $highArgs -Step "BodyRig high-
 if (-not (Test-Path -LiteralPath $SithSetupReport -PathType Leaf)) { throw "High-fidelity provisioning did not produce setup report: $SithSetupReport" }
 & $BodyRigPython -m bodyrig.sith_setup $SithSetupReport | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "High-fidelity setup report failed final validation." }
+try { $sithSetup = Get-Content -LiteralPath $SithSetupReport -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "High-fidelity setup report is unreadable after validation." }
+
+$sithEnvironment = @{
+    BODYRIG_SITH_SETUP_REPORT = $SithSetupReport
+    BODYRIG_SITH_DISTRIBUTION = [string]$sithSetup.distribution
+    BODYRIG_SITH_REPO = [string]$sithSetup.sith.repository
+    BODYRIG_SITH_PYTHON = [string]$sithSetup.sith.python
+    BODYRIG_SITH_OPENPOSE_REPO = [string]$sithSetup.openpose.repository
+    BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable
+    BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path
+    BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()
+}
+Set-BodyRigEnvironment -Values $sithEnvironment -Persist:$PersistUserEnvironment
 
 $report = [ordered]@{
     format = "bodyrig-rig-setup"
@@ -145,10 +177,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Move-Item -LiteralPath $temp -Destination $RigSetupReport -Force
 
-Set-Item -Path Env:BODYRIG_RIG_SETUP_REPORT -Value $RigSetupReport
-if ($PersistUserEnvironment) {
-    [Environment]::SetEnvironmentVariable("BODYRIG_RIG_SETUP_REPORT", $RigSetupReport, "User")
-}
+Set-BodyRigEnvironment -Values @{ BODYRIG_RIG_SETUP_REPORT = $RigSetupReport } -Persist:$PersistUserEnvironment
 
 Write-Host ""
 Write-Host "BodyRig rig bootstrap: READY"
