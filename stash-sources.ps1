@@ -11,7 +11,9 @@ param(
 
     [string]$PerformerId = "",
 
-    [string]$BodyRigPython = ""
+    [string]$BodyRigPython = "",
+
+    [string]$Ffmpeg = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +32,25 @@ function Resolve-InputFile {
         throw "$Label not found: $Path"
     }
     return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Resolve-Executable {
+    param(
+        [string]$Value,
+        [Parameter(Mandatory = $true)][string]$Fallback,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        if (Test-Path -LiteralPath $Value -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Value).Path
+        }
+        $resolvedValue = Resolve-CommandPath $Value
+        if ($null -ne $resolvedValue) { return $resolvedValue }
+        throw "$Label executable not found: $Value"
+    }
+    $resolved = Resolve-CommandPath $Fallback
+    if ($null -eq $resolved) { throw "$Label executable not found: $Fallback" }
+    return $resolved
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
@@ -67,7 +88,11 @@ try {
         if ([string]::IsNullOrWhiteSpace($PerformerId)) {
             throw "Probe requires -PerformerId."
         }
-        $stashArgs += @("--performer-id", $PerformerId)
+        $Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
+        $stashArgs += @(
+            "--performer-id", $PerformerId,
+            "--ffmpeg", $Ffmpeg
+        )
     }
 
     & $BodyRigPython -m bodyrig.stash_cli @stashArgs
