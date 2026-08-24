@@ -14,7 +14,9 @@ def test_stash_discovery_wrapper_binds_to_checkout_python_authority() -> None:
         'bodyrig\\__init__.py',
         'bodyrig.__file__',
         '-m bodyrig.stash_cli',
-        '[ValidateSet("health", "search")]',
+        '[ValidateSet("health", "search", "probe")]',
+        'Probe requires -PerformerId.',
+        '"--performer-id", $PerformerId',
     )
     for marker in required:
         assert marker in text
