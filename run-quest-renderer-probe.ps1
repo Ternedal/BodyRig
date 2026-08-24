@@ -117,6 +117,10 @@ try {
     $buildScript = Join-Path $rendererRoot "build-reference-renderer.ps1"
     $apk = Join-Path $rendererRoot "Builds\Quest\BodyRigReferenceProbe.apk"
     if (-not $SkipBuild) {
+        $buildDir = Split-Path -Parent $apk
+        if (Test-Path -LiteralPath $buildDir) {
+            Remove-Item -LiteralPath $buildDir -Recurse -Force
+        }
         $buildArgs = @{ Platform = "Quest"; Output = $apk }
         if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $buildArgs.UnityExe = $UnityExe }
         & $buildScript @buildArgs
