@@ -48,6 +48,14 @@ def _operator_command(status: AcceptanceStatus) -> AcceptanceStatus:
                 '-QualityNote "<your physical headset review>"'
             ),
         )
+    if status.gate == "release" and status.state == "ready":
+        return replace(
+            status,
+            next_command=(
+                ".\\complete-reference-acceptance.ps1 "
+                f"-AcceptanceDir {_quote(status.acceptance_dir)}"
+            ),
+        )
     return status
 
 
