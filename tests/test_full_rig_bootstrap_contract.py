@@ -29,9 +29,17 @@ def test_full_rig_bootstrap_rehydrates_sith_environment_in_parent_process():
     assert "BODYRIG_SITH_OPENPOSE_REPO = [string]$sithSetup.openpose.repository" in text
     assert "BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable" in text
     assert "BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sithSetup.openpose.sha256).ToLowerInvariant()" in text
+    assert "BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$sithSetup.openpose.models_sha256).ToLowerInvariant()" in text
     assert "BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path" in text
     assert "BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()" in text
     assert "Set-BodyRigEnvironment -Values $sithEnvironment -Persist:$PersistUserEnvironment" in text
+
+
+def test_full_rig_bootstrap_points_operator_to_live_ready_launcher():
+    text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
+    assert "Next physical clone (runs live readiness before clone):" in text
+    assert '.\\clone-body-from-stash-ready.ps1 -PerformerId <id> -BodyId <id>' in text
+    assert 'Write-Host ".\\clone-body-from-stash.ps1 ' not in text
 
 
 def test_full_rig_bootstrap_keeps_licensed_assets_explicit():
