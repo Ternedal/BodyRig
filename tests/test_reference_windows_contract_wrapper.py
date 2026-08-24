@@ -44,3 +44,10 @@ def test_reference_windows_wrapper_does_not_expose_renderer_identity_inputs() ->
     params = source.split(")\n\n$ErrorActionPreference", 1)[0]
     assert "$RendererName" not in params
     assert "$RendererVersion" not in params
+
+
+def test_reference_windows_wrapper_is_only_canonical_docs_entrypoint() -> None:
+    for path in (REPO / "README.md", REPO / "docs" / "RIG_ACCEPTANCE.md"):
+        text = path.read_text(encoding="utf-8")
+        assert ".\\run-reference-windows-renderer-probe.ps1" in text
+        assert ".\\run-windows-renderer-probe.ps1 `" not in text
