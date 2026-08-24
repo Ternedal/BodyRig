@@ -1,184 +1,200 @@
 # BodyRig Unity reference renderer
 
-This is the thin physical-acceptance client for proving that a completed BodyRig `.mrbody` can be materialized and loaded by a normal Unity/UniVRM runtime without HMR2, PHALP, SMPL or Python dependencies in the renderer.
+This is the thin physical-acceptance client for proving that a completed BodyRig `.mrbody` can be materialized and loaded by a normal Unity/UniVRM runtime without HMR2, PHALP, SMPL-X or Python dependencies in the renderer.
 
-It is intentionally **not** the final Kaliv or immersive Quest UI. Its job is narrower: prove the same accepted runtime bytes on a built WindowsPlayer and on Quest-class Android hardware.
+It is intentionally **not** the final Kaliv or immersive Quest UI. Its narrow job is to prove the same accepted Gate A runtime bytes in a built WindowsPlayer and on Quest-class Android hardware, with deterministic deformation evidence and a separate human quality attestation.
 
-## Reproducible project baseline
+## Reproducible project authority
 
-`reference-renderer/` is now a directly openable Unity project rather than a bag of scripts.
+`reference-renderer/` is a directly openable Unity project, but production physical evidence is created through the root reference wrappers rather than by manually opening the project or hand-running player binaries.
 
-Pinned baseline:
+Pinned contract:
 
-- Unity **6000.3.13f1** (Unity 6.3 LTS project version);
-- UniVRM **v0.131.2**;
-- `com.vrmc.gltf` from `/Packages/UniGLTF`;
-- `com.vrmc.vrm` from `/Packages/VRM10`;
-- VRM 1.0 only: `canLoadVrm0X: false`.
+- Unity **6000.3.13f1**;
+- UniVRM semantic version **0.131.2**;
+- UniVRM exact Git revision **`a4711bbf8c4d10659d3e5568c2e3d7d595005e51`**;
+- `com.vrmc.gltf` from `/Packages/UniGLTF` at that exact revision;
+- `com.vrmc.vrm` from `/Packages/VRM10` at that exact revision;
+- `com.unity.mathematics` **1.2.6**;
+- `com.unity.test-framework` **1.4.6**;
+- `com.unity.timeline` **1.7.6**;
+- VRM 1.0 only: `canLoadVrm0X: false`;
+- application id `dk.ternedal.bodyrig.reference`;
+- deformation sequence `humanoid-muscle-sweep-v1`.
 
-`Packages/manifest.json` already contains the required UniVRM Git dependencies. `Packages/bodyrig-univrm-manifest.snippet.json` is retained only as a portable dependency reference.
+`renderer-contract.json` is the single renderer identity/version authority. `Packages/manifest.json` and `Packages/bodyrig-univrm-manifest.snippet.json` are exact dependency declarations and are contract-tested to remain identical.
+
+The Git URLs use the concrete UniVRM commit, not the movable `v0.131.2` tag. The semantic version remains useful for humans; the 40-character revision is the build authority.
+
+## Read-only toolchain readiness
+
+Before the first physical BodyRig session, the root doctor invokes:
+
+```powershell
+.\check-reference-renderer-ready.ps1
+```
+
+It does **not** open Unity and creates no physical evidence. It fails closed unless the target Windows rig has:
+
+- PowerShell 7+;
+- the exact Unity `6000.3.13f1` editor;
+- Android Build Support for that editor;
+- the bundled Android SDK, NDK and OpenJDK;
+- the bundled `adb.exe`;
+- Git for Unity Package Manager Git dependencies;
+- the exact renderer contract/project version and pinned package manifest.
+
+`prepare-first-physical-run.ps1` runs this check before the recovery/SiTH/Stash readiness gate, so missing Unity/Quest build tooling is found before a real clone session is created.
 
 ## Gate A runtime is the only renderer input
 
-The reference renderer must **not** be pointed at an arbitrary loose `.vrm`. Gate A already leaves a validated materialized runtime:
+The renderer must **not** be pointed at an arbitrary loose `.vrm`. Gate A leaves a validated materialized runtime similar to:
 
 ```text
 C:\acceptance\
   bodyrig-acceptance.json
-  person-a.mrbody
+  bodyid-....mrbody
+  bodyrig-physical-clone-session.json
+  bodyrig-rig-readiness.json
+  bodyrig-skin-qa.json
   runtime\
     runtime-manifest.json
     avatar.vrm
     bodyprint.json
     provenance.json
-    thumbnail.png
-    ... optional validated motions
+    ...
 ```
 
-The renderer starts from `runtime-manifest.json`. `BodyRigAvatarLoader` verifies the fixed payload names and package identity, loads only the manifest-selected `avatar.vrm`, disables VRM 0.x migration, and requires a valid Unity Humanoid plus all BodyRig-required bones before the active runtime identity changes.
+The player starts from `runtime-manifest.json`. `BodyRigAvatarLoader` verifies the fixed payload names and package identity, loads only the manifest-selected `avatar.vrm`, disables VRM 0.x migration, and requires a valid Unity Humanoid plus all BodyRig-required bones before the active runtime identity changes.
 
-## Build the physical probe players
+## Ephemeral Unity build boundary
 
-From the BodyRig repository:
+`build-reference-renderer.ps1` never opens the tracked `reference-renderer/` source project for a production build. It copies only `Assets/`, `Packages/` and `ProjectSettings/` into a temporary project and invokes Unity there.
 
-```powershell
-cd .\reference-renderer
+That separation is intentional. Unity may generate `Packages/packages-lock.json`, default ProjectSettings, `.meta` files, Library state and other editor-owned files on first import. None of those are allowed to mutate the exact accepted BodyRig checkout.
 
-.\build-reference-renderer.ps1 -Platform Windows
-.\build-reference-renderer.ps1 -Platform Quest
-```
+After Unity resolves packages, the build wrapper validates the generated `Packages/packages-lock.json` in the temporary project. Both UniVRM packages must resolve to exact Git hash `a4711bbf8c4d10659d3e5568c2e3d7d595005e51`, and the contracted Unity registry dependencies must resolve to their pinned versions. A missing or mismatched lock makes the build fail.
 
-The wrapper prefers the pinned Unity `6000.3.13f1` installation and otherwise selects an installed Unity 6.3 LTS editor. `-UnityExe` can override detection.
+The temporary project is removed after the attempt. The real BodyRig Git HEAD and checkout cleanliness are revalidated after the build.
 
-Default outputs:
+Default diagnostic build outputs remain:
 
 ```text
 reference-renderer\Builds\Windows\BodyRigReferenceProbe.exe
 reference-renderer\Builds\Quest\BodyRigReferenceProbe.apk
 ```
 
-The Unity build entry points create the otherwise-empty probe scene programmatically, so there is no scene/prefab wiring step. The runtime bootstrap creates the loader, probe, camera and light at startup.
+The canonical probe wrappers remove the previous platform build directory before invoking a fresh build, so production evidence cannot silently reuse an older player/APK.
 
-The Quest build is ARM64 and a Unity Development build. Android Build Support must be installed for the selected Unity editor.
+## Canonical Windows physical gate
 
-## Windows physical probe
-
-Run the **built player**, never Unity Editor:
+From the BodyRig repository root, after Gate A:
 
 ```powershell
-.\Builds\Windows\BodyRigReferenceProbe.exe `
-  --bodyrig-runtime-manifest "C:\acceptance\runtime\runtime-manifest.json" `
-  --bodyrig-probe-output "C:\acceptance\windows-probe.json" `
-  --bodyrig-renderer-name "BodyRig Reference Renderer" `
-  --bodyrig-renderer-version "reference-v1/univrm-0.131.2"
+.\run-reference-windows-renderer-probe.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-The app loads the avatar, frames it with a simple acceptance camera/light rig and leaves the window open for human visual inspection. A successful machine check writes `windows-probe.json` before showing `BodyRig physical probe: PASS`.
+This is the production entrypoint. It does **not** expose `-SkipBuild` or renderer identity overrides.
 
-The evidence path is immutable: an existing probe file is not overwritten.
+The wrapper:
 
-For non-visual automation, add:
+1. reads the exact renderer contract;
+2. creates a fresh Windows build from the exact clean Gate A BodyRig revision;
+3. runs the built `WindowsPlayer`, never the Unity Editor;
+4. rejects a non-zero player exit even if JSON was written first;
+5. validates machine + deformation evidence against Gate A, build revision/GUID, Unity version, renderer identity and `humanoid-muscle-sweep-v1`;
+6. commits the pair transactionally into `windows-evidence/` only after all checks pass.
 
-```text
---bodyrig-quit-after-probe
-```
+A failed or crashed attempt does not become canonical evidence.
 
-That is useful for machine validation, but it does **not** replace the later human visual-quality attestation.
-
-## Quest-class physical probe
-
-The reference Quest gate is intentionally a minimal Android renderer proof on actual Quest/Oculus hardware; immersive XR interaction is a separate client concern. The machine gate still requires Unity `Android` plus a Quest/Oculus-identifying `SystemInfo.deviceModel`.
-
-Install the APK:
+After visually reviewing the complete deformation loop:
 
 ```powershell
-adb install -r .\Builds\Quest\BodyRigReferenceProbe.apk
-```
-
-The bootstrap defaults to this runtime location inside Unity's persistent-data root:
-
-```text
-BodyRig/runtime/runtime-manifest.json
-```
-
-For the fixed application id `dk.ternedal.bodyrig.reference`, a practical ADB staging path on Quest is:
-
-```powershell
-$deviceRoot = "/sdcard/Android/data/dk.ternedal.bodyrig.reference/files/BodyRig"
-
-adb shell "mkdir -p $deviceRoot/runtime"
-adb push "C:\acceptance\runtime\." "$deviceRoot/runtime/"
-adb shell "rm -f $deviceRoot/bodyrig-renderer-probe.json"
-adb shell monkey -p dk.ternedal.bodyrig.reference 1
-```
-
-After the app shows a machine PASS on the headset, retrieve the probe:
-
-```powershell
-adb pull "$deviceRoot/bodyrig-renderer-probe.json" "C:\acceptance\quest-probe.json"
-```
-
-If a specific Quest/Android version exposes Unity persistent storage differently, use the path printed by the app/log rather than relabelling evidence. The probe itself will still refuse a generic Android phone.
-
-## What the machine probe proves
-
-`BodyRigRendererProbe` writes evidence only after all of these are true:
-
-- the accepted runtime manifest was loaded;
-- `avatar.vrm` loaded as VRM 1.0;
-- Unity generated a valid Humanoid avatar;
-- required humanoid bones are available;
-- package/runtime/avatar/bodyprint hashes are recorded;
-- Unity platform/version and a non-empty build GUID are recorded;
-- device model and graphics device are recorded;
-- renderer name/version are recorded.
-
-The probe itself rejects:
-
-- `WindowsEditor` — Windows acceptance requires `WindowsPlayer`;
-- generic Android hardware — Quest acceptance requires Quest/Oculus device identity;
-- an empty Unity build GUID;
-- overwriting existing evidence.
-
-`record-renderer-acceptance.ps1` repeats the critical byte/platform/device checks, so the recorder remains defense-in-depth against modified or hand-crafted probe JSON.
-
-## Human visual attestation
-
-After inspecting the Windows result:
-
-```powershell
-.\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\acceptance\windows-probe.json" `
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance" `
   -Platform "windows-unity-univrm" `
-  -Pass `
-  -RendererName "BodyRig Reference Renderer" `
-  -RendererVersion "reference-v1/univrm-0.131.2" `
-  -QualityNote "Avatar loaded as Humanoid; proportions and reference motion path are visually plausible."
+  -ConfirmQualityChecklist `
+  -QualityNote "<concrete physical quality review>"
 ```
 
-Repeat with `quest-probe.json` and `-Platform "android-quest-class"` after inspecting the same accepted runtime on Quest hardware.
+## Canonical Quest physical gate
 
-The operator report cannot activate production and cannot be created from a quality note alone; it is hash-bound to the machine probe and Gate A bytes.
-
-## Final release gate
-
-Only after both machine probes and both human attestations exist:
+After Windows evidence + human review:
 
 ```powershell
-.\complete-acceptance.ps1 `
-  -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
-  -WindowsRendererReport "C:\acceptance\bodyrig-renderer-acceptance-windows.json" `
-  -WindowsProbeReport "C:\acceptance\windows-probe.json" `
-  -QuestRendererReport "C:\acceptance\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\acceptance\quest-probe.json"
+.\run-reference-quest-renderer-probe.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-Changing a probe after attestation, substituting runtime/package bytes, swapping platform evidence or reusing one evidence file for both platforms makes the final gate fail closed.
+Optionally pass `-Serial` when multiple ADB devices are attached.
+
+The canonical wrapper always builds a fresh ARM64 Development APK, installs it with ADB, clears the app's staged runtime/evidence area, pushes the exact Gate A runtime, starts `dk.ternedal.bodyrig.reference`, waits for both evidence files, pulls them into a temporary local staging directory and validates them before atomically committing `quest-evidence/`.
+
+Both the connected device and the machine/deformation evidence must identify Quest/Oculus hardware. A generic Android phone cannot satisfy this gate.
+
+After reviewing the deformation loop in the headset:
+
+```powershell
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance" `
+  -Platform "android-quest-class" `
+  -ConfirmQualityChecklist `
+  -QualityNote "<concrete physical quality review>"
+```
+
+## Diagnostic wrappers are not production authority
+
+The lower-level wrappers remain useful for troubleshooting:
+
+- `run-windows-renderer-probe.ps1`
+- `run-quest-renderer-probe.ps1`
+- `build-reference-renderer.ps1`
+
+The low-level probe wrappers retain `-SkipBuild` for diagnostics. That switch is intentionally **not** exposed by `run-reference-windows-renderer-probe.ps1` or `run-reference-quest-renderer-probe.ps1`, and evidence from a hand-assembled diagnostic flow must not be relabelled as canonical reference evidence.
+
+## What the physical probes prove
+
+The machine/deformation evidence records and revalidates:
+
+- exact BodyRig build revision;
+- platform and Unity runtime (`WindowsPlayer` or Android);
+- exact pinned Unity version;
+- non-empty Unity build GUID;
+- Quest/Oculus device identity for the Quest gate;
+- graphics/device information;
+- BodyRig body id;
+- accepted `.mrbody` package hash;
+- runtime-manifest hash;
+- avatar and bodyprint hashes;
+- VRM 1.0 load success;
+- valid Humanoid and required bones;
+- canonical renderer identity;
+- fixed six-pose `humanoid-muscle-sweep-v1` completion;
+- restored neutral pose and mandatory human review state.
+
+The human attestation then requires explicit PASS for source identity/texture, geometry/proportions, upper- and lower-body deformation, cross-limb leakage absence and consideration of anatomical skin-QA.
+
+## Final reference release gate
+
+Only after Windows + Quest canonical evidence and both structured human attestations exist:
+
+```powershell
+.\complete-reference-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
+```
+
+The wrapper revalidates the exact renderer contract, including Unity and UniVRM revision authority, rejects legacy root evidence layouts, verifies both structured human quality reviews and delegates the full byte/provenance binding to `complete-acceptance.ps1`.
+
+Only the resulting final `bodyrig-release-acceptance.json` may set:
+
+```text
+release_gate_pass=true
+production_activation=true
+```
 
 ## Still not proven by repository CI
 
-Repository CI now proves the project structure, pinned dependency contract, bootstrap/build source contracts and the complete non-physical evidence chain. It still does **not** prove that Unity actually compiles this project on the target machine, that Quest deployment succeeds, or that the avatar looks correct.
+Repository CI proves source contracts, exact dependency declarations, ephemeral-build policy, package-lock validation logic, PowerShell parsing and the complete non-physical/tamper evidence state machine. It does **not** prove that Unity `6000.3.13f1` actually compiles the project on the target Windows rig, that UPM resolves successfully there, that the APK deploys to a real Quest, or that the source-derived avatar looks and deforms correctly.
 
-Those remain physical issue #3 evidence and must be produced from the same source-derived profile that passed issue #2.
+Those are deliberately physical gates. They must be produced from the same real Stash/source-derived profile and exact BodyRig revision that reached Gate A.
