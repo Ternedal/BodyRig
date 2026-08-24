@@ -71,13 +71,37 @@ runtime/
   thumbnail.png
 ```
 
-The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity`, hashes of clone-session/readiness evidence, and a hash-bound `skin_qa` summary. Skin QA classifies anatomically suspicious cross-region weight transfer as `low-risk`, `review`, or `high-risk`, but every report keeps `manual_review_required=true`.
+The Gate A report includes `physical_clone.mode=stash-sith-high-fidelity`, hashes of clone-session/readiness evidence, and a hash-bound `skin_qa` summary. Skin QA classifies anatomically suspicious cross-region weight transfer as `low-risk`, `review` or `high-risk`, but every report keeps `manual_review_required=true`.
 
 This distinction is deliberate: automated analysis can detect suspicious weight topology, but it cannot prove that shoulders, elbows, knees, wrists, clothes and the full body deform visually well in motion. Even `low-risk` therefore still needs physical inspection. Conversely, `high-risk` is a strong review signal rather than an automatic veto if direct physical evidence shows acceptable deformation.
 
 Gate A records `placeholder_avatar=false`, `automated_pass=true`, `physical_renderer_acceptance=pending`, and `production_activation=false`.
 
 See `SKIN_QA.md` for the algorithm, thresholds and limitations.
+
+### Safely resume an interrupted acceptance run
+
+Use the read-only status checker instead of inferring the next gate from filenames:
+
+```powershell
+.\physical-acceptance-status.ps1 `
+  -SessionReport "C:\path\to\bodyrig-physical-clone-session.json"
+```
+
+or, after Gate A exists:
+
+```powershell
+.\physical-acceptance-status.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance"
+```
+
+Equivalent CLI:
+
+```powershell
+bodyrig-acceptance-status --acceptance-dir "C:\path\to\acceptance"
+```
+
+The checker is intentionally read-only. It validates the evidence already present, re-hashes machine/deformation/attestation links, verifies embedded renderer revision consistency, and reports the exact next gate. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
 
@@ -99,7 +123,9 @@ The lower-level diagnostic path must still bind recovery to both pinned 4D-Human
 
 Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
 
-The reference player first writes the existing renderer machine probe and then executes the fixed `humanoid-muscle-sweep-v1` sequence:
+The reference renderer is pinned to Unity `6000.3.13f1` and UniVRM `v0.131.2`. Its build wrapper requires a clean BodyRig checkout, embeds exact Git HEAD into the built player/APK, and re-checks HEAD after the build. The runtime probes read that revision from an embedded generated `Resources` asset; it is not supplied by the launch command.
+
+The reference player first writes the renderer machine probe and then executes the fixed `humanoid-muscle-sweep-v1` sequence:
 
 1. `neutral`;
 2. `arms_abduction`;
@@ -110,7 +136,7 @@ The reference player first writes the existing renderer machine probe and then e
 
 The sequence uses Unity Humanoid muscles through `HumanPoseHandler`, not avatar-specific local bone axes. Every pose is held for the fixed evidence interval, all required muscle names must resolve, and the baseline HumanPose is restored after the evidence run. The player then loops the same poses for human inspection.
 
-The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequence actually ran. It binds the exact package/runtime/avatar/BodyPrint bytes plus Unity build GUID, platform/version and physical device model. It does **not** claim that the visual deformation was good; `manual_review_required=true` remains mandatory.
+The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequence actually ran. It binds the exact BodyRig build revision, package/runtime/avatar/BodyPrint bytes plus Unity build GUID, platform/version and physical device model. It does **not** claim that the visual deformation was good; `manual_review_required=true` remains mandatory.
 
 ### Windows acceptance
 
@@ -128,7 +154,7 @@ windows-probe.json
 windows-deformation-probe.json
 ```
 
-It checks that the deformation probe completed the exact ordered six-pose sequence and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
+It checks that both probes contain the exact Gate A BodyRig revision, that the deformation probe completed the ordered six-pose sequence, and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
 
 After watching the player cycle the same sequence and confirming actual visual quality:
 
@@ -140,8 +166,8 @@ After watching the player cycle the same sequence and confirming actual visual q
   -DeformationReport "C:\path\to\windows-deformation-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
-  -RendererName "BodyRig Unity/UniVRM reference renderer" `
-  -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version>" `
+  -RendererName "BodyRig Reference Renderer" `
+  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2" `
   -QualityNote "Fixed deformation sweep reviewed: identity/proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
 
@@ -161,7 +187,7 @@ quest-probe.json
 quest-deformation-probe.json
 ```
 
-The deformation probe must come from Unity Android on Quest/Oculus-identifying hardware and match the Quest machine probe's build/device and all accepted byte identities.
+The machine/deformation probes must carry the exact Gate A BodyRig build revision, come from Unity Android on Quest/Oculus-identifying hardware, and match each other on build/device and accepted byte identities.
 
 After inspecting the fixed sequence in the headset:
 
@@ -173,12 +199,12 @@ After inspecting the fixed sequence in the headset:
   -DeformationReport "C:\path\to\quest-deformation-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
-  -RendererName "BodyRig Unity/UniVRM Quest renderer" `
-  -RendererVersion "Unity 2022.3 LTS / UniVRM <exact version> / Quest build <id>" `
+  -RendererName "BodyRig Reference Renderer" `
+  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2 / Quest build <id>" `
   -QualityNote "Same fixed deformation sweep and accepted runtime reviewed on Quest-class hardware"
 ```
 
-Before accepting either human quality attestation, `record-renderer-acceptance.ps1` independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, the ordinary machine probe and the deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1` and `deformation_probe=true`, so the operator's QualityNote is explicitly tied to the exact sweep that was reviewed. Each renderer report remains non-activating: `production_activation=false`.
+Before accepting either human quality attestation, `record-renderer-acceptance.ps1` independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, the embedded renderer revision, the ordinary machine probe and the deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1` and `deformation_probe=true`, so the operator's QualityNote is explicitly tied to the exact sweep that was reviewed. Each renderer report remains non-activating: `production_activation=false`.
 
 The first physical high-fidelity clone must compare static skin-QA measurements with the fixed sweep around arm/torso contact, shoulders, elbows, wrists/hands, hips, knees and legs. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
@@ -197,18 +223,19 @@ Only after both ordinary machine probes, both deterministic deformation probes a
   -QuestDeformationReport "C:\path\to\quest-deformation-probe.json"
 ```
 
-The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, both physical renderer probes, both deformation probes, and both human attestations.
+The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, both embedded renderer revisions, both physical renderer probes, both deformation probes, and both human attestations.
 
 Each deformation report must:
 
 - have exact `humanoid-muscle-sweep-v1` revision;
 - contain all six poses in the canonical order;
 - report `required_muscles_resolved=true`, `restored_neutral=true`, `complete=true` and `manual_review_required=true`;
+- carry the exact accepted BodyRig build revision;
 - match the corresponding renderer probe's Unity build GUID/platform/version/device;
 - match the accepted body id and package/runtime/avatar/BodyPrint hashes;
 - have its exact SHA-256 and sequence revision copied into the corresponding operator attestation.
 
-Final release therefore rejects a renderer attestation that points at a substituted, modified or different deformation run, even if that alternate file otherwise looks structurally valid.
+Final release therefore rejects a renderer attestation that points at a substituted, modified or different deformation run, or a player built from another BodyRig revision, even if that alternate evidence otherwise looks structurally valid.
 
 Only the final `bodyrig-release-acceptance` artifact can contain:
 
@@ -219,7 +246,7 @@ Only the final `bodyrig-release-acceptance` artifact can contain:
 }
 ```
 
-Its automated-acceptance summary records physical clone lineage and skin-QA evidence. Each platform summary also records the deformation-report SHA-256, sequence revision and deformation observation time, so final release evidence is traceable back to the exact stress-pose run on each physical build.
+Its automated-acceptance summary records physical clone lineage and skin-QA evidence. Each platform summary also records the renderer BodyRig revision, deformation-report SHA-256, sequence revision and deformation observation time, so final release evidence is traceable back to the exact code/build and stress-pose run on each physical device.
 
 ## What the gates still do not automate
 
