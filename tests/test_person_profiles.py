@@ -25,7 +25,7 @@ HASH_C = "c" * 64
 
 
 def _components(root: Path, person_id: str) -> dict:
-    profile = add_body_revision(
+    add_body_revision(
         root,
         person_id,
         body_id="bodyid-0123456789abcdef01234567",
@@ -33,12 +33,12 @@ def _components(root: Path, person_id: str) -> dict:
         package_path=r"C:\BodyRig\profile-v1.mrbody",
         feedback="første clone",
     )
-    profile = add_voice_revision(
+    add_voice_revision(
         root,
         person_id,
         voice_id="profile-voice-1234",
+        voice_package="profile.mrvoice",
         package_sha256=HASH_B,
-        package_path=r"C:\VoiceRig\profile.mrvoice",
         feedback="første stemme",
     )
     return add_personality_revision(
@@ -82,6 +82,7 @@ def test_components_are_candidates_until_approved_person_revision_exists(tmp_pat
     assert active_bundle(profile) is None
     assert [item["revision_id"] for item in profile["body_revisions"]] == ["body-r0001"]
     assert [item["revision_id"] for item in profile["voice_revisions"]] == ["voice-r0001"]
+    assert profile["voice_revisions"][0]["voice_package"] == "profile.mrvoice"
     assert [item["revision_id"] for item in profile["personality_revisions"]] == ["personality-r0001"]
 
 
@@ -113,7 +114,7 @@ def test_new_component_revision_does_not_silently_change_active_person(tmp_path:
     profile = create_profile(tmp_path, display_name="Profile")
     person_id = profile["person_id"]
     _components(tmp_path, person_id)
-    profile = add_person_revision(
+    add_person_revision(
         tmp_path,
         person_id,
         body_revision="body-r0001",
@@ -247,4 +248,16 @@ def test_boolean_sha_is_rejected(tmp_path: Path) -> None:
             body_id="bodyid-0123456789abcdef01234567",
             package_sha256=True,  # type: ignore[arg-type]
             package_path=r"C:\x.mrbody",
+        )
+
+
+def test_voice_package_must_be_safe_filename(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="Strict voice")
+    with pytest.raises(PersonProfileError, match="safe .mrvoice"):
+        add_voice_revision(
+            tmp_path,
+            profile["person_id"],
+            voice_id="strict-voice",
+            voice_package=r"..\evil.mrvoice",
+            package_sha256=HASH_B,
         )
