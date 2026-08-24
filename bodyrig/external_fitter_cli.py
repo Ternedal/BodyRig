@@ -7,6 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .bodyprint_adjustment import (
+    BodyprintAdjustmentEvidenceError,
+    adjustment_evidence_sha256,
+    apply_adjustment_to_bodyprint,
+    load_adjustment_evidence,
+)
 from .external_fitter import ExternalFitterError, run_external_fitter
 from .identity import VisualIdentityError, bind_visual_identity_to_proof
 from .package import MRBodyError, build_package
@@ -90,6 +96,11 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Optional bodyrig-portable-identity v1 receipt; when present it is the canonical package identity authority",
     )
+    parser.add_argument(
+        "--bodyprint-adjustment",
+        default="",
+        help="Optional proof-bound bodyrig-bodyprint-adjustment-evidence v1 JSON",
+    )
     parser.add_argument("--name", required=True, help="Display name for the avatar")
     parser.add_argument("--out", required=True, help="Output .mrbody path")
     args = parser.parse_args(argv)
@@ -114,10 +125,27 @@ def main(argv: list[str] | None = None) -> int:
             )
             package_body_id = portable_identity["body_id"]
 
+        adjustment_evidence = None
+        adjustment_request = None
+        effective_bodyprint = proof["bodyprint"]
+        adjustment_hash = None
+        if args.bodyprint_adjustment:
+            adjustment_evidence = load_adjustment_evidence(
+                args.bodyprint_adjustment,
+                proof_path=args.proof,
+            )
+            adjustment_request = adjustment_evidence["adjustment"]
+            effective_bodyprint = apply_adjustment_to_bodyprint(
+                proof["bodyprint"],
+                adjustment_evidence,
+            )
+            adjustment_hash = adjustment_evidence_sha256(args.bodyprint_adjustment)
+
         fitted = run_external_fitter(
             config["command"],
             workspace=args.identity_workspace,
-            bodyprint=proof["bodyprint"],
+            bodyprint=effective_bodyprint,
+            bodyprint_adjustment=adjustment_request,
             name=args.name,
             identity=identity,
             adapter=config["adapter"],
@@ -131,12 +159,22 @@ def main(argv: list[str] | None = None) -> int:
                 "adapter": proof["adapter"],
                 "revision": proof["revision"],
             },
+        ]
+        if adjustment_hash is not None:
+            pipeline.append(
+                {
+                    "stage": "bodyprint-adjustment",
+                    "adapter": "bodyrig.bodyprint_adjustment",
+                    "revision": adjustment_hash,
+                }
+            )
+        pipeline.append(
             {
                 "stage": "visual-identity-capture",
                 "adapter": identity["adapter"],
                 "revision": identity["revision"],
-            },
-        ]
+            }
+        )
         if portable_identity is not None:
             pipeline.append(provenance_identity_stage(portable_identity))
         pipeline.append(
@@ -160,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             body_id=package_body_id,
             name=args.name,
             avatar_vrm=fitted.fit.avatar_vrm,
-            bodyprint=proof["bodyprint"],
+            bodyprint=effective_bodyprint,
             provenance=provenance,
             thumbnail_png=fitted.fit.thumbnail_png,
         )
@@ -170,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         ProofError,
         VisualIdentityError,
         PortableIdentityError,
+        BodyprintAdjustmentEvidenceError,
         ExternalFitterConfigError,
         ExternalFitterError,
         MRBodyError,
