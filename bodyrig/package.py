@@ -275,8 +275,26 @@ def build_package(
     return destination
 
 
-def install_package(package_path: str | os.PathLike[str], library_dir: str | os.PathLike[str]) -> Path:
+def _file_sha256(path: str | os.PathLike[str]) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def install_package(
+    package_path: str | os.PathLike[str],
+    library_dir: str | os.PathLike[str],
+    *,
+    expected_sha256: str | None = None,
+) -> Path:
     validated = validate_package(package_path)
+    expected = None
+    if expected_sha256 is not None:
+        expected = str(expected_sha256).strip().lower()
+        if not SHA_RE.fullmatch(expected):
+            raise MRBodyError("invalid expected package SHA-256")
     library = Path(library_dir)
     library.mkdir(parents=True, exist_ok=True)
     target = library / f"{validated.manifest['id']}.mrbody"
@@ -287,6 +305,8 @@ def install_package(package_path: str | os.PathLike[str], library_dir: str | os.
             stream.flush()
             os.fsync(stream.fileno())
         validate_package(temp_name)
+        if expected is not None and _file_sha256(temp_name) != expected:
+            raise MRBodyError("package bytes do not match expected SHA-256 authority")
         os.replace(temp_name, target)
     finally:
         Path(temp_name).unlink(missing_ok=True)
