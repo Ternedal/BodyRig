@@ -123,7 +123,7 @@ The lower-level diagnostic path must still bind recovery to both pinned 4D-Human
 
 Both supported platforms must load the **same `runtime/runtime-manifest.json` from high-fidelity Gate A**. The renderer never selects a loose VRM independently.
 
-The reference renderer is pinned to Unity `6000.3.13f1` and UniVRM `v0.131.2`. Its build wrapper requires a clean BodyRig checkout, embeds exact Git HEAD into the built player/APK, and re-checks HEAD after the build. The runtime probes read that revision from an embedded generated `Resources` asset; it is not supplied by the launch command.
+The reference renderer is pinned to Unity `6000.3.13f1` and UniVRM `v0.131.2`. Its canonical identity lives in `reference-renderer/renderer-contract.json`, which also records the application id and deformation-sequence revision. Its build wrapper requires a clean BodyRig checkout, embeds exact Git HEAD into the built player/APK, and re-checks HEAD after the build. The runtime probes read that revision from an embedded generated `Resources` asset; it is not supplied by the launch command.
 
 The reference player first writes the renderer machine probe and then executes the fixed `humanoid-muscle-sweep-v1` sequence:
 
@@ -171,20 +171,16 @@ Build/run the physical WindowsPlayer against the Gate A directory:
 
 The wrapper requires both staged outputs before it atomically commits `windows-evidence/`. It checks that both probes contain the exact Gate A BodyRig revision, that the deformation probe completed the ordered six-pose sequence, and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
 
-After watching the player cycle the same sequence and confirming actual visual quality:
+After watching the player cycle the same sequence and confirming actual visual quality, record the human observation with the reference helper:
 
 ```powershell
-.\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\path\to\acceptance\windows-evidence\windows-probe.json" `
-  -DeformationReport "C:\path\to\acceptance\windows-evidence\windows-deformation-probe.json" `
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance" `
   -Platform "windows-unity-univrm" `
-  -Pass `
-  -RendererName "BodyRig Reference Renderer" `
-  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2" `
   -QualityNote "Fixed deformation sweep reviewed: identity/proportions, shoulders, elbows, wrists, hips and knees acceptable"
 ```
+
+The helper reads `renderer_name` and `renderer_version` from `reference-renderer/renderer-contract.json`, requires the machine probe to report the same identity, resolves the canonical evidence pair, and calls the lower-level `record-renderer-acceptance.ps1`. The operator therefore attests only the physical quality observation; renderer identity is not free-text human input.
 
 ### Quest-class acceptance
 
@@ -202,19 +198,13 @@ The machine/deformation probes must carry the exact Gate A BodyRig build revisio
 After inspecting the fixed sequence in the headset:
 
 ```powershell
-.\record-renderer-acceptance.ps1 `
-  -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
-  -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\path\to\acceptance\quest-evidence\quest-probe.json" `
-  -DeformationReport "C:\path\to\acceptance\quest-evidence\quest-deformation-probe.json" `
+.\record-reference-renderer-acceptance.ps1 `
+  -AcceptanceDir "C:\path\to\acceptance" `
   -Platform "android-quest-class" `
-  -Pass `
-  -RendererName "BodyRig Reference Renderer" `
-  -RendererVersion "Unity 6000.3.13f1 / UniVRM v0.131.2 / Quest build <id>" `
   -QualityNote "Same fixed deformation sweep and accepted runtime reviewed on Quest-class hardware"
 ```
 
-Before accepting either human quality attestation, `record-renderer-acceptance.ps1` independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, the embedded renderer revision, the ordinary machine probe and the deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1` and `deformation_probe=true`, so the operator's QualityNote is explicitly tied to the exact sweep that was reviewed. Each renderer report remains non-activating: `production_activation=false`.
+Before accepting either human quality attestation, the helper verifies the machine-reported renderer identity against the canonical renderer contract. The lower-level `record-renderer-acceptance.ps1` then independently revalidates high-fidelity Gate A lineage, clone/readiness hashes, anatomical skin-QA identity, exact clean revision, package/runtime bytes, the embedded renderer revision, the ordinary machine probe and the deterministic deformation probe. The renderer report stores `deformation_report_sha256`, `deformation_sequence_revision=humanoid-muscle-sweep-v1` and `deformation_probe=true`, so the operator's QualityNote is explicitly tied to the exact sweep that was reviewed. Each renderer report remains non-activating: `production_activation=false`.
 
 The first physical high-fidelity clone must compare static skin-QA measurements with the fixed sweep around arm/torso contact, shoulders, elbows, wrists/hands, hips, knees and legs. Nearest-vertex transfer is upgraded only if this physical evidence shows the need.
 
