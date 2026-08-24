@@ -82,16 +82,23 @@ def test_physical_bootstrap_runs_fixed_deformation_sweep_before_review_loop() ->
     assert "restored_neutral = true" in sweep
 
 
-def test_build_script_embeds_exact_clean_git_revision() -> None:
+def test_build_script_embeds_exact_clean_git_revision_and_exact_unity_pin() -> None:
     wrapper = (REFERENCE / "build-reference-renderer.ps1").read_text(encoding="utf-8")
     source = (REFERENCE / "Assets" / "BodyRig" / "Editor" / "BodyRigReferenceBuild.cs").read_text(encoding="utf-8")
     ignore = (REFERENCE / ".gitignore").read_text(encoding="utf-8")
     assert "git -C $repoRoot rev-parse HEAD" in wrapper
     assert "git -C $repoRoot status --porcelain" in wrapper
     assert "checkout is dirty" in wrapper
+    assert "renderer-contract.json" in wrapper
+    assert "$ExpectedVersion\\Editor\\Unity.exe" in wrapper
+    assert "Get-ChildItem -LiteralPath $hubRoot" not in wrapper
     assert "-bodyrigRevision $bodyRigRevision" in wrapper
+    assert "-bodyrigUnityVersion $expectedUnityVersion" in wrapper
     assert "BodyRig Git HEAD changed during renderer build" in wrapper
     assert 'GetArgument("-bodyrigRevision")' in source
+    assert 'GetArgument("-bodyrigUnityVersion")' in source
+    assert "Application.unityVersion" in source
+    assert "Physical reference build requires Unity" in source
     assert 'GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json"' in source
     assert "bodyrig-build-provenance" in source
     assert "AssetDatabase.ImportAsset(GeneratedProvenancePath" in source
