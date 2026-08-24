@@ -40,10 +40,21 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "The production physical BodyRig run is Windows-only. Run this doctor on the target Windows rig."
 }
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "PowerShell 7+ (pwsh) is required for the production physical BodyRig path. Reopen the checkout in pwsh and rerun the doctor."
+}
+$powerShellExe = Resolve-CommandPath "pwsh"
+if ($null -eq $powerShellExe) {
+    throw "PowerShell 7 executable (pwsh) was not found even though the current shell reports PowerShell 7+."
+}
 
-$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
+$headRaw = @(& git -C $repoRoot rev-parse HEAD)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
     throw "Could not prove the BodyRig Git HEAD."
+}
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') {
+    throw "Could not prove a canonical 40-character BodyRig Git HEAD."
 }
 $dirty = @(& git -C $repoRoot status --porcelain)
 if ($LASTEXITCODE -ne 0) {
@@ -96,10 +107,6 @@ if ($hasPerformer -xor $hasBodyId) {
     throw "Pass -PerformerId and -BodyId together, or omit both."
 }
 
-$powerShellExe = Resolve-CommandPath "pwsh"
-if ($null -eq $powerShellExe) { $powerShellExe = Resolve-CommandPath "powershell" }
-if ($null -eq $powerShellExe) { throw "PowerShell executable not found." }
-
 $readinessScript = Join-Path $repoRoot "check-rig-ready.ps1"
 if (-not (Test-Path -LiteralPath $readinessScript -PathType Leaf)) {
     throw "check-rig-ready.ps1 not found."
@@ -108,6 +115,7 @@ if (-not (Test-Path -LiteralPath $readinessScript -PathType Leaf)) {
 Write-Host "BodyRig first physical run doctor"
 Write-Host "BodyRig revision: $head"
 Write-Host "Checkout: clean"
+Write-Host "PowerShell: $($PSVersionTable.PSVersion.ToString()) | pwsh: $powerShellExe"
 Write-Host "BodyRig Python: $BodyRigPython"
 Write-Host "Rig setup: $RigSetupReport"
 Write-Host "Stash URL: $StashUrl"
@@ -129,8 +137,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "BodyRig live readiness failed with exit code $LASTEXITCODE. No physical session was started."
 }
 
-$finalHead = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $finalHead -ne $head) {
+$finalHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
+if ($LASTEXITCODE -ne 0 -or $finalHeadRaw.Count -ne 1) {
+    throw "Could not re-check BodyRig Git HEAD after pre-session readiness."
+}
+$finalHead = ([string]$finalHeadRaw[0]).Trim().ToLowerInvariant()
+if ($finalHead -ne $head) {
     throw "BodyRig Git HEAD changed during pre-session readiness."
 }
 $finalDirty = @(& git -C $repoRoot status --porcelain)
