@@ -78,11 +78,17 @@ if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -
 if ([string]$probe.active_renderer.name -ne [string]$contract.renderer_name -or [string]$probe.active_renderer.version -ne [string]$contract.renderer_version) {
     throw "$prefix renderer machine probe identity does not match reference-renderer/renderer-contract.json."
 }
+if ([string]$probe.unity_version -ne [string]$contract.unity_editor_version) {
+    throw "$prefix renderer machine probe Unity version does not match the pinned reference renderer contract."
+}
 
 $deformationFile = Read-JsonFile $pair.Deformation "$prefix deformation probe"
 $deformation = $deformationFile.Value
 if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne $Platform) { throw "$prefix deformation probe format/platform mismatch." }
 if ([string]$deformation.sequence_revision -ne [string]$contract.deformation_sequence_revision) { throw "$prefix deformation sequence does not match the reference renderer contract." }
+if ([string]$deformation.unity_version -ne [string]$contract.unity_editor_version) {
+    throw "$prefix deformation probe Unity version does not match the pinned reference renderer contract."
+}
 
 $recordScript = Join-Path $repoRoot "record-renderer-acceptance.ps1"
 if (-not (Test-Path -LiteralPath $recordScript -PathType Leaf)) { throw "Core renderer acceptance script not found: $recordScript" }
@@ -106,6 +112,6 @@ $args = @{
 if ($LASTEXITCODE -ne 0) { throw "Core renderer acceptance failed with exit code $LASTEXITCODE." }
 
 Write-Host "BodyRig reference renderer attestation: PASS | $Platform"
-Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version)"
+Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version) | Unity $($contract.unity_editor_version)"
 Write-Host "Evidence: $($probeFile.Path) + $($deformationFile.Path)"
 exit 0
