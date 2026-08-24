@@ -46,6 +46,13 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     }
 }
 $BodyRigPython = Resolve-InputFile -Path $BodyRigPython -Label "BodyRig Python"
+$expectedBodyRigModule = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\__init__.py") -Label "BodyRig checkout Python module"
+$moduleAuthorityLines = @(& $BodyRigPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())" 2>&1)
+if ($LASTEXITCODE -ne 0 -or $moduleAuthorityLines.Count -ne 1) { throw "BodyRig Python could not prove its imported bodyrig module authority." }
+$actualBodyRigModule = [System.IO.Path]::GetFullPath(([string]$moduleAuthorityLines[0]).Trim())
+if (-not [string]::Equals($actualBodyRigModule, $expectedBodyRigModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "BodyRig Python imports bodyrig from a different checkout/package: $actualBodyRigModule"
+}
 $SessionReport = Resolve-InputFile -Path $SessionReport -Label "Physical clone session report"
 
 $sessionRaw = & $BodyRigPython -m bodyrig.physical_session validate $SessionReport
