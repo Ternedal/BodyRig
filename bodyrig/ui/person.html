@@ -56,7 +56,7 @@
             <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>Hash-bundet VoiceRig-kandidat.</p></article>
             <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig personality-kandidat.</p></article>
           </div>
-          <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en auditioneret, compatibility-godkendt Person Revision kan blive aktiv.</p></article>
+          <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en ModelRig-kørt, VoiceRig-talt og compatibility-godkendt Person Revision kan blive aktiv.</p></article>
         </section>
 
         <section id="tab-body" class="tab-panel hidden">
@@ -108,7 +108,7 @@
               <label for="personalityFeedback">Hvad ændrede du?</label>
               <textarea id="personalityFeedback" rows="3" placeholder="Fx: mindre formel, mere tør humor"></textarea>
               <button id="savePersonalityButton" class="primary full">Gem som personality-kandidat</button>
-              <p class="fine-print">Personality eksekveres af ModelRig og bliver kun aktiv som del af en godkendt Person Revision.</p>
+              <p class="fine-print">Personality køres gennem ModelRig under samlet audition og bliver kun aktiv som del af en godkendt Person Revision.</p>
             </article>
             <article class="card"><div class="card-label">Personality-kandidater</div><div id="personalityRevisions" class="revision-list"></div></article>
           </div>
@@ -116,44 +116,47 @@
 
         <section id="tab-assemble" class="tab-panel hidden">
           <article class="card">
-            <div class="card-row"><div><div class="card-label">1 · Vælg den præcise kombination</div><p class="muted-text">Skifter du én kandidat, nulstilles audition og review.</p></div><button id="prepareAssemblyButton" class="primary">Forbered audition</button></div>
+            <div class="card-row"><div><div class="card-label">1 · Vælg den præcise kombination</div><p class="muted-text">Skifter du kandidat, model eller testprompt, nulstilles audition og review.</p></div><button id="prepareAssemblyButton" class="primary">Kør samlet audition</button></div>
             <div class="grid-3">
               <div><label for="assembleBody">Krop</label><select id="assembleBody"></select></div>
               <div><label for="assembleVoice">Stemme</label><select id="assembleVoice"></select></div>
               <div><label for="assemblePersonality">Personlighed</label><select id="assemblePersonality"></select></div>
             </div>
-            <div id="assemblyFingerprint" class="fine-print">Ingen audition forberedt.</div>
+            <div class="field-row space-top">
+              <div><label for="assemblyModel">ModelRig-model</label><select id="assemblyModel"><option value="">Henter ModelRig…</option></select><div id="assemblyModelStatus" class="fine-print">ModelRig er ikke kontrolleret endnu.</div></div>
+              <div><label for="assemblyPrompt">Testprompt til personen</label><textarea id="assemblyPrompt" rows="4">Præsenter dig selv kort på en naturlig måde. Svar som dig selv, ikke som en assistent der beskriver en persona.</textarea></div>
+            </div>
+            <div id="assemblyFingerprint" class="fine-print">Ingen audition kørt.</div>
           </article>
 
           <div class="grid-3 space-top">
             <article class="card preview-card">
               <div class="card-row"><div class="card-label">2A · Se kroppen</div><span id="assemblyBodyState" class="badge muted">Ikke loadet</span></div>
-              <div id="assemblyBodyEmpty" class="preview-empty">Forbered audition først.</div>
+              <div id="assemblyBodyEmpty" class="preview-empty">Kør audition først.</div>
               <img id="assemblyBodyPreview" class="body-preview hidden" alt="Valgt body-kandidat">
             </article>
             <article class="card">
-              <div class="card-row"><div class="card-label">2B · Hør stemmen</div><span id="assemblyVoiceState" class="badge muted">Ikke hørt</span></div>
-              <label for="assemblyVoiceText">Testreplik</label>
-              <textarea id="assemblyVoiceText" rows="4">Hej. Det her er en test af, om min stemme, min krop og min personlighed opleves som den samme person.</textarea>
-              <button id="synthesizeAssemblyVoiceButton" class="secondary full" disabled>Generér testreplik med valgt stemme</button>
+              <div class="card-row"><div class="card-label">2B · Hør personen</div><span id="assemblyVoiceState" class="badge muted">Ikke hørt</span></div>
+              <div class="card-label">ModelRig-svar</div>
+              <pre id="assemblyReply" class="proposal">Kør audition først.</pre>
               <audio id="assemblyVoiceAudio" controls preload="none" class="full"></audio>
-              <p class="fine-print">Stemmen tæller først som auditioneret, når den valgte prøve er afspillet til ende.</p>
+              <p class="fine-print">BodyRig sender den valgte personality som en midlertidig system-message til ModelRig. VoiceRig siger præcis ModelRigs svar. Det tæller først som auditioneret, når WAV-filen er afspillet til ende.</p>
             </article>
             <article class="card">
-              <div class="card-row"><div class="card-label">2C · Læs personligheden</div><span id="assemblyPersonalityState" class="badge muted">Ikke vist</span></div>
+              <div class="card-row"><div class="card-label">2C · Personality-kilden</div><span id="assemblyPersonalityState" class="badge muted">Ikke vist</span></div>
               <div id="assemblyPersonalityMeta" class="muted-text"></div>
-              <pre id="assemblyPersonalityText" class="proposal">Forbered audition først.</pre>
+              <pre id="assemblyPersonalityText" class="proposal">Kør audition først.</pre>
             </article>
           </div>
 
           <article class="card space-top">
-            <div class="card-row"><div><div class="card-label">3 · Passer de sammen?</div><p id="assemblyReviewStatus" class="muted-text">Audition skal være komplet før review åbnes.</p></div><span id="assemblyReadyBadge" class="badge muted">Låst</span></div>
+            <div class="card-row"><div><div class="card-label">3 · Passer de sammen?</div><p id="assemblyReviewStatus" class="muted-text">ModelRig-audition skal være komplet før review åbnes.</p></div><span id="assemblyReadyBadge" class="badge muted">Låst</span></div>
             <label class="check-row"><input id="matchBodyVoice" type="checkbox" disabled> Krop og stemme opleves som samme person</label>
-            <label class="check-row"><input id="matchVoicePersonality" type="checkbox" disabled> Stemme og personlighed passer sammen</label>
-            <label class="check-row"><input id="matchBodyPersonality" type="checkbox" disabled> Krop og personlighed passer sammen</label>
+            <label class="check-row"><input id="matchVoicePersonality" type="checkbox" disabled> Stemme og den faktisk udførte personlighed passer sammen</label>
+            <label class="check-row"><input id="matchBodyPersonality" type="checkbox" disabled> Krop og den faktisk udførte personlighed passer sammen</label>
             <label class="check-row"><input id="matchOverall" type="checkbox" disabled> Helheden føles som én sammenhængende person</label>
             <label for="compatibilityNote">Review-note</label>
-            <textarea id="compatibilityNote" rows="4" disabled placeholder="Fx: Stemmealder, tempo, attitude og kropsudtryk hænger naturligt sammen."></textarea>
+            <textarea id="compatibilityNote" rows="4" disabled placeholder="Fx: Stemmealder, tempo, attitude, ModelRig-svar og kropsudtryk hænger naturligt sammen."></textarea>
             <label for="personRevisionFeedback">Hvad er nyt i denne Person Revision?</label>
             <textarea id="personRevisionFeedback" rows="3" disabled></textarea>
             <button id="approvePersonButton" class="primary full" disabled>Godkend og aktivér Person Revision</button>
