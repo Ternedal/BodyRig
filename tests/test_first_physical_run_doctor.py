@@ -34,6 +34,15 @@ def test_first_physical_run_doctor_refuses_dirty_or_drifting_checkout() -> None:
     assert "-AllowDirty" not in script
 
 
+def test_first_physical_run_doctor_requires_powershell_7_and_pwsh() -> None:
+    script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    assert "$PSVersionTable.PSVersion.Major -lt 7" in script
+    assert "PowerShell 7+ (pwsh) is required" in script
+    assert 'Resolve-CommandPath "pwsh"' in script
+    assert 'Resolve-CommandPath "powershell"' not in script
+
+
 def test_first_physical_run_doctor_prints_canonical_clone_command_only_with_complete_identity_pair() -> None:
     script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
 
@@ -46,5 +55,6 @@ def test_first_physical_run_runbook_uses_doctor_before_session_creation() -> Non
     doc = Path("docs/FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
 
     assert "prepare-first-physical-run.ps1" in doc
+    assert "PowerShell 7" in doc
     assert "pre-session" in doc.lower()
     assert "does not create" in doc.lower() or "opretter ikke" in doc.lower()
