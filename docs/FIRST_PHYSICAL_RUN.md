@@ -96,9 +96,39 @@ bodyid-<24 lowercase hex>
 
 See `docs/PORTABLE_IDENTITY.md` for the identity authority and source-byte TOCTOU rules.
 
-## 5. Run the production clone
+## 5. Run the pre-session doctor before creating physical evidence
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report **and the fresh-token `health` gate has passed with `performer_read=true`**, run:
+Before the production launcher creates a `bodyrig-physical-clone-session`, run the read-only/pre-session doctor:
+
+```powershell
+.\prepare-first-physical-run.ps1 `
+  -PerformerId "123" `
+  -BodyId "performer-123"
+```
+
+The doctor verifies the exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. It deliberately calls `check-rig-ready.ps1` **without** `-Out`, so it does not create authoritative readiness evidence, physical clone session state, clone output or acceptance evidence.
+
+A successful run ends with:
+
+```text
+BodyRig pre-session doctor: READY
+```
+
+and prints the exact canonical `clone-body-from-stash-ready.ps1` command for the selected performer/alias.
+
+If the doctor fails, fix that prerequisite and rerun it. This keeps setup/auth/environment failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness evidence; the doctor is not a substitute for those gates.
+
+You can also run the doctor before choosing a performer:
+
+```powershell
+.\prepare-first-physical-run.ps1
+```
+
+In that mode it proves the rig is ready and points you to the performer-search step, but still creates no physical evidence.
+
+## 6. Run the production clone
+
+After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, and the pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
@@ -133,7 +163,7 @@ and session/readiness evidence under:
 
 A successful clone session is still **not** final production acceptance.
 
-## 6. Inspect the physical session before doing anything else
+## 7. Inspect the physical session before doing anything else
 
 Use the session report path printed by the ready launcher:
 
@@ -146,7 +176,7 @@ For a production-valid completed clone, status should point to Gate A and print 
 
 If the session is failed, incomplete, dirty-checkout-bound or has mismatched readiness evidence, stop there. Do not manufacture or edit evidence to advance the state machine.
 
-## 7. Promote the exact clone bytes into high-fidelity Gate A
+## 8. Promote the exact clone bytes into high-fidelity Gate A
 
 The expected next command is equivalent to:
 
@@ -159,7 +189,7 @@ Gate A does not refit the avatar. It revalidates and promotes the exact high-fid
 
 After Gate A, the accepted package/runtime identity is the canonical `bodyid-*`, not the original operator alias.
 
-## 8. Resume through Windows, Quest and final release only via status
+## 9. Resume through Windows, Quest and final release only via status
 
 Once Gate A exists:
 
@@ -182,11 +212,12 @@ Human renderer attestation requires `-ConfirmQualityChecklist`. It is not option
 
 The same canonical body id, accepted package bytes and runtime identity must survive every physical renderer gate.
 
-## 9. What counts as the first real PASS
+## 10. What counts as the first real PASS
 
 The first run is useful physical evidence only if all of the following are true:
 
 - the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
+- the pre-session doctor passed without creating physical evidence;
 - real local Stash performer/video sources were used;
 - source-byte TOCTOU binding held through clone;
 - the create-only portable identity receipt is present and canonical;
