@@ -174,6 +174,46 @@ def build_portable_identity(
     return validate_portable_identity(value)
 
 
+def bind_portable_identity_to_evidence(
+    value: Mapping[str, Any] | Any,
+    *,
+    proof: Mapping[str, Any],
+    visual_identity: Mapping[str, Any],
+    requested_alias: str | None = None,
+) -> dict[str, Any]:
+    """Re-bind an existing receipt to portable derived evidence.
+
+    Gate A no longer needs the private source files after clone completion, so this
+    boundary intentionally cannot recompute ``source_set_sha256``. Source-byte
+    binding is established when the create-only receipt is produced. Here we
+    revalidate the receipt itself and require its recovery/visual evidence digests,
+    source count, subject track and optional operator alias to match the exact
+    evidence being promoted.
+    """
+
+    receipt = validate_portable_identity(value)
+    try:
+        validated_proof = validate_recovery_proof(dict(proof))
+        validated_identity = bind_visual_identity_to_proof(visual_identity, validated_proof)
+    except (ProofError, VisualIdentityError, ValueError) as exc:
+        raise PortableIdentityError(str(exc)) from exc
+
+    if requested_alias is not None:
+        if not isinstance(requested_alias, str) or ALIAS_RE.fullmatch(requested_alias) is None:
+            raise PortableIdentityError("requested_alias is invalid")
+        if receipt["requested_alias"] != requested_alias:
+            raise PortableIdentityError("portable identity requested_alias does not match session alias")
+    if receipt["source_count"] != validated_proof["source_count"]:
+        raise PortableIdentityError("portable identity source_count does not match recovery proof")
+    if receipt["subject_track_id"] != validated_proof["track_id"]:
+        raise PortableIdentityError("portable identity subject_track_id does not match recovery proof")
+    if receipt["recovery_proof_sha256"] != _digest_json(validated_proof):
+        raise PortableIdentityError("portable identity recovery proof digest mismatch")
+    if receipt["visual_identity_sha256"] != _digest_json(validated_identity):
+        raise PortableIdentityError("portable identity visual identity digest mismatch")
+    return receipt
+
+
 def _strict_json_object(text: str) -> dict[str, Any]:
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}

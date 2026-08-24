@@ -12,6 +12,7 @@ from .identity import VisualIdentityError, bind_visual_identity_to_proof
 from .package import MRBodyError, build_package
 from .portable_identity import (
     PortableIdentityError,
+    bind_portable_identity_to_evidence,
     load_portable_identity,
     provenance_identity_stage,
 )
@@ -105,11 +106,12 @@ def main(argv: list[str] | None = None) -> int:
         portable_identity = None
         package_body_id = args.body_id
         if args.portable_identity:
-            portable_identity = load_portable_identity(args.portable_identity)
-            if portable_identity["requested_alias"] != args.body_id:
-                raise PortableIdentityError(
-                    "portable identity requested_alias does not match --body-id"
-                )
+            portable_identity = bind_portable_identity_to_evidence(
+                load_portable_identity(args.portable_identity),
+                proof=proof,
+                visual_identity=identity,
+                requested_alias=args.body_id,
+            )
             package_body_id = portable_identity["body_id"]
 
         fitted = run_external_fitter(
