@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BodyRig · Personer</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div><div class="eyebrow">MODELRIG PERSON STUDIO</div><h1>BodyRig</h1></div>
+        <span id="healthBadge" class="badge muted">…</span>
+      </div>
+      <button id="newPersonButton" class="primary full">+ Ny person</button>
+      <div class="section-label">Mine personer</div>
+      <div id="personList" class="person-list"></div>
+    </aside>
+
+    <main class="main">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-icon">BR</div>
+        <h2>Byg hele personer</h2>
+        <p>Krop, stemme og personlighed har egne kandidater, men bliver kun aktive som én samlet, auditioneret Person Revision.</p>
+        <button id="emptyCreateButton" class="primary">Opret første person</button>
+      </section>
+
+      <section id="personView" class="person-view hidden">
+        <header class="person-header">
+          <div><div class="eyebrow" id="personId"></div><h2 id="personName"></h2><div id="personSource" class="muted-text"></div></div>
+          <div class="active-summary">
+            <span id="personActive" class="pill">Person —</span>
+            <span id="bodyActive" class="pill">Krop —</span>
+            <span id="voiceActive" class="pill">Stemme —</span>
+            <span id="personalityActive" class="pill">Personlighed —</span>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="Personprofil">
+          <button data-tab="overview" class="tab active">Overblik</button>
+          <button data-tab="body" class="tab">Krop</button>
+          <button data-tab="voice" class="tab">Stemme</button>
+          <button data-tab="personality" class="tab">Personlighed</button>
+          <button data-tab="assemble" class="tab">Saml person</button>
+          <button data-tab="history" class="tab">Historik</button>
+        </nav>
+
+        <section id="tab-overview" class="tab-panel">
+          <article class="card">
+            <div class="card-row"><div><div class="card-label">Aktiv Person Revision</div><div id="overviewPersonRevision" class="metric">Ingen</div></div><span id="overviewCompatibility" class="badge muted">Ikke samlet</span></div>
+            <p id="overviewCompatibilityNote">Krop, stemme og personlighed skal auditioneres og godkendes som én samlet person før aktivering.</p>
+          </article>
+          <div class="grid-3 space-top">
+            <article class="card"><div class="card-label">Krop</div><div id="overviewBody" class="metric">Ingen</div><p>BodyRig-kandidat i den aktive Person Revision.</p></article>
+            <article class="card"><div class="card-label">Stemme</div><div id="overviewVoice" class="metric">Ingen</div><p>Hash-bundet VoiceRig-kandidat.</p></article>
+            <article class="card"><div class="card-label">Personlighed</div><div id="overviewPersonality" class="metric">Ingen</div><p>ModelRig personality-kandidat.</p></article>
+          </div>
+          <article class="card space-top"><div class="card-label">Grundregel</div><p class="large-copy">Ingen komponent aktiveres alene. Kun en auditioneret, compatibility-godkendt Person Revision kan blive aktiv.</p></article>
+        </section>
+
+        <section id="tab-body" class="tab-panel hidden">
+          <div class="split">
+            <article class="card preview-card">
+              <div class="card-row"><div class="card-label">Body-preview</div><span id="bodyRevisionLabel" class="badge muted">Ingen revision</span></div>
+              <div id="previewEmpty" class="preview-empty">Ingen body-revision endnu.</div>
+              <img id="bodyPreview" class="body-preview hidden" alt="Body preview">
+            </article>
+            <article class="card">
+              <div class="card-label">Byg fra Stash</div>
+              <p id="buildSourceText">Bind personen til en Stash performer først.</p>
+              <button id="buildBodyButton" class="primary full" disabled>Byg ny body-kandidat</button>
+              <div class="divider"></div>
+              <label for="bodyFeedback">Kommentar til næste revision</label>
+              <textarea id="bodyFeedback" rows="5" placeholder="Fx: Armene er lidt for lange, skuldrene lidt bredere."></textarea>
+              <button id="proposeBodyChanges" class="secondary full">Foreslå konkrete ændringer</button>
+              <div id="bodyProposal" class="proposal muted-text">Ingen forslag endnu.</div>
+              <p class="fine-print">Kommentarer ændrer aldrig den aktive person. De skaber forslag til en ny body-kandidat.</p>
+            </article>
+          </div>
+          <article class="card space-top"><div class="card-row"><div class="card-label">Body-kandidater</div><span id="bodyCount" class="badge muted">0</span></div><div id="bodyRevisions" class="revision-list"></div></article>
+        </section>
+
+        <section id="tab-voice" class="tab-panel hidden">
+          <div class="split">
+            <article class="card">
+              <div class="card-row"><div class="card-label">VoiceRig-bibliotek</div><button id="refreshVoicesButton" class="secondary">Opdatér</button></div>
+              <div id="voiceLibraryStatus" class="muted-text">Henter VoiceRig…</div>
+              <label for="voiceLibrarySelect">Stemme</label>
+              <select id="voiceLibrarySelect"><option value="">Vælg VoiceRig-stemme</option></select>
+              <audio id="voiceLibraryPreview" controls preload="none" class="full"></audio>
+              <label for="voiceFeedbackInput">Note til kandidaten</label>
+              <textarea id="voiceFeedbackInput" rows="3" placeholder="Fx: varm, rolig og passer bedre til kroppens alder"></textarea>
+              <button id="attachVoiceButton" class="primary full">Gem som voice-kandidat</button>
+              <p class="fine-print">BodyRig gemmer VoiceRig voice-id, konkret .mrvoice-pakkenavn og SHA-256. Stemmen bliver ikke aktiv alene.</p>
+            </article>
+            <article class="card"><div class="card-label">Voice-kandidater</div><div id="voiceRevisions" class="revision-list"></div></article>
+          </div>
+        </section>
+
+        <section id="tab-personality" class="tab-panel hidden">
+          <div class="split">
+            <article class="card">
+              <div class="card-label">Ny personality-kandidat</div>
+              <label for="personalityInstructions">Persona / system instructions</label>
+              <textarea id="personalityInstructions" rows="10" placeholder="Beskriv hvordan personen tænker, taler og reagerer."></textarea>
+              <div class="field-row"><div><label for="personalityLanguage">Standardsprog</label><input id="personalityLanguage" value="da"></div><div><label for="personalityStyle">Stilnoter</label><input id="personalityStyle" placeholder="fx rolig, tør, analytisk"></div></div>
+              <label for="personalityFeedback">Hvad ændrede du?</label>
+              <textarea id="personalityFeedback" rows="3" placeholder="Fx: mindre formel, mere tør humor"></textarea>
+              <button id="savePersonalityButton" class="primary full">Gem som personality-kandidat</button>
+              <p class="fine-print">Personality eksekveres af ModelRig og bliver kun aktiv som del af en godkendt Person Revision.</p>
+            </article>
+            <article class="card"><div class="card-label">Personality-kandidater</div><div id="personalityRevisions" class="revision-list"></div></article>
+          </div>
+        </section>
+
+        <section id="tab-assemble" class="tab-panel hidden">
+          <article class="card">
+            <div class="card-row"><div><div class="card-label">1 · Vælg den præcise kombination</div><p class="muted-text">Skifter du én kandidat, nulstilles audition og review.</p></div><button id="prepareAssemblyButton" class="primary">Forbered audition</button></div>
+            <div class="grid-3">
+              <div><label for="assembleBody">Krop</label><select id="assembleBody"></select></div>
+              <div><label for="assembleVoice">Stemme</label><select id="assembleVoice"></select></div>
+              <div><label for="assemblePersonality">Personlighed</label><select id="assemblePersonality"></select></div>
+            </div>
+            <div id="assemblyFingerprint" class="fine-print">Ingen audition forberedt.</div>
+          </article>
+
+          <div class="grid-3 space-top">
+            <article class="card preview-card">
+              <div class="card-row"><div class="card-label">2A · Se kroppen</div><span id="assemblyBodyState" class="badge muted">Ikke loadet</span></div>
+              <div id="assemblyBodyEmpty" class="preview-empty">Forbered audition først.</div>
+              <img id="assemblyBodyPreview" class="body-preview hidden" alt="Valgt body-kandidat">
+            </article>
+            <article class="card">
+              <div class="card-row"><div class="card-label">2B · Hør stemmen</div><span id="assemblyVoiceState" class="badge muted">Ikke hørt</span></div>
+              <label for="assemblyVoiceText">Testreplik</label>
+              <textarea id="assemblyVoiceText" rows="4">Hej. Det her er en test af, om min stemme, min krop og min personlighed opleves som den samme person.</textarea>
+              <button id="synthesizeAssemblyVoiceButton" class="secondary full" disabled>Generér testreplik med valgt stemme</button>
+              <audio id="assemblyVoiceAudio" controls preload="none" class="full"></audio>
+              <p class="fine-print">Stemmen tæller først som auditioneret, når den valgte prøve er afspillet til ende.</p>
+            </article>
+            <article class="card">
+              <div class="card-row"><div class="card-label">2C · Læs personligheden</div><span id="assemblyPersonalityState" class="badge muted">Ikke vist</span></div>
+              <div id="assemblyPersonalityMeta" class="muted-text"></div>
+              <pre id="assemblyPersonalityText" class="proposal">Forbered audition først.</pre>
+            </article>
+          </div>
+
+          <article class="card space-top">
+            <div class="card-row"><div><div class="card-label">3 · Passer de sammen?</div><p id="assemblyReviewStatus" class="muted-text">Audition skal være komplet før review åbnes.</p></div><span id="assemblyReadyBadge" class="badge muted">Låst</span></div>
+            <label class="check-row"><input id="matchBodyVoice" type="checkbox" disabled> Krop og stemme opleves som samme person</label>
+            <label class="check-row"><input id="matchVoicePersonality" type="checkbox" disabled> Stemme og personlighed passer sammen</label>
+            <label class="check-row"><input id="matchBodyPersonality" type="checkbox" disabled> Krop og personlighed passer sammen</label>
+            <label class="check-row"><input id="matchOverall" type="checkbox" disabled> Helheden føles som én sammenhængende person</label>
+            <label for="compatibilityNote">Review-note</label>
+            <textarea id="compatibilityNote" rows="4" disabled placeholder="Fx: Stemmealder, tempo, attitude og kropsudtryk hænger naturligt sammen."></textarea>
+            <label for="personRevisionFeedback">Hvad er nyt i denne Person Revision?</label>
+            <textarea id="personRevisionFeedback" rows="3" disabled></textarea>
+            <button id="approvePersonButton" class="primary full" disabled>Godkend og aktivér Person Revision</button>
+          </article>
+
+          <article class="card space-top"><div class="card-label">Godkendte Person Revisions</div><div id="personRevisions" class="revision-list"></div></article>
+        </section>
+
+        <section id="tab-history" class="tab-panel hidden"><article class="card"><div class="card-label">Samlet revisionshistorik</div><div id="historyList" class="revision-list"></div></article></section>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="newPersonDialog">
+    <form method="dialog" id="newPersonForm" class="dialog-form">
+      <div class="card-row"><h3>Ny person</h3><button value="cancel" class="icon-button" aria-label="Luk">×</button></div>
+      <label for="newPersonName">Navn</label><input id="newPersonName" required maxlength="160" placeholder="Fx Anna">
+      <div class="divider"></div>
+      <div class="card-label">Stash performer (valgfri)</div>
+      <div class="search-row"><input id="stashSearchInput" placeholder="Søg navn"><button id="stashSearchButton" type="button" class="secondary">Søg</button></div>
+      <div id="stashStatus" class="muted-text"></div><div id="stashResults" class="stash-results"></div><div id="selectedStash" class="selected-source hidden"></div>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Annuller</button><button id="createPersonButton" type="button" class="primary">Opret person</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/ui/person_app.js" defer></script>
+</body>
+</html>
