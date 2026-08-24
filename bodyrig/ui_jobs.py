@@ -71,9 +71,9 @@ def _read_job(path: Path) -> dict[str, Any]:
 
 
 def _powershell() -> str:
-    command = shutil.which("pwsh") or shutil.which("powershell")
+    command = shutil.which("pwsh")
     if not command:
-        raise UiJobError("PowerShell was not found")
+        raise UiJobError("PowerShell 7+ executable (pwsh) was not found")
     return command
 
 
@@ -109,7 +109,30 @@ def operator_checkout_status() -> dict[str, Any]:
         return {"ok": False, "reason": "BodyRig operator checkout is dirty", "revision": head}
     if os.name != "nt":
         return {"ok": False, "reason": "Physical body builds are Windows-only in BodyRig V1", "revision": head}
-    return {"ok": True, "revision": head, "root": str(root)}
+    try:
+        pwsh = _powershell()
+        major_raw = subprocess.run(
+            [pwsh, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except (UiJobError, OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "reason": f"Could not prove PowerShell 7+ authority: {exc}", "revision": head}
+    if not major_raw.isdigit() or int(major_raw) < 7:
+        return {
+            "ok": False,
+            "reason": f"Physical body builds require PowerShell 7+ (pwsh); detected major version {major_raw!r}",
+            "revision": head,
+        }
+    return {
+        "ok": True,
+        "revision": head,
+        "root": str(root),
+        "powershell": pwsh,
+        "powershell_major": int(major_raw),
+    }
 
 
 class UiJobManager:
