@@ -11,6 +11,10 @@ def test_reference_windows_wrapper_contract_binds_before_canonical_commit() -> N
 
     assert "reference-renderer\\renderer-contract.json" in source
     assert '"bodyrig-reference-renderer-contract"' in source
+    assert "univrm_version" in source
+    assert "univrm_revision" in source
+    assert "Reference renderer contract fields are not canonical." in source
+    assert "Reference renderer contract contains an invalid UniVRM revision." in source
     assert '"run-windows-renderer-probe.ps1"' in source
     assert '".bodyrig-windows-contract-stage-"' in source
     assert '"windows-evidence"' in source
@@ -44,6 +48,7 @@ def test_reference_windows_wrapper_does_not_expose_renderer_identity_inputs() ->
     params = source.split(")\n\n$ErrorActionPreference", 1)[0]
     assert "$RendererName" not in params
     assert "$RendererVersion" not in params
+    assert "$SkipBuild" not in params
 
 
 def test_reference_windows_wrapper_is_only_canonical_docs_entrypoint() -> None:
