@@ -44,14 +44,18 @@ def test_first_physical_run_doctor_requires_powershell_7_and_pwsh() -> None:
     assert 'Resolve-CommandPath "powershell"' not in script
 
 
-def test_first_physical_run_doctor_probes_selected_performer_without_creating_source_manifest() -> None:
+def test_first_physical_run_doctor_probes_selected_performer_with_exact_ffmpeg_without_creating_source_manifest() -> None:
     script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
 
-    assert "Probing selected Stash performer and local source pool" in script
+    assert 'Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"' in script
+    assert "Probing selected Stash performer and local source pool with one-frame FFmpeg decode" in script
     assert "-m bodyrig.stash_cli probe --performer-id $PerformerId" in script
+    assert "--ffmpeg $Ffmpeg" in script
+    assert "rankable_source_count" in script
     assert "usable_source_count" in script
-    assert "Selected Stash performer/source probe failed" in script
-    assert "at least one usable local video" in script
+    assert 'decode_gate -ne "ffmpeg-one-frame-v1"' in script
+    assert "at least one decodable local video" in script
+    assert "Selected Stash performer/source decode probe failed" in script
     assert "--out" not in script
     assert "bodyrig.stash_cli select" not in script
 
