@@ -74,18 +74,19 @@ Dette er compatibility-gaten.
 4. Klik **Kør samlet audition**.
 5. BodyRig revaliderer `.mrbody`, downloader/re-hasher den konkrete `.mrvoice` og genberegner personality-bindingen.
 6. BodyRig beregner et `assembly_fingerprint` for den eksakte body + voice + personality-kombination.
-7. BodyRig verificerer først unauthenticated ModelRig `/healthz` som `service=modelrig-server`; først derefter må bearer-tokenet bruges mod protected ModelRig-routes.
+7. BodyRig verificerer unauthenticated ModelRig `/healthz` som `service=modelrig-server` med en gyldig `version`; først derefter må bearer-tokenet bruges mod protected ModelRig-routes.
 8. BodyRig sender den valgte personality som `system` og audition-prompten som `user` til ModelRig uden at ændre global ModelRig-state.
 9. Det faktiske ModelRig-svar vises i UI'et.
-10. Det samme ModelRig-svar sendes til den hash-bundne VoiceRig-stemme og syntetiseres til WAV.
-11. Body-previewet skal være loadet, personality-kilden og ModelRig-svaret skal være vist, og den syntetiserede WAV skal være afspillet til ende.
-12. Først derefter åbnes compatibility-reviewet.
-13. Bekræft:
+10. Umiddelbart før TTS verificerer BodyRig VoiceRig `/api/health` som `service=voicerig` med en gyldig `version`.
+11. Det samme ModelRig-svar sendes til den hash-bundne VoiceRig-stemme og syntetiseres til WAV.
+12. Body-previewet skal være loadet, personality-kilden og ModelRig-svaret skal være vist, og den syntetiserede WAV skal være afspillet til ende.
+13. Først derefter åbnes compatibility-reviewet.
+14. Bekræft:
    - krop ↔ stemme,
    - stemme ↔ personality/adfærd,
    - krop ↔ personality/adfærd,
    - samlet troværdighed.
-14. Skriv review-note og godkend.
+15. Skriv review-note og godkend.
 
 Skiftes body, voice, personality eller ModelRig-model efter audition, nulstilles audition og review. Ændres testprompten, nulstilles de også. Et tidligere ModelRig-svar må altså ikke genbruges til en anden kombination eller prompt.
 
@@ -95,12 +96,18 @@ En fuldført samlet audition materialiseres create-only som `bodyrig-person-audi
 
 - `person_id`,
 - `assembly_fingerprint`,
+- `modelrig_service = modelrig-server`,
+- `modelrig_version` fra den health-validerede execution-runtime,
 - valgt ModelRig-model,
+- `voicerig_service = voicerig`,
+- `voicerig_version` fra health-preflightet umiddelbart før synthesis,
 - SHA-256 af audition-prompten,
 - SHA-256 af det faktiske ModelRig-svar,
 - SHA-256 af den VoiceRig-WAV, der blev afspillet.
 
-ModelRig bearer-token, Stash-token og andre secrets indgår ikke i evidence.
+Execution provenance er request-local og forbruges ved receipt-materialisering. Mangler ModelRig- eller VoiceRig-runtime provenance, bliver audition receipt ikke skrevet. Provenance fra en fejlet/forladt audition må ikke genbruges til en senere audition.
+
+ModelRig bearer-token, Stash-token, URL-credentials og andre secrets indgår ikke i evidence.
 
 Approval-requesten medbringer `audition_id`. Serveren revaliderer den valgte assembly og audition-evidence igen; en audition fra en anden assembly kan ikke bruges til approval.
 
@@ -122,9 +129,11 @@ BodyRig skriver samtidig en create-only `bodyrig-person-assembly-receipt` v2. Re
 - `audition_id`,
 - SHA-256 af det create-only audition-receipt, som operatøren faktisk reviewede.
 
+Da audition-receiptets hash indgår i assembly-receipt v2, er ModelRig/VoiceRig runtime-versionerne transitivt bundet til den godkendte Person Revision.
+
 Kun den samlede `person-r0007` kan blive aktiv.
 
-En tidligere Person Revision kan kun genaktiveres efter revalidation af body-/voice-bytes, personality-fingerprint, audition receipt/WAV og assembly receipt. Hvis fx den auditionerede WAV ændres, fejler reaktivering.
+En tidligere Person Revision kan kun genaktiveres efter revalidation af body-/voice-bytes, personality-fingerprint, audition receipt/WAV og assembly receipt. Hvis fx den auditionerede WAV eller runtime-provenance i receiptet ændres, fejler reaktivering.
 
 Legacy assembly-receipt v1 kan fortsat læses som historik, men mangler den nye runtime-audition-binding og må derfor re-auditioneres før ny aktivering.
 
