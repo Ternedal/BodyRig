@@ -236,18 +236,24 @@ class UiJobManager:
                 child_env[_ADJUSTMENT_ENV] = adjustment_request
             else:
                 child_env.pop(_ADJUSTMENT_ENV, None)
-            process = subprocess.Popen(
-                args,
-                cwd=str(_repo_root()),
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=child_env,
-            )
             with self._lock:
+                current = self.get(job["job_id"])
+                if current.get("status") != "running":
+                    raise UiJobError(
+                        f"UI job is no longer running; refusing subprocess start from state {current.get('status')!r}"
+                    )
+                process = subprocess.Popen(
+                    args,
+                    cwd=str(_repo_root()),
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    env=child_env,
+                )
                 self._processes[job["job_id"]] = process
+                current["pid"] = process.pid
+                _write_job(current)
                 job["pid"] = process.pid
-                _write_job(job)
             try:
                 return process.wait()
             finally:
@@ -255,14 +261,17 @@ class UiJobManager:
                     self._processes.pop(job["job_id"], None)
 
     def _run_body_build(self, job_id: str) -> None:
-        job = self.get(job_id)
         try:
+            with self._lock:
+                job = self.get(job_id)
+                if job.get("status") != "queued":
+                    return
+                job["status"] = "running"
+                job["started_utc"] = _now()
+                _write_job(job)
+
             profile = load_profile(person_library(), job["person_id"])
             source = profile["source"]
-            job["status"] = "running"
-            job["started_utc"] = _now()
-            _write_job(job)
-
             ps = _powershell()
             root = _repo_root()
             clone_args = [
@@ -316,33 +325,38 @@ class UiJobManager:
             if not body_id or not package_path.is_file():
                 raise UiJobError("Gate A passed without a canonical .mrbody package")
 
-            installed = install_package(package_path, body_library())
-            feedback_note = str(job.get("body_feedback") or "").strip()
-            if not feedback_note:
-                feedback_note = "Source-derived Stash/SiTH build via BodyRig UI"
-            updated = add_body_revision(
-                person_library(),
-                job["person_id"],
-                body_id=body_id,
-                package_sha256=expected_hash,
-                package_path=str(installed),
-                preview_path=None,
-                feedback=feedback_note,
-            )
-            job["body_revision"] = updated["body_revisions"][-1]["revision_id"]
-            job["canonical_body_id"] = body_id
-            job["status"] = "succeeded"
-            job["completed_utc"] = _now()
-            job["pid"] = None
-            _write_job(job)
+            with self._lock:
+                current = self.get(job_id)
+                if current.get("status") != "running":
+                    return
+                installed = install_package(package_path, body_library())
+                feedback_note = str(current.get("body_feedback") or "").strip()
+                if not feedback_note:
+                    feedback_note = "Source-derived Stash/SiTH build via BodyRig UI"
+                updated = add_body_revision(
+                    person_library(),
+                    current["person_id"],
+                    body_id=body_id,
+                    package_sha256=expected_hash,
+                    package_path=str(installed),
+                    preview_path=None,
+                    feedback=feedback_note,
+                )
+                current["body_revision"] = updated["body_revisions"][-1]["revision_id"]
+                current["canonical_body_id"] = body_id
+                current["status"] = "succeeded"
+                current["completed_utc"] = _now()
+                current["pid"] = None
+                _write_job(current)
         except Exception as exc:
-            job = self.get(job_id)
-            if job.get("status") != "canceled":
-                job["status"] = "failed"
-                job["completed_utc"] = _now()
-                job["pid"] = None
-                job["error"] = str(exc)[:4000]
-                _write_job(job)
+            with self._lock:
+                job = self.get(job_id)
+                if job.get("status") not in _FINAL:
+                    job["status"] = "failed"
+                    job["completed_utc"] = _now()
+                    job["pid"] = None
+                    job["error"] = str(exc)[:4000]
+                    _write_job(job)
 
     def cancel(self, job_id: str) -> dict[str, Any]:
         with self._lock:
