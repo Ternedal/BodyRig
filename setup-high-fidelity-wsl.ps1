@@ -128,6 +128,13 @@ $preflightArgs = @(
 )
 Invoke-BodyRigChecked -Arguments $preflightArgs -Step "Pinned SiTH/OpenPose authority preflight"
 
+$openPoseDigestRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $SithPython --path $OpenPoseExecutable --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) { throw "OpenPose executable digest failed." }
+try { $openPoseDigest = $openPoseDigestRaw | ConvertFrom-Json }
+catch { throw "OpenPose executable digest returned unreadable JSON." }
+if ([string]$openPoseDigest.sha256 -notmatch '^[0-9a-f]{64}$') { throw "OpenPose executable SHA-256 is invalid." }
+if ([int64]$openPoseDigest.byte_count -lt 1) { throw "OpenPose executable byte count is invalid." }
+
 $digestArgs = @(
     "-m", "bodyrig.sith_model",
     "--distribution", $Distribution,
@@ -153,7 +160,7 @@ New-Item -ItemType Directory -Path $reportParent -Force | Out-Null
 $tempReport = "$ReportPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 $report = [ordered]@{
     format = "bodyrig-sith-setup"
-    version = 1
+    version = 2
     distribution = $Distribution
     sith = [ordered]@{
         repository = $SithInstallRoot
@@ -164,6 +171,8 @@ $report = [ordered]@{
         repository = $OpenPoseRepo
         revision = $OpenPoseRevision
         executable = $OpenPoseExecutable
+        sha256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()
+        byte_count = [int64]$openPoseDigest.byte_count
     }
     diffusion_model = [ordered]@{
         path = $DiffusionModel
@@ -184,6 +193,7 @@ $settings = [ordered]@{
     BODYRIG_SITH_PYTHON = $SithPython
     BODYRIG_SITH_OPENPOSE_REPO = $OpenPoseRepo
     BODYRIG_SITH_OPENPOSE = $OpenPoseExecutable
+    BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = $DiffusionModel
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$digest.sha256).ToLowerInvariant()
 }
@@ -198,6 +208,7 @@ Write-Host ""
 Write-Host "BodyRig high-fidelity WSL setup: PASS"
 Write-Host "SiTH revision: $SithRevision"
 Write-Host "OpenPose revision: $OpenPoseRevision"
+Write-Host "OpenPose binary SHA-256: $([string]$openPoseDigest.sha256)"
 Write-Host "Setup report: $ReportPath"
 Write-Host "Diffusion model SHA-256: $([string]$digest.sha256)"
 if ($PersistUserEnvironment) { Write-Host "BODYRIG_SITH_* settings persisted to the current Windows user." }
