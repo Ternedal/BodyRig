@@ -5,6 +5,7 @@ from pathlib import Path
 
 from bodyrig.acceptance_status import AcceptanceStatus
 from bodyrig.acceptance_status_cli import _operator_command
+from bodyrig.reference_acceptance_policy import apply_reference_policy
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -67,6 +68,31 @@ def test_completed_release_status_is_not_rewritten() -> None:
 def test_non_attestation_status_command_is_unchanged() -> None:
     original = _status("windows-probe")
     assert _operator_command(original) == original
+
+
+def test_reference_policy_leaves_transactional_layout_unchanged(tmp_path: Path) -> None:
+    status = replace(_status("quest-probe"), acceptance_dir=str(tmp_path), state="ready")
+    assert apply_reference_policy(status) == status
+
+
+def test_reference_policy_blocks_unfinished_legacy_root_evidence(tmp_path: Path) -> None:
+    (tmp_path / "windows-probe.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "windows-deformation-probe.json").write_text("{}\n", encoding="utf-8")
+    status = replace(_status("quest-probe"), acceptance_dir=str(tmp_path), state="ready")
+
+    blocked = apply_reference_policy(status)
+    assert blocked.state == "blocked"
+    assert blocked.gate == "reference-layout"
+    assert blocked.next_command is None
+    assert "Legacy root renderer evidence" in blocked.message
+    assert "fresh Gate A acceptance bundle" in blocked.message
+    assert "windows-probe.json" in blocked.message
+
+
+def test_reference_policy_keeps_already_completed_historical_release_readable(tmp_path: Path) -> None:
+    (tmp_path / "windows-probe.json").write_text("{}\n", encoding="utf-8")
+    complete = replace(_status("release"), acceptance_dir=str(tmp_path), state="complete", next_command=None)
+    assert apply_reference_policy(complete) == complete
 
 
 def test_packaged_and_powershell_status_entrypoints_use_operator_cli() -> None:
