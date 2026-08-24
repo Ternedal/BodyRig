@@ -110,7 +110,7 @@ CLI-varianten er:
 bodyrig-acceptance-status --acceptance-dir "C:\acceptance"
 ```
 
-En normal wheel-installation kan altid bruges til **read-only inspection**, fordi wheel'en indeholder den samme byte-identiske `reference-renderer/renderer-contract.json`. Men site-packages er ikke et BodyRig Git-checkout og må derfor ikke bruges som authority for fysiske operator-kommandoer. Hvis status-CLI'en ikke kan auto-detektere et checkout med canonical scripts, viser den status men sætter `next_command=null` og markerer resultatet `Inspection-only`.
+En normal wheel-installation kan altid bruges til **read-only inspection**, fordi wheel'en indeholder den samme byte-identiske `reference-renderer/renderer-contract.json`. Men site-packages er ikke et BodyRig Git-checkout og må derfor ikke bruges som authority for fysiske operator-kommandoer. Hvis status-CLI'en ikke kan auto-detektere et checkout med den komplette canonical operator dependency closure, viser den status men sætter `next_command=null` og markerer resultatet `Inspection-only`.
 
 Hvis CLI'en køres fra en separat installation, kan et rigtigt checkout bindes eksplicit:
 
@@ -120,7 +120,7 @@ bodyrig-acceptance-status `
   --operator-root "C:\Users\you\Desktop\BodyRig"
 ```
 
-Før en executable next-command vises, verificerer statuslaget at operator-root er et Git-checkout med de canonical scripts, at `git rev-parse HEAD` matcher acceptance-revisionen, og at `git status --porcelain` er clean. Forkert revision eller dirty checkout bliver `BLOCKED` med exit code `3`; malformed/tampered evidence er fortsat `ERROR` med exit code `2`. Når checkoutet er validt, vises next-command med en absolut script-path, så den ikke afhænger af current working directory.
+Før en executable next-command vises, verificerer statuslaget at operator-root er et Git-checkout med hele den nødvendige closure: reference-wrappers, de underliggende Windows/Quest/attestation/release-scripts, `renderer-contract.json`, renderer-build-scriptet samt Unity `ProjectVersion.txt` og `Packages/manifest.json`. Et sparse checkout er derfor kun acceptabelt, hvis alle disse filer faktisk er materialiseret. Derefter skal `git rev-parse HEAD` matche acceptance-revisionen, og `git status --porcelain` skal være clean. Forkert revision eller dirty checkout bliver `BLOCKED` med exit code `3`; manglende operator-dependencies eller malformed/tampered evidence er `ERROR` med exit code `2`. Når checkoutet er validt, vises next-command med en absolut script-path, så den ikke afhænger af current working directory.
 
 Status-checkeren **muterer ingen evidence**. Den læser og re-hasher den eksisterende kæde og returnerer det præcise næste gate/kommando, når en gyldig operator-authority er tilgængelig:
 
