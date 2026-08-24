@@ -21,18 +21,23 @@ def test_reference_release_wrapper_validates_contract_before_core_gate() -> None
     attestation_check = source.index("$attestation.renderer_name")
     unity_check = source.index("$probe.unity_version")
     sequence_check = source.index("$deformation.sequence_revision")
+    quality_check = source.index("Assert-QualityReview -Attestation $attestation")
     core_call = source.index('& $core @args')
 
     assert renderer_check < core_call
     assert attestation_check < core_call
     assert unity_check < core_call
     assert sequence_check < core_call
+    assert quality_check < core_call
     assert '$probe.active_renderer.version -ne [string]$contract.renderer_version' in source
     assert '$attestation.renderer_version -ne [string]$contract.renderer_version' in source
     assert '$probe.unity_version -ne [string]$contract.unity_editor_version' in source
     assert '$deformation.unity_version -ne [string]$contract.unity_editor_version' in source
     assert '$attestation.unity_version -ne [string]$contract.unity_editor_version' in source
     assert '$attestation.deformation_sequence_revision -ne [string]$contract.deformation_sequence_revision' in source
+    assert '"bodyrig-human-quality-v1"' in source
+    assert "cross_limb_leakage_absent" in source
+    assert "skin_qa_considered" in source
 
 
 def test_reference_release_wrapper_delegates_full_byte_binding_to_core_gate() -> None:
