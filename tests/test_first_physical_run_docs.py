@@ -37,13 +37,17 @@ def test_first_physical_run_requires_fresh_stash_token_health_before_clone() -> 
     assert text.index('.\\stash-sources.ps1 health') < text.index('.\\clone-body-from-stash-ready.ps1')
 
 
-def test_first_physical_run_probes_exact_performer_without_leaking_paths_or_writing_evidence() -> None:
+def test_first_physical_run_probes_exact_performer_with_one_frame_decode_without_leaking_paths_or_writing_evidence() -> None:
     text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
     assert '.\\stash-sources.ps1 probe -PerformerId "123"' in text
+    assert 'ffmpeg-one-frame-v1' in text
+    assert 'decode exactly one video frame' in text
+    assert 'rankable local-source count' in text
     assert 'usable_source_count' in text
     assert 'does **not** print local source paths' in text
     assert 'does **not** write a source manifest' in text
-    assert 'repeats this same selected-performer/source-pool gate automatically' in text
+    assert 'repeats this same exact selected-performer/source-decode gate automatically' in text
+    assert 'normal production source selection reused the same resolved FFmpeg authority' in text
     assert text.index('.\\stash-sources.ps1 search') < text.index('.\\stash-sources.ps1 probe')
     assert text.index('.\\stash-sources.ps1 probe') < text.index('.\\clone-body-from-stash-ready.ps1')
 
