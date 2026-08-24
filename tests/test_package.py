@@ -1,3 +1,4 @@
+import hashlib
 import json
 import struct
 import zipfile
@@ -6,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from bodyrig.avatar import ProceduralAvatarFitter
-from bodyrig.package import MRBodyError, build_package, validate_package
+from bodyrig.package import MRBodyError, build_package, install_package, validate_package
 
 
 def glb(payload: bytes = b"") -> bytes:
@@ -119,3 +120,28 @@ def test_plain_glb_cannot_masquerade_as_vrm(tmp_path: Path):
             provenance=PROVENANCE,
             thumbnail_png=PNG,
         )
+
+
+def test_install_package_accepts_exact_expected_sha256(tmp_path: Path):
+    package = make_package(tmp_path / "source.mrbody")
+    expected = hashlib.sha256(package.read_bytes()).hexdigest()
+    library = tmp_path / "library"
+
+    installed = install_package(package, library, expected_sha256=expected)
+
+    assert installed == library / "test-body.mrbody"
+    assert installed.read_bytes() == package.read_bytes()
+    assert hashlib.sha256(installed.read_bytes()).hexdigest() == expected
+
+
+def test_install_package_hash_mismatch_cannot_overwrite_existing_target(tmp_path: Path):
+    package = make_package(tmp_path / "source.mrbody")
+    library = tmp_path / "library"
+    library.mkdir()
+    existing = library / "test-body.mrbody"
+    existing.write_bytes(b"existing-trusted-library-bytes")
+
+    with pytest.raises(MRBodyError, match="expected SHA-256 authority"):
+        install_package(package, library, expected_sha256="0" * 64)
+
+    assert existing.read_bytes() == b"existing-trusted-library-bytes"
