@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 REFERENCE = REPO / "reference-renderer"
+UNIVRM_REVISION = "a4711bbf8c4d10659d3e5568c2e3d7d595005e51"
 
 
 def test_reference_renderer_identity_contract_matches_pinned_project() -> None:
@@ -17,6 +18,7 @@ def test_reference_renderer_identity_contract_matches_pinned_project() -> None:
         "renderer_version": "reference-v1/univrm-0.131.2",
         "unity_editor_version": "6000.3.13f1",
         "univrm_version": "0.131.2",
+        "univrm_revision": UNIVRM_REVISION,
         "application_id": "dk.ternedal.bodyrig.reference",
         "deformation_sequence_revision": "humanoid-muscle-sweep-v1",
     }
@@ -25,8 +27,10 @@ def test_reference_renderer_identity_contract_matches_pinned_project() -> None:
     assert f"m_EditorVersion: {contract['unity_editor_version']}" in project_version
 
     manifest = json.loads((REFERENCE / "Packages" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["dependencies"]["com.vrmc.gltf"].endswith(f"#v{contract['univrm_version']}")
-    assert manifest["dependencies"]["com.vrmc.vrm"].endswith(f"#v{contract['univrm_version']}")
+    assert manifest["dependencies"]["com.vrmc.gltf"].endswith(f"#{contract['univrm_revision']}")
+    assert manifest["dependencies"]["com.vrmc.vrm"].endswith(f"#{contract['univrm_revision']}")
+    assert not manifest["dependencies"]["com.vrmc.gltf"].endswith(f"#v{contract['univrm_version']}")
+    assert not manifest["dependencies"]["com.vrmc.vrm"].endswith(f"#v{contract['univrm_version']}")
 
 
 def test_physical_probe_wrappers_emit_canonical_renderer_identity() -> None:
@@ -39,7 +43,7 @@ def test_physical_probe_wrappers_emit_canonical_renderer_identity() -> None:
         assert contract["renderer_version"] in source
 
 
-def test_reference_attestation_derives_identity_pinned_unity_and_quality_confirmation() -> None:
+def test_reference_attestation_derives_identity_pinned_unity_univrm_and_quality_confirmation() -> None:
     source = (REPO / "record-reference-renderer-acceptance.ps1").read_text(encoding="utf-8")
     assert "reference-renderer\\renderer-contract.json" in source
     assert "active_renderer.name" in source
@@ -50,6 +54,7 @@ def test_reference_attestation_derives_identity_pinned_unity_and_quality_confirm
     assert '[Parameter(Mandatory = $true)][switch]$ConfirmQualityChecklist' in source
     assert "[string]$probe.unity_version -ne [string]$contract.unity_editor_version" in source
     assert "[string]$deformation.unity_version -ne [string]$contract.unity_editor_version" in source
+    assert "univrm_revision" in source
     assert "QualityNote" in source
     assert "Resolve-EvidencePair" in source
     assert '"$Prefix-evidence"' in source
