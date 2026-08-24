@@ -19,3 +19,5 @@ def test_status_docs_keep_wheel_inspection_separate_from_operator_authority() ->
         assert "run-windows-renderer-probe.ps1" in text
         assert "ProjectVersion.txt" in text
         assert "Packages/manifest.json" in text
+        assert "bodyrig.__file__" in text
+        assert "bodyrig\\__init__.py" in text
