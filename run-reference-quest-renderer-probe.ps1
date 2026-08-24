@@ -21,10 +21,13 @@ if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "A
 
 $contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
 $contract = Read-JsonFile $contractPath "Reference renderer contract"
+$expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
+if (@(Compare-Object -ReferenceObject $expectedContractFields -DifferenceObject @($contract.PSObject.Properties.Name)).Count -ne 0) { throw "Reference renderer contract fields are not canonical." }
 if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
-foreach ($field in @("renderer_name","renderer_version","unity_editor_version","application_id","deformation_sequence_revision")) {
+foreach ($field in @("renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")) {
     if ([string]::IsNullOrWhiteSpace([string]$contract.$field)) { throw "Reference renderer contract is missing '$field'." }
 }
+if ([string]$contract.univrm_revision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
 if ([string]$contract.application_id -ne "dk.ternedal.bodyrig.reference") { throw "Reference renderer contract has an unsupported Quest application id." }
 if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract has an unsupported deformation sequence." }
 
@@ -66,7 +69,7 @@ try {
     }
 }
 
-Write-Host "BodyRig contract-bound Quest evidence: PASS | Unity $($contract.unity_editor_version)"
+Write-Host "BodyRig contract-bound Quest evidence: PASS | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision)"
 Write-Host "Evidence directory: $canonicalDir"
 Write-Host "Human visual attestation is still required with record-reference-renderer-acceptance.ps1."
 exit 0
