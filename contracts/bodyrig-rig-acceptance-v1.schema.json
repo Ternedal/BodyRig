@@ -36,6 +36,17 @@
         "mode": {"const": "stash-sith-high-fidelity"}
       }
     },
+    "skin_qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_sha256", "structural_pass", "automated_assessment", "manual_review_required"],
+      "properties": {
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "structural_pass": {"const": true},
+        "automated_assessment": {"enum": ["low-risk", "review", "high-risk"]},
+        "manual_review_required": {"const": true}
+      }
+    },
     "recovery": {
       "type": "object",
       "additionalProperties": false,
