@@ -101,7 +101,7 @@ Equivalent CLI:
 bodyrig-acceptance-status --acceptance-dir "C:\path\to\acceptance"
 ```
 
-The checker is intentionally read-only. It validates the evidence already present, re-hashes machine/deformation/attestation links, verifies embedded renderer revision consistency, and reports the exact next gate. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. Use `-Json` / `--json` for machine-readable output.
+The checker is intentionally read-only. It re-hashes the accepted `.mrbody`, runtime manifest, physical-clone session, readiness and skin-QA evidence; validates machine/deformation/attestation links; verifies embedded renderer revision consistency; and reports the exact next gate. It prefers the canonical `windows-evidence/` and `quest-evidence/` directories, accepts a complete legacy root-file pair for backward compatibility, but rejects ambiguous mixed layouts. If the evidence set is internally inconsistent or appears mutated, it returns `ERROR` rather than guessing. Use `-Json` / `--json` for machine-readable output.
 
 ### Legacy recovery Gate A
 
@@ -138,6 +138,28 @@ The sequence uses Unity Humanoid muscles through `HumanPoseHandler`, not avatar-
 
 The resulting `bodyrig-deformation-probe` v1 is machine evidence that the sequence actually ran. It binds the exact BodyRig build revision, package/runtime/avatar/BodyPrint bytes plus Unity build GUID, platform/version and physical device model. It does **not** claim that the visual deformation was good; `manual_review_required=true` remains mandatory.
 
+### Atomic evidence-pair commit
+
+The runtime necessarily produces the machine probe before the deformation probe. The platform wrappers therefore never point the player directly at canonical evidence filenames. Each attempt gets a unique local staging directory:
+
+- Windows: `.bodyrig-windows-attempt-<uuid>`;
+- Quest: `.bodyrig-quest-attempt-<uuid>`.
+
+Both files must exist and pass all platform/revision/runtime/sequence checks while still staged. Only then is the **whole directory** renamed to the canonical evidence directory. If the player, ADB, validation or build fails before commit, the staging directory is removed and no canonical half-pair is left behind.
+
+The default canonical directories are:
+
+```text
+windows-evidence/
+  windows-probe.json
+  windows-deformation-probe.json
+quest-evidence/
+  quest-probe.json
+  quest-deformation-probe.json
+```
+
+A canonical evidence directory is create-only. Reusing an existing directory is refused. Custom `-ProbeOutput` / `-DeformationOutput` values must be supplied together and share one dedicated, non-existing evidence directory.
+
 ### Windows acceptance
 
 Build/run the physical WindowsPlayer against the Gate A directory:
@@ -147,14 +169,7 @@ Build/run the physical WindowsPlayer against the Gate A directory:
   -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-The wrapper requires both:
-
-```text
-windows-probe.json
-windows-deformation-probe.json
-```
-
-It checks that both probes contain the exact Gate A BodyRig revision, that the deformation probe completed the ordered six-pose sequence, and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
+The wrapper requires both staged outputs before it atomically commits `windows-evidence/`. It checks that both probes contain the exact Gate A BodyRig revision, that the deformation probe completed the ordered six-pose sequence, and that it came from the same build GUID, platform, body id and package/runtime/avatar/BodyPrint bytes as the machine probe.
 
 After watching the player cycle the same sequence and confirming actual visual quality:
 
@@ -162,8 +177,8 @@ After watching the player cycle the same sequence and confirming actual visual q
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\path\to\windows-probe.json" `
-  -DeformationReport "C:\path\to\windows-deformation-probe.json" `
+  -ProbeReport "C:\path\to\acceptance\windows-evidence\windows-probe.json" `
+  -DeformationReport "C:\path\to\acceptance\windows-evidence\windows-deformation-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Reference Renderer" `
@@ -180,12 +195,7 @@ Build/install/run the same reference project against the same Gate A runtime:
   -AcceptanceDir "C:\path\to\acceptance"
 ```
 
-The wrapper requires both:
-
-```text
-quest-probe.json
-quest-deformation-probe.json
-```
+The Quest app writes its pair in app-local storage. The wrapper waits until both remote files exist, pulls both into the local attempt directory, validates them there, and only then commits `quest-evidence/`. No local canonical partial pair is created on ADB/app failure.
 
 The machine/deformation probes must carry the exact Gate A BodyRig build revision, come from Unity Android on Quest/Oculus-identifying hardware, and match each other on build/device and accepted byte identities.
 
@@ -195,8 +205,8 @@ After inspecting the fixed sequence in the headset:
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\path\to\acceptance\runtime\runtime-manifest.json" `
-  -ProbeReport "C:\path\to\quest-probe.json" `
-  -DeformationReport "C:\path\to\quest-deformation-probe.json" `
+  -ProbeReport "C:\path\to\acceptance\quest-evidence\quest-probe.json" `
+  -DeformationReport "C:\path\to\acceptance\quest-evidence\quest-deformation-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Reference Renderer" `
@@ -215,12 +225,12 @@ Only after both ordinary machine probes, both deterministic deformation probes a
 ```powershell
 .\complete-acceptance.ps1 `
   -AcceptanceReport "C:\path\to\acceptance\bodyrig-acceptance.json" `
-  -WindowsRendererReport "C:\path\to\bodyrig-renderer-acceptance-windows.json" `
-  -WindowsProbeReport "C:\path\to\windows-probe.json" `
-  -WindowsDeformationReport "C:\path\to\windows-deformation-probe.json" `
-  -QuestRendererReport "C:\path\to\bodyrig-renderer-acceptance-quest.json" `
-  -QuestProbeReport "C:\path\to\quest-probe.json" `
-  -QuestDeformationReport "C:\path\to\quest-deformation-probe.json"
+  -WindowsRendererReport "C:\path\to\acceptance\bodyrig-renderer-acceptance-windows.json" `
+  -WindowsProbeReport "C:\path\to\acceptance\windows-evidence\windows-probe.json" `
+  -WindowsDeformationReport "C:\path\to\acceptance\windows-evidence\windows-deformation-probe.json" `
+  -QuestRendererReport "C:\path\to\acceptance\bodyrig-renderer-acceptance-quest.json" `
+  -QuestProbeReport "C:\path\to\acceptance\quest-evidence\quest-probe.json" `
+  -QuestDeformationReport "C:\path\to\acceptance\quest-evidence\quest-deformation-probe.json"
 ```
 
 The final gate again checks high-fidelity clone lineage, non-placeholder status, package provenance, package/runtime hashes, exact clean BodyRig revision, clone/readiness/skin-QA evidence, both embedded renderer revisions, both physical renderer probes, both deformation probes, and both human attestations.
