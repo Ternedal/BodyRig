@@ -26,6 +26,16 @@
     "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "bodyrig_checkout_clean": {"type": "boolean"},
     "source_count": {"type": "integer", "minimum": 1, "maximum": 10},
+    "physical_clone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_sha256", "readiness_sha256", "mode"],
+      "properties": {
+        "session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "readiness_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mode": {"const": "stash-sith-high-fidelity"}
+      }
+    },
     "recovery": {
       "type": "object",
       "additionalProperties": false,
