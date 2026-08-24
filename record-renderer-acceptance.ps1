@@ -48,10 +48,14 @@ if ($report.package.placeholder_avatar -ne $false) { throw "Renderer acceptance 
 if ([string]$report.physical_clone.mode -ne "stash-sith-high-fidelity") { throw "Renderer acceptance requires Stash/SiTH physical-clone lineage." }
 $acceptedSessionHash = Require-Sha ([string]$report.physical_clone.session_sha256) "physical_clone.session_sha256"
 $acceptedReadinessHash = Require-Sha ([string]$report.physical_clone.readiness_sha256) "physical_clone.readiness_sha256"
+$acceptedSkinQaHash = Require-Sha ([string]$report.skin_qa.report_sha256) "skin_qa.report_sha256"
+if ($report.skin_qa.structural_pass -ne $true -or $report.skin_qa.manual_review_required -ne $true -or [string]$report.skin_qa.automated_assessment -notin @("low-risk","review","high-risk")) { throw "Gate A skin QA state is invalid." }
 $sessionEvidencePath = Join-Path $reportDir "bodyrig-physical-clone-session.json"
 $readinessEvidencePath = Join-Path $reportDir "bodyrig-rig-readiness.json"
+$skinQaEvidencePath = Join-Path $reportDir "bodyrig-skin-qa.json"
 if (-not (Test-Path -LiteralPath $sessionEvidencePath -PathType Leaf) -or (Sha256 $sessionEvidencePath) -ne $acceptedSessionHash) { throw "Physical clone session evidence is missing or changed." }
 if (-not (Test-Path -LiteralPath $readinessEvidencePath -PathType Leaf) -or (Sha256 $readinessEvidencePath) -ne $acceptedReadinessHash) { throw "Physical clone readiness evidence is missing or changed." }
+if (-not (Test-Path -LiteralPath $skinQaEvidencePath -PathType Leaf) -or (Sha256 $skinQaEvidencePath) -ne $acceptedSkinQaHash) { throw "Anatomical skin QA evidence is missing or changed." }
 $acceptedRuntimeManifestHash = Require-Sha ([string]$report.runtime.manifest_sha256) "runtime.manifest_sha256"
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path; $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
@@ -62,6 +66,10 @@ if (@(& git -C $repoRoot status --porcelain).Count -gt 0) { throw "BodyRig check
 $bodyId = [string]$report.package.body_id; if ([string]::IsNullOrWhiteSpace($bodyId) -or $bodyId -notmatch '^[a-z0-9æøå_-]{1,160}$') { throw "Acceptance report contains an invalid body id." }
 $packagePath = Join-Path $reportDir "$bodyId.mrbody"; if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { throw "Accepted .mrbody package not found beside report: $packagePath" }; $packagePath = (Resolve-Path $packagePath).Path
 $actualPackageHash = Sha256 $packagePath; if ($actualPackageHash -ne (Require-Sha ([string]$report.package.package_sha256) "package.package_sha256")) { throw "Accepted .mrbody SHA-256 no longer matches automated acceptance." }
+$skinQaFile = Read-JsonFile $skinQaEvidencePath "Anatomical skin QA report"; $skinQa = $skinQaFile.Value
+if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or [int]$skinQa.version -ne 1 -or [string]$skinQa.body_id -ne $bodyId -or (Require-Sha ([string]$skinQa.package_sha256) "skin QA package hash") -ne $actualPackageHash) { throw "Anatomical skin QA identity does not match the accepted package." }
+if ($skinQa.structural_pass -ne $true -or $skinQa.manual_review_required -ne $true -or [string]$skinQa.automated_assessment -ne [string]$report.skin_qa.automated_assessment) { throw "Anatomical skin QA report no longer matches Gate A." }
+
 $provenance = Read-PackageJson $packagePath "provenance.json" "provenance.json"
 $visualStages = @($provenance.pipeline | Where-Object { [string]$_.stage -eq "visual-identity-capture" })
 $fittingStages = @($provenance.pipeline | Where-Object { [string]$_.stage -eq "avatar-fitting" })
@@ -82,6 +90,7 @@ if (-not (Test-Path $avatarPath -PathType Leaf) -or -not (Test-Path $bodyprintPa
 $avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath; $checksums = Read-PackageJson $packagePath "checksums.json" "checksums.json"
 $expectedAvatarHash = Require-Sha ([string]$checksums.PSObject.Properties["avatar.vrm"].Value) "checksums.avatar.vrm"; $expectedBodyprintHash = Require-Sha ([string]$checksums.PSObject.Properties["bodyprint.json"].Value) "checksums.bodyprint.json"
 if ($avatarHash -ne $expectedAvatarHash -or $bodyprintHash -ne $expectedBodyprintHash) { throw "Materialized runtime payload hashes do not match the accepted .mrbody." }
+if ((Require-Sha ([string]$skinQa.avatar_sha256) "skin QA avatar hash") -ne $avatarHash) { throw "Anatomical skin QA was not run on the accepted avatar bytes." }
 
 $probeFile = Read-JsonFile $ProbeReport "Renderer machine probe"; $ProbeReport = $probeFile.Path; $probe = $probeFile.Value
 $expectedProbeFields = @("format","version","observed_at","platform","unity_platform","unity_version","build_guid","device_model","graphics_device","body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256","vrm10_loaded","humanoid_valid","required_bones_valid","active_renderer")
@@ -100,11 +109,11 @@ $probeHash = Sha256 $ProbeReport
 
 if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $reportDir (if ($Platform -eq "windows-unity-univrm") { "bodyrig-renderer-acceptance-windows.json" } else { "bodyrig-renderer-acceptance-quest.json" }) }
 $Output = [System.IO.Path]::GetFullPath($Output)
-foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport,$sessionEvidencePath,$readinessEvidencePath)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
+foreach ($p in @($AcceptanceReport,$packagePath,$RuntimeManifest,$avatarPath,$bodyprintPath,$ProbeReport,$sessionEvidencePath,$readinessEvidencePath,$skinQaEvidencePath)) { if ([string]::Equals($Output,$p,[System.StringComparison]::OrdinalIgnoreCase)) { throw "Renderer acceptance output must not overwrite input evidence." } }
 if (Test-Path $Output) { throw "Renderer acceptance output already exists; refusing to overwrite evidence: $Output" }
 $outputDir = Split-Path -Parent $Output; if (-not (Test-Path $outputDir -PathType Container)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 
 $attestation = [ordered]@{ format="bodyrig-renderer-acceptance"; version=1; attested_at=[DateTime]::UtcNow.ToString("o"); bodyrig_revision=$head; automated_report_sha256=$reportHash; probe_report_sha256=$probeHash; package_sha256=$actualPackageHash; runtime_manifest_sha256=$runtimeManifestHash; avatar_sha256=$avatarHash; bodyprint_sha256=$bodyprintHash; body_id=$bodyId; platform=$Platform; renderer_name=$RendererName; renderer_version=$RendererVersion; unity_platform=[string]$probe.unity_platform; unity_version=[string]$probe.unity_version; graphics_device=[string]$probe.graphics_device; machine_probe=$true; result="pass"; quality_note=$QualityNote; attestation="operator-supplied"; production_activation=$false }
 $temp = Join-Path $outputDir ("."+[IO.Path]::GetFileName($Output)+"."+[Guid]::NewGuid().ToString("N")+".tmp")
 try { $attestation | ConvertTo-Json -Depth 8 | Set-Content $temp -Encoding UTF8; Move-Item $temp $Output } finally { if (Test-Path $temp) { Remove-Item $temp -Force } }
-Write-Host "BodyRig renderer acceptance: PASS | $Platform | $($probe.device_model) | probe $probeHash"; Write-Host "Report: $Output"; exit 0
+Write-Host "BodyRig renderer acceptance: PASS | $Platform | $($probe.device_model) | skin=$($skinQa.automated_assessment) | probe $probeHash"; Write-Host "Report: $Output"; exit 0
