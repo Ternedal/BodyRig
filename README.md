@@ -126,13 +126,14 @@ windows-probe.json
 windows-deformation-probe.json
 ```
 
-Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering:
+Efter den synlige sweep/loop er gennemgået, optages den menneskelige attestering. `-DeformationReport` gør attesteringen direkte hash-bundet til det konkrete sweep, operatøren har vurderet:
 
 ```powershell
 .\record-renderer-acceptance.ps1 `
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
   -ProbeReport "C:\acceptance\windows-probe.json" `
+  -DeformationReport "C:\acceptance\windows-deformation-probe.json" `
   -Platform "windows-unity-univrm" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM reference renderer" `
@@ -163,6 +164,7 @@ Efter samme sweep er gennemgået i headsettet:
   -AcceptanceReport "C:\acceptance\bodyrig-acceptance.json" `
   -RuntimeManifest "C:\acceptance\runtime\runtime-manifest.json" `
   -ProbeReport "C:\acceptance\quest-probe.json" `
+  -DeformationReport "C:\acceptance\quest-deformation-probe.json" `
   -Platform "android-quest-class" `
   -Pass `
   -RendererName "BodyRig Unity/UniVRM Quest renderer" `
@@ -170,7 +172,7 @@ Efter samme sweep er gennemgået i headsettet:
   -QualityNote "Same fixed deformation sweep and accepted high-fidelity runtime reviewed on Quest-class hardware"
 ```
 
-Renderer-attesteringen genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet og machine-proben. Deformation-proberne bliver separat krydsvalideret i final release-gaten mod samme package/runtime/avatar/BodyPrint og den samme konkrete build/device-identitet som machine-proben.
+Renderer-attesteringen genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet, machine-proben og deformation-proben. Attesteringen gemmer både `deformation_report_sha256` og `deformation_sequence_revision`, så QualityNote er bundet til det konkrete fysiske sweep. Final release-gaten revaliderer samme deformationfil mod samme package/runtime/avatar/BodyPrint og samme konkrete build/device-identitet som machine-proben.
 
 Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultatet med den faste fysiske sweep ved arm/torso, ben, hænder, skuldre, albuer og knæ. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
 
@@ -191,7 +193,7 @@ Først når begge platformers machine probes, deformation-prober og operatoratte
 
 Final-gaten genverificerer high-fidelity Stash/SiTH-lineage, `placeholder_avatar=false`, package provenance, clone-session/readiness/skin-QA-evidence, package-checksums, runtime-manifest, Git-head, begge machine probes, begge deformation-prober og begge renderer-reporters hashbindinger.
 
-Hver deformation-probe skal have den faste seks-pose-rækkefølge og samme build GUID, Unity-platform/version, device-model, body-id og package/runtime/avatar/BodyPrint hashes som den tilsvarende machine probe. Final release-evidence bærer både skin-QA-evidence og deformation-probe SHA-256/revision med frem.
+Hver deformation-probe skal have den faste seks-pose-rækkefølge og samme build GUID, Unity-platform/version, device-model, body-id og package/runtime/avatar/BodyPrint hashes som den tilsvarende machine probe. Desuden skal den tilsvarende operator-attestering indeholde præcis deformation-probens SHA-256 og `humanoid-muscle-sweep-v1`. Final release-evidence bærer både skin-QA-evidence og deformation-probe SHA-256/revision med frem.
 
 Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
