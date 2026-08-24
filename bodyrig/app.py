@@ -15,13 +15,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .body_feedback import propose_bodyprint_changes
+from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
 from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
 from .person_assembly import (
     PersonAssemblyError,
     build_assembly,
+    read_receipt,
     verify_receipt,
     write_receipt,
+)
+from .person_audition import (
+    PersonAuditionError,
+    audio_path as audition_audio_path,
+    read_audition,
+    receipt_sha256 as audition_receipt_sha256,
+    verify_audition,
+    write_audition,
 )
 from .person_profiles import (
     PersonProfileError,
@@ -127,8 +137,14 @@ class PersonAssemblyRequest(BaseModel):
     personality_revision: str = Field(min_length=1, max_length=24)
 
 
+class PersonAuditionRequest(PersonAssemblyRequest):
+    model: str = Field(min_length=1, max_length=256)
+    prompt: str = Field(min_length=1, max_length=16_000)
+
+
 class PersonRevisionRequest(PersonAssemblyRequest):
     assembly_fingerprint: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    audition_id: str = Field(min_length=41, max_length=41, pattern=r"^audition-[0-9a-f]{32}$")
     body_voice_match: bool
     voice_personality_match: bool
     body_personality_match: bool
@@ -165,6 +181,15 @@ def _voicerig_client() -> VoiceRigClient:
     try:
         return VoiceRigClient(VoiceRigConfig(url=url))
     except VoiceRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _modelrig_client() -> ModelRigClient:
+    url = os.environ.get("MODELRIG_URL", "http://127.0.0.1:8080").strip()
+    token = os.environ.get("MODELRIG_TOKEN", "")
+    try:
+        return ModelRigClient(ModelRigConfig(url=url, token=token))
+    except ModelRigClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
@@ -237,6 +262,17 @@ def _validated_assembly(profile: dict[str, Any], request: PersonAssemblyRequest)
     return assembly
 
 
+def _personality_system_prompt(item: dict[str, Any]) -> str:
+    parts = [str(item["instructions"]).strip()]
+    style = str(item.get("style_notes") or "").strip()
+    if style:
+        parts.append(f"Style notes:\n{style}")
+    parts.append(
+        f"Default language: {item['default_language']}. Reply in this language unless the user explicitly asks for another language."
+    )
+    return "\n\n".join(parts)
+
+
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(UI_DIR / "person.html", media_type="text/html")
@@ -293,6 +329,27 @@ def voicerig_voices() -> dict:
     except VoiceRigClientError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"ok": True, "voices": voices}
+
+
+@app.get("/api/v1/modelrig/health")
+def modelrig_health() -> dict:
+    client = _modelrig_client()
+    try:
+        value = client.health()
+    except ModelRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True, "service": value.get("service"), "version": value.get("version")}
+
+
+@app.get("/api/v1/modelrig/models")
+def modelrig_models() -> dict:
+    client = _modelrig_client()
+    try:
+        client.health()
+        models = client.models()
+    except ModelRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True, "models": models}
 
 
 @app.get("/api/v1/people")
@@ -407,6 +464,69 @@ def prepare_person_assembly(person_id: str, request: PersonAssemblyRequest) -> d
     }
 
 
+@app.post("/api/v1/people/{person_id}/auditions")
+def create_person_audition(person_id: str, request: PersonAuditionRequest) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    assembly = _validated_assembly(profile, request)
+    personality = _revision(profile, "personality", request.personality_revision)
+    voice = _revision(profile, "voice", request.voice_revision)
+
+    modelrig = _modelrig_client()
+    try:
+        modelrig.health()
+        reply = modelrig.chat(
+            model=request.model,
+            system=_personality_system_prompt(personality),
+            prompt=request.prompt,
+        )
+    except ModelRigClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    voicerig = _voicerig_client()
+    _voice_bytes_match(voice, voicerig)
+    try:
+        audio = voicerig.synthesize(str(voice["voice_package"]), reply)
+        audition = write_audition(
+            person_library(),
+            person_id=person_id,
+            assembly_fingerprint=str(assembly["assembly_fingerprint"]),
+            model=request.model,
+            prompt=request.prompt,
+            reply=reply,
+            audio=audio,
+        )
+    except (VoiceRigClientError, PersonAuditionError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {
+        "ok": True,
+        "audition_id": audition["audition_id"],
+        "assembly_fingerprint": assembly["assembly_fingerprint"],
+        "model": audition["model"],
+        "reply": reply,
+        "audio_url": f"/api/v1/people/{person_id}/auditions/{audition['audition_id']}/audio",
+    }
+
+
+@app.get("/api/v1/people/{person_id}/auditions/{audition_id}/audio")
+def person_audition_audio(person_id: str, audition_id: str):
+    try:
+        receipt = read_audition(person_library(), person_id=person_id, audition_id=audition_id)
+        verify_audition(
+            person_library(),
+            person_id=person_id,
+            audition_id=audition_id,
+            assembly_fingerprint=str(receipt["assembly_fingerprint"]),
+        )
+        payload = audition_audio_path(person_library(), person_id, audition_id).read_bytes()
+    except (PersonAuditionError, OSError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(content=payload, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/v1/people/{person_id}/revisions")
 def create_person_revision(person_id: str, request: PersonRevisionRequest) -> dict:
     review = {
@@ -425,6 +545,20 @@ def create_person_revision(person_id: str, request: PersonRevisionRequest) -> di
         if assembly["assembly_fingerprint"] != request.assembly_fingerprint:
             raise HTTPException(status_code=409, detail="The selected person assembly changed after audition. Audition it again before approval.")
         try:
+            verify_audition(
+                person_library(),
+                person_id=person_id,
+                audition_id=request.audition_id,
+                assembly_fingerprint=request.assembly_fingerprint,
+            )
+            audition_sha = audition_receipt_sha256(
+                person_library(),
+                person_id=person_id,
+                audition_id=request.audition_id,
+            )
+        except PersonAuditionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        try:
             profile = add_person_revision(
                 person_library(),
                 person_id,
@@ -436,7 +570,13 @@ def create_person_revision(person_id: str, request: PersonRevisionRequest) -> di
                 activate=False,
             )
             person_revision = profile["person_revisions"][-1]["revision_id"]
-            write_receipt(person_library(), person_revision=person_revision, assembly=assembly)
+            write_receipt(
+                person_library(),
+                person_revision=person_revision,
+                assembly=assembly,
+                audition_id=request.audition_id,
+                audition_receipt_sha256=audition_sha,
+            )
             if request.activate:
                 profile = activate_person_revision(person_library(), person_id, person_revision)
             return profile
@@ -461,9 +601,34 @@ def activate_bundle(person_id: str, revision_id: str) -> dict:
         )
         assembly = _validated_assembly(profile, request)
         try:
-            verify_receipt(person_library(), person_revision=revision_id, assembly=assembly)
+            receipt = read_receipt(person_library(), person_id=person_id, person_revision=revision_id)
+            audition_ref = receipt.get("audition")
+            if not isinstance(audition_ref, dict):
+                raise PersonAssemblyError("legacy person revision has no audition binding; audition it again before activation")
+            audition_id = str(audition_ref.get("audition_id") or "")
+            expected_sha = str(audition_ref.get("receipt_sha256") or "")
+            verify_audition(
+                person_library(),
+                person_id=person_id,
+                audition_id=audition_id,
+                assembly_fingerprint=str(assembly["assembly_fingerprint"]),
+            )
+            actual_sha = audition_receipt_sha256(
+                person_library(),
+                person_id=person_id,
+                audition_id=audition_id,
+            )
+            if actual_sha != expected_sha:
+                raise PersonAuditionError("audition receipt no longer matches the approved Person Revision")
+            verify_receipt(
+                person_library(),
+                person_revision=revision_id,
+                assembly=assembly,
+                audition_id=audition_id,
+                audition_receipt_sha256=actual_sha,
+            )
             return activate_person_revision(person_library(), person_id, revision_id)
-        except (PersonAssemblyError, PersonProfileError) as exc:
+        except (PersonAssemblyError, PersonAuditionError, PersonProfileError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
