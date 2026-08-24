@@ -11,9 +11,11 @@ from typing import Any, Mapping
 FORMAT = "bodyrig-person-assembly"
 VERSION = 1
 RECEIPT_FORMAT = "bodyrig-person-assembly-receipt"
-RECEIPT_VERSION = 1
+RECEIPT_VERSION = 2
+LEGACY_RECEIPT_VERSION = 1
 PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
 PERSON_REVISION_RE = re.compile(r"^person-r[0-9]{4}$")
+AUDITION_ID_RE = re.compile(r"^audition-[0-9a-f]{32}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -102,10 +104,20 @@ def receipt_path(root: str | os.PathLike[str], person_id: str, person_revision: 
     return Path(root).expanduser().resolve() / "assembly-receipts" / person_id / f"{person_revision}.json"
 
 
-def _receipt_payload(person_revision: str, assembly: Mapping[str, Any]) -> dict[str, Any]:
+def _receipt_payload(
+    person_revision: str,
+    assembly: Mapping[str, Any],
+    *,
+    audition_id: str,
+    audition_receipt_sha256: str,
+) -> dict[str, Any]:
     fingerprint = assembly.get("assembly_fingerprint")
     if not isinstance(fingerprint, str) or not SHA256_RE.fullmatch(fingerprint):
         raise PersonAssemblyError("assembly fingerprint is invalid")
+    if not AUDITION_ID_RE.fullmatch(audition_id):
+        raise PersonAssemblyError("audition id is invalid")
+    if not SHA256_RE.fullmatch(audition_receipt_sha256):
+        raise PersonAssemblyError("audition receipt SHA-256 is invalid")
     return {
         "format": RECEIPT_FORMAT,
         "version": RECEIPT_VERSION,
@@ -120,6 +132,10 @@ def _receipt_payload(person_revision: str, assembly: Mapping[str, Any]) -> dict[
             "default_language": assembly["personality"]["default_language"],
             "style_notes_sha256": assembly["personality"]["style_notes_sha256"],
         },
+        "audition": {
+            "audition_id": audition_id,
+            "receipt_sha256": audition_receipt_sha256,
+        },
     }
 
 
@@ -128,10 +144,17 @@ def write_receipt(
     *,
     person_revision: str,
     assembly: Mapping[str, Any],
+    audition_id: str,
+    audition_receipt_sha256: str,
 ) -> Path:
     person_id = str(assembly.get("person_id") or "")
     target = receipt_path(root, person_id, person_revision)
-    payload = _receipt_payload(person_revision, assembly)
+    payload = _receipt_payload(
+        person_revision,
+        assembly,
+        audition_id=audition_id,
+        audition_receipt_sha256=audition_receipt_sha256,
+    )
     target.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     temp = target.with_name(f"{target.name}.tmp-{uuid.uuid4().hex}")
@@ -159,9 +182,10 @@ def read_receipt(
         value = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PersonAssemblyError("assembly receipt is invalid JSON") from exc
-    if not isinstance(value, dict):
-        raise PersonAssemblyError("assembly receipt is invalid")
-    expected = {
+    if not isinstance(value, dict) or value.get("format") != RECEIPT_FORMAT:
+        raise PersonAssemblyError("assembly receipt fields/version are invalid")
+    version = value.get("version")
+    legacy_fields = {
         "format",
         "version",
         "person_id",
@@ -171,7 +195,21 @@ def read_receipt(
         "voice",
         "personality",
     }
-    if set(value) != expected or value.get("format") != RECEIPT_FORMAT or value.get("version") != RECEIPT_VERSION:
+    current_fields = legacy_fields | {"audition"}
+    if version == LEGACY_RECEIPT_VERSION:
+        if set(value) != legacy_fields:
+            raise PersonAssemblyError("legacy assembly receipt fields are invalid")
+    elif version == RECEIPT_VERSION:
+        if set(value) != current_fields:
+            raise PersonAssemblyError("assembly receipt fields/version are invalid")
+        audition = value.get("audition")
+        if not isinstance(audition, dict) or set(audition) != {"audition_id", "receipt_sha256"}:
+            raise PersonAssemblyError("assembly receipt audition binding is invalid")
+        if not isinstance(audition.get("audition_id"), str) or not AUDITION_ID_RE.fullmatch(audition["audition_id"]):
+            raise PersonAssemblyError("assembly receipt audition id is invalid")
+        if not isinstance(audition.get("receipt_sha256"), str) or not SHA256_RE.fullmatch(audition["receipt_sha256"]):
+            raise PersonAssemblyError("assembly receipt audition SHA-256 is invalid")
+    else:
         raise PersonAssemblyError("assembly receipt fields/version are invalid")
     if value.get("person_id") != person_id or value.get("person_revision") != person_revision:
         raise PersonAssemblyError("assembly receipt identity mismatch")
@@ -186,10 +224,19 @@ def verify_receipt(
     *,
     person_revision: str,
     assembly: Mapping[str, Any],
+    audition_id: str,
+    audition_receipt_sha256: str,
 ) -> dict[str, Any]:
     person_id = str(assembly.get("person_id") or "")
     receipt = read_receipt(root, person_id=person_id, person_revision=person_revision)
-    expected = _receipt_payload(person_revision, assembly)
+    if receipt.get("version") != RECEIPT_VERSION:
+        raise PersonAssemblyError("legacy person revision has no audition binding; audition it again before activation")
+    expected = _receipt_payload(
+        person_revision,
+        assembly,
+        audition_id=audition_id,
+        audition_receipt_sha256=audition_receipt_sha256,
+    )
     if receipt != expected:
-        raise PersonAssemblyError("assembly receipt no longer matches the selected component bytes/text")
+        raise PersonAssemblyError("assembly receipt no longer matches the selected component bytes/text or audition evidence")
     return receipt
