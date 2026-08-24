@@ -71,11 +71,40 @@ if (([string]$readiness.rig_setup_sha256).ToLowerInvariant() -ne ([string]$sessi
 
 $cloneRoot = Resolve-InputDirectory -Path ([string]$session.clone_output) -Label "Physical clone output"
 $cloneDir = Resolve-InputDirectory -Path (Join-Path $cloneRoot "clone") -Label "Portable clone artifacts"
-$bodyId = [string]$session.body_id
-$packageSource = Resolve-InputFile -Path (Join-Path $cloneDir "$bodyId.mrbody") -Label "High-fidelity .mrbody"
+$requestedAlias = [string]$session.body_id
+$packageSource = Resolve-InputFile -Path (Join-Path $cloneDir "$requestedAlias.mrbody") -Label "High-fidelity .mrbody"
 $preflightFile = Read-Json (Join-Path $cloneDir "bodyrig-recovery-preflight.json") "Recovery preflight"
 $proofPath = Resolve-InputFile -Path (Join-Path $cloneDir "bodyrig-recovery-proof.json") -Label "Recovery proof"
 $identityPath = Resolve-InputFile -Path (Join-Path $cloneDir "bodyrig-visual-identity.json") -Label "Visual identity profile"
+$portableIdentitySource = Resolve-InputFile -Path (Join-Path $cloneDir "bodyrig-portable-identity.json") -Label "Portable identity receipt"
+
+$identityBindingCode = @'
+import json, sys
+from bodyrig.portable_identity import bind_portable_identity_to_evidence, load_portable_identity
+from bodyrig.proof import load_recovery_proof, read_canonical_json
+receipt = load_portable_identity(sys.argv[1])
+proof = load_recovery_proof(sys.argv[2])
+identity = read_canonical_json(sys.argv[3], label="visual identity profile")
+bound = bind_portable_identity_to_evidence(
+    receipt,
+    proof=proof,
+    visual_identity=identity,
+    requested_alias=sys.argv[4],
+)
+print(json.dumps({
+    "body_id": bound["body_id"],
+    "requested_alias": bound["requested_alias"],
+    "identity_revision": bound["body_id"].removeprefix("bodyid-"),
+}, separators=(",", ":"), allow_nan=False))
+'@
+$identityBindingRaw = & $BodyRigPython -c $identityBindingCode $portableIdentitySource $proofPath $identityPath $requestedAlias
+if ($LASTEXITCODE -ne 0) { throw "Portable identity receipt is not bound to this physical clone evidence." }
+try { $identityBinding = $identityBindingRaw | ConvertFrom-Json }
+catch { throw "Portable identity evidence binding returned unreadable JSON." }
+$bodyId = [string]$identityBinding.body_id
+if ($bodyId -notmatch '^bodyid-[0-9a-f]{24}$') { throw "Portable identity did not resolve a canonical bodyid." }
+if ([string]$identityBinding.requested_alias -ne $requestedAlias) { throw "Portable identity alias does not match the physical session alias." }
+$identityRevision = [string]$identityBinding.identity_revision
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir = Join-Path $cloneRoot "acceptance" }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
@@ -85,9 +114,11 @@ New-Item -ItemType Directory -Path $OutputDir | Out-Null
 $packagePath = Join-Path $OutputDir "$bodyId.mrbody"
 $sessionCopy = Join-Path $OutputDir "bodyrig-physical-clone-session.json"
 $readinessCopy = Join-Path $OutputDir "bodyrig-rig-readiness.json"
+$portableIdentityCopy = Join-Path $OutputDir "bodyrig-portable-identity.json"
 Copy-Exact $packageSource $packagePath "High-fidelity .mrbody"
 Copy-Exact $SessionReport $sessionCopy "Physical clone session"
 Copy-Exact $readinessFile.Path $readinessCopy "Rig readiness report"
+Copy-Exact $portableIdentitySource $portableIdentityCopy "Portable identity receipt"
 
 $inspectCode = @'
 import hashlib, json, pathlib, sys, zipfile
@@ -98,11 +129,18 @@ from bodyrig.proof import load_recovery_proof, read_canonical_json
 proof = load_recovery_proof(sys.argv[1])
 identity = bind_visual_identity_to_proof(read_canonical_json(sys.argv[2], label="visual identity profile"), proof)
 p = pathlib.Path(sys.argv[3]).resolve()
+expected_identity_revision = sys.argv[4]
 v = validate_package(p)
 pipeline = v.provenance["pipeline"]
 recovery = next((s for s in pipeline if s.get("stage") == "body-recovery"), None)
 visual = next((s for s in pipeline if s.get("stage") == "visual-identity-capture"), None)
 fitting = next((s for s in pipeline if s.get("stage") == "avatar-fitting"), None)
+identity_stages = [s for s in pipeline if s.get("stage") == "identity_content"]
+portable_identity_matches = (
+    len(identity_stages) == 1
+    and identity_stages[0].get("adapter") == "bodyrig.portable_identity"
+    and identity_stages[0].get("revision") == expected_identity_revision
+)
 with zipfile.ZipFile(p, "r") as archive:
     vrm = validate_vrm1(archive.read("avatar.vrm"))
 extra = vrm.get("extras", {}).get("bodyrig", {})
@@ -115,6 +153,7 @@ print(json.dumps({
     "source_count_matches": v.provenance["source"]["count"] == proof.get("source_count"),
     "recovery_provenance_matches": bool(recovery and recovery.get("adapter") == proof.get("adapter") and recovery.get("revision") == proof.get("revision")),
     "visual_identity_provenance_matches": bool(visual and visual.get("adapter") == identity.get("adapter") and visual.get("revision") == identity.get("revision")),
+    "portable_identity_provenance_matches": portable_identity_matches,
     "avatar_fitting_provenance_present": bool(fitting and fitting.get("adapter") and fitting.get("revision")),
     "fitting_adapter": fitting.get("adapter") if fitting else None,
     "fitting_revision": fitting.get("revision") if fitting else None,
@@ -129,14 +168,15 @@ print(json.dumps({
     "motion_present": "energy" in proof["bodyprint"].get("motion", {}) and any(k in proof["bodyprint"].get("motion", {}) for k in ("gesture_amplitude","head_motion")),
 }, separators=(",", ":"), allow_nan=False))
 '@
-$packageInfoRaw = & $BodyRigPython -c $inspectCode $proofPath $identityPath $packagePath
+$packageInfoRaw = & $BodyRigPython -c $inspectCode $proofPath $identityPath $packagePath $identityRevision
 if ($LASTEXITCODE -ne 0) { throw "High-fidelity package/proof/identity inspection failed." }
 try { $packageInfo = $packageInfoRaw | ConvertFrom-Json } catch { throw "High-fidelity package inspection returned unreadable JSON." }
 
-if ([string]$packageInfo.body_id -ne $bodyId) { throw "Physical session body id does not match .mrbody." }
+if ([string]$packageInfo.body_id -ne $bodyId) { throw "Canonical portable identity does not match .mrbody manifest id." }
 if ($preflightFile.Value.ok -ne $true) { throw "Recovery preflight did not report ok=true." }
 if ($packageInfo.bodyprint_matches_proof -ne $true -or $packageInfo.source_count_matches -ne $true -or $packageInfo.recovery_provenance_matches -ne $true) { throw "High-fidelity package is not bound to the recovery proof." }
 if ($packageInfo.visual_identity_provenance_matches -ne $true) { throw "High-fidelity package is not bound to the visual identity profile." }
+if ($packageInfo.portable_identity_provenance_matches -ne $true) { throw "High-fidelity package is not bound to the canonical portable identity authority." }
 if ($packageInfo.avatar_fitting_provenance_present -ne $true -or [string]$packageInfo.fitting_adapter -ne "sith-smplx-vrm" -or [string]$packageInfo.fitting_revision -ne "1") { throw "Physical Gate A requires the built-in sith-smplx-vrm v1 fitting path." }
 if ([string]$packageInfo.vrm_spec_version -ne "1.0") { throw "High-fidelity avatar is not VRM 1.0." }
 if ($packageInfo.placeholder_avatar -eq $true) { throw "Physical Gate A refuses a placeholder avatar; the accepted package must be source-derived high fidelity." }
@@ -235,6 +275,9 @@ try {
 
 Write-Host "BodyRig high-fidelity Gate A: PASS"
 Write-Host "Revision: $head"
+Write-Host "Requested alias: $requestedAlias"
+Write-Host "Canonical body id: $bodyId"
+Write-Host "Portable identity: $portableIdentityCopy"
 Write-Host "Package: $packagePath"
 Write-Host "Package SHA-256: $packageHash"
 Write-Host "Skin QA: $skinAssessment | $skinQaPath"

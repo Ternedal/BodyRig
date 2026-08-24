@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/portable-identity-v1.schema.json",
+  "title": "BodyRig portable identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "body_id",
+    "requested_alias",
+    "source_count",
+    "source_set_sha256",
+    "recovery_proof_sha256",
+    "visual_identity_sha256",
+    "subject_track_id",
+    "authority"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-portable-identity"},
+    "version": {"const": 1},
+    "body_id": {"type": "string", "pattern": "^bodyid-[0-9a-f]{24}$"},
+    "requested_alias": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9æøå_-]+$"},
+    "source_count": {"type": "integer", "minimum": 1, "maximum": 10},
+    "source_set_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "recovery_proof_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "visual_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "subject_track_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "revision"],
+      "properties": {
+        "adapter": {"const": "bodyrig.portable_identity"},
+        "revision": {"const": "1"}
+      }
+    }
+  }
+}
