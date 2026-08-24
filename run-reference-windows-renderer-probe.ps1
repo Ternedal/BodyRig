@@ -1,7 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
-    [string]$UnityExe = "",
-    [switch]$SkipBuild
+    [string]$UnityExe = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,7 +39,6 @@ try {
         AcceptanceDir = $AcceptanceDir
         ProbeOutput = $stagedProbe
         DeformationOutput = $stagedDeformation
-        SkipBuild = $SkipBuild
     }
     if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $args.UnityExe = $UnityExe }
     & $inner @args
