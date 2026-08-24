@@ -11,7 +11,7 @@ BodyRig giver ModelRig en visuel og kropslig tilstedeværelse.
 
 Det normale flow er:
 
-> vælg 1–10 videoklip → identificér personen → udled BodyPrint → rekonstruér visuel identitet/krop → fit source-derived VRM 1.0 → eksportér `.mrbody` → materialisér validerede runtime-assets → brug de samme bytes i Windows/Android/Quest-klienter.
+> vælg 1–10 videoklip → identificér personen → udled BodyPrint → rekonstruér visuel identitet/krop → fit source-derived VRM 1.0 → eksportér `.mrbody` → anatomisk skin-QA → materialisér validerede runtime-assets → brug de samme bytes i Windows/Android/Quest-klienter.
 
 V1 er local-first. Kildevideo er build-input og må ikke ende i den portable profil eller support-output.
 
@@ -80,9 +80,13 @@ Denne Gate A-bro kræver bl.a.:
 - built-in `sith-smplx-vrm` revision `1`;
 - VRM 1.0 og `placeholder_avatar=false`;
 - source-derived shape/motion;
+- strukturelt gyldige skin weights;
+- en create-only anatomisk skin-QA bundet til package- og avatar-SHA;
 - runtime materialiseret fra den **samme** accepterede `.mrbody`.
 
-Gate A-bundlen indeholder den accepterede `.mrbody`, runtime-manifest/payloads samt kopier af physical-clone session- og readiness-evidence. Den efterlader stadig `physical_renderer_acceptance=pending` og `production_activation=false`.
+Gate A-bundlen indeholder den accepterede `.mrbody`, `bodyrig-skin-qa.json`, runtime-manifest/payloads samt kopier af physical-clone session- og readiness-evidence. Skin-QA klassificerer cross-region weight leakage som `low-risk`, `review` eller `high-risk`, men markerer altid `manual_review_required=true`; den erstatter altså ikke den fysiske deformationstest. Gate A efterlader fortsat `physical_renderer_acceptance=pending` og `production_activation=false`.
+
+Se `docs/SKIN_QA.md` for metode, thresholds og trust boundary.
 
 ## `.mrbody` → renderer-runtime
 
@@ -99,6 +103,8 @@ bodyrig-materialize `
 ## Fysisk renderer-acceptance
 
 Windows og Quest skal loade **samme Gate A runtime-manifest og samme package-bytes**. Renderer-proben skal komme fra den byggede runtime, ikke fra Unity Editor eller en generisk Android-telefon.
+
+Før en fysisk renderer-attestering accepteres, rehashes også `bodyrig-skin-qa.json`, og dens package/avatar-identitet skal fortsat matche Gate A. Et `high-risk` assessment er et stærkt review-signal, ikke et automatisk veto; operatøren skal dokumentere den faktiske deformation i `QualityNote`.
 
 Efter fysisk WindowsPlayer-load og visuel kontrol:
 
@@ -128,9 +134,9 @@ Efter samme runtime er loadet på Quest-class Android-hardware:
   -QualityNote "Same accepted high-fidelity runtime verified on Quest-class hardware"
 ```
 
-Renderer-attesteringen genverificerer high-fidelity clone-lineage, package provenance, session/readiness-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet og machine-proben. Hver platformrapport forbliver non-activating med `production_activation=false`.
+Renderer-attesteringen genverificerer high-fidelity clone-lineage, package provenance, session/readiness/skin-QA-hashes, exact clean BodyRig-revision, package/runtime/payload-byte-identitet og machine-proben. Hver platformrapport forbliver non-activating med `production_activation=false`.
 
-Den første rigtige high-fidelity clone skal især inspiceres for cross-limb skin-weight leakage ved arm/torso, ben og hænder. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
+Den første rigtige high-fidelity clone skal især sammenholde skin-QA-resultatet med faktisk deformation ved arm/torso, ben, hænder, skuldre, albuer og knæ. Nearest-vertex skin transfer opgraderes først, hvis fysisk evidens viser, at det er nødvendigt.
 
 ## Final release gate
 
@@ -145,7 +151,7 @@ Først når begge platformers machine probes og operatorattesteringer findes, ka
   -QuestProbeReport "C:\acceptance\quest-probe.json"
 ```
 
-Final-gaten genverificerer high-fidelity Stash/SiTH-lineage, `placeholder_avatar=false`, package provenance, clone-session/readiness-evidence, package-checksums, runtime-manifest, Git-head, begge machine probes og begge renderer-reporters hashbindinger.
+Final-gaten genverificerer high-fidelity Stash/SiTH-lineage, `placeholder_avatar=false`, package provenance, clone-session/readiness/skin-QA-evidence, package-checksums, runtime-manifest, Git-head, begge machine probes og begge renderer-reporters hashbindinger. Final release-evidence bærer skin-QA SHA-256, assessment og `manual_review_required=true` med frem.
 
 Kun den resulterende `bodyrig-release-acceptance.json` må have:
 
@@ -173,10 +179,10 @@ VoiceRig -- utterance/viseme timing --+
 
 Stash/video --> pinned recovery + PHALP --> canonical tracks/BodyPrint
             --> visual identity --> pinned SiTH/SMPL-X --> VRM 1.0
-            --> .mrbody --> validated runtime materialization
+            --> .mrbody --> anatomical skin QA --> validated runtime materialization
             --> WindowsPlayer + Quest byte-bound acceptance
 ```
 
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
 
-Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/MOTOR_STATE.md`, `docs/PHYSICAL_CLONE_SESSION.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.
+Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/MOTOR_STATE.md`, `docs/PHYSICAL_CLONE_SESSION.md`, `docs/SKIN_QA.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.
