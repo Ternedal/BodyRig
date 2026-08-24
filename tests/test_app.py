@@ -56,11 +56,19 @@ def _package(path: Path) -> Path:
     )
 
 
+def _client(monkeypatch) -> TestClient:
+    # Starlette TestClient uses the synthetic peer name "testclient", which the
+    # production request guard intentionally rejects because it is not a loopback IP.
+    # Tests opt in explicitly instead of weakening the runtime boundary.
+    monkeypatch.setenv("BODYRIG_ALLOW_REMOTE", "1")
+    return TestClient(app_module.app)
+
+
 def test_import_activate_cue_and_motor_state(tmp_path: Path, monkeypatch):
     library = tmp_path / "library"
     monkeypatch.setattr(app_module, "body_library", lambda: library)
     monkeypatch.setattr(app_module, "runtime", BodyRuntime())
-    client = TestClient(app_module.app)
+    client = _client(monkeypatch)
 
     package = _package(tmp_path / "api-person.mrbody")
     imported = client.post("/api/v1/bodies/import", json={"path": str(package)})
@@ -100,6 +108,6 @@ def test_import_activate_cue_and_motor_state(tmp_path: Path, monkeypatch):
 def test_motor_state_requires_activated_bodyprint(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(app_module, "body_library", lambda: tmp_path / "library")
     monkeypatch.setattr(app_module, "runtime", BodyRuntime())
-    client = TestClient(app_module.app)
+    client = _client(monkeypatch)
     response = client.get("/api/v1/runtime/motor-state")
     assert response.status_code == 409
