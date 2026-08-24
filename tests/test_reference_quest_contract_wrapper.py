@@ -11,6 +11,10 @@ def test_reference_quest_wrapper_contract_binds_before_canonical_commit() -> Non
 
     assert "reference-renderer\\renderer-contract.json" in source
     assert '"bodyrig-reference-renderer-contract"' in source
+    assert "univrm_version" in source
+    assert "univrm_revision" in source
+    assert "Reference renderer contract fields are not canonical." in source
+    assert "Reference renderer contract contains an invalid UniVRM revision." in source
     assert '"run-quest-renderer-probe.ps1"' in source
     assert '".bodyrig-quest-contract-stage-"' in source
     assert '"quest-evidence"' in source
@@ -37,6 +41,12 @@ def test_reference_quest_wrapper_contract_binds_before_canonical_commit() -> Non
     assert '$committed = $true' in source
     assert 'if (-not $committed -and (Test-Path -LiteralPath $stageDir -PathType Container))' in source
     assert 'Remove-Item -LiteralPath $stageDir -Recurse -Force' in source
+
+
+def test_reference_quest_wrapper_does_not_allow_skipping_canonical_build() -> None:
+    source = (REPO / "run-reference-quest-renderer-probe.ps1").read_text(encoding="utf-8")
+    params = source.split(")\n\n$ErrorActionPreference", 1)[0]
+    assert "$SkipBuild" not in params
 
 
 def test_reference_quest_wrapper_is_only_canonical_docs_entrypoint() -> None:
