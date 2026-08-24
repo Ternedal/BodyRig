@@ -147,6 +147,24 @@ if ($LASTEXITCODE -ne 0) {
     throw "BodyRig live readiness failed with exit code $LASTEXITCODE. No physical session was started."
 }
 
+if ($hasPerformer) {
+    Write-Host ""
+    Write-Host "Probing selected Stash performer and local source pool..."
+    $probeRaw = @(& $BodyRigPython -m bodyrig.stash_cli probe --performer-id $PerformerId --url $StashUrl --api-key-env $ApiKeyEnv)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Selected Stash performer/source probe failed with exit code $LASTEXITCODE. No physical session was started."
+    }
+    try { $probe = ($probeRaw -join "`n") | ConvertFrom-Json }
+    catch { throw "Selected Stash performer/source probe returned unreadable JSON. No physical session was started." }
+    if ($probe.ok -ne $true -or [int]$probe.usable_source_count -lt 1) {
+        throw "Selected Stash performer/source probe did not prove at least one usable local video. No physical session was started."
+    }
+    if ([string]$probe.performer.id -ne $PerformerId) {
+        throw "Selected Stash performer/source probe returned a different performer id. No physical session was started."
+    }
+    Write-Host "Selected performer: $([string]$probe.performer.name) [$([string]$probe.performer.id)] | candidates: $([int]$probe.candidate_count) | usable local sources: $([int]$probe.usable_source_count)"
+}
+
 $finalHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
 if ($LASTEXITCODE -ne 0 -or $finalHeadRaw.Count -ne 1) {
     throw "Could not re-check BodyRig Git HEAD after pre-session readiness."
