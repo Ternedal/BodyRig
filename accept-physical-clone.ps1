@@ -39,13 +39,32 @@ function Copy-Exact([string]$Source,[string]$Destination,[string]$Label) {
     Copy-Item -LiteralPath $Source -Destination $Destination
     if ((Sha256 $Source) -ne (Sha256 $Destination)) { throw "$Label changed while copying into acceptance bundle." }
 }
+function Assert-CheckoutAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [string]$ExpectedHead = ""
+    )
+    $headLines = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) {
+        throw "Could not bind high-fidelity acceptance to BodyRig Git HEAD."
+    }
+    $currentHead = ([string]$headLines[0]).Trim().ToLowerInvariant()
+    if ($currentHead -notmatch '^[0-9a-f]{40}$') {
+        throw "BodyRig Git HEAD is not canonical for high-fidelity acceptance."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedHead) -and $currentHead -ne $ExpectedHead) {
+        throw "BodyRig checkout revision changed during Gate A; expected $ExpectedHead, got $currentHead."
+    }
+    $dirty = @(& git -C $RepoRoot status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig Git status." }
+    if ($dirty.Count -gt 0) {
+        throw "BodyRig checkout is dirty; high-fidelity Gate A requires the exact clean clone revision."
+    }
+    return $currentHead
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Could not bind high-fidelity acceptance to BodyRig Git HEAD." }
-$dirty = @(& git -C $repoRoot status --porcelain)
-if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig Git status." }
-if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; high-fidelity Gate A requires the exact clean clone revision." }
+$head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $candidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -248,6 +267,15 @@ $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw -Encoding 
 if ([string]$runtimeManifest.format -ne "bodyrig-runtime-assets" -or [int]$runtimeManifest.version -ne 1 -or [string]$runtimeManifest.body_id -ne $bodyId -or ([string]$runtimeManifest.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Materialized runtime identity does not match the accepted high-fidelity package." }
 $runtimeHash = Sha256 $runtimeManifestPath
 
+try {
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+} catch {
+    if (Test-Path -LiteralPath $OutputDir -PathType Container) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    throw "BodyRig checkout authority changed before Gate A acceptance write; removed non-authoritative output '$OutputDir'. $($_.Exception.Message)"
+}
+
 $checks = [ordered]@{
     bodyrig_checkout_clean = $true
     preflight_ok = $true
@@ -315,6 +343,15 @@ try {
     Move-Item -LiteralPath $temp -Destination $reportPath
 } finally {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+}
+
+try {
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+} catch {
+    if (Test-Path -LiteralPath $OutputDir -PathType Container) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force
+    }
+    throw "BodyRig checkout authority changed after Gate A acceptance write; removed non-authoritative output '$OutputDir'. $($_.Exception.Message)"
 }
 
 Write-Host "BodyRig high-fidelity Gate A: PASS"
