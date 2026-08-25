@@ -26,7 +26,25 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 if (-not (Test-Path -LiteralPath $BodyRigPython -PathType Leaf)) { throw "BodyRig Python not found: $BodyRigPython" }
 $BodyRigPython = (Resolve-Path -LiteralPath $BodyRigPython).Path
 
-$argsList = @("-m", "bodyrig.acceptance_status_cli")
+$expectedBodyRigModulePath = Join-Path $repoRoot "bodyrig\__init__.py"
+if (-not (Test-Path -LiteralPath $expectedBodyRigModulePath -PathType Leaf)) {
+    throw "BodyRig checkout module not found: $expectedBodyRigModulePath"
+}
+$expectedBodyRigModule = (Resolve-Path -LiteralPath $expectedBodyRigModulePath).Path
+$bodyRigAuthorityRaw = @(& $BodyRigPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())")
+if ($LASTEXITCODE -ne 0 -or $bodyRigAuthorityRaw.Count -ne 1) {
+    throw "BodyRig Python could not prove a single checkout-bound bodyrig import for acceptance status."
+}
+$actualBodyRigModulePath = ([string]$bodyRigAuthorityRaw[0]).Trim()
+if ([string]::IsNullOrWhiteSpace($actualBodyRigModulePath) -or -not (Test-Path -LiteralPath $actualBodyRigModulePath -PathType Leaf)) {
+    throw "BodyRig Python returned an invalid bodyrig import path for acceptance status."
+}
+$actualBodyRigModule = (Resolve-Path -LiteralPath $actualBodyRigModulePath).Path
+if (-not [string]::Equals($actualBodyRigModule, $expectedBodyRigModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "BodyRig Python imports bodyrig from unexpected location: $actualBodyRigModule. Expected checkout authority: $expectedBodyRigModule"
+}
+
+$argsList = @("-m", "bodyrig.acceptance_status_cli", "--operator-root", $repoRoot)
 if (-not [string]::IsNullOrWhiteSpace($SessionReport)) {
     if (-not (Test-Path -LiteralPath $SessionReport -PathType Leaf)) { throw "Physical clone session report not found: $SessionReport" }
     $argsList += @("--session-report", (Resolve-Path -LiteralPath $SessionReport).Path)
