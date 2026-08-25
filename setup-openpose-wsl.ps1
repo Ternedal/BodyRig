@@ -21,11 +21,50 @@ function Resolve-CommandPath {
 
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
-    $output = & $WslExe -d $Distribution -- @Arguments 2>&1
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $WslExe
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add("-d")
+    $startInfo.ArgumentList.Add($Distribution)
+    $startInfo.ArgumentList.Add("--")
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw "Failed to start WSL executable: $WslExe"
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+
+    $parts = @()
+    if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+        $parts += $stdout.TrimEnd()
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+        $parts += $stderr.TrimEnd()
+    }
+    $text = ($parts -join "`n").Trim()
+
     return [pscustomobject]@{
-        ExitCode = $LASTEXITCODE
-        Output = @($output)
-        Text = (@($output) -join "`n").Trim()
+        ExitCode = $exitCode
+        Stdout = $stdout
+        Stderr = $stderr
+        Text = $text
     }
 }
 
