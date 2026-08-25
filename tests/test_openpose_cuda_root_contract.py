@@ -19,6 +19,22 @@ def test_openpose_setup_binds_explicit_cuda_root() -> None:
     assert 'which", "nvcc"' not in script
 
 
+def test_openpose_setup_uses_current_upstream_model_mirror_with_pinned_hashes() -> None:
+    script = _script()
+
+    assert '[string]$ModelBaseUrl = "http://vcl.snu.ac.kr/OpenPose/models/"' in script
+    assert 'pose/body_25/pose_iter_584000.caffemodel' in script
+    assert '78287b57cf85fa89c03f1393d368e5b7' in script
+    assert 'face/pose_iter_116000.caffemodel' in script
+    assert 'e747180d728fa4e4418c465828384333' in script
+    assert 'hand/pose_iter_102000.caffemodel' in script
+    assert 'a82cfc3fea7c62f159e11bd3674c1531' in script
+    assert 'Get-WslMd5 -Path $target' in script
+    assert '"-DDOWNLOAD_BODY_25_MODEL=OFF"' in script
+    assert '"-DDOWNLOAD_FACE_MODEL=OFF"' in script
+    assert '"-DDOWNLOAD_HAND_MODEL=OFF"' in script
+
+
 def test_openpose_wsl_capture_uses_exit_code_without_runtime_specific_argument_list() -> None:
     script = _script()
 
