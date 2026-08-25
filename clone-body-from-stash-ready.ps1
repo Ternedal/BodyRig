@@ -64,6 +64,17 @@ function Invoke-SessionCommand {
     if ($LASTEXITCODE -ne 0) { throw "$Step failed with exit code $LASTEXITCODE" }
 }
 
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    throw "The production physical BodyRig run is Windows-only. Run this launcher on the target Windows rig."
+}
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "PowerShell 7+ (pwsh) is required for the production physical BodyRig path. Reopen the checkout in pwsh and rerun the launcher."
+}
+$powerShellExe = Resolve-CommandPath "pwsh"
+if ($null -eq $powerShellExe) {
+    throw "PowerShell 7 executable (pwsh) was not found even though the current shell reports PowerShell 7+."
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
@@ -188,10 +199,6 @@ try {
         BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sith.diffusion_model.sha256).ToLowerInvariant()
     }
 
-    $powerShellExe = Resolve-CommandPath "pwsh"
-    if ($null -eq $powerShellExe) { $powerShellExe = Resolve-CommandPath "powershell" }
-    if ($null -eq $powerShellExe) { throw "PowerShell executable not found." }
-
     $readinessScript = Join-Path $repoRoot "check-rig-ready.ps1"
     if (-not (Test-Path -LiteralPath $readinessScript -PathType Leaf)) { throw "check-rig-ready.ps1 not found." }
     $readinessArgs = @(
@@ -209,6 +216,7 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $readinessArgs += @("-StashUrl", $StashUrl) }
 
     Write-Host "BodyRig ready-rig Stash clone"
+    Write-Host "PowerShell: $($PSVersionTable.PSVersion) | pwsh: $powerShellExe"
     Write-Host "BodyRig revision: $head"
     Write-Host "Checkout clean: $checkoutClean"
     Write-Host "Rig setup: $RigSetupReport"
