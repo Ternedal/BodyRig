@@ -96,7 +96,7 @@ def test_materialize_cli_reports_exact_runtime_identity(tmp_path: Path, capsys):
     assert Path(payload["runtime_manifest"]).resolve() == (target / RUNTIME_MANIFEST).resolve()
 
 
-def test_materialize_refuses_existing_destination(tmp_path: Path):
+def test_materialize_rejects_existing_destination(tmp_path: Path):
     package = _package(tmp_path / "fixture.mrbody")
     target = tmp_path / "runtime"
     target.mkdir()
@@ -138,3 +138,27 @@ def test_materialized_runtime_contains_no_unvalidated_extra_files(tmp_path: Path
         RUNTIME_MANIFEST,
         "thumbnail.png",
     ]
+
+
+def test_materialize_rejects_canonical_sith_package_without_appearance_boundary(tmp_path: Path):
+    fitted = ProceduralAvatarFitter().fit(BODYPRINT, name="Fixture Person")
+    provenance = json.loads(json.dumps(PROVENANCE))
+    provenance["pipeline"][-1] = {
+        "stage": "avatar-fitting",
+        "adapter": "sith-smplx-vrm",
+        "revision": "1",
+    }
+    package = build_package(
+        tmp_path / "missing-appearance-boundary.mrbody",
+        body_id="fixture-person",
+        name="Fixture Person",
+        avatar_vrm=fitted.avatar_vrm,
+        bodyprint=BODYPRINT,
+        provenance=provenance,
+        thumbnail_png=fitted.thumbnail_png,
+    )
+    target = tmp_path / "runtime"
+
+    with pytest.raises(MRBodyError, match="appearance boundary"):
+        materialize_runtime(package, target)
+    assert not target.exists()

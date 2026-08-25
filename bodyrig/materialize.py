@@ -9,6 +9,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .appearance_boundary import AppearanceBoundaryError, validate_pipeline
 from .package import MRBodyError, validate_package
 
 RUNTIME_MANIFEST = "runtime-manifest.json"
@@ -33,6 +34,30 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _require_production_appearance_boundary(provenance: dict) -> None:
+    pipeline = provenance.get("pipeline")
+    if not isinstance(pipeline, list):
+        return
+    fitting = next(
+        (
+            stage
+            for stage in pipeline
+            if isinstance(stage, dict) and stage.get("stage") == "avatar-fitting"
+        ),
+        None,
+    )
+    if not isinstance(fitting, dict):
+        return
+    if fitting.get("adapter") != "sith-smplx-vrm" or fitting.get("revision") != "1":
+        return
+    try:
+        validate_pipeline(pipeline)
+    except AppearanceBoundaryError as exc:
+        raise MRBodyError(
+            f"runtime materialization rejected invalid appearance boundary: {exc}"
+        ) from exc
+
+
 def materialize_runtime(
     package_path: str | os.PathLike[str],
     destination: str | os.PathLike[str],
@@ -46,6 +71,7 @@ def materialize_runtime(
 
     package = Path(package_path).expanduser().resolve()
     validated = validate_package(package)
+    _require_production_appearance_boundary(validated.provenance)
     target = Path(destination).expanduser().resolve()
     if target.exists():
         raise MRBodyError(f"runtime destination already exists: {target}")
