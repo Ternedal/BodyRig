@@ -35,6 +35,19 @@ def test_openpose_setup_uses_current_upstream_model_mirror_with_pinned_hashes() 
     assert '"-DDOWNLOAD_HAND_MODEL=OFF"' in script
 
 
+def test_openpose_setup_binds_expected_build_submodules() -> None:
+    script = _script()
+
+    assert '$CaffeRevision = "1807aadafc934a2a1341021620981cb1ec526b83"' in script
+    assert '$Pybind11Revision = "085a29436a8c472caaaf7157aa644b571079bcaa"' in script
+    assert '"--ignore-submodules=all"' in script
+    assert '"submodule", "update", "--init", "--recursive", "--force"' in script
+    assert 'Verify OpenPose CUDA-11 Caffe revision' in script
+    assert 'OpenPose CUDA-11 Caffe submodule' in script
+    assert 'Verify final pybind11 revision' in script
+    assert 'caffe_revision = $CaffeRevision' in script
+
+
 def test_openpose_wsl_capture_uses_exit_code_without_runtime_specific_argument_list() -> None:
     script = _script()
 
