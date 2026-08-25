@@ -32,6 +32,24 @@ function Read-JsonFile {
     return [pscustomobject]@{ Path = $resolved; Value = $value }
 }
 
+function Assert-CheckoutAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [string]$ExpectedHead = ""
+    )
+    $headLines = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) { throw "Could not resolve current BodyRig Git revision." }
+    $head = ([string]$headLines[0]).Trim().ToLowerInvariant()
+    if ($head -notmatch '^[0-9a-f]{40}$') { throw "Current BodyRig Git revision is not canonical." }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedHead) -and $head -ne $ExpectedHead) {
+        throw "BodyRig checkout revision changed while renderer attestation was being written; expected $ExpectedHead, got $head."
+    }
+    $dirty = @(& git -C $RepoRoot status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not verify BodyRig checkout cleanliness." }
+    if ($dirty.Count -gt 0) { throw "BodyRig checkout changed while renderer attestation was being written; checkout is dirty." }
+    return $head
+}
+
 function Resolve-EvidencePair {
     param(
         [Parameter(Mandatory = $true)][string]$AcceptanceRoot,
@@ -63,6 +81,7 @@ function Resolve-EvidencePair {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+$initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 if (-not $ConfirmQualityChecklist) { throw "Reference renderer attestation requires explicit -ConfirmQualityChecklist after the full physical quality review." }
 if ([string]::IsNullOrWhiteSpace($QualityNote)) { throw "QualityNote must contain the operator's physical review." }
 $QualityNote = $QualityNote.Trim()
@@ -108,7 +127,11 @@ $recordScript = Join-Path $repoRoot "record-renderer-acceptance.ps1"
 if (-not (Test-Path -LiteralPath $recordScript -PathType Leaf)) { throw "Core renderer acceptance script not found: $recordScript" }
 $acceptanceReport = Join-Path $AcceptanceDir "bodyrig-acceptance.json"
 $runtimeManifest = Join-Path (Join-Path $AcceptanceDir "runtime") "runtime-manifest.json"
-if ([string]::IsNullOrWhiteSpace($Output)) { $Output = $defaultOutput }
+if ([string]::IsNullOrWhiteSpace($Output)) {
+    $Output = $defaultOutput
+} else {
+    $Output = [System.IO.Path]::GetFullPath($Output)
+}
 
 $args = @{
     AcceptanceReport = $acceptanceReport
@@ -125,6 +148,15 @@ $args = @{
 }
 & $recordScript @args
 if ($LASTEXITCODE -ne 0) { throw "Core renderer acceptance failed with exit code $LASTEXITCODE." }
+
+try {
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $initialHead)
+} catch {
+    if (Test-Path -LiteralPath $Output -PathType Leaf) {
+        Remove-Item -LiteralPath $Output -Force
+    }
+    throw "BodyRig checkout authority changed after renderer attestation write; removed non-authoritative output '$Output'. $($_.Exception.Message)"
+}
 
 Write-Host "BodyRig reference renderer attestation: PASS | $Platform | quality=bodyrig-human-quality-v1"
 Write-Host "Renderer: $($contract.renderer_name) | $($contract.renderer_version) | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision)"
