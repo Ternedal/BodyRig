@@ -289,25 +289,30 @@ def install_package(
     *,
     expected_sha256: str | None = None,
 ) -> Path:
-    validated = validate_package(package_path)
     expected = None
     if expected_sha256 is not None:
         expected = str(expected_sha256).strip().lower()
         if not SHA_RE.fullmatch(expected):
             raise MRBodyError("invalid expected package SHA-256")
+
+    source = Path(package_path)
     library = Path(library_dir)
     library.mkdir(parents=True, exist_ok=True)
-    target = library / f"{validated.manifest['id']}.mrbody"
-    fd, temp_name = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=library)
+    fd, temp_name = tempfile.mkstemp(prefix=".bodyrig-install-", suffix=".tmp", dir=library)
+    temp = Path(temp_name)
     try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(Path(package_path).read_bytes())
-            stream.flush()
-            os.fsync(stream.fileno())
-        validate_package(temp_name)
-        if expected is not None and _file_sha256(temp_name) != expected:
+        with source.open("rb") as input_stream, os.fdopen(fd, "wb") as output_stream:
+            for block in iter(lambda: input_stream.read(1024 * 1024), b""):
+                output_stream.write(block)
+            output_stream.flush()
+            os.fsync(output_stream.fileno())
+
+        validated = validate_package(temp)
+        if expected is not None and _file_sha256(temp) != expected:
             raise MRBodyError("package bytes do not match expected SHA-256 authority")
-        os.replace(temp_name, target)
+
+        target = library / f"{validated.manifest['id']}.mrbody"
+        os.replace(temp, target)
+        return target
     finally:
-        Path(temp_name).unlink(missing_ok=True)
-    return target
+        temp.unlink(missing_ok=True)
