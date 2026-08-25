@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .bridges.hmr2_config import ADAPTER_NAME, ADAPTER_REVISION, bridge_script_path
 from .recovery import BodyprintExtractor, JsonCommandRecoveryAdapter, RecoveredTrack, RecoveryResult
+from .recovery_authority import RecoveryAuthorityError, resolve_phalp_repo
 
 
 def _select_track(result: RecoveryResult, requested: str | None) -> RecoveredTrack:
@@ -34,6 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("sources", nargs="+", help="1–10 local video clips")
     parser.add_argument("--python", required=True, dest="external_python", help="Python executable in the 4D-Humans environment")
     parser.add_argument("--repo", required=True, help="Pinned 4D-Humans checkout")
+    parser.add_argument(
+        "--phalp-repo",
+        default="",
+        help="Pinned PHALP checkout. Ready-rig runs resolve this from BODYRIG_RIG_SETUP_REPORT when omitted.",
+    )
     parser.add_argument("--track-id", help="PHALP track to use when multiple people are present")
     parser.add_argument("--out", required=True, help="Output JSON proof path")
     args = parser.parse_args(argv)
@@ -46,12 +52,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BodyRig recovery: missing source(s): {', '.join(missing)}", file=sys.stderr)
         return 2
 
+    four_d_repo = Path(args.repo).expanduser().resolve()
+    try:
+        phalp_repo = resolve_phalp_repo(four_d_repo, args.phalp_repo)
+    except RecoveryAuthorityError as exc:
+        print(f"BodyRig recovery: {exc}", file=sys.stderr)
+        return 1
+    if not phalp_repo.is_dir():
+        print(f"BodyRig recovery: PHALP checkout not found: {phalp_repo}", file=sys.stderr)
+        return 2
+
     adapter = JsonCommandRecoveryAdapter(
         [
             str(Path(args.external_python).expanduser().resolve()),
             str(bridge_script_path()),
             "--repo",
-            str(Path(args.repo).expanduser().resolve()),
+            str(four_d_repo),
+            "--phalp-repo",
+            str(phalp_repo),
         ],
         name=ADAPTER_NAME,
         revision=ADAPTER_REVISION,

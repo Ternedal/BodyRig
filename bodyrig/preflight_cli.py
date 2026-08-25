@@ -12,6 +12,7 @@ from .bridges.hmr2_config import (
     PHALP_REVISION,
     PHALP_TRACKER_BLOB_SHA1,
 )
+from .recovery_authority import RecoveryAuthorityError, resolve_phalp_repo
 
 SMPL_FILENAME = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 
@@ -87,14 +88,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate the external 4D-Humans recovery environment for BodyRig.")
     parser.add_argument("--python", required=True, dest="external_python")
     parser.add_argument("--repo", required=True, help="Pinned 4D-Humans checkout")
-    parser.add_argument("--phalp-repo", required=True, help="Pinned PHALP checkout installed into the recovery Python")
+    parser.add_argument(
+        "--phalp-repo",
+        default="",
+        help="Pinned PHALP checkout. If omitted in a ready-rig run, resolve it from BODYRIG_RIG_SETUP_REPORT.",
+    )
     parser.add_argument("--allow-cpu", action="store_true", help="Do not fail when CUDA is unavailable")
     parser.add_argument("--out", help="Optional JSON report path")
     args = parser.parse_args(argv)
 
     python = Path(args.external_python).expanduser().resolve()
     repo = Path(args.repo).expanduser().resolve()
-    phalp_repo = Path(args.phalp_repo).expanduser().resolve()
+    errors: list[str] = []
+    try:
+        phalp_repo = resolve_phalp_repo(repo, args.phalp_repo)
+    except RecoveryAuthorityError as exc:
+        phalp_repo = (repo.parent / "PHALP").resolve()
+        errors.append(str(exc))
+
     checks: dict[str, object] = {
         "format": "bodyrig-recovery-preflight",
         "version": 1,
@@ -102,7 +113,6 @@ def main(argv: list[str] | None = None) -> int:
         "phalp_expected": PHALP_REVISION,
         "phalp_tracker_expected_blob": PHALP_TRACKER_BLOB_SHA1,
     }
-    errors: list[str] = []
 
     if not python.is_file():
         errors.append(f"external Python not found: {python}")

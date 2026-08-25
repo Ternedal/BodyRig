@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     ADAPTER_NAME,
     ADAPTER_REVISION,
     FOUR_D_HUMANS_REVISION,
+    PHALP_REVISION,
     PHALP_TRACKER_BLOB_SHA1,
 )
 from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
@@ -33,10 +35,12 @@ def _source_blob_matches(path: Path, expected: str) -> bool:
     data = path.read_bytes()
     if _git_blob_sha1_bytes(data) == expected:
         return True
-    # A Windows working tree may have CRLF after Git checkout. Accept only the
-    # canonical line-ending normalization, not arbitrary source modifications.
     normalized = data.replace(b"\r\n", b"\n")
     return normalized != data and _git_blob_sha1_bytes(normalized) == expected
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
 
 
 def _read_request() -> list[Path]:
@@ -82,11 +86,56 @@ def _quoted_hydra_path(path: Path) -> str:
     return f'"{escaped}"'
 
 
-def _verify_phalp_install() -> None:
+def _git_head(repo: Path, label: str) -> str:
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    actual = completed.stdout.strip().lower()
+    if completed.returncode != 0 or len(actual) != 40:
+        raise RuntimeError(f"could not verify {label} Git HEAD")
+    return actual
+
+
+def _git_tracked_clean(repo: Path, label: str) -> bool:
+    completed = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"could not verify {label} tracked-file status")
+    return not completed.stdout.strip()
+
+
+def _verify_phalp_install(expected_repo: Path) -> None:
+    expected_repo = expected_repo.expanduser().resolve()
+    if not (expected_repo / "phalp").is_dir():
+        raise RuntimeError(f"--phalp-repo does not look like a PHALP checkout: {expected_repo}")
+    actual_head = _git_head(expected_repo, "PHALP")
+    if actual_head != PHALP_REVISION:
+        raise RuntimeError(
+            f"PHALP checkout must be pinned to {PHALP_REVISION}; got {actual_head}"
+        )
+    if not _git_tracked_clean(expected_repo, "PHALP"):
+        raise RuntimeError("PHALP checkout has modified tracked files; recovery is refused")
+
     spec = importlib.util.find_spec("phalp")
     if spec is None or not spec.submodule_search_locations:
         raise RuntimeError("PHALP is not installed in the external recovery environment")
     package_root = Path(next(iter(spec.submodule_search_locations))).resolve()
+    expected_package_root = (expected_repo / "phalp").resolve()
+    if not _same_path(package_root, expected_package_root):
+        raise RuntimeError(
+            f"installed PHALP import is not sourced from the authority checkout: {package_root}"
+        )
     tracker = package_root / "trackers" / "PHALP.py"
     if not tracker.is_file():
         raise RuntimeError("PHALP tracker source could not be located")
@@ -126,25 +175,25 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
 def _verify_repo(repo: Path) -> None:
     if not (repo / "track.py").is_file() or not (repo / "hmr2").is_dir():
         raise RuntimeError("--repo does not look like a 4D-Humans checkout")
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    actual_head = head.stdout.strip().lower()
-    if head.returncode != 0 or actual_head != FOUR_D_HUMANS_REVISION:
-        raise RuntimeError(f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {actual_head or 'unknown'}")
-    status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    if status.returncode != 0:
-        raise RuntimeError("could not verify 4D-Humans tracked-file status")
-    if status.stdout.strip():
+    actual_head = _git_head(repo, "4D-Humans")
+    if actual_head != FOUR_D_HUMANS_REVISION:
+        raise RuntimeError(
+            f"4D-Humans checkout must be pinned to {FOUR_D_HUMANS_REVISION}; got {actual_head}"
+        )
+    if not _git_tracked_clean(repo, "4D-Humans"):
         raise RuntimeError("4D-Humans checkout has modified tracked files; recovery is refused")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True, help="Pinned shubham-goel/4D-Humans checkout")
+    parser.add_argument("--phalp-repo", required=True, help="Exact pinned PHALP checkout authority")
     args = parser.parse_args()
     try:
         repo = Path(args.repo).expanduser().resolve()
+        phalp_repo = Path(args.phalp_repo).expanduser().resolve()
         _verify_repo(repo)
-        _verify_phalp_install()
+        _verify_phalp_install(phalp_repo)
         sources = _read_request()
         tracks: list[dict] = []
         for index, source in enumerate(sources):
