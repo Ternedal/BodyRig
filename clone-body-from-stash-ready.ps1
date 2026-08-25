@@ -80,6 +80,9 @@ if ($SkipObservationSelection) {
 if ($AllowDirty) {
     throw "-AllowDirty is diagnostics-only and is not allowed by the canonical production physical launcher. Use clone-body-from-stash.ps1 directly for diagnostics."
 }
+if ($AllowCpu) {
+    throw "-AllowCpu is diagnostics-only and is not allowed by the canonical production physical launcher. Canonical recovery readiness requires CUDA; use clone-body-from-stash.ps1 directly for CPU diagnostics."
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
@@ -282,7 +285,6 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($TrackId)) { $cloneArgs += @("-TrackId", $TrackId) }
     if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $cloneArgs += @("-Ffmpeg", $Ffmpeg) }
     if ($SkipObservationSelection) { $cloneArgs += "-SkipObservationSelection" }
-    if ($AllowCpu) { $cloneArgs += "-AllowCpu" }
     if ($KeepPrivateWorkspace) { $cloneArgs += "-KeepPrivateWorkspace" }
 
     Write-Host ""
