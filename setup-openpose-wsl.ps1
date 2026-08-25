@@ -1,6 +1,7 @@
 param(
     [string]$Distribution = "Ubuntu-22.04",
     [string]$InstallRoot = "",
+    [string]$CudaRoot = "/usr/local/cuda-11.7",
     [string]$WslExe = "wsl.exe",
     [switch]$SkipBuild
 )
@@ -74,9 +75,17 @@ if (-not $InstallRoot.StartsWith("/")) {
 $InstallRoot = $InstallRoot.TrimEnd("/")
 $executable = "$InstallRoot/build/examples/openpose/openpose.bin"
 
+if ([string]::IsNullOrWhiteSpace($CudaRoot) -or -not $CudaRoot.StartsWith("/")) {
+    throw "-CudaRoot must be an absolute Linux path."
+}
+$CudaRoot = $CudaRoot.TrimEnd("/")
+$cudaNvcc = "$CudaRoot/bin/nvcc"
+$cudaRuntimeHeader = "$CudaRoot/include/cuda_runtime.h"
+
 Write-Host "BodyRig OpenPose WSL provisioning"
 Write-Host "Distribution: $Distribution"
 Write-Host "Install root: $InstallRoot"
+Write-Host "CUDA root: $CudaRoot"
 Write-Host "Pinned OpenPose revision: $OpenPoseRevision"
 Write-Host ""
 
@@ -86,9 +95,11 @@ foreach ($command in @("git", "cmake", "make")) {
         throw "Required WSL build command missing: $command. Install the Ubuntu build dependencies before provisioning OpenPose."
     }
 }
-$cudaProbe = Invoke-WslRaw -Arguments @("/usr/bin/which", "nvcc")
-if ($cudaProbe.ExitCode -ne 0) {
-    throw "CUDA nvcc is required in WSL to build the pinned OpenPose CUDA backend."
+if (-not (Test-WslPath -Path $cudaNvcc)) {
+    throw "CUDA nvcc is required at the explicit CUDA root: $cudaNvcc"
+}
+if (-not (Test-WslPath -Path $cudaRuntimeHeader)) {
+    throw "CUDA runtime headers are required at the explicit CUDA root: $cudaRuntimeHeader"
 }
 
 if (Test-WslPath -Path "$InstallRoot/.git" -Directory) {
@@ -126,6 +137,8 @@ if (-not $SkipBuild) {
         "-S", $InstallRoot,
         "-B", "$InstallRoot/build",
         "-DGPU_MODE=CUDA",
+        "-DCUDA_TOOLKIT_ROOT_DIR=$CudaRoot",
+        "-DCUDA_NVCC_EXECUTABLE=$cudaNvcc",
         "-DBUILD_EXAMPLES=ON",
         "-DBUILD_PYTHON=OFF",
         "-DDOWNLOAD_BODY_25_MODEL=ON",
