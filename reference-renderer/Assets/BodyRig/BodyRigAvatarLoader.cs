@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UniGLTF;
@@ -24,7 +26,9 @@ namespace BodyRig.ReferenceRenderer
             public string body_name;
             public string package_sha256;
             public string avatar;
+            public string avatar_sha256;
             public string bodyprint;
+            public string bodyprint_sha256;
             public string[] payloads;
         }
 
@@ -54,6 +58,8 @@ namespace BodyRig.ReferenceRenderer
         public Animator Animator => _animator;
         public string ActiveBodyId { get; private set; }
         public string ActivePackageSha256 { get; private set; }
+        public string ActiveAvatarSha256 { get; private set; }
+        public string ActiveBodyprintSha256 { get; private set; }
         public string ActiveRuntimeManifestPath { get; private set; }
 
         public async Task LoadRuntimeAsync(string runtimeManifestPath, CancellationToken cancellationToken = default)
@@ -97,20 +103,29 @@ namespace BodyRig.ReferenceRenderer
             {
                 throw new InvalidDataException("BodyRig runtime payload escaped the materialized runtime directory");
             }
+            if (!File.Exists(avatarPath))
+            {
+                throw new FileNotFoundException("BodyRig materialized avatar.vrm was not found", avatarPath);
+            }
             if (!File.Exists(bodyprintPath))
             {
                 throw new FileNotFoundException("BodyRig materialized bodyprint.json was not found", bodyprintPath);
             }
+            RequireSha256(avatarPath, manifest.avatar_sha256, "avatar.vrm");
+            RequireSha256(bodyprintPath, manifest.bodyprint_sha256, "bodyprint.json");
 
             // Keep the previous runtime identity until the replacement avatar has
-            // imported and passed all Unity/UniVRM Humanoid validation.
-            await LoadAvatarPathAsync(avatarPath, cancellationToken);
+            // imported, remained byte-stable and passed all Unity/UniVRM Humanoid validation.
+            await LoadAvatarPathAsync(avatarPath, manifest.avatar_sha256, cancellationToken);
+            RequireSha256(bodyprintPath, manifest.bodyprint_sha256, "bodyprint.json");
             ActiveBodyId = manifest.body_id;
             ActivePackageSha256 = manifest.package_sha256.ToLowerInvariant();
+            ActiveAvatarSha256 = manifest.avatar_sha256.ToLowerInvariant();
+            ActiveBodyprintSha256 = manifest.bodyprint_sha256.ToLowerInvariant();
             ActiveRuntimeManifestPath = fullManifestPath;
         }
 
-        private async Task LoadAvatarPathAsync(string path, CancellationToken cancellationToken)
+        private async Task LoadAvatarPathAsync(string path, string expectedSha256, CancellationToken cancellationToken)
         {
             var fullPath = Path.GetFullPath(path);
             if (!File.Exists(fullPath))
@@ -141,6 +156,9 @@ namespace BodyRig.ReferenceRenderer
                     throw new InvalidDataException("UniVRM instance has no RuntimeGltfInstance");
                 }
 
+                // Close the pre-check -> UniVRM path-load race before committing
+                // the candidate as the active physical-acceptance avatar.
+                RequireSha256(fullPath, expectedSha256, "avatar.vrm");
                 runtime.ShowMeshes();
 
                 var previous = _active;
@@ -186,6 +204,10 @@ namespace BodyRig.ReferenceRenderer
             {
                 throw new InvalidDataException("BodyRig runtime manifest package SHA-256 is invalid");
             }
+            if (!IsLowerHexSha256(manifest.avatar_sha256) || !IsLowerHexSha256(manifest.bodyprint_sha256))
+            {
+                throw new InvalidDataException("BodyRig runtime manifest payload SHA-256 is invalid");
+            }
             if (manifest.avatar != "avatar.vrm" || manifest.bodyprint != "bodyprint.json")
             {
                 throw new InvalidDataException("BodyRig runtime manifest contains unexpected payload paths");
@@ -198,6 +220,28 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
+        private static void RequireSha256(string path, string expectedSha256, string label)
+        {
+            var actual = Sha256File(path);
+            if (!string.Equals(actual, expectedSha256, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"BodyRig materialized {label} SHA-256 does not match runtime manifest");
+            }
+        }
+
+        private static string Sha256File(string path)
+        {
+            if (!File.Exists(path)) throw new FileNotFoundException("BodyRig runtime payload is missing", path);
+            using (var stream = File.OpenRead(path))
+            using (var sha = SHA256.Create())
+            {
+                var digest = sha.ComputeHash(stream);
+                var builder = new StringBuilder(digest.Length * 2);
+                foreach (var value in digest) builder.Append(value.ToString("x2"));
+                return builder.ToString();
+            }
+        }
+
         private static bool IsLowerHexSha256(string value)
         {
             if (string.IsNullOrEmpty(value) || value.Length != 64)
@@ -206,7 +250,7 @@ namespace BodyRig.ReferenceRenderer
             }
             foreach (var character in value)
             {
-                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))
                 {
                     return false;
                 }
@@ -240,6 +284,8 @@ namespace BodyRig.ReferenceRenderer
             }
             ActiveBodyId = null;
             ActivePackageSha256 = null;
+            ActiveAvatarSha256 = null;
+            ActiveBodyprintSha256 = null;
             ActiveRuntimeManifestPath = null;
         }
     }

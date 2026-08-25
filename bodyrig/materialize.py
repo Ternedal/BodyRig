@@ -79,16 +79,6 @@ def materialize_runtime(
 
     package_sha256 = _sha256_file(package)
     payload_names = tuple(validated.payload_names)
-    runtime_manifest = {
-        "format": "bodyrig-runtime-assets",
-        "version": 1,
-        "body_id": validated.manifest["id"],
-        "body_name": validated.manifest["name"],
-        "package_sha256": package_sha256,
-        "avatar": "avatar.vrm",
-        "bodyprint": "bodyprint.json",
-        "payloads": list(payload_names),
-    }
 
     temp = Path(
         tempfile.mkdtemp(
@@ -108,6 +98,24 @@ def materialize_runtime(
                     stream.flush()
                     os.fsync(stream.fileno())
 
+        avatar_path = temp / "avatar.vrm"
+        bodyprint_path = temp / "bodyprint.json"
+        if not avatar_path.is_file() or not bodyprint_path.is_file():
+            raise MRBodyError("materialized runtime is missing required avatar/bodyprint payload")
+
+        runtime_manifest = {
+            "format": "bodyrig-runtime-assets",
+            "version": 1,
+            "body_id": validated.manifest["id"],
+            "body_name": validated.manifest["name"],
+            "package_sha256": package_sha256,
+            "avatar": "avatar.vrm",
+            "avatar_sha256": _sha256_file(avatar_path),
+            "bodyprint": "bodyprint.json",
+            "bodyprint_sha256": _sha256_file(bodyprint_path),
+            "payloads": list(payload_names),
+        }
+
         manifest_path = temp / RUNTIME_MANIFEST
         with manifest_path.open("x", encoding="utf-8", newline="\n") as stream:
             json.dump(
@@ -121,9 +129,6 @@ def materialize_runtime(
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-
-        if not (temp / "avatar.vrm").is_file() or not (temp / "bodyprint.json").is_file():
-            raise MRBodyError("materialized runtime is missing required avatar/bodyprint payload")
 
         os.replace(temp, target)
     except Exception:

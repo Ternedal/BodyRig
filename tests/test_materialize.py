@@ -73,7 +73,9 @@ def test_materialize_runtime_binds_assets_to_package_sha(tmp_path: Path):
     assert manifest["body_id"] == "fixture-person"
     assert manifest["package_sha256"] == _sha256(package)
     assert manifest["avatar"] == "avatar.vrm"
+    assert manifest["avatar_sha256"] == _sha256(result.avatar)
     assert manifest["bodyprint"] == "bodyprint.json"
+    assert manifest["bodyprint_sha256"] == _sha256(result.bodyprint)
     assert sorted(manifest["payloads"]) == sorted(
         ["avatar.vrm", "bodyprint.json", "provenance.json", "thumbnail.png"]
     )
@@ -96,7 +98,7 @@ def test_materialize_cli_reports_exact_runtime_identity(tmp_path: Path, capsys):
     assert Path(payload["runtime_manifest"]).resolve() == (target / RUNTIME_MANIFEST).resolve()
 
 
-def test_materialize_rejects_existing_destination(tmp_path: Path):
+def test_materialize_refuses_existing_destination(tmp_path: Path):
     package = _package(tmp_path / "fixture.mrbody")
     target = tmp_path / "runtime"
     target.mkdir()

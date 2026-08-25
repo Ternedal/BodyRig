@@ -97,6 +97,17 @@ namespace BodyRig.ReferenceRenderer
             if (!IsLowerHexSha256(packageHash)) throw new InvalidDataException("Active BodyRig package SHA-256 is invalid");
             if (string.IsNullOrWhiteSpace(loader.ActiveBodyId)) throw new InvalidDataException("Active BodyRig body id is missing");
 
+            // Re-hash the files after UniVRM has loaded the avatar. The loader
+            // already verifies them before/during load; this post-load check makes
+            // the evidence fail closed if runtime files are substituted before the
+            // physical probe is committed.
+            var avatarHash = Sha256File(avatarPath);
+            var bodyprintHash = Sha256File(bodyprintPath);
+            if (!string.Equals(avatarHash, loader.ActiveAvatarSha256, StringComparison.Ordinal))
+                throw new InvalidDataException("Renderer probe avatar.vrm bytes no longer match the Gate A runtime manifest");
+            if (!string.Equals(bodyprintHash, loader.ActiveBodyprintSha256, StringComparison.Ordinal))
+                throw new InvalidDataException("Renderer probe bodyprint.json bytes no longer match the Gate A runtime manifest");
+
             var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
             var platform = ResolvePhysicalPlatform(deviceModel);
@@ -117,8 +128,8 @@ namespace BodyRig.ReferenceRenderer
                 body_id = loader.ActiveBodyId,
                 package_sha256 = packageHash,
                 runtime_manifest_sha256 = Sha256File(fullManifestPath),
-                avatar_sha256 = Sha256File(avatarPath),
-                bodyprint_sha256 = Sha256File(bodyprintPath),
+                avatar_sha256 = avatarHash,
+                bodyprint_sha256 = bodyprintHash,
                 vrm10_loaded = true,
                 humanoid_valid = true,
                 required_bones_valid = true,
