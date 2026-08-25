@@ -26,6 +26,24 @@ function Read-JsonFile {
     return [pscustomobject]@{ Path = $resolved; Value = $value }
 }
 
+function Assert-CheckoutAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [string]$ExpectedHead = ""
+    )
+    $headLines = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) { throw "Could not resolve current BodyRig Git revision." }
+    $head = ([string]$headLines[0]).Trim().ToLowerInvariant()
+    if ($head -notmatch '^[0-9a-f]{40}$') { throw "Current BodyRig Git revision is not canonical." }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedHead) -and $head -ne $ExpectedHead) {
+        throw "BodyRig checkout revision changed while final release evidence was being written; expected $ExpectedHead, got $head."
+    }
+    $dirty = @(& git -C $RepoRoot status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not verify BodyRig checkout cleanliness." }
+    if ($dirty.Count -gt 0) { throw "BodyRig checkout changed while final release evidence was being written; checkout is dirty." }
+    return $head
+}
+
 function Assert-QualityReview {
     param([Parameter(Mandatory = $true)]$Attestation,[Parameter(Mandatory = $true)][string]$Label)
     $review = $Attestation.quality_review
@@ -52,6 +70,7 @@ function Assert-QualityReview {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
+$initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 
 $contract = (Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract").Value
 $expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
@@ -113,9 +132,23 @@ $args = @{
     QuestProbeReport = $questProbe
     QuestDeformationReport = $questDeformation
 }
-if (-not [string]::IsNullOrWhiteSpace($Output)) { $args.Output = $Output }
+if ([string]::IsNullOrWhiteSpace($Output)) {
+    $authoritativeOutput = Join-Path $AcceptanceDir "bodyrig-release-acceptance.json"
+} else {
+    $authoritativeOutput = [IO.Path]::GetFullPath($Output)
+    $args.Output = $authoritativeOutput
+}
 & $core @args
 if ($LASTEXITCODE -ne 0) { throw "Core final acceptance failed with exit code $LASTEXITCODE." }
+
+try {
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $initialHead)
+} catch {
+    if (Test-Path -LiteralPath $authoritativeOutput -PathType Leaf) {
+        Remove-Item -LiteralPath $authoritativeOutput -Force
+    }
+    throw "BodyRig checkout authority changed after final release evidence write; removed non-authoritative output '$authoritativeOutput'. $($_.Exception.Message)"
+}
 
 Write-Host "BodyRig reference release acceptance: PASS | renderer $($contract.renderer_version) | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision) | quality=bodyrig-human-quality-v1"
 exit 0
