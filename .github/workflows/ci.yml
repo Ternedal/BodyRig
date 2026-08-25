@@ -137,6 +137,22 @@ jobs:
         if: matrix.python == '3.11'
         shell: pwsh
         run: ./tests/test-run-physical-gate.ps1
-      - name: Test final acceptance gate
+
+  acceptance-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact checkout authority
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $actual = (& git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:EXPECTED_SHA.ToLowerInvariant()) {
+            throw "checkout mismatch: $actual != $env:EXPECTED_SHA"
+          }
+      - name: Test final acceptance gate on production OS
         shell: pwsh
         run: ./tests/test-complete-acceptance.ps1
