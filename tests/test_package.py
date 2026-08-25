@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import bodyrig.package as package_module
 from bodyrig.avatar import ProceduralAvatarFitter
 from bodyrig.package import MRBodyError, build_package, install_package, validate_package
 
@@ -145,3 +146,24 @@ def test_install_package_hash_mismatch_cannot_overwrite_existing_target(tmp_path
         install_package(package, library, expected_sha256="0" * 64)
 
     assert existing.read_bytes() == b"existing-trusted-library-bytes"
+
+
+def test_install_package_uses_copied_temp_bytes_as_single_identity_authority(tmp_path: Path, monkeypatch):
+    package = make_package(tmp_path / "source.mrbody")
+    library = tmp_path / "library"
+    real_validate = package_module.validate_package
+    validated_paths: list[Path] = []
+
+    def recording_validate(path):
+        validated_paths.append(Path(path).resolve())
+        return real_validate(path)
+
+    monkeypatch.setattr(package_module, "validate_package", recording_validate)
+
+    installed = package_module.install_package(package, library)
+
+    assert len(validated_paths) == 1
+    assert validated_paths[0].parent == library.resolve()
+    assert validated_paths[0] != package.resolve()
+    assert installed == library / "test-body.mrbody"
+    assert real_validate(installed).manifest["id"] == "test-body"
