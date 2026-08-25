@@ -74,7 +74,12 @@ function Test-WslPath {
 
 function Convert-WindowsPathToWsl {
     param([Parameter(Mandatory = $true)][string]$Path)
-    return Invoke-WslChecked -Arguments @("wslpath", "-a", $Path) -Step "WSL path translation"
+
+    # wsl.exe can treat backslashes in direct Linux argv as escape characters.
+    # Escape them once before handing the Windows path to wslpath; otherwise
+    # C:\Users\... may arrive as C:Users... and translation fails.
+    $escapedPath = $Path.Replace('\', '\\')
+    return Invoke-WslChecked -Arguments @("wslpath", "-a", "-u", $escapedPath) -Step "WSL path translation"
 }
 
 function Assert-ManagedRepoWsl {
@@ -156,7 +161,7 @@ $fourDPath = "$linuxRoot/4D-Humans"
 $phalpPath = "$linuxRoot/PHALP"
 $envPath = "$linuxRoot/venv"
 $envPython = "$envPath/bin/python"
-$runtimeMarker = "$envPath/$RuntimeMarkerName"
+$runtimeMarker = "$linuxRoot/$RuntimeMarkerName"
 
 Write-Host "BodyRig recovery provisioner | WSL"
 Write-Host "Distribution: $Distribution"
@@ -181,6 +186,7 @@ if (-not (Test-WslPath -Path "$CudaRoot/bin/nvcc" -Executable)) {
 if ($RecreateEnvironment -and (Test-WslPath -Path $envPath -Directory)) {
     Write-Host "Removing managed WSL recovery environment because -RecreateEnvironment was supplied."
     Invoke-WslChecked -Arguments @("/usr/bin/rm", "-rf", $envPath) -Step "Remove WSL recovery environment" | Out-Null
+    Invoke-WslChecked -Arguments @("/usr/bin/rm", "-f", $runtimeMarker) -Step "Remove WSL recovery runtime marker" | Out-Null
 }
 
 if (-not (Test-WslPath -Path $envPython -Executable)) {
@@ -190,51 +196,21 @@ if (-not (Test-WslPath -Path $envPython -Executable)) {
 
 if (-not (Test-WslPath -Path $runtimeMarker)) {
     Write-Host "Provisioning/resuming WSL recovery runtime..."
+    Invoke-WslStreaming -Arguments @($envPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools==$SetuptoolsVersion", "wheel", "ninja") -Step "Bootstrap WSL recovery pip"
+    Invoke-WslStreaming -Arguments @($envPython, "-c", "import pkg_resources; print('BodyRig pkg_resources compatibility: OK')") -Step "Verify WSL setuptools compatibility"
 
-    # PyTorch 2.0.1 imports pkg_resources from torch.utils.cpp_extension while
-    # building native extensions. Setuptools removed pkg_resources in v82, so
-    # pin the last BodyRig-validated packaging generation before Detectron2.
-    Invoke-WslStreaming -Arguments @(
-        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade",
-        "pip", "setuptools==$SetuptoolsVersion", "wheel", "ninja"
-    ) -Step "Bootstrap compatible WSL recovery packaging toolchain"
-    Invoke-WslStreaming -Arguments @(
-        $envPython, "-c", "import pkg_resources; from pkg_resources import packaging; print('BodyRig pkg_resources compatibility: OK')"
-    ) -Step "Verify WSL pkg_resources compatibility"
-
-    # Match the proven /usr/local/cuda-11.7 compiler used by BodyRig OpenPose.
-    # PyTorch 2.0.1/torchvision 0.15.2 have official CPython 3.10 CUDA 11.7 wheels.
     Invoke-WslStreaming -Arguments @(
         $envPython, "-m", "pip", "install", "--disable-pip-version-check",
         "torch==2.0.1+cu117", "torchvision==0.15.2+cu117",
         "--extra-index-url", "https://download.pytorch.org/whl/cu117"
     ) -Step "Install WSL PyTorch CUDA 11.7 runtime"
 
-    # Chumpy and several 4D-Humans-era packages are not NumPy-2 compatible.
     Invoke-WslStreaming -Arguments @(
         $envPython, "-m", "pip", "install", "--disable-pip-version-check",
-        "numpy==1.23.5",
-        "pandas==2.0.3",
-        "gdown",
-        "pytorch-lightning==1.9.5",
-        "smplx==0.1.28",
-        "pyrender",
-        "opencv-python==4.8.1.78",
-        "yacs",
-        "scikit-image==0.21.0",
-        "einops",
-        "timm==0.9.12",
-        "webdataset",
-        "dill",
-        "joblib",
-        "scikit-learn",
-        "rich",
-        "hydra-core==1.3.2",
-        "hydra-submitit-launcher",
-        "hydra-colorlog",
-        "pyrootutils",
-        "av",
-        "scenedetect[opencv]"
+        "numpy==1.23.5", "pandas==2.0.3", "gdown", "pytorch-lightning==1.9.5", "smplx==0.1.28",
+        "pyrender", "opencv-python==4.8.1.78", "yacs", "scikit-image==0.21.0", "einops", "timm==0.9.12",
+        "webdataset", "dill", "joblib", "scikit-learn", "rich", "hydra-core==1.3.2", "hydra-submitit-launcher",
+        "hydra-colorlog", "pyrootutils", "av", "scenedetect[opencv]"
     ) -Step "Install WSL 4D-Humans runtime dependencies"
 
     Invoke-WslStreaming -Arguments @(
@@ -244,39 +220,27 @@ if (-not (Test-WslPath -Path $runtimeMarker)) {
         "pyopengl @ git+https://github.com/mmatl/pyopengl.git@$PyOpenGlRevision"
     ) -Step "Install pinned WSL VCS runtime dependencies"
 
-    # Detectron2 has native C++/CUDA extensions. Build it inside WSL against the
-    # exact CUDA 11.7 toolkit instead of relying on unsupported native Windows builds.
     Invoke-WslStreaming -Arguments @(
         "/usr/bin/env", "CUDA_HOME=$CudaRoot", "FORCE_CUDA=1",
         $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
         "detectron2 @ git+https://github.com/facebookresearch/detectron2.git@$Detectron2Revision"
     ) -Step "Build pinned Detectron2 in WSL"
 
-    Invoke-WslStreaming -Arguments @(
-        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $fourDPath
-    ) -Step "Install pinned 4D-Humans checkout in WSL"
-
-    # PHALP declares neural-renderer-pytorch as a legacy dependency. BodyRig runs
-    # PHALP with render.enable=false, so install the tracker dependencies used by
-    # the recovery path explicitly and keep the unused NMR CUDA extension out.
+    Invoke-WslStreaming -Arguments @($envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $fourDPath) -Step "Install pinned 4D-Humans checkout in WSL"
     Invoke-WslStreaming -Arguments @(
         $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
         "opencv-python==4.8.1.78", "joblib", "scikit-learn", "pyrender", "dill", "rich", "einops",
         "scenedetect[opencv]", "hydra-core==1.3.2", "timm==0.9.12", "av", "smplx==0.1.28"
     ) -Step "Install BodyRig PHALP runtime dependencies in WSL"
-
-    Invoke-WslStreaming -Arguments @(
-        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath
-    ) -Step "Install pinned PHALP checkout in WSL"
+    Invoke-WslStreaming -Arguments @($envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath) -Step "Install pinned PHALP checkout in WSL"
 
     Invoke-WslStreaming -Arguments @(
         "/usr/bin/env", "CUDA_HOME=$CudaRoot",
         $envPython, "-c",
-        "import cv2, detectron2, hmr2, phalp, pkg_resources, torch; assert torch.cuda.is_available(); print('BodyRig WSL recovery runtime probe: OK | ' + torch.cuda.get_device_name(0))"
-    ) -Step "Verify completed WSL recovery runtime"
-    Invoke-WslChecked -Arguments @("/usr/bin/touch", $runtimeMarker) -Step "Commit WSL recovery runtime marker" | Out-Null
-} else {
-    Write-Host "WSL recovery runtime marker present; reusing completed environment."
+        "import torch, detectron2, hmr2, phalp; assert torch.cuda.is_available(); print('BodyRig WSL recovery runtime probe: OK | ' + torch.cuda.get_device_name(0))"
+    ) -Step "Verify WSL recovery runtime"
+
+    Invoke-WslChecked -Arguments @("/usr/bin/touch", $runtimeMarker) -Step "Publish WSL recovery runtime marker" | Out-Null
 }
 
 if (-not (Test-WslPath -Path $envPython -Executable)) {
