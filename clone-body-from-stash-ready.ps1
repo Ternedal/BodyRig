@@ -74,6 +74,9 @@ $powerShellExe = Resolve-CommandPath "pwsh"
 if ($null -eq $powerShellExe) {
     throw "PowerShell 7 executable (pwsh) was not found even though the current shell reports PowerShell 7+."
 }
+if ($SkipObservationSelection) {
+    throw "-SkipObservationSelection is diagnostics-only and is not allowed by the canonical production physical launcher. Use clone-body-from-stash.ps1 directly for diagnostics."
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
