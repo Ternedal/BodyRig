@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import subprocess
 import sys
 from pathlib import Path
@@ -39,8 +40,12 @@ def _same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
 
 
-def _external_probe(python: Path) -> dict:
-    script = f'''\
+def _same_linux_path(left: str, right: str) -> bool:
+    return posixpath.normpath(left) == posixpath.normpath(right)
+
+
+def _probe_script() -> str:
+    return f'''\
 import hashlib, importlib.util, json, pathlib, sys
 EXPECTED = {PHALP_TRACKER_BLOB_SHA1!r}
 def blob(data):
@@ -55,6 +60,8 @@ for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
         result["error_" + name] = type(exc).__name__ + ": " + str(exc)
 try:
     import torch
+    result["torch_version"] = str(torch.__version__)
+    result["torch_cuda_version"] = str(torch.version.cuda)
     result["cuda_available"] = bool(torch.cuda.is_available())
     result["cuda_device"] = torch.cuda.get_device_name(0) if result["cuda_available"] else None
 except Exception:
@@ -75,13 +82,84 @@ if spec is not None and spec.submodule_search_locations:
         result["phalp_tracker_hashes"] = hashes
 print(json.dumps(result, separators=(",", ":")))
 '''
-    completed = _run([str(python), "-c", script])
+
+
+def _external_probe(python: Path) -> dict:
+    completed = _run([str(python), "-c", _probe_script()])
     if completed.returncode != 0:
         raise RuntimeError(f"external Python probe failed: {completed.stderr.strip()[-2000:]}")
     try:
         return json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("external Python probe returned invalid JSON") from exc
+
+
+def _run_wsl(*, wsl_exe: str, distribution: str, command: list[str]) -> subprocess.CompletedProcess[str]:
+    return _run([wsl_exe, "-d", distribution, "--", *command])
+
+
+def _wsl_test(*, wsl_exe: str, distribution: str, flag: str, path: str) -> bool:
+    completed = _run_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        command=["/usr/bin/test", flag, path],
+    )
+    return completed.returncode == 0
+
+
+def _wsl_git_head(*, wsl_exe: str, distribution: str, repo: str, label: str) -> str:
+    completed = _run_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        command=["git", "-C", repo, "rev-parse", "HEAD"],
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"could not read {label} Git HEAD in WSL")
+    return completed.stdout.strip().lower()
+
+
+def _wsl_repo_clean(*, wsl_exe: str, distribution: str, repo: str, label: str) -> bool:
+    completed = _run_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        command=["git", "-C", repo, "status", "--porcelain", "--untracked-files=no"],
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"could not read {label} tracked-file status in WSL")
+    return not completed.stdout.strip()
+
+
+def _external_probe_wsl(*, wsl_exe: str, distribution: str, python: str) -> dict:
+    completed = _run_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        command=[python, "-c", _probe_script()],
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"external WSL Python probe failed: {completed.stderr.strip()[-2000:]}")
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("external WSL Python probe returned invalid JSON") from exc
+
+
+def _validate_probe(probe: dict, errors: list[str], *, phalp_repo: str | Path, linux: bool, allow_cpu: bool) -> None:
+    for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
+        if probe.get("import_" + name) is not True:
+            errors.append(f"external import failed: {name}: {probe.get('error_' + name, 'unknown error')}")
+    imported_root = probe.get("phalp_root")
+    if not isinstance(imported_root, str) or not imported_root.strip():
+        errors.append("external PHALP import did not expose a package root")
+    elif linux:
+        expected = posixpath.join(str(phalp_repo), "phalp")
+        if not _same_linux_path(imported_root, expected):
+            errors.append(f"external PHALP import is not sourced from the pinned checkout: {imported_root}")
+    elif not _same_path(Path(imported_root), Path(phalp_repo) / "phalp"):
+        errors.append(f"external PHALP import is not sourced from the pinned checkout: {imported_root}")
+    if probe.get("phalp_tracker_match") is not True:
+        errors.append("installed PHALP tracker source does not match pinned BodyRig blob")
+    if not allow_cpu and probe.get("cuda_available") is not True:
+        errors.append("CUDA is not available in the external recovery Python")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,21 +169,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--phalp-repo",
         default="",
-        help="Pinned PHALP checkout. If omitted in a ready-rig run, resolve it from BODYRIG_RIG_SETUP_REPORT.",
+        help="Pinned PHALP checkout. WSL recovery requires this explicitly.",
     )
+    parser.add_argument("--distribution", default="", help="WSL distribution containing the recovery runtime")
+    parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--allow-cpu", action="store_true", help="Do not fail when CUDA is unavailable")
     parser.add_argument("--out", help="Optional JSON report path")
     args = parser.parse_args(argv)
 
-    python = Path(args.external_python).expanduser().resolve()
-    repo = Path(args.repo).expanduser().resolve()
     errors: list[str] = []
-    try:
-        phalp_repo = resolve_phalp_repo(repo, args.phalp_repo)
-    except RecoveryAuthorityError as exc:
-        phalp_repo = (repo.parent / "PHALP").resolve()
-        errors.append(str(exc))
-
     checks: dict[str, object] = {
         "format": "bodyrig-recovery-preflight",
         "version": 1,
@@ -114,60 +186,118 @@ def main(argv: list[str] | None = None) -> int:
         "phalp_tracker_expected_blob": PHALP_TRACKER_BLOB_SHA1,
     }
 
-    if not python.is_file():
-        errors.append(f"external Python not found: {python}")
-    if not (repo / "track.py").is_file():
-        errors.append(f"not a 4D-Humans checkout: {repo}")
-    if not (phalp_repo / "phalp").is_dir():
-        errors.append(f"not a PHALP checkout: {phalp_repo}")
+    distribution = args.distribution.strip()
+    if distribution:
+        python = args.external_python.strip()
+        repo = args.repo.strip().rstrip("/")
+        phalp_repo = args.phalp_repo.strip().rstrip("/")
+        checks["transport"] = "wsl"
+        checks["distribution"] = distribution
 
-    if not errors:
+        for label, value in (("external Python", python), ("4D-Humans repo", repo), ("PHALP repo", phalp_repo)):
+            if not value.startswith("/"):
+                errors.append(f"WSL {label} must be an absolute Linux path: {value}")
+        if not phalp_repo:
+            errors.append("WSL recovery requires --phalp-repo explicitly")
+
+        if not errors:
+            if not _wsl_test(wsl_exe=args.wsl_exe, distribution=distribution, flag="-f", path=python):
+                errors.append(f"external WSL Python not found: {python}")
+            if not _wsl_test(wsl_exe=args.wsl_exe, distribution=distribution, flag="-f", path=posixpath.join(repo, "track.py")):
+                errors.append(f"not a 4D-Humans checkout in WSL: {repo}")
+            if not _wsl_test(wsl_exe=args.wsl_exe, distribution=distribution, flag="-d", path=posixpath.join(phalp_repo, "phalp")):
+                errors.append(f"not a PHALP checkout in WSL: {phalp_repo}")
+
+        if not errors:
+            try:
+                head = _wsl_git_head(wsl_exe=args.wsl_exe, distribution=distribution, repo=repo, label="4D-Humans")
+                checks["four_d_humans_head"] = head
+                if head != FOUR_D_HUMANS_REVISION:
+                    errors.append(f"4D-Humans HEAD mismatch: {head}")
+                clean = _wsl_repo_clean(wsl_exe=args.wsl_exe, distribution=distribution, repo=repo, label="4D-Humans")
+                checks["four_d_humans_tracked_clean"] = clean
+                if not clean:
+                    errors.append("4D-Humans has modified tracked files")
+            except Exception as exc:
+                errors.append(str(exc))
+
+            try:
+                phalp_head = _wsl_git_head(wsl_exe=args.wsl_exe, distribution=distribution, repo=phalp_repo, label="PHALP")
+                checks["phalp_head"] = phalp_head
+                if phalp_head != PHALP_REVISION:
+                    errors.append(f"PHALP HEAD mismatch: {phalp_head}")
+                phalp_clean = _wsl_repo_clean(wsl_exe=args.wsl_exe, distribution=distribution, repo=phalp_repo, label="PHALP")
+                checks["phalp_tracked_clean"] = phalp_clean
+                if not phalp_clean:
+                    errors.append("PHALP has modified tracked files")
+            except Exception as exc:
+                errors.append(str(exc))
+
+            smpl = posixpath.join(repo, "data", SMPL_FILENAME)
+            smpl_present = _wsl_test(wsl_exe=args.wsl_exe, distribution=distribution, flag="-f", path=smpl)
+            checks["smpl_present"] = smpl_present
+            if not smpl_present:
+                errors.append(f"required SMPL model missing: data/{SMPL_FILENAME}")
+
+            try:
+                probe = _external_probe_wsl(wsl_exe=args.wsl_exe, distribution=distribution, python=python)
+                checks["external"] = probe
+                _validate_probe(probe, errors, phalp_repo=phalp_repo, linux=True, allow_cpu=args.allow_cpu)
+            except Exception as exc:
+                errors.append(str(exc))
+    else:
+        python = Path(args.external_python).expanduser().resolve()
+        repo = Path(args.repo).expanduser().resolve()
+        checks["transport"] = "windows"
         try:
-            head = _repo_head(repo, "4D-Humans")
-            checks["four_d_humans_head"] = head
-            if head != FOUR_D_HUMANS_REVISION:
-                errors.append(f"4D-Humans HEAD mismatch: {head}")
-            clean = _repo_clean(repo, "4D-Humans")
-            checks["four_d_humans_tracked_clean"] = clean
-            if not clean:
-                errors.append("4D-Humans has modified tracked files")
-        except Exception as exc:
+            phalp_repo = resolve_phalp_repo(repo, args.phalp_repo)
+        except RecoveryAuthorityError as exc:
+            phalp_repo = (repo.parent / "PHALP").resolve()
             errors.append(str(exc))
 
-        try:
-            phalp_head = _repo_head(phalp_repo, "PHALP")
-            checks["phalp_head"] = phalp_head
-            if phalp_head != PHALP_REVISION:
-                errors.append(f"PHALP HEAD mismatch: {phalp_head}")
-            phalp_clean = _repo_clean(phalp_repo, "PHALP")
-            checks["phalp_tracked_clean"] = phalp_clean
-            if not phalp_clean:
-                errors.append("PHALP has modified tracked files")
-        except Exception as exc:
-            errors.append(str(exc))
+        if not python.is_file():
+            errors.append(f"external Python not found: {python}")
+        if not (repo / "track.py").is_file():
+            errors.append(f"not a 4D-Humans checkout: {repo}")
+        if not (phalp_repo / "phalp").is_dir():
+            errors.append(f"not a PHALP checkout: {phalp_repo}")
 
-        smpl = repo / "data" / SMPL_FILENAME
-        checks["smpl_present"] = smpl.is_file()
-        if not smpl.is_file():
-            errors.append(f"required SMPL model missing: data/{SMPL_FILENAME}")
+        if not errors:
+            try:
+                head = _repo_head(repo, "4D-Humans")
+                checks["four_d_humans_head"] = head
+                if head != FOUR_D_HUMANS_REVISION:
+                    errors.append(f"4D-Humans HEAD mismatch: {head}")
+                clean = _repo_clean(repo, "4D-Humans")
+                checks["four_d_humans_tracked_clean"] = clean
+                if not clean:
+                    errors.append("4D-Humans has modified tracked files")
+            except Exception as exc:
+                errors.append(str(exc))
 
-        try:
-            probe = _external_probe(python)
-            checks["external"] = probe
-            for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
-                if probe.get("import_" + name) is not True:
-                    errors.append(f"external import failed: {name}: {probe.get('error_' + name, 'unknown error')}")
-            imported_root = probe.get("phalp_root")
-            if not isinstance(imported_root, str) or not imported_root.strip():
-                errors.append("external PHALP import did not expose a package root")
-            elif not _same_path(Path(imported_root), phalp_repo / "phalp"):
-                errors.append(f"external PHALP import is not sourced from the pinned checkout: {imported_root}")
-            if probe.get("phalp_tracker_match") is not True:
-                errors.append("installed PHALP tracker source does not match pinned BodyRig blob")
-            if not args.allow_cpu and probe.get("cuda_available") is not True:
-                errors.append("CUDA is not available in the external recovery Python")
-        except Exception as exc:
-            errors.append(str(exc))
+            try:
+                phalp_head = _repo_head(phalp_repo, "PHALP")
+                checks["phalp_head"] = phalp_head
+                if phalp_head != PHALP_REVISION:
+                    errors.append(f"PHALP HEAD mismatch: {phalp_head}")
+                phalp_clean = _repo_clean(phalp_repo, "PHALP")
+                checks["phalp_tracked_clean"] = phalp_clean
+                if not phalp_clean:
+                    errors.append("PHALP has modified tracked files")
+            except Exception as exc:
+                errors.append(str(exc))
+
+            smpl = repo / "data" / SMPL_FILENAME
+            checks["smpl_present"] = smpl.is_file()
+            if not smpl.is_file():
+                errors.append(f"required SMPL model missing: data/{SMPL_FILENAME}")
+
+            try:
+                probe = _external_probe(python)
+                checks["external"] = probe
+                _validate_probe(probe, errors, phalp_repo=phalp_repo, linux=False, allow_cpu=args.allow_cpu)
+            except Exception as exc:
+                errors.append(str(exc))
 
     checks["ok"] = not errors
     checks["errors"] = errors
@@ -181,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     external = checks.get("external", {})
     device = external.get("cuda_device") if isinstance(external, dict) else None
-    print(f"BodyRig recovery preflight: OK{f' | CUDA: {device}' if device else ''}")
+    transport = checks.get("transport", "external")
+    print(f"BodyRig recovery preflight: OK | {transport}{f' | CUDA: {device}' if device else ''}")
     return 0
 
 
