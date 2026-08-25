@@ -77,6 +77,9 @@ if ($null -eq $powerShellExe) {
 if ($SkipObservationSelection) {
     throw "-SkipObservationSelection is diagnostics-only and is not allowed by the canonical production physical launcher. Use clone-body-from-stash.ps1 directly for diagnostics."
 }
+if ($AllowDirty) {
+    throw "-AllowDirty is diagnostics-only and is not allowed by the canonical production physical launcher. Use clone-body-from-stash.ps1 directly for diagnostics."
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
@@ -88,8 +91,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not inspect BodyRig Git status."
 }
 $checkoutClean = ($dirty.Count -eq 0)
-if (-not $AllowDirty -and -not $checkoutClean) {
-    throw "BodyRig checkout is dirty. Commit/stash changes or rerun explicitly with -AllowDirty for diagnostic work."
+if (-not $checkoutClean) {
+    throw "BodyRig checkout is dirty; the canonical production physical launcher requires an exact clean checkout."
 }
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
@@ -137,7 +140,7 @@ if ([string]::IsNullOrWhiteSpace($SessionReport)) {
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
 $readinessReport = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
 $rigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
-$checkoutCleanText = $(if ($checkoutClean -and -not $AllowDirty) { "true" } else { "false" })
+$checkoutCleanText = "true"
 
 Invoke-SessionCommand -Arguments @(
     "start",
@@ -298,7 +301,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not re-check BodyRig Git status after physical clone."
     }
-    if (-not $AllowDirty -and $finalDirty.Count -gt 0) {
+    if ($finalDirty.Count -gt 0) {
         throw "BodyRig checkout became dirty during the physical clone session; refusing PASS evidence."
     }
 
