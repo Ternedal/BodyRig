@@ -85,8 +85,12 @@ if ($AllowCpu) {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
+$headRaw = @(& git -C $repoRoot rev-parse HEAD)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) {
+    throw "Could not bind physical clone session to BodyRig Git HEAD."
+}
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') {
     throw "Could not bind physical clone session to BodyRig Git HEAD."
 }
 $dirty = @(& git -C $repoRoot status --porcelain)
