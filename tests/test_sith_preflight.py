@@ -44,6 +44,10 @@ def _runner(
     openpose_head: str = sith.OPENPOSE_REVISION,
     openpose_dirty: bool = False,
     openpose_blob: str = sith.OPENPOSE_CMAKE_BLOB,
+    openpose_caffe_head: str = sith.OPENPOSE_CAFFE_REVISION,
+    openpose_caffe_dirty: bool = False,
+    openpose_pybind_head: str = sith.OPENPOSE_PYBIND11_REVISION,
+    openpose_pybind_dirty: bool = False,
 ):
     def run(*, wsl_exe: str, distribution: str, command):
         assert wsl_exe == "wsl.exe"
@@ -66,6 +70,14 @@ def _runner(
         if command[:4] == ["git", "-C", "/opt/openpose", "hash-object"]:
             assert command[-1] == "CMakeLists.txt"
             return subprocess.CompletedProcess(command, 0, openpose_blob + "\n", "")
+        if command[:4] == ["git", "-C", "/opt/openpose/3rdparty/caffe", "rev-parse"]:
+            return subprocess.CompletedProcess(command, 0, openpose_caffe_head + "\n", "")
+        if command[:4] == ["git", "-C", "/opt/openpose/3rdparty/caffe", "status"]:
+            return subprocess.CompletedProcess(command, 0, " M cmake/Cuda.cmake\n" if openpose_caffe_dirty else "", "")
+        if command[:4] == ["git", "-C", "/opt/openpose/3rdparty/pybind11", "rev-parse"]:
+            return subprocess.CompletedProcess(command, 0, openpose_pybind_head + "\n", "")
+        if command[:4] == ["git", "-C", "/opt/openpose/3rdparty/pybind11", "status"]:
+            return subprocess.CompletedProcess(command, 0, " M CMakeLists.txt\n" if openpose_pybind_dirty else "", "")
         if command[0] == "/opt/sith/.venv/bin/python":
             return subprocess.CompletedProcess(
                 command,
@@ -110,6 +122,11 @@ def test_sith_preflight_accepts_explicit_or_inferred_pinned_openpose_checkout(mo
         assert result["ok"] is True
         assert result["openpose_authority_pinned"] is True
         assert result["openpose_revision"] == sith.OPENPOSE_REVISION
+        assert result["openpose_superproject_tracked_clean"] is True
+        assert result["openpose_caffe_revision"] == sith.OPENPOSE_CAFFE_REVISION
+        assert result["openpose_caffe_tracked_clean"] is True
+        assert result["openpose_pybind11_revision"] == sith.OPENPOSE_PYBIND11_REVISION
+        assert result["openpose_pybind11_tracked_clean"] is True
         assert result["openpose_tracked_clean"] is True
         assert result["openpose_cmakelists_blob"] == sith.OPENPOSE_CMAKE_BLOB
 
@@ -123,10 +140,28 @@ def test_sith_preflight_rejects_openpose_revision_or_blob_drift(monkeypatch):
     assert any("OpenPose CMakeLists.txt blob mismatch" in error for error in blob["errors"])
 
 
-def test_sith_preflight_rejects_dirty_openpose(monkeypatch):
+def test_sith_preflight_rejects_dirty_openpose_superproject(monkeypatch):
     result = _run(monkeypatch, infer_openpose=True, openpose_dirty=True)
     assert result["ok"] is False
-    assert "OpenPose has modified tracked files" in result["errors"]
+    assert "OpenPose has modified tracked superproject files" in result["errors"]
+
+
+def test_sith_preflight_rejects_caffe_revision_or_tracked_drift(monkeypatch):
+    revision = _run(monkeypatch, infer_openpose=True, openpose_caffe_head="0" * 40)
+    assert revision["ok"] is False
+    assert any("OpenPose Caffe revision mismatch" in error for error in revision["errors"])
+    dirty = _run(monkeypatch, infer_openpose=True, openpose_caffe_dirty=True)
+    assert dirty["ok"] is False
+    assert "OpenPose Caffe has modified tracked files" in dirty["errors"]
+
+
+def test_sith_preflight_rejects_pybind11_revision_or_tracked_drift(monkeypatch):
+    revision = _run(monkeypatch, infer_openpose=True, openpose_pybind_head="0" * 40)
+    assert revision["ok"] is False
+    assert any("OpenPose pybind11 revision mismatch" in error for error in revision["errors"])
+    dirty = _run(monkeypatch, infer_openpose=True, openpose_pybind_dirty=True)
+    assert dirty["ok"] is False
+    assert "OpenPose pybind11 has modified tracked files" in dirty["errors"]
 
 
 def test_sith_preflight_rejects_revision_drift(monkeypatch):
