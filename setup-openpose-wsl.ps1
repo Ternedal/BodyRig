@@ -22,49 +22,35 @@ function Resolve-CommandPath {
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $WslExe
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.ArgumentList.Add("-d")
-    $startInfo.ArgumentList.Add($Distribution)
-    $startInfo.ArgumentList.Add("--")
-    foreach ($argument in $Arguments) {
-        $startInfo.ArgumentList.Add([string]$argument)
+    # Native tools such as git legitimately write progress/status to stderr even
+    # when they exit 0. Keep that output for diagnostics, but make the process
+    # exit code the sole success/failure authority for this wrapper.
+    $previousErrorActionPreference = $ErrorActionPreference
+    $hasNativePreference = Test-Path Variable:PSNativeCommandUseErrorActionPreference
+    $previousNativePreference = $null
+    if ($hasNativePreference) {
+        $previousNativePreference = $PSNativeCommandUseErrorActionPreference
     }
 
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
     try {
-        if (-not $process.Start()) {
-            throw "Failed to start WSL executable: $WslExe"
+        $ErrorActionPreference = "Continue"
+        if ($hasNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
         }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        $exitCode = $process.ExitCode
+        $output = & $WslExe -d $Distribution -- @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
     } finally {
-        $process.Dispose()
+        $ErrorActionPreference = $previousErrorActionPreference
+        if ($hasNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $previousNativePreference
+        }
     }
 
-    $parts = @()
-    if (-not [string]::IsNullOrWhiteSpace($stdout)) {
-        $parts += $stdout.TrimEnd()
-    }
-    if (-not [string]::IsNullOrWhiteSpace($stderr)) {
-        $parts += $stderr.TrimEnd()
-    }
-    $text = ($parts -join "`n").Trim()
-
+    $lines = @($output | ForEach-Object { $_.ToString() })
     return [pscustomobject]@{
         ExitCode = $exitCode
-        Stdout = $stdout
-        Stderr = $stderr
-        Text = $text
+        Output = $lines
+        Text = ($lines -join "`n").Trim()
     }
 }
 
