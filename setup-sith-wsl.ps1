@@ -16,6 +16,10 @@ Set-StrictMode -Version Latest
 
 $SithRevision = "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"
 $SithRemote = "https://github.com/SiTH-Diffusion/SiTH.git"
+$SithCudaRoot = "/usr/local/cuda-12.1"
+$NvdiffrastRevision = "253ac4fcea7de5f396371124af597e6cc957bfae"
+$SetuptoolsVersion = "80.9.0"
+$RuntimeMarkerName = ".bodyrig-sith-runtime-v2"
 $CheckpointUrls = [ordered]@{
     "recon_model.pth" = "https://files.ait.ethz.ch/projects/SiTH/recon_model.pth"
     "save_smplerx.pth" = "https://files.ait.ethz.ch/projects/SiTH/save_smplerx.pth"
@@ -67,16 +71,33 @@ function Invoke-WslChecked {
     return $result.Text
 }
 
+function Invoke-WslStreaming {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Step
+    )
+    & $WslExe -d $Distribution -- @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Step failed with exit code $LASTEXITCODE"
+    }
+}
+
 function Test-WslPath {
-    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory)
-    $flag = $(if ($Directory) { "-d" } else { "-f" })
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory, [switch]$Executable)
+    $flag = "-f"
+    if ($Directory) { $flag = "-d" }
+    elseif ($Executable) { $flag = "-x" }
     $result = Invoke-WslRaw -Arguments @("/usr/bin/test", $flag, $Path)
     return $result.ExitCode -eq 0
 }
 
 function Convert-WindowsPathToWsl {
     param([Parameter(Mandatory = $true)][string]$Path)
-    return Invoke-WslChecked -Arguments @("wslpath", "-a", $Path) -Step "WSL path translation"
+
+    # wsl.exe can treat backslashes in direct Linux argv as escape characters.
+    # Escape them once before handing the Windows path to wslpath.
+    $escapedPath = $Path.Replace('\', '\\')
+    return Invoke-WslChecked -Arguments @("wslpath", "-a", "-u", $escapedPath) -Step "WSL path translation"
 }
 
 $WslExe = $(
@@ -107,6 +128,7 @@ if (-not $InstallRoot.StartsWith("/")) {
 }
 $InstallRoot = $InstallRoot.TrimEnd("/")
 $venvPython = "$InstallRoot/.bodyrig-venv/bin/python"
+$runtimeMarker = "$InstallRoot/.bodyrig-venv/$RuntimeMarkerName"
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $repoRoot = (Resolve-Path $PSScriptRoot).Path
@@ -123,6 +145,7 @@ Write-Host "BodyRig SiTH WSL provisioning"
 Write-Host "Distribution: $Distribution"
 Write-Host "Install root: $InstallRoot"
 Write-Host "Pinned SiTH revision: $SithRevision"
+Write-Host "SiTH CUDA toolkit: $SithCudaRoot"
 Write-Host ""
 
 if (Test-WslPath -Path "$InstallRoot/.git" -Directory) {
@@ -149,22 +172,92 @@ if ($actualRevision -ne $SithRevision) {
     throw "Pinned SiTH revision mismatch after checkout: $actualRevision"
 }
 
-if (-not (Test-WslPath -Path $venvPython)) {
+if (-not (Test-WslPath -Path $venvPython -Executable)) {
     Invoke-WslChecked -Arguments @("/usr/bin/python3", "-m", "venv", "$InstallRoot/.bodyrig-venv") -Step "Create SiTH Python environment" | Out-Null
 }
-if (-not (Test-WslPath -Path $venvPython)) {
+if (-not (Test-WslPath -Path $venvPython -Executable)) {
     throw "SiTH Python environment was not created: $venvPython"
 }
 
-if (-not $SkipDependencyInstall) {
-    Invoke-WslChecked -Arguments @($venvPython, "-m", "pip", "install", "--disable-pip-version-check", "-r", "$InstallRoot/requirements.txt") -Step "Install pinned SiTH requirements" | Out-Null
-    Invoke-WslChecked -Arguments @($venvPython, "-m", "pip", "install", "--disable-pip-version-check", "xatlas") -Step "Install SiTH UV dependency xatlas" | Out-Null
+if (-not $SkipDependencyInstall -and -not (Test-WslPath -Path $runtimeMarker)) {
+    if (-not (Test-WslPath -Path "$SithCudaRoot/bin/nvcc" -Executable)) {
+        throw "SiTH requires CUDA Toolkit 12.1 in WSL at $SithCudaRoot. Keep CUDA 11.7 for OpenPose/recovery and install cuda-toolkit-12-1 side-by-side before rerunning."
+    }
+
+    Write-Host "Provisioning/resuming SiTH CUDA 12.1 runtime..."
+    Invoke-WslStreaming -Arguments @(
+        $venvPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade",
+        "pip", "setuptools==$SetuptoolsVersion", "wheel", "ninja"
+    ) -Step "Bootstrap SiTH packaging toolchain"
+
+    # SiTH upstream is tested with PyTorch 2.1.0 + CUDA 12.1. Install Torch first
+    # so native VCS packages can import torch during their metadata/build stages.
+    Invoke-WslStreaming -Arguments @(
+        $venvPython, "-m", "pip", "install", "--disable-pip-version-check",
+        "torch==2.1.0", "torchvision==0.16.0",
+        "--extra-index-url", "https://download.pytorch.org/whl/cu121"
+    ) -Step "Install SiTH PyTorch CUDA 12.1 runtime"
+
+    $torchProbe = Invoke-WslChecked -Arguments @(
+        $venvPython, "-c",
+        "import torch; assert torch.version.cuda == '12.1', torch.version.cuda; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+    ) -Step "Verify SiTH PyTorch CUDA 12.1 runtime"
+    Write-Host "SiTH Torch CUDA probe: OK | $torchProbe"
+
+    # Preserve the pinned upstream requirements without modifying the clean SiTH
+    # checkout, but install nvdiffrast separately because NVIDIA explicitly
+    # requires Torch to be installed and pip build isolation to be disabled.
+    $filteredRequirements = "/tmp/bodyrig-sith-requirements-$([Guid]::NewGuid().ToString('N')).txt"
+    $filterCode = @'
+import pathlib, sys
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+lines = []
+for line in src.read_text(encoding="utf-8").splitlines():
+    stripped = line.strip().lower()
+    if "github.com/nvlabs/nvdiffrast" in stripped:
+        continue
+    lines.append(line)
+dst.write_text("\n".join(lines) + "\n", encoding="utf-8")
+'@
+    Invoke-WslChecked -Arguments @("/usr/bin/python3", "-c", $filterCode, "$InstallRoot/requirements.txt", $filteredRequirements) -Step "Stage SiTH requirements without nvdiffrast" | Out-Null
+    try {
+        Invoke-WslStreaming -Arguments @(
+            $venvPython, "-m", "pip", "install", "--disable-pip-version-check", "-r", $filteredRequirements
+        ) -Step "Install pinned SiTH Python requirements"
+    } finally {
+        Invoke-WslRaw -Arguments @("/usr/bin/rm", "-f", $filteredRequirements) | Out-Null
+    }
+
+    Invoke-WslStreaming -Arguments @(
+        "/usr/bin/env", "CUDA_HOME=$SithCudaRoot", "CUDACXX=$SithCudaRoot/bin/nvcc",
+        $venvPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+        "nvdiffrast @ git+https://github.com/NVlabs/nvdiffrast.git@$NvdiffrastRevision"
+    ) -Step "Build pinned nvdiffrast against CUDA 12.1"
+
+    Invoke-WslStreaming -Arguments @(
+        $venvPython, "-m", "pip", "install", "--disable-pip-version-check", "xatlas"
+    ) -Step "Install SiTH UV dependency xatlas"
+
+    $runtimeProbe = Invoke-WslChecked -Arguments @(
+        "/usr/bin/env", "CUDA_HOME=$SithCudaRoot",
+        $venvPython, "-c",
+        "import torch, kaolin, nvdiffrast.torch, cv2, smplx, diffusers, transformers, trimesh, xatlas; assert torch.version.cuda == '12.1'; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+    ) -Step "Verify completed SiTH runtime"
+    Write-Host "BodyRig SiTH runtime probe: OK | $runtimeProbe"
+    Invoke-WslChecked -Arguments @("/usr/bin/touch", $runtimeMarker) -Step "Publish SiTH runtime completion marker" | Out-Null
+} elseif (-not $SkipDependencyInstall) {
+    Write-Host "SiTH runtime marker present; reusing completed dependency environment."
 }
 
 if ($DownloadPublicCheckpoints) {
     Invoke-WslChecked -Arguments @("/usr/bin/mkdir", "-p", "$InstallRoot/checkpoints") -Step "Create SiTH checkpoint directory" | Out-Null
     foreach ($entry in $CheckpointUrls.GetEnumerator()) {
         $destination = "$InstallRoot/checkpoints/$($entry.Key)"
+        if (Test-WslPath -Path $destination) {
+            Write-Host "Checkpoint already present; reusing $($entry.Key)"
+            continue
+        }
         $temporary = "$destination.bodyrig-download"
         Invoke-WslChecked -Arguments @("wget", "--https-only", "--tries=3", "--timeout=30", "-O", $temporary, [string]$entry.Value) -Step "Download $($entry.Key)" | Out-Null
         Invoke-WslChecked -Arguments @("/usr/bin/test", "-s", $temporary) -Step "Validate downloaded $($entry.Key)" | Out-Null
