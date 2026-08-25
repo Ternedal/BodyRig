@@ -35,6 +35,20 @@ def test_ready_launcher_requires_readiness_before_clone():
     assert "source + binary + models" in text
 
 
+def test_ready_launcher_requires_windows_powershell_7_and_pwsh_before_session_creation():
+    text = _launcher()
+    windows_gate = text.index("[System.Environment]::OSVersion.Platform")
+    version_gate = text.index("$PSVersionTable.PSVersion.Major -lt 7")
+    pwsh_resolution = text.index('Resolve-CommandPath "pwsh"')
+    git_binding = text.index("git -C $repoRoot rev-parse HEAD")
+    session_start = text.index("Invoke-SessionCommand -Arguments @(")
+
+    assert windows_gate < version_gate < pwsh_resolution < git_binding < session_start
+    assert "PowerShell 7+ (pwsh) is required" in text
+    assert "PowerShell 7 executable (pwsh) was not found" in text
+    assert 'Resolve-CommandPath "powershell"' not in text
+
+
 def test_ready_launcher_rehydrates_all_builtin_sith_settings():
     text = _launcher()
     for setting in (
