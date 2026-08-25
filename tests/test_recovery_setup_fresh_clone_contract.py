@@ -14,11 +14,11 @@ def test_fresh_no_checkout_clone_skips_only_the_preexisting_dirty_guard() -> Non
     text = _script()
 
     created = text.index("$created = $false")
-    clone = text.index('Invoke-Checked -Executable $script:GitExe -Arguments @(\"clone\", \"--no-checkout\"')
+    clone = text.index('Invoke-WslStreaming -Arguments @(\"git\", \"clone\", \"--no-checkout\"')
     existing_guard = text.index("if (-not $created)", clone)
-    pre_dirty = text.index('$dirty = @(& $script:GitExe -C $Path status --porcelain)', existing_guard)
-    checkout = text.index('Invoke-Checked -Executable $script:GitExe -Arguments @(\"-C\", $Path, \"checkout\", \"--detach\"', pre_dirty)
-    post_dirty = text.index('$dirtyAfterCheckout = @(& $script:GitExe -C $Path status --porcelain)', checkout)
+    pre_dirty = text.index('$dirty = Invoke-WslChecked -Arguments @(\"git\", \"-C\", $Path, \"status\", \"--porcelain\")', existing_guard)
+    checkout = text.index('Invoke-WslStreaming -Arguments @(\"git\", \"-C\", $Path, \"checkout\", \"--detach\"', pre_dirty)
+    post_dirty = text.index('$dirtyAfter = Invoke-WslChecked -Arguments @(\"git\", \"-C\", $Path, \"status\", \"--porcelain\", \"--untracked-files=no\")', checkout)
 
     assert created < clone < existing_guard < pre_dirty < checkout < post_dirty
     assert "BodyRig will not reset or overwrite it automatically" in text
