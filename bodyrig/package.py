@@ -301,7 +301,7 @@ def install_package(
     fd, temp_name = tempfile.mkstemp(prefix=".bodyrig-install-", suffix=".tmp", dir=library)
     temp = Path(temp_name)
     try:
-        with source.open("rb") as input_stream, os.fdopen(fd, "wb") as output_stream:
+        with os.fdopen(fd, "wb") as output_stream, source.open("rb") as input_stream:
             for block in iter(lambda: input_stream.read(1024 * 1024), b""):
                 output_stream.write(block)
             output_stream.flush()
