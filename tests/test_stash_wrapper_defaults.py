@@ -41,8 +41,9 @@ def test_stash_wrapper_defaults_to_builtin_sith_fitter_but_generic_clone_stays_s
     assert '"-m", "bodyrig.sith_fitter_orchestrator"' in wrapper
     assert 'visual_identity = $true' in wrapper
     assert 'textures = $true' in wrapper
-    assert 'clothing = $true' in wrapper
+    assert 'clothing = $false' in wrapper
     assert 'hair = $false' in wrapper
+    assert 'garments external' in wrapper
     assert 'timeout_seconds = 86400' in wrapper
     assert '"-FitterConfig", $FitterConfig' in wrapper
 
