@@ -19,7 +19,8 @@ def test_ready_launcher_binds_exact_clean_bodyrig_checkout():
     assert '[switch]$AllowDirty' in text
     assert '"--bodyrig-revision", $head' in text
     assert '"--bodyrig-checkout-clean", $checkoutCleanText' in text
-    assert '$checkoutClean -and -not $AllowDirty' in text
+    assert '$checkoutCleanText = "true"' in text
+    assert 'if (-not $checkoutClean)' in text
     assert "BodyRig Git HEAD changed during the physical clone session; refusing PASS evidence." in text
     assert "BodyRig checkout became dirty during the physical clone session; refusing PASS evidence." in text
 
@@ -47,7 +48,7 @@ def test_ready_launcher_rechecks_checkout_after_clone_before_pass():
 
     assert clone < final_head < final_status < dirty_reject < session_pass
     assert "Could not re-check BodyRig Git status after physical clone." in text
-    assert "-not $AllowDirty -and $finalDirty.Count -gt 0" in text
+    assert "if ($finalDirty.Count -gt 0)" in text
 
 
 def test_ready_launcher_binds_live_readiness_before_clone():
