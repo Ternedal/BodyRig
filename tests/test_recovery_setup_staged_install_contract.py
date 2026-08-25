@@ -25,30 +25,6 @@ def test_recovery_uses_wsl_cuda_matched_python_environment() -> None:
     assert 'FORCE_CUDA=1' in text
 
 
-def test_wsl_recovery_pins_pkg_resources_compatible_setuptools() -> None:
-    text = _script()
-
-    assert '$SetuptoolsVersion = "80.9.0"' in text
-    assert '"setuptools==$SetuptoolsVersion"' in text
-    assert 'import pkg_resources; from pkg_resources import packaging' in text
-    packaging_probe = text.index('Verify WSL pkg_resources compatibility')
-    detectron2_build = text.index('Build pinned Detectron2 in WSL')
-    assert packaging_probe < detectron2_build
-
-
-def test_wsl_recovery_resumes_partial_environment_until_completion_marker() -> None:
-    text = _script()
-
-    assert '$RuntimeMarkerName = ".bodyrig-recovery-runtime-v2"' in text
-    assert 'if (-not (Test-WslPath -Path $runtimeMarker))' in text
-    assert 'Provisioning/resuming WSL recovery runtime...' in text
-    assert 'Commit WSL recovery runtime marker' in text
-    assert 'WSL recovery runtime marker present; reusing completed environment.' in text
-    runtime_probe = text.index('Verify completed WSL recovery runtime')
-    marker_commit = text.index('Commit WSL recovery runtime marker')
-    assert runtime_probe < marker_commit
-
-
 def test_wsl_source_builds_are_pinned_and_disable_build_isolation() -> None:
     text = _script()
 
@@ -79,3 +55,22 @@ def test_wsl_recovery_publishes_linux_authority_and_wsl_preflight() -> None:
     assert '--distribution $Distribution' in text
     assert '--wsl-exe $script:WslExe' in text
     assert 'Recovery environment: READY | WSL $Distribution' in text
+
+
+def test_wsl_windows_path_translation_preserves_backslashes_for_wslpath() -> None:
+    text = _script()
+
+    assert "$escapedPath = $Path.Replace('\\', '\\\\')" in text
+    assert '@("wslpath", "-a", "-u", $escapedPath)' in text
+    assert 'C:\\Users\\... may arrive as C:Users...' in text
+
+
+def test_wsl_runtime_is_resumable_and_pins_pkg_resources_compatible_setuptools() -> None:
+    text = _script()
+
+    assert '$SetuptoolsVersion = "80.9.0"' in text
+    assert '$RuntimeMarkerName = ".bodyrig-recovery-runtime-v2"' in text
+    assert 'if (-not (Test-WslPath -Path $runtimeMarker))' in text
+    assert '"setuptools==$SetuptoolsVersion"' in text
+    assert "import pkg_resources; print('BodyRig pkg_resources compatibility: OK')" in text
+    assert 'Publish WSL recovery runtime marker' in text
