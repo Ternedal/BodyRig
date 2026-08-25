@@ -2,7 +2,9 @@ param(
     [string]$Root = "",
     [string]$CondaExe = "",
     [string]$SmplModelPath = "",
-    [switch]$RecreateEnvironment
+    [switch]$RecreateEnvironment,
+    [string]$Distribution = "Ubuntu-22.04",
+    [string]$WslExe = "wsl.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,27 +12,14 @@ Set-StrictMode -Version Latest
 
 $FourDRevision = "efe18deff163b29dff87ddbd575fa29b716a356c"
 $PhalpRevision = "96f7e6c09fb858ec3f597d59246c151ab4394bc3"
+$Detectron2Revision = "a2f4a8771ab77e8411c26b27f24f9489a28a2453"
+$ChumpyRevision = "580566eafc9ac68b2614b64d6f7aaa84eebb70da"
+$PytubeRevision = "a32fff39058a6f7e5e59ecd06a7467b71197ce35"
+$PyOpenGlRevision = "76d1261adee2d3fd99b418e75b0416bb7d2865e6"
 $FourDRemote = "https://github.com/shubham-goel/4D-Humans.git"
 $PhalpRemote = "https://github.com/brjathu/PHALP.git"
 $SmplFileName = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
-
-function Invoke-Checked {
-    param(
-        [Parameter(Mandatory = $true)][string]$Executable,
-        [Parameter(Mandatory = $true)][object[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Step,
-        [string]$WorkingDirectory = ""
-    )
-    if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-        & $Executable @Arguments
-    } else {
-        Push-Location $WorkingDirectory
-        try { & $Executable @Arguments } finally { Pop-Location }
-    }
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Step failed with exit code $LASTEXITCODE"
-    }
-}
+$CudaRoot = "/usr/local/cuda-11.7"
 
 function Resolve-CommandPath {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -39,7 +28,54 @@ function Resolve-CommandPath {
     return $command.Source
 }
 
-function Assert-ManagedRepo {
+function Invoke-WslRaw {
+    param([Parameter(Mandatory = $true)][object[]]$Arguments)
+    $output = & $script:WslExe -d $Distribution -- @Arguments 2>&1
+    return [pscustomobject]@{
+        ExitCode = $LASTEXITCODE
+        Output = @($output)
+        Text = (@($output) -join "`n").Trim()
+    }
+}
+
+function Invoke-WslChecked {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Step
+    )
+    $result = Invoke-WslRaw -Arguments $Arguments
+    if ($result.ExitCode -ne 0) {
+        throw "$Step failed with exit code $($result.ExitCode): $($result.Text)"
+    }
+    return $result.Text
+}
+
+function Invoke-WslStreaming {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Step
+    )
+    & $script:WslExe -d $Distribution -- @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Step failed with exit code $LASTEXITCODE"
+    }
+}
+
+function Test-WslPath {
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory, [switch]$Executable)
+    $flag = "-f"
+    if ($Directory) { $flag = "-d" }
+    elseif ($Executable) { $flag = "-x" }
+    $result = Invoke-WslRaw -Arguments @("/usr/bin/test", $flag, $Path)
+    return $result.ExitCode -eq 0
+}
+
+function Convert-WindowsPathToWsl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return Invoke-WslChecked -Arguments @("wslpath", "-a", $Path) -Step "WSL path translation"
+}
+
+function Assert-ManagedRepoWsl {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Remote,
@@ -48,66 +84,56 @@ function Assert-ManagedRepo {
     )
 
     $created = $false
-    if (-not (Test-Path -LiteralPath $Path)) {
-        Invoke-Checked -Executable $script:GitExe -Arguments @("clone", "--no-checkout", $Remote, $Path) -Step "Clone $Label"
+    if (-not (Test-WslPath -Path "$Path/.git" -Directory)) {
+        if (Test-WslPath -Path $Path -Directory) {
+            throw "$Label path exists in WSL but is not a Git checkout: $Path"
+        }
+        $parent = $Path.Substring(0, $Path.LastIndexOf("/"))
+        Invoke-WslChecked -Arguments @("/usr/bin/mkdir", "-p", $parent) -Step "Create $Label parent" | Out-Null
+        Invoke-WslStreaming -Arguments @("git", "clone", "--no-checkout", $Remote, $Path) -Step "Clone $Label"
         $created = $true
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $Path ".git") -PathType Container)) {
-        throw "$Label path exists but is not a Git checkout: $Path"
-    }
 
-    $actualRemote = (& $script:GitExe -C $Path remote get-url origin).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "Could not read $Label origin remote." }
+    $actualRemote = (Invoke-WslChecked -Arguments @("git", "-C", $Path, "remote", "get-url", "origin") -Step "Read $Label origin").Trim()
     $normalizedActual = $actualRemote.TrimEnd("/").ToLowerInvariant()
     $normalizedExpected = $Remote.TrimEnd("/").ToLowerInvariant()
     if ($normalizedActual -ne $normalizedExpected) {
-        throw "$Label origin mismatch: $actualRemote"
+        throw "$Label origin mismatch in WSL: $actualRemote"
     }
 
-    # Existing managed checkouts remain fail-closed. A repository created by
-    # this invocation was cloned with --no-checkout, so Git reports the empty
-    # worktree as deleted tracked files until the first checkout. Do not
-    # misclassify that expected initial state as operator modifications.
     if (-not $created) {
-        $dirty = @(& $script:GitExe -C $Path status --porcelain)
-        if ($LASTEXITCODE -ne 0) { throw "Could not inspect $Label status." }
-        if ($dirty.Count -gt 0) {
+        $dirty = Invoke-WslChecked -Arguments @("git", "-C", $Path, "status", "--porcelain") -Step "Inspect $Label status"
+        if (-not [string]::IsNullOrWhiteSpace($dirty)) {
             throw "$Label checkout is dirty. BodyRig will not reset or overwrite it automatically: $Path"
         }
     }
 
-    Invoke-Checked -Executable $script:GitExe -Arguments @("-C", $Path, "fetch", "--no-tags", "origin", $Revision) -Step "Fetch pinned $Label revision"
-    Invoke-Checked -Executable $script:GitExe -Arguments @("-C", $Path, "checkout", "--detach", $Revision) -Step "Checkout pinned $Label revision"
-    $head = (& $script:GitExe -C $Path rev-parse HEAD).Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $head -ne $Revision) {
+    Invoke-WslStreaming -Arguments @("git", "-C", $Path, "fetch", "--no-tags", "origin", $Revision) -Step "Fetch pinned $Label revision"
+    Invoke-WslStreaming -Arguments @("git", "-C", $Path, "checkout", "--detach", $Revision) -Step "Checkout pinned $Label revision"
+
+    $head = (Invoke-WslChecked -Arguments @("git", "-C", $Path, "rev-parse", "HEAD") -Step "Verify $Label revision").Trim().ToLowerInvariant()
+    if ($head -ne $Revision) {
         throw "$Label checkout did not land on pinned revision $Revision"
     }
-
-    $dirtyAfterCheckout = @(& $script:GitExe -C $Path status --porcelain)
-    if ($LASTEXITCODE -ne 0) { throw "Could not inspect $Label status after pinned checkout." }
-    if ($dirtyAfterCheckout.Count -gt 0) {
+    $dirtyAfter = Invoke-WslChecked -Arguments @("git", "-C", $Path, "status", "--porcelain", "--untracked-files=no") -Step "Verify $Label tracked state"
+    if (-not [string]::IsNullOrWhiteSpace($dirtyAfter)) {
         throw "$Label checkout is dirty after pinned checkout: $Path"
     }
 }
 
-$script:GitExe = Resolve-CommandPath "git"
-if ($null -eq $script:GitExe) {
-    throw "Git is required. Install Git for Windows and rerun."
-}
-
-if ([string]::IsNullOrWhiteSpace($CondaExe)) {
-    foreach ($candidate in @("conda", "mamba")) {
-        $resolved = Resolve-CommandPath $candidate
-        if ($null -ne $resolved) {
-            $CondaExe = $resolved
-            break
-        }
+$script:WslExe = $(
+    if (Test-Path -LiteralPath $WslExe -PathType Leaf) {
+        (Resolve-Path -LiteralPath $WslExe).Path
+    } else {
+        $resolved = Resolve-CommandPath $WslExe
+        if ($null -eq $resolved) { throw "WSL executable not found: $WslExe" }
+        $resolved
     }
+)
+
+if ([string]::IsNullOrWhiteSpace($Distribution)) {
+    throw "WSL distribution is required for BodyRig recovery."
 }
-if ([string]::IsNullOrWhiteSpace($CondaExe) -or -not (Test-Path -LiteralPath $CondaExe -PathType Leaf)) {
-    throw "Conda/Mamba was not found. Upstream 4D-Humans recommends a Python 3.10 conda environment; install Miniconda/Conda first or pass -CondaExe."
-}
-$CondaExe = (Resolve-Path -LiteralPath $CondaExe).Path
 
 if ([string]::IsNullOrWhiteSpace($Root)) {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -118,132 +144,157 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 $Root = [System.IO.Path]::GetFullPath($Root)
 New-Item -ItemType Directory -Force -Path $Root | Out-Null
 
-$fourDPath = Join-Path $Root "4D-Humans"
-$phalpPath = Join-Path $Root "PHALP"
-$envPath = Join-Path $Root "conda-env"
+$homeProbe = Invoke-WslRaw -Arguments @("/usr/bin/python3", "-c", "import pathlib; print(pathlib.Path.home().as_posix())")
+if ($homeProbe.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($homeProbe.Text)) {
+    throw "Ubuntu/WSL Python 3 is required before recovery provisioning."
+}
+$linuxHome = $homeProbe.Text.Trim()
+$linuxRoot = "$linuxHome/.local/share/bodyrig/recovery"
+$fourDPath = "$linuxRoot/4D-Humans"
+$phalpPath = "$linuxRoot/PHALP"
+$envPath = "$linuxRoot/venv"
+$envPython = "$envPath/bin/python"
 
-Write-Host "BodyRig recovery provisioner"
-Write-Host "Root: $Root"
+Write-Host "BodyRig recovery provisioner | WSL"
+Write-Host "Distribution: $Distribution"
+Write-Host "Evidence root: $Root"
+Write-Host "Linux root: $linuxRoot"
 Write-Host "4D-Humans pin: $FourDRevision"
 Write-Host "PHALP pin:      $PhalpRevision"
+Write-Host "CUDA toolkit:   $CudaRoot"
+Write-Host ""
 
-Assert-ManagedRepo -Path $fourDPath -Remote $FourDRemote -Revision $FourDRevision -Label "4D-Humans"
-Assert-ManagedRepo -Path $phalpPath -Remote $PhalpRemote -Revision $PhalpRevision -Label "PHALP"
-
-if ($RecreateEnvironment -and (Test-Path -LiteralPath $envPath)) {
-    Write-Host "Removing managed recovery environment because -RecreateEnvironment was supplied."
-    Invoke-Checked -Executable $CondaExe -Arguments @("env", "remove", "--prefix", $envPath, "--yes") -Step "Remove recovery conda environment"
+if (-not [string]::IsNullOrWhiteSpace($CondaExe)) {
+    Write-Host "Note: -CondaExe is retained for CLI compatibility but is not used by WSL recovery."
 }
 
-$envPython = Join-Path $envPath "python.exe"
-if (-not (Test-Path -LiteralPath $envPython -PathType Leaf)) {
-    # The pinned 4D-Humans environment.yml mixes Conda packages with pip VCS
-    # packages. Modern pip builds Detectron2 in an isolated PEP 517 environment,
-    # where its setup.py cannot import the Torch that Conda just installed. Build
-    # the immutable Conda portion explicitly first, then install the pinned local
-    # checkouts below with build isolation disabled. --override-channels also
-    # prevents an operator's configured Anaconda defaults from being injected.
-    Invoke-Checked -Executable $CondaExe -Arguments @(
-        "create",
-        "--prefix", $envPath,
-        "--yes",
-        "--override-channels",
-        "--channel", "pytorch",
-        "--channel", "nvidia",
-        "--channel", "conda-forge",
-        "python=3.10",
-        "numpy",
-        "pytorch",
-        "pytorch-cuda=11.8",
-        "torchvision",
-        "pip"
-    ) -Step "Create pinned 4D-Humans Conda base environment"
-}
-if (-not (Test-Path -LiteralPath $envPython -PathType Leaf)) {
-    throw "Recovery Python was not created: $envPython"
+Assert-ManagedRepoWsl -Path $fourDPath -Remote $FourDRemote -Revision $FourDRevision -Label "4D-Humans"
+Assert-ManagedRepoWsl -Path $phalpPath -Remote $PhalpRemote -Revision $PhalpRevision -Label "PHALP"
+
+if (-not (Test-WslPath -Path "$CudaRoot/bin/nvcc" -Executable)) {
+    throw "BodyRig recovery requires the already-provisioned WSL CUDA 11.7 toolkit: $CudaRoot/bin/nvcc"
 }
 
-# Detectron2 imports Torch from setup.py, so source-build dependencies must see
-# the already-created runtime environment. Install HMR2 from the verified local
-# checkout first. PHALP's setup.py also declares neural-renderer-pytorch, but the
-# BodyRig recovery bridge always runs 4D-Humans with render.enable=false and the
-# pinned tracker does not import neural_renderer. That legacy CUDA renderer would
-# otherwise require a separate native Windows CUDA toolchain for code we never
-# execute, so provision the actual tracker/runtime dependencies explicitly and
-# install the pinned PHALP checkout with --no-deps.
-Invoke-Checked -Executable $envPython -Arguments @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $fourDPath
-) -Step "Install pinned 4D-Humans checkout"
+if ($RecreateEnvironment -and (Test-WslPath -Path $envPath -Directory)) {
+    Write-Host "Removing managed WSL recovery environment because -RecreateEnvironment was supplied."
+    Invoke-WslChecked -Arguments @("/usr/bin/rm", "-rf", $envPath) -Step "Remove WSL recovery environment" | Out-Null
+}
 
-Invoke-Checked -Executable $envPython -Arguments @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
-    "opencv-python",
-    "joblib",
-    "scikit-learn",
-    "pyrender",
-    "dill",
-    "rich",
-    "einops",
-    "scenedetect[opencv]",
-    "hydra-core",
-    "timm",
-    "av",
-    "smplx==0.1.28",
-    "numpy",
-    "detectron2 @ git+https://github.com/facebookresearch/detectron2.git",
-    "pytube @ git+https://github.com/pytube/pytube.git",
-    "pyopengl @ git+https://github.com/mmatl/pyopengl.git",
-    "chumpy @ git+https://github.com/mattloper/chumpy"
-) -Step "Install BodyRig PHALP runtime dependencies"
+if (-not (Test-WslPath -Path $envPython -Executable)) {
+    Write-Host "Creating WSL Python recovery environment..."
+    Invoke-WslStreaming -Arguments @("/usr/bin/python3", "-m", "venv", $envPath) -Step "Create WSL recovery venv"
+    Invoke-WslStreaming -Arguments @($envPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools", "wheel", "ninja") -Step "Bootstrap WSL recovery pip"
 
-Invoke-Checked -Executable $envPython -Arguments @(
-    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath
-) -Step "Install pinned PHALP checkout"
+    # Match the proven /usr/local/cuda-11.7 compiler used by BodyRig OpenPose.
+    # PyTorch 2.0.1/torchvision 0.15.2 have official CPython 3.10 CUDA 11.7 wheels.
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check",
+        "torch==2.0.1+cu117", "torchvision==0.15.2+cu117",
+        "--extra-index-url", "https://download.pytorch.org/whl/cu117"
+    ) -Step "Install WSL PyTorch CUDA 11.7 runtime"
 
-# These are runtime-neutral helpers present in the pinned upstream environment
-# but not declared by the two editable packages. Keep them explicit so the
-# provisioned environment remains equivalent to the upstream runtime surface.
-Invoke-Checked -Executable $envPython -Arguments @(
-    "-m", "pip", "install", "--disable-pip-version-check",
-    "hydra-submitit-launcher", "hydra-colorlog", "pyrootutils"
-) -Step "Install pinned-environment helper dependencies"
+    # Chumpy and several 4D-Humans-era packages are not NumPy-2 compatible.
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check",
+        "numpy==1.23.5",
+        "pandas==2.0.3",
+        "gdown",
+        "pytorch-lightning==1.9.5",
+        "smplx==0.1.28",
+        "pyrender",
+        "opencv-python==4.8.1.78",
+        "yacs",
+        "scikit-image==0.21.0",
+        "einops",
+        "timm==0.9.12",
+        "webdataset",
+        "dill",
+        "joblib",
+        "scikit-learn",
+        "rich",
+        "hydra-core==1.3.2",
+        "hydra-submitit-launcher",
+        "hydra-colorlog",
+        "pyrootutils",
+        "av",
+        "scenedetect[opencv]"
+    ) -Step "Install WSL 4D-Humans runtime dependencies"
 
-$smplDestination = Join-Path (Join-Path $fourDPath "data") $SmplFileName
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $smplDestination) | Out-Null
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+        "chumpy @ git+https://github.com/mattloper/chumpy@$ChumpyRevision",
+        "pytube @ git+https://github.com/pytube/pytube.git@$PytubeRevision",
+        "pyopengl @ git+https://github.com/mmatl/pyopengl.git@$PyOpenGlRevision"
+    ) -Step "Install pinned WSL VCS runtime dependencies"
+
+    # Detectron2 has native C++/CUDA extensions. Build it inside WSL against the
+    # exact CUDA 11.7 toolkit instead of relying on unsupported native Windows builds.
+    Invoke-WslStreaming -Arguments @(
+        "/usr/bin/env", "CUDA_HOME=$CudaRoot", "FORCE_CUDA=1",
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+        "detectron2 @ git+https://github.com/facebookresearch/detectron2.git@$Detectron2Revision"
+    ) -Step "Build pinned Detectron2 in WSL"
+
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $fourDPath
+    ) -Step "Install pinned 4D-Humans checkout in WSL"
+
+    # PHALP declares neural-renderer-pytorch as a legacy dependency. BodyRig runs
+    # PHALP with render.enable=false, so install the tracker dependencies used by
+    # the recovery path explicitly and keep the unused NMR CUDA extension out.
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+        "opencv-python==4.8.1.78", "joblib", "scikit-learn", "pyrender", "dill", "rich", "einops",
+        "scenedetect[opencv]", "hydra-core==1.3.2", "timm==0.9.12", "av", "smplx==0.1.28"
+    ) -Step "Install BodyRig PHALP runtime dependencies in WSL"
+
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath
+    ) -Step "Install pinned PHALP checkout in WSL"
+}
+
+if (-not (Test-WslPath -Path $envPython -Executable)) {
+    throw "WSL recovery Python was not created: $envPython"
+}
+
+$smplDestination = "$fourDPath/data/$SmplFileName"
+Invoke-WslChecked -Arguments @("/usr/bin/mkdir", "-p", "$fourDPath/data") -Step "Create 4D-Humans data directory" | Out-Null
 if (-not [string]::IsNullOrWhiteSpace($SmplModelPath)) {
-    if (-not (Test-Path -LiteralPath $SmplModelPath -PathType Leaf)) {
+    $sourceSmpl = ""
+    if (Test-Path -LiteralPath $SmplModelPath -PathType Leaf) {
+        $sourceSmpl = Convert-WindowsPathToWsl -Path (Resolve-Path -LiteralPath $SmplModelPath).Path
+    } elseif ($SmplModelPath.StartsWith("/")) {
+        $sourceSmpl = $SmplModelPath
+    } else {
         throw "SMPL model file not found: $SmplModelPath"
     }
-    $sourceSmpl = (Resolve-Path -LiteralPath $SmplModelPath).Path
-    if ([System.IO.Path]::GetExtension($sourceSmpl).ToLowerInvariant() -ne ".pkl") {
-        throw "SMPL source must be the neutral .pkl model obtained under the SMPL terms."
-    }
-    Copy-Item -LiteralPath $sourceSmpl -Destination $smplDestination -Force
+    Invoke-WslChecked -Arguments @("/usr/bin/cp", "-f", $sourceSmpl, $smplDestination) -Step "Copy SMPL neutral model into WSL recovery checkout" | Out-Null
 }
 
+$smplPresent = Test-WslPath -Path $smplDestination
 $summary = [ordered]@{
     format = "bodyrig-recovery-environment"
     version = 1
-    root = $Root
+    root = $linuxRoot
     external_python = $envPython
     four_d_humans_repo = $fourDPath
     four_d_humans_revision = $FourDRevision
     phalp_repo = $phalpPath
     phalp_revision = $PhalpRevision
     smpl_expected_path = $smplDestination
-    smpl_present = (Test-Path -LiteralPath $smplDestination -PathType Leaf)
+    smpl_present = $smplPresent
 }
 $summaryPath = Join-Path $Root "bodyrig-recovery-environment.json"
 $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
 
 Write-Host ""
-Write-Host "Pinned recovery checkouts/environment prepared."
+Write-Host "Pinned WSL recovery checkouts/environment prepared."
 Write-Host "External Python: $envPython"
 Write-Host "4D-Humans repo: $fourDPath"
 Write-Host "PHALP repo: $phalpPath"
-if (-not $summary.smpl_present) {
-    Write-Warning "SMPL neutral model is still missing. BodyRig does not download or redistribute it. Obtain $SmplFileName under the applicable SMPL terms, then rerun with -SmplModelPath <file>."
-    Write-Host "Recovery acceptance remains BLOCKED until the SMPL model is present."
+if (-not $smplPresent) {
+    Write-Warning "SMPL neutral model is still missing. BodyRig does not download or redistribute it."
+    Write-Host "Recovery acceptance remains BLOCKED until $SmplFileName is present."
     Write-Host "Environment summary: $summaryPath"
     exit 2
 }
@@ -254,22 +305,24 @@ if (-not (Test-Path -LiteralPath $bodyRigPython -PathType Leaf)) {
     $bodyRigPython = Resolve-CommandPath "python"
 }
 if ($null -eq $bodyRigPython) {
-    throw "BodyRig Python not found; cannot run final recovery preflight."
+    throw "BodyRig Python not found; cannot run final WSL recovery preflight."
 }
 
 $preflightPath = Join-Path $Root "bodyrig-recovery-preflight.json"
-Invoke-Checked -Executable $bodyRigPython -Arguments @(
-    "-m", "bodyrig.preflight_cli",
-    "--python", $envPython,
-    "--repo", $fourDPath,
-    "--phalp-repo", $phalpPath,
-    "--out", $preflightPath
-) -Step "BodyRig recovery preflight"
+& $bodyRigPython -m bodyrig.preflight_cli `
+    --python $envPython `
+    --repo $fourDPath `
+    --phalp-repo $phalpPath `
+    --distribution $Distribution `
+    --wsl-exe $script:WslExe `
+    --out $preflightPath
+if ($LASTEXITCODE -ne 0) {
+    throw "BodyRig WSL recovery preflight failed. Resolve the reported Linux runtime gate before cloning."
+}
 
-Write-Host "Recovery environment: READY"
+Write-Host "Recovery environment: READY | WSL $Distribution"
 Write-Host "Preflight: $preflightPath"
 Write-Host "Environment summary: $summaryPath"
 Write-Host ""
-Write-Host "Next:"
-Write-Host ".\run-physical-gate.ps1 -Source <video> -BodyId <id> -Name <name>"
+Write-Host "Next: continue the full rig bootstrap; high-fidelity SiTH/OpenPose remains in the same WSL distribution."
 exit 0
