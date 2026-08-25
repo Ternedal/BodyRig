@@ -115,7 +115,7 @@ def test_external_fitter_cli_builds_valid_portable_package(tmp_path: Path):
             "visual_identity": True,
             "textures": True,
             "hair": True,
-            "clothing": True,
+            "clothing": False,
         },
         "timeout_seconds": 30,
     }
@@ -145,8 +145,14 @@ def test_external_fitter_cli_builds_valid_portable_package(tmp_path: Path):
     assert [stage["stage"] for stage in validated.provenance["pipeline"]] == [
         "body-recovery",
         "visual-identity-capture",
+        "appearance-boundary",
         "avatar-fitting",
     ]
+    assert validated.provenance["pipeline"][2] == {
+        "stage": "appearance-boundary",
+        "adapter": "bodyrig.garment-policy",
+        "revision": "external-outfit-v1",
+    }
     assert validated.provenance["pipeline"][-1]["adapter"] == "fixture-high-fidelity"
 
     with zipfile.ZipFile(output, "r") as archive:
@@ -171,7 +177,7 @@ def test_external_fitter_cli_rejects_config_without_identity_capability(tmp_path
             "visual_identity": False,
             "textures": True,
             "hair": True,
-            "clothing": True,
+            "clothing": False,
         },
         "timeout_seconds": 30,
     }

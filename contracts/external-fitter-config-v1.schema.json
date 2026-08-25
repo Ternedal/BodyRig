@@ -24,7 +24,10 @@
         "visual_identity": {"const": true},
         "textures": {"type": "boolean"},
         "hair": {"type": "boolean"},
-        "clothing": {"type": "boolean"}
+        "clothing": {
+          "const": false,
+          "description": "Garments/outfits are external appearance assets and are not part of the portable BodyRig body identity."
+        }
       }
     },
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}

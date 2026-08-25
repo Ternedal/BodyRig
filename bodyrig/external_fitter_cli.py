@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .appearance_boundary import provenance_stage as appearance_boundary_stage
 from .bodyprint_adjustment import (
     BodyprintAdjustmentEvidenceError,
     _write_create_only,
@@ -76,6 +77,10 @@ def validate_external_fitter_config(value: Any) -> dict[str, Any]:
         raise ExternalFitterConfigError("external fitter capabilities must be booleans")
     if capabilities["visual_identity"] is not True:
         raise ExternalFitterConfigError("external fitter must explicitly support visual_identity")
+    if capabilities["clothing"] is not False:
+        raise ExternalFitterConfigError(
+            "external fitter clothing capability must be false; garments/outfits are external to the portable BodyRig body identity"
+        )
 
     timeout = value["timeout_seconds"]
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 86_400:
@@ -202,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if portable_identity is not None:
             pipeline.append(provenance_identity_stage(portable_identity))
+        pipeline.append(appearance_boundary_stage())
         pipeline.append(
             {
                 "stage": "avatar-fitting",

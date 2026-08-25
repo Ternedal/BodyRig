@@ -62,7 +62,7 @@ for source in a.bodyrig_source:
         raise SystemExit(20)
 workspace = Path(a.bodyrig_workspace)
 workspace.joinpath('face-crop.private').write_bytes(b'private derived identity material')
-workspace.joinpath('clothing.private').write_bytes(b'private derived clothing material')
+workspace.joinpath('clothing.private').write_bytes(b'private derived clothing observation material')
 identity = {
     'format': 'bodyrig-visual-identity',
     'version': 1,
@@ -160,7 +160,7 @@ out.joinpath('result.json').write_text(json.dumps({
             "visual_identity": True,
             "textures": True,
             "hair": True,
-            "clothing": True,
+            "clothing": False,
         },
         "timeout_seconds": 30,
     }
@@ -184,10 +184,15 @@ out.joinpath('result.json').write_text(json.dumps({
     validated = validate_package(package_path)
     assert validated.manifest["id"] == "person-a"
     assert [stage["stage"] for stage in validated.provenance["pipeline"]] == [
-        "body-recovery", "visual-identity-capture", "avatar-fitting"
+        "body-recovery", "visual-identity-capture", "appearance-boundary", "avatar-fitting"
     ]
     assert validated.provenance["pipeline"][1]["adapter"] == "fixture-capture"
-    assert validated.provenance["pipeline"][2]["adapter"] == "fixture-high-fidelity"
+    assert validated.provenance["pipeline"][2] == {
+        "stage": "appearance-boundary",
+        "adapter": "bodyrig.garment-policy",
+        "revision": "external-outfit-v1",
+    }
+    assert validated.provenance["pipeline"][3]["adapter"] == "fixture-high-fidelity"
 
     private_strings = [
         str(source1), str(source2), str(workspace), str(capture_adapter), str(fitter_adapter),

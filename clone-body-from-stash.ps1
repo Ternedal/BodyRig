@@ -330,7 +330,7 @@ if ($usingBuiltInFitter) {
             visual_identity = $true
             textures = $true
             hair = $false
-            clothing = $true
+            clothing = $false
         }
         timeout_seconds = 86400
     }
@@ -408,7 +408,7 @@ if ($usingBuiltInIdentityCapture) {
     Write-Host "Identity capture: custom config"
 }
 if ($usingBuiltInFitter) {
-    Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1 (OpenPose source/binary/models + diffusion bytes verified)"
+    Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1 (OpenPose source/binary/models + diffusion bytes verified; garments external)"
 } else {
     Write-Host "High-fidelity fitter: custom config"
 }

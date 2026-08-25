@@ -119,7 +119,7 @@ out.joinpath('result.json').write_text(json.dumps({
             "visual_identity": True,
             "textures": True,
             "hair": True,
-            "clothing": True,
+            "clothing": False,
         },
         "timeout_seconds": 30,
     }
@@ -149,6 +149,14 @@ out.joinpath('result.json').write_text(json.dumps({
         "stage": "identity_content",
         "adapter": "bodyrig.portable_identity",
         "revision": receipt["body_id"].removeprefix("bodyid-"),
+    }
+    appearance_stage = next(
+        stage for stage in validated.provenance["pipeline"] if stage["stage"] == "appearance-boundary"
+    )
+    assert appearance_stage == {
+        "stage": "appearance-boundary",
+        "adapter": "bodyrig.garment-policy",
+        "revision": "external-outfit-v1",
     }
 
 
@@ -194,7 +202,7 @@ def test_external_fitter_rejects_portable_identity_alias_mismatch(tmp_path: Path
         "format":"bodyrig-external-fitter-config","version":1,
         "adapter":"fixture-high-fidelity","revision":"1",
         "command":[sys.executable,"unused.py"],
-        "capabilities":{"visual_identity":True,"textures":True,"hair":False,"clothing":True},
+        "capabilities":{"visual_identity":True,"textures":True,"hair":False,"clothing":False},
         "timeout_seconds":30,
     }), encoding="utf-8")
     workspace = tmp_path / "workspace"

@@ -12,6 +12,7 @@ video
   -> canonical tracks
   -> BodyPrint
   -> avatar fitter
+  -> body-only appearance policy
   -> VRM 1.0
   -> .mrbody
   -> validated runtime materialization
@@ -19,6 +20,20 @@ video
 ```
 
 The completed `.mrbody` and materialized runtime must not require HMR2, PHALP, SMPL-family assets or the original source video at runtime.
+
+## Body versus outfit
+
+BodyRig owns the persistent body identity, not the person's wardrobe. Garments, shoes-as-outfit-items and accessories are external appearance state and must be replaceable without producing a new body identity.
+
+Source video may of course contain clothing. Recovery/identity/reconstruction may observe it as context and occlusion, but a package-producing fitter must declare `capabilities.clothing=false`. BodyRig adds the machine-readable provenance stage:
+
+```text
+appearance-boundary / bodyrig.garment-policy / external-outfit-v1
+```
+
+The historical `visual_identity.coverage.clothing` value is observation metadata only; it is not a portable garment asset.
+
+SiTH reconstructs the visible surface, so source clothing can still affect an intermediate reconstruction. Physical V1 review must therefore reject a candidate where the source outfit is visibly baked into the persistent body geometry/texture. See `APPEARANCE_BOUNDARY.md`.
 
 ## Current fitter
 
@@ -69,10 +84,10 @@ bodyrig-fit-avatar `
 
 The CLI validates the proof before fitting. It never needs the original source filenames.
 
-The resulting provenance chain records both stages:
+The high-fidelity provenance chain records the body/outfit boundary explicitly:
 
 ```text
-body-recovery -> avatar-fitting
+body-recovery -> visual-identity-capture -> [identity_content] -> appearance-boundary -> avatar-fitting
 ```
 
 For rendering, the package is then materialized through BodyRig rather than manually extracted:
@@ -91,17 +106,18 @@ The interface and package/runtime path may be validated using fixture BodyPrint/
 
 This does **not** satisfy the physical V1 gate. The first source-derived avatar acceptance remains dependent on issue #2 producing a real video recovery proof on the target rig, followed by issue #3 validation of the **same hash-bound materialized runtime** in a Windows Unity/UniVRM renderer and an Android/Quest-class renderer.
 
+The physical visual/reconstruction review must additionally prove that the persistent BodyRig body does not inherit the source video's outfit as identity geometry/texture. CI cannot truthfully infer hidden body surface under arbitrary clothing from fixtures.
+
 ## Next fidelity adapter
 
-After the physical V1 chain is proven, visual identity should advance through a separate high-fidelity fitter adapter rather than by weakening or replacing the existing package/runtime boundaries.
-
-A future adapter should independently demonstrate at least:
+A high-fidelity fitter must independently demonstrate at least:
 
 1. silhouette/proportion similarity on held-out source frames;
 2. face/head similarity when sufficient face evidence exists;
-3. texture/skin consistency across viewpoints;
-4. explicit hair/clothing coverage or confidence/fallback state;
-5. VRM 1.0 portability through the same materialization/renderer path;
-6. no hidden recovery/fitting-model dependency at runtime.
+3. skin/body-surface consistency across viewpoints;
+4. explicit treatment of clothing as source occlusion/context rather than portable outfit ownership;
+5. garment-neutral persistent body output, with outfits handled outside `.mrbody`;
+6. VRM 1.0 portability through the same materialization/renderer path;
+7. no hidden recovery/fitting-model dependency at runtime.
 
 Any model or body-representation licensing constraints remain build-time concerns and must not be silently redistributed inside `.mrbody`.
