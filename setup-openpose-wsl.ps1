@@ -112,6 +112,7 @@ Write-Host "Distribution: $Distribution"
 Write-Host "Install root: $InstallRoot"
 Write-Host "CUDA root: $CudaRoot"
 Write-Host "Pinned OpenPose revision: $OpenPoseRevision"
+Write-Host "cuDNN: disabled (pinned OpenPose CUDA path)"
 Write-Host ""
 
 foreach ($command in @("git", "cmake", "make")) {
@@ -164,6 +165,7 @@ if (-not $SkipBuild) {
         "-DGPU_MODE=CUDA",
         "-DCUDA_TOOLKIT_ROOT_DIR=$CudaRoot",
         "-DCUDA_NVCC_EXECUTABLE=$cudaNvcc",
+        "-DUSE_CUDNN=OFF",
         "-DBUILD_EXAMPLES=ON",
         "-DBUILD_PYTHON=OFF",
         "-DDOWNLOAD_BODY_25_MODEL=ON",
