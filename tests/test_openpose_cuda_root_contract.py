@@ -22,7 +22,7 @@ def test_openpose_setup_binds_explicit_cuda_root() -> None:
 def test_openpose_setup_uses_current_upstream_model_mirror_with_pinned_hashes() -> None:
     script = _script()
 
-    assert '[string]$ModelBaseUrl = "http://vcl.snu.ac.kr/OpenPose/models/"' in script
+    assert '[string]$ModelBaseUrl = "https://huggingface.co/camenduru/openpose/resolve/main/models/"' in script
     assert 'pose/body_25/pose_iter_584000.caffemodel' in script
     assert '78287b57cf85fa89c03f1393d368e5b7' in script
     assert 'face/pose_iter_116000.caffemodel' in script
@@ -46,6 +46,15 @@ def test_openpose_setup_binds_expected_build_submodules() -> None:
     assert 'OpenPose CUDA-11 Caffe submodule' in script
     assert 'Verify final pybind11 revision' in script
     assert 'caffe_revision = $CaffeRevision' in script
+
+
+def test_openpose_setup_bounds_parallel_build_jobs() -> None:
+    script = _script()
+
+    assert '[ValidateRange(1, 16)][int]$BuildJobs = 2' in script
+    assert 'Write-Host "Build jobs: $BuildJobs"' in script
+    assert '@("cmake", "--build", "$InstallRoot/build", "--parallel", "$BuildJobs")' in script
+    assert '@("cmake", "--build", "$InstallRoot/build", "--parallel")' not in script
 
 
 def test_openpose_wsl_capture_uses_exit_code_without_runtime_specific_argument_list() -> None:
