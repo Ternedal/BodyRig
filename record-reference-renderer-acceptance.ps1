@@ -9,6 +9,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    throw "The canonical BodyRig physical acceptance path is Windows-only."
+}
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "PowerShell 7+ (pwsh) is required for the canonical BodyRig physical acceptance path."
+}
+$pwshAuthority = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($null -eq $pwshAuthority) {
+    throw "PowerShell 7 executable (pwsh) was not found for the canonical BodyRig physical acceptance path."
+}
+
 function Read-JsonFile {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
