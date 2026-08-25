@@ -172,6 +172,7 @@ if (([string]$startedSession.bodyrig_revision).ToLowerInvariant() -ne $head) {
 }
 
 $sessionStage = "initializing"
+$sessionPassPublished = $false
 try {
     $validatedRaw = & $BodyRigPython -m bodyrig.rig_setup $RigSetupReport
     if ($LASTEXITCODE -ne 0) { throw "BodyRig rig setup report failed live validation." }
@@ -303,8 +304,12 @@ try {
     & $powerShellExe @cloneArgs
     if ($LASTEXITCODE -ne 0) { throw "BodyRig Stash clone failed with exit code $LASTEXITCODE" }
 
-    $finalHead = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $finalHead -ne $head) {
+    $finalHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $finalHeadRaw.Count -ne 1) {
+        throw "Could not re-check BodyRig Git HEAD after physical clone."
+    }
+    $finalHead = ([string]$finalHeadRaw[0]).Trim().ToLowerInvariant()
+    if ($finalHead -ne $head) {
         throw "BodyRig Git HEAD changed during the physical clone session; refusing PASS evidence."
     }
     $finalDirty = @(& git -C $repoRoot status --porcelain)
@@ -324,6 +329,27 @@ try {
         $SessionReport,
         "--clone-output", $OutputDir
     ) -Step "Physical clone session completion"
+    $sessionPassPublished = $true
+
+    $postPassHeadRaw = @(& git -C $repoRoot rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $postPassHeadRaw.Count -ne 1) {
+        throw "Could not re-check BodyRig Git HEAD after physical clone PASS publication."
+    }
+    $postPassHead = ([string]$postPassHeadRaw[0]).Trim().ToLowerInvariant()
+    if ($postPassHead -ne $head) {
+        throw "BodyRig Git HEAD changed after physical clone PASS publication; removing non-authoritative PASS evidence."
+    }
+    $postPassDirty = @(& git -C $repoRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not re-check BodyRig Git status after physical clone PASS publication."
+    }
+    if ($postPassDirty.Count -gt 0) {
+        throw "BodyRig checkout became dirty after physical clone PASS publication; removing non-authoritative PASS evidence."
+    }
+    $postPassRigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
+    if ($postPassRigSetupHash -ne $rigSetupHash) {
+        throw "BodyRig rig setup report changed after physical clone PASS publication; removing non-authoritative PASS evidence."
+    }
 
     Write-Host ""
     Write-Host "BodyRig ready-rig Stash clone: PASS"
@@ -336,16 +362,27 @@ try {
     $message = [string]$original.Exception.Message
     if ([string]::IsNullOrWhiteSpace($message)) { $message = "BodyRig physical clone failed without an error message." }
     if ($message.Length -gt 4000) { $message = $message.Substring(0, 4000) }
-    try {
-        Invoke-SessionCommand -Arguments @(
-            "fail",
-            $SessionReport,
-            "--stage", $sessionStage,
-            "--message", $message
-        ) -Step "Physical clone failure evidence"
-        Write-Host "BodyRig physical clone session: FAIL evidence written to $SessionReport"
-    } catch {
-        Write-Warning "BodyRig could not update physical clone failure evidence: $($_.Exception.Message)"
+    if ($sessionPassPublished) {
+        try {
+            if (Test-Path -LiteralPath $SessionReport -PathType Leaf) {
+                Remove-Item -LiteralPath $SessionReport -Force
+            }
+            Write-Host "BodyRig removed non-authoritative physical clone PASS evidence: $SessionReport"
+        } catch {
+            Write-Warning "BodyRig could not remove non-authoritative physical clone PASS evidence: $($_.Exception.Message)"
+        }
+    } else {
+        try {
+            Invoke-SessionCommand -Arguments @(
+                "fail",
+                $SessionReport,
+                "--stage", $sessionStage,
+                "--message", $message
+            ) -Step "Physical clone failure evidence"
+            Write-Host "BodyRig physical clone session: FAIL evidence written to $SessionReport"
+        } catch {
+            Write-Warning "BodyRig could not update physical clone failure evidence: $($_.Exception.Message)"
+        }
     }
     throw $original
 }
