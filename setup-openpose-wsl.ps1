@@ -2,6 +2,7 @@ param(
     [string]$Distribution = "Ubuntu-22.04",
     [string]$InstallRoot = "",
     [string]$CudaRoot = "/usr/local/cuda-11.7",
+    [string]$ModelBaseUrl = "http://vcl.snu.ac.kr/OpenPose/models/",
     [string]$WslExe = "wsl.exe",
     [switch]$SkipBuild
 )
@@ -73,6 +74,17 @@ function Test-WslPath {
     return $result.ExitCode -eq 0
 }
 
+function Get-WslMd5 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $result = Invoke-WslRaw -Arguments @("md5sum", $Path)
+    if ($result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+        return $null
+    }
+    $parts = $result.Text.Trim() -split "\s+", 2
+    if ($parts.Count -lt 1) { return $null }
+    return $parts[0].ToLowerInvariant()
+}
+
 $WslExe = $(
     if (Test-Path -LiteralPath $WslExe -PathType Leaf) {
         (Resolve-Path -LiteralPath $WslExe).Path
@@ -107,15 +119,22 @@ $CudaRoot = $CudaRoot.TrimEnd("/")
 $cudaNvcc = "$CudaRoot/bin/nvcc"
 $cudaRuntimeHeader = "$CudaRoot/include/cuda_runtime.h"
 
+$modelUri = $null
+if (-not [Uri]::TryCreate($ModelBaseUrl, [UriKind]::Absolute, [ref]$modelUri) -or $modelUri.Scheme -notin @("http", "https")) {
+    throw "-ModelBaseUrl must be an absolute HTTP(S) URL."
+}
+$ModelBaseUrl = $ModelBaseUrl.TrimEnd("/") + "/"
+
 Write-Host "BodyRig OpenPose WSL provisioning"
 Write-Host "Distribution: $Distribution"
 Write-Host "Install root: $InstallRoot"
 Write-Host "CUDA root: $CudaRoot"
+Write-Host "Model mirror: $ModelBaseUrl"
 Write-Host "Pinned OpenPose revision: $OpenPoseRevision"
 Write-Host "cuDNN: disabled (pinned OpenPose CUDA path)"
 Write-Host ""
 
-foreach ($command in @("git", "cmake", "make")) {
+foreach ($command in @("git", "cmake", "make", "wget", "md5sum")) {
     $probe = Invoke-WslRaw -Arguments @("/usr/bin/which", $command)
     if ($probe.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($probe.Text)) {
         throw "Required WSL build command missing: $command. Install the Ubuntu build dependencies before provisioning OpenPose."
@@ -158,6 +177,32 @@ if ($cmakeBlob -ne "2328e66ba9642d324c30bd6fe4d7f9711af7595f") {
 }
 
 if (-not $SkipBuild) {
+    $models = @(
+        [pscustomobject]@{ Name = "BODY_25"; RelativePath = "pose/body_25/pose_iter_584000.caffemodel"; Md5 = "78287b57cf85fa89c03f1393d368e5b7" },
+        [pscustomobject]@{ Name = "face"; RelativePath = "face/pose_iter_116000.caffemodel"; Md5 = "e747180d728fa4e4418c465828384333" },
+        [pscustomobject]@{ Name = "hand"; RelativePath = "hand/pose_iter_102000.caffemodel"; Md5 = "a82cfc3fea7c62f159e11bd3674c1531" }
+    )
+
+    foreach ($model in $models) {
+        $target = "$InstallRoot/models/$($model.RelativePath)"
+        $slash = $target.LastIndexOf("/")
+        $targetDir = $target.Substring(0, $slash)
+        $existingMd5 = $(if (Test-WslPath -Path $target) { Get-WslMd5 -Path $target } else { $null })
+        if ($existingMd5 -ne $model.Md5) {
+            Invoke-WslChecked -Arguments @("/usr/bin/mkdir", "-p", $targetDir) -Step "Create $($model.Name) model directory" | Out-Null
+            Invoke-WslRaw -Arguments @("/usr/bin/rm", "-f", $target) | Out-Null
+            $url = "$ModelBaseUrl$($model.RelativePath)"
+            Write-Host "Downloading OpenPose model: $($model.Name)"
+            Invoke-WslChecked -Arguments @("wget", "--timeout=30", "--tries=3", "-O", $target, $url) -Step "Download $($model.Name) model" | Out-Null
+            $existingMd5 = Get-WslMd5 -Path $target
+        }
+        if ($existingMd5 -ne $model.Md5) {
+            Invoke-WslRaw -Arguments @("/usr/bin/rm", "-f", $target) | Out-Null
+            throw "OpenPose $($model.Name) model hash mismatch after download: expected $($model.Md5), got $existingMd5"
+        }
+        Write-Host "OpenPose model verified: $($model.Name) ($($model.Md5))"
+    }
+
     Invoke-WslChecked -Arguments @(
         "cmake",
         "-S", $InstallRoot,
@@ -168,9 +213,9 @@ if (-not $SkipBuild) {
         "-DUSE_CUDNN=OFF",
         "-DBUILD_EXAMPLES=ON",
         "-DBUILD_PYTHON=OFF",
-        "-DDOWNLOAD_BODY_25_MODEL=ON",
-        "-DDOWNLOAD_FACE_MODEL=ON",
-        "-DDOWNLOAD_HAND_MODEL=ON"
+        "-DDOWNLOAD_BODY_25_MODEL=OFF",
+        "-DDOWNLOAD_FACE_MODEL=OFF",
+        "-DDOWNLOAD_HAND_MODEL=OFF"
     ) -Step "Configure pinned OpenPose" | Out-Null
     Invoke-WslChecked -Arguments @("cmake", "--build", "$InstallRoot/build", "--parallel") -Step "Build pinned OpenPose" | Out-Null
 }
