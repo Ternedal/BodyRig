@@ -11,6 +11,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    throw "The canonical BodyRig physical evidence path is Windows-only."
+}
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "PowerShell 7+ (pwsh) is required for the canonical BodyRig physical evidence path."
+}
+$pwshAuthority = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($null -eq $pwshAuthority) {
+    throw "PowerShell 7 executable (pwsh) was not found for the canonical BodyRig physical evidence path."
+}
+
 $ApplicationId = "dk.ternedal.bodyrig.reference"
 $RendererName = "BodyRig Reference Renderer"
 $RendererVersion = "reference-v1/univrm-0.131.2"
