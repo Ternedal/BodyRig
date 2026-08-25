@@ -10,6 +10,17 @@ param(
 )
 $ErrorActionPreference = "Stop"; Set-StrictMode -Version Latest
 
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    throw "The canonical BodyRig physical evidence path is Windows-only."
+}
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "PowerShell 7+ (pwsh) is required for the canonical BodyRig physical evidence path."
+}
+$pwshAuthority = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($null -eq $pwshAuthority) {
+    throw "PowerShell 7 executable (pwsh) was not found for the canonical BodyRig physical evidence path."
+}
+
 function Read-Json([string]$Path,[string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     $p=(Resolve-Path -LiteralPath $Path).Path; try{$v=Get-Content -LiteralPath $p -Raw|ConvertFrom-Json}catch{throw "$Label is not valid JSON: $p"}
