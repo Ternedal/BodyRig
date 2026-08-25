@@ -18,6 +18,8 @@ SITH_RECON_CONFIG_BLOB = "99df9520c2cb4768f0466282bb2560404fb11d95"
 OPENPOSE_REPOSITORY = "CMU-Perceptual-Computing-Lab/openpose"
 OPENPOSE_REVISION = "8ca5c1d95a42340b323e9273654d1db98bec779c"
 OPENPOSE_CMAKE_BLOB = "2328e66ba9642d324c30bd6fe4d7f9711af7595f"
+OPENPOSE_CAFFE_REVISION = "1807aadafc934a2a1341021620981cb1ec526b83"
+OPENPOSE_PYBIND11_REVISION = "085a29436a8c472caaaf7157aa644b571079bcaa"
 OPENPOSE_EXECUTABLE_SUFFIX = "/build/examples/openpose/openpose.bin"
 
 PINNED_BLOBS = {
@@ -115,10 +117,56 @@ print(json.dumps(result, separators=(",", ":")))
 '''
 
 
+def _check_git_repo_authority(
+    *,
+    distribution: str,
+    repo: str,
+    wsl_exe: str,
+    expected_revision: str,
+    label: str,
+    checks: dict[str, Any],
+    revision_key: str,
+    clean_key: str,
+    errors: list[str],
+) -> bool:
+    ok = True
+    try:
+        head = _checked_text(
+            wsl_exe=wsl_exe,
+            distribution=distribution,
+            command=["git", "-C", repo, "rev-parse", "HEAD"],
+            label=f"{label} Git HEAD",
+        ).lower()
+        checks[revision_key] = head
+        if head != expected_revision:
+            errors.append(f"{label} revision mismatch: {head}")
+            ok = False
+    except SithPreflightError as exc:
+        errors.append(str(exc))
+        ok = False
+    try:
+        dirty = _checked_text(
+            wsl_exe=wsl_exe,
+            distribution=distribution,
+            command=["git", "-C", repo, "status", "--porcelain", "--untracked-files=no"],
+            label=f"{label} tracked-file status",
+        )
+        checks[clean_key] = not bool(dirty)
+        if dirty:
+            errors.append(f"{label} has modified tracked files")
+            ok = False
+    except SithPreflightError as exc:
+        errors.append(str(exc))
+        checks[clean_key] = False
+        ok = False
+    return ok
+
+
 def _check_pinned_openpose(*, distribution: str, repo: str, wsl_exe: str, checks: dict[str, Any], errors: list[str]) -> None:
     if not repo.startswith("/"):
         errors.append("OpenPose repository path must be absolute Linux path")
         return
+    authority_clean = True
     try:
         head = _checked_text(
             wsl_exe=wsl_exe,
@@ -129,20 +177,25 @@ def _check_pinned_openpose(*, distribution: str, repo: str, wsl_exe: str, checks
         checks["openpose_revision"] = head
         if head != OPENPOSE_REVISION:
             errors.append(f"OpenPose revision mismatch: {head}")
+            authority_clean = False
     except SithPreflightError as exc:
         errors.append(str(exc))
+        authority_clean = False
     try:
         dirty = _checked_text(
             wsl_exe=wsl_exe,
             distribution=distribution,
-            command=["git", "-C", repo, "status", "--porcelain", "--untracked-files=no"],
-            label="OpenPose tracked-file status",
+            command=["git", "-C", repo, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"],
+            label="OpenPose superproject tracked-file status",
         )
-        checks["openpose_tracked_clean"] = not bool(dirty)
+        checks["openpose_superproject_tracked_clean"] = not bool(dirty)
         if dirty:
-            errors.append("OpenPose has modified tracked files")
+            errors.append("OpenPose has modified tracked superproject files")
+            authority_clean = False
     except SithPreflightError as exc:
         errors.append(str(exc))
+        checks["openpose_superproject_tracked_clean"] = False
+        authority_clean = False
     try:
         actual = _checked_text(
             wsl_exe=wsl_exe,
@@ -153,8 +206,34 @@ def _check_pinned_openpose(*, distribution: str, repo: str, wsl_exe: str, checks
         checks["openpose_cmakelists_blob"] = actual
         if actual != OPENPOSE_CMAKE_BLOB:
             errors.append(f"OpenPose CMakeLists.txt blob mismatch: {actual}")
+            authority_clean = False
     except SithPreflightError as exc:
         errors.append(str(exc))
+        authority_clean = False
+
+    caffe_ok = _check_git_repo_authority(
+        distribution=distribution,
+        repo=f"{repo}/3rdparty/caffe",
+        wsl_exe=wsl_exe,
+        expected_revision=OPENPOSE_CAFFE_REVISION,
+        label="OpenPose Caffe",
+        checks=checks,
+        revision_key="openpose_caffe_revision",
+        clean_key="openpose_caffe_tracked_clean",
+        errors=errors,
+    )
+    pybind_ok = _check_git_repo_authority(
+        distribution=distribution,
+        repo=f"{repo}/3rdparty/pybind11",
+        wsl_exe=wsl_exe,
+        expected_revision=OPENPOSE_PYBIND11_REVISION,
+        label="OpenPose pybind11",
+        checks=checks,
+        revision_key="openpose_pybind11_revision",
+        clean_key="openpose_pybind11_tracked_clean",
+        errors=errors,
+    )
+    checks["openpose_tracked_clean"] = authority_clean and caffe_ok and pybind_ok
 
 
 def run_preflight(
@@ -187,6 +266,8 @@ def run_preflight(
         "distribution": distribution,
         "openpose_repository": OPENPOSE_REPOSITORY,
         "openpose_expected_revision": OPENPOSE_REVISION,
+        "openpose_expected_caffe_revision": OPENPOSE_CAFFE_REVISION,
+        "openpose_expected_pybind11_revision": OPENPOSE_PYBIND11_REVISION,
         "openpose_authority_pinned": openpose_repo is not None,
     }
     errors: list[str] = []
