@@ -20,6 +20,8 @@ $FourDRemote = "https://github.com/shubham-goel/4D-Humans.git"
 $PhalpRemote = "https://github.com/brjathu/PHALP.git"
 $SmplFileName = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 $CudaRoot = "/usr/local/cuda-11.7"
+$SetuptoolsVersion = "80.9.0"
+$RuntimeMarkerName = ".bodyrig-recovery-runtime-v2"
 
 function Resolve-CommandPath {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -154,6 +156,7 @@ $fourDPath = "$linuxRoot/4D-Humans"
 $phalpPath = "$linuxRoot/PHALP"
 $envPath = "$linuxRoot/venv"
 $envPython = "$envPath/bin/python"
+$runtimeMarker = "$envPath/$RuntimeMarkerName"
 
 Write-Host "BodyRig recovery provisioner | WSL"
 Write-Host "Distribution: $Distribution"
@@ -183,7 +186,21 @@ if ($RecreateEnvironment -and (Test-WslPath -Path $envPath -Directory)) {
 if (-not (Test-WslPath -Path $envPython -Executable)) {
     Write-Host "Creating WSL Python recovery environment..."
     Invoke-WslStreaming -Arguments @("/usr/bin/python3", "-m", "venv", $envPath) -Step "Create WSL recovery venv"
-    Invoke-WslStreaming -Arguments @($envPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade", "pip", "setuptools", "wheel", "ninja") -Step "Bootstrap WSL recovery pip"
+}
+
+if (-not (Test-WslPath -Path $runtimeMarker)) {
+    Write-Host "Provisioning/resuming WSL recovery runtime..."
+
+    # PyTorch 2.0.1 imports pkg_resources from torch.utils.cpp_extension while
+    # building native extensions. Setuptools removed pkg_resources in v82, so
+    # pin the last BodyRig-validated packaging generation before Detectron2.
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--upgrade",
+        "pip", "setuptools==$SetuptoolsVersion", "wheel", "ninja"
+    ) -Step "Bootstrap compatible WSL recovery packaging toolchain"
+    Invoke-WslStreaming -Arguments @(
+        $envPython, "-c", "import pkg_resources; from pkg_resources import packaging; print('BodyRig pkg_resources compatibility: OK')"
+    ) -Step "Verify WSL pkg_resources compatibility"
 
     # Match the proven /usr/local/cuda-11.7 compiler used by BodyRig OpenPose.
     # PyTorch 2.0.1/torchvision 0.15.2 have official CPython 3.10 CUDA 11.7 wheels.
@@ -251,6 +268,15 @@ if (-not (Test-WslPath -Path $envPython -Executable)) {
     Invoke-WslStreaming -Arguments @(
         $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath
     ) -Step "Install pinned PHALP checkout in WSL"
+
+    Invoke-WslStreaming -Arguments @(
+        "/usr/bin/env", "CUDA_HOME=$CudaRoot",
+        $envPython, "-c",
+        "import cv2, detectron2, hmr2, phalp, pkg_resources, torch; assert torch.cuda.is_available(); print('BodyRig WSL recovery runtime probe: OK | ' + torch.cuda.get_device_name(0))"
+    ) -Step "Verify completed WSL recovery runtime"
+    Invoke-WslChecked -Arguments @("/usr/bin/touch", $runtimeMarker) -Step "Commit WSL recovery runtime marker" | Out-Null
+} else {
+    Write-Host "WSL recovery runtime marker present; reusing completed environment."
 }
 
 if (-not (Test-WslPath -Path $envPython -Executable)) {
