@@ -255,6 +255,14 @@ try {
     if (([string]$readinessValidated.bodyrig_revision).ToLowerInvariant() -ne $head) {
         throw "BodyRig rig readiness evidence is bound to a different BodyRig revision."
     }
+    $readinessRigSetupHash = ([string]$readinessValidated.rig_setup_sha256).ToLowerInvariant()
+    if ($readinessRigSetupHash -ne $rigSetupHash) {
+        throw "BodyRig rig setup report changed between physical session start and readiness evidence."
+    }
+    $currentRigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
+    if ($currentRigSetupHash -ne $rigSetupHash) {
+        throw "BodyRig rig setup report changed after readiness publication; refusing readiness binding."
+    }
     $readinessHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $readinessReport).Hash.ToLowerInvariant()
     Invoke-SessionCommand -Arguments @(
         "readiness-pass",
@@ -305,6 +313,10 @@ try {
     }
     if ($finalDirty.Count -gt 0) {
         throw "BodyRig checkout became dirty during the physical clone session; refusing PASS evidence."
+    }
+    $finalRigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
+    if ($finalRigSetupHash -ne $rigSetupHash) {
+        throw "BodyRig rig setup report changed during the physical clone session; refusing PASS evidence."
     }
 
     Invoke-SessionCommand -Arguments @(
