@@ -137,24 +137,47 @@ if ($RecreateEnvironment -and (Test-Path -LiteralPath $envPath)) {
 
 $envPython = Join-Path $envPath "python.exe"
 if (-not (Test-Path -LiteralPath $envPython -PathType Leaf)) {
-    # Use the environment specification from the exact pinned 4D-Humans
-    # checkout rather than maintaining a second drifting dependency list here.
-    $environmentFile = Join-Path $fourDPath "environment.yml"
-    if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
-        throw "Pinned 4D-Humans checkout has no environment.yml."
-    }
-    Invoke-Checked -Executable $CondaExe -Arguments @("env", "create", "--prefix", $envPath, "--file", $environmentFile, "--yes") -Step "Create pinned 4D-Humans environment"
+    # The pinned 4D-Humans environment.yml mixes Conda packages with pip VCS
+    # packages. Modern pip builds Detectron2 in an isolated PEP 517 environment,
+    # where its setup.py cannot import the Torch that Conda just installed. Build
+    # the immutable Conda portion explicitly first, then install the pinned local
+    # checkouts below with build isolation disabled. --override-channels also
+    # prevents an operator's configured Anaconda defaults from being injected.
+    Invoke-Checked -Executable $CondaExe -Arguments @(
+        "create",
+        "--prefix", $envPath,
+        "--yes",
+        "--override-channels",
+        "--channel", "pytorch",
+        "--channel", "nvidia",
+        "--channel", "conda-forge",
+        "python=3.10",
+        "numpy",
+        "pytorch",
+        "pytorch-cuda=11.8",
+        "torchvision",
+        "pip"
+    ) -Step "Create pinned 4D-Humans Conda base environment"
 }
 if (-not (Test-Path -LiteralPath $envPython -PathType Leaf)) {
     throw "Recovery Python was not created: $envPython"
 }
 
-# Editable installs are deliberately from the verified local checkouts. PHALP
-# is installed without its `all` extra because HMR2 comes from the already
-# pinned 4D-Humans checkout; this prevents the extra from silently pulling a
-# different HMR2 Git revision.
-Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "-e", $fourDPath) -Step "Install pinned 4D-Humans checkout"
-Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "-e", $phalpPath) -Step "Install pinned PHALP checkout"
+# Detectron2 imports Torch from setup.py, so every source-build dependency must
+# see the already-created runtime environment. Editable installs are deliberately
+# from the verified local checkouts. PHALP is installed without its `all` extra
+# because HMR2 comes from the already pinned 4D-Humans checkout; this prevents
+# the extra from silently pulling a different HMR2 Git revision.
+Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $fourDPath) -Step "Install pinned 4D-Humans checkout"
+Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $phalpPath) -Step "Install pinned PHALP checkout"
+
+# These are runtime-neutral helpers present in the pinned upstream environment
+# but not declared by the two editable packages. Keep them explicit so the
+# provisioned environment remains equivalent to the upstream runtime surface.
+Invoke-Checked -Executable $envPython -Arguments @(
+    "-m", "pip", "install", "--disable-pip-version-check",
+    "hydra-submitit-launcher", "hydra-colorlog", "pyrootutils"
+) -Step "Install pinned-environment helper dependencies"
 
 $smplDestination = Join-Path (Join-Path $fourDPath "data") $SmplFileName
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $smplDestination) | Out-Null
