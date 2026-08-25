@@ -10,40 +10,48 @@ def _script() -> str:
     return (ROOT / "setup-recovery-windows.ps1").read_text(encoding="utf-8")
 
 
-def test_recovery_conda_base_is_staged_before_pip_source_builds() -> None:
+def test_recovery_uses_wsl_cuda_matched_python_environment() -> None:
     text = _script()
 
-    assert '"create",' in text
-    assert '"--override-channels"' in text
-    assert '"--channel", "pytorch"' in text
-    assert '"--channel", "nvidia"' in text
-    assert '"--channel", "conda-forge"' in text
-    assert '"python=3.10"' in text
-    assert '"pytorch-cuda=11.8"' in text
-    assert '"torchvision"' in text
-    assert '"pip"' in text
-    assert '@("env", "create"' not in text
+    assert '[string]$Distribution = "Ubuntu-22.04"' in text
+    assert '$CudaRoot = "/usr/local/cuda-11.7"' in text
+    assert '"-m", "venv", $envPath' in text
+    assert '"torch==2.0.1+cu117"' in text
+    assert '"torchvision==0.15.2+cu117"' in text
+    assert 'https://download.pytorch.org/whl/cu117' in text
+    assert '"numpy==1.23.5"' in text
+    assert '"opencv-python==4.8.1.78"' in text
+    assert 'CUDA_HOME=$CudaRoot' in text
+    assert 'FORCE_CUDA=1' in text
 
 
-def test_source_builds_disable_build_isolation() -> None:
+def test_wsl_source_builds_are_pinned_and_disable_build_isolation() -> None:
     text = _script()
 
-    assert '"--no-build-isolation", "-e", $fourDPath' in text
-    assert '"detectron2 @ git+https://github.com/facebookresearch/detectron2.git"' in text
+    assert '$Detectron2Revision = "a2f4a8771ab77e8411c26b27f24f9489a28a2453"' in text
+    assert '$ChumpyRevision = "580566eafc9ac68b2614b64d6f7aaa84eebb70da"' in text
+    assert 'detectron2 @ git+https://github.com/facebookresearch/detectron2.git@$Detectron2Revision' in text
+    assert 'chumpy @ git+https://github.com/mattloper/chumpy@$ChumpyRevision' in text
+    assert '"--no-build-isolation", "--no-deps", "-e", $fourDPath' in text
     assert '"--no-build-isolation", "--no-deps", "-e", $phalpPath' in text
-    assert "Detectron2 imports Torch from setup.py" in text
 
 
-def test_windows_recovery_omits_unused_phalp_neural_renderer() -> None:
+def test_wsl_recovery_omits_unused_phalp_neural_renderer() -> None:
     text = _script()
 
     assert 'render.enable=false' in text
-    assert 'install the pinned PHALP checkout with --no-deps' in text
-    assert '"scenedetect[opencv]"' in text
-    assert '"pyopengl @ git+https://github.com/mmatl/pyopengl.git"' in text
-    assert '"chumpy @ git+https://github.com/mattloper/chumpy"' in text
     assert 'neural-renderer-pytorch' in text  # rationale comment only
+    runtime_start = text.index('Install BodyRig PHALP runtime dependencies in WSL')
+    runtime_section = text[max(0, runtime_start - 1800): runtime_start + 800]
+    assert 'neural-renderer-pytorch @' not in runtime_section
 
-    command_section = text[text.index('Invoke-Checked -Executable $envPython -Arguments @(', text.index('Install pinned 4D-Humans checkout')):]
-    command_section = command_section[: command_section.index('$smplDestination')]
-    assert '"neural-renderer-pytorch' not in command_section
+
+def test_wsl_recovery_publishes_linux_authority_and_wsl_preflight() -> None:
+    text = _script()
+
+    assert 'external_python = $envPython' in text
+    assert 'four_d_humans_repo = $fourDPath' in text
+    assert 'phalp_repo = $phalpPath' in text
+    assert '--distribution $Distribution' in text
+    assert '--wsl-exe $script:WslExe' in text
+    assert 'Recovery environment: READY | WSL $Distribution' in text
