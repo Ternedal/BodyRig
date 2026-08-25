@@ -12,7 +12,10 @@ def _launcher() -> str:
 
 def test_ready_launcher_binds_exact_clean_bodyrig_checkout():
     text = _launcher()
-    assert "git -C $repoRoot rev-parse HEAD" in text
+    assert "$headRaw = @(& git -C $repoRoot rev-parse HEAD)" in text
+    assert "if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1)" in text
+    assert "$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()" in text
+    assert "$head = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()" not in text
     assert text.count("git -C $repoRoot status --porcelain") >= 3
     assert "Could not bind physical clone session to BodyRig Git HEAD" in text
     assert "BodyRig checkout is dirty" in text
