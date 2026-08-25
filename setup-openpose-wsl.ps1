@@ -2,7 +2,8 @@ param(
     [string]$Distribution = "Ubuntu-22.04",
     [string]$InstallRoot = "",
     [string]$CudaRoot = "/usr/local/cuda-11.7",
-    [string]$ModelBaseUrl = "http://vcl.snu.ac.kr/OpenPose/models/",
+    [string]$ModelBaseUrl = "https://huggingface.co/camenduru/openpose/resolve/main/models/",
+    [ValidateRange(1, 16)][int]$BuildJobs = 2,
     [string]$WslExe = "wsl.exe",
     [switch]$SkipBuild
 )
@@ -145,6 +146,7 @@ Write-Host "Distribution: $Distribution"
 Write-Host "Install root: $InstallRoot"
 Write-Host "CUDA root: $CudaRoot"
 Write-Host "Model mirror: $ModelBaseUrl"
+Write-Host "Build jobs: $BuildJobs"
 Write-Host "Pinned OpenPose revision: $OpenPoseRevision"
 Write-Host "Pinned CUDA-11 Caffe revision: $CaffeRevision"
 Write-Host "cuDNN: disabled (pinned OpenPose CUDA path)"
@@ -244,7 +246,7 @@ if (-not $SkipBuild) {
         "-DDOWNLOAD_FACE_MODEL=OFF",
         "-DDOWNLOAD_HAND_MODEL=OFF"
     ) -Step "Configure pinned OpenPose" | Out-Null
-    Invoke-WslChecked -Arguments @("cmake", "--build", "$InstallRoot/build", "--parallel") -Step "Build pinned OpenPose" | Out-Null
+    Invoke-WslChecked -Arguments @("cmake", "--build", "$InstallRoot/build", "--parallel", "$BuildJobs") -Step "Build pinned OpenPose" | Out-Null
 }
 
 if (-not (Test-WslPath -Path $executable)) {
