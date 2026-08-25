@@ -12,6 +12,8 @@ Set-StrictMode -Version Latest
 
 $OpenPoseRevision = "8ca5c1d95a42340b323e9273654d1db98bec779c"
 $OpenPoseRemote = "https://github.com/CMU-Perceptual-Computing-Lab/openpose.git"
+$CaffeRevision = "1807aadafc934a2a1341021620981cb1ec526b83"
+$Pybind11Revision = "085a29436a8c472caaaf7157aa644b571079bcaa"
 
 function Resolve-CommandPath {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -85,6 +87,17 @@ function Get-WslMd5 {
     return $parts[0].ToLowerInvariant()
 }
 
+function Assert-WslGitClean {
+    param(
+        [Parameter(Mandatory = $true)][string]$Repository,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $status = Invoke-WslChecked -Arguments @("git", "-C", $Repository, "status", "--porcelain", "--untracked-files=no") -Step "Check $Label tracked state"
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        throw "$Label has modified tracked files; refusing authority."
+    }
+}
+
 $WslExe = $(
     if (Test-Path -LiteralPath $WslExe -PathType Leaf) {
         (Resolve-Path -LiteralPath $WslExe).Path
@@ -111,6 +124,8 @@ if (-not $InstallRoot.StartsWith("/")) {
 }
 $InstallRoot = $InstallRoot.TrimEnd("/")
 $executable = "$InstallRoot/build/examples/openpose/openpose.bin"
+$caffeRepo = "$InstallRoot/3rdparty/caffe"
+$pybind11Repo = "$InstallRoot/3rdparty/pybind11"
 
 if ([string]::IsNullOrWhiteSpace($CudaRoot) -or -not $CudaRoot.StartsWith("/")) {
     throw "-CudaRoot must be an absolute Linux path."
@@ -131,6 +146,7 @@ Write-Host "Install root: $InstallRoot"
 Write-Host "CUDA root: $CudaRoot"
 Write-Host "Model mirror: $ModelBaseUrl"
 Write-Host "Pinned OpenPose revision: $OpenPoseRevision"
+Write-Host "Pinned CUDA-11 Caffe revision: $CaffeRevision"
 Write-Host "cuDNN: disabled (pinned OpenPose CUDA path)"
 Write-Host ""
 
@@ -152,9 +168,15 @@ if (Test-WslPath -Path "$InstallRoot/.git" -Directory) {
     if ($remote -ne $OpenPoseRemote -and $remote -ne "https://github.com/CMU-Perceptual-Computing-Lab/openpose") {
         throw "Existing OpenPose checkout has unexpected origin: $remote"
     }
-    $dirty = Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "status", "--porcelain", "--untracked-files=no") -Step "Check OpenPose tracked state"
-    if (-not [string]::IsNullOrWhiteSpace($dirty)) {
-        throw "Existing OpenPose checkout has modified tracked files; refusing to provision over it."
+    $superDirty = Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all") -Step "Check OpenPose superproject tracked state"
+    if (-not [string]::IsNullOrWhiteSpace($superDirty)) {
+        throw "Existing OpenPose checkout has modified tracked superproject files; refusing to provision over it."
+    }
+    foreach ($submodule in @($caffeRepo, $pybind11Repo)) {
+        $probe = Invoke-WslRaw -Arguments @("git", "-C", $submodule, "rev-parse", "--is-inside-work-tree")
+        if ($probe.ExitCode -eq 0) {
+            Assert-WslGitClean -Repository $submodule -Label "Existing OpenPose submodule $submodule"
+        }
     }
     Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "fetch", "origin", $OpenPoseRevision, "--depth", "1") -Step "Fetch pinned OpenPose revision" | Out-Null
     Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "checkout", "--detach", $OpenPoseRevision) -Step "Checkout pinned OpenPose revision" | Out-Null
@@ -166,7 +188,7 @@ if (Test-WslPath -Path "$InstallRoot/.git" -Directory) {
     Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "checkout", "--detach", $OpenPoseRevision) -Step "Checkout pinned OpenPose revision" | Out-Null
 }
 
-Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "submodule", "update", "--init", "--recursive") -Step "Initialize OpenPose submodules" | Out-Null
+Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "submodule", "update", "--init", "--recursive", "--force") -Step "Initialize OpenPose submodules" | Out-Null
 $actualRevision = (Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "rev-parse", "HEAD") -Step "Verify OpenPose revision").ToLowerInvariant()
 if ($actualRevision -ne $OpenPoseRevision) {
     throw "Pinned OpenPose revision mismatch after checkout: $actualRevision"
@@ -175,6 +197,11 @@ $cmakeBlob = (Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "hash-ob
 if ($cmakeBlob -ne "2328e66ba9642d324c30bd6fe4d7f9711af7595f") {
     throw "Pinned OpenPose CMakeLists.txt authority mismatch: $cmakeBlob"
 }
+$pybind11Head = (Invoke-WslChecked -Arguments @("git", "-C", $pybind11Repo, "rev-parse", "HEAD") -Step "Verify pinned pybind11 revision").ToLowerInvariant()
+if ($pybind11Head -ne $Pybind11Revision) {
+    throw "Pinned OpenPose pybind11 revision mismatch: $pybind11Head"
+}
+Assert-WslGitClean -Repository $pybind11Repo -Label "OpenPose pybind11 submodule"
 
 if (-not $SkipBuild) {
     $models = @(
@@ -223,18 +250,30 @@ if (-not $SkipBuild) {
 if (-not (Test-WslPath -Path $executable)) {
     throw "Pinned OpenPose executable not found after provisioning: $executable"
 }
-$dirtyAfter = Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "status", "--porcelain", "--untracked-files=no") -Step "Verify final OpenPose tracked state"
+$caffeHead = (Invoke-WslChecked -Arguments @("git", "-C", $caffeRepo, "rev-parse", "HEAD") -Step "Verify OpenPose CUDA-11 Caffe revision").ToLowerInvariant()
+if ($caffeHead -ne $CaffeRevision) {
+    throw "OpenPose CUDA-11 Caffe revision mismatch: expected $CaffeRevision, got $caffeHead"
+}
+Assert-WslGitClean -Repository $caffeRepo -Label "OpenPose CUDA-11 Caffe submodule"
+$pybind11Head = (Invoke-WslChecked -Arguments @("git", "-C", $pybind11Repo, "rev-parse", "HEAD") -Step "Verify final pybind11 revision").ToLowerInvariant()
+if ($pybind11Head -ne $Pybind11Revision) {
+    throw "OpenPose pybind11 revision mismatch after provisioning: $pybind11Head"
+}
+Assert-WslGitClean -Repository $pybind11Repo -Label "OpenPose pybind11 submodule"
+$dirtyAfter = Invoke-WslChecked -Arguments @("git", "-C", $InstallRoot, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all") -Step "Verify final OpenPose superproject tracked state"
 if (-not [string]::IsNullOrWhiteSpace($dirtyAfter)) {
-    throw "OpenPose tracked files changed during provisioning; refusing authority."
+    throw "OpenPose tracked superproject files changed during provisioning; refusing authority."
 }
 
 Write-Host ""
 Write-Host "BodyRig OpenPose provisioning: PASS"
 Write-Host "OpenPose repo: $InstallRoot"
 Write-Host "OpenPose executable: $executable"
+Write-Host "OpenPose Caffe revision: $CaffeRevision"
 Write-Output (ConvertTo-Json -Compress -InputObject ([ordered]@{
     repository = $InstallRoot
     revision = $OpenPoseRevision
+    caffe_revision = $CaffeRevision
     executable = $executable
 }))
 exit 0
