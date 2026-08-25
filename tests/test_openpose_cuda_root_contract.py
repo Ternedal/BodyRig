@@ -15,6 +15,7 @@ def test_openpose_setup_binds_explicit_cuda_root() -> None:
     assert 'Test-WslPath -Path $cudaRuntimeHeader' in script
     assert '"-DCUDA_TOOLKIT_ROOT_DIR=$CudaRoot"' in script
     assert '"-DCUDA_NVCC_EXECUTABLE=$cudaNvcc"' in script
+    assert '"-DUSE_CUDNN=OFF"' in script
     assert 'which", "nvcc"' not in script
 
 
