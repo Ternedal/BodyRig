@@ -163,13 +163,42 @@ if (-not (Test-Path -LiteralPath $envPython -PathType Leaf)) {
     throw "Recovery Python was not created: $envPython"
 }
 
-# Detectron2 imports Torch from setup.py, so every source-build dependency must
-# see the already-created runtime environment. Editable installs are deliberately
-# from the verified local checkouts. PHALP is installed without its `all` extra
-# because HMR2 comes from the already pinned 4D-Humans checkout; this prevents
-# the extra from silently pulling a different HMR2 Git revision.
-Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $fourDPath) -Step "Install pinned 4D-Humans checkout"
-Invoke-Checked -Executable $envPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $phalpPath) -Step "Install pinned PHALP checkout"
+# Detectron2 imports Torch from setup.py, so source-build dependencies must see
+# the already-created runtime environment. Install HMR2 from the verified local
+# checkout first. PHALP's setup.py also declares neural-renderer-pytorch, but the
+# BodyRig recovery bridge always runs 4D-Humans with render.enable=false and the
+# pinned tracker does not import neural_renderer. That legacy CUDA renderer would
+# otherwise require a separate native Windows CUDA toolchain for code we never
+# execute, so provision the actual tracker/runtime dependencies explicitly and
+# install the pinned PHALP checkout with --no-deps.
+Invoke-Checked -Executable $envPython -Arguments @(
+    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "-e", $fourDPath
+) -Step "Install pinned 4D-Humans checkout"
+
+Invoke-Checked -Executable $envPython -Arguments @(
+    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+    "opencv-python",
+    "joblib",
+    "scikit-learn",
+    "pyrender",
+    "dill",
+    "rich",
+    "einops",
+    "scenedetect[opencv]",
+    "hydra-core",
+    "timm",
+    "av",
+    "smplx==0.1.28",
+    "numpy",
+    "detectron2 @ git+https://github.com/facebookresearch/detectron2.git",
+    "pytube @ git+https://github.com/pytube/pytube.git",
+    "pyopengl @ git+https://github.com/mmatl/pyopengl.git",
+    "chumpy @ git+https://github.com/mattloper/chumpy"
+) -Step "Install BodyRig PHALP runtime dependencies"
+
+Invoke-Checked -Executable $envPython -Arguments @(
+    "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation", "--no-deps", "-e", $phalpPath
+) -Step "Install pinned PHALP checkout"
 
 # These are runtime-neutral helpers present in the pinned upstream environment
 # but not declared by the two editable packages. Keep them explicit so the
