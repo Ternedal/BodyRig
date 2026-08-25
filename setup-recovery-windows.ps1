@@ -47,8 +47,10 @@ function Assert-ManagedRepo {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
+    $created = $false
     if (-not (Test-Path -LiteralPath $Path)) {
         Invoke-Checked -Executable $script:GitExe -Arguments @("clone", "--no-checkout", $Remote, $Path) -Step "Clone $Label"
+        $created = $true
     }
     if (-not (Test-Path -LiteralPath (Join-Path $Path ".git") -PathType Container)) {
         throw "$Label path exists but is not a Git checkout: $Path"
@@ -62,10 +64,16 @@ function Assert-ManagedRepo {
         throw "$Label origin mismatch: $actualRemote"
     }
 
-    $dirty = @(& $script:GitExe -C $Path status --porcelain)
-    if ($LASTEXITCODE -ne 0) { throw "Could not inspect $Label status." }
-    if ($dirty.Count -gt 0) {
-        throw "$Label checkout is dirty. BodyRig will not reset or overwrite it automatically: $Path"
+    # Existing managed checkouts remain fail-closed. A repository created by
+    # this invocation was cloned with --no-checkout, so Git reports the empty
+    # worktree as deleted tracked files until the first checkout. Do not
+    # misclassify that expected initial state as operator modifications.
+    if (-not $created) {
+        $dirty = @(& $script:GitExe -C $Path status --porcelain)
+        if ($LASTEXITCODE -ne 0) { throw "Could not inspect $Label status." }
+        if ($dirty.Count -gt 0) {
+            throw "$Label checkout is dirty. BodyRig will not reset or overwrite it automatically: $Path"
+        }
     }
 
     Invoke-Checked -Executable $script:GitExe -Arguments @("-C", $Path, "fetch", "--no-tags", "origin", $Revision) -Step "Fetch pinned $Label revision"
@@ -73,6 +81,12 @@ function Assert-ManagedRepo {
     $head = (& $script:GitExe -C $Path rev-parse HEAD).Trim().ToLowerInvariant()
     if ($LASTEXITCODE -ne 0 -or $head -ne $Revision) {
         throw "$Label checkout did not land on pinned revision $Revision"
+    }
+
+    $dirtyAfterCheckout = @(& $script:GitExe -C $Path status --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect $Label status after pinned checkout." }
+    if ($dirtyAfterCheckout.Count -gt 0) {
+        throw "$Label checkout is dirty after pinned checkout: $Path"
     }
 }
 
