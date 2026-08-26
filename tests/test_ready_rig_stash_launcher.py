@@ -22,7 +22,31 @@ def test_ready_launcher_uses_master_report_live_readiness_and_existing_stash_pip
     assert '"-WslExe", $WslExe' in text
     assert '"-ExternalPython", $externalPython' in text
     assert '"-FourDHumansRepo", $fourDHumansRepo' in text
+    assert '"-PhalpRepo", $phalpRepo' in text
+    assert '"-RecoveryDistribution", $recoveryDistribution' in text
     assert '"-BodyId", $BodyId' in text
+
+
+def test_ready_launcher_preserves_linux_recovery_paths_instead_of_windows_resolving_them():
+    text = _launcher()
+    assert '$externalPython = ([string]$rig.recovery.external_python).Trim()' in text
+    assert '$fourDHumansRepo = ([string]$rig.recovery.four_d_humans_repo).TrimEnd("/")' in text
+    assert '$phalpRepo = ([string]$rig.recovery.phalp_repo).TrimEnd("/")' in text
+    assert 'Recovery Python from rig setup"; Value = $externalPython' in text
+    assert '4D-Humans repository from rig setup"; Value = $fourDHumansRepo' in text
+    assert 'PHALP repository from rig setup"; Value = $phalpRepo' in text
+    assert 'Resolve-InputFile -Path ([string]$rig.recovery.external_python)' not in text
+    assert 'Test-Path -LiteralPath $fourDHumansRepo -PathType Container' not in text
+
+
+def test_ready_launcher_derives_recovery_distribution_from_validated_sith_authority():
+    text = _launcher()
+    sith_validation = text.index("bodyrig.sith_setup $sithReport")
+    distribution = text.index('$recoveryDistribution = ([string]$sith.distribution).Trim()')
+    clone_args = text.index("$cloneArgs = @(")
+    assert sith_validation < distribution < clone_args
+    assert "BODYRIG_RECOVERY_DISTRIBUTION" in text
+    assert 'Write-Host "Recovery transport: WSL $recoveryDistribution"' in text
 
 
 def test_ready_launcher_propagates_wsl_authority_into_actual_clone():
@@ -31,6 +55,8 @@ def test_ready_launcher_propagates_wsl_authority_into_actual_clone():
     clone_call = text.index("& $powerShellExe @cloneArgs")
     clone_section = text[clone_args_start:clone_call]
     assert '"-WslExe", $WslExe' in clone_section
+    assert '"-PhalpRepo", $phalpRepo' in clone_section
+    assert '"-RecoveryDistribution", $recoveryDistribution' in clone_section
 
 
 def test_ready_launcher_requires_readiness_before_clone():
