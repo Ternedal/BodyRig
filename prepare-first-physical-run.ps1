@@ -120,6 +120,7 @@ if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_UR
 if ([string]::IsNullOrWhiteSpace($StashUrl)) {
     throw "Stash URL is required via -StashUrl or STASH_URL."
 }
+$WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
 
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
@@ -146,6 +147,7 @@ Write-Host "PowerShell: $($PSVersionTable.PSVersion.ToString()) | pwsh: $powerSh
 Write-Host "BodyRig Python: $BodyRigPython"
 Write-Host "Rig setup: $RigSetupReport"
 Write-Host "Stash URL: $StashUrl"
+Write-Host "WSL authority: $WslExe"
 if ($hasPerformer) { Write-Host "FFmpeg decode authority: $Ffmpeg" }
 Write-Host ""
 Write-Host "Checking Unity/Quest reference-renderer toolchain..."
@@ -216,9 +218,16 @@ Write-Host "No Unity project was opened and no physical clone session or accepta
 if ($hasPerformer -and $hasBodyId) {
     $quotedPerformer = Quote-PowerShellLiteral -Value $PerformerId
     $quotedBody = Quote-PowerShellLiteral -Value $BodyId
+    $quotedRigSetup = Quote-PowerShellLiteral -Value $RigSetupReport
+    $quotedBodyRigPython = Quote-PowerShellLiteral -Value $BodyRigPython
+    $quotedStashUrl = Quote-PowerShellLiteral -Value $StashUrl
+    $quotedApiKeyEnv = Quote-PowerShellLiteral -Value $ApiKeyEnv
+    $quotedWslExe = Quote-PowerShellLiteral -Value $WslExe
+    $quotedFfmpeg = Quote-PowerShellLiteral -Value $Ffmpeg
+    $nextCommand = ".\clone-body-from-stash-ready.ps1 -PerformerId $quotedPerformer -BodyId $quotedBody -RigSetupReport $quotedRigSetup -BodyRigPython $quotedBodyRigPython -StashUrl $quotedStashUrl -ApiKeyEnv $quotedApiKeyEnv -WslExe $quotedWslExe -Ffmpeg $quotedFfmpeg"
     Write-Host ""
     Write-Host "Next production command:"
-    Write-Host ".\clone-body-from-stash-ready.ps1 -PerformerId $quotedPerformer -BodyId $quotedBody"
+    Write-Host $nextCommand
 } else {
     Write-Host ""
     Write-Host "Next: run .\stash-sources.ps1 search '<performer name>' -Limit 10, then rerun this doctor with -PerformerId and -BodyId to print the exact production command."
