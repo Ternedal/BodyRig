@@ -8,6 +8,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FourDHumansRepo,
 
+    [string]$PhalpRepo = "",
+    [string]$RecoveryDistribution = "",
     [string]$IdentityCaptureConfig = "",
     [string]$FitterConfig = "",
 
@@ -110,6 +112,16 @@ function Invoke-Checked {
     }
 }
 
+function Convert-WindowsPathToWsl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not $usingWslRecovery) { throw "WSL path conversion requested without WSL recovery transport." }
+    $raw = @(& $WslExe -d $RecoveryDistribution -- wslpath -a $Path)
+    if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$raw[0])) {
+        throw "Could not translate BodyRig bridge path into WSL: $Path"
+    }
+    return ([string]$raw[0]).Trim()
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 if ([string]::IsNullOrWhiteSpace($StashUrl)) {
     $StashUrl = [string]$env:STASH_URL
@@ -121,7 +133,6 @@ if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) {
     throw "-ApiKeyEnv must name the environment variable containing the Stash API key."
 }
 
-$ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
@@ -134,6 +145,26 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     throw "BodyRig Python not found. Create .venv or pass -BodyRigPython."
 }
 $BodyRigPython = Resolve-InputFile -Path $BodyRigPython -Label "BodyRig Python"
+
+$usingWslRecovery = -not [string]::IsNullOrWhiteSpace($RecoveryDistribution)
+if ($usingWslRecovery) {
+    $RecoveryDistribution = $RecoveryDistribution.Trim()
+    foreach ($linuxSetting in @(
+        @{ Label = "External recovery Python"; Value = $ExternalPython },
+        @{ Label = "4D-Humans repository"; Value = $FourDHumansRepo },
+        @{ Label = "PHALP repository"; Value = $PhalpRepo }
+    )) {
+        if ([string]::IsNullOrWhiteSpace([string]$linuxSetting.Value) -or -not ([string]$linuxSetting.Value).StartsWith("/")) {
+            throw "$($linuxSetting.Label) must be an absolute Linux path for WSL recovery."
+        }
+    }
+    $ExternalPython = $ExternalPython.Trim()
+    $FourDHumansRepo = $FourDHumansRepo.TrimEnd("/")
+    $PhalpRepo = $PhalpRepo.TrimEnd("/")
+    $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+} else {
+    $ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
+}
 
 $powerShellExe = Resolve-CommandPath "pwsh"
 if ($null -eq $powerShellExe) {
@@ -156,6 +187,9 @@ if ($usingBuiltInIdentityCapture) {
         "-m", "bodyrig.identity_capture_preflight",
         "--external-python", $ExternalPython
     )
+    if ($usingWslRecovery) {
+        $identityPreflightArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)
+    }
     Invoke-Checked -Executable $BodyRigPython -Arguments $identityPreflightArgs -Step "Built-in identity capture preflight"
 }
 
@@ -196,7 +230,9 @@ if (-not $usingBuiltInFitter) {
         }
     }
     $SithOpenPoseRepo = $SithOpenPoseRepo.TrimEnd("/")
-    $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+    if (-not $usingWslRecovery) {
+        $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+    }
 
     $sithPreflightArgs = @(
         "-m", "bodyrig.sith_preflight",
@@ -269,6 +305,8 @@ if ($usingObservationSelection) {
     )
     if (-not $usingBuiltInObservationAnalyzer) {
         $observationPreflightArgs += "--ffmpeg-only"
+    } elseif ($usingWslRecovery) {
+        $observationPreflightArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)
     }
     Invoke-Checked -Executable $BodyRigPython -Arguments $observationPreflightArgs -Step "Observation selection preflight"
 }
@@ -293,15 +331,26 @@ $observationWorkspace = ""
 if ($usingBuiltInIdentityCapture) {
     $identityBridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_identity_capture.py") -Label "Built-in OpenCV identity capture adapter"
     $IdentityCaptureConfig = Join-Path $OutputDir "bodyrig-identity-capture-config.json"
+    if ($usingWslRecovery) {
+        $identityBridgeWsl = Convert-WindowsPathToWsl -Path $identityBridge
+        $identityCommand = @(
+            $BodyRigPython,
+            "-m", "bodyrig.wsl_adapter_bridge",
+            "--distribution", $RecoveryDistribution,
+            "--wsl-exe", $WslExe,
+            "--",
+            $ExternalPython,
+            $identityBridgeWsl
+        )
+    } else {
+        $identityCommand = @($ExternalPython, $identityBridge)
+    }
     $builtInIdentityConfig = [ordered]@{
         format = "bodyrig-identity-capture-config"
         version = 1
         adapter = "opencv-identity-rgba"
         revision = "1"
-        command = @(
-            $ExternalPython,
-            $identityBridge
-        )
+        command = $identityCommand
         timeout_seconds = 3600
     }
     $builtInIdentityConfig | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $IdentityCaptureConfig -Encoding UTF8
@@ -375,17 +424,33 @@ if ([string]::IsNullOrWhiteSpace($Name) -or $Name.Length -gt 160) {
 if ($usingBuiltInObservationAnalyzer) {
     $bridge = Resolve-InputFile -Path (Join-Path $repoRoot "bodyrig\bridges\opencv_observation_analyzer.py") -Label "Built-in OpenCV observation analyzer"
     $ObservationAnalyzerConfig = Join-Path $OutputDir "bodyrig-observation-analyzer-config.json"
-    $builtInConfig = [ordered]@{
-        format = "bodyrig-observation-analyzer-config"
-        version = 1
-        adapter = "opencv-hog-haar"
-        revision = "1"
-        command = @(
+    if ($usingWslRecovery) {
+        $bridgeWsl = Convert-WindowsPathToWsl -Path $bridge
+        $observationCommand = @(
+            $BodyRigPython,
+            "-m", "bodyrig.wsl_adapter_bridge",
+            "--distribution", $RecoveryDistribution,
+            "--wsl-exe", $WslExe,
+            "--",
+            $ExternalPython,
+            $bridgeWsl,
+            "--bodyrig-stash-manifest",
+            $sourceManifest
+        )
+    } else {
+        $observationCommand = @(
             $ExternalPython,
             $bridge,
             "--bodyrig-stash-manifest",
             $sourceManifest
         )
+    }
+    $builtInConfig = [ordered]@{
+        format = "bodyrig-observation-analyzer-config"
+        version = 1
+        adapter = "opencv-hog-haar"
+        revision = "1"
+        command = $observationCommand
         timeout_seconds = 7200
     }
     $builtInConfig | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ObservationAnalyzerConfig -Encoding UTF8
@@ -411,6 +476,9 @@ if ($usingBuiltInFitter) {
     Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1 (OpenPose source/binary/models + diffusion bytes verified; garments external)"
 } else {
     Write-Host "High-fidelity fitter: custom config"
+}
+if ($usingWslRecovery) {
+    Write-Host "Recovery transport: WSL $RecoveryDistribution"
 }
 Write-Host ""
 
@@ -486,6 +554,13 @@ try {
         "-OutputDir", $cloneOutput,
         "-BodyRigPython", $BodyRigPython
     )
+    if ($usingWslRecovery) {
+        $cloneArgs += @(
+            "-PhalpRepo", $PhalpRepo,
+            "-RecoveryDistribution", $RecoveryDistribution,
+            "-WslExe", $WslExe
+        )
+    }
     if ($usingObservationSelection) {
         $cloneArgs += @("-SourceOverrideManifest", $observationSegments)
     }
