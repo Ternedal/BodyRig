@@ -310,6 +310,36 @@ if ($LASTEXITCODE -ne 0) {
     throw "SiTH final preflight failed. Resolve the reported local dependency/asset gates before cloning."
 }
 
+$reconCheckpoint = "$InstallRoot/checkpoints/recon_model.pth"
+$smplerxCheckpoint = "$InstallRoot/checkpoints/save_smplerx.pth"
+$reconCheckpointRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $venvPython --path $reconCheckpoint --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) {
+    throw "SiTH recon_model checkpoint digest failed."
+}
+try {
+    $reconCheckpointDigest = $reconCheckpointRaw | ConvertFrom-Json
+} catch {
+    throw "SiTH recon_model checkpoint digest returned unreadable JSON."
+}
+$reconCheckpointSha = ([string]$reconCheckpointDigest.sha256).ToLowerInvariant()
+if ($reconCheckpointSha -notmatch '^[0-9a-f]{64}$' -or [int64]$reconCheckpointDigest.byte_count -lt 1) {
+    throw "SiTH recon_model checkpoint digest is invalid."
+}
+
+$smplerxCheckpointRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $venvPython --path $smplerxCheckpoint --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) {
+    throw "SiTH save_smplerx checkpoint digest failed."
+}
+try {
+    $smplerxCheckpointDigest = $smplerxCheckpointRaw | ConvertFrom-Json
+} catch {
+    throw "SiTH save_smplerx checkpoint digest returned unreadable JSON."
+}
+$smplerxCheckpointSha = ([string]$smplerxCheckpointDigest.sha256).ToLowerInvariant()
+if ($smplerxCheckpointSha -notmatch '^[0-9a-f]{64}$' -or [int64]$smplerxCheckpointDigest.byte_count -lt 1) {
+    throw "SiTH save_smplerx checkpoint digest is invalid."
+}
+
 $digestArgs = @(
     "-m", "bodyrig.sith_model",
     "--distribution", $Distribution,
@@ -336,6 +366,8 @@ $settings = [ordered]@{
     BODYRIG_SITH_REPO = $InstallRoot
     BODYRIG_SITH_PYTHON = $venvPython
     BODYRIG_SITH_OPENPOSE = $OpenPose
+    BODYRIG_SITH_RECON_CHECKPOINT_SHA256 = $reconCheckpointSha
+    BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256 = $smplerxCheckpointSha
     BODYRIG_SITH_DIFFUSION_MODEL = $DiffusionModel
     BODYRIG_SITH_DIFFUSION_SHA256 = $modelSha
 }
@@ -351,6 +383,8 @@ Write-Host "BodyRig SiTH provisioning: PASS"
 Write-Host "SiTH repo: $InstallRoot"
 Write-Host "SiTH Python: $venvPython"
 Write-Host "OpenPose: $OpenPose"
+Write-Host "SiTH recon_model SHA-256: $reconCheckpointSha"
+Write-Host "SiTH save_smplerx SHA-256: $smplerxCheckpointSha"
 Write-Host "Diffusion model: $DiffusionModel"
 Write-Host "Diffusion model SHA-256: $modelSha"
 if ($PersistUserEnvironment) {
