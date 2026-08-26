@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from bodyrig.sith_preflight import OPENPOSE_REVISION, SITH_REVISION
@@ -61,6 +62,35 @@ def test_top_level_setup_binds_sith_checkpoints_openpose_binary_models_and_diffu
     assert "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256" in text
 
 
+def test_current_sith_setup_json_schema_matches_v4_authority_surface():
+    schema = json.loads((ROOT / "contracts" / "sith-setup-v4.schema.json").read_text(encoding="utf-8"))
+    assert schema["properties"]["format"]["const"] == "bodyrig-sith-setup"
+    assert schema["properties"]["version"]["const"] == 4
+    assert set(schema["required"]) == {
+        "format",
+        "version",
+        "distribution",
+        "sith",
+        "openpose",
+        "checkpoints",
+        "diffusion_model",
+    }
+    openpose_required = set(schema["properties"]["openpose"]["required"])
+    assert {
+        "sha256",
+        "byte_count",
+        "models_sha256",
+        "models_file_count",
+        "models_byte_count",
+    }.issubset(openpose_required)
+    checkpoints = schema["properties"]["checkpoints"]
+    assert set(checkpoints["required"]) == {"recon_model", "smplerx"}
+    for name in ("recon_model", "smplerx"):
+        assert set(checkpoints["properties"][name]["required"]) == {"path", "sha256", "byte_count"}
+    assert checkpoints["properties"]["recon_model"]["properties"]["path"]["pattern"].endswith("recon_model\\.pth$")
+    assert checkpoints["properties"]["smplerx"]["properties"]["path"]["pattern"].endswith("save_smplerx\\.pth$")
+
+
 def test_setup_report_documentation_keeps_licensed_assets_explicit_and_checkpoint_authority():
     text = (ROOT / "docs" / "HIGH_FIDELITY_SETUP.md").read_text(encoding="utf-8")
     assert "BodyRig never downloads, redistributes or embeds them in `.mrbody`" in text
@@ -72,5 +102,6 @@ def test_setup_report_documentation_keeps_licensed_assets_explicit_and_checkpoin
     assert "recon_model.pth" in text
     assert "save_smplerx.pth" in text
     assert "point-of-use" in text
+    assert "sith-setup-v4.schema.json" in text
     assert OPENPOSE_REVISION in text
     assert SITH_REVISION in text
