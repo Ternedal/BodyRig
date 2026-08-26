@@ -116,6 +116,18 @@ if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
 }
 $RigSetupReport = Resolve-InputFile -Path $RigSetupReport -Label "BodyRig rig setup report"
 
+# Fail stale rig/SiTH setup authority before spending operator time on renderer,
+# Stash or other live readiness checks. bodyrig.rig_setup verifies the master
+# report bytes and its nested bodyrig-sith-setup v4 evidence, including the
+# checkpoint-bound setup report introduced for canonical physical runs.
+$rigSetupValidationRaw = @(& $BodyRigPython -m bodyrig.rig_setup $RigSetupReport)
+if ($LASTEXITCODE -ne 0) {
+    throw "BodyRig rig setup validation failed. Canonical physical runs require nested bodyrig-sith-setup v4 authority; rerun setup-rig-windows.ps1 to regenerate stale v1/v2/v3 setup evidence before continuing."
+}
+if ($rigSetupValidationRaw.Count -ne 1) {
+    throw "BodyRig rig setup validation did not return exactly one canonical report."
+}
+
 if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_URL }
 if ([string]::IsNullOrWhiteSpace($StashUrl)) {
     throw "Stash URL is required via -StashUrl or STASH_URL."
@@ -146,6 +158,7 @@ Write-Host "Checkout: clean"
 Write-Host "PowerShell: $($PSVersionTable.PSVersion.ToString()) | pwsh: $powerShellExe"
 Write-Host "BodyRig Python: $BodyRigPython"
 Write-Host "Rig setup: $RigSetupReport"
+Write-Host "Rig setup authority: validated (nested bodyrig-sith-setup v4)"
 Write-Host "Stash URL: $StashUrl"
 Write-Host "WSL authority: $WslExe"
 if ($hasPerformer) { Write-Host "FFmpeg decode authority: $Ffmpeg" }
