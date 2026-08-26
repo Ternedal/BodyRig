@@ -18,8 +18,23 @@ def _boundary(tmp_path: Path) -> tuple[Path, Path, Path]:
     return request, workspace, output
 
 
+def _bind_checkpoint_authority(monkeypatch, *, recon: str = "d" * 64, smplerx: str = "e" * 64):
+    monkeypatch.setenv(orchestrator.RECON_CHECKPOINT_HASH_ENV, recon)
+    monkeypatch.setenv(orchestrator.SMPLX_CHECKPOINT_HASH_ENV, smplerx)
+
+    def fake_digest_wsl_file(*, path: str, **kwargs):
+        if path.endswith("/recon_model.pth"):
+            return {"sha256": recon, "byte_count": 10}
+        if path.endswith("/save_smplerx.pth"):
+            return {"sha256": smplerx, "byte_count": 20}
+        raise AssertionError(f"unexpected checkpoint path: {path}")
+
+    monkeypatch.setattr(orchestrator, "digest_wsl_file", fake_digest_wsl_file)
+
+
 def test_orchestrator_runs_private_stages_then_wsl_rig_bridge(monkeypatch, tmp_path: Path):
     request, workspace, output = _boundary(tmp_path)
+    _bind_checkpoint_authority(monkeypatch)
     calls: list[tuple[str, object]] = []
     monkeypatch.setattr(
         orchestrator,
@@ -92,6 +107,58 @@ def test_orchestrator_runs_private_stages_then_wsl_rig_bridge(monkeypatch, tmp_p
     assert request.resolve() in translations
     assert workspace.resolve() in translations
     assert output.resolve() in translations
+
+
+def test_orchestrator_rejects_checkpoint_tamper_before_private_work(monkeypatch, tmp_path: Path):
+    request, workspace, output = _boundary(tmp_path)
+    _bind_checkpoint_authority(monkeypatch, recon="d" * 64, smplerx="e" * 64)
+    monkeypatch.setattr(
+        orchestrator,
+        "digest_wsl_file",
+        lambda **kwargs: {"sha256": "f" * 64, "byte_count": 10},
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(orchestrator, "stage_sith_input", lambda *_: calls.append("stage"))
+
+    with pytest.raises(orchestrator.SithFitterOrchestratorError, match="checkpoint SHA-256 mismatch"):
+        orchestrator.orchestrate_sith_fitter(
+            request=request,
+            workspace=workspace,
+            output=output,
+            adapter=orchestrator.ADAPTER,
+            revision=orchestrator.REVISION,
+            distribution="Ubuntu-22.04",
+            sith_repo="/opt/sith",
+            sith_python="/opt/sith/.venv/bin/python",
+            openpose="/opt/openpose/build/examples/openpose/openpose.bin",
+            diffusion_model="/opt/models/sith-diffusion",
+            diffusion_model_sha256="a" * 64,
+        )
+    assert calls == []
+
+
+def test_orchestrator_requires_checkpoint_authority_before_private_work(monkeypatch, tmp_path: Path):
+    request, workspace, output = _boundary(tmp_path)
+    monkeypatch.delenv(orchestrator.RECON_CHECKPOINT_HASH_ENV, raising=False)
+    monkeypatch.delenv(orchestrator.SMPLX_CHECKPOINT_HASH_ENV, raising=False)
+    calls: list[str] = []
+    monkeypatch.setattr(orchestrator, "stage_sith_input", lambda *_: calls.append("stage"))
+
+    with pytest.raises(orchestrator.SithFitterOrchestratorError, match="setup-bound lowercase SHA-256"):
+        orchestrator.orchestrate_sith_fitter(
+            request=request,
+            workspace=workspace,
+            output=output,
+            adapter=orchestrator.ADAPTER,
+            revision=orchestrator.REVISION,
+            distribution="Ubuntu-22.04",
+            sith_repo="/opt/sith",
+            sith_python="/opt/sith/.venv/bin/python",
+            openpose="/opt/openpose/build/examples/openpose/openpose.bin",
+            diffusion_model="/opt/models/sith-diffusion",
+            diffusion_model_sha256="a" * 64,
+        )
+    assert calls == []
 
 
 def test_orchestrator_rejects_adapter_drift_before_private_work(monkeypatch, tmp_path: Path):
