@@ -186,21 +186,32 @@ try {
         throw "BodyRig rig setup report format/version mismatch after validation."
     }
 
-    $externalPython = Resolve-InputFile -Path ([string]$rig.recovery.external_python) -Label "Recovery Python from rig setup"
-    $fourDHumansRepo = [string]$rig.recovery.four_d_humans_repo
-    if ([string]::IsNullOrWhiteSpace($fourDHumansRepo) -or -not (Test-Path -LiteralPath $fourDHumansRepo -PathType Container)) {
-        throw "4D-Humans repository from rig setup is unavailable: $fourDHumansRepo"
+    $externalPython = ([string]$rig.recovery.external_python).Trim()
+    $fourDHumansRepo = ([string]$rig.recovery.four_d_humans_repo).TrimEnd("/")
+    $phalpRepo = ([string]$rig.recovery.phalp_repo).TrimEnd("/")
+    foreach ($linuxSetting in @(
+        @{ Label = "Recovery Python from rig setup"; Value = $externalPython },
+        @{ Label = "4D-Humans repository from rig setup"; Value = $fourDHumansRepo },
+        @{ Label = "PHALP repository from rig setup"; Value = $phalpRepo }
+    )) {
+        if ([string]::IsNullOrWhiteSpace([string]$linuxSetting.Value) -or -not ([string]$linuxSetting.Value).StartsWith("/")) {
+            throw "$($linuxSetting.Label) must be an absolute Linux path."
+        }
     }
-    $fourDHumansRepo = (Resolve-Path -LiteralPath $fourDHumansRepo).Path
-    $sithReport = Resolve-InputFile -Path ([string]$rig.high_fidelity.setup_report) -Label "SiTH setup report from rig setup"
 
+    $sithReport = Resolve-InputFile -Path ([string]$rig.high_fidelity.setup_report) -Label "SiTH setup report from rig setup"
     $sithValidatedRaw = & $BodyRigPython -m bodyrig.sith_setup $sithReport
     if ($LASTEXITCODE -ne 0) { throw "Nested SiTH setup report failed live validation." }
     try { $sith = $sithValidatedRaw | ConvertFrom-Json }
     catch { throw "SiTH setup validator returned unreadable JSON." }
+    $recoveryDistribution = ([string]$sith.distribution).Trim()
+    if ([string]::IsNullOrWhiteSpace($recoveryDistribution)) {
+        throw "Nested SiTH setup report did not provide the canonical WSL distribution."
+    }
 
     Set-RequiredEnvironment -Values @{
         BODYRIG_RIG_SETUP_REPORT = $RigSetupReport
+        BODYRIG_RECOVERY_DISTRIBUTION = $recoveryDistribution
         BODYRIG_SITH_SETUP_REPORT = $sithReport
         BODYRIG_SITH_DISTRIBUTION = [string]$sith.distribution
         BODYRIG_SITH_REPO = [string]$sith.sith.repository
@@ -236,6 +247,7 @@ try {
     Write-Host "BodyRig revision: $head"
     Write-Host "Checkout clean: $checkoutClean"
     Write-Host "Rig setup: $RigSetupReport"
+    Write-Host "Recovery transport: WSL $recoveryDistribution"
     Write-Host "Performer id: $PerformerId"
     Write-Host "Body id: $BodyId"
     Write-Host "Session id: $sessionId"
@@ -286,6 +298,8 @@ try {
         "-PerformerId", $PerformerId,
         "-ExternalPython", $externalPython,
         "-FourDHumansRepo", $fourDHumansRepo,
+        "-PhalpRepo", $phalpRepo,
+        "-RecoveryDistribution", $recoveryDistribution,
         "-BodyId", $BodyId,
         "-BodyRigPython", $BodyRigPython,
         "-ApiKeyEnv", $ApiKeyEnv,
