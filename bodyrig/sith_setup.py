@@ -58,11 +58,15 @@ def _checkpoint(value: Any, *, field: str, expected_path: str) -> dict[str, Any]
 
 
 def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise SithSetupError("SiTH setup report must be an object")
+    if value.get("format") != FORMAT or value.get("version") != VERSION:
+        raise SithSetupError(
+            "unsupported SiTH setup report format/version; regenerate with setup-high-fidelity-wsl.ps1"
+        )
     required = {"format", "version", "distribution", "sith", "openpose", "checkpoints", "diffusion_model"}
-    if not isinstance(value, Mapping) or set(value) != required:
+    if set(value) != required:
         raise SithSetupError("SiTH setup report fields must match v4 exactly")
-    if value["format"] != FORMAT or value["version"] != VERSION:
-        raise SithSetupError("unsupported SiTH setup report format/version")
 
     distribution = _nonempty(value["distribution"], field="distribution", maximum=160)
 
