@@ -23,9 +23,12 @@ BodyRig pins:
 - the OpenPose v1.7.0 `CMakeLists.txt` Git blob;
 - the built OpenPose executable bytes by SHA-256 + byte count;
 - the complete OpenPose model tree by deterministic SHA-256 over relative path, size and file bytes;
+- the two upstream SiTH checkpoint files, `checkpoints/recon_model.pth` and `checkpoints/save_smplerx.pth`, by their provisioned SHA-256 + byte count;
 - the local SiTH diffusion-model tree by the same byte-bound tree-digest principle.
 
-Both Git checkouts must have clean tracked files when they are accepted. `bodyrig-sith-preflight` verifies the pinned OpenPose checkout when `--openpose-repo` is supplied. Setup additionally binds the exact `openpose.bin` and `openpose/models` bytes, so a later rebuild, model replacement or partial re-download cannot pass readiness merely because source control still matches.
+Both Git checkouts must have clean tracked files when they are accepted. `bodyrig-sith-preflight` verifies the pinned OpenPose checkout when `--openpose-repo` is supplied. Setup additionally binds the exact `openpose.bin`, `openpose/models`, and SiTH checkpoint bytes, so a later rebuild, model replacement or partial re-download cannot pass readiness merely because source control still matches.
+
+The SiTH project publishes stable download URLs for the two public checkpoints in the pinned upstream revision, but does not publish an authoritative checksum alongside them. BodyRig therefore does **not** claim an invented upstream checksum. Instead, setup records the exact bytes provisioned from the pinned upstream URLs and all later canonical stages revalidate those bytes. This gives deterministic post-setup tamper/substitution protection without misrepresenting a local hash as an upstream signature.
 
 ## OpenPose
 
@@ -55,24 +58,33 @@ SMPL-X files remain an explicit local prerequisite. BodyRig never downloads, red
 
 ## SiTH checkpoints and diffusion model
 
-`-DownloadPublicCheckpoints` downloads the two public SiTH checkpoints expected by the pinned upstream revision. The diffusion model is different: BodyRig requires an operator-supplied **local directory** and hashes the complete model tree. Reconstruction runs with Hugging Face/Transformers offline mode enabled and a fixed seed by default.
+`-DownloadPublicCheckpoints` downloads the two public SiTH checkpoints expected by the pinned upstream revision:
+
+```text
+<SiTH repo>/checkpoints/recon_model.pth
+<SiTH repo>/checkpoints/save_smplerx.pth
+```
+
+Setup immediately hashes both files and records exact SHA-256 + byte count in the setup report. Existing files are not trusted merely because their names exist: the resulting bytes become the setup authority for that rig.
+
+The diffusion model is different: BodyRig requires an operator-supplied **local directory** and hashes the complete model tree. Reconstruction runs with Hugging Face/Transformers offline mode enabled and a fixed seed by default.
 
 ## Setup report
 
-A successful setup atomically writes a strict `bodyrig-sith-setup` v3 report. Default Windows location:
+A successful setup atomically writes a strict `bodyrig-sith-setup` v4 report. Default Windows location:
 
 ```text
 %LOCALAPPDATA%\BodyRig\sith\setup-report.json
 ```
 
-Version 3 adds the mandatory OpenPose model-tree binding on top of the executable binding introduced by v2. Existing v1/v2 reports must be regenerated with `setup-high-fidelity-wsl.ps1`.
+Version 4 adds mandatory byte binding for `recon_model.pth` and `save_smplerx.pth` on top of v3's OpenPose model-tree binding. Existing v1/v2/v3 reports must be regenerated with `setup-high-fidelity-wsl.ps1` before a canonical physical run.
 
 The report contains only local build configuration and integrity data:
 
 ```json
 {
   "format": "bodyrig-sith-setup",
-  "version": 3,
+  "version": 4,
   "distribution": "Ubuntu-22.04",
   "sith": {
     "repository": "/home/user/.local/share/bodyrig/sith",
@@ -89,6 +101,18 @@ The report contains only local build configuration and integrity data:
     "models_file_count": 1,
     "models_byte_count": 1
   },
+  "checkpoints": {
+    "recon_model": {
+      "path": "/home/user/.local/share/bodyrig/sith/checkpoints/recon_model.pth",
+      "sha256": "<64 lowercase hex>",
+      "byte_count": 1
+    },
+    "smplerx": {
+      "path": "/home/user/.local/share/bodyrig/sith/checkpoints/save_smplerx.pth",
+      "sha256": "<64 lowercase hex>",
+      "byte_count": 1
+    }
+  },
   "diffusion_model": {
     "path": "/home/user/.cache/bodyrig/sith-diffusion",
     "sha256": "<64 lowercase hex>",
@@ -98,22 +122,26 @@ The report contains only local build configuration and integrity data:
 }
 ```
 
-The report is validated by `bodyrig.sith_setup` before it replaces the previous setup report.
+The checkpoint paths are canonical and must resolve inside the pinned SiTH repository's `checkpoints/` directory. The report is validated by `bodyrig.sith_setup` before it replaces the previous setup report.
 
-With `-PersistUserEnvironment`, setup also persists the `BODYRIG_SITH_*` values consumed by the built-in Stash path, including `BODYRIG_SITH_SETUP_REPORT`, `BODYRIG_SITH_OPENPOSE_SHA256` and `BODYRIG_SITH_OPENPOSE_MODELS_SHA256`. No Stash key or source-media path is written to this report.
+With `-PersistUserEnvironment`, setup also persists the `BODYRIG_SITH_*` values consumed by the built-in Stash path, including `BODYRIG_SITH_SETUP_REPORT`, `BODYRIG_SITH_OPENPOSE_SHA256`, `BODYRIG_SITH_OPENPOSE_MODELS_SHA256`, `BODYRIG_SITH_RECON_CHECKPOINT_SHA256` and `BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256`. No Stash key or source-media path is written to this report.
 
-## Live readiness
+## Live readiness and point-of-use authority
 
 `check-rig-ready.ps1` does not trust the setup report by itself. Before a ready-rig clone it:
 
 1. re-runs recovery preflight;
 2. re-runs pinned SiTH/OpenPose source preflight;
-3. re-hashes `openpose.bin`;
-4. re-digests the complete `openpose/models` tree;
-5. re-digests the local diffusion-model tree;
-6. checks Stash GraphQL health.
+3. re-hashes `recon_model.pth`;
+4. re-hashes `save_smplerx.pth`;
+5. re-hashes `openpose.bin`;
+6. re-digests the complete `openpose/models` tree;
+7. re-digests the local diffusion-model tree;
+8. checks Stash GraphQL health.
 
-All live hashes and counts must match v3 setup evidence exactly. `clone-body-from-stash-ready.ps1` runs this readiness gate before it starts the clone pipeline.
+All live hashes and counts must match v4 setup evidence exactly. `clone-body-from-stash-ready.ps1` runs this readiness gate before it starts the clone pipeline and rehydrates the same checkpoint hashes into the canonical built-in fitter environment.
+
+The built-in `sith_fitter_orchestrator` then performs an additional **point-of-use** SHA-256 check on both SiTH checkpoints immediately before private staging/reconstruction. A checkpoint substituted after readiness therefore cannot be consumed by the fitter under the earlier READY evidence.
 
 ## Normal clone after setup
 
