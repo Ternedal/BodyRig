@@ -84,6 +84,42 @@ $sithArgs = @(
 )
 Invoke-Checked -Arguments $sithArgs -Step "Live SiTH/OpenPose preflight" | Out-Null
 
+$reconCheckpointRaw = Invoke-Checked -Arguments @(
+    "-m", "bodyrig.wsl_file_digest",
+    "--distribution", [string]$sith.distribution,
+    "--python", [string]$sith.sith.python,
+    "--path", [string]$sith.checkpoints.recon_model.path,
+    "--wsl-exe", $WslExe
+) -Step "Live SiTH recon_model checkpoint digest"
+try { $reconCheckpoint = ($reconCheckpointRaw -join "`n") | ConvertFrom-Json }
+catch { throw "Live SiTH recon_model checkpoint digest returned unreadable JSON." }
+$expectedReconCheckpointHash = ([string]$sith.checkpoints.recon_model.sha256).ToLowerInvariant()
+$actualReconCheckpointHash = ([string]$reconCheckpoint.sha256).ToLowerInvariant()
+if ($actualReconCheckpointHash -ne $expectedReconCheckpointHash) {
+    throw "Live SiTH recon_model checkpoint SHA-256 mismatch: expected $expectedReconCheckpointHash, got $actualReconCheckpointHash"
+}
+if ([int64]$reconCheckpoint.byte_count -ne [int64]$sith.checkpoints.recon_model.byte_count) {
+    throw "Live SiTH recon_model checkpoint byte count differs from setup evidence."
+}
+
+$smplerxCheckpointRaw = Invoke-Checked -Arguments @(
+    "-m", "bodyrig.wsl_file_digest",
+    "--distribution", [string]$sith.distribution,
+    "--python", [string]$sith.sith.python,
+    "--path", [string]$sith.checkpoints.smplerx.path,
+    "--wsl-exe", $WslExe
+) -Step "Live SiTH save_smplerx checkpoint digest"
+try { $smplerxCheckpoint = ($smplerxCheckpointRaw -join "`n") | ConvertFrom-Json }
+catch { throw "Live SiTH save_smplerx checkpoint digest returned unreadable JSON." }
+$expectedSmplerxCheckpointHash = ([string]$sith.checkpoints.smplerx.sha256).ToLowerInvariant()
+$actualSmplerxCheckpointHash = ([string]$smplerxCheckpoint.sha256).ToLowerInvariant()
+if ($actualSmplerxCheckpointHash -ne $expectedSmplerxCheckpointHash) {
+    throw "Live SiTH save_smplerx checkpoint SHA-256 mismatch: expected $expectedSmplerxCheckpointHash, got $actualSmplerxCheckpointHash"
+}
+if ([int64]$smplerxCheckpoint.byte_count -ne [int64]$sith.checkpoints.smplerx.byte_count) {
+    throw "Live SiTH save_smplerx checkpoint byte count differs from setup evidence."
+}
+
 $openPoseRaw = Invoke-Checked -Arguments @(
     "-m", "bodyrig.wsl_file_digest",
     "--distribution", [string]$sith.distribution,
@@ -211,6 +247,8 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
 
 Write-Host "BodyRig rig readiness: READY"
 Write-Host "Stash: $([string]$stash.version) | performer read: PASS"
+Write-Host "SiTH recon_model SHA-256: $actualReconCheckpointHash"
+Write-Host "SiTH save_smplerx SHA-256: $actualSmplerxCheckpointHash"
 Write-Host "OpenPose binary SHA-256: $actualOpenPoseHash"
 Write-Host "OpenPose model tree SHA-256: $actualOpenPoseModelsHash"
 Write-Host "Diffusion model SHA-256: $actualModelHash"
