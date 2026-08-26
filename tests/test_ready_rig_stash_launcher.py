@@ -40,7 +40,7 @@ def test_ready_launcher_requires_readiness_before_clone():
     clone_call = text.index("& $powerShellExe @cloneArgs")
     assert readiness_call < readiness_failure < clone_call
     assert "Live readiness: PASS" in text
-    assert "source + binary + models" in text
+    assert "SiTH checkpoints/OpenPose source + binary + models" in text
 
 
 def test_ready_launcher_requires_windows_powershell_7_and_pwsh_before_session_creation():
@@ -68,6 +68,8 @@ def test_ready_launcher_rehydrates_all_builtin_sith_settings():
         "BODYRIG_SITH_OPENPOSE",
         "BODYRIG_SITH_OPENPOSE_SHA256",
         "BODYRIG_SITH_OPENPOSE_MODELS_SHA256",
+        "BODYRIG_SITH_RECON_CHECKPOINT_SHA256",
+        "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256",
         "BODYRIG_SITH_DIFFUSION_MODEL",
         "BODYRIG_SITH_DIFFUSION_SHA256",
     ):
