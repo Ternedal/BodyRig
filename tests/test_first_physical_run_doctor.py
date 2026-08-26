@@ -68,6 +68,24 @@ def test_first_physical_run_doctor_prints_canonical_clone_command_only_with_comp
     assert '.\\stash-sources.ps1 search \'<performer name>\' -Limit 10' in script
 
 
+def test_first_physical_run_doctor_preserves_proven_authority_in_printed_clone_command() -> None:
+    script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    assert '$WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"' in script
+    assert 'Quote-PowerShellLiteral -Value $RigSetupReport' in script
+    assert 'Quote-PowerShellLiteral -Value $BodyRigPython' in script
+    assert 'Quote-PowerShellLiteral -Value $StashUrl' in script
+    assert 'Quote-PowerShellLiteral -Value $ApiKeyEnv' in script
+    assert 'Quote-PowerShellLiteral -Value $WslExe' in script
+    assert 'Quote-PowerShellLiteral -Value $Ffmpeg' in script
+    assert '-RigSetupReport $quotedRigSetup' in script
+    assert '-BodyRigPython $quotedBodyRigPython' in script
+    assert '-StashUrl $quotedStashUrl' in script
+    assert '-ApiKeyEnv $quotedApiKeyEnv' in script
+    assert '-WslExe $quotedWslExe' in script
+    assert '-Ffmpeg $quotedFfmpeg' in script
+
+
 def test_first_physical_run_runbook_uses_doctor_before_session_creation() -> None:
     doc = Path("docs/FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
 
