@@ -13,6 +13,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FourDHumansRepo,
 
+    [string]$PhalpRepo = "",
+    [string]$RecoveryDistribution = "",
+    [string]$WslExe = "wsl.exe",
+
     [Parameter(Mandatory = $true)]
     [string]$IdentityCaptureConfig,
 
@@ -48,6 +52,28 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) {
         throw "$Step failed with exit code $LASTEXITCODE"
     }
+}
+
+function Resolve-CommandPath {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($null -eq $command) { return $null }
+    return $command.Source
+}
+
+function Resolve-Executable {
+    param([string]$Value, [Parameter(Mandatory = $true)][string]$Fallback, [Parameter(Mandatory = $true)][string]$Label)
+    if (-not [string]::IsNullOrWhiteSpace($Value)) {
+        if (Test-Path -LiteralPath $Value -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Value).Path
+        }
+        $resolvedValue = Resolve-CommandPath $Value
+        if ($null -ne $resolvedValue) { return $resolvedValue }
+        throw "$Label executable not found: $Value"
+    }
+    $resolved = Resolve-CommandPath $Fallback
+    if ($null -eq $resolved) { throw "$Label executable not found: $Fallback" }
+    return $resolved
 }
 
 function Resolve-InputFile {
@@ -171,8 +197,29 @@ if (($resolvedSources | Select-Object -Unique).Count -ne $resolvedSources.Count)
     throw "BodyRig source list contains duplicate local files."
 }
 
-$ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
-$FourDHumansRepo = Resolve-InputDirectory -Path $FourDHumansRepo -Label "4D-Humans repository"
+$usingWslRecovery = -not [string]::IsNullOrWhiteSpace($RecoveryDistribution)
+if ($usingWslRecovery) {
+    $RecoveryDistribution = $RecoveryDistribution.Trim()
+    foreach ($linuxSetting in @(
+        @{ Label = "External recovery Python"; Value = $ExternalPython },
+        @{ Label = "4D-Humans repository"; Value = $FourDHumansRepo },
+        @{ Label = "PHALP repository"; Value = $PhalpRepo }
+    )) {
+        if ([string]::IsNullOrWhiteSpace([string]$linuxSetting.Value) -or -not ([string]$linuxSetting.Value).StartsWith("/")) {
+            throw "$($linuxSetting.Label) must be an absolute Linux path for WSL recovery."
+        }
+    }
+    $ExternalPython = $ExternalPython.Trim()
+    $FourDHumansRepo = $FourDHumansRepo.TrimEnd("/")
+    $PhalpRepo = $PhalpRepo.TrimEnd("/")
+    $WslExe = Resolve-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+} else {
+    $ExternalPython = Resolve-InputFile -Path $ExternalPython -Label "External recovery Python"
+    $FourDHumansRepo = Resolve-InputDirectory -Path $FourDHumansRepo -Label "4D-Humans repository"
+    if (-not [string]::IsNullOrWhiteSpace($PhalpRepo)) {
+        $PhalpRepo = Resolve-InputDirectory -Path $PhalpRepo -Label "PHALP repository"
+    }
+}
 $IdentityCaptureConfig = Resolve-InputFile -Path $IdentityCaptureConfig -Label "Identity capture config"
 $FitterConfig = Resolve-InputFile -Path $FitterConfig -Label "High-fidelity fitter config"
 
@@ -248,6 +295,9 @@ try {
     if ($usingSourceOverride) {
         Write-Host "Input selection: private observation segments"
     }
+    if ($usingWslRecovery) {
+        Write-Host "Recovery transport: WSL $RecoveryDistribution"
+    }
     Write-Host "Portable artifacts: $OutputDir"
     Write-Host "Private identity workspace: $PrivateWorkspace"
     Write-Host ""
@@ -258,6 +308,12 @@ try {
         "--repo", $FourDHumansRepo,
         "--out", $preflightPath
     )
+    if (-not [string]::IsNullOrWhiteSpace($PhalpRepo)) {
+        $preflightArgs += @("--phalp-repo", $PhalpRepo)
+    }
+    if ($usingWslRecovery) {
+        $preflightArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)
+    }
     if ($AllowCpu) { $preflightArgs += "--allow-cpu" }
     Invoke-Checked -Executable $BodyRigPython -Arguments $preflightArgs -Step "Recovery preflight"
 
@@ -280,6 +336,12 @@ print(source_set_sha256(sys.argv[1:]))
         "--repo", $FourDHumansRepo,
         "--out", $proofPath
     )
+    if (-not [string]::IsNullOrWhiteSpace($PhalpRepo)) {
+        $recoverArgs += @("--phalp-repo", $PhalpRepo)
+    }
+    if ($usingWslRecovery) {
+        $recoverArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)
+    }
     if (-not [string]::IsNullOrWhiteSpace($TrackId)) {
         $recoverArgs += @("--track-id", $TrackId)
     }
