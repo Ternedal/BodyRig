@@ -129,6 +129,23 @@ $preflightArgs = @(
 )
 Invoke-BodyRigChecked -Arguments $preflightArgs -Step "Pinned SiTH/OpenPose authority preflight"
 
+$reconCheckpoint = "$SithInstallRoot/checkpoints/recon_model.pth"
+$smplerxCheckpoint = "$SithInstallRoot/checkpoints/save_smplerx.pth"
+$reconCheckpointRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $SithPython --path $reconCheckpoint --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) { throw "SiTH recon_model checkpoint digest failed." }
+try { $reconCheckpointDigest = $reconCheckpointRaw | ConvertFrom-Json }
+catch { throw "SiTH recon_model checkpoint digest returned unreadable JSON." }
+if ([string]$reconCheckpointDigest.sha256 -notmatch '^[0-9a-f]{64}$' -or [int64]$reconCheckpointDigest.byte_count -lt 1) {
+    throw "SiTH recon_model checkpoint digest is invalid."
+}
+$smplerxCheckpointRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $SithPython --path $smplerxCheckpoint --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) { throw "SiTH save_smplerx checkpoint digest failed." }
+try { $smplerxCheckpointDigest = $smplerxCheckpointRaw | ConvertFrom-Json }
+catch { throw "SiTH save_smplerx checkpoint digest returned unreadable JSON." }
+if ([string]$smplerxCheckpointDigest.sha256 -notmatch '^[0-9a-f]{64}$' -or [int64]$smplerxCheckpointDigest.byte_count -lt 1) {
+    throw "SiTH save_smplerx checkpoint digest is invalid."
+}
+
 $openPoseDigestRaw = & $BodyRigPython -m bodyrig.wsl_file_digest --distribution $Distribution --python $SithPython --path $OpenPoseExecutable --wsl-exe $WslExe
 if ($LASTEXITCODE -ne 0) { throw "OpenPose executable digest failed." }
 try { $openPoseDigest = $openPoseDigestRaw | ConvertFrom-Json }
@@ -168,7 +185,7 @@ New-Item -ItemType Directory -Path $reportParent -Force | Out-Null
 $tempReport = "$ReportPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 $report = [ordered]@{
     format = "bodyrig-sith-setup"
-    version = 3
+    version = 4
     distribution = $Distribution
     sith = [ordered]@{
         repository = $SithInstallRoot
@@ -184,6 +201,18 @@ $report = [ordered]@{
         models_sha256 = ([string]$openPoseModelsDigest.sha256).ToLowerInvariant()
         models_file_count = [int64]$openPoseModelsDigest.file_count
         models_byte_count = [int64]$openPoseModelsDigest.byte_count
+    }
+    checkpoints = [ordered]@{
+        recon_model = [ordered]@{
+            path = $reconCheckpoint
+            sha256 = ([string]$reconCheckpointDigest.sha256).ToLowerInvariant()
+            byte_count = [int64]$reconCheckpointDigest.byte_count
+        }
+        smplerx = [ordered]@{
+            path = $smplerxCheckpoint
+            sha256 = ([string]$smplerxCheckpointDigest.sha256).ToLowerInvariant()
+            byte_count = [int64]$smplerxCheckpointDigest.byte_count
+        }
     }
     diffusion_model = [ordered]@{
         path = $DiffusionModel
@@ -206,6 +235,8 @@ $settings = [ordered]@{
     BODYRIG_SITH_OPENPOSE = $OpenPoseExecutable
     BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()
     BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$openPoseModelsDigest.sha256).ToLowerInvariant()
+    BODYRIG_SITH_RECON_CHECKPOINT_SHA256 = ([string]$reconCheckpointDigest.sha256).ToLowerInvariant()
+    BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256 = ([string]$smplerxCheckpointDigest.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = $DiffusionModel
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$digest.sha256).ToLowerInvariant()
 }
@@ -220,6 +251,8 @@ Write-Host ""
 Write-Host "BodyRig high-fidelity WSL setup: PASS"
 Write-Host "SiTH revision: $SithRevision"
 Write-Host "OpenPose revision: $OpenPoseRevision"
+Write-Host "SiTH recon_model SHA-256: $([string]$reconCheckpointDigest.sha256)"
+Write-Host "SiTH save_smplerx SHA-256: $([string]$smplerxCheckpointDigest.sha256)"
 Write-Host "OpenPose binary SHA-256: $([string]$openPoseDigest.sha256)"
 Write-Host "OpenPose model tree SHA-256: $([string]$openPoseModelsDigest.sha256)"
 Write-Host "Setup report: $ReportPath"
