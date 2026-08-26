@@ -22,8 +22,12 @@ def test_readiness_gate_checks_live_dependencies_without_starting_clone():
     assert "bodyrig.external_fitter_cli" not in text
 
 
-def test_readiness_gate_rechecks_openpose_diffusion_and_stash_capability_and_emits_all_green_evidence():
+def test_readiness_gate_rechecks_checkpoints_openpose_diffusion_and_stash_before_evidence():
     text = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
+    assert "Live SiTH recon_model checkpoint SHA-256 mismatch" in text
+    assert "Live SiTH recon_model checkpoint byte count differs from setup evidence" in text
+    assert "Live SiTH save_smplerx checkpoint SHA-256 mismatch" in text
+    assert "Live SiTH save_smplerx checkpoint byte count differs from setup evidence" in text
     assert "Live OpenPose binary SHA-256 mismatch" in text
     assert "Live OpenPose binary byte count differs from setup evidence" in text
     assert "Live OpenPose model tree SHA-256 mismatch" in text
@@ -31,6 +35,9 @@ def test_readiness_gate_rechecks_openpose_diffusion_and_stash_capability_and_emi
     assert "Live diffusion model SHA-256 mismatch" in text
     assert "Live diffusion model tree counts differ from setup evidence" in text
     assert "Stash health probe did not prove performer-read capability" in text
+    report_start = text.index('$report = [ordered]@{')
+    assert text.index("Live SiTH recon_model checkpoint SHA-256 mismatch") < report_start
+    assert text.index("Live SiTH save_smplerx checkpoint SHA-256 mismatch") < report_start
     assert 'format = "bodyrig-rig-readiness"' in text
     assert "master_setup = $true" in text
     assert "recovery = $true" in text
