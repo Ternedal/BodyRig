@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from .sith_preflight import OPENPOSE_REVISION, SITH_REVISION
 
 FORMAT = "bodyrig-sith-setup"
-VERSION = 3
+VERSION = 4
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -43,10 +43,24 @@ def _sha256(value: Any, *, field: str) -> str:
     return value
 
 
-def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
-    required = {"format", "version", "distribution", "sith", "openpose", "diffusion_model"}
+def _checkpoint(value: Any, *, field: str, expected_path: str) -> dict[str, Any]:
+    required = {"path", "sha256", "byte_count"}
     if not isinstance(value, Mapping) or set(value) != required:
-        raise SithSetupError("SiTH setup report fields must match v3 exactly")
+        raise SithSetupError(f"SiTH setup {field} fields must match v4 exactly")
+    path = _linux_path(value["path"], field=f"{field}.path")
+    if path != expected_path:
+        raise SithSetupError(f"{field}.path must match pinned SiTH checkpoint path")
+    return {
+        "path": path,
+        "sha256": _sha256(value["sha256"], field=f"{field}.sha256"),
+        "byte_count": _positive_int(value["byte_count"], field=f"{field}.byte_count"),
+    }
+
+
+def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
+    required = {"format", "version", "distribution", "sith", "openpose", "checkpoints", "diffusion_model"}
+    if not isinstance(value, Mapping) or set(value) != required:
+        raise SithSetupError("SiTH setup report fields must match v4 exactly")
     if value["format"] != FORMAT or value["version"] != VERSION:
         raise SithSetupError("unsupported SiTH setup report format/version")
 
@@ -54,7 +68,7 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
 
     sith = value["sith"]
     if not isinstance(sith, Mapping) or set(sith) != {"repository", "revision", "python"}:
-        raise SithSetupError("SiTH setup sith fields must match v3 exactly")
+        raise SithSetupError("SiTH setup sith fields must match v4 exactly")
     sith_repo = _linux_path(sith["repository"], field="sith.repository")
     sith_python = _linux_path(sith["python"], field="sith.python")
     if sith["revision"] != SITH_REVISION:
@@ -72,7 +86,7 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "models_byte_count",
     }
     if not isinstance(openpose, Mapping) or set(openpose) != openpose_fields:
-        raise SithSetupError("SiTH setup openpose fields must match v3 exactly")
+        raise SithSetupError("SiTH setup openpose fields must match v4 exactly")
     openpose_repo = _linux_path(openpose["repository"], field="openpose.repository")
     openpose_exe = _linux_path(openpose["executable"], field="openpose.executable")
     if openpose["revision"] != OPENPOSE_REVISION:
@@ -83,9 +97,24 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     openpose_models_file_count = _positive_int(openpose["models_file_count"], field="openpose.models_file_count")
     openpose_models_byte_count = _positive_int(openpose["models_byte_count"], field="openpose.models_byte_count")
 
+    checkpoints = value["checkpoints"]
+    if not isinstance(checkpoints, Mapping) or set(checkpoints) != {"recon_model", "smplerx"}:
+        raise SithSetupError("SiTH setup checkpoints fields must match v4 exactly")
+    checkpoint_root = sith_repo.rstrip("/") + "/checkpoints"
+    recon_model = _checkpoint(
+        checkpoints["recon_model"],
+        field="checkpoints.recon_model",
+        expected_path=checkpoint_root + "/recon_model.pth",
+    )
+    smplerx = _checkpoint(
+        checkpoints["smplerx"],
+        field="checkpoints.smplerx",
+        expected_path=checkpoint_root + "/save_smplerx.pth",
+    )
+
     diffusion = value["diffusion_model"]
     if not isinstance(diffusion, Mapping) or set(diffusion) != {"path", "sha256", "file_count", "byte_count"}:
-        raise SithSetupError("SiTH setup diffusion_model fields must match v3 exactly")
+        raise SithSetupError("SiTH setup diffusion_model fields must match v4 exactly")
     diffusion_path = _linux_path(diffusion["path"], field="diffusion_model.path")
     diffusion_sha256 = _sha256(diffusion["sha256"], field="diffusion_model.sha256")
     file_count = _positive_int(diffusion["file_count"], field="diffusion_model.file_count")
@@ -105,6 +134,10 @@ def validate_setup_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
             "models_sha256": openpose_models_sha256,
             "models_file_count": openpose_models_file_count,
             "models_byte_count": openpose_models_byte_count,
+        },
+        "checkpoints": {
+            "recon_model": recon_model,
+            "smplerx": smplerx,
         },
         "diffusion_model": {
             "path": diffusion_path,
