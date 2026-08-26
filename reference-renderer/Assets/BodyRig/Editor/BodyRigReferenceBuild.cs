@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -109,6 +110,7 @@ namespace BodyRig.ReferenceRenderer.Editor
 
             if (target == BuildTarget.Android)
             {
+                PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
                 PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
                 PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29;
                 PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
