@@ -10,6 +10,10 @@ def _script() -> str:
     return (ROOT / "setup-recovery-windows.ps1").read_text(encoding="utf-8")
 
 
+def _bridge() -> str:
+    return (ROOT / "bodyrig" / "bridges" / "hmr2_4dhumans_bridge.py").read_text(encoding="utf-8")
+
+
 def test_recovery_uses_wsl_cuda_matched_python_environment() -> None:
     text = _script()
 
@@ -38,12 +42,16 @@ def test_wsl_source_builds_are_pinned_and_disable_build_isolation() -> None:
 
 def test_wsl_recovery_omits_unused_phalp_neural_renderer() -> None:
     text = _script()
+    bridge = _bridge()
 
-    assert 'render.enable=false' in text
-    assert 'neural-renderer-pytorch' in text  # rationale comment only
+    # The reason PHALP can be installed with --no-deps is a runtime invariant,
+    # not an installer-comment invariant: BodyRig always disables rendering in
+    # the pinned 4D-Humans/PHALP execution bridge.
+    assert '"render.enable=false"' in bridge
     runtime_start = text.index('Install BodyRig PHALP runtime dependencies in WSL')
     runtime_section = text[max(0, runtime_start - 1800): runtime_start + 800]
     assert 'neural-renderer-pytorch @' not in runtime_section
+    assert '"--no-build-isolation", "--no-deps", "-e", $phalpPath' in text
 
 
 def test_wsl_recovery_publishes_linux_authority_and_wsl_preflight() -> None:
