@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -21,6 +22,8 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     ADAPTER_NAME,
     ADAPTER_REVISION,
     FOUR_D_HUMANS_REVISION,
+    NMR_REMOTE,
+    NMR_REVISION,
     PHALP_REVISION,
     PHALP_TRACKER_BLOB_SHA1,
 )
@@ -46,6 +49,13 @@ def _source_blob_matches(path: Path, expected: str) -> bool:
 
 def _same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
+
+
+def _normalize_git_url(value: str) -> str:
+    normalized = value.strip().lower().rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    return normalized
 
 
 def _find_external_phalp_spec():
@@ -76,6 +86,30 @@ def _find_external_phalp_spec():
         return importlib.util.find_spec("phalp")
     finally:
         sys.path[:] = original
+
+
+def _verify_nmr_install() -> None:
+    """Require the exact pinned neural-renderer source at point of use."""
+
+    try:
+        __import__("neural_renderer")
+    except ImportError as exc:
+        raise RuntimeError("neural_renderer is not installed in the external recovery environment") from exc
+
+    try:
+        distribution = importlib.metadata.distribution("neural-renderer-pytorch")
+        direct_raw = distribution.read_text("direct_url.json")
+        direct = json.loads(direct_raw) if direct_raw else {}
+    except (importlib.metadata.PackageNotFoundError, json.JSONDecodeError) as exc:
+        raise RuntimeError("could not verify neural-renderer installation authority") from exc
+
+    url = direct.get("url")
+    vcs_info = direct.get("vcs_info")
+    commit = vcs_info.get("commit_id") if isinstance(vcs_info, dict) else None
+    if not isinstance(url, str) or _normalize_git_url(url) != _normalize_git_url(NMR_REMOTE):
+        raise RuntimeError(f"neural-renderer source must be {NMR_REMOTE}; got {url!r}")
+    if commit != NMR_REVISION:
+        raise RuntimeError(f"neural-renderer must be pinned to {NMR_REVISION}; got {commit!r}")
 
 
 def _sha256_file(path: Path) -> str:
@@ -304,6 +338,7 @@ def main() -> int:
         phalp_repo = Path(args.phalp_repo).expanduser().resolve()
         _verify_repo(repo)
         _verify_phalp_install(phalp_repo)
+        _verify_nmr_install()
         _ensure_phalp_smpl_cache(repo)
         sources = _read_request()
         tracks: list[dict] = []
