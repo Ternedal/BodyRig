@@ -120,6 +120,7 @@ if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; physical reference r
 
 $UnityExe = Resolve-UnityEditor -Requested $UnityExe -ExpectedVersion $expectedUnityVersion
 $method = if ($Platform -eq "Windows") { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildWindowsBatch" } else { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildQuestBatch" }
+$unityBuildTarget = if ($Platform -eq "Windows") { "StandaloneWindows64" } else { "Android" }
 if ([string]::IsNullOrWhiteSpace($Output)) {
     $Output = if ($Platform -eq "Windows") {
         Join-Path $projectRoot "Builds\Windows\BodyRigReferenceProbe.exe"
@@ -141,13 +142,14 @@ Write-Host "UniVRM:    $expectedUniVrmVersion | $expectedUniVrmRevision"
 Write-Host "Source:    $projectRoot"
 Write-Host "Revision:  $bodyRigRevision"
 Write-Host "Platform:  $Platform"
+Write-Host "Unity target: $unityBuildTarget"
 Write-Host "Output:    $Output"
 Write-Host "Build workspace: ephemeral"
 
 try {
     Copy-ReferenceProject -Source $projectRoot -Destination $tempProject
 
-    & $UnityExe -batchmode -quit -projectPath $tempProject -executeMethod $method -bodyrigOutput $Output -bodyrigRevision $bodyRigRevision -bodyrigUnityVersion $expectedUnityVersion -logFile -
+    & $UnityExe -batchmode -quit -buildTarget $unityBuildTarget -projectPath $tempProject -executeMethod $method -bodyrigOutput $Output -bodyrigRevision $bodyRigRevision -bodyrigUnityVersion $expectedUnityVersion -logFile -
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) { throw "Unity BodyRig reference renderer build failed with exit code $exitCode" }
     if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
