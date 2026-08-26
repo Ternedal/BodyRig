@@ -22,6 +22,15 @@ def test_readiness_gate_checks_live_dependencies_without_starting_clone():
     assert "bodyrig.external_fitter_cli" not in text
 
 
+def test_readiness_gate_keeps_recovery_preflight_in_pinned_wsl_transport():
+    text = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
+    recovery_start = text.index('$recoveryArgs = @(')
+    recovery_end = text.index('Invoke-Checked -Arguments $recoveryArgs', recovery_start)
+    recovery_block = text[recovery_start:recovery_end]
+    assert '"--distribution", [string]$sith.distribution' in recovery_block
+    assert '"--wsl-exe", $WslExe' in recovery_block
+
+
 def test_readiness_gate_rechecks_checkpoints_openpose_diffusion_and_stash_before_evidence():
     text = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
     assert "Live SiTH recon_model checkpoint SHA-256 mismatch" in text
