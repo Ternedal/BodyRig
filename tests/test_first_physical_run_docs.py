@@ -25,6 +25,20 @@ def test_first_physical_run_documents_stash_discovery_and_canonical_clone() -> N
         assert marker in text
 
 
+def test_first_physical_run_requires_sith_v4_before_source_or_session_work() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+
+    assert "`bodyrig-sith-setup` v4" in text
+    assert "v1/v2/v3 SiTH setup evidence is not valid authority" in text
+    assert "rerun `setup-rig-windows.ps1`" in text
+    assert "checkpoints/recon_model.pth" in text
+    assert "checkpoints/save_smplerx.pth" in text
+    assert "point-of-use" in text
+    assert "before** it spends time on Unity/Quest toolchain" in text
+    assert "Do not edit or re-hash an old report by hand" in text
+    assert text.index("Require current rig / SiTH setup authority") < text.index("Configure local Stash transport")
+
+
 def test_first_physical_run_requires_fresh_stash_token_health_before_clone() -> None:
     text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
     assert '$env:STASH_API_KEY = "<fresh local Stash API key>"' in text
