@@ -115,7 +115,12 @@ function Invoke-Checked {
 function Convert-WindowsPathToWsl {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (-not $usingWslRecovery) { throw "WSL path conversion requested without WSL recovery transport." }
-    $raw = @(& $WslExe -d $RecoveryDistribution -- wslpath -a $Path)
+
+    # wsl.exe can consume single backslashes while forwarding direct Linux argv.
+    # Match setup-recovery-windows.ps1: escape once so wslpath sees C:\Users\...
+    # intact instead of C:Users... .
+    $escapedPath = $Path.Replace('\', '\\')
+    $raw = @(& $WslExe -d $RecoveryDistribution -- wslpath -a -u $escapedPath)
     if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$raw[0])) {
         throw "Could not translate BodyRig bridge path into WSL: $Path"
     }
