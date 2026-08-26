@@ -129,7 +129,7 @@ A successful run ends with:
 BodyRig pre-session doctor: READY
 ```
 
-and prints the exact canonical `clone-body-from-stash-ready.ps1` command for the selected performer/alias.
+and prints the canonical `clone-body-from-stash-ready.ps1` command for the selected performer/alias. That emitted command carries forward the exact rig-setup report, checkout-bound BodyRig Python, resolved Stash URL, API-key environment-variable name, resolved WSL executable and resolved FFmpeg executable that the doctor just proved. Use that emitted command verbatim rather than reconstructing a shorter equivalent by hand.
 
 If the doctor fails, fix that prerequisite and rerun it. This keeps setup/auth/environment/source-decode/source-selection failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness/source evidence; the doctor is not a substitute for those gates.
 
@@ -143,15 +143,21 @@ In that mode it proves the general rig/Stash capability is ready and points you 
 
 ## 6. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one FFmpeg-decodable local video, and the PowerShell-7 pre-session doctor is READY, run the exact command printed by the doctor. It is equivalent to:
+After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one FFmpeg-decodable local video, and the PowerShell-7 pre-session doctor is READY, run the **exact command printed by the doctor**. Its shape is:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
   -PerformerId "123" `
-  -BodyId "performer-123"
+  -BodyId "performer-123" `
+  -RigSetupReport "<doctor-proven rig setup report>" `
+  -BodyRigPython "<doctor-proven checkout Python>" `
+  -StashUrl "<doctor-proven Stash URL>" `
+  -ApiKeyEnv "STASH_API_KEY" `
+  -WslExe "<doctor-proven WSL executable>" `
+  -Ffmpeg "<doctor-proven FFmpeg executable>"
 ```
 
-The normal production Stash selection uses the **same resolved FFmpeg executable** for source decode qualification and observation selection. `stash_cli select` applies the one-frame decode gate by default. `--skip-decode-probe` exists only behind the explicit diagnostics path associated with skipping observation selection; it is not part of the canonical production run.
+The normal production Stash selection uses the **same resolved FFmpeg executable** for source decode qualification and observation selection. The same WSL executable used by pre-session/readiness is also propagated into the actual SiTH clone path. `stash_cli select` applies the one-frame decode gate by default. `--skip-decode-probe` exists only behind the explicit diagnostics path associated with skipping observation selection; it is not part of the canonical production run.
 
 The ready launcher performs, in order:
 
@@ -164,7 +170,10 @@ The ready launcher performs, in order:
 7. recovery + visual identity + source-byte TOCTOU check;
 8. create-only portable identity receipt and derived canonical `bodyid-*`;
 9. built-in `sith-smplx-vrm` high-fidelity fitting/package generation;
-10. a second exact Git HEAD + clean-checkout check before session PASS.
+10. exact Git HEAD + clean-checkout + rig-setup SHA-256 revalidation before session PASS publication;
+11. a second exact Git HEAD + clean-checkout + rig-setup SHA-256 revalidation **after** session PASS publication and before the launcher may return success.
+
+If authority drifts in the post-PASS publication window, the launcher removes the just-published `SessionReport` fail-closed. Clone/readiness output can remain for diagnostics, but no terminal production PASS is left for Gate A to consume.
 
 By default clone artifacts are written outside the repository under:
 
@@ -237,11 +246,14 @@ The first run is useful physical evidence only if all of the following are true:
 - the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
 - the exact selected performer passed the metadata-only source probe with at least one local video that passed `ffmpeg-one-frame-v1` before session creation;
 - the pre-session doctor repeated the same decode-qualified source gate without creating physical evidence;
+- the doctor-emitted production command preserved the same rig-setup, checkout-Python, Stash transport, WSL and FFmpeg authorities into the actual clone;
 - real local Stash performer/video sources were used;
 - normal production source selection reused the same resolved FFmpeg authority and did not skip the decode gate;
+- the same WSL authority survived readiness and the actual built-in SiTH execution path;
 - source-byte TOCTOU binding held through clone;
 - the create-only portable identity receipt is present and canonical;
 - the `.mrbody` manifest uses the derived `bodyid-*`;
+- terminal physical-session PASS survived both pre-publication and post-publication HEAD/clean/rig-setup authority revalidation;
 - Gate A accepts the exact clone bytes without refit/substitution;
 - source identity/texture/geometry are physically acceptable;
 - skin/deformation review shows no unacceptable cross-limb leakage;
