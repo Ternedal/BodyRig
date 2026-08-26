@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
+import bodyrig.wsl_adapter_bridge as bridge
 from bodyrig.wsl_adapter_bridge import (
     WslBridgeError,
     build_wsl_invocation,
     expand_subst_path,
+    make_wsl_path_converter,
     translate_bodyrig_paths,
     validate_linux_command,
 )
@@ -101,6 +105,30 @@ def test_expand_subst_path_leaves_physical_drive_mapping_unchanged():
         return r"\Device\HarddiskVolume9"
 
     assert expand_subst_path(r"E:\VR\clip.mp4", query=fake_query) == r"E:\VR\clip.mp4"
+
+
+def test_make_wsl_path_converter_escapes_backslashes_before_wslpath(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout="/mnt/c/temp/request.json\n", stderr="")
+
+    monkeypatch.setattr(bridge, "expand_subst_path", lambda path: path)
+    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+    converter = make_wsl_path_converter("wsl.exe", "Ubuntu-22.04")
+
+    assert converter(r"C:\temp\request.json") == "/mnt/c/temp/request.json"
+    assert calls == [[
+        "wsl.exe",
+        "-d",
+        "Ubuntu-22.04",
+        "--",
+        "wslpath",
+        "-a",
+        "-u",
+        r"C:\\temp\\request.json",
+    ]]
 
 
 def test_build_wsl_invocation_never_inserts_shell():
