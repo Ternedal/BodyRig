@@ -20,6 +20,14 @@ PowerShell major version must be `7` or newer, and `Get-Command pwsh` must resol
 
 The BodyRig Python used by the ready launcher must import `bodyrig` from this exact checkout. The launcher verifies that automatically before creating session evidence.
 
+### Require current rig / SiTH setup authority
+
+Before source discovery or any physical session, the active master rig setup must contain a strict **`bodyrig-sith-setup` v4** high-fidelity report. Existing v1/v2/v3 SiTH setup evidence is not valid authority for a new canonical physical run; rerun `setup-rig-windows.ps1` to regenerate the master report and its nested SiTH setup evidence before continuing.
+
+Version 4 binds the exact provisioned `checkpoints/recon_model.pth` and `checkpoints/save_smplerx.pth` bytes by SHA-256 + byte count. Those checkpoint bytes are revalidated during live readiness and again at fitter **point-of-use** immediately before private staging/reconstruction. Do not edit or re-hash an old report by hand to migrate it.
+
+The pre-session doctor validates the master rig report and its nested SiTH v4 report **before** it spends time on Unity/Quest toolchain or live readiness checks. A stale setup therefore fails early and creates no physical evidence.
+
 ## 1. Configure local Stash transport with the fresh test token
 
 For the first physical acceptance run, create/use a **fresh local Stash API token** for BodyRig and put it only in the current PowerShell process environment. Do not paste the token into GitHub, chat, command arguments or evidence files.
@@ -121,7 +129,7 @@ Before the production launcher creates a `bodyrig-physical-clone-session`, run t
   -BodyId "performer-123"
 ```
 
-The doctor verifies PowerShell 7+, exact clean checkout, checkout-bound BodyRig Python, existing master rig setup and live recovery/SiTH/OpenPose/model/Stash readiness. When the performer/body pair is supplied, it resolves the local FFmpeg executable and repeats the selected-performer probe, requiring at least one local source that passes `ffmpeg-one-frame-v1`. It also verifies that the probe explicitly reports that canonical decode gate. It deliberately calls `check-rig-ready.ps1` **without** `-Out` and the performer probe without a source-manifest output, so it does not create authoritative readiness evidence, source manifests, physical clone session state, clone output or acceptance evidence.
+The doctor verifies PowerShell 7+, exact clean checkout, checkout-bound BodyRig Python and the existing master rig setup. It first validates the master report and nested `bodyrig-sith-setup` v4 evidence, including the byte-bound checkpoint authority, before running Unity/Quest or live readiness checks. It then runs live recovery/SiTH/OpenPose/checkpoint/model/Stash readiness. When the performer/body pair is supplied, it resolves the local FFmpeg executable and repeats the selected-performer probe, requiring at least one local source that passes `ffmpeg-one-frame-v1`. It also verifies that the probe explicitly reports that canonical decode gate. It deliberately calls `check-rig-ready.ps1` **without** `-Out` and the performer probe without a source-manifest output, so it does not create authoritative readiness evidence, source manifests, physical clone session state, clone output or acceptance evidence.
 
 A successful run ends with:
 
@@ -131,7 +139,7 @@ BodyRig pre-session doctor: READY
 
 and prints the canonical `clone-body-from-stash-ready.ps1` command for the selected performer/alias. That emitted command carries forward the exact rig-setup report, checkout-bound BodyRig Python, resolved Stash URL, API-key environment-variable name, resolved WSL executable and resolved FFmpeg executable that the doctor just proved. Use that emitted command verbatim rather than reconstructing a shorter equivalent by hand.
 
-If the doctor fails, fix that prerequisite and rerun it. This keeps setup/auth/environment/source-decode/source-selection failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness/source evidence; the doctor is not a substitute for those gates.
+If the doctor fails, fix that prerequisite and rerun it. If it reports stale v1/v2/v3 SiTH setup evidence, rerun `setup-rig-windows.ps1`; do not patch the JSON evidence manually. This keeps setup/auth/environment/source-decode/source-selection failures out of the create-only physical session history. The production launcher repeats the trust checks and creates fresh session-bound readiness/source evidence; the doctor is not a substitute for those gates.
 
 You can also run the doctor before choosing a performer:
 
@@ -143,7 +151,7 @@ In that mode it proves the general rig/Stash capability is ready and points you 
 
 ## 6. Run the production clone
 
-After `setup-rig-windows.ps1` has produced a valid rig setup report, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one FFmpeg-decodable local video, and the PowerShell-7 pre-session doctor is READY, run the **exact command printed by the doctor**. Its shape is:
+After `setup-rig-windows.ps1` has produced a valid master rig setup with nested `bodyrig-sith-setup` v4 evidence, the fresh-token `health` gate has passed with `performer_read=true`, the selected performer probe has at least one FFmpeg-decodable local video, and the PowerShell-7 pre-session doctor is READY, run the **exact command printed by the doctor**. Its shape is:
 
 ```powershell
 .\clone-body-from-stash-ready.ps1 `
@@ -163,13 +171,13 @@ The ready launcher performs, in order:
 
 1. exact Git HEAD + clean-checkout authority;
 2. checkout-bound BodyRig Python authority;
-3. rig-setup / SiTH-setup validation;
-4. fresh recovery + SiTH/OpenPose/model + Stash readiness, including performer-read capability;
+3. rig-setup / strict SiTH-setup v4 validation, including checkpoint-bound setup evidence;
+4. fresh recovery + SiTH/OpenPose/checkpoint/model + Stash readiness, including performer-read capability and live checkpoint re-hash;
 5. SHA-256 binding of the readiness report into the physical session;
 6. local Stash source ranking + one-frame FFmpeg decode qualification + private observation-segment path;
 7. recovery + visual identity + source-byte TOCTOU check;
 8. create-only portable identity receipt and derived canonical `bodyid-*`;
-9. built-in `sith-smplx-vrm` high-fidelity fitting/package generation;
+9. built-in `sith-smplx-vrm` high-fidelity fitting/package generation, with checkpoint point-of-use re-hash before private staging/reconstruction;
 10. exact Git HEAD + clean-checkout + rig-setup SHA-256 revalidation before session PASS publication;
 11. a second exact Git HEAD + clean-checkout + rig-setup SHA-256 revalidation **after** session PASS publication and before the launcher may return success.
 
@@ -243,6 +251,8 @@ The same canonical body id, accepted package bytes and runtime identity must sur
 The first run is useful physical evidence only if all of the following are true:
 
 - PowerShell 7+ (`pwsh`) was used for the canonical pre-session path;
+- the master rig setup contained strict `bodyrig-sith-setup` v4 evidence rather than stale v1/v2/v3 evidence;
+- `recon_model.pth` and `save_smplerx.pth` remained byte-bound through setup, live readiness and fitter point-of-use revalidation;
 - the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true` before source discovery/clone;
 - the exact selected performer passed the metadata-only source probe with at least one local video that passed `ffmpeg-one-frame-v1` before session creation;
 - the pre-session doctor repeated the same decode-qualified source gate without creating physical evidence;
