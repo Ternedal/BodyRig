@@ -19,6 +19,15 @@ def test_full_rig_bootstrap_runs_both_provisioners_and_validates_master_report()
     assert "BODYRIG_RIG_SETUP_REPORT" in text
 
 
+def test_full_rig_bootstrap_propagates_wsl_authority_to_both_provisioners():
+    text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
+
+    recovery_args = '$recoveryArgs = @("-Root", $RecoveryRoot, "-Distribution", $Distribution, "-WslExe", $WslExe)'
+    high_args = '$highArgs = @("-Distribution", $Distribution, "-ReportPath", $SithSetupReport, "-BodyRigPython", $BodyRigPython, "-WslExe", $WslExe)'
+    assert recovery_args in text
+    assert high_args in text
+
+
 def test_full_rig_bootstrap_rehydrates_sith_environment_in_parent_process():
     text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
     assert "Set-BodyRigEnvironment" in text
