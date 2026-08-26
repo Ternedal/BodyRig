@@ -3,6 +3,8 @@ from pathlib import Path
 from bodyrig import preflight_cli
 from bodyrig.bridges.hmr2_config import (
     FOUR_D_HUMANS_REVISION,
+    NMR_REMOTE,
+    NMR_REVISION,
     PHALP_REVISION,
     PHALP_TRACKER_BLOB_SHA1,
 )
@@ -13,6 +15,8 @@ def test_preflight_pins_concrete_upstream_identities():
     assert len(FOUR_D_HUMANS_REVISION) == 40
     assert len(PHALP_REVISION) == 40
     assert len(PHALP_TRACKER_BLOB_SHA1) == 40
+    assert len(NMR_REVISION) == 40
+    assert NMR_REMOTE == "https://github.com/shubham-goel/NMR.git"
     assert SMPL_FILENAME.endswith(".pkl")
 
 
@@ -38,11 +42,15 @@ def _valid_probe(phalp: Path) -> dict:
         "import_joblib": True,
         "import_hmr2": True,
         "import_phalp": True,
+        "import_neural_renderer": True,
         "cuda_available": False,
         "cuda_device": None,
         "phalp_root": str((phalp / "phalp").resolve()),
         "phalp_tracker_match": True,
         "phalp_tracker_hashes": [PHALP_TRACKER_BLOB_SHA1],
+        "nmr_authority_match": True,
+        "nmr_url": NMR_REMOTE,
+        "nmr_commit": NMR_REVISION,
     }
 
 
