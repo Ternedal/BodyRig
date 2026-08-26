@@ -18,6 +18,8 @@ from .bridges.hmr2_config import (
 from .recovery_authority import RecoveryAuthorityError, resolve_phalp_repo
 
 SMPL_FILENAME = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
+WSL_CUDA_DRIVER_LIB = "/usr/lib/wsl/lib"
+WSL_CUDA_TOOLKIT_LIB = "/usr/local/cuda-11.7/lib64"
 
 
 def _run(command: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -55,7 +57,7 @@ def _normalize_git_url(value: str) -> str:
 
 def _probe_script() -> str:
     return f'''\
-import hashlib, importlib.metadata, importlib.util, json, pathlib, sys
+import ctypes, hashlib, importlib.metadata, importlib.util, json, pathlib, sys
 EXPECTED = {PHALP_TRACKER_BLOB_SHA1!r}
 NMR_EXPECTED = {NMR_REVISION!r}
 NMR_REMOTE_EXPECTED = {NMR_REMOTE!r}
@@ -76,11 +78,20 @@ try:
     import torch
     result["torch_version"] = str(torch.__version__)
     result["torch_cuda_version"] = str(torch.version.cuda)
+    result["torch_lib"] = str(pathlib.Path(torch.__file__).resolve().parent / "lib")
     result["cuda_available"] = bool(torch.cuda.is_available())
     result["cuda_device"] = torch.cuda.get_device_name(0) if result["cuda_available"] else None
-except Exception:
+except Exception as exc:
     result["cuda_available"] = False
     result["cuda_device"] = None
+    result["error_torch_runtime"] = type(exc).__name__ + ": " + str(exc)
+for library, key in (("libcuda.so", "load_libcuda"), ("libcudnn_cnn_infer.so.8", "load_libcudnn_cnn_infer")):
+    try:
+        ctypes.CDLL(library)
+        result[key] = True
+    except Exception as exc:
+        result[key] = False
+        result["error_" + key] = type(exc).__name__ + ": " + str(exc)
 try:
     dist = importlib.metadata.distribution("neural-renderer-pytorch")
     result["nmr_version"] = str(dist.version)
@@ -158,18 +169,35 @@ def _wsl_repo_clean(*, wsl_exe: str, distribution: str, repo: str, label: str) -
     return not completed.stdout.strip()
 
 
-def _external_probe_wsl(*, wsl_exe: str, distribution: str, python: str) -> dict:
+def _wsl_torch_lib(*, wsl_exe: str, distribution: str, python: str) -> str:
     completed = _run_wsl(
         wsl_exe=wsl_exe,
         distribution=distribution,
-        command=[python, "-c", _probe_script()],
+        command=[python, "-c", "import pathlib,torch; print((pathlib.Path(torch.__file__).resolve().parent / 'lib').as_posix())"],
+    )
+    torch_lib = completed.stdout.strip()
+    if completed.returncode != 0 or not torch_lib.startswith("/"):
+        raise RuntimeError(f"could not determine external WSL torch library path: {completed.stderr.strip()[-2000:]}")
+    return torch_lib
+
+
+def _external_probe_wsl(*, wsl_exe: str, distribution: str, python: str) -> dict:
+    torch_lib = _wsl_torch_lib(wsl_exe=wsl_exe, distribution=distribution, python=python)
+    loader_path = ":".join((WSL_CUDA_DRIVER_LIB, torch_lib, WSL_CUDA_TOOLKIT_LIB))
+    completed = _run_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        command=["/usr/bin/env", f"LD_LIBRARY_PATH={loader_path}", python, "-c", _probe_script()],
     )
     if completed.returncode != 0:
         raise RuntimeError(f"external WSL Python probe failed: {completed.stderr.strip()[-2000:]}")
     try:
-        return json.loads(completed.stdout)
+        probe = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError("external WSL Python probe returned invalid JSON") from exc
+    probe["loader_ld_library_path"] = loader_path
+    probe["torch_lib"] = torch_lib
+    return probe
 
 
 def _validate_probe(probe: dict, errors: list[str], *, phalp_repo: str | Path, linux: bool, allow_cpu: bool) -> None:
@@ -194,6 +222,14 @@ def _validate_probe(probe: dict, errors: list[str], *, phalp_repo: str | Path, l
         )
     if not allow_cpu and probe.get("cuda_available") is not True:
         errors.append("CUDA is not available in the external recovery Python")
+    if linux and not allow_cpu:
+        if probe.get("load_libcuda") is not True:
+            errors.append(f"WSL CUDA loader cannot open libcuda.so: {probe.get('error_load_libcuda', 'unknown error')}")
+        if probe.get("load_libcudnn_cnn_infer") is not True:
+            errors.append(
+                "WSL CUDA loader cannot open libcudnn_cnn_infer.so.8: "
+                f"{probe.get('error_load_libcudnn_cnn_infer', 'unknown error')}"
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
