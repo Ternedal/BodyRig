@@ -8,6 +8,8 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
         "git -C $repoRoot rev-parse HEAD",
         "git -C $repoRoot status --porcelain",
         "bodyrig.__file__",
+        "-m bodyrig.rig_setup $RigSetupReport",
+        "bodyrig-sith-setup v4",
         "check-reference-renderer-ready.ps1",
         "check-rig-ready.ps1",
         "-RigSetupReport",
@@ -24,6 +26,18 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
     assert "bodyrig.physical_session" not in script
     assert "accept-physical-clone.ps1" not in script
     assert "& $powerShellExe @cloneArgs" not in script
+
+
+def test_first_physical_run_doctor_rejects_stale_rig_setup_before_renderer_or_live_readiness() -> None:
+    script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    rig_validation = script.index("-m bodyrig.rig_setup $RigSetupReport")
+    renderer_check = script.index("Checking Unity/Quest reference-renderer toolchain")
+    live_readiness = script.index("Running live non-session recovery/SiTH/Stash readiness checks")
+
+    assert rig_validation < renderer_check < live_readiness
+    assert "Canonical physical runs require nested bodyrig-sith-setup v4 authority" in script
+    assert "rerun setup-rig-windows.ps1 to regenerate stale v1/v2/v3 setup evidence" in script
 
 
 def test_first_physical_run_doctor_refuses_dirty_or_drifting_checkout() -> None:
