@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .bridges.hmr2_config import (
     FOUR_D_HUMANS_REVISION,
+    NMR_REMOTE,
+    NMR_REVISION,
     PHALP_REVISION,
     PHALP_TRACKER_BLOB_SHA1,
 )
@@ -44,14 +46,26 @@ def _same_linux_path(left: str, right: str) -> bool:
     return posixpath.normpath(left) == posixpath.normpath(right)
 
 
+def _normalize_git_url(value: str) -> str:
+    normalized = value.strip().lower().rstrip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    return normalized
+
+
 def _probe_script() -> str:
     return f'''\
-import hashlib, importlib.util, json, pathlib, sys
+import hashlib, importlib.metadata, importlib.util, json, pathlib, sys
 EXPECTED = {PHALP_TRACKER_BLOB_SHA1!r}
+NMR_EXPECTED = {NMR_REVISION!r}
+NMR_REMOTE_EXPECTED = {NMR_REMOTE!r}
 def blob(data):
     return hashlib.sha1(("blob %d\\0" % len(data)).encode("ascii") + data).hexdigest()
+def normalize_url(value):
+    value = (value or "").strip().lower().rstrip("/")
+    return value[:-4] if value.endswith(".git") else value
 result = {{"python": sys.version.split()[0]}}
-for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
+for name in ("torch", "cv2", "joblib", "hmr2", "phalp", "neural_renderer"):
     try:
         __import__(name)
         result["import_" + name] = True
@@ -67,6 +81,21 @@ try:
 except Exception:
     result["cuda_available"] = False
     result["cuda_device"] = None
+try:
+    dist = importlib.metadata.distribution("neural-renderer-pytorch")
+    result["nmr_version"] = str(dist.version)
+    direct_raw = dist.read_text("direct_url.json")
+    direct = json.loads(direct_raw) if direct_raw else {{}}
+    result["nmr_url"] = direct.get("url")
+    vcs_info = direct.get("vcs_info") or {{}}
+    result["nmr_commit"] = vcs_info.get("commit_id")
+    result["nmr_authority_match"] = (
+        result["nmr_commit"] == NMR_EXPECTED
+        and normalize_url(result["nmr_url"]) == normalize_url(NMR_REMOTE_EXPECTED)
+    )
+except Exception as exc:
+    result["nmr_authority_match"] = False
+    result["error_nmr_authority"] = type(exc).__name__ + ": " + str(exc)
 spec = importlib.util.find_spec("phalp")
 if spec is not None and spec.submodule_search_locations:
     root = pathlib.Path(next(iter(spec.submodule_search_locations))).resolve()
@@ -144,7 +173,7 @@ def _external_probe_wsl(*, wsl_exe: str, distribution: str, python: str) -> dict
 
 
 def _validate_probe(probe: dict, errors: list[str], *, phalp_repo: str | Path, linux: bool, allow_cpu: bool) -> None:
-    for name in ("torch", "cv2", "joblib", "hmr2", "phalp"):
+    for name in ("torch", "cv2", "joblib", "hmr2", "phalp", "neural_renderer"):
         if probe.get("import_" + name) is not True:
             errors.append(f"external import failed: {name}: {probe.get('error_' + name, 'unknown error')}")
     imported_root = probe.get("phalp_root")
@@ -158,6 +187,11 @@ def _validate_probe(probe: dict, errors: list[str], *, phalp_repo: str | Path, l
         errors.append(f"external PHALP import is not sourced from the pinned checkout: {imported_root}")
     if probe.get("phalp_tracker_match") is not True:
         errors.append("installed PHALP tracker source does not match pinned BodyRig blob")
+    if probe.get("nmr_authority_match") is not True:
+        errors.append(
+            "installed neural-renderer does not match pinned BodyRig NMR authority: "
+            f"{probe.get('nmr_url')!r}@{probe.get('nmr_commit')!r}"
+        )
     if not allow_cpu and probe.get("cuda_available") is not True:
         errors.append("CUDA is not available in the external recovery Python")
 
@@ -184,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         "four_d_humans_expected": FOUR_D_HUMANS_REVISION,
         "phalp_expected": PHALP_REVISION,
         "phalp_tracker_expected_blob": PHALP_TRACKER_BLOB_SHA1,
+        "nmr_expected": NMR_REVISION,
+        "nmr_remote_expected": NMR_REMOTE,
     }
 
     distribution = args.distribution.strip()
