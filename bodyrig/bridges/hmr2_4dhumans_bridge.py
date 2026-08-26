@@ -43,6 +43,36 @@ def _same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left.resolve())) == os.path.normcase(str(right.resolve()))
 
 
+def _find_external_phalp_spec():
+    """Find the installed PHALP package without the bridge-local phalp.py shadow.
+
+    When this file is executed directly, Python adds ``bodyrig/bridges`` to
+    ``sys.path``. That directory also contains BodyRig's conversion helper
+    ``phalp.py``. A plain ``find_spec('phalp')`` can therefore resolve the
+    helper module instead of the external PHALP package that preflight already
+    validated. Temporarily exclude only this bridge directory while preserving
+    the normal import machinery (including editable-install finders).
+    """
+
+    bridge_dir = Path(__file__).resolve().parent
+    original = list(sys.path)
+    filtered: list[str] = []
+    for entry in original:
+        try:
+            candidate = Path(entry or os.getcwd()).resolve()
+        except (OSError, RuntimeError):
+            filtered.append(entry)
+            continue
+        if candidate == bridge_dir:
+            continue
+        filtered.append(entry)
+    try:
+        sys.path[:] = filtered
+        return importlib.util.find_spec("phalp")
+    finally:
+        sys.path[:] = original
+
+
 def _read_request() -> list[Path]:
     try:
         payload = json.load(sys.stdin)
@@ -127,7 +157,7 @@ def _verify_phalp_install(expected_repo: Path) -> None:
     if not _git_tracked_clean(expected_repo, "PHALP"):
         raise RuntimeError("PHALP checkout has modified tracked files; recovery is refused")
 
-    spec = importlib.util.find_spec("phalp")
+    spec = _find_external_phalp_spec()
     if spec is None or not spec.submodule_search_locations:
         raise RuntimeError("PHALP is not installed in the external recovery environment")
     package_root = Path(next(iter(spec.submodule_search_locations))).resolve()
