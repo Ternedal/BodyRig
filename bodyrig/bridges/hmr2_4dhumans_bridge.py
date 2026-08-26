@@ -32,6 +32,8 @@ from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
 SMPL_FILENAME = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 PHALP_SMPL_FILENAME = "SMPL_NEUTRAL.pkl"
 PHALP_SMPL_SOURCE_HASH_FILENAME = ".bodyrig-source-sha256"
+WSL_CUDA_DRIVER_LIB = Path("/usr/lib/wsl/lib")
+CUDA_TOOLKIT_LIB = Path("/usr/local/cuda-11.7/lib64")
 
 
 def _git_blob_sha1_bytes(data: bytes) -> str:
@@ -110,6 +112,68 @@ def _verify_nmr_install() -> None:
         raise RuntimeError(f"neural-renderer source must be {NMR_REMOTE}; got {url!r}")
     if commit != NMR_REVISION:
         raise RuntimeError(f"neural-renderer must be pinned to {NMR_REVISION}; got {commit!r}")
+
+
+def _torch_lib_dir() -> Path:
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError("torch is required in the 4D-Humans environment") from exc
+    torch_file = getattr(torch, "__file__", None)
+    if not isinstance(torch_file, str) or not torch_file:
+        raise RuntimeError("could not determine the installed torch package root")
+    torch_lib = Path(torch_file).resolve().parent / "lib"
+    if not torch_lib.is_dir():
+        raise RuntimeError(f"torch library directory is missing: {torch_lib}")
+    return torch_lib
+
+
+def _recovery_loader_env() -> dict[str, str]:
+    """Build the exact loader environment physically required by WSL HMR2.
+
+    WSL exposes the Windows NVIDIA driver stub in /usr/lib/wsl/lib, while the
+    PyTorch cu117 wheel carries cuDNN under torch/lib. The pinned tracker starts
+    a fresh Python process, so bind those locations explicitly instead of
+    depending on an operator shell's LD_LIBRARY_PATH.
+    """
+
+    torch_lib = _torch_lib_dir()
+    required = [WSL_CUDA_DRIVER_LIB, torch_lib, CUDA_TOOLKIT_LIB]
+    for directory in required:
+        if not directory.is_dir():
+            raise RuntimeError(f"required recovery library directory is missing: {directory}")
+    if not (WSL_CUDA_DRIVER_LIB / "libcuda.so").is_file():
+        raise RuntimeError("WSL CUDA driver stub is missing: /usr/lib/wsl/lib/libcuda.so")
+    if not (torch_lib / "libcudnn_cnn_infer.so.8").is_file():
+        raise RuntimeError(f"PyTorch cuDNN CNN inference library is missing: {torch_lib}/libcudnn_cnn_infer.so.8")
+
+    entries = [str(path) for path in required]
+    for entry in os.environ.get("LD_LIBRARY_PATH", "").split(":"):
+        if entry and entry not in entries:
+            entries.append(entry)
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = ":".join(entries)
+    return env
+
+
+def _verify_cuda_loader_env(loader_env: dict[str, str]) -> None:
+    probe = (
+        "import ctypes; "
+        "ctypes.CDLL('libcuda.so'); "
+        "ctypes.CDLL('libcudnn_cnn_infer.so.8'); "
+        "print('BodyRig CUDA loader: OK')"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=loader_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stdout.strip()[-2000:]
+        raise RuntimeError("CUDA/cuDNN loader preflight failed" + (f": {detail}" if detail else ""))
 
 
 def _sha256_file(path: Path) -> str:
@@ -287,7 +351,7 @@ def _verify_phalp_install(expected_repo: Path) -> None:
         raise RuntimeError("PHALP tracker source does not match the pinned BodyRig revision")
 
 
-def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
+def _run_source(repo: Path, source: Path, source_index: int, loader_env: dict[str, str]) -> list[dict]:
     try:
         import joblib
     except ImportError as exc:
@@ -302,7 +366,15 @@ def _run_source(repo: Path, source: Path, source_index: int) -> list[dict]:
             "render.enable=false",
             "overwrite=true",
         ]
-        completed = subprocess.run(command, cwd=repo, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+        completed = subprocess.run(
+            command,
+            cwd=repo,
+            env=loader_env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
         if completed.stdout:
             print(completed.stdout[-12000:], file=sys.stderr)
         if completed.returncode != 0:
@@ -339,11 +411,13 @@ def main() -> int:
         _verify_repo(repo)
         _verify_phalp_install(phalp_repo)
         _verify_nmr_install()
+        loader_env = _recovery_loader_env()
+        _verify_cuda_loader_env(loader_env)
         _ensure_phalp_smpl_cache(repo)
         sources = _read_request()
         tracks: list[dict] = []
         for index, source in enumerate(sources):
-            tracks.extend(_run_source(repo, source, index))
+            tracks.extend(_run_source(repo, source, index, loader_env))
         if not tracks:
             raise RuntimeError("4D-Humans produced no track with at least two observed frames")
         json.dump({"format":"bodyrig-recovery","version":1,"adapter":ADAPTER_NAME,"revision":ADAPTER_REVISION,"tracks":tracks}, sys.stdout, separators=(",", ":"), allow_nan=False)
