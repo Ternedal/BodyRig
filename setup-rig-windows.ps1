@@ -145,6 +145,8 @@ $sithEnvironment = @{
     BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable
     BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sithSetup.openpose.sha256).ToLowerInvariant()
     BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$sithSetup.openpose.models_sha256).ToLowerInvariant()
+    BODYRIG_SITH_RECON_CHECKPOINT_SHA256 = ([string]$sithSetup.checkpoints.recon_model.sha256).ToLowerInvariant()
+    BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256 = ([string]$sithSetup.checkpoints.smplerx.sha256).ToLowerInvariant()
     BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path
     BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()
 }
