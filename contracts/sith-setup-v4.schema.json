@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/sith-setup-v4.schema.json",
+  "title": "BodyRig SiTH setup report v4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "distribution", "sith", "openpose", "checkpoints", "diffusion_model"],
+  "properties": {
+    "format": {"const": "bodyrig-sith-setup"},
+    "version": {"const": 4},
+    "distribution": {"type": "string", "minLength": 1, "maxLength": 160},
+    "sith": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "python"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^/", "maxLength": 2000},
+        "revision": {"const": "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"},
+        "python": {"type": "string", "pattern": "^/", "maxLength": 2000}
+      }
+    },
+    "openpose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "executable", "sha256", "byte_count", "models_sha256", "models_file_count", "models_byte_count"],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^/", "maxLength": 2000},
+        "revision": {"const": "8ca5c1d95a42340b323e9273654d1db98bec779c"},
+        "executable": {"type": "string", "pattern": "^/", "maxLength": 2000},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "byte_count": {"type": "integer", "minimum": 1},
+        "models_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "models_file_count": {"type": "integer", "minimum": 1},
+        "models_byte_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "checkpoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recon_model", "smplerx"],
+      "properties": {
+        "recon_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "byte_count"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^/.*/checkpoints/recon_model\\.pth$", "maxLength": 2000},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "byte_count": {"type": "integer", "minimum": 1}
+          }
+        },
+        "smplerx": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "byte_count"],
+          "properties": {
+            "path": {"type": "string", "pattern": "^/.*/checkpoints/save_smplerx\\.pth$", "maxLength": 2000},
+            "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "byte_count": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "diffusion_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "file_count", "byte_count"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/", "maxLength": 2000},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "file_count": {"type": "integer", "minimum": 1},
+        "byte_count": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}
