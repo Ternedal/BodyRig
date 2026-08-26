@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,9 +10,13 @@ from typing import Sequence
 from .sith_input import SithInputError, stage_sith_input
 from .sith_prepare import SithPrepareError, prepare_sith_input
 from .sith_reconstruct import DEFAULT_SEED, SithReconstructError, reconstruct_sith
+from .wsl_file_digest import WslFileDigestError, digest_wsl_file
 
 ADAPTER = "sith-smplx-vrm"
 REVISION = "1"
+SHA256_LENGTH = 64
+RECON_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_RECON_CHECKPOINT_SHA256"
+SMPLX_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256"
 
 
 class SithFitterOrchestratorError(RuntimeError):
@@ -54,6 +59,48 @@ def _validate_linux_path(value: str, *, label: str) -> str:
     return value.rstrip("/") or "/"
 
 
+def _required_sha256_from_environment(name: str) -> str:
+    value = os.environ.get(name, "").strip().lower()
+    if len(value) != SHA256_LENGTH or any(ch not in "0123456789abcdef" for ch in value):
+        raise SithFitterOrchestratorError(f"{name} must contain the setup-bound lowercase SHA-256")
+    return value
+
+
+def _verify_checkpoint_authority(
+    *,
+    distribution: str,
+    sith_repo: str,
+    sith_python: str,
+    wsl_exe: str,
+) -> None:
+    expected = (
+        (
+            "recon_model",
+            f"{sith_repo}/checkpoints/recon_model.pth",
+            _required_sha256_from_environment(RECON_CHECKPOINT_HASH_ENV),
+        ),
+        (
+            "save_smplerx",
+            f"{sith_repo}/checkpoints/save_smplerx.pth",
+            _required_sha256_from_environment(SMPLX_CHECKPOINT_HASH_ENV),
+        ),
+    )
+    for label, path, expected_sha256 in expected:
+        try:
+            digest = digest_wsl_file(
+                distribution=distribution,
+                python=sith_python,
+                path=path,
+                wsl_exe=wsl_exe,
+            )
+        except WslFileDigestError as exc:
+            raise SithFitterOrchestratorError(f"SiTH {label} checkpoint authority check failed") from exc
+        if digest["sha256"] != expected_sha256:
+            raise SithFitterOrchestratorError(
+                f"SiTH {label} checkpoint SHA-256 mismatch at fitter point-of-use"
+            )
+
+
 def orchestrate_sith_fitter(
     *,
     request: str | Path,
@@ -76,6 +123,7 @@ def orchestrate_sith_fitter(
         raise SithFitterOrchestratorError("WSL distribution is invalid")
     if not isinstance(wsl_exe, str) or not wsl_exe.strip():
         raise SithFitterOrchestratorError("WSL executable is required")
+    distribution = distribution.strip()
     sith_repo = _validate_linux_path(sith_repo, label="SiTH repo")
     sith_python = _validate_linux_path(sith_python, label="SiTH Python")
     openpose = _validate_linux_path(openpose, label="OpenPose executable")
@@ -92,10 +140,17 @@ def orchestrate_sith_fitter(
     if not output_path.is_dir() or any(output_path.iterdir()):
         raise SithFitterOrchestratorError("BodyRig fitter output must be an existing empty directory")
 
+    _verify_checkpoint_authority(
+        distribution=distribution,
+        sith_repo=sith_repo,
+        sith_python=sith_python,
+        wsl_exe=wsl_exe,
+    )
+
     stage_sith_input(workspace_path)
     prepare_sith_input(
         workspace=workspace_path,
-        distribution=distribution.strip(),
+        distribution=distribution,
         repo=sith_repo,
         python=sith_python,
         openpose=openpose,
@@ -103,7 +158,7 @@ def orchestrate_sith_fitter(
     )
     reconstruct_sith(
         workspace=workspace_path,
-        distribution=distribution.strip(),
+        distribution=distribution,
         repo=sith_repo,
         python=sith_python,
         diffusion_model=diffusion_model,
@@ -115,15 +170,15 @@ def orchestrate_sith_fitter(
     bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_adjusted.py"
     if not bridge.is_file():
         raise SithFitterOrchestratorError("builtin SiTH SMPL-X VRM bridge is missing")
-    linux_bridge = _wsl_path(bridge, distribution=distribution.strip(), wsl_exe=wsl_exe)
-    linux_request = _wsl_path(request_path, distribution=distribution.strip(), wsl_exe=wsl_exe)
-    linux_workspace = _wsl_path(workspace_path, distribution=distribution.strip(), wsl_exe=wsl_exe)
-    linux_output = _wsl_path(output_path, distribution=distribution.strip(), wsl_exe=wsl_exe)
+    linux_bridge = _wsl_path(bridge, distribution=distribution, wsl_exe=wsl_exe)
+    linux_request = _wsl_path(request_path, distribution=distribution, wsl_exe=wsl_exe)
+    linux_workspace = _wsl_path(workspace_path, distribution=distribution, wsl_exe=wsl_exe)
+    linux_output = _wsl_path(output_path, distribution=distribution, wsl_exe=wsl_exe)
 
     invocation = [
         wsl_exe,
         "-d",
-        distribution.strip(),
+        distribution,
         "--",
         sith_python,
         linux_bridge,
@@ -191,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         SithInputError,
         SithPrepareError,
         SithReconstructError,
+        WslFileDigestError,
         SithFitterOrchestratorError,
     ) as exc:
         print(f"BodyRig builtin SiTH fitter: FAIL: {exc}", file=sys.stderr)
