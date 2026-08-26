@@ -52,6 +52,8 @@ def test_setup_exports_exact_builtin_stash_settings() -> None:
         "BODYRIG_SITH_REPO",
         "BODYRIG_SITH_PYTHON",
         "BODYRIG_SITH_OPENPOSE",
+        "BODYRIG_SITH_RECON_CHECKPOINT_SHA256",
+        "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256",
         "BODYRIG_SITH_DIFFUSION_MODEL",
         "BODYRIG_SITH_DIFFUSION_SHA256",
     }
@@ -61,9 +63,14 @@ def test_setup_exports_exact_builtin_stash_settings() -> None:
     assert 'SetEnvironmentVariable' in text
 
 
-def test_setup_finishes_through_same_preflight_and_model_digest_as_clone() -> None:
+def test_setup_finishes_through_same_preflight_checkpoint_and_model_digests_as_clone() -> None:
     text = _text()
     assert '"-m", "bodyrig.sith_preflight"' in text
+    assert "bodyrig.wsl_file_digest" in text
+    assert '$reconCheckpoint = "$InstallRoot/checkpoints/recon_model.pth"' in text
+    assert '$smplerxCheckpoint = "$InstallRoot/checkpoints/save_smplerx.pth"' in text
+    assert 'SiTH recon_model checkpoint digest failed' in text
+    assert 'SiTH save_smplerx checkpoint digest failed' in text
     assert '"-m", "bodyrig.sith_model"' in text
     assert 'SiTH final preflight failed' in text
     assert 'SiTH diffusion model digest failed' in text
