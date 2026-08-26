@@ -39,6 +39,8 @@ def test_full_rig_bootstrap_rehydrates_sith_environment_in_parent_process():
     assert "BODYRIG_SITH_OPENPOSE = [string]$sithSetup.openpose.executable" in text
     assert "BODYRIG_SITH_OPENPOSE_SHA256 = ([string]$sithSetup.openpose.sha256).ToLowerInvariant()" in text
     assert "BODYRIG_SITH_OPENPOSE_MODELS_SHA256 = ([string]$sithSetup.openpose.models_sha256).ToLowerInvariant()" in text
+    assert "BODYRIG_SITH_RECON_CHECKPOINT_SHA256 = ([string]$sithSetup.checkpoints.recon_model.sha256).ToLowerInvariant()" in text
+    assert "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256 = ([string]$sithSetup.checkpoints.smplerx.sha256).ToLowerInvariant()" in text
     assert "BODYRIG_SITH_DIFFUSION_MODEL = [string]$sithSetup.diffusion_model.path" in text
     assert "BODYRIG_SITH_DIFFUSION_SHA256 = ([string]$sithSetup.diffusion_model.sha256).ToLowerInvariant()" in text
     assert "Set-BodyRigEnvironment -Values $sithEnvironment -Persist:$PersistUserEnvironment" in text
