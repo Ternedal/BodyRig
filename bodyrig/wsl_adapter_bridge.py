@@ -6,7 +6,6 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import PurePath
 from typing import Callable, Sequence
 
 PATH_FLAGS = {
@@ -137,7 +136,7 @@ def expand_subst_path(path: str, *, query: Callable[[str], str | None] = _query_
     if not target.startswith(prefix):
         return path
     backing = target[len(prefix):]
-    if not _DRIVE_RE.match(backing + ("\\" if len(backing) == 2 else "")) and not re.match(r"^[A-Za-z]:[\\/]?", backing):
+    if not re.match(r"^[A-Za-z]:[\\/]?", backing):
         return path
     suffix = path[2:].lstrip("\\/")
     base = backing.rstrip("\\/")
@@ -147,8 +146,12 @@ def expand_subst_path(path: str, *, query: Callable[[str], str | None] = _query_
 def make_wsl_path_converter(wsl_exe: str, distribution: str) -> Callable[[str], str]:
     def convert(path: str) -> str:
         host_path = expand_subst_path(path)
+        # wsl.exe can consume single backslashes while forwarding raw Linux
+        # argv. Match setup-recovery-windows.ps1 and escape them once before
+        # wslpath so C:\\... arrives as an intact Windows path.
+        escaped_path = host_path.replace("\\", "\\\\")
         completed = subprocess.run(
-            [wsl_exe, "-d", distribution, "--", "wslpath", "-a", host_path],
+            [wsl_exe, "-d", distribution, "--", "wslpath", "-a", "-u", escaped_path],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
