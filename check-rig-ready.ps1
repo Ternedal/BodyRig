@@ -69,7 +69,9 @@ $recoveryArgs = @(
     "-m", "bodyrig.preflight_cli",
     "--python", [string]$rig.recovery.external_python,
     "--repo", [string]$rig.recovery.four_d_humans_repo,
-    "--phalp-repo", [string]$rig.recovery.phalp_repo
+    "--phalp-repo", [string]$rig.recovery.phalp_repo,
+    "--distribution", [string]$sith.distribution,
+    "--wsl-exe", $WslExe
 )
 Invoke-Checked -Arguments $recoveryArgs -Step "Live recovery preflight" | Out-Null
 
