@@ -25,6 +25,14 @@ def test_ready_launcher_uses_master_report_live_readiness_and_existing_stash_pip
     assert '"-BodyId", $BodyId' in text
 
 
+def test_ready_launcher_propagates_wsl_authority_into_actual_clone():
+    text = _launcher()
+    clone_args_start = text.index("$cloneArgs = @(")
+    clone_call = text.index("& $powerShellExe @cloneArgs")
+    clone_section = text[clone_args_start:clone_call]
+    assert '"-WslExe", $WslExe' in clone_section
+
+
 def test_ready_launcher_requires_readiness_before_clone():
     text = _launcher()
     readiness_call = text.index("& $powerShellExe @readinessArgs")
