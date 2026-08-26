@@ -48,14 +48,34 @@ print(json.dumps(result, separators=(",", ":")))
 '''
 
 
-def run_preflight(*, external_python: str, ffmpeg: str, require_opencv: bool = True) -> dict[str, Any]:
+def _python_probe_command(*, external_python: str, distribution: str, wsl_exe: str) -> list[str]:
+    if distribution:
+        if not external_python.startswith("/"):
+            raise ObservationPreflightError(
+                f"WSL external observation Python must be an absolute Linux path: {external_python}"
+            )
+        return [wsl_exe, "-d", distribution, "--", external_python, "-c", _opencv_probe_script()]
     python_path = Path(external_python).expanduser().resolve()
     if not python_path.is_file():
         raise ObservationPreflightError(f"external observation Python not found: {python_path}")
+    return [str(python_path), "-c", _opencv_probe_script()]
+
+
+def run_preflight(
+    *,
+    external_python: str,
+    ffmpeg: str,
+    require_opencv: bool = True,
+    distribution: str = "",
+    wsl_exe: str = "wsl.exe",
+) -> dict[str, Any]:
+    distribution = distribution.strip()
     if not isinstance(ffmpeg, str) or not ffmpeg.strip():
         raise ObservationPreflightError("FFmpeg executable is required")
     if not isinstance(require_opencv, bool):
         raise ObservationPreflightError("require_opencv must be boolean")
+    if distribution and (not isinstance(wsl_exe, str) or not wsl_exe.strip()):
+        raise ObservationPreflightError("WSL executable is required for WSL observation preflight")
 
     result: dict[str, Any] = {
         "format": "bodyrig-observation-preflight",
@@ -68,12 +88,19 @@ def run_preflight(*, external_python: str, ffmpeg: str, require_opencv: bool = T
     errors: list[str] = result["errors"]
 
     if require_opencv:
+        command = _python_probe_command(
+            external_python=external_python,
+            distribution=distribution,
+            wsl_exe=wsl_exe,
+        )
         try:
-            completed = _run([str(python_path), "-c", _opencv_probe_script()])
+            completed = _run(command)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ObservationPreflightError("OpenCV observation probe could not run") from exc
         if completed.returncode != 0:
-            errors.append(f"OpenCV observation probe failed with exit code {completed.returncode}")
+            detail = completed.stderr.strip()[-1000:]
+            suffix = f": {detail}" if detail else ""
+            errors.append(f"OpenCV observation probe failed with exit code {completed.returncode}{suffix}")
             probe: dict[str, Any] = {}
         else:
             try:
@@ -104,6 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--external-python", required=True)
     parser.add_argument("--ffmpeg", required=True)
     parser.add_argument("--ffmpeg-only", action="store_true", help="Skip built-in OpenCV/HOG/Haar checks for a custom analyzer")
+    parser.add_argument("--distribution", default="", help="Optional WSL distribution containing the external Python")
+    parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     try:
@@ -111,6 +140,8 @@ def main(argv: list[str] | None = None) -> int:
             external_python=args.external_python,
             ffmpeg=args.ffmpeg,
             require_opencv=not args.ffmpeg_only,
+            distribution=args.distribution,
+            wsl_exe=args.wsl_exe,
         )
     except ObservationPreflightError as exc:
         print(f"BodyRig observation preflight: FAIL: {exc}", file=sys.stderr)
