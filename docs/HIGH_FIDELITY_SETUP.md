@@ -77,7 +77,7 @@ A successful setup atomically writes a strict `bodyrig-sith-setup` v4 report. De
 %LOCALAPPDATA%\BodyRig\sith\setup-report.json
 ```
 
-Version 4 adds mandatory byte binding for `recon_model.pth` and `save_smplerx.pth` on top of v3's OpenPose model-tree binding. Existing v1/v2/v3 reports must be regenerated with `setup-high-fidelity-wsl.ps1` before a canonical physical run.
+Version 4 adds mandatory byte binding for `recon_model.pth` and `save_smplerx.pth` on top of v3's OpenPose model-tree binding. Existing v1/v2/v3 reports must be regenerated with `setup-high-fidelity-wsl.ps1` before a canonical physical run. The current machine-readable contract is `contracts/sith-setup-v4.schema.json`; older schema files are historical contracts, not authority for a new setup report.
 
 The report contains only local build configuration and integrity data:
 
