@@ -16,8 +16,10 @@ $Detectron2Revision = "a2f4a8771ab77e8411c26b27f24f9489a28a2453"
 $ChumpyRevision = "580566eafc9ac68b2614b64d6f7aaa84eebb70da"
 $PytubeRevision = "a32fff39058a6f7e5e59ecd06a7467b71197ce35"
 $PyOpenGlRevision = "76d1261adee2d3fd99b418e75b0416bb7d2865e6"
+$NmrRevision = "e990b3c70f48d39231f607c79d76ce3db4bf7483"
 $FourDRemote = "https://github.com/shubham-goel/4D-Humans.git"
 $PhalpRemote = "https://github.com/brjathu/PHALP.git"
+$NmrRemote = "https://github.com/shubham-goel/NMR.git"
 $SmplFileName = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 $CudaRoot = "/usr/local/cuda-11.7"
 $SetuptoolsVersion = "80.9.0"
@@ -169,6 +171,7 @@ Write-Host "Evidence root: $Root"
 Write-Host "Linux root: $linuxRoot"
 Write-Host "4D-Humans pin: $FourDRevision"
 Write-Host "PHALP pin:      $PhalpRevision"
+Write-Host "NMR pin:        $NmrRevision"
 Write-Host "CUDA toolkit:   $CudaRoot"
 Write-Host ""
 
@@ -247,6 +250,22 @@ if (-not (Test-WslPath -Path $envPython -Executable)) {
     throw "WSL recovery Python was not created: $envPython"
 }
 
+# NMR is a real import-time dependency of the pinned 4D-Humans tracker even
+# when render.enable=false. Keep it as an incremental authority gate outside
+# the v2 base-runtime marker so already-provisioned rigs can self-heal without
+# rebuilding the entire recovery environment.
+$nmrAuthorityProbe = "import importlib.metadata as m,json,neural_renderer; d=m.distribution('neural-renderer-pytorch'); u=json.loads(d.read_text('direct_url.json') or '{}'); v=u.get('vcs_info') or {}; norm=lambda s:(s or '').lower().rstrip('/').removesuffix('.git'); assert v.get('commit_id') == '$NmrRevision'; assert norm(u.get('url')) == norm('$NmrRemote'); print('BodyRig NMR authority: OK')"
+$nmrProbe = Invoke-WslRaw -Arguments @($envPython, "-c", $nmrAuthorityProbe)
+if ($nmrProbe.ExitCode -ne 0) {
+    Write-Host "Provisioning pinned neural-renderer runtime required by 4D-Humans..."
+    Invoke-WslStreaming -Arguments @(
+        "/usr/bin/env", "CUDA_HOME=$CudaRoot", "FORCE_CUDA=1", "MAX_JOBS=4",
+        $envPython, "-m", "pip", "install", "--disable-pip-version-check", "--no-build-isolation",
+        "neural-renderer-pytorch @ git+$NmrRemote@$NmrRevision"
+    ) -Step "Build pinned neural-renderer in WSL"
+}
+Invoke-WslStreaming -Arguments @($envPython, "-c", $nmrAuthorityProbe) -Step "Verify pinned neural-renderer authority"
+
 $smplDestination = "$fourDPath/data/$SmplFileName"
 Invoke-WslChecked -Arguments @("/usr/bin/mkdir", "-p", "$fourDPath/data") -Step "Create 4D-Humans data directory" | Out-Null
 if (-not [string]::IsNullOrWhiteSpace($SmplModelPath)) {
@@ -271,6 +290,8 @@ $summary = [ordered]@{
     four_d_humans_revision = $FourDRevision
     phalp_repo = $phalpPath
     phalp_revision = $PhalpRevision
+    nmr_revision = $NmrRevision
+    nmr_remote = $NmrRemote
     smpl_expected_path = $smplDestination
     smpl_present = $smplPresent
 }
@@ -282,6 +303,7 @@ Write-Host "Pinned WSL recovery checkouts/environment prepared."
 Write-Host "External Python: $envPython"
 Write-Host "4D-Humans repo: $fourDPath"
 Write-Host "PHALP repo: $phalpPath"
+Write-Host "NMR revision: $NmrRevision"
 if (-not $smplPresent) {
     Write-Warning "SMPL neutral model is still missing. BodyRig does not download or redistribute it."
     Write-Host "Recovery acceptance remains BLOCKED until $SmplFileName is present."
