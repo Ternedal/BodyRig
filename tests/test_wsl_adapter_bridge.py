@@ -115,6 +115,7 @@ def test_make_wsl_path_converter_escapes_backslashes_before_wslpath(monkeypatch)
         return subprocess.CompletedProcess(command, 0, stdout="/mnt/c/temp/request.json\n", stderr="")
 
     monkeypatch.setattr(bridge, "expand_subst_path", lambda path: path)
+    monkeypatch.setattr(bridge, "resolve_windows_reparse_path", lambda path: path)
     monkeypatch.setattr(bridge.subprocess, "run", fake_run)
     converter = make_wsl_path_converter("wsl.exe", "Ubuntu-22.04")
 
@@ -128,6 +129,63 @@ def test_make_wsl_path_converter_escapes_backslashes_before_wslpath(monkeypatch)
         "-a",
         "-u",
         r"C:\\temp\\request.json",
+    ]]
+
+
+def test_split_unc_path_preserves_share_root_and_suffix():
+    assert bridge.split_unc_path(r"\\192.168.1.20\VR_E\MilfVR\clip.mp4") == (
+        r"\\192.168.1.20\VR_E",
+        r"MilfVR\clip.mp4",
+    )
+    assert bridge.split_unc_path(r"C:\VR\clip.mp4") is None
+
+
+def test_make_wsl_path_converter_routes_resolved_unc_through_drvfs_mount(monkeypatch):
+    mount_calls = []
+
+    monkeypatch.setattr(bridge, "expand_subst_path", lambda path: r"C:\BodyRigRemote\E\VR\MilfVR\clip.mp4")
+    monkeypatch.setattr(
+        bridge,
+        "resolve_windows_reparse_path",
+        lambda path: r"\\192.168.1.20\VR_E\MilfVR\clip.mp4",
+    )
+
+    def fake_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
+        mount_calls.append((wsl_exe, distribution, unc_root))
+        return "/mnt/bodyrig/VR_E"
+
+    monkeypatch.setattr(bridge, "ensure_wsl_unc_mount", fake_mount)
+    converter = make_wsl_path_converter("wsl.exe", "Ubuntu-22.04")
+
+    assert converter(r"E:\VR\MilfVR\clip.mp4") == "/mnt/bodyrig/VR_E/MilfVR/clip.mp4"
+    assert mount_calls == [("wsl.exe", "Ubuntu-22.04", r"\\192.168.1.20\VR_E")]
+
+
+def test_ensure_wsl_unc_mount_reuses_existing_operator_mount(monkeypatch):
+    calls = []
+
+    def fake_run(command):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout="/mnt/bodyrig/VR_E\n", stderr="")
+
+    monkeypatch.setattr(bridge, "_run_wsl_capture", fake_run)
+
+    assert bridge.ensure_wsl_unc_mount(
+        "wsl.exe",
+        "Ubuntu-22.04",
+        r"\\192.168.1.20\VR_E",
+    ) == "/mnt/bodyrig/VR_E"
+    assert calls == [[
+        "wsl.exe",
+        "-d",
+        "Ubuntu-22.04",
+        "--",
+        "/usr/bin/findmnt",
+        "-rn",
+        "-S",
+        r"\\\\192.168.1.20\\VR_E",
+        "-o",
+        "TARGET",
     ]]
 
 
