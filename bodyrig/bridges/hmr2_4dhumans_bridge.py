@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,10 @@ from bodyrig.bridges.hmr2_config import (  # noqa: E402
     PHALP_TRACKER_BLOB_SHA1,
 )
 from bodyrig.bridges.phalp import canonicalize_phalp_results  # noqa: E402
+
+SMPL_FILENAME = "basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
+PHALP_SMPL_FILENAME = "SMPL_NEUTRAL.pkl"
+PHALP_SMPL_SOURCE_HASH_FILENAME = ".bodyrig-source-sha256"
 
 
 def _git_blob_sha1_bytes(data: bytes) -> str:
@@ -71,6 +76,81 @@ def _find_external_phalp_spec():
         return importlib.util.find_spec("phalp")
     finally:
         sys.path[:] = original
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _ensure_phalp_smpl_cache(repo: Path) -> Path:
+    """Seed PHALP's converted SMPL cache from BodyRig's local licensed model.
+
+    The pinned PHALP revision falls back to an obsolete public URL when its
+    cache is empty. BodyRig already requires the operator-provided neutral SMPL
+    model under ``4D-Humans/data``. Reuse that authority instead of networking.
+    A source SHA-256 sidecar prevents reuse of cache bytes derived from a
+    different local model.
+    """
+
+    source = (repo / "data" / SMPL_FILENAME).resolve()
+    if not source.is_file():
+        raise RuntimeError(f"required SMPL model missing: data/{SMPL_FILENAME}")
+
+    source_hash = _sha256_file(source)
+    cache_dir = Path.home() / ".cache" / "phalp" / "3D" / "models" / "smpl"
+    cache_path = cache_dir / PHALP_SMPL_FILENAME
+    hash_path = cache_dir / PHALP_SMPL_SOURCE_HASH_FILENAME
+
+    try:
+        cached_hash = hash_path.read_text(encoding="ascii").strip().lower()
+    except (OSError, UnicodeError):
+        cached_hash = ""
+    if cache_path.is_file() and cached_hash == source_hash:
+        return cache_path
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="bodyrig-phalp-smpl-") as temp_dir_raw:
+        temp_dir = Path(temp_dir_raw)
+        staged_source = temp_dir / SMPL_FILENAME
+        converted = temp_dir / f"{Path(SMPL_FILENAME).stem}_p3.pkl"
+        shutil.copy2(source, staged_source)
+        command = [
+            sys.executable,
+            "-c",
+            "from phalp.utils.utils import convert_pkl; "
+            f"convert_pkl({SMPL_FILENAME!r})",
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=temp_dir,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stdout.strip()[-2000:]
+            raise RuntimeError(
+                "could not convert local SMPL model for PHALP cache"
+                + (f": {detail}" if detail else "")
+            )
+        if not converted.is_file():
+            raise RuntimeError("PHALP SMPL conversion did not produce the expected Python 3 pickle")
+
+        cache_tmp = cache_dir / f".{PHALP_SMPL_FILENAME}.bodyrig-tmp"
+        hash_tmp = cache_dir / f".{PHALP_SMPL_SOURCE_HASH_FILENAME}.tmp"
+        shutil.copy2(converted, cache_tmp)
+        hash_tmp.write_text(source_hash + "\n", encoding="ascii")
+        os.replace(cache_tmp, cache_path)
+        os.replace(hash_tmp, hash_path)
+
+    if not cache_path.is_file():
+        raise RuntimeError("PHALP SMPL cache was not published")
+    return cache_path
 
 
 def _read_request() -> list[Path]:
@@ -224,6 +304,7 @@ def main() -> int:
         phalp_repo = Path(args.phalp_repo).expanduser().resolve()
         _verify_repo(repo)
         _verify_phalp_install(phalp_repo)
+        _ensure_phalp_smpl_cache(repo)
         sources = _read_request()
         tracks: list[dict] = []
         for index, source in enumerate(sources):
