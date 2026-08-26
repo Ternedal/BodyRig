@@ -12,9 +12,18 @@ def test_openpose_setup_pins_revision_and_cuda_build():
     text = (ROOT / "setup-openpose-wsl.ps1").read_text(encoding="utf-8")
     assert OPENPOSE_REVISION in text
     assert '"-DGPU_MODE=CUDA"' in text
-    assert '"-DDOWNLOAD_BODY_25_MODEL=ON"' in text
-    assert '"-DDOWNLOAD_FACE_MODEL=ON"' in text
-    assert '"-DDOWNLOAD_HAND_MODEL=ON"' in text
+    # BodyRig owns model download + digest verification explicitly. CMake must
+    # not perform an independent, unbound model download during configuration.
+    assert '"-DDOWNLOAD_BODY_25_MODEL=OFF"' in text
+    assert '"-DDOWNLOAD_FACE_MODEL=OFF"' in text
+    assert '"-DDOWNLOAD_HAND_MODEL=OFF"' in text
+    assert "Get-WslMd5" in text
+    assert 'RelativePath = "pose/body_25/pose_iter_584000.caffemodel"' in text
+    assert 'Md5 = "78287b57cf85fa89c03f1393d368e5b7"' in text
+    assert 'RelativePath = "face/pose_iter_116000.caffemodel"' in text
+    assert 'Md5 = "e747180d728fa4e4418c465828384333"' in text
+    assert 'RelativePath = "hand/pose_iter_102000.caffemodel"' in text
+    assert 'Md5 = "a82cfc3fea7c62f159e11bd3674c1531"' in text
     assert 'build/examples/openpose/openpose.bin' in text
     assert 'hash-object", "CMakeLists.txt"' in text
     assert "sudo" not in text.lower()
