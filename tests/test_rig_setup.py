@@ -38,7 +38,7 @@ def _fixture(tmp_path: Path) -> Path:
     preflight_sha = _write(preflight, {"format": "bodyrig-recovery-preflight", "version": 1, "ok": True})
     sith_sha = _write(sith, {
         "format": "bodyrig-sith-setup",
-        "version": 3,
+        "version": 4,
         "distribution": "Ubuntu-22.04",
         "sith": {"repository": "/opt/sith", "revision": SITH_REVISION, "python": "/opt/sith/.venv/bin/python"},
         "openpose": {
@@ -50,6 +50,18 @@ def _fixture(tmp_path: Path) -> Path:
             "models_sha256": "c" * 64,
             "models_file_count": 17,
             "models_byte_count": 456789012,
+        },
+        "checkpoints": {
+            "recon_model": {
+                "path": "/opt/sith/checkpoints/recon_model.pth",
+                "sha256": "d" * 64,
+                "byte_count": 785432109,
+            },
+            "smplerx": {
+                "path": "/opt/sith/checkpoints/save_smplerx.pth",
+                "sha256": "e" * 64,
+                "byte_count": 2654321098,
+            },
         },
         "diffusion_model": {"path": "/opt/models/sith", "sha256": "a" * 64, "file_count": 5, "byte_count": 1234},
     })
@@ -96,4 +108,17 @@ def test_full_rig_setup_rejects_wrong_recovery_revision_even_with_rehashed_summa
     value["recovery"]["environment_summary_sha256"] = hashlib.sha256(summary.read_bytes()).hexdigest()
     rig.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(RigSetupError, match="4D-Humans revision mismatch"):
+        load_rig_setup(rig)
+
+
+def test_full_rig_setup_rejects_wrong_sith_checkpoint_path_even_with_rehashed_setup(tmp_path: Path):
+    rig = _fixture(tmp_path)
+    value = json.loads(rig.read_text(encoding="utf-8"))
+    sith = Path(value["high_fidelity"]["setup_report"])
+    sith_value = json.loads(sith.read_text(encoding="utf-8"))
+    sith_value["checkpoints"]["recon_model"]["path"] = "/tmp/recon_model.pth"
+    sith.write_text(json.dumps(sith_value), encoding="utf-8")
+    value["high_fidelity"]["setup_report_sha256"] = hashlib.sha256(sith.read_bytes()).hexdigest()
+    rig.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(RigSetupError, match="pinned SiTH checkpoint path"):
         load_rig_setup(rig)
