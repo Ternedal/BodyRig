@@ -51,10 +51,33 @@ print(json.dumps(result, separators=(",", ":")))
 '''
 
 
-def run_preflight(*, external_python: str) -> dict[str, Any]:
+def _probe_command(*, external_python: str, distribution: str, wsl_exe: str) -> list[str]:
+    if distribution:
+        if not external_python.startswith("/"):
+            raise IdentityCapturePreflightError(
+                f"WSL external identity-capture Python must be an absolute Linux path: {external_python}"
+            )
+        return [wsl_exe, "-d", distribution, "--", external_python, "-c", _probe_script()]
     python_path = Path(external_python).expanduser().resolve()
     if not python_path.is_file():
         raise IdentityCapturePreflightError(f"external identity-capture Python not found: {python_path}")
+    return [str(python_path), "-c", _probe_script()]
+
+
+def run_preflight(
+    *,
+    external_python: str,
+    distribution: str = "",
+    wsl_exe: str = "wsl.exe",
+) -> dict[str, Any]:
+    distribution = distribution.strip()
+    if distribution and (not isinstance(wsl_exe, str) or not wsl_exe.strip()):
+        raise IdentityCapturePreflightError("WSL executable is required for WSL identity capture")
+    command = _probe_command(
+        external_python=external_python,
+        distribution=distribution,
+        wsl_exe=wsl_exe,
+    )
 
     result: dict[str, Any] = {
         "format": "bodyrig-identity-capture-preflight",
@@ -65,12 +88,14 @@ def run_preflight(*, external_python: str) -> dict[str, Any]:
     }
     errors: list[str] = result["errors"]
     try:
-        completed = _run([str(python_path), "-c", _probe_script()])
+        completed = _run(command)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise IdentityCapturePreflightError("identity capture capability probe could not run") from exc
 
     if completed.returncode != 0:
-        errors.append(f"identity capture capability probe failed with exit code {completed.returncode}")
+        detail = completed.stderr.strip()[-1000:]
+        suffix = f": {detail}" if detail else ""
+        errors.append(f"identity capture capability probe failed with exit code {completed.returncode}{suffix}")
         probe: dict[str, Any] = {}
     else:
         try:
@@ -98,11 +123,17 @@ def run_preflight(*, external_python: str) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Fail-closed preflight for BodyRig built-in identity capture.")
     parser.add_argument("--external-python", required=True)
+    parser.add_argument("--distribution", default="", help="Optional WSL distribution containing the external Python")
+    parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
 
     try:
-        result = run_preflight(external_python=args.external_python)
+        result = run_preflight(
+            external_python=args.external_python,
+            distribution=args.distribution,
+            wsl_exe=args.wsl_exe,
+        )
     except IdentityCapturePreflightError as exc:
         print(f"BodyRig identity capture preflight: FAIL: {exc}", file=sys.stderr)
         return 1
