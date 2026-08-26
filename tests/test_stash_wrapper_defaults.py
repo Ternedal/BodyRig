@@ -94,6 +94,7 @@ def test_stash_wrapper_preserves_custom_fitter_escape_hatch():
     text = _wrapper()
 
     assert 'Resolve-InputFile -Path $FitterConfig -Label "High-fidelity fitter config"' in text
+    assert 'Write-Host "Identity capture: custom config"' in text
     assert 'Write-Host "High-fidelity fitter: custom config"' in text
     assert 'Write-Host "High-fidelity fitter: built-in sith-smplx-vrm v1' in text
 
@@ -111,3 +112,50 @@ def test_stash_wrapper_does_not_copy_build_configs_as_clone_evidence():
     assert 'Copy-Item -LiteralPath $IdentityCaptureConfig' not in text
     assert 'Copy-Item -LiteralPath $FitterConfig' not in text
     assert 'bodyrig-observation-evidence.json' in text
+
+
+def test_stash_wrapper_accepts_linux_recovery_authority_without_windows_test_path():
+    text = _wrapper()
+
+    assert '[string]$PhalpRepo = ""' in text
+    assert '[string]$RecoveryDistribution = ""' in text
+    assert '$usingWslRecovery = -not [string]::IsNullOrWhiteSpace($RecoveryDistribution)' in text
+    assert 'External recovery Python"; Value = $ExternalPython' in text
+    assert '4D-Humans repository"; Value = $FourDHumansRepo' in text
+    assert 'PHALP repository"; Value = $PhalpRepo' in text
+    assert '$ExternalPython = Resolve-InputFile -Path $ExternalPython' in text
+    assert text.index('$usingWslRecovery = -not [string]::IsNullOrWhiteSpace($RecoveryDistribution)') < text.index('$ExternalPython = Resolve-InputFile -Path $ExternalPython')
+    assert 'if ($usingWslRecovery) {' in text
+
+
+def test_stash_wrapper_routes_builtin_opencv_adapters_through_wsl_bridge():
+    text = _wrapper()
+
+    assert '"-m", "bodyrig.wsl_adapter_bridge"' in text
+    assert '"--distribution", $RecoveryDistribution' in text
+    assert '"--wsl-exe", $WslExe' in text
+    assert '$identityBridgeWsl = Convert-WindowsPathToWsl -Path $identityBridge' in text
+    assert '$bridgeWsl = Convert-WindowsPathToWsl -Path $bridge' in text
+    assert '"--bodyrig-stash-manifest",' in text
+    assert '$sourceManifest' in text
+
+
+def test_stash_wrapper_propagates_wsl_recovery_to_generic_clone():
+    text = _wrapper()
+    clone_args = text[text.index("$cloneArgs = @("):text.index("Invoke-Checked -Executable $powerShellExe -Arguments $cloneArgs")]
+    assert '"-PhalpRepo", $PhalpRepo' in clone_args
+    assert '"-RecoveryDistribution", $RecoveryDistribution' in clone_args
+    assert '"-WslExe", $WslExe' in clone_args
+
+
+def test_generic_clone_passes_wsl_recovery_authority_to_preflight_and_recover():
+    text = _generic_clone()
+
+    assert '[string]$PhalpRepo = ""' in text
+    assert '[string]$RecoveryDistribution = ""' in text
+    assert '[string]$WslExe = "wsl.exe"' in text
+    assert '$usingWslRecovery = -not [string]::IsNullOrWhiteSpace($RecoveryDistribution)' in text
+    assert '$preflightArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)' in text
+    assert '$recoverArgs += @("--distribution", $RecoveryDistribution, "--wsl-exe", $WslExe)' in text
+    assert '$preflightArgs += @("--phalp-repo", $PhalpRepo)' in text
+    assert '$recoverArgs += @("--phalp-repo", $PhalpRepo)' in text
