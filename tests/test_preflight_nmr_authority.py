@@ -17,6 +17,8 @@ def _probe() -> dict:
         "nmr_url": "https://github.com/shubham-goel/NMR.git",
         "nmr_commit": "e990b3c70f48d39231f607c79d76ce3db4bf7483",
         "cuda_available": True,
+        "load_libcuda": True,
+        "load_libcudnn_cnn_infer": True,
     }
 
 
@@ -50,3 +52,41 @@ def test_preflight_rejects_missing_or_untrusted_nmr() -> None:
 
     assert any("external import failed: neural_renderer" in error for error in errors)
     assert any("does not match pinned BodyRig NMR authority" in error for error in errors)
+
+
+def test_preflight_rejects_unloadable_wsl_cuda_or_cudnn() -> None:
+    probe = _probe()
+    probe["load_libcuda"] = False
+    probe["error_load_libcuda"] = "OSError: libcuda.so not found"
+    probe["load_libcudnn_cnn_infer"] = False
+    probe["error_load_libcudnn_cnn_infer"] = "OSError: libcudnn_cnn_infer.so.8 not found"
+
+    errors: list[str] = []
+    _validate_probe(
+        probe,
+        errors,
+        phalp_repo="/opt/PHALP",
+        linux=True,
+        allow_cpu=False,
+    )
+
+    assert any("cannot open libcuda.so" in error for error in errors)
+    assert any("cannot open libcudnn_cnn_infer.so.8" in error for error in errors)
+
+
+def test_allow_cpu_diagnostic_skips_wsl_loader_gate() -> None:
+    probe = _probe()
+    probe["cuda_available"] = False
+    probe["load_libcuda"] = False
+    probe["load_libcudnn_cnn_infer"] = False
+
+    errors: list[str] = []
+    _validate_probe(
+        probe,
+        errors,
+        phalp_repo="/opt/PHALP",
+        linux=True,
+        allow_cpu=True,
+    )
+
+    assert errors == []
