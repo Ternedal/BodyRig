@@ -22,6 +22,8 @@ ENVIRONMENT = {
     "openpose": "BODYRIG_SITH_OPENPOSE",
     "openpose_sha256": "BODYRIG_SITH_OPENPOSE_SHA256",
     "openpose_models_sha256": "BODYRIG_SITH_OPENPOSE_MODELS_SHA256",
+    "recon_checkpoint_sha256": "BODYRIG_SITH_RECON_CHECKPOINT_SHA256",
+    "smplerx_checkpoint_sha256": "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256",
     "diffusion_model": "BODYRIG_SITH_DIFFUSION_MODEL",
     "diffusion_sha256": "BODYRIG_SITH_DIFFUSION_SHA256",
 }
@@ -43,6 +45,8 @@ def collect_status(
     openpose: str | None = None,
     openpose_sha256: str | None = None,
     openpose_models_sha256: str | None = None,
+    recon_checkpoint_sha256: str | None = None,
+    smplerx_checkpoint_sha256: str | None = None,
     diffusion_model: str | None = None,
     diffusion_sha256: str | None = None,
     wsl_exe: str = "wsl.exe",
@@ -55,6 +59,8 @@ def collect_status(
         "openpose": _setting(openpose, "openpose"),
         "openpose_sha256": _setting(openpose_sha256, "openpose_sha256").lower(),
         "openpose_models_sha256": _setting(openpose_models_sha256, "openpose_models_sha256").lower(),
+        "recon_checkpoint_sha256": _setting(recon_checkpoint_sha256, "recon_checkpoint_sha256").lower(),
+        "smplerx_checkpoint_sha256": _setting(smplerx_checkpoint_sha256, "smplerx_checkpoint_sha256").lower(),
         "diffusion_model": _setting(diffusion_model, "diffusion_model"),
         "diffusion_sha256": _setting(diffusion_sha256, "diffusion_sha256").lower(),
     }
@@ -65,18 +71,24 @@ def collect_status(
         "openpose",
         "openpose_sha256",
         "openpose_models_sha256",
+        "recon_checkpoint_sha256",
+        "smplerx_checkpoint_sha256",
         "diffusion_model",
         "diffusion_sha256",
     )
     missing = [ENVIRONMENT[key] for key in required_keys if not settings[key]]
     result: dict[str, Any] = {
         "format": "bodyrig-sith-status",
-        "version": 2,
+        "version": 3,
         "ready": False,
         "distribution": settings["distribution"],
         "configured": not missing,
         "missing_settings": missing,
         "preflight": None,
+        "checkpoints": {
+            "recon_model": None,
+            "smplerx": None,
+        },
         "openpose_binary": None,
         "openpose_models": None,
         "diffusion_model": None,
@@ -85,7 +97,13 @@ def collect_status(
     if missing:
         result["errors"].append("SiTH settings are incomplete")
         return result
-    for key in ("openpose_sha256", "openpose_models_sha256", "diffusion_sha256"):
+    for key in (
+        "openpose_sha256",
+        "openpose_models_sha256",
+        "recon_checkpoint_sha256",
+        "smplerx_checkpoint_sha256",
+        "diffusion_sha256",
+    ):
         if not SHA_RE.fullmatch(settings[key]):
             result["errors"].append(f"{ENVIRONMENT[key]} is not a lowercase SHA-256")
     for key in ("repo", "python", "openpose_repo", "openpose", "diffusion_model"):
@@ -115,6 +133,40 @@ def collect_status(
     if not preflight.get("ok"):
         result["errors"].extend(str(item) for item in preflight.get("errors", []))
         return result
+
+    checkpoint_specs = (
+        (
+            "recon_model",
+            settings["repo"].rstrip("/") + "/checkpoints/recon_model.pth",
+            settings["recon_checkpoint_sha256"],
+        ),
+        (
+            "smplerx",
+            settings["repo"].rstrip("/") + "/checkpoints/save_smplerx.pth",
+            settings["smplerx_checkpoint_sha256"],
+        ),
+    )
+    for label, path, expected_sha256 in checkpoint_specs:
+        try:
+            checkpoint = digest_wsl_file(
+                distribution=settings["distribution"],
+                python=settings["python"],
+                path=path,
+                wsl_exe=wsl_exe,
+            )
+        except (OSError, WslFileDigestError) as exc:
+            result["errors"].append(f"SiTH {label} checkpoint digest could not complete: {exc}")
+            return result
+        matches = checkpoint["sha256"] == expected_sha256
+        result["checkpoints"][label] = {
+            "sha256": checkpoint["sha256"],
+            "byte_count": checkpoint["byte_count"],
+            "expected_sha256": expected_sha256,
+            "matches": matches,
+        }
+        if not matches:
+            result["errors"].append(f"SiTH {label} checkpoint digest mismatch")
+            return result
 
     try:
         binary = digest_wsl_file(
@@ -193,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--openpose")
     parser.add_argument("--openpose-sha256")
     parser.add_argument("--openpose-models-sha256")
+    parser.add_argument("--recon-checkpoint-sha256")
+    parser.add_argument("--smplerx-checkpoint-sha256")
     parser.add_argument("--diffusion-model")
     parser.add_argument("--diffusion-model-sha256")
     parser.add_argument("--wsl-exe", default="wsl.exe")
@@ -207,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
         openpose=args.openpose,
         openpose_sha256=args.openpose_sha256,
         openpose_models_sha256=args.openpose_models_sha256,
+        recon_checkpoint_sha256=args.recon_checkpoint_sha256,
+        smplerx_checkpoint_sha256=args.smplerx_checkpoint_sha256,
         diffusion_model=args.diffusion_model,
         diffusion_sha256=args.diffusion_model_sha256,
         wsl_exe=args.wsl_exe,
@@ -216,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     elif status["ready"]:
         device = (status.get("preflight") or {}).get("cuda_device") or "unknown CUDA device"
         model = status.get("diffusion_model") or {}
-        print(f"BodyRig SiTH status: READY | {device} | model {model.get('sha256', 'unknown')}")
+        print(f"BodyRig SiTH status: READY | {device} | checkpoints verified | model {model.get('sha256', 'unknown')}")
     else:
         print("BodyRig SiTH status: NOT READY", file=sys.stderr)
         for setting in status["missing_settings"]:
