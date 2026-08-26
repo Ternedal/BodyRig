@@ -29,7 +29,7 @@ def test_openpose_setup_pins_revision_and_cuda_build():
     assert "sudo" not in text.lower()
 
 
-def test_top_level_setup_binds_sith_openpose_binary_models_and_diffusion_report():
+def test_top_level_setup_binds_sith_checkpoints_openpose_binary_models_and_diffusion_report():
     text = (ROOT / "setup-high-fidelity-wsl.ps1").read_text(encoding="utf-8")
     assert SITH_REVISION in text
     assert OPENPOSE_REVISION in text
@@ -39,9 +39,14 @@ def test_top_level_setup_binds_sith_openpose_binary_models_and_diffusion_report(
     assert "bodyrig.wsl_file_digest" in text
     assert "bodyrig.wsl_tree_digest" in text
     assert '$OpenPoseModels = "$OpenPoseRepo/models"' in text
+    assert '$reconCheckpoint = "$SithInstallRoot/checkpoints/recon_model.pth"' in text
+    assert '$smplerxCheckpoint = "$SithInstallRoot/checkpoints/save_smplerx.pth"' in text
     assert '"-m", "bodyrig.sith_model"' in text
     assert 'format = "bodyrig-sith-setup"' in text
-    assert "version = 3" in text
+    assert "version = 4" in text
+    assert "checkpoints = [ordered]@{" in text
+    assert "sha256 = ([string]$reconCheckpointDigest.sha256).ToLowerInvariant()" in text
+    assert "sha256 = ([string]$smplerxCheckpointDigest.sha256).ToLowerInvariant()" in text
     assert "sha256 = ([string]$openPoseDigest.sha256).ToLowerInvariant()" in text
     assert "byte_count = [int64]$openPoseDigest.byte_count" in text
     assert "models_sha256 = ([string]$openPoseModelsDigest.sha256).ToLowerInvariant()" in text
@@ -52,15 +57,20 @@ def test_top_level_setup_binds_sith_openpose_binary_models_and_diffusion_report(
     assert "BODYRIG_SITH_OPENPOSE_REPO" in text
     assert "BODYRIG_SITH_OPENPOSE_SHA256" in text
     assert "BODYRIG_SITH_OPENPOSE_MODELS_SHA256" in text
+    assert "BODYRIG_SITH_RECON_CHECKPOINT_SHA256" in text
+    assert "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256" in text
 
 
-def test_setup_report_documentation_keeps_licensed_assets_explicit():
+def test_setup_report_documentation_keeps_licensed_assets_explicit_and_checkpoint_authority():
     text = (ROOT / "docs" / "HIGH_FIDELITY_SETUP.md").read_text(encoding="utf-8")
     assert "BodyRig never downloads, redistributes or embeds them in `.mrbody`" in text
     assert "setup-high-fidelity-wsl.ps1" in text
     assert "setup-report.json" in text
-    assert "`bodyrig-sith-setup` v3" in text
+    assert "`bodyrig-sith-setup` v4" in text
     assert "OpenPose executable bytes" in text
     assert "OpenPose model tree" in text
+    assert "recon_model.pth" in text
+    assert "save_smplerx.pth" in text
+    assert "point-of-use" in text
     assert OPENPOSE_REVISION in text
     assert SITH_REVISION in text
