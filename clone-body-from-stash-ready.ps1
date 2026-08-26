@@ -287,6 +287,7 @@ try {
         "-BodyId", $BodyId,
         "-BodyRigPython", $BodyRigPython,
         "-ApiKeyEnv", $ApiKeyEnv,
+        "-WslExe", $WslExe,
         "-MaxSources", [string]$MaxSources,
         "-SceneLimit", [string]$SceneLimit,
         "-MaxSegments", [string]$MaxSegments,
