@@ -99,7 +99,7 @@ Write-Host ""
 
 $recoveryScript = Join-Path $repoRoot "setup-recovery-windows.ps1"
 if (-not (Test-Path -LiteralPath $recoveryScript -PathType Leaf)) { throw "setup-recovery-windows.ps1 not found." }
-$recoveryArgs = @("-Root", $RecoveryRoot)
+$recoveryArgs = @("-Root", $RecoveryRoot, "-Distribution", $Distribution, "-WslExe", $WslExe)
 if (-not [string]::IsNullOrWhiteSpace($CondaExe)) { $recoveryArgs += @("-CondaExe", $CondaExe) }
 if (-not [string]::IsNullOrWhiteSpace($SmplModelPath)) { $recoveryArgs += @("-SmplModelPath", $SmplModelPath) }
 if ($RecreateRecoveryEnvironment) { $recoveryArgs += "-RecreateEnvironment" }
