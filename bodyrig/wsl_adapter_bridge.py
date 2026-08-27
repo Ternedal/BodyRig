@@ -30,7 +30,7 @@ FORBIDDEN_SHELLS = {
     "pwsh",
     "pwsh.exe",
 }
-_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]" )
 _UNC_RE = re.compile(r"^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$")
 
 
@@ -186,6 +186,37 @@ def _run_wsl_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _run_wsl_forward(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run WSL without giving descendants ownership of the caller's log handles.
+
+    The bridge is commonly launched with stdout/stderr redirected to a private
+    adapter.log. Passing those handles directly to wsl.exe lets WSL descendants
+    retain the Windows file handle after the immediate process exits, which can
+    make TemporaryDirectory cleanup fail with WinError 32. PIPE isolation keeps
+    ownership in this bridge process; communicate() drains both streams and does
+    not return until inherited pipe writers are closed.
+    """
+
+    completed = subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+        check=False,
+    )
+    if completed.stdout:
+        sys.stdout.write(completed.stdout)
+        sys.stdout.flush()
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+        sys.stderr.flush()
+    return completed
+
+
 def ensure_wsl_unc_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
     """Reuse or create a DrvFS mount for one Windows UNC share.
 
@@ -283,14 +314,7 @@ def main(argv: list[str] | None = None) -> int:
             linux_command=args.command,
             converter=converter,
         )
-        completed = subprocess.run(
-            invocation,
-            stdin=subprocess.DEVNULL,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
-            shell=False,
-            check=False,
-        )
+        completed = _run_wsl_forward(invocation)
     except (OSError, WslBridgeError) as exc:
         print(f"BodyRig WSL adapter bridge: {exc}", file=sys.stderr)
         return 1

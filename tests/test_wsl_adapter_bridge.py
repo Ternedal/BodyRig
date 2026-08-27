@@ -232,3 +232,34 @@ def test_bridge_rejects_converter_newline_injection():
             ["python", "adapter.py", "--bodyrig-output", r"C:\temp\output"],
             lambda _: "/mnt/c/output\nmalicious",
         )
+
+
+def test_wsl_forward_isolates_child_from_parent_log_handles(monkeypatch, capsys):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="child stdout\n",
+            stderr="child stderr\n",
+        )
+
+    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+
+    completed = bridge._run_wsl_forward(["wsl.exe", "-d", "Ubuntu-22.04", "--", "python", "adapter.py"])
+
+    assert completed.returncode == 0
+    assert len(calls) == 1
+    _, kwargs = calls[0]
+    assert kwargs["stdout"] is subprocess.PIPE
+    assert kwargs["stderr"] is subprocess.PIPE
+    assert kwargs["stdout"] is not bridge.sys.stdout
+    assert kwargs["stderr"] is not bridge.sys.stderr
+    assert kwargs["text"] is True
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
+    captured = capsys.readouterr()
+    assert captured.out == "child stdout\n"
+    assert captured.err == "child stderr\n"
