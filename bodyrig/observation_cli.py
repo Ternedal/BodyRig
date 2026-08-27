@@ -10,9 +10,9 @@ from .observation import (
     build_selection_manifest,
     load_stash_source_manifest,
     materialize_segments,
-    run_external_analyzer,
     select_observations,
 )
+from .observation_runner import run_external_analyzer
 
 CONFIG_FORMAT = "bodyrig-observation-analyzer-config"
 CONFIG_VERSION = 1
