@@ -17,15 +17,14 @@ def test_target_smoke_selects_canonical_python_commands() -> None:
     assert smoke._linux_python_from_command(["/usr/bin/openpose", "--display", "0"]) is None
 
 
-def test_target_smoke_reproduces_adapter_log_boundary_without_leaking_handle(monkeypatch) -> None:
+def test_target_smoke_proves_adapter_log_boundary_without_leaking_handle(monkeypatch) -> None:
     calls = []
-    ticks = iter((10.0, 11.25))
+    ticks = iter((10.0, 10.2))
 
     def fake_run(command, **kwargs):
         calls.append((list(command), dict(kwargs)))
         log = kwargs["stdout"]
-        log.write(b"bodyrig-wsl-log-smoke-parent\n")
-        log.write(b"bodyrig-wsl-log-smoke-descendant\n")
+        log.write(b"bodyrig-wsl-log-smoke\n")
         log.flush()
         return subprocess.CompletedProcess(command, 0)
 
@@ -39,11 +38,12 @@ def test_target_smoke_reproduces_adapter_log_boundary_without_leaking_handle(mon
         linux_command=["/home/bodyrig/recovery/venv/bin/python", "adapter.py"],
     )
 
-    assert elapsed == pytest.approx(1.25)
+    assert elapsed == pytest.approx(0.2)
     assert len(calls) == 1
     command, kwargs = calls[0]
     assert command[:3] == [smoke.sys.executable, "-m", "bodyrig.wsl_adapter_bridge"]
     assert command[-3] == "/home/bodyrig/recovery/venv/bin/python"
+    assert "bodyrig-wsl-log-smoke" in command[-1]
     assert kwargs["stderr"] is subprocess.STDOUT
     assert kwargs["close_fds"] is True
     assert kwargs["env"][smoke.SMOKE_CHILD_ENV] == "1"
