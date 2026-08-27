@@ -15,6 +15,7 @@ from .bridges.bodyprint_shape_adjust import (
     validate_adjustment_payload,
 )
 from .identity import validate_visual_identity
+from .logged_process import run_logged_process
 from .package import validate_bodyprint
 
 REQUEST_FORMAT = "bodyrig-avatar-fit-request"
@@ -32,6 +33,14 @@ class ExternalFitterError(ValueError):
 class ExternalFitterResult:
     fit: AvatarFitResult
     visual_identity: str
+
+
+def _read_log_tail(path: Path, limit: int = 4000) -> str:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    return raw[-limit:].decode("utf-8", errors="replace").strip()
 
 
 def build_external_fit_request(
@@ -214,20 +223,29 @@ def run_external_fitter(
             revision,
         ]
         try:
-            with log_path.open("wb") as log:
-                completed = subprocess.run(
-                    invoke,
-                    stdin=subprocess.DEVNULL,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    shell=False,
-                    check=False,
-                    timeout=timeout_seconds,
-                )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ExternalFitterError("external fitter process could not complete") from exc
+            completed = run_logged_process(
+                invoke,
+                log_path=log_path,
+                timeout_seconds=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            detail = _read_log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise ExternalFitterError(
+                f"external fitter timed out after {timeout_seconds} seconds{suffix}"
+            ) from exc
+        except OSError as exc:
+            detail = _read_log_tail(log_path)
+            suffix = f" | log tail: {detail}" if detail else ""
+            raise ExternalFitterError(
+                f"external fitter process could not complete: {exc}{suffix}"
+            ) from exc
         if completed.returncode != 0:
-            raise ExternalFitterError(f"external fitter process failed with exit code {completed.returncode}")
+            detail = _read_log_tail(log_path)
+            suffix = f": {detail}" if detail else ""
+            raise ExternalFitterError(
+                f"external fitter process failed with exit code {completed.returncode}{suffix}"
+            )
 
         return validate_external_fit_output(
             output_dir,
