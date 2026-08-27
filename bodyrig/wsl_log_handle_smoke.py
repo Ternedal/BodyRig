@@ -10,10 +10,7 @@ from typing import Sequence
 
 
 SMOKE_CHILD_ENV = "BODYRIG_WSL_LOG_HANDLE_SMOKE_CHILD"
-_PARENT_MARKER = "bodyrig-wsl-log-smoke-parent"
-_DESCENDANT_MARKER = "bodyrig-wsl-log-smoke-descendant"
-_DESCENDANT_SLEEP_SECONDS = 1.25
-_MINIMUM_DRAIN_SECONDS = 1.0
+_SMOKE_MARKER = "bodyrig-wsl-log-smoke"
 
 
 class WslLogHandleSmokeError(RuntimeError):
@@ -49,19 +46,24 @@ def run_target_wsl_log_handle_smoke(
     linux_command: Sequence[str],
     timeout_seconds: int = 20,
 ) -> float | None:
-    """Reproduce the adapter.log lifecycle on the actual Windows/WSL boundary.
+    """Prove adapter.log cleanup on the actual Windows/WSL boundary.
 
     The smoke launches a nested BodyRig WSL bridge whose stdout/stderr are
     redirected to a temporary adapter.log exactly like the expensive adapter
-    boundaries. The Linux parent deliberately exits while a descendant keeps
-    stdout open. The nested bridge must drain the descendant pipe before it
-    returns, after which Windows must allow adapter.log to be unlinked
-    immediately. No source media, GPU work, credentials or persistent evidence
-    are touched.
+    boundaries. The Linux interpreter emits one marker and exits normally. The
+    nested bridge must return successfully, BodyRig must be able to read the
+    marker, and Windows must allow adapter.log to be unlinked immediately.
 
+    Descendant-handle inheritance is intentionally covered by the dedicated
+    Windows regression test instead of being asserted here. A detached Linux
+    descendant is not guaranteed to keep writing through the original wsl.exe
+    client after its direct Linux parent exits, so requiring descendant output
+    would test undocumented WSL client behavior rather than BodyRig cleanup.
+
+    No source media, GPU work, credentials or persistent evidence are touched.
     Non-Python Linux commands are left alone because there is no authoritative
-    interpreter available to construct the parent/descendant probe. Canonical
-    BodyRig observation, identity and high-fidelity WSL adapters are Python-based.
+    interpreter available to construct the probe. Canonical BodyRig observation,
+    identity and high-fidelity WSL adapters are Python-based.
     """
 
     if not _is_windows():
@@ -77,18 +79,7 @@ def run_target_wsl_log_handle_smoke(
     if linux_python is None:
         return None
 
-    descendant_code = (
-        "import time; "
-        f"print({_DESCENDANT_MARKER!r}, flush=True); "
-        f"time.sleep({_DESCENDANT_SLEEP_SECONDS!r})"
-    )
-    parent_code = (
-        "import subprocess,sys; "
-        f"subprocess.Popen([sys.executable, '-c', {descendant_code!r}], "
-        "stdout=sys.stdout, stderr=sys.stderr, close_fds=False); "
-        f"print({_PARENT_MARKER!r}, flush=True)"
-    )
-
+    probe_code = f"print({_SMOKE_MARKER!r}, flush=True)"
     env = os.environ.copy()
     env[SMOKE_CHILD_ENV] = "1"
     nested_bridge = [
@@ -102,7 +93,7 @@ def run_target_wsl_log_handle_smoke(
         "--",
         linux_python,
         "-c",
-        parent_code,
+        probe_code,
     ]
 
     try:
@@ -133,12 +124,8 @@ def run_target_wsl_log_handle_smoke(
                 raise WslLogHandleSmokeError(
                     f"target WSL bridge smoke failed with exit code {completed.returncode}: {detail}"
                 )
-            if _PARENT_MARKER not in log_text or _DESCENDANT_MARKER not in log_text:
-                raise WslLogHandleSmokeError("target WSL bridge smoke did not receive both parent and descendant output")
-            if elapsed < _MINIMUM_DRAIN_SECONDS:
-                raise WslLogHandleSmokeError(
-                    "target WSL bridge returned before the descendant pipe writer closed"
-                )
+            if _SMOKE_MARKER not in log_text:
+                raise WslLogHandleSmokeError("target WSL bridge smoke did not receive probe output")
 
             try:
                 log_path.unlink()
