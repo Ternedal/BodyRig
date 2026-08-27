@@ -30,7 +30,7 @@ FORBIDDEN_SHELLS = {
     "pwsh",
     "pwsh.exe",
 }
-_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]" )
+_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _UNC_RE = re.compile(r"^\\\\([^\\]+)\\([^\\]+)(?:\\(.*))?$")
 
 
@@ -187,34 +187,44 @@ def _run_wsl_capture(command: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run_wsl_forward(command: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run WSL without giving descendants ownership of the caller's log handles.
+    """Stream WSL output without exposing the caller's log handles to descendants.
 
     The bridge is commonly launched with stdout/stderr redirected to a private
     adapter.log. Passing those handles directly to wsl.exe lets WSL descendants
     retain the Windows file handle after the immediate process exits, which can
-    make TemporaryDirectory cleanup fail with WinError 32. PIPE isolation keeps
-    ownership in this bridge process; communicate() drains both streams and does
-    not return until inherited pipe writers are closed.
+    make TemporaryDirectory cleanup fail with WinError 32.
+
+    A single merged pipe is deliberately used here. Only the bridge owns the
+    caller's stdout handle; WSL and every descendant see a pipe instead. Reading
+    incrementally avoids buffering hours of adapter output in memory, and EOF is
+    reached only after every inherited pipe writer has closed.
     """
 
-    completed = subprocess.run(
+    process = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         encoding="utf-8",
         errors="replace",
+        bufsize=1,
+        close_fds=True,
         shell=False,
-        check=False,
     )
-    if completed.stdout:
-        sys.stdout.write(completed.stdout)
-        sys.stdout.flush()
-    if completed.stderr:
-        sys.stderr.write(completed.stderr)
-        sys.stderr.flush()
-    return completed
+    if process.stdout is None:  # pragma: no cover - PIPE above guarantees this
+        raise WslBridgeError("WSL adapter bridge did not create an output pipe")
+    try:
+        while True:
+            chunk = process.stdout.read(65536)
+            if not chunk:
+                break
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+    finally:
+        process.stdout.close()
+    returncode = process.wait()
+    return subprocess.CompletedProcess(command, returncode)
 
 
 def ensure_wsl_unc_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
