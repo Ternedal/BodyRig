@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import subprocess
 
 import pytest
@@ -234,19 +235,21 @@ def test_bridge_rejects_converter_newline_injection():
         )
 
 
-def test_wsl_forward_isolates_child_from_parent_log_handles(monkeypatch, capsys):
+def test_wsl_forward_streams_through_pipe_without_parent_log_handle_inheritance(monkeypatch, capsys):
     calls = []
 
-    def fake_run(command, **kwargs):
-        calls.append((list(command), dict(kwargs)))
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout="child stdout\n",
-            stderr="child stderr\n",
-        )
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = io.StringIO("child stdout\nchild stderr\n")
 
-    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return FakeProcess()
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", fake_popen)
 
     completed = bridge._run_wsl_forward(["wsl.exe", "-d", "Ubuntu-22.04", "--", "python", "adapter.py"])
 
@@ -254,12 +257,13 @@ def test_wsl_forward_isolates_child_from_parent_log_handles(monkeypatch, capsys)
     assert len(calls) == 1
     _, kwargs = calls[0]
     assert kwargs["stdout"] is subprocess.PIPE
-    assert kwargs["stderr"] is subprocess.PIPE
+    assert kwargs["stderr"] is subprocess.STDOUT
     assert kwargs["stdout"] is not bridge.sys.stdout
     assert kwargs["stderr"] is not bridge.sys.stderr
     assert kwargs["text"] is True
     assert kwargs["encoding"] == "utf-8"
     assert kwargs["errors"] == "replace"
+    assert kwargs["close_fds"] is True
     captured = capsys.readouterr()
-    assert captured.out == "child stdout\n"
-    assert captured.err == "child stderr\n"
+    assert captured.out == "child stdout\nchild stderr\n"
+    assert captured.err == ""
