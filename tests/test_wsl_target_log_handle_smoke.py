@@ -29,7 +29,7 @@ def test_target_smoke_reproduces_adapter_log_boundary_without_leaking_handle(mon
         log.flush()
         return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr(smoke.os, "name", "nt")
+    monkeypatch.setattr(smoke, "_is_windows", lambda: True)
     monkeypatch.setattr(smoke.time, "monotonic", lambda: next(ticks))
     monkeypatch.setattr(smoke.subprocess, "run", fake_run)
 
