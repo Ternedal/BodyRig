@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .identity import VisualIdentityError, bind_visual_identity_to_proof
+from .logged_process import run_logged_process
 
 ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
@@ -102,16 +103,11 @@ def run_identity_capture(
                 invoke.extend(("--bodyrig-source", str(source)))
 
             try:
-                with log_path.open("wb") as log:
-                    completed = subprocess.run(
-                        invoke,
-                        stdin=subprocess.DEVNULL,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        shell=False,
-                        check=False,
-                        timeout=timeout_seconds,
-                    )
+                completed = run_logged_process(
+                    invoke,
+                    log_path=log_path,
+                    timeout_seconds=timeout_seconds,
+                )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise IdentityCaptureError("identity capture process could not complete") from exc
             if completed.returncode != 0:
