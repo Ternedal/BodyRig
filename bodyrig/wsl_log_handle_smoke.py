@@ -20,6 +20,10 @@ class WslLogHandleSmokeError(RuntimeError):
     pass
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def _command_name(value: str) -> str:
     normalized = value.replace("\\", "/").rstrip("/")
     return normalized.rsplit("/", 1)[-1].lower()
@@ -60,7 +64,7 @@ def run_target_wsl_log_handle_smoke(
     BodyRig observation, identity and high-fidelity WSL adapters are Python-based.
     """
 
-    if os.name != "nt":
+    if not _is_windows():
         return None
     if not isinstance(wsl_exe, str) or not wsl_exe.strip():
         raise WslLogHandleSmokeError("WSL executable is required for target log-handle smoke")
