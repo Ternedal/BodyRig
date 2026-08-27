@@ -9,6 +9,12 @@ import subprocess
 import sys
 from typing import Callable, Sequence
 
+from bodyrig.wsl_log_handle_smoke import (
+    SMOKE_CHILD_ENV,
+    WslLogHandleSmokeError,
+    run_target_wsl_log_handle_smoke,
+)
+
 PATH_FLAGS = {
     "--bodyrig-request",
     "--bodyrig-workspace",
@@ -317,15 +323,22 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         distribution = args.distribution.strip()
+        command = validate_linux_command(args.command)
+        if os.environ.get(SMOKE_CHILD_ENV) != "1":
+            run_target_wsl_log_handle_smoke(
+                wsl_exe=args.wsl_exe,
+                distribution=distribution,
+                linux_command=command,
+            )
         converter = make_wsl_path_converter(args.wsl_exe, distribution)
         invocation = build_wsl_invocation(
             wsl_exe=args.wsl_exe,
             distribution=distribution,
-            linux_command=args.command,
+            linux_command=command,
             converter=converter,
         )
         completed = _run_wsl_forward(invocation)
-    except (OSError, WslBridgeError) as exc:
+    except (OSError, WslBridgeError, WslLogHandleSmokeError) as exc:
         print(f"BodyRig WSL adapter bridge: {exc}", file=sys.stderr)
         return 1
     return int(completed.returncode)
