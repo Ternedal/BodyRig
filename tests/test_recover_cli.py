@@ -102,6 +102,7 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
     assert kwargs["text"] is True
     assert kwargs["encoding"] == "utf-8"
     assert kwargs["errors"] == "replace"
+    assert "timeout" not in kwargs
     assert command[:5] == [
         r"C:\Windows\System32\wsl.exe",
         "-d",
