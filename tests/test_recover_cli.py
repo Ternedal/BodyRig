@@ -31,7 +31,7 @@ def test_multiple_tracks_require_explicit_selection():
 
 
 def test_explicit_track_selection():
-    selected = _select_track(result(track("s00-t1"), track("s00-t2")), "s00-t2")
+    selected = _select_track(result(track("s00-t1"), track("s00-t2")), "s00-t2"
     assert selected.track_id == "s00-t2"
 
 
@@ -98,7 +98,10 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
     assert recovered.adapter == ADAPTER_NAME
     assert recovered.revision == ADAPTER_REVISION
     assert len(calls) == 1
-    command = calls[0][0]
+    command, kwargs = calls[0]
+    assert kwargs["text"] is True
+    assert kwargs["encoding"] == "utf-8"
+    assert kwargs["errors"] == "replace"
     assert command[:5] == [
         r"C:\Windows\System32\wsl.exe",
         "-d",
