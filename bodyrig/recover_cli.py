@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--phalp-repo",
         default="",
-        help="Pinned PHALP checkout. WSL recovery requires this explicitly",
+        help="Pinned PHALP checkout. WSL recovery requires this explicitly.",
     )
     parser.add_argument("--distribution", default="", help="Optional WSL distribution containing the recovery runtime")
     parser.add_argument("--wsl-exe", default="wsl.exe")
