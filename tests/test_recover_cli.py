@@ -31,7 +31,7 @@ def test_multiple_tracks_require_explicit_selection():
 
 
 def test_explicit_track_selection():
-    selected = _select_track(result(track("s00-t1"), track("s00-t2")), "s00-t2"
+    selected = _select_track(result(track("s00-t1"), track("s00-t2")), "s00-t2")
     assert selected.track_id == "s00-t2"
 
 
