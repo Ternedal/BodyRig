@@ -85,6 +85,8 @@ def _recover_wsl(
             command,
             input=json.dumps(request),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=3600,
