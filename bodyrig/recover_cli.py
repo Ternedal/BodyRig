@@ -81,6 +81,9 @@ def _recover_wsl(
         phalp_repo,
     ]
     try:
+        # Recovery processes up to ten selected segments sequentially. Runtime is
+        # hardware- and source-dependent, so do not impose an arbitrary wall-clock
+        # deadline here. The operator/caller remains the cancellation authority.
         completed = subprocess.run(
             command,
             input=json.dumps(request),
@@ -89,10 +92,9 @@ def _recover_wsl(
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=3600,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OSError as exc:
         raise RecoveryError("WSL recovery adapter failed to execute") from exc
     if completed.returncode != 0:
         raise RecoveryError(
