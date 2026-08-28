@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from statistics import median
 
@@ -142,6 +143,43 @@ def _proof_track_id(tracks: tuple[RecoveredTrack, ...]) -> str:
     return "aggregate-" + hashlib.sha256(authority).hexdigest()[:24]
 
 
+def _run_wsl_file_capture(command: list[str], request: dict) -> tuple[int, str, str]:
+    """Run WSL without Python-managed stdio pipes.
+
+    WSL descendants can inherit pipe handles beyond the lifetime of wsl.exe.
+    `subprocess.run(..., PIPE)` then waits for EOF even after the process handle
+    has signalled. Seekable temporary files keep process completion tied to the
+    wsl.exe handle while preserving full stdout/stderr capture for proof/error
+    handling.
+    """
+
+    request_bytes = json.dumps(request).encode("utf-8")
+    with (
+        tempfile.TemporaryFile(mode="w+b") as stdin_file,
+        tempfile.TemporaryFile(mode="w+b") as stdout_file,
+        tempfile.TemporaryFile(mode="w+b") as stderr_file,
+    ):
+        stdin_file.write(request_bytes)
+        stdin_file.flush()
+        stdin_file.seek(0)
+
+        completed = subprocess.run(
+            command,
+            stdin=stdin_file,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            check=False,
+        )
+
+        stdout_file.flush()
+        stderr_file.flush()
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read().decode("utf-8", errors="replace")
+        stderr = stderr_file.read().decode("utf-8", errors="replace")
+        return completed.returncode, stdout, stderr
+
+
 def _recover_wsl(
     *,
     sources: list[Path],
@@ -189,24 +227,15 @@ def _recover_wsl(
         # Recovery processes up to ten selected segments sequentially. Runtime is
         # hardware- and source-dependent, so do not impose an arbitrary wall-clock
         # deadline here. The operator/caller remains the cancellation authority.
-        completed = subprocess.run(
-            command,
-            input=json.dumps(request),
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
+        returncode, stdout, stderr = _run_wsl_file_capture(command, request)
     except OSError as exc:
         raise RecoveryError("WSL recovery adapter failed to execute") from exc
-    if completed.returncode != 0:
+    if returncode != 0:
         raise RecoveryError(
-            f"WSL recovery adapter exited {completed.returncode}: {completed.stderr.strip()[-2000:]}"
+            f"WSL recovery adapter exited {returncode}: {stderr.strip()[-2000:]}"
         )
     try:
-        payload = json.loads(completed.stdout)
+        payload = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise RecoveryError("WSL recovery adapter returned invalid JSON") from exc
     result = parse_recovery_result(payload, expected_adapter=ADAPTER_NAME)
@@ -225,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--phalp-repo",
         default="",
-        help="Pinned PHALP checkout. WSL recovery requires this explicitly.",
+        help="Pinned PHALP checkout. WSL recovery requires this explicitly",
     )
     parser.add_argument("--distribution", default="", help="Optional WSL distribution containing the recovery runtime")
     parser.add_argument("--wsl-exe", default="wsl.exe")
