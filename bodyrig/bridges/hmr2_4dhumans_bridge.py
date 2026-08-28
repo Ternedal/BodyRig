@@ -35,6 +35,21 @@ PHALP_SMPL_SOURCE_HASH_FILENAME = ".bodyrig-source-sha256"
 WSL_CUDA_DRIVER_LIB = Path("/usr/lib/wsl/lib")
 CUDA_TOOLKIT_LIB = Path("/usr/local/cuda-11.7/lib64")
 
+# PHALP's pinned tracker always initializes a second Detectron2 RPN model even
+# though that model is only used when frames carry ground-truth boxes. BodyRig's
+# recovery inputs are ordinary MP4 observation segments, for which PHALP's IO
+# manager leaves additional_data empty. Patch only that unused initializer at
+# process start so the large detector_x model never occupies GPU memory. The
+# authoritative PHALP and 4D-Humans checkouts remain byte-for-byte untouched.
+_PHALP_MP4_LOW_VRAM_LAUNCHER = (
+    "import runpy,sys;"
+    "from phalp.trackers.PHALP import PHALP;"
+    "track_path=sys.argv[1];"
+    "PHALP.setup_detectron2_with_RPN=lambda self:setattr(self,'detector_x',None);"
+    "sys.argv=[track_path,*sys.argv[2:]];"
+    "runpy.run_path(track_path,run_name='__main__')"
+)
+
 
 def _git_blob_sha1_bytes(data: bytes) -> str:
     header = f"blob {len(data)}\0".encode("ascii")
@@ -109,9 +124,9 @@ def _verify_nmr_install() -> None:
     vcs_info = direct.get("vcs_info")
     commit = vcs_info.get("commit_id") if isinstance(vcs_info, dict) else None
     if not isinstance(url, str) or _normalize_git_url(url) != _normalize_git_url(NMR_REMOTE):
-        raise RuntimeError(f"neural-renderer source must be {NMR_REMOTE}; got {url!r}")
+        raise RuntimeError(f"neural_renderer source must be {NMR_REMOTE}; got {url!r}")
     if commit != NMR_REVISION:
-        raise RuntimeError(f"neural-renderer must be pinned to {NMR_REVISION}; got {commit!r}")
+        raise RuntimeError(f"neural_renderer must be pinned to {NMR_REVISION}; got {commit!r}")
 
 
 def _torch_lib_dir() -> Path:
@@ -351,6 +366,25 @@ def _verify_phalp_install(expected_repo: Path) -> None:
         raise RuntimeError("PHALP tracker source does not match the pinned BodyRig revision")
 
 
+def _track_command(repo: Path, source: Path, output_dir: Path) -> list[str]:
+    track_script = str(repo / "track.py")
+    overrides = [
+        f"video.source={_quoted_hydra_path(source)}",
+        f"video.output_dir={_quoted_hydra_path(output_dir)}",
+        "render.enable=false",
+        "overwrite=true",
+    ]
+    if source.suffix.lower() == ".mp4":
+        return [
+            sys.executable,
+            "-c",
+            _PHALP_MP4_LOW_VRAM_LAUNCHER,
+            track_script,
+            *overrides,
+        ]
+    return [sys.executable, track_script, *overrides]
+
+
 def _run_source(repo: Path, source: Path, source_index: int, loader_env: dict[str, str]) -> list[dict]:
     try:
         import joblib
@@ -358,14 +392,12 @@ def _run_source(repo: Path, source: Path, source_index: int, loader_env: dict[st
         raise RuntimeError("joblib is required in the 4D-Humans environment") from exc
     with tempfile.TemporaryDirectory(prefix="bodyrig-4dh-") as temp_dir_raw:
         output_dir = Path(temp_dir_raw) / "output"
-        command = [
-            sys.executable,
-            str(repo / "track.py"),
-            f"video.source={_quoted_hydra_path(source)}",
-            f"video.output_dir={_quoted_hydra_path(output_dir)}",
-            "render.enable=false",
-            "overwrite=true",
-        ]
+        command = _track_command(repo, source, output_dir)
+        if source.suffix.lower() == ".mp4":
+            print(
+                "BodyRig recovery VRAM: skipped unused PHALP ground-truth RPN detector",
+                file=sys.stderr,
+            )
         completed = subprocess.run(
             command,
             cwd=repo,
