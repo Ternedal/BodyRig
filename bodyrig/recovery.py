@@ -120,7 +120,16 @@ class JsonCommandRecoveryAdapter:
             raise RecoveryError("BodyRig V1 accepts 1..10 source clips")
         request = {"format": "bodyrig-recovery-request", "version": 1, "sources": [str(path.resolve()) for path in sources]}
         try:
-            completed = subprocess.run(self.command, input=json.dumps(request), text=True, capture_output=True, timeout=self.timeout_seconds, check=False)
+            completed = subprocess.run(
+                self.command,
+                input=json.dumps(request),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=self.timeout_seconds,
+                check=False,
+            )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise RecoveryError("recovery adapter failed to execute") from exc
         if completed.returncode != 0:
