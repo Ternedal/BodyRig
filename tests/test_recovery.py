@@ -1,5 +1,15 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
-from bodyrig.recovery import BodyprintExtractor, RecoveryError, parse_recovery_result
+from bodyrig.recovery import (
+    BodyprintExtractor,
+    JsonCommandRecoveryAdapter,
+    RecoveryError,
+    parse_recovery_result,
+)
 
 
 def frame(ts, shift=0.0):
@@ -27,3 +37,49 @@ def test_out_of_order_time_rejected():
 
 def test_adapter_identity_pinned():
     with pytest.raises(RecoveryError,match="identity mismatch"): parse_recovery_result(payload([frame(0),frame(100)]),expected_adapter="hmr2")
+
+
+def test_json_command_adapter_pins_utf8_decoding(monkeypatch):
+    captured = {}
+    expected = payload([frame(0), frame(100)])
+
+    def fake_run(command, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(expected),
+            stderr="",
+        )
+
+    monkeypatch.setattr("bodyrig.recovery.subprocess.run", fake_run)
+    adapter = JsonCommandRecoveryAdapter(
+        ["fixture-command"],
+        name="fixture",
+        revision="fixture-v1",
+    )
+    adapter.recover([Path("source.mp4")])
+
+    assert captured["text"] is True
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
+def test_json_command_adapter_handles_cp1252_undefined_utf8_byte_sequence():
+    # U+0081 encodes to UTF-8 bytes C2 81. Byte 0x81 is undefined in Windows
+    # cp1252, matching the class of failure seen in the physical WSL recovery.
+    revision = "fixture-\u0081"
+    expected = payload([frame(0), frame(100)])
+    expected["revision"] = revision
+    raw = json.dumps(expected, ensure_ascii=False).encode("utf-8")
+    script = "import sys; sys.stdout.buffer.write(" + repr(raw) + ")"
+
+    adapter = JsonCommandRecoveryAdapter(
+        [sys.executable, "-c", script],
+        name="fixture",
+        revision=revision,
+        timeout_seconds=10,
+    )
+    result = adapter.recover([Path("source.mp4")])
+
+    assert result.revision == revision
