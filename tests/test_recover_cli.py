@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -61,7 +63,7 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
 
     def fake_run(command, **kwargs):
         calls.append((list(command), kwargs))
-        request = json.loads(kwargs["input"])
+        request = json.loads(kwargs["stdin"].read().decode("utf-8"))
         assert request == {
             "format": "bodyrig-recovery-request",
             "version": 1,
@@ -82,7 +84,9 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
                 }
             ],
         }
-        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload), stderr="")
+        kwargs["stdout"].write(json.dumps(payload).encode("utf-8"))
+        kwargs["stderr"].write(b"diagnostic \x81 byte")
+        return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(recover_cli.subprocess, "run", fake_run)
 
@@ -99,10 +103,14 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
     assert recovered.revision == ADAPTER_REVISION
     assert len(calls) == 1
     command, kwargs = calls[0]
-    assert kwargs["text"] is True
-    assert kwargs["encoding"] == "utf-8"
-    assert kwargs["errors"] == "replace"
+    assert "input" not in kwargs
+    assert "text" not in kwargs
+    assert "encoding" not in kwargs
+    assert "errors" not in kwargs
     assert "timeout" not in kwargs
+    assert kwargs["stdin"] is not subprocess.PIPE
+    assert kwargs["stdout"] is not subprocess.PIPE
+    assert kwargs["stderr"] is not subprocess.PIPE
     assert command[:5] == [
         r"C:\Windows\System32\wsl.exe",
         "-d",
@@ -118,6 +126,47 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
         "/home/anders/.local/share/bodyrig/recovery/PHALP",
     ]
     assert len(conversions) == 2
+
+
+def test_wsl_file_capture_replaces_malformed_utf8_in_stderr(monkeypatch):
+    def fake_run(command, **kwargs):
+        kwargs["stderr"].write(b"bad:\x81tail")
+        return subprocess.CompletedProcess(command, 9)
+
+    monkeypatch.setattr(recover_cli.subprocess, "run", fake_run)
+
+    returncode, stdout, stderr = recover_cli._run_wsl_file_capture(
+        ["wsl.exe", "--fake"],
+        {"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+    )
+
+    assert returncode == 9
+    assert stdout == ""
+    assert stderr == "bad:\ufffdtail"
+
+
+def test_wsl_file_capture_does_not_wait_for_descendant_stdio_eof(tmp_path):
+    child = tmp_path / "child.py"
+    child.write_text(
+        "import json, subprocess, sys\n"
+        "json.load(sys.stdin)\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(4)'])\n"
+        "sys.stdout.write('parent-exited')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    returncode, stdout, stderr = recover_cli._run_wsl_file_capture(
+        [sys.executable, str(child)],
+        {"hello": "world"},
+    )
+    elapsed = time.monotonic() - started
+
+    assert returncode == 0
+    assert stdout == "parent-exited"
+    assert stderr == ""
+    assert elapsed < 2.5
 
 
 def test_wsl_recovery_rejects_windows_recovery_authority_paths():
