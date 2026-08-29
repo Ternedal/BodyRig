@@ -88,7 +88,7 @@ def test_wsl_recovery_uses_in_wsl_file_protocol_and_no_windows_output_handles(mo
             assert request == {
                 "format": "bodyrig-recovery-request",
                 "version": 1,
-                "sources": [str(Path(r"C:\BodyRig\segment-01.mp4").resolve())],
+                "sources": [str(Path(r"C:\BodyRig\segment-01.mp4"))],
             }
             stdout_path.write_text(json.dumps(_payload()), encoding="utf-8")
             stderr_path.write_bytes(b"diagnostic \x81 byte")
