@@ -9,6 +9,7 @@ builder serializes the mesh.
 from __future__ import annotations
 
 import math
+import sys
 from typing import Any
 
 import sith_smplx_vrm_fitter as base
@@ -16,6 +17,15 @@ from bodyprint_shape_adjust import (
     BodyprintAdjustmentError,
     apply_shape_adjustment,
     validate_adjustment_payload,
+)
+from sith_anatomy_guard import (
+    ANATOMY_GUARD_THRESHOLD,
+    LIMB_REGIONS,
+    MAX_GUARD_DISTANCE_RATIO,
+    MAX_GUARD_DISTANCE_SCALE,
+    MAX_GUARD_EXTRA_SCALE,
+    classify_strong_limb_regions,
+    forbidden_joint_indices,
 )
 
 _CURRENT_ADJUSTMENT: dict[str, Any] | None = None
@@ -129,6 +139,18 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         if float(delta.max().item()) > 0.005 or float(torch.sqrt(torch.mean(delta * delta)).item()) > 0.001:
             raise base.FitterError("SiTH fit parameters do not numerically reproduce the fitted SMPL-X OBJ")
 
+        posed_joint_tensor = output.joints[0][: len(base.SMPLX_JOINT_NAMES)] * scale
+        joint_positions = posed_joint_tensor.detach().cpu().tolist()
+        try:
+            target_regions, body_scale = classify_strong_limb_regions(
+                reco_positions_list,
+                joint_positions,
+                parents,
+                base.SMPLX_JOINT_NAMES,
+            )
+        except ValueError as exc:
+            raise base.FitterError(f"SMPL-X anatomy guard setup failed: {exc}") from exc
+
         shape_components = torch.cat([betas, expression], dim=-1)
         shapedirs = torch.cat([model.shapedirs, model.expr_dirs], dim=-1)
         v_shaped = model.v_template + blend_shapes(shape_components, shapedirs)
@@ -153,16 +175,73 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         reco = torch.tensor(reco_obj, dtype=torch.float32, device=device)
         donor = posed_model
         weights = model.lbs_weights
+        compatible_indices: dict[str, Any] = {}
+        forbidden_mass: dict[str, Any] = {}
+        for region in LIMB_REGIONS:
+            indices = forbidden_joint_indices(base.SMPLX_JOINT_NAMES, region)
+            if not indices:
+                raise base.FitterError(f"SMPL-X anatomy guard has no forbidden joints for {region}")
+            mass = weights[:, list(indices)].sum(dim=1)
+            candidates = torch.nonzero(mass <= ANATOMY_GUARD_THRESHOLD, as_tuple=False).flatten()
+            if int(candidates.numel()) == 0:
+                raise base.FitterError(f"SMPL-X anatomy guard has no compatible donors for {region}")
+            forbidden_mass[region] = mass
+            compatible_indices[region] = candidates
+
         rest_chunks: list[Any] = []
         joint_chunks: list[Any] = []
         weight_chunks: list[Any] = []
         nearest_distances: list[Any] = []
+        guarded_extras: list[Any] = []
+        guarded_distances: list[Any] = []
+        guarded_vertex_count = 0
         chunk_size = 768
         for start in range(0, int(reco.shape[0]), chunk_size):
             chunk = reco[start:start + chunk_size]
             distances = torch.cdist(chunk.unsqueeze(0), donor.unsqueeze(0)).squeeze(0)
-            nearest_distance, nearest = torch.min(distances, dim=1)
-            nearest_distances.append(nearest_distance.detach().cpu())
+            default_distance, nearest = torch.min(distances, dim=1)
+            selected_distance = default_distance.clone()
+            local_regions = target_regions[start:start + len(chunk)]
+
+            for region in LIMB_REGIONS:
+                local_rows = [index for index, candidate in enumerate(local_regions) if candidate == region]
+                if not local_rows:
+                    continue
+                region_rows = torch.tensor(local_rows, dtype=torch.long, device=device)
+                default_donors = nearest[region_rows]
+                needs_guard = forbidden_mass[region][default_donors] > ANATOMY_GUARD_THRESHOLD
+                guard_rows = region_rows[needs_guard]
+                if int(guard_rows.numel()) == 0:
+                    continue
+
+                candidates = compatible_indices[region]
+                candidate_distances = distances[guard_rows][:, candidates]
+                replacement_distance, replacement_local = torch.min(candidate_distances, dim=1)
+                replacement_donor = candidates[replacement_local]
+                original_distance = default_distance[guard_rows]
+                extra = replacement_distance - original_distance
+                absolute_limit = body_scale * MAX_GUARD_DISTANCE_SCALE
+                excessive = (
+                    (extra > body_scale * MAX_GUARD_EXTRA_SCALE)
+                    & (replacement_distance > original_distance * MAX_GUARD_DISTANCE_RATIO)
+                    & (replacement_distance > absolute_limit)
+                )
+                if bool(torch.any(excessive).item()):
+                    worst = int(torch.argmax(extra).item())
+                    raise base.FitterError(
+                        "SMPL-X anatomy guard compatible donor is implausibly far "
+                        f"for {region} (default={float(original_distance[worst].item()):.4f}, "
+                        f"guarded={float(replacement_distance[worst].item()):.4f}, "
+                        f"body_scale={body_scale:.4f})"
+                    )
+
+                nearest[guard_rows] = replacement_donor
+                selected_distance[guard_rows] = replacement_distance
+                guarded_vertex_count += int(guard_rows.numel())
+                guarded_extras.append(extra.detach().cpu())
+                guarded_distances.append(replacement_distance.detach().cpu())
+
+            nearest_distances.append(selected_distance.detach().cpu())
             full_weights = weights[nearest]
             transform = torch.matmul(full_weights, transforms[0].reshape(len(base.SMPLX_JOINT_NAMES), 16)).view(-1, 4, 4)
             model_space = chunk / scale - transl[0]
@@ -195,6 +274,17 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
                 f"SiTH mesh is too far from the fitted SMPL-X surface (p95={nearest_p95:.4f}, max={nearest_max:.4f})"
             )
 
+        if guarded_vertex_count:
+            guarded_extra_all = torch.cat(guarded_extras).numpy()
+            guarded_distance_all = torch.cat(guarded_distances).numpy()
+            guarded_extra_p95 = float(np.quantile(guarded_extra_all, 0.95))
+            guarded_extra_max = float(np.max(guarded_extra_all))
+            guarded_distance_max = float(np.max(guarded_distance_all))
+        else:
+            guarded_extra_p95 = 0.0
+            guarded_extra_max = 0.0
+            guarded_distance_max = 0.0
+
     rest_joints_np = rest_joints[0].detach().cpu().numpy()
     adjustment_metrics: dict[str, float] = {"max_joint_delta": 0.0}
     if _CURRENT_ADJUSTMENT is not None:
@@ -215,7 +305,19 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         "nearest_p95": nearest_p95,
         "nearest_max": nearest_max,
         "adjustment_max_joint_delta": float(adjustment_metrics.get("max_joint_delta", 0.0)),
+        "anatomy_guarded_vertex_count": float(guarded_vertex_count),
+        "anatomy_guard_extra_p95": guarded_extra_p95,
+        "anatomy_guard_extra_max": guarded_extra_max,
+        "anatomy_guard_distance_max": guarded_distance_max,
     }
+    print(
+        "BodyRig anatomy guard: "
+        f"guarded={guarded_vertex_count} "
+        f"extra_p95={guarded_extra_p95:.6f} "
+        f"extra_max={guarded_extra_max:.6f} "
+        f"guarded_distance_max={guarded_distance_max:.6f}",
+        file=sys.stderr,
+    )
     texture = paths["texture"].read_bytes()
     return (*base._build_vrm(
         np=np,
