@@ -10,6 +10,7 @@ from typing import Sequence
 from .sith_input import SithInputError, stage_sith_input
 from .sith_prepare import SithPrepareError, prepare_sith_input
 from .sith_reconstruct import DEFAULT_SEED, SithReconstructError, reconstruct_sith
+from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_file_digest import WslFileDigestError, digest_wsl_file
 
 ADAPTER = "sith-smplx-vrm"
@@ -39,15 +40,9 @@ def _run(command: Sequence[str], *, timeout: int = 86_400) -> subprocess.Complet
 def _wsl_path(path: str | Path, *, distribution: str, wsl_exe: str) -> str:
     source = str(Path(path).expanduser().resolve())
     try:
-        completed = _run(
-            [wsl_exe, "-d", distribution, "--", "wslpath", "-a", source],
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise SithFitterOrchestratorError("WSL path translation could not complete") from exc
-    if completed.returncode != 0:
-        raise SithFitterOrchestratorError("WSL path translation failed")
-    value = completed.stdout.strip()
+        value = make_wsl_path_converter(wsl_exe, distribution)(source)
+    except (OSError, WslBridgeError) as exc:
+        raise SithFitterOrchestratorError(f"WSL path translation failed: {exc}") from exc
     if not value.startswith("/") or "\n" in value or "\r" in value:
         raise SithFitterOrchestratorError("WSL path translation returned an invalid Linux path")
     return value
