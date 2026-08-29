@@ -18,6 +18,7 @@ from .sith_model import SithModelError, digest_model_tree
 from .sith_preflight import PINNED_BLOBS, SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISION
 from .sith_prepare import SithPrepareError, load_stage, validate_openpose_result
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+from .wsl_process import run_wsl_file_capture
 
 FORMAT = "bodyrig-sith-reconstruction"
 VERSION = 1
@@ -48,7 +49,7 @@ def _run_wsl(*, wsl_exe: str, distribution: str, command: Sequence[str], cwd: st
     if cwd is not None:
         invocation.extend(("--cd", cwd))
     invocation.extend(("--", *command))
-    return subprocess.run(invocation, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=False, check=False, timeout=timeout)
+    return run_wsl_file_capture(invocation, timeout=timeout)
 
 
 def _checked_wsl(*, wsl_exe: str, distribution: str, command: Sequence[str], label: str, cwd: str | None = None, timeout: int = 86_400) -> str:
