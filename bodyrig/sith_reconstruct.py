@@ -17,6 +17,7 @@ from typing import Any, Sequence
 from .sith_model import SithModelError, digest_model_tree
 from .sith_preflight import PINNED_BLOBS, SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISION
 from .sith_prepare import SithPrepareError, load_stage, validate_openpose_result
+from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 FORMAT = "bodyrig-sith-reconstruction"
 VERSION = 1
@@ -93,7 +94,10 @@ def _read_json(path: Path, *, label: str) -> tuple[bytes, dict[str, Any]]:
 
 
 def _linux_path(path: Path, *, wsl_exe: str, distribution: str) -> str:
-    value = _checked_wsl(wsl_exe=wsl_exe, distribution=distribution, command=["wslpath", "-a", str(path)], label="WSL path translation", timeout=30).strip()
+    try:
+        value = make_wsl_path_converter(wsl_exe, distribution)(str(path))
+    except (OSError, WslBridgeError) as exc:
+        raise SithReconstructError(f"WSL path translation failed: {exc}") from exc
     if not value.startswith("/") or "\n" in value or "\r" in value:
         raise SithReconstructError("wslpath returned an invalid absolute Linux path")
     return value
