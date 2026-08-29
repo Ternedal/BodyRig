@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -21,6 +19,24 @@ def track(name, count=2):
 
 def result(*tracks):
     return RecoveryResult(tracks=tracks, adapter="fixture", revision="v1")
+
+
+def _payload():
+    return {
+        "format": "bodyrig-recovery",
+        "version": 1,
+        "adapter": ADAPTER_NAME,
+        "revision": ADAPTER_REVISION,
+        "tracks": [
+            {
+                "track_id": "s00-t1",
+                "frames": [
+                    {"timestamp_ms": 0, "joints": {"head": [0.0, 1.0, 0.0]}},
+                    {"timestamp_ms": 40, "joints": {"head": [0.0, 1.0, 0.0]}},
+                ],
+            }
+        ],
+    }
 
 
 def test_single_track_auto_selects():
@@ -42,16 +58,15 @@ def test_unknown_track_reports_candidates():
         _select_track(result(track("s00-t1")), "missing")
 
 
-def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monkeypatch):
+def test_wsl_recovery_uses_in_wsl_file_protocol_and_no_windows_output_handles(monkeypatch, tmp_path):
     conversions = []
+    staging = tmp_path / "stage"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
 
     def fake_converter(value: str) -> str:
         conversions.append(value)
-        if value.endswith("hmr2_4dhumans_bridge.py"):
-            return "/mnt/c/bodyrig/hmr2_4dhumans_bridge.py"
-        if value.endswith("segment-01.mp4"):
-            return "/mnt/c/bodyrig/segment-01.mp4"
-        raise AssertionError(f"unexpected path conversion: {value}")
+        return value
 
     monkeypatch.setattr(
         recover_cli,
@@ -61,34 +76,37 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
 
     calls = []
 
-    def fake_run(command, **kwargs):
-        calls.append((list(command), kwargs))
-        request = json.loads(kwargs["stdin"].read().decode("utf-8"))
-        assert request == {
-            "format": "bodyrig-recovery-request",
-            "version": 1,
-            "sources": ["/mnt/c/bodyrig/segment-01.mp4"],
-        }
-        payload = {
-            "format": "bodyrig-recovery",
-            "version": 1,
-            "adapter": ADAPTER_NAME,
-            "revision": ADAPTER_REVISION,
-            "tracks": [
-                {
-                    "track_id": "s00-t1",
-                    "frames": [
-                        {"timestamp_ms": 0, "joints": {"head": [0.0, 1.0, 0.0]}},
-                        {"timestamp_ms": 40, "joints": {"head": [0.0, 1.0, 0.0]}},
-                    ],
-                }
-            ],
-        }
-        kwargs["stdout"].write(json.dumps(payload).encode("utf-8"))
-        kwargs["stderr"].write(b"diagnostic \x81 byte")
-        return subprocess.CompletedProcess(command, 0)
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            calls.append((list(command), dict(kwargs)))
+            self.command = list(command)
+            request_path = Path(self.command[self.command.index("--stdin-file") + 1])
+            stdout_path = Path(self.command[self.command.index("--stdout-file") + 1])
+            stderr_path = Path(self.command[self.command.index("--stderr-file") + 1])
+            status_path = Path(self.command[self.command.index("--status-file") + 1])
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+            assert request == {
+                "format": "bodyrig-recovery-request",
+                "version": 1,
+                "sources": [str(Path(r"C:\BodyRig\segment-01.mp4").resolve())],
+            }
+            stdout_path.write_text(json.dumps(_payload()), encoding="utf-8")
+            stderr_path.write_bytes(b"diagnostic \x81 byte")
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "format": "bodyrig-file-command-status",
+                        "version": 1,
+                        "returncode": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
 
-    monkeypatch.setattr(recover_cli.subprocess, "run", fake_run)
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
 
     recovered = recover_cli._recover_wsl(
         sources=[Path(r"C:\BodyRig\segment-01.mp4")],
@@ -103,14 +121,7 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
     assert recovered.revision == ADAPTER_REVISION
     assert len(calls) == 1
     command, kwargs = calls[0]
-    assert "input" not in kwargs
-    assert "text" not in kwargs
-    assert "encoding" not in kwargs
-    assert "errors" not in kwargs
-    assert "timeout" not in kwargs
-    assert kwargs["stdin"] is not subprocess.PIPE
-    assert kwargs["stdout"] is not subprocess.PIPE
-    assert kwargs["stderr"] is not subprocess.PIPE
+    assert kwargs == {"stdin": subprocess.DEVNULL}
     assert command[:5] == [
         r"C:\Windows\System32\wsl.exe",
         "-d",
@@ -118,55 +129,93 @@ def test_wsl_recovery_translates_bridge_and_source_paths_before_invocation(monke
         "--",
         "/home/anders/.local/share/bodyrig/recovery/venv/bin/python",
     ]
-    assert "/mnt/c/bodyrig/hmr2_4dhumans_bridge.py" in command
-    assert command[-4:] == [
+    assert "file_command_bridge.py" in command[5]
+    second_separator = command.index("--", 5)
+    target = command[second_separator + 1 :]
+    assert target == [
+        "/home/anders/.local/share/bodyrig/recovery/venv/bin/python",
+        str(recover_cli.bridge_script_path().resolve()),
         "--repo",
         "/home/anders/.local/share/bodyrig/recovery/4D-Humans",
         "--phalp-repo",
         "/home/anders/.local/share/bodyrig/recovery/PHALP",
     ]
-    assert len(conversions) == 2
+    assert not staging.exists()
+    assert any(value.endswith("file_command_bridge.py") for value in conversions)
+    assert any(value.endswith("request.json") for value in conversions)
+    assert any(value.endswith("status.json") for value in conversions)
 
 
-def test_wsl_file_capture_replaces_malformed_utf8_in_stderr(monkeypatch):
-    def fake_run(command, **kwargs):
-        kwargs["stderr"].write(b"bad:\x81tail")
-        return subprocess.CompletedProcess(command, 9)
+def test_wsl_file_protocol_replaces_malformed_utf8_and_retains_failure_staging(monkeypatch, tmp_path):
+    staging = tmp_path / "failure-stage"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
 
-    monkeypatch.setattr(recover_cli.subprocess, "run", fake_run)
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            stdout_path = Path(command[command.index("--stdout-file") + 1])
+            stderr_path = Path(command[command.index("--stderr-file") + 1])
+            status_path = Path(command[command.index("--status-file") + 1])
+            stdout_path.write_bytes(b"")
+            stderr_path.write_bytes(b"bad:\x81tail")
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "format": "bodyrig-file-command-status",
+                        "version": 1,
+                        "returncode": 9,
+                    }
+                ),
+                encoding="utf-8",
+            )
 
-    returncode, stdout, stderr = recover_cli._run_wsl_file_capture(
-        ["wsl.exe", "--fake"],
-        {"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
+
+    returncode, stdout, stderr, retained = recover_cli._run_wsl_file_protocol(
+        wsl_exe="wsl.exe",
+        distribution="Ubuntu-22.04",
+        external_python="/usr/bin/python3",
+        target_command=["/usr/bin/python3", "/tmp/bridge.py"],
+        request={"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+        converter=lambda value: value,
     )
 
     assert returncode == 9
     assert stdout == ""
     assert stderr == "bad:\ufffdtail"
+    assert retained == staging
+    assert staging.is_dir()
+    assert (staging / "status.json").is_file()
 
 
-def test_wsl_file_capture_does_not_wait_for_descendant_stdio_eof(tmp_path):
-    child = tmp_path / "child.py"
-    child.write_text(
-        "import json, subprocess, sys\n"
-        "json.load(sys.stdin)\n"
-        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(4)'])\n"
-        "sys.stdout.write('parent-exited')\n"
-        "sys.stdout.flush()\n",
-        encoding="utf-8",
-    )
+def test_wsl_file_protocol_rejects_transport_exit_without_status(monkeypatch, tmp_path):
+    staging = tmp_path / "missing-status"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
+    monkeypatch.setattr(recover_cli.time, "sleep", lambda seconds: None)
 
-    started = time.monotonic()
-    returncode, stdout, stderr = recover_cli._run_wsl_file_capture(
-        [sys.executable, str(child)],
-        {"hello": "world"},
-    )
-    elapsed = time.monotonic() - started
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            self.command = command
 
-    assert returncode == 0
-    assert stdout == "parent-exited"
-    assert stderr == ""
-    assert elapsed < 2.5
+        def poll(self):
+            return 17
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
+
+    with pytest.raises(Exception, match="without an authoritative completion status"):
+        recover_cli._run_wsl_file_protocol(
+            wsl_exe="wsl.exe",
+            distribution="Ubuntu-22.04",
+            external_python="/usr/bin/python3",
+            target_command=["/usr/bin/python3", "/tmp/bridge.py"],
+            request={"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+            converter=lambda value: value,
+        )
+    assert staging.is_dir()
 
 
 def test_wsl_recovery_rejects_windows_recovery_authority_paths():
