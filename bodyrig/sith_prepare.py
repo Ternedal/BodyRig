@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from .sith_input import load_captured_identity
 from .sith_preflight import SITH_CENTRALIZE_RGBA_BLOB, SITH_REVISION
+from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 STAGE_FORMAT = "bodyrig-sith-input-stage"
 PREP_FORMAT = "bodyrig-sith-prepared-input"
@@ -169,13 +170,10 @@ def load_stage(workspace: str | Path) -> tuple[Path, dict[str, Any], str]:
 
 
 def _linux_path(path: Path, *, wsl_exe: str, distribution: str) -> str:
-    value = _checked_wsl(
-        wsl_exe=wsl_exe,
-        distribution=distribution,
-        command=["wslpath", "-a", str(path)],
-        label="WSL path translation",
-        timeout=30,
-    ).strip()
+    try:
+        value = make_wsl_path_converter(wsl_exe, distribution)(str(path))
+    except (OSError, WslBridgeError) as exc:
+        raise SithPrepareError(f"WSL path translation failed: {exc}") from exc
     if not value.startswith("/") or "\n" in value or "\r" in value:
         raise SithPrepareError("wslpath returned an invalid absolute Linux path")
     return value
