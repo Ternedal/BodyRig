@@ -4,9 +4,12 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from collections.abc import Callable
 from pathlib import Path
 from statistics import median
 
@@ -23,6 +26,8 @@ from .recovery_authority import RecoveryAuthorityError, resolve_phalp_repo
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 _SOURCE_TRACK_RE = re.compile(r"^s(\d{2})-t")
+_FILE_COMMAND_STATUS_FORMAT = "bodyrig-file-command-status"
+_FILE_COMMAND_STATUS_VERSION = 1
 
 
 def _select_track(result: RecoveryResult, requested: str | None) -> RecoveredTrack:
@@ -143,41 +148,174 @@ def _proof_track_id(tracks: tuple[RecoveredTrack, ...]) -> str:
     return "aggregate-" + hashlib.sha256(authority).hexdigest()[:24]
 
 
-def _run_wsl_file_capture(command: list[str], request: dict) -> tuple[int, str, str]:
-    """Run WSL without Python-managed stdio pipes.
+def _file_command_bridge_path() -> Path:
+    return Path(__file__).resolve().parent / "bridges" / "file_command_bridge.py"
 
-    WSL descendants can inherit pipe handles beyond the lifetime of wsl.exe.
-    `subprocess.run(..., PIPE)` then waits for EOF even after the process handle
-    has signalled. Seekable temporary files keep process completion tied to the
-    wsl.exe handle while preserving full stdout/stderr capture for proof/error
-    handling.
+
+def _decode_file(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    return path.read_bytes().decode("utf-8", errors="replace")
+
+
+def _settle_transport(process: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
+    """Release the WSL transport after an authoritative status sentinel exists.
+
+    The target command has already completed before the in-WSL bridge publishes
+    status.json. A lingering wsl.exe is therefore transport residue, not useful
+    recovery work. Give it a short natural-exit grace period, then terminate only
+    the transport wrapper so the caller cannot hang indefinitely after success.
     """
 
-    request_bytes = json.dumps(request).encode("utf-8")
-    with (
-        tempfile.TemporaryFile(mode="w+b") as stdin_file,
-        tempfile.TemporaryFile(mode="w+b") as stdout_file,
-        tempfile.TemporaryFile(mode="w+b") as stderr_file,
-    ):
-        stdin_file.write(request_bytes)
-        stdin_file.flush()
-        stdin_file.seek(0)
+    if process.poll() is not None:
+        return
+    try:
+        process.wait(timeout=grace_seconds)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    process.terminate()
+    try:
+        process.wait(timeout=2.0)
+        return
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2.0)
 
-        completed = subprocess.run(
-            command,
-            stdin=stdin_file,
-            stdout=stdout_file,
-            stderr=stderr_file,
-            check=False,
+
+def _run_wsl_file_protocol(
+    *,
+    wsl_exe: str,
+    distribution: str,
+    external_python: str,
+    target_command: list[str],
+    request: dict,
+    converter: Callable[[str], str],
+) -> tuple[int, str, str, Path]:
+    """Run a WSL command without passing Windows stdio handles into WSL.
+
+    The request/result/error files live in a persistent Windows staging
+    directory, but they are opened by a tiny bridge *inside WSL*. Completion is
+    an atomic status file written after the target process has returned. This
+    removes both failure modes seen on the target rig: inherited Windows pipe
+    EOF waits and inherited Windows TemporaryFile handles that can leave the
+    caller asleep after every visible WSL process has disappeared.
+
+    There is deliberately no wall-clock computation timeout. On protocol or
+    target failure the staging directory is retained for forensic recovery.
+    """
+
+    staging = Path(tempfile.mkdtemp(prefix="bodyrig-wsl-recovery-")).resolve()
+    request_path = staging / "request.json"
+    stdout_path = staging / "result.json"
+    stderr_path = staging / "stderr.log"
+    status_path = staging / "status.json"
+    request_path.write_text(
+        json.dumps(request, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+    try:
+        wrapper = converter(str(_file_command_bridge_path()))
+        request_wsl = converter(str(request_path))
+        stdout_wsl = converter(str(stdout_path))
+        stderr_wsl = converter(str(stderr_path))
+        status_wsl = converter(str(status_path))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    command = [
+        wsl_exe,
+        "-d",
+        distribution,
+        "--",
+        external_python,
+        wrapper,
+        "--stdin-file",
+        request_wsl,
+        "--stdout-file",
+        stdout_wsl,
+        "--stderr-file",
+        stderr_wsl,
+        "--status-file",
+        status_wsl,
+        "--",
+        *target_command,
+    ]
+    try:
+        # No stdout/stderr redirection here: the Windows process owns no output
+        # stream/file handle that a WSL descendant can inherit. The in-WSL bridge
+        # performs all file-backed capture and publishes status atomically.
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL)
+    except OSError:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    status_payload: dict | None = None
+    while True:
+        if status_path.is_file():
+            try:
+                status_payload = json.loads(status_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RecoveryError(
+                    f"WSL recovery completion status is unreadable; staging retained: {staging}"
+                ) from exc
+            break
+
+        transport_returncode = process.poll()
+        if transport_returncode is not None:
+            # os.replace() in the bridge happens immediately before process exit;
+            # allow a tiny filesystem visibility grace period before declaring a
+            # missing sentinel.
+            for _ in range(20):
+                if status_path.is_file():
+                    break
+                time.sleep(0.05)
+            if not status_path.is_file():
+                detail = _decode_file(stderr_path).strip()[-2000:]
+                suffix = f": {detail}" if detail else ""
+                raise RecoveryError(
+                    "WSL recovery transport exited without an authoritative completion status"
+                    f" (exit {transport_returncode}){suffix}; staging retained: {staging}"
+                )
+        time.sleep(0.10)
+
+    if not isinstance(status_payload, dict) or set(status_payload) != {
+        "format",
+        "version",
+        "returncode",
+    }:
+        raise RecoveryError(
+            f"WSL recovery completion status has invalid fields; staging retained: {staging}"
+        )
+    if (
+        status_payload["format"] != _FILE_COMMAND_STATUS_FORMAT
+        or status_payload["version"] != _FILE_COMMAND_STATUS_VERSION
+        or isinstance(status_payload["returncode"], bool)
+        or not isinstance(status_payload["returncode"], int)
+    ):
+        raise RecoveryError(
+            f"WSL recovery completion status is invalid; staging retained: {staging}"
         )
 
-        stdout_file.flush()
-        stderr_file.flush()
-        stdout_file.seek(0)
-        stderr_file.seek(0)
-        stdout = stdout_file.read().decode("utf-8", errors="replace")
-        stderr = stderr_file.read().decode("utf-8", errors="replace")
-        return completed.returncode, stdout, stderr
+    returncode = int(status_payload["returncode"])
+    stdout = _decode_file(stdout_path)
+    stderr = _decode_file(stderr_path)
+    try:
+        _settle_transport(process)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RecoveryError(
+            f"WSL recovery transport could not be released after completion; staging retained: {staging}"
+        ) from exc
+
+    if returncode == 0 and not stdout_path.is_file():
+        raise RecoveryError(
+            f"WSL recovery reported success without a result file; staging retained: {staging}"
+        )
+    if returncode == 0:
+        shutil.rmtree(staging, ignore_errors=True)
+    return returncode, stdout, stderr, staging
 
 
 def _recover_wsl(
@@ -211,11 +349,7 @@ def _recover_wsl(
         "version": 1,
         "sources": translated_sources,
     }
-    command = [
-        wsl_exe,
-        "-d",
-        distribution,
-        "--",
+    target_command = [
         external_python,
         bridge,
         "--repo",
@@ -226,13 +360,21 @@ def _recover_wsl(
     try:
         # Recovery processes up to ten selected segments sequentially. Runtime is
         # hardware- and source-dependent, so do not impose an arbitrary wall-clock
-        # deadline here. The operator/caller remains the cancellation authority.
-        returncode, stdout, stderr = _run_wsl_file_capture(command, request)
+        # deadline here. Completion is signalled by the in-WSL atomic status file.
+        returncode, stdout, stderr, staging = _run_wsl_file_protocol(
+            wsl_exe=wsl_exe,
+            distribution=distribution,
+            external_python=external_python,
+            target_command=target_command,
+            request=request,
+            converter=converter,
+        )
     except OSError as exc:
         raise RecoveryError("WSL recovery adapter failed to execute") from exc
     if returncode != 0:
         raise RecoveryError(
-            f"WSL recovery adapter exited {returncode}: {stderr.strip()[-2000:]}"
+            f"WSL recovery adapter exited {returncode}: {stderr.strip()[-2000:]} "
+            f"(staging retained: {staging})"
         )
     try:
         payload = json.loads(stdout)
