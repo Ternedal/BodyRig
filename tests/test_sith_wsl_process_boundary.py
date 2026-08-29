@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 from bodyrig import sith_fitter_orchestrator, sith_reconstruct, wsl_process
@@ -35,6 +37,26 @@ def test_file_capture_avoids_pipes_and_decodes_external_bytes(monkeypatch):
     assert observed["shell"] is False
     assert observed["check"] is False
     assert observed["timeout"] == 86_400
+
+
+def test_file_capture_returns_before_inherited_stdio_descendant_exits():
+    descendant = "import time; time.sleep(3)"
+    parent = (
+        "import subprocess,sys; "
+        "subprocess.Popen([sys.executable,'-c',sys.argv[1]]); "
+        "print('parent-done', flush=True)"
+    )
+
+    started = time.monotonic()
+    completed = wsl_process.run_wsl_file_capture(
+        [sys.executable, "-c", parent, descendant],
+        timeout=10,
+    )
+    elapsed = time.monotonic() - started
+
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == "parent-done"
+    assert elapsed < 1.5
 
 
 def test_reconstruct_wsl_boundary_delegates_with_exact_invocation(monkeypatch):
