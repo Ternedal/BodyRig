@@ -12,6 +12,7 @@ from .sith_prepare import SithPrepareError, prepare_sith_input
 from .sith_reconstruct import DEFAULT_SEED, SithReconstructError, reconstruct_sith
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_file_digest import WslFileDigestError, digest_wsl_file
+from .wsl_process import run_wsl_file_capture
 
 ADAPTER = "sith-smplx-vrm"
 REVISION = "1"
@@ -25,16 +26,7 @@ class SithFitterOrchestratorError(RuntimeError):
 
 
 def _run(command: Sequence[str], *, timeout: int = 86_400) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(command),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        shell=False,
-        check=False,
-        timeout=timeout,
-    )
+    return run_wsl_file_capture(command, timeout=timeout)
 
 
 def _wsl_path(path: str | Path, *, distribution: str, wsl_exe: str) -> str:
