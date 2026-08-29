@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from .stash_source import (
     SourceCandidate,
@@ -20,6 +20,7 @@ from .stash_source import (
 
 _HEALTH_PROBE_TERM = "__bodyrig_auth_capability_probe__"
 _DECODE_GATE = "ffmpeg-one-frame-v1"
+_PATH_MAP_ENV = "BODYRIG_STASH_PATH_MAP"
 
 
 def _config(args: argparse.Namespace) -> StashConfig:
@@ -52,6 +53,71 @@ def _add_decode_probe(parser: argparse.ArgumentParser) -> None:
         default=20,
         help="Per-source one-frame decode timeout seconds (1..120); default 20",
     )
+
+
+def _path_map_rules() -> list[tuple[str, str]]:
+    raw = os.environ.get(_PATH_MAP_ENV, "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise StashSourceError(
+            f"{_PATH_MAP_ENV} must be a JSON object mapping Stash path prefixes to local path prefixes"
+        ) from exc
+    if not isinstance(parsed, dict) or not parsed:
+        raise StashSourceError(f"{_PATH_MAP_ENV} must be a non-empty JSON object when set")
+
+    rules: list[tuple[str, str]] = []
+    for source, target in parsed.items():
+        if not isinstance(source, str) or not isinstance(target, str):
+            raise StashSourceError(f"{_PATH_MAP_ENV} keys and values must be strings")
+        source = source.strip().replace("/", "\\").rstrip("\\")
+        target = target.strip().rstrip("\\/")
+        if not source or not target:
+            raise StashSourceError(f"{_PATH_MAP_ENV} may not contain empty path prefixes")
+        rules.append((source, target))
+
+    rules.sort(key=lambda pair: len(pair[0]), reverse=True)
+    return rules
+
+
+def _remap_source_path(raw_path: str, rules: Sequence[tuple[str, str]]) -> str:
+    normalized = raw_path.replace("/", "\\")
+    folded = normalized.casefold()
+    for source, target in rules:
+        source_folded = source.casefold()
+        if folded == source_folded:
+            return target
+        prefix = source_folded + "\\"
+        if folded.startswith(prefix):
+            remainder = normalized[len(source) :].lstrip("\\")
+            parts = [part for part in remainder.split("\\") if part]
+            return os.path.join(target, *parts)
+    return raw_path
+
+
+def _remap_scene_paths(scenes: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rules = _path_map_rules()
+    if not rules:
+        return [dict(scene) for scene in scenes]
+
+    mapped_scenes: list[dict[str, Any]] = []
+    for scene in scenes:
+        mapped_scene = dict(scene)
+        mapped_files: list[Any] = []
+        for item in scene.get("files") or []:
+            if not isinstance(item, Mapping):
+                mapped_files.append(item)
+                continue
+            mapped_file = dict(item)
+            raw_path = str(item.get("path") or "")
+            if raw_path:
+                mapped_file["path"] = _remap_source_path(raw_path, rules)
+            mapped_files.append(mapped_file)
+        mapped_scene["files"] = mapped_files
+        mapped_scenes.append(mapped_scene)
+    return mapped_scenes
 
 
 def _filter_decodable_sources(
@@ -169,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "probe":
             performer = client.performer(args.performer_id)
-            scenes = client.scenes_for_performer(args.performer_id, limit=args.scene_limit)
+            scenes = _remap_scene_paths(client.scenes_for_performer(args.performer_id, limit=args.scene_limit))
             ranked = rank_sources(
                 scenes,
                 performer_id=args.performer_id,
@@ -212,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         performer = client.performer(args.performer_id)
-        scenes = client.scenes_for_performer(args.performer_id, limit=args.scene_limit)
+        scenes = _remap_scene_paths(client.scenes_for_performer(args.performer_id, limit=args.scene_limit))
         selected = rank_sources(
             scenes,
             performer_id=args.performer_id,
