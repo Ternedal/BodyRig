@@ -263,8 +263,12 @@ def validate_openpose_result(path: str | Path) -> dict[str, int]:
         raise SithPrepareError("OpenPose result has insufficient confident BODY_25 points")
     if counts["face_confident"] < 5:
         raise SithPrepareError("OpenPose result has insufficient confident face points")
-    if counts["left_hand_confident"] < 1 or counts["right_hand_confident"] < 1:
-        raise SithPrepareError("OpenPose result needs at least one confident point for each hand")
+    # SiTH itself treats low-confidence hand points as missing observations: its
+    # loader zeroes their confidence and fit.py weights the hand loss by that
+    # confidence. Requiring finger detections here therefore rejects valid SiTH
+    # inputs (for example when one hand is occluded) without protecting the fit.
+    # Keep the counts as quality evidence, but let the pinned fitter decide how
+    # much hand evidence contributes to optimization.
     return counts
 
 
