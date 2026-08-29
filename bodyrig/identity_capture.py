@@ -18,6 +18,14 @@ class IdentityCaptureError(ValueError):
     pass
 
 
+def _read_log_tail(path: Path, limit: int = 4000) -> str:
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return ""
+    return raw[-limit:].decode("utf-8", errors="replace").strip()
+
+
 def run_identity_capture(
     command: Sequence[str],
     *,
@@ -108,11 +116,23 @@ def run_identity_capture(
                     log_path=log_path,
                     timeout_seconds=timeout_seconds,
                 )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                raise IdentityCaptureError("identity capture process could not complete") from exc
-            if completed.returncode != 0:
+            except subprocess.TimeoutExpired as exc:
+                detail = _read_log_tail(log_path)
+                suffix = f" | log tail: {detail}" if detail else ""
                 raise IdentityCaptureError(
-                    f"identity capture process failed with exit code {completed.returncode}"
+                    f"identity capture timed out after {timeout_seconds} seconds{suffix}"
+                ) from exc
+            except OSError as exc:
+                detail = _read_log_tail(log_path)
+                suffix = f" | log tail: {detail}" if detail else ""
+                raise IdentityCaptureError(
+                    f"identity capture process could not complete: {exc}{suffix}"
+                ) from exc
+            if completed.returncode != 0:
+                detail = _read_log_tail(log_path)
+                suffix = f": {detail}" if detail else ""
+                raise IdentityCaptureError(
+                    f"identity capture process failed with exit code {completed.returncode}{suffix}"
                 )
 
             children = list(result_dir.iterdir())
