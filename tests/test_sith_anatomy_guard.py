@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from bodyrig import skin_qa
 from bodyrig.bridges.sith_anatomy_guard import (
     ANATOMY_GUARD_THRESHOLD,
@@ -72,3 +74,24 @@ def test_geometry_classifies_strong_right_leg_without_cross_midline_guessing():
     assert body_scale > 1.0
     assert regions[0] == "right_leg"
     assert regions[1] is None
+
+
+def test_adjusted_bridge_guards_the_same_final_rest_pose_domain_as_skin_qa():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "bodyrig"
+        / "bridges"
+        / "sith_smplx_vrm_fitter_adjusted.py"
+    ).read_text(encoding="utf-8")
+
+    default_rest = source.index("default_rest_positions =")
+    provisional_adjust = source.index("provisional_positions, provisional_joints, _ = apply_shape_adjustment")
+    guard_classification = source.index("target_regions, body_scale = classify_strong_limb_regions")
+    final_adjust = source.index("rest_positions, final_joints, adjustment_metrics = apply_shape_adjustment")
+    final_validation = source.index("final_regions, _ = classify_strong_limb_regions")
+
+    assert default_rest < provisional_adjust < guard_classification
+    assert guard_classification < final_adjust < final_validation
+    assert "posed_joint_tensor" not in source
+    assert "donor_top_weight, donor_top_joint = torch.topk" in source
+    assert "output_forbidden_mass" in source
