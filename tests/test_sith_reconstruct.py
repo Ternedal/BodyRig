@@ -153,14 +153,21 @@ def test_validate_reconstruction_outputs_binds_obj_fit_mtl_texture(tmp_path: Pat
         reconstruct.validate_reconstruction_outputs(stage)
 
 
-def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkeypatch, tmp_path: Path):
+def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reconstruction(monkeypatch, tmp_path: Path):
     workspace = _workspace(tmp_path)
     stage = workspace / "sith-input-v1"
     commands = []
     expected_model = "b" * 64
 
     monkeypatch.setattr(reconstruct, "verify_execution_authority", lambda **kwargs: None)
-    monkeypatch.setattr(reconstruct, "_linux_path", lambda path, **kwargs: "/mnt/c/private/sith-input-v1")
+
+    def fake_linux_path(path, **kwargs):
+        path = Path(path)
+        if path.name == "sith_canonical_smplx_obj.py":
+            return "/mnt/c/bodyrig/bridges/sith_canonical_smplx_obj.py"
+        return "/mnt/c/private/sith-input-v1"
+
+    monkeypatch.setattr(reconstruct, "_linux_path", fake_linux_path)
     monkeypatch.setattr(
         reconstruct,
         "digest_model_tree",
@@ -176,6 +183,9 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
             debug = smplx / "debug"
             debug.mkdir()
             (debug / "000.json").write_text(json.dumps(_fit_params()), encoding="utf-8")
+            return ""
+        if label == "BodyRig canonical SMPL-X OBJ":
+            (stage / "smplx" / "000_smplx.obj").write_text("v 1 0 0\n" * 20, encoding="utf-8")
             return ""
         if label == "SiTH offline back-view hallucination":
             (stage / "back_images" / "000_000.png").write_bytes(_png(512, 512, b"back"))
@@ -201,6 +211,7 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
 
     assert [item[0] for item in commands] == [
         "SiTH SMPL-X fitting",
+        "BodyRig canonical SMPL-X OBJ",
         "SiTH offline back-view hallucination",
         "SiTH textured UV reconstruction",
     ]
@@ -212,8 +223,15 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
     assert "--opt_orient" in fit and "--opt_betas" in fit and "--debug" in fit
     assert sorted(path.name for path in (stage / "smplx").iterdir()) == ["000_fit.json", "000_smplx.obj"]
     assert reconstruct.validate_fit_params(stage / "smplx" / "000_fit.json")["scale"] == [1.0]
+    assert (stage / "smplx" / "000_smplx.obj").read_text(encoding="utf-8").startswith("v 1 0 0")
 
-    hallucinate = commands[1][2]
+    canonical = commands[1][2]
+    assert canonical[1] == "/mnt/c/bodyrig/bridges/sith_canonical_smplx_obj.py"
+    assert canonical[canonical.index("--smplx-model-dir") + 1] == "/opt/sith/data/body_models/smplx"
+    assert canonical[canonical.index("--fit-params") + 1] == "/mnt/c/private/sith-input-v1/smplx/000_fit.json"
+    assert canonical[canonical.index("--output") + 1] == "/mnt/c/private/sith-input-v1/smplx/000_smplx.obj"
+
+    hallucinate = commands[2][2]
     assert hallucinate[:4] == [
         "/usr/bin/env",
         "HF_HUB_OFFLINE=1",
@@ -224,7 +242,7 @@ def test_reconstruct_runs_fit_offline_hallucination_and_uv_reconstruction(monkey
     assert hallucinate[hallucinate.index("--seed") + 1] == "1337"
     assert hallucinate[hallucinate.index("--num_validation_images") + 1] == "1"
 
-    uv = commands[2][2]
+    uv = commands[3][2]
     assert "--save_uv" in uv
     assert uv[uv.index("--grid_size") + 1] == "300"
     assert uv[uv.index("--test_folder") + 1] == "/mnt/c/private/sith-input-v1"
