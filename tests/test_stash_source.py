@@ -149,7 +149,7 @@ def test_manifest_is_build_only_and_contains_no_connection_secret(tmp_path: Path
     assert manifest["source_kind"] == "stash-local"
     assert "apikey" not in raw.lower()
     assert "http://localhost:9999" not in raw
-    assert str(video.resolve()) in raw
+    assert manifest["selected"][0]["path"] == str(video.resolve())
 
     output = write_source_manifest(tmp_path / "sources.json", manifest)
     assert json.loads(output.read_text(encoding="utf-8")) == manifest
