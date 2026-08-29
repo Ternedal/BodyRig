@@ -296,6 +296,29 @@ def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, pyt
     if _sha256(canonical_params) != _sha256(debug_params):
         raise SithReconstructError("SiTH canonical fit parameter copy hash mismatch")
     shutil.rmtree(smplx_dir / "debug", ignore_errors=False)
+
+    canonical_bridge = Path(__file__).resolve().parent / "bridges" / "sith_canonical_smplx_obj.py"
+    if not canonical_bridge.is_file():
+        raise SithReconstructError("BodyRig canonical SMPL-X OBJ bridge is missing")
+    linux_canonical_bridge = _linux_path(canonical_bridge, wsl_exe=wsl_exe, distribution=distribution)
+    _checked_wsl(
+        wsl_exe=wsl_exe,
+        distribution=distribution,
+        cwd=repo,
+        command=[
+            python,
+            linux_canonical_bridge,
+            "--smplx-model-dir",
+            f"{repo}/data/body_models/smplx",
+            "--fit-params",
+            f"{linux_stage}/smplx/000_fit.json",
+            "--output",
+            f"{linux_stage}/smplx/000_smplx.obj",
+        ],
+        label="BodyRig canonical SMPL-X OBJ",
+    )
+    if not smplx_obj.is_file() or smplx_obj.stat().st_size < 64:
+        raise SithReconstructError("BodyRig canonical SMPL-X OBJ bridge did not produce a usable OBJ")
     if sorted(path.name for path in smplx_dir.iterdir()) != ["000_fit.json", "000_smplx.obj"]:
         raise SithReconstructError("SiTH fit output must reduce to canonical OBJ + fit parameter JSON")
 
