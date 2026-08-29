@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import time
-from pathlib import Path
 
 from bodyrig.bridges import file_command_bridge
 
@@ -55,7 +53,7 @@ def test_file_command_bridge_does_not_wait_for_descendant_file_handle(tmp_path):
     child.write_text(
         "import json,subprocess,sys\n"
         "json.load(sys.stdin)\n"
-        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(4)'])\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(1)'])\n"
         "sys.stdout.write('parent-exited')\n"
         "sys.stdout.flush()\n",
         encoding="utf-8",
@@ -78,7 +76,10 @@ def test_file_command_bridge_does_not_wait_for_descendant_file_handle(tmp_path):
     assert rc == 0
     assert stdout.read_text(encoding="utf-8") == "parent-exited"
     assert json.loads(status.read_text(encoding="utf-8"))["returncode"] == 0
-    assert elapsed < 2.5
+    assert elapsed < 0.75
+    # Let the deliberately surviving descendant release inherited file handles
+    # before pytest removes the temporary directory on Windows.
+    time.sleep(1.1)
 
 
 def test_file_command_bridge_status_records_target_failure(tmp_path):
