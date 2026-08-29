@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from bodyrig.avatar import AvatarError, validate_vrm1
+from bodyrig.bridges.sith_anatomy_guard import forbidden_regions as _shared_forbidden_regions
+from bodyrig.bridges.sith_anatomy_guard import joint_region as _shared_joint_region
 from bodyrig.package import validate_package
 
 FORMAT = "bodyrig-skin-qa"
@@ -227,16 +229,7 @@ def _world_matrices(nodes: list[Any]) -> list[list[list[float]]]:
 
 
 def _region(name: str) -> str:
-    lowered = name.strip().lower().replace("-", "_")
-    if lowered.startswith("left_"):
-        if any(token in lowered for token in ("hip", "knee", "ankle", "foot", "toe")):
-            return "left_leg"
-        return "left_arm"
-    if lowered.startswith("right_"):
-        if any(token in lowered for token in ("hip", "knee", "ankle", "foot", "toe")):
-            return "right_leg"
-        return "right_arm"
-    return "torso"
+    return _shared_joint_region(name)
 
 
 def _point_segment_distance(point: tuple[float, float, float], a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
@@ -266,15 +259,7 @@ def _quantile(values: list[float], q: float) -> float:
 
 
 def _forbidden(region: str) -> set[str]:
-    if region == "left_arm":
-        return {"right_arm", "left_leg", "right_leg"}
-    if region == "right_arm":
-        return {"left_arm", "left_leg", "right_leg"}
-    if region == "left_leg":
-        return {"right_leg", "left_arm", "right_arm"}
-    if region == "right_leg":
-        return {"left_leg", "left_arm", "right_arm"}
-    return set()
+    return _shared_forbidden_regions(region)
 
 
 def analyze_vrm_skin(
