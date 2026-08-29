@@ -139,22 +139,11 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         if float(delta.max().item()) > 0.005 or float(torch.sqrt(torch.mean(delta * delta)).item()) > 0.001:
             raise base.FitterError("SiTH fit parameters do not numerically reproduce the fitted SMPL-X OBJ")
 
-        posed_joint_tensor = output.joints[0][: len(base.SMPLX_JOINT_NAMES)] * scale
-        joint_positions = posed_joint_tensor.detach().cpu().tolist()
-        try:
-            target_regions, body_scale = classify_strong_limb_regions(
-                reco_positions_list,
-                joint_positions,
-                parents,
-                base.SMPLX_JOINT_NAMES,
-            )
-        except ValueError as exc:
-            raise base.FitterError(f"SMPL-X anatomy guard setup failed: {exc}") from exc
-
         shape_components = torch.cat([betas, expression], dim=-1)
         shapedirs = torch.cat([model.shapedirs, model.expr_dirs], dim=-1)
         v_shaped = model.v_template + blend_shapes(shape_components, shapedirs)
         rest_joints = vertices2joints(model.J_regressor, v_shaped)
+        rest_joints_np = rest_joints[0].detach().cpu().numpy()
 
         full_pose = torch.cat([
             global_orient.view(1, 1, 3),
@@ -175,50 +164,123 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         reco = torch.tensor(reco_obj, dtype=torch.float32, device=device)
         donor = posed_model
         weights = model.lbs_weights
+
+        donor_top_weight, donor_top_joint = torch.topk(weights, k=4, dim=1)
+        donor_top_weight = donor_top_weight / donor_top_weight.sum(dim=1, keepdim=True)
         compatible_indices: dict[str, Any] = {}
-        forbidden_mass: dict[str, Any] = {}
+        output_forbidden_mass: dict[str, Any] = {}
         for region in LIMB_REGIONS:
             indices = forbidden_joint_indices(base.SMPLX_JOINT_NAMES, region)
             if not indices:
                 raise base.FitterError(f"SMPL-X anatomy guard has no forbidden joints for {region}")
-            mass = weights[:, list(indices)].sum(dim=1)
+            forbidden = torch.tensor(indices, dtype=torch.long, device=device)
+            forbidden_mask = (donor_top_joint.unsqueeze(-1) == forbidden.view(1, 1, -1)).any(dim=-1)
+            mass = (donor_top_weight * forbidden_mask.to(donor_top_weight.dtype)).sum(dim=1)
             candidates = torch.nonzero(mass <= ANATOMY_GUARD_THRESHOLD, as_tuple=False).flatten()
             if int(candidates.numel()) == 0:
                 raise base.FitterError(f"SMPL-X anatomy guard has no compatible donors for {region}")
-            forbidden_mass[region] = mass
+            output_forbidden_mass[region] = mass
             compatible_indices[region] = candidates
 
-        rest_chunks: list[Any] = []
-        joint_chunks: list[Any] = []
-        weight_chunks: list[Any] = []
-        nearest_distances: list[Any] = []
-        guarded_extras: list[Any] = []
-        guarded_distances: list[Any] = []
-        guarded_vertex_count = 0
+        transform_table = transforms[0].reshape(len(base.SMPLX_JOINT_NAMES), 16)
+
+        def unskin(chunk: Any, selected: Any) -> tuple[Any, Any, Any, Any]:
+            full_weights = weights[selected]
+            transform = torch.matmul(full_weights, transform_table).view(-1, 4, 4)
+            model_space = chunk / scale - transl[0]
+            homogeneous = torch.cat(
+                [model_space, torch.ones((len(chunk), 1), dtype=torch.float32, device=device)],
+                dim=1,
+            ).unsqueeze(-1)
+            try:
+                inverse = torch.linalg.inv(transform)
+            except RuntimeError as exc:
+                raise base.FitterError("SMPL-X blended skin transform is singular") from exc
+            unskinned = torch.matmul(inverse, homogeneous)[:, :3, 0]
+            rest = unskinned - pose_offsets[0, selected]
+            top_weight, top_joint = torch.topk(full_weights, k=4, dim=1)
+            totals = top_weight.sum(dim=1, keepdim=True)
+            if bool(torch.any(totals <= 1e-8).item()):
+                raise base.FitterError("SMPL-X skin weights contain an empty influence set")
+            top_weight = top_weight / totals
+            return rest, top_joint, top_weight, full_weights
+
+        # Phase A: reproduce the historical nearest-neighbour transfer exactly.
+        # The anatomy decision must be made later in the same final rest-pose
+        # coordinate domain that production skin-QA inspects, not in posed space.
+        default_rest_chunks: list[Any] = []
+        default_joint_chunks: list[Any] = []
+        default_weight_chunks: list[Any] = []
+        nearest_chunks: list[Any] = []
+        distance_chunks: list[Any] = []
         chunk_size = 768
         for start in range(0, int(reco.shape[0]), chunk_size):
             chunk = reco[start:start + chunk_size]
             distances = torch.cdist(chunk.unsqueeze(0), donor.unsqueeze(0)).squeeze(0)
-            default_distance, nearest = torch.min(distances, dim=1)
-            selected_distance = default_distance.clone()
-            local_regions = target_regions[start:start + len(chunk)]
+            nearest_distance, nearest = torch.min(distances, dim=1)
+            rest, top_joint, top_weight, _ = unskin(chunk, nearest)
+            default_rest_chunks.append(rest.detach().cpu())
+            default_joint_chunks.append(top_joint.detach().cpu())
+            default_weight_chunks.append(top_weight.detach().cpu())
+            nearest_chunks.append(nearest.detach().cpu())
+            distance_chunks.append(nearest_distance.detach().cpu())
 
-            for region in LIMB_REGIONS:
-                local_rows = [index for index, candidate in enumerate(local_regions) if candidate == region]
-                if not local_rows:
-                    continue
-                region_rows = torch.tensor(local_rows, dtype=torch.long, device=device)
-                default_donors = nearest[region_rows]
-                needs_guard = forbidden_mass[region][default_donors] > ANATOMY_GUARD_THRESHOLD
-                guard_rows = region_rows[needs_guard]
-                if int(guard_rows.numel()) == 0:
-                    continue
+        default_rest_positions = torch.cat(default_rest_chunks, dim=0).numpy()
+        default_joints4 = torch.cat(default_joint_chunks, dim=0).numpy()
+        default_weights4 = torch.cat(default_weight_chunks, dim=0).numpy()
+        selected_nearest = torch.cat(nearest_chunks, dim=0).to(device=device, dtype=torch.long)
+        default_distance_all = torch.cat(distance_chunks, dim=0).to(device=device, dtype=torch.float32)
+        selected_distance_all = default_distance_all.clone()
 
-                candidates = compatible_indices[region]
-                candidate_distances = distances[guard_rows][:, candidates]
+        provisional_positions = default_rest_positions
+        provisional_joints = rest_joints_np
+        if _CURRENT_ADJUSTMENT is not None:
+            try:
+                provisional_positions, provisional_joints, _ = apply_shape_adjustment(
+                    np=np,
+                    rest_positions=default_rest_positions,
+                    rest_joints=rest_joints_np,
+                    joints4=default_joints4,
+                    weights4=default_weights4,
+                    joint_names=base.SMPLX_JOINT_NAMES,
+                    adjustment=_CURRENT_ADJUSTMENT,
+                )
+            except BodyprintAdjustmentError as exc:
+                raise base.FitterError(f"BodyPrint provisional shape adjustment failed: {exc}") from exc
+
+        try:
+            target_regions, body_scale = classify_strong_limb_regions(
+                provisional_positions.tolist(),
+                provisional_joints.tolist(),
+                parents,
+                base.SMPLX_JOINT_NAMES,
+            )
+        except ValueError as exc:
+            raise base.FitterError(f"SMPL-X anatomy guard rest-space classification failed: {exc}") from exc
+
+        guarded_global: set[int] = set()
+        guarded_extras: list[Any] = []
+        guarded_distances: list[Any] = []
+        for region in LIMB_REGIONS:
+            rows = [
+                index
+                for index, candidate in enumerate(target_regions)
+                if candidate == region
+                and float(output_forbidden_mass[region][selected_nearest[index]].item()) > ANATOMY_GUARD_THRESHOLD
+            ]
+            if not rows:
+                continue
+            candidates = compatible_indices[region]
+            for start in range(0, len(rows), chunk_size):
+                batch_rows = rows[start:start + chunk_size]
+                row_tensor = torch.tensor(batch_rows, dtype=torch.long, device=device)
+                candidate_distances = torch.cdist(
+                    reco[row_tensor].unsqueeze(0),
+                    donor[candidates].unsqueeze(0),
+                ).squeeze(0)
                 replacement_distance, replacement_local = torch.min(candidate_distances, dim=1)
                 replacement_donor = candidates[replacement_local]
-                original_distance = default_distance[guard_rows]
+                original_distance = default_distance_all[row_tensor]
                 extra = replacement_distance - original_distance
                 absolute_limit = body_scale * MAX_GUARD_DISTANCE_SCALE
                 excessive = (
@@ -234,29 +296,20 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
                         f"guarded={float(replacement_distance[worst].item()):.4f}, "
                         f"body_scale={body_scale:.4f})"
                     )
-
-                nearest[guard_rows] = replacement_donor
-                selected_distance[guard_rows] = replacement_distance
-                guarded_vertex_count += int(guard_rows.numel())
+                selected_nearest[row_tensor] = replacement_donor
+                selected_distance_all[row_tensor] = replacement_distance
+                guarded_global.update(batch_rows)
                 guarded_extras.append(extra.detach().cpu())
                 guarded_distances.append(replacement_distance.detach().cpu())
 
-            nearest_distances.append(selected_distance.detach().cpu())
-            full_weights = weights[nearest]
-            transform = torch.matmul(full_weights, transforms[0].reshape(len(base.SMPLX_JOINT_NAMES), 16)).view(-1, 4, 4)
-            model_space = chunk / scale - transl[0]
-            homogeneous = torch.cat([model_space, torch.ones((len(chunk), 1), device=device)], dim=1).unsqueeze(-1)
-            try:
-                inverse = torch.linalg.inv(transform)
-            except RuntimeError as exc:
-                raise base.FitterError("SMPL-X blended skin transform is singular") from exc
-            unskinned = torch.matmul(inverse, homogeneous)[:, :3, 0]
-            rest = unskinned - pose_offsets[0, nearest]
-            top_weight, top_joint = torch.topk(full_weights, k=4, dim=1)
-            totals = top_weight.sum(dim=1, keepdim=True)
-            if bool(torch.any(totals <= 1e-8).item()):
-                raise base.FitterError("SMPL-X skin weights contain an empty influence set")
-            top_weight = top_weight / totals
+        # Phase B: materialize the final rest mesh from the selected donors.
+        rest_chunks: list[Any] = []
+        joint_chunks: list[Any] = []
+        weight_chunks: list[Any] = []
+        for start in range(0, int(reco.shape[0]), chunk_size):
+            chunk = reco[start:start + chunk_size]
+            selected = selected_nearest[start:start + len(chunk)]
+            rest, top_joint, top_weight, _ = unskin(chunk, selected)
             rest_chunks.append(rest.detach().cpu())
             joint_chunks.append(top_joint.detach().cpu())
             weight_chunks.append(top_weight.detach().cpu())
@@ -264,7 +317,51 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         rest_positions = torch.cat(rest_chunks, dim=0).numpy()
         joints4 = torch.cat(joint_chunks, dim=0).numpy()
         weights4 = torch.cat(weight_chunks, dim=0).numpy()
-        nearest_all = torch.cat(nearest_distances).numpy()
+
+        adjustment_metrics: dict[str, float] = {"max_joint_delta": 0.0}
+        final_joints = rest_joints_np
+        if _CURRENT_ADJUSTMENT is not None:
+            try:
+                rest_positions, final_joints, adjustment_metrics = apply_shape_adjustment(
+                    np=np,
+                    rest_positions=rest_positions,
+                    rest_joints=rest_joints_np,
+                    joints4=joints4,
+                    weights4=weights4,
+                    joint_names=base.SMPLX_JOINT_NAMES,
+                    adjustment=_CURRENT_ADJUSTMENT,
+                )
+            except BodyprintAdjustmentError as exc:
+                raise base.FitterError(f"BodyPrint shape adjustment failed: {exc}") from exc
+
+        # Fail closed inside the bridge using the same final rest-pose geometry
+        # semantics as skin-QA. We deliberately do not relax QA thresholds.
+        try:
+            final_regions, _ = classify_strong_limb_regions(
+                rest_positions.tolist(),
+                final_joints.tolist(),
+                parents,
+                base.SMPLX_JOINT_NAMES,
+            )
+        except ValueError as exc:
+            raise base.FitterError(f"SMPL-X anatomy guard final classification failed: {exc}") from exc
+
+        final_violations: list[tuple[int, str, float]] = []
+        for index, region in enumerate(final_regions):
+            if region is None:
+                continue
+            mass = float(output_forbidden_mass[region][selected_nearest[index]].item())
+            if mass > ANATOMY_GUARD_THRESHOLD + 1e-6:
+                final_violations.append((index, region, mass))
+        if final_violations:
+            worst = max(final_violations, key=lambda item: item[2])
+            raise base.FitterError(
+                "SMPL-X anatomy guard final rest-pose validation failed "
+                f"(violations={len(final_violations)}, vertex={worst[0]}, "
+                f"region={worst[1]}, forbidden_weight={worst[2]:.6f})"
+            )
+
+        nearest_all = selected_distance_all.detach().cpu().numpy()
         nearest_p95 = float(np.quantile(nearest_all, 0.95))
         nearest_max = float(np.max(nearest_all))
         if not math.isfinite(nearest_p95) or not math.isfinite(nearest_max):
@@ -274,6 +371,7 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
                 f"SiTH mesh is too far from the fitted SMPL-X surface (p95={nearest_p95:.4f}, max={nearest_max:.4f})"
             )
 
+        guarded_vertex_count = len(guarded_global)
         if guarded_vertex_count:
             guarded_extra_all = torch.cat(guarded_extras).numpy()
             guarded_distance_all = torch.cat(guarded_distances).numpy()
@@ -284,22 +382,6 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
             guarded_extra_p95 = 0.0
             guarded_extra_max = 0.0
             guarded_distance_max = 0.0
-
-    rest_joints_np = rest_joints[0].detach().cpu().numpy()
-    adjustment_metrics: dict[str, float] = {"max_joint_delta": 0.0}
-    if _CURRENT_ADJUSTMENT is not None:
-        try:
-            rest_positions, rest_joints_np, adjustment_metrics = apply_shape_adjustment(
-                np=np,
-                rest_positions=rest_positions,
-                rest_joints=rest_joints_np,
-                joints4=joints4,
-                weights4=weights4,
-                joint_names=base.SMPLX_JOINT_NAMES,
-                adjustment=_CURRENT_ADJUSTMENT,
-            )
-        except BodyprintAdjustmentError as exc:
-            raise base.FitterError(f"BodyPrint shape adjustment failed: {exc}") from exc
 
     quality = {
         "nearest_p95": nearest_p95,
@@ -327,7 +409,7 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         faces=faces,
         joints4=joints4,
         weights4=weights4,
-        rest_joints=rest_joints_np,
+        rest_joints=final_joints,
         parents=parents,
         texture_png=texture,
         quality=quality,
