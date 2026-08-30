@@ -43,6 +43,22 @@ def test_reference_windows_wrapper_contract_binds_before_canonical_commit() -> N
     assert 'Remove-Item -LiteralPath $stageDir -Recurse -Force' in source
 
 
+def test_windows_renderer_probe_waits_for_gui_process_before_evidence_check() -> None:
+    source = (REPO / "run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
+
+    assert "function Invoke-NativeProcessWait" in source
+    assert "[System.Diagnostics.ProcessStartInfo]::new()" in source
+    assert "$startInfo.UseShellExecute = $false" in source
+    assert "$startInfo.ArgumentList.Add($argument)" in source
+    assert "$process.WaitForExit()" in source
+    assert "$playerExit = Invoke-NativeProcessWait -FilePath $playerExe -ArgumentList $playerArgs" in source
+    assert "& $playerExe" not in source
+
+    launch = source.index("$playerExit = Invoke-NativeProcessWait")
+    evidence_check = source.index("Windows player exited without producing the complete staged evidence pair")
+    assert launch < evidence_check
+
+
 def test_reference_windows_wrapper_does_not_expose_renderer_identity_inputs() -> None:
     source = (REPO / "run-reference-windows-renderer-probe.ps1").read_text(encoding="utf-8")
     params = source.split(")\n\n$ErrorActionPreference", 1)[0]
