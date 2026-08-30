@@ -32,3 +32,12 @@ def test_reconciled_acceptance_refuses_non_bytecode_observations() -> None:
     assert 'Observed dirty path is outside the approved Python bytecode failure class' in script
     assert 'Revision delta is broader than the approved Python-bytecode hygiene/reconciliation fix' in script
     assert 'Original session failure is not the bytecode-only postflight failure class' in script
+
+
+def test_reconciled_acceptance_preserves_iso_timestamps_without_powershell_string_coercion() -> None:
+    script = Path("accept-reconciled-physical-clone.ps1").read_text(encoding="utf-8")
+
+    assert 'json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8-sig"))' in script
+    assert 'started_utc = [string]$session.started_utc' not in script
+    assert 'completed_utc = [string]$session.completed_utc' not in script
+    assert 'without timestamp coercion' in script
