@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from .sith_input import SithInputError, stage_sith_input
 from .sith_prepare import SithPrepareError, prepare_sith_input
-from .sith_reconstruct import DEFAULT_SEED, SMPLX_GENDERS, SithReconstructError, reconstruct_sith
+from .sith_reconstruct import (
+    DEFAULT_SEED,
+    SMPLX_GENDERS,
+    SithReconstructError,
+    load_prepared_input,
+    reconstruct_sith,
+    validate_reconstruction_outputs,
+)
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_file_digest import WslFileDigestError, digest_wsl_file
 from .wsl_process import run_wsl_file_capture
@@ -20,6 +28,8 @@ SHA256_LENGTH = 64
 RECON_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_RECON_CHECKPOINT_SHA256"
 SMPLX_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256"
 BODY_MODEL_GENDER_ENV = "BODYRIG_SITH_BODY_MODEL_GENDER"
+RECON_FORMAT = "bodyrig-sith-reconstruction"
+RECON_VERSION = 1
 
 
 class SithFitterOrchestratorError(RuntimeError):
@@ -98,6 +108,102 @@ def _verify_checkpoint_authority(
             )
 
 
+def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise SithFitterOrchestratorError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise SithFitterOrchestratorError(f"{label} must be an object")
+    return value
+
+
+def _validate_resume_reconstruction(
+    workspace: Path,
+    *,
+    diffusion_model_sha256: str,
+    seed: int,
+) -> None:
+    """Validate a completed same-workspace SiTH checkpoint before expensive-stage resume.
+
+    Resume is intentionally all-or-nothing: only a complete reconstruction receipt
+    whose prepared-input binding and output byte hashes still match may skip staging,
+    OpenPose, SMPL-X fitting, hallucination and UV reconstruction. The downstream
+    SMPL-X -> VRM bridge independently revalidates subject binding and artifact hashes.
+    """
+
+    if not isinstance(diffusion_model_sha256, str) or len(diffusion_model_sha256) != SHA256_LENGTH:
+        raise SithFitterOrchestratorError("SiTH resume diffusion model SHA-256 is invalid")
+    if any(ch not in "0123456789abcdef" for ch in diffusion_model_sha256):
+        raise SithFitterOrchestratorError("SiTH resume diffusion model SHA-256 is invalid")
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2_147_483_647:
+        raise SithFitterOrchestratorError("SiTH resume seed is invalid")
+
+    try:
+        stage, prep, prep_sha256 = load_prepared_input(workspace)
+    except SithReconstructError as exc:
+        raise SithFitterOrchestratorError(f"SiTH resume prepared input is invalid: {exc}") from exc
+
+    evidence_path = stage / "reconstruction.json"
+    if not evidence_path.is_file():
+        raise SithFitterOrchestratorError("SiTH resume reconstruction evidence is missing")
+    evidence = _load_json_object(evidence_path, label="SiTH resume reconstruction evidence")
+    required = {
+        "format",
+        "version",
+        "prepared_input_sha256",
+        "subject_track_id",
+        "sith_revision",
+        "diffusion_model_sha256",
+        "diffusion_model_file_count",
+        "diffusion_model_byte_count",
+        "seed",
+        "hallucination",
+        "reconstruction",
+    }
+    if set(evidence) != required:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction evidence fields do not match v1")
+    if evidence["format"] != RECON_FORMAT or evidence["version"] != RECON_VERSION:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction evidence format/version mismatch")
+    if evidence["prepared_input_sha256"] != prep_sha256:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction is not bound to current prepared input")
+    if evidence["subject_track_id"] != prep["subject_track_id"]:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction subject mismatch")
+    if evidence["sith_revision"] != prep["sith_revision"]:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction revision mismatch")
+    if evidence["diffusion_model_sha256"] != diffusion_model_sha256:
+        raise SithFitterOrchestratorError("SiTH resume diffusion model SHA-256 mismatch")
+    if evidence["seed"] != seed:
+        raise SithFitterOrchestratorError("SiTH resume seed mismatch")
+    for field in ("diffusion_model_file_count", "diffusion_model_byte_count"):
+        value = evidence[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise SithFitterOrchestratorError(f"SiTH resume {field} is invalid")
+    if evidence["hallucination"] != {
+        "num_validation_images": 1,
+        "num_inference_steps": 50,
+        "offline": True,
+    }:
+        raise SithFitterOrchestratorError("SiTH resume hallucination profile mismatch")
+
+    try:
+        outputs = validate_reconstruction_outputs(stage)
+    except SithReconstructError as exc:
+        raise SithFitterOrchestratorError(f"SiTH resume reconstruction artifacts are invalid: {exc}") from exc
+    details = evidence["reconstruction"]
+    detail_fields = {"grid_size", "save_uv", *outputs.keys()}
+    if not isinstance(details, dict) or set(details) != detail_fields:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction detail fields do not match v1")
+    if details["grid_size"] != 300 or details["save_uv"] is not True:
+        raise SithFitterOrchestratorError("SiTH resume reconstruction is not the pinned UV profile")
+    for field, actual in outputs.items():
+        if details[field] != actual:
+            raise SithFitterOrchestratorError(f"SiTH resume reconstruction {field} mismatch")
+
+
 def orchestrate_sith_fitter(
     *,
     request: str | Path,
@@ -150,26 +256,34 @@ def orchestrate_sith_fitter(
         wsl_exe=wsl_exe,
     )
 
-    stage_sith_input(workspace_path)
-    prepare_sith_input(
-        workspace=workspace_path,
-        distribution=distribution,
-        repo=sith_repo,
-        python=sith_python,
-        openpose=openpose,
-        wsl_exe=wsl_exe,
-    )
-    reconstruct_sith(
-        workspace=workspace_path,
-        distribution=distribution,
-        repo=sith_repo,
-        python=sith_python,
-        diffusion_model=diffusion_model,
-        diffusion_model_sha256=diffusion_model_sha256,
-        seed=seed,
-        wsl_exe=wsl_exe,
-        body_model_gender=body_model_gender,
-    )
+    reconstruction_evidence = workspace_path / "sith-input-v1" / "reconstruction.json"
+    if reconstruction_evidence.is_file():
+        _validate_resume_reconstruction(
+            workspace_path,
+            diffusion_model_sha256=diffusion_model_sha256,
+            seed=seed,
+        )
+    else:
+        stage_sith_input(workspace_path)
+        prepare_sith_input(
+            workspace=workspace_path,
+            distribution=distribution,
+            repo=sith_repo,
+            python=sith_python,
+            openpose=openpose,
+            wsl_exe=wsl_exe,
+        )
+        reconstruct_sith(
+            workspace=workspace_path,
+            distribution=distribution,
+            repo=sith_repo,
+            python=sith_python,
+            diffusion_model=diffusion_model,
+            diffusion_model_sha256=diffusion_model_sha256,
+            seed=seed,
+            wsl_exe=wsl_exe,
+            body_model_gender=body_model_gender,
+        )
 
     bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_gender.py"
     if not bridge.is_file():
