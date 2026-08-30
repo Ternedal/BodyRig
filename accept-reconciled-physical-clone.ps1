@@ -183,24 +183,28 @@ try {
     $tempReadiness = [IO.Path]::ChangeExtension($tempSession, "readiness.json")
     Copy-Item -LiteralPath $readinessPath -Destination $tempReadiness
 
-    $synthetic = [ordered]@{
-        format = [string]$session.format
-        version = [int]$session.version
-        session_id = [string]$session.session_id
-        started_utc = [string]$session.started_utc
-        completed_utc = [string]$session.completed_utc
-        status = "pass"
-        stage = "complete"
-        performer_id = [string]$session.performer_id
-        body_id = [string]$session.body_id
-        bodyrig_revision = $head
-        bodyrig_checkout_clean = $true
-        rig_setup_sha256 = ([string]$session.rig_setup_sha256).ToLowerInvariant()
-        readiness_sha256 = ([string]$session.readiness_sha256).ToLowerInvariant()
-        clone_output = $CloneOutput
-        error = $null
-    }
-    $synthetic | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $tempSession -Encoding UTF8
+    # Preserve the original ISO-8601 timestamp strings byte-for-byte through Python JSON.
+    # PowerShell 7.5+ may deserialize ISO timestamps as DateTime and a later [string] cast
+    # is culture-dependent, which would make the strict physical-session validator reject them.
+    $syntheticCode = @'
+import json
+import pathlib
+import sys
+source = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
+source["status"] = "pass"
+source["stage"] = "complete"
+source["bodyrig_revision"] = sys.argv[2]
+source["bodyrig_checkout_clean"] = True
+source["clone_output"] = sys.argv[3]
+source["error"] = None
+pathlib.Path(sys.argv[4]).write_text(
+    json.dumps(source, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+    newline="\n",
+)
+'@
+    & $BodyRigPython -c $syntheticCode $SessionReport $head $CloneOutput $tempSession
+    if ($LASTEXITCODE -ne 0) { throw "Could not create ephemeral reconciliation session without timestamp coercion." }
     & $BodyRigPython -m bodyrig.physical_session validate $tempSession | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Ephemeral reconciliation session failed strict schema validation." }
 
