@@ -88,6 +88,8 @@ def test_orchestrator_runs_private_stages_then_wsl_rig_bridge(monkeypatch, tmp_p
         "reconstruct_sith",
         lambda **kwargs: calls.append(("reconstruct", kwargs)) or {},
     )
+    monkeypatch.setattr(orchestrator, "write_reconstruction_authority", lambda *args, **kwargs: {})
+    monkeypatch.setattr(orchestrator, "validate_reconstruction_authority", lambda *args, **kwargs: {})
 
     translations: list[Path] = []
 
@@ -156,6 +158,7 @@ def test_resume_validator_accepts_exact_completed_reconstruction(monkeypatch, tm
         json.dumps(_resume_evidence(prep_sha256=prep_sha, outputs=outputs)),
         encoding="utf-8",
     )
+    orchestrator.write_reconstruction_authority(workspace, body_model_gender="neutral")
     monkeypatch.setattr(
         orchestrator,
         "load_prepared_input",
@@ -171,7 +174,67 @@ def test_resume_validator_accepts_exact_completed_reconstruction(monkeypatch, tm
         workspace,
         diffusion_model_sha256="a" * 64,
         seed=1337,
+        body_model_gender="neutral",
     )
+
+
+def test_resume_validator_rejects_legacy_reconstruction_without_authority(monkeypatch, tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    stage = workspace / "sith-input-v1"
+    stage.mkdir(parents=True)
+    prep_sha = "b" * 64
+    outputs = _resume_outputs()
+    (stage / "reconstruction.json").write_text(
+        json.dumps(_resume_evidence(prep_sha256=prep_sha, outputs=outputs)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "load_prepared_input",
+        lambda value: (
+            stage,
+            {"subject_track_id": "track-7", "sith_revision": "fixture-revision"},
+            prep_sha,
+        ),
+    )
+
+    with pytest.raises(orchestrator.SithFitterOrchestratorError, match="legacy/incompatible"):
+        orchestrator._validate_resume_reconstruction(
+            workspace,
+            diffusion_model_sha256="a" * 64,
+            seed=1337,
+            body_model_gender="female",
+        )
+
+
+def test_resume_validator_rejects_reconstruction_gender_drift(monkeypatch, tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    stage = workspace / "sith-input-v1"
+    stage.mkdir(parents=True)
+    prep_sha = "b" * 64
+    outputs = _resume_outputs()
+    (stage / "reconstruction.json").write_text(
+        json.dumps(_resume_evidence(prep_sha256=prep_sha, outputs=outputs)),
+        encoding="utf-8",
+    )
+    orchestrator.write_reconstruction_authority(workspace, body_model_gender="male")
+    monkeypatch.setattr(
+        orchestrator,
+        "load_prepared_input",
+        lambda value: (
+            stage,
+            {"subject_track_id": "track-7", "sith_revision": "fixture-revision"},
+            prep_sha,
+        ),
+    )
+
+    with pytest.raises(orchestrator.SithFitterOrchestratorError, match="gender does not match"):
+        orchestrator._validate_resume_reconstruction(
+            workspace,
+            diffusion_model_sha256="a" * 64,
+            seed=1337,
+            body_model_gender="female",
+        )
 
 
 def test_resume_validator_rejects_reconstruction_artifact_hash_drift(monkeypatch, tmp_path: Path):
@@ -186,6 +249,7 @@ def test_resume_validator_rejects_reconstruction_artifact_hash_drift(monkeypatch
         json.dumps(_resume_evidence(prep_sha256=prep_sha, outputs=recorded_outputs)),
         encoding="utf-8",
     )
+    orchestrator.write_reconstruction_authority(workspace, body_model_gender="neutral")
     monkeypatch.setattr(
         orchestrator,
         "load_prepared_input",
@@ -202,6 +266,7 @@ def test_resume_validator_rejects_reconstruction_artifact_hash_drift(monkeypatch
             workspace,
             diffusion_model_sha256="a" * 64,
             seed=1337,
+            body_model_gender="neutral",
         )
 
 
