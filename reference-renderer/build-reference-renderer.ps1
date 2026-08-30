@@ -60,14 +60,14 @@ function Assert-ResolvedPackageLock {
     }
 
     $expectedRegistry = [ordered]@{
-        "com.unity.test-framework" = "1.4.6"
+        "com.unity.test-framework" = "1.6.0"
         "com.unity.mathematics" = "1.2.6"
         "com.unity.timeline" = "1.7.6"
     }
     foreach ($pair in $expectedRegistry.GetEnumerator()) {
         $entry = Need-Property -Object $dependencies -Name ([string]$pair.Key) -Label "Resolved Unity packages lock dependencies"
         if ([string]$entry.version -ne [string]$pair.Value) {
-            throw "Resolved $($pair.Key) version '$($entry.version)' does not match the UniVRM dependency contract '$($pair.Value)'."
+            throw "Resolved $($pair.Key) version '$($entry.version)' does not match the renderer package contract '$($pair.Value)'."
         }
     }
 
