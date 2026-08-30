@@ -9,8 +9,10 @@ def test_batch_build_starts_unity_on_the_requested_physical_target() -> None:
     wrapper = (REFERENCE / "build-reference-renderer.ps1").read_text(encoding="utf-8")
 
     assert '$unityBuildTarget = if ($Platform -eq "Windows") { "StandaloneWindows64" } else { "Android" }' in wrapper
-    assert '-buildTarget $unityBuildTarget -projectPath $tempProject -executeMethod $method' in wrapper
-    assert wrapper.index('-buildTarget $unityBuildTarget') < wrapper.index('-projectPath $tempProject')
+    assert '"-buildTarget", $unityBuildTarget' in wrapper
+    assert '"-projectPath", $tempProject' in wrapper
+    assert '"-executeMethod", $method' in wrapper
+    assert wrapper.index('"-buildTarget", $unityBuildTarget') < wrapper.index('"-projectPath", $tempProject') < wrapper.index('"-executeMethod", $method')
 
 
 def test_quest_build_pins_il2cpp_before_arm64() -> None:
