@@ -18,6 +18,11 @@ from .sith_reconstruct import (
     reconstruct_sith,
     validate_reconstruction_outputs,
 )
+from .sith_reconstruction_authority import (
+    SithReconstructionAuthorityError,
+    validate_reconstruction_authority,
+    write_reconstruction_authority,
+)
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_file_digest import WslFileDigestError, digest_wsl_file
 from .wsl_process import run_wsl_file_capture
@@ -126,13 +131,15 @@ def _validate_resume_reconstruction(
     *,
     diffusion_model_sha256: str,
     seed: int,
+    body_model_gender: str,
 ) -> None:
     """Validate a completed same-workspace SiTH checkpoint before expensive-stage resume.
 
     Resume is intentionally all-or-nothing: only a complete reconstruction receipt
-    whose prepared-input binding and output byte hashes still match may skip staging,
-    OpenPose, SMPL-X fitting, hallucination and UV reconstruction. The downstream
-    SMPL-X -> VRM bridge independently revalidates subject binding and artifact hashes.
+    whose prepared-input binding, output byte hashes and reconstruction authority
+    still match may skip staging, OpenPose, SMPL-X fitting, hallucination and UV
+    reconstruction. Legacy pre-gender/pre-canonical workspaces intentionally fail
+    closed instead of being inferred as compatible.
     """
 
     if not isinstance(diffusion_model_sha256, str) or len(diffusion_model_sha256) != SHA256_LENGTH:
@@ -141,6 +148,9 @@ def _validate_resume_reconstruction(
         raise SithFitterOrchestratorError("SiTH resume diffusion model SHA-256 is invalid")
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2_147_483_647:
         raise SithFitterOrchestratorError("SiTH resume seed is invalid")
+    body_model_gender = str(body_model_gender).strip().lower()
+    if body_model_gender not in SMPLX_GENDERS:
+        raise SithFitterOrchestratorError("SiTH resume SMPL-X gender is invalid")
 
     try:
         stage, prep, prep_sha256 = load_prepared_input(workspace)
@@ -150,6 +160,14 @@ def _validate_resume_reconstruction(
     evidence_path = stage / "reconstruction.json"
     if not evidence_path.is_file():
         raise SithFitterOrchestratorError("SiTH resume reconstruction evidence is missing")
+    try:
+        validate_reconstruction_authority(
+            workspace,
+            expected_body_model_gender=body_model_gender,
+        )
+    except SithReconstructionAuthorityError as exc:
+        raise SithFitterOrchestratorError(f"SiTH resume authority rejected: {exc}") from exc
+
     evidence = _load_json_object(evidence_path, label="SiTH resume reconstruction evidence")
     required = {
         "format",
@@ -262,6 +280,7 @@ def orchestrate_sith_fitter(
             workspace_path,
             diffusion_model_sha256=diffusion_model_sha256,
             seed=seed,
+            body_model_gender=body_model_gender,
         )
     else:
         stage_sith_input(workspace_path)
@@ -284,6 +303,19 @@ def orchestrate_sith_fitter(
             wsl_exe=wsl_exe,
             body_model_gender=body_model_gender,
         )
+        try:
+            write_reconstruction_authority(
+                workspace_path,
+                body_model_gender=body_model_gender,
+            )
+            validate_reconstruction_authority(
+                workspace_path,
+                expected_body_model_gender=body_model_gender,
+            )
+        except SithReconstructionAuthorityError as exc:
+            raise SithFitterOrchestratorError(
+                f"SiTH reconstruction authority commit failed: {exc}"
+            ) from exc
 
     bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_gender.py"
     if not bridge.is_file():
@@ -369,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         SithInputError,
         SithPrepareError,
         SithReconstructError,
+        SithReconstructionAuthorityError,
         WslFileDigestError,
         SithFitterOrchestratorError,
     ) as exc:
