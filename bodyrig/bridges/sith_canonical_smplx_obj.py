@@ -29,6 +29,7 @@ FIT_PARAM_LENGTHS = {
     "transl": 3,
     "scale": 1,
 }
+SMPLX_GENDERS = ("female", "male", "neutral")
 
 
 class CanonicalSmplxError(RuntimeError):
@@ -98,7 +99,10 @@ def write_obj(
     return destination
 
 
-def regenerate(*, model_dir: str, fit_params: str | Path, output: str | Path) -> Path:
+def regenerate(*, model_dir: str, fit_params: str | Path, output: str | Path, gender: str = "neutral") -> Path:
+    gender = str(gender).strip().lower()
+    if gender not in SMPLX_GENDERS:
+        raise CanonicalSmplxError(f"SMPL-X gender must be one of: {', '.join(SMPLX_GENDERS)}")
     params = load_fit_params(fit_params)
     try:
         import torch
@@ -112,7 +116,7 @@ def regenerate(*, model_dir: str, fit_params: str | Path, output: str | Path) ->
     try:
         model = SMPLX(
             model_path=model_dir,
-            gender="male",
+            gender=gender,
             use_pca=False,
             flat_hand_mean=False,
             use_face_contour=True,
@@ -120,7 +124,7 @@ def regenerate(*, model_dir: str, fit_params: str | Path, output: str | Path) ->
             num_expression_coeffs=10,
         ).to(device)
     except Exception as exc:
-        raise CanonicalSmplxError("failed to load the licensed SMPL-X male model") from exc
+        raise CanonicalSmplxError(f"failed to load the licensed SMPL-X {gender} model") from exc
     model.eval()
 
     def tensor(field: str, width: int) -> Any:
@@ -149,13 +153,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--smplx-model-dir", required=True)
     parser.add_argument("--fit-params", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--gender", choices=SMPLX_GENDERS, default="neutral")
     args = parser.parse_args(argv)
     try:
-        destination = regenerate(model_dir=args.smplx_model_dir, fit_params=args.fit_params, output=args.output)
+        destination = regenerate(model_dir=args.smplx_model_dir, fit_params=args.fit_params, output=args.output, gender=args.gender)
     except (CanonicalSmplxError, OSError) as exc:
         print(f"BodyRig canonical SMPL-X OBJ: FAIL: {exc}", file=__import__("sys").stderr)
         return 1
-    print(f"BodyRig canonical SMPL-X OBJ: PASS | {destination}")
+    print(f"BodyRig canonical SMPL-X OBJ: PASS | gender={args.gender} | {destination}")
     return 0
 
 
