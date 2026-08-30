@@ -13,8 +13,20 @@ namespace BodyRig.ReferenceRenderer.Editor
     public static class BodyRigReferenceBuild
     {
         private const string GeneratedScenePath = "Assets/BodyRigGenerated/PhysicalProbe.unity";
-        private const string GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json";
+        private const string GeneratedResourcesPath = "Assets/BodyRigGenerated/Resources";
+        private const string GeneratedProvenancePath = GeneratedResourcesPath + "/bodyrig-build-provenance.json";
         private const string ApplicationId = "dk.ternedal.bodyrig.reference";
+
+        // UniVRM resolves these shaders at runtime with Shader.Find(). If no serialized
+        // asset references them, Unity player stripping may remove them even though the
+        // package compiled successfully. Generated Resources materials keep the exact
+        // Built-in RP import surface available in both WindowsPlayer and Quest builds.
+        private static readonly (string ShaderName, string FileName)[] RequiredRuntimeShaders =
+        {
+            ("Standard", "bodyrig-shader-anchor-standard.mat"),
+            ("UniGLTF/UniUnlit", "bodyrig-shader-anchor-uniunlit.mat"),
+            ("VRM10/MToon10", "bodyrig-shader-anchor-mtoon10.mat"),
+        };
 
         [MenuItem("BodyRig/Build/Windows Physical Probe")]
         public static void BuildWindows() => Build(BuildTarget.StandaloneWindows64, DefaultWindowsOutput());
@@ -32,6 +44,7 @@ namespace BodyRig.ReferenceRenderer.Editor
             var revision = RequireRevisionArgument();
             EnsureProbeScene();
             EnsureBuildProvenance(revision);
+            EnsureRuntimeShaderAnchors();
             ConfigurePlayer(target);
 
             var output = GetArgument("-bodyrigOutput") ?? defaultOutput;
@@ -78,9 +91,7 @@ namespace BodyRig.ReferenceRenderer.Editor
 
         private static void EnsureBuildProvenance(string revision)
         {
-            var directory = Path.GetDirectoryName(GeneratedProvenancePath);
-            if (string.IsNullOrEmpty(directory)) throw new InvalidOperationException("BodyRig generated provenance path has no parent directory");
-            Directory.CreateDirectory(directory);
+            Directory.CreateDirectory(GeneratedResourcesPath);
             var json = "{\n" +
                        "  \"format\": \"bodyrig-build-provenance\",\n" +
                        "  \"version\": 1,\n" +
@@ -88,6 +99,32 @@ namespace BodyRig.ReferenceRenderer.Editor
                        "}\n";
             File.WriteAllText(GeneratedProvenancePath, json, new UTF8Encoding(false));
             AssetDatabase.ImportAsset(GeneratedProvenancePath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+        }
+
+        private static void EnsureRuntimeShaderAnchors()
+        {
+            Directory.CreateDirectory(GeneratedResourcesPath);
+            AssetDatabase.Refresh();
+
+            foreach (var entry in RequiredRuntimeShaders)
+            {
+                var shader = Shader.Find(entry.ShaderName);
+                if (shader == null)
+                    throw new InvalidOperationException($"Physical reference build requires runtime shader '{entry.ShaderName}', but Unity could not resolve it before player stripping.");
+
+                var assetPath = GeneratedResourcesPath + "/" + entry.FileName;
+                if (AssetDatabase.LoadAssetAtPath<Material>(assetPath) != null && !AssetDatabase.DeleteAsset(assetPath))
+                    throw new InvalidOperationException($"Could not replace generated BodyRig shader anchor: {assetPath}");
+
+                var material = new Material(shader)
+                {
+                    name = "BodyRig runtime shader anchor: " + entry.ShaderName,
+                };
+                AssetDatabase.CreateAsset(material, assetPath);
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+            }
+
+            AssetDatabase.SaveAssets();
         }
 
         private static void EnsureProbeScene()
