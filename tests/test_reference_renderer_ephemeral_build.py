@@ -23,7 +23,7 @@ def test_renderer_build_validates_unity_resolved_package_lock() -> None:
     assert '"com.vrmc.gltf", "com.vrmc.vrm"' in script
     assert 'if ([string]$entry.source -ne "git")' in script
     assert "entry.hash -ne $ExpectedUniVrmRevision" in script
-    assert '"com.unity.test-framework" = "1.4.6"' in script
+    assert '"com.unity.test-framework" = "1.6.0"' in script
     assert '"com.unity.mathematics" = "1.2.6"' in script
     assert '"com.unity.timeline" = "1.7.6"' in script
     assert "Unity package resolution was not validated." in script
