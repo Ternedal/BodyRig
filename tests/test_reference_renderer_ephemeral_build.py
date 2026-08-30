@@ -10,8 +10,8 @@ def test_renderer_build_uses_ephemeral_unity_project_and_never_source_project() 
     assert '"BodyRig-reference-build-"' in script
     assert '$tempProject = Join-Path $tempRoot "reference-renderer"' in script
     assert "Copy-ReferenceProject -Source $projectRoot -Destination $tempProject" in script
-    assert "-projectPath $tempProject" in script
-    assert "-projectPath $projectRoot" not in script
+    assert '"-projectPath", $tempProject' in script
+    assert '"-projectPath", $projectRoot' not in script
     assert "Remove-Item -LiteralPath $tempRoot -Recurse -Force" in script
 
 
