@@ -68,7 +68,7 @@ $manifestPath = Join-Path $repoRoot "reference-renderer\Packages\manifest.json"
 $manifest = Read-JsonFile -Path $manifestPath -Label "Reference renderer package manifest"
 $expectedDependencies = [ordered]@{
     "com.unity.mathematics" = "1.2.6"
-    "com.unity.test-framework" = "1.4.6"
+    "com.unity.test-framework" = "1.6.0"
     "com.unity.timeline" = "1.7.6"
     "com.vrmc.gltf" = "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#$univrmRevision"
     "com.vrmc.vrm" = "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#$univrmRevision"
