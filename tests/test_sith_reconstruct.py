@@ -163,6 +163,8 @@ def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reco
 
     def fake_linux_path(path, **kwargs):
         path = Path(path)
+        if path.name == "sith_fit_gender.py":
+            return "/mnt/c/bodyrig/bridges/sith_fit_gender.py"
         if path.name == "sith_canonical_smplx_obj.py":
             return "/mnt/c/bodyrig/bridges/sith_canonical_smplx_obj.py"
         return "/mnt/c/private/sith-input-v1"
@@ -177,7 +179,7 @@ def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reco
     def fake_checked_wsl(*, command, label, cwd=None, **kwargs):
         command = list(command)
         commands.append((label, cwd, command))
-        if label == "SiTH SMPL-X fitting":
+        if label == "SiTH SMPL-X neutral fitting":
             smplx = stage / "smplx"
             (smplx / "000_smplx.obj").write_text("v 0 0 0\n" * 20, encoding="utf-8")
             debug = smplx / "debug"
@@ -210,7 +212,7 @@ def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reco
     )
 
     assert [item[0] for item in commands] == [
-        "SiTH SMPL-X fitting",
+        "SiTH SMPL-X neutral fitting",
         "BodyRig canonical SMPL-X OBJ",
         "SiTH offline back-view hallucination",
         "SiTH textured UV reconstruction",
@@ -219,7 +221,10 @@ def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reco
         assert cwd == "/opt/sith"
 
     fit = commands[0][2]
-    assert fit[1] == "fit.py"
+    assert fit[0] == "/opt/sith/.venv/bin/python"
+    assert fit[1] == "/mnt/c/bodyrig/bridges/sith_fit_gender.py"
+    assert fit[fit.index("--sith-repo") + 1] == "/opt/sith"
+    assert fit[fit.index("--bodyrig-smplx-gender") + 1] == "neutral"
     assert "--opt_orient" in fit and "--opt_betas" in fit and "--debug" in fit
     assert sorted(path.name for path in (stage / "smplx").iterdir()) == ["000_fit.json", "000_smplx.obj"]
     assert reconstruct.validate_fit_params(stage / "smplx" / "000_fit.json")["scale"] == [1.0]
@@ -230,6 +235,7 @@ def test_reconstruct_runs_fit_canonicalization_offline_hallucination_and_uv_reco
     assert canonical[canonical.index("--smplx-model-dir") + 1] == "/opt/sith/data/body_models/smplx"
     assert canonical[canonical.index("--fit-params") + 1] == "/mnt/c/private/sith-input-v1/smplx/000_fit.json"
     assert canonical[canonical.index("--output") + 1] == "/mnt/c/private/sith-input-v1/smplx/000_smplx.obj"
+    assert canonical[canonical.index("--gender") + 1] == "neutral"
 
     hallucinate = commands[2][2]
     assert hallucinate[:4] == [
