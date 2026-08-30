@@ -10,7 +10,10 @@ Set-StrictMode -Version Latest
 
 $allowedDelta = @(
     "reference-renderer/Packages/manifest.json",
+    "reference-renderer/Packages/bodyrig-univrm-manifest.snippet.json",
     "reference-renderer/build-reference-renderer.ps1",
+    "tests/test_reference_renderer_contracts.py",
+    "tests/test_reference_renderer_ephemeral_build.py",
     "tests/test_reference_renderer_package_resolution_contract.py",
     "rebind-gate-a-renderer-package-revision.ps1",
     "tests/test_renderer_package_gate_a_rebind.py"
