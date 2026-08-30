@@ -97,8 +97,8 @@ def test_build_script_embeds_exact_clean_git_revision_exact_unity_and_univrm_pin
     assert "renderer-contract.json" in wrapper
     assert "$ExpectedVersion\\Editor\\Unity.exe" in wrapper
     assert "Get-ChildItem -LiteralPath $hubRoot" not in wrapper
-    assert "-bodyrigRevision $bodyRigRevision" in wrapper
-    assert "-bodyrigUnityVersion $expectedUnityVersion" in wrapper
+    assert '"-bodyrigRevision", $bodyRigRevision' in wrapper
+    assert '"-bodyrigUnityVersion", $expectedUnityVersion' in wrapper
     assert "BodyRig Git HEAD changed during renderer build" in wrapper
     assert "univrm_revision" in wrapper
     assert "Packages\\manifest.json" in wrapper
