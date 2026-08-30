@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -31,6 +32,25 @@ def test_reference_renderer_readiness_is_read_only_and_checks_full_toolchain() -
     assert "bodyrig.physical_session" not in script
     assert "clone-body-from-stash-ready.ps1" not in script
     assert script.rstrip().endswith("return")
+
+
+def test_reference_renderer_readiness_registry_pins_match_manifest_and_build_contract() -> None:
+    manifest = json.loads(
+        (REPO / "reference-renderer" / "Packages" / "manifest.json").read_text(encoding="utf-8")
+    )
+    readiness = (REPO / "check-reference-renderer-ready.ps1").read_text(encoding="utf-8")
+    build = (REPO / "reference-renderer" / "build-reference-renderer.ps1").read_text(encoding="utf-8")
+    readme = (REPO / "reference-renderer" / "README.md").read_text(encoding="utf-8")
+
+    for package in (
+        "com.unity.mathematics",
+        "com.unity.test-framework",
+        "com.unity.timeline",
+    ):
+        version = manifest["dependencies"][package]
+        assert f'"{package}" = "{version}"' in readiness
+        assert f'"{package}" = "{version}"' in build
+        assert f"`{package}` **{version}**" in readme
 
 
 def test_first_physical_run_doctor_requires_renderer_toolchain_before_rig_readiness() -> None:

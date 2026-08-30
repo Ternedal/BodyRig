@@ -16,7 +16,7 @@ Pinned contract:
 - `com.vrmc.gltf` from `/Packages/UniGLTF` at that exact revision;
 - `com.vrmc.vrm` from `/Packages/VRM10` at that exact revision;
 - `com.unity.mathematics` **1.2.6**;
-- `com.unity.test-framework` **1.4.6**;
+- `com.unity.test-framework` **1.6.0**;
 - `com.unity.timeline` **1.7.6**;
 - VRM 1.0 only: `canLoadVrm0X: false`;
 - application id `dk.ternedal.bodyrig.reference`;
