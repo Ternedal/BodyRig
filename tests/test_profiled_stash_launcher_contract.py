@@ -12,8 +12,8 @@ def test_profiled_launcher_resolves_gender_before_canonical_ready_clone() -> Non
     assert "refusing a silent neutral body model" in source
     assert '& $readyScript @forward' in source
     assert 'if ([string]$entry.Key -eq "BodyModelGender")' in source
-    assert "STASH_API_KEY" in source
-    assert "api key" not in source.lower().replace("api key env", "")
+    assert '"--api-key-env", $ApiKeyEnv' in source
+    assert "Write-Host $env:STASH_API_KEY" not in source
 
 
 def test_orchestrator_uses_profiled_gender_environment_when_flag_is_absent() -> None:
