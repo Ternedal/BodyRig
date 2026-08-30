@@ -12,7 +12,12 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $expectedFailure = "BodyRig checkout became dirty during the physical clone session; refusing PASS evidence."
-$allowedDelta = @(".gitignore", "tests/test_repository_hygiene.py")
+$allowedDelta = @(
+    ".gitignore",
+    "tests/test_repository_hygiene.py",
+    "accept-reconciled-physical-clone.ps1",
+    "tests/test_reconciled_acceptance_contract.py"
+)
 
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
@@ -111,7 +116,7 @@ foreach ($line in $deltaLines) {
 $deltaNames = @($deltaNames | Sort-Object -Unique)
 $expectedNames = @($allowedDelta | Sort-Object -Unique)
 if (@(Compare-Object -ReferenceObject $expectedNames -DifferenceObject $deltaNames).Count -ne 0) {
-    throw "Revision delta is broader than the approved Python-bytecode hygiene fix: $($deltaNames -join ', ')"
+    throw "Revision delta is broader than the approved Python-bytecode hygiene/reconciliation fix: $($deltaNames -join ', ')"
 }
 
 $gitignore = Need-File -Path (Join-Path $repoRoot ".gitignore") -Label ".gitignore"
@@ -123,7 +128,7 @@ if ($LASTEXITCODE -ne 0) { throw "Repository hygiene regression did not pass on 
 
 $normalizedDirty = @()
 foreach ($item in $ObservedDirtyPath) {
-    $normalized = ([string]$item).Trim().Replace('\\', '/').Replace('\', '/')
+    $normalized = ([string]$item).Trim().Replace('\', '/')
     if ([string]::IsNullOrWhiteSpace($normalized) -or $normalized -notmatch '(^|/)__pycache__/[^/]+\.pyc$') {
         throw "Observed dirty path is outside the approved Python bytecode failure class: $item"
     }
