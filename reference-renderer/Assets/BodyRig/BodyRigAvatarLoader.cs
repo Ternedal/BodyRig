@@ -250,7 +250,7 @@ namespace BodyRig.ReferenceRenderer
             }
             foreach (var character in value)
             {
-                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'))
+                if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
                 {
                     return false;
                 }
