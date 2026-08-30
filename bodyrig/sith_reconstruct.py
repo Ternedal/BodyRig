@@ -23,6 +23,7 @@ from .wsl_process import run_wsl_file_capture
 FORMAT = "bodyrig-sith-reconstruction"
 VERSION = 1
 DEFAULT_SEED = 1337
+SMPLX_GENDERS = ("female", "male", "neutral")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 FIT_PARAM_LENGTHS = {
@@ -251,7 +252,7 @@ def _write_new_json(path: Path, value: dict[str, Any]) -> None:
         temp.unlink(missing_ok=True)
 
 
-def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, python: str, diffusion_model: str, diffusion_model_sha256: str, seed: int = DEFAULT_SEED, wsl_exe: str = "wsl.exe") -> dict[str, Any]:
+def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, python: str, diffusion_model: str, diffusion_model_sha256: str, seed: int = DEFAULT_SEED, wsl_exe: str = "wsl.exe", body_model_gender: str = "neutral") -> dict[str, Any]:
     for label, value in (("distribution", distribution), ("repo", repo), ("python", python), ("diffusion_model", diffusion_model), ("wsl_exe", wsl_exe)):
         if not isinstance(value, str) or not value.strip():
             raise SithReconstructError(f"SiTH {label} is required")
@@ -261,6 +262,9 @@ def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, pyt
         raise SithReconstructError("SiTH diffusion model expected SHA-256 is invalid")
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2_147_483_647:
         raise SithReconstructError("SiTH seed must be an integer in 0..2147483647")
+    body_model_gender = str(body_model_gender).strip().lower()
+    if body_model_gender not in SMPLX_GENDERS:
+        raise SithReconstructError(f"SMPL-X gender must be one of: {', '.join(SMPLX_GENDERS)}")
 
     stage, prep, prep_sha = load_prepared_input(workspace)
     evidence_path = stage / "reconstruction.json"
@@ -279,12 +283,32 @@ def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, pyt
         raise SithReconstructError(f"SiTH diffusion model tree digest mismatch: expected {diffusion_model_sha256}, got {model['sha256']}")
 
     linux_stage = _linux_path(stage, wsl_exe=wsl_exe, distribution=distribution)
+    gender_fit_bridge = Path(__file__).resolve().parent / "bridges" / "sith_fit_gender.py"
+    if not gender_fit_bridge.is_file():
+        raise SithReconstructError("BodyRig gender-aware SiTH fit bridge is missing")
+    linux_gender_fit_bridge = _linux_path(gender_fit_bridge, wsl_exe=wsl_exe, distribution=distribution)
     _checked_wsl(
         wsl_exe=wsl_exe,
         distribution=distribution,
         cwd=repo,
-        command=[python, "fit.py", "-i", f"{linux_stage}/images", "-o", f"{linux_stage}/smplx", "--size", "1024", "--opt_orient", "--opt_betas", "--debug"],
-        label="SiTH SMPL-X fitting",
+        command=[
+            python,
+            linux_gender_fit_bridge,
+            "--sith-repo",
+            repo,
+            "--bodyrig-smplx-gender",
+            body_model_gender,
+            "-i",
+            f"{linux_stage}/images",
+            "-o",
+            f"{linux_stage}/smplx",
+            "--size",
+            "1024",
+            "--opt_orient",
+            "--opt_betas",
+            "--debug",
+        ],
+        label=f"SiTH SMPL-X {body_model_gender} fitting",
     )
     smplx_dir = stage / "smplx"
     smplx_obj = smplx_dir / "000_smplx.obj"
@@ -315,6 +339,8 @@ def reconstruct_sith(*, workspace: str | Path, distribution: str, repo: str, pyt
             f"{linux_stage}/smplx/000_fit.json",
             "--output",
             f"{linux_stage}/smplx/000_smplx.obj",
+            "--gender",
+            body_model_gender,
         ],
         label="BodyRig canonical SMPL-X OBJ",
     )
@@ -370,13 +396,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--diffusion-model-sha256", required=True)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--wsl-exe", default="wsl.exe")
+    parser.add_argument("--body-model-gender", choices=SMPLX_GENDERS, default="neutral")
     args = parser.parse_args(argv)
     try:
-        evidence = reconstruct_sith(workspace=args.workspace, distribution=args.distribution, repo=args.repo, python=args.python, diffusion_model=args.diffusion_model, diffusion_model_sha256=args.diffusion_model_sha256, seed=args.seed, wsl_exe=args.wsl_exe)
+        evidence = reconstruct_sith(workspace=args.workspace, distribution=args.distribution, repo=args.repo, python=args.python, diffusion_model=args.diffusion_model, diffusion_model_sha256=args.diffusion_model_sha256, seed=args.seed, wsl_exe=args.wsl_exe, body_model_gender=args.body_model_gender)
     except (OSError, SithReconstructError) as exc:
         print(f"BodyRig SiTH reconstruction: FAIL: {exc}", file=sys.stderr)
         return 1
-    print(f"BodyRig SiTH reconstruction: PASS | model={evidence['diffusion_model_sha256'][:12]} | seed={evidence['seed']} | UV mesh ready")
+    print(f"BodyRig SiTH reconstruction: PASS | model={evidence['diffusion_model_sha256'][:12]} | seed={evidence['seed']} | gender={args.body_model_gender} | UV mesh ready")
     return 0
 
 
