@@ -14,7 +14,10 @@ def test_hmr2_bridge_seeds_phalp_smpl_cache_from_local_authority(monkeypatch, tm
     source.write_bytes(b"licensed-smpl-authority")
 
     home = tmp_path / "home"
+    # pathlib.Path.home() follows HOME on POSIX and USERPROFILE on Windows.
+    # Set both so the cache-location contract is deterministic on every CI/operator OS.
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     calls = []
 
