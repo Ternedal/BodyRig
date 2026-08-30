@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -176,6 +177,10 @@ def run_external_fitter(
     interpreted by a shell and no executable path can come from `.mrbody` data.
     The private workspace may contain derived source frames, but its path is only
     supplied as a process argument and is absent from request/result/provenance.
+
+    Successful staging is deleted. Failed staging is deliberately retained so a
+    long-running physical fit can be diagnosed without losing its adapter log or
+    partial output at the exception boundary.
     """
 
     argv = list(command)
@@ -198,11 +203,12 @@ def run_external_fitter(
         identity=identity,
         bodyprint_adjustment=bodyprint_adjustment,
     )
-    with tempfile.TemporaryDirectory(prefix="bodyrig-external-fit-") as temp_name:
-        temp = Path(temp_name)
-        request_path = temp / "request.json"
-        output_dir = temp / "output"
-        log_path = temp / "adapter.log"
+    temp = Path(tempfile.mkdtemp(prefix="bodyrig-external-fit-")).resolve()
+    request_path = temp / "request.json"
+    output_dir = temp / "output"
+    log_path = temp / "adapter.log"
+    success = False
+    try:
         request_path.write_text(
             json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
             encoding="utf-8",
@@ -232,23 +238,31 @@ def run_external_fitter(
             detail = _read_log_tail(log_path)
             suffix = f" | log tail: {detail}" if detail else ""
             raise ExternalFitterError(
-                f"external fitter timed out after {timeout_seconds} seconds{suffix}"
+                f"external fitter timed out after {timeout_seconds} seconds{suffix} | staging retained: {temp}"
             ) from exc
         except OSError as exc:
             detail = _read_log_tail(log_path)
             suffix = f" | log tail: {detail}" if detail else ""
             raise ExternalFitterError(
-                f"external fitter process could not complete: {exc}{suffix}"
+                f"external fitter process could not complete: {exc}{suffix} | staging retained: {temp}"
             ) from exc
         if completed.returncode != 0:
             detail = _read_log_tail(log_path)
             suffix = f": {detail}" if detail else ""
             raise ExternalFitterError(
-                f"external fitter process failed with exit code {completed.returncode}{suffix}"
+                f"external fitter process failed with exit code {completed.returncode}{suffix} | staging retained: {temp}"
             )
 
-        return validate_external_fit_output(
-            output_dir,
-            expected_adapter=adapter,
-            expected_revision=revision,
-        )
+        try:
+            result = validate_external_fit_output(
+                output_dir,
+                expected_adapter=adapter,
+                expected_revision=revision,
+            )
+        except ExternalFitterError as exc:
+            raise ExternalFitterError(f"{exc} | staging retained: {temp}") from exc
+        success = True
+        return result
+    finally:
+        if success:
+            shutil.rmtree(temp, ignore_errors=True)
