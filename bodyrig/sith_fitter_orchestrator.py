@@ -19,6 +19,7 @@ REVISION = "1"
 SHA256_LENGTH = 64
 RECON_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_RECON_CHECKPOINT_SHA256"
 SMPLX_CHECKPOINT_HASH_ENV = "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256"
+BODY_MODEL_GENDER_ENV = "BODYRIG_SITH_BODY_MODEL_GENDER"
 
 
 class SithFitterOrchestratorError(RuntimeError):
@@ -50,6 +51,15 @@ def _required_sha256_from_environment(name: str) -> str:
     value = os.environ.get(name, "").strip().lower()
     if len(value) != SHA256_LENGTH or any(ch not in "0123456789abcdef" for ch in value):
         raise SithFitterOrchestratorError(f"{name} must contain the setup-bound lowercase SHA-256")
+    return value
+
+
+def _default_body_model_gender() -> str:
+    value = os.environ.get(BODY_MODEL_GENDER_ENV, "neutral").strip().lower()
+    if value not in SMPLX_GENDERS:
+        raise SithFitterOrchestratorError(
+            f"{BODY_MODEL_GENDER_ENV} must be one of: {', '.join(SMPLX_GENDERS)}"
+        )
     return value
 
 
@@ -214,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--diffusion-model-sha256", required=True)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--wsl-exe", default="wsl.exe")
-    parser.add_argument("--body-model-gender", choices=SMPLX_GENDERS, default="neutral")
+    parser.add_argument("--body-model-gender", choices=SMPLX_GENDERS, default=None)
     parser.add_argument("--bodyrig-request", required=True)
     parser.add_argument("--bodyrig-workspace", required=True)
     parser.add_argument("--bodyrig-output", required=True)
@@ -223,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        resolved_gender = args.body_model_gender or _default_body_model_gender()
         orchestrate_sith_fitter(
             request=args.bodyrig_request,
             workspace=args.bodyrig_workspace,
@@ -237,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             diffusion_model_sha256=args.diffusion_model_sha256,
             seed=args.seed,
             wsl_exe=args.wsl_exe,
-            body_model_gender=args.body_model_gender,
+            body_model_gender=resolved_gender,
         )
     except (
         OSError,
@@ -249,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as exc:
         print(f"BodyRig builtin SiTH fitter: FAIL: {exc}", file=sys.stderr)
         return 1
-    print(f"BodyRig builtin SiTH fitter: PASS | gender={args.body_model_gender}")
+    print(f"BodyRig builtin SiTH fitter: PASS | gender={resolved_gender}")
     return 0
 
 
