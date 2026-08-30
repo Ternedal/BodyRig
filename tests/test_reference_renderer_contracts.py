@@ -16,7 +16,7 @@ def test_reference_renderer_pins_current_univrm_vrm1_packages() -> None:
     project = json.loads((REFERENCE / "Packages" / "manifest.json").read_text(encoding="utf-8"))
     expected = {
         "com.unity.mathematics": "1.2.6",
-        "com.unity.test-framework": "1.4.6",
+        "com.unity.test-framework": "1.6.0",
         "com.unity.timeline": "1.7.6",
         "com.vrmc.gltf": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#{UNIVRM_REVISION}",
         "com.vrmc.vrm": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#{UNIVRM_REVISION}",
