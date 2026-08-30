@@ -33,6 +33,8 @@ def test_fresh_reference_builds_clean_the_previous_platform_output_directory() -
 def test_windows_renderer_probe_rejects_nonzero_player_exit_even_if_evidence_exists() -> None:
     windows = Path("run-windows-renderer-probe.ps1").read_text(encoding="utf-8")
 
-    assert "$playerExit = $LASTEXITCODE" in windows
+    assert "$playerExit = Invoke-NativeProcessWait -FilePath $playerExe -ArgumentList $playerArgs" in windows
+    assert "$process.WaitForExit()" in windows
+    assert "$playerExit = $LASTEXITCODE" not in windows
     assert "if ($playerExit -ne 0)" in windows
     assert "staged evidence is not authoritative" in windows
