@@ -9,7 +9,7 @@ from typing import Sequence
 
 from .sith_input import SithInputError, stage_sith_input
 from .sith_prepare import SithPrepareError, prepare_sith_input
-from .sith_reconstruct import DEFAULT_SEED, SithReconstructError, reconstruct_sith
+from .sith_reconstruct import DEFAULT_SEED, SMPLX_GENDERS, SithReconstructError, reconstruct_sith
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 from .wsl_file_digest import WslFileDigestError, digest_wsl_file
 from .wsl_process import run_wsl_file_capture
@@ -103,6 +103,7 @@ def orchestrate_sith_fitter(
     diffusion_model_sha256: str,
     seed: int = DEFAULT_SEED,
     wsl_exe: str = "wsl.exe",
+    body_model_gender: str = "neutral",
 ) -> None:
     if adapter != ADAPTER or revision != REVISION:
         raise SithFitterOrchestratorError("builtin SiTH fitter adapter/revision mismatch")
@@ -110,6 +111,11 @@ def orchestrate_sith_fitter(
         raise SithFitterOrchestratorError("WSL distribution is invalid")
     if not isinstance(wsl_exe, str) or not wsl_exe.strip():
         raise SithFitterOrchestratorError("WSL executable is required")
+    body_model_gender = str(body_model_gender).strip().lower()
+    if body_model_gender not in SMPLX_GENDERS:
+        raise SithFitterOrchestratorError(
+            f"SMPL-X gender must be one of: {', '.join(SMPLX_GENDERS)}"
+        )
     distribution = distribution.strip()
     sith_repo = _validate_linux_path(sith_repo, label="SiTH repo")
     sith_python = _validate_linux_path(sith_python, label="SiTH Python")
@@ -152,11 +158,12 @@ def orchestrate_sith_fitter(
         diffusion_model_sha256=diffusion_model_sha256,
         seed=seed,
         wsl_exe=wsl_exe,
+        body_model_gender=body_model_gender,
     )
 
-    bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_adjusted.py"
+    bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_gender.py"
     if not bridge.is_file():
-        raise SithFitterOrchestratorError("builtin SiTH SMPL-X VRM bridge is missing")
+        raise SithFitterOrchestratorError("builtin gender-aware SiTH SMPL-X VRM bridge is missing")
     linux_bridge = _wsl_path(bridge, distribution=distribution, wsl_exe=wsl_exe)
     linux_request = _wsl_path(request_path, distribution=distribution, wsl_exe=wsl_exe)
     linux_workspace = _wsl_path(workspace_path, distribution=distribution, wsl_exe=wsl_exe)
@@ -169,6 +176,8 @@ def orchestrate_sith_fitter(
         "--",
         sith_python,
         linux_bridge,
+        "--bodyrig-smplx-gender",
+        body_model_gender,
         "--smplx-model-dir",
         smplx_model_dir,
         "--bodyrig-request",
@@ -205,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--diffusion-model-sha256", required=True)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--wsl-exe", default="wsl.exe")
+    parser.add_argument("--body-model-gender", choices=SMPLX_GENDERS, default="neutral")
     parser.add_argument("--bodyrig-request", required=True)
     parser.add_argument("--bodyrig-workspace", required=True)
     parser.add_argument("--bodyrig-output", required=True)
@@ -227,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             diffusion_model_sha256=args.diffusion_model_sha256,
             seed=args.seed,
             wsl_exe=args.wsl_exe,
+            body_model_gender=args.body_model_gender,
         )
     except (
         OSError,
@@ -238,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as exc:
         print(f"BodyRig builtin SiTH fitter: FAIL: {exc}", file=sys.stderr)
         return 1
-    print("BodyRig builtin SiTH fitter: PASS")
+    print(f"BodyRig builtin SiTH fitter: PASS | gender={args.body_model_gender}")
     return 0
 
 
