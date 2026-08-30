@@ -87,6 +87,28 @@ function Copy-ReferenceProject {
     }
 }
 
+function Invoke-UnityBatch {
+    param(
+        [Parameter(Mandatory = $true)][string]$UnityExe,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $UnityExe
+    $startInfo.UseShellExecute = $false
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add([string]$argument)
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process) { throw "Unity batch process could not be started." }
+    try {
+        $process.WaitForExit()
+        return [int]$process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
+
 $projectRoot = (Resolve-Path $PSScriptRoot).Path
 $repoRoot = (Resolve-Path (Join-Path $projectRoot "..")).Path
 $contractPath = Join-Path $projectRoot "renderer-contract.json"
@@ -149,8 +171,18 @@ Write-Host "Build workspace: ephemeral"
 try {
     Copy-ReferenceProject -Source $projectRoot -Destination $tempProject
 
-    & $UnityExe -batchmode -quit -buildTarget $unityBuildTarget -projectPath $tempProject -executeMethod $method -bodyrigOutput $Output -bodyrigRevision $bodyRigRevision -bodyrigUnityVersion $expectedUnityVersion -logFile -
-    $exitCode = $LASTEXITCODE
+    $unityArguments = @(
+        "-batchmode",
+        "-quit",
+        "-buildTarget", $unityBuildTarget,
+        "-projectPath", $tempProject,
+        "-executeMethod", $method,
+        "-bodyrigOutput", $Output,
+        "-bodyrigRevision", $bodyRigRevision,
+        "-bodyrigUnityVersion", $expectedUnityVersion,
+        "-logFile", "-"
+    )
+    $exitCode = Invoke-UnityBatch -UnityExe $UnityExe -Arguments $unityArguments
     if ($exitCode -ne 0) { throw "Unity BodyRig reference renderer build failed with exit code $exitCode" }
     if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
 
