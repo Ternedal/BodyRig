@@ -2,9 +2,9 @@
 """Source-shell repair for BodyRig's SiTH -> SMPL-X avatar bridge.
 
 SiTH reconstructs the visible person surface, which may include clothing and
-other offsets from the anatomical SMPL-X body.  Treating that entire shell as
+other offsets from the anatomical SMPL-X body. Treating that entire shell as
 skin can create the armpit/torso membranes seen in the first physical renderer
-run.  This module keeps the source-derived head/hair shell, clamps non-head
+run. This module keeps the source-derived head/hair shell, clamps non-head
 surface offsets back toward the fitted body, and removes triangles that directly
 bridge torso vertices to distal arm/hand skinning regions.
 """
@@ -16,6 +16,9 @@ HEAD_JOINTS = frozenset({12, 15, 22, 23, 24})  # neck, head, jaw, eyes
 TORSO_CORE_JOINTS = frozenset({0, 3, 6, 9, 12, 15, 22, 23, 24})
 LEFT_DISTAL_JOINTS = frozenset({18, 20, *range(25, 40)})
 RIGHT_DISTAL_JOINTS = frozenset({19, 21, *range(40, 55)})
+BODY_RESIDUAL_SCALE = 0.0125
+HEAD_MARGIN_SCALE = 0.04
+MAX_CROSS_REGION_REMOVAL_RATIO = 0.03
 
 
 class MeshFidelityError(RuntimeError):
@@ -55,14 +58,14 @@ def repair_source_shell(
 
     dominant = influences[:, 0].astype(np.int64, copy=False)
     neck_y = float(joints[12, 1])
-    head_floor = neck_y - body_height * 0.04
+    head_floor = neck_y - body_height * HEAD_MARGIN_SCALE
     head_joint_mask = np.isin(dominant, np.asarray(sorted(HEAD_JOINTS), dtype=np.int64))
     preserve_head_shell = (rest[:, 1] >= head_floor) | head_joint_mask
 
     residual = rest - donor
     residual_norm = np.linalg.norm(residual, axis=1)
     body_mask = ~preserve_head_shell
-    max_body_residual = body_height * 0.0125
+    max_body_residual = body_height * BODY_RESIDUAL_SCALE
     oversized = body_mask & (residual_norm > max_body_residual)
     if bool(np.any(oversized)):
         scale = max_body_residual / np.maximum(residual_norm[oversized], 1e-12)
@@ -88,7 +91,7 @@ def repair_source_shell(
     if not repaired_faces:
         raise MeshFidelityError("source-shell repair removed all faces")
     removed_ratio = removed / max(1, len(faces))
-    if removed_ratio > 0.20:
+    if removed_ratio > MAX_CROSS_REGION_REMOVAL_RATIO:
         raise MeshFidelityError(
             f"source-shell topology is too contaminated for bounded repair (removed_ratio={removed_ratio:.4f})"
         )
