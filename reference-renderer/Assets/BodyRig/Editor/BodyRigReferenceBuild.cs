@@ -14,7 +14,7 @@ namespace BodyRig.ReferenceRenderer.Editor
     {
         private const string GeneratedScenePath = "Assets/BodyRigGenerated/PhysicalProbe.unity";
         private const string GeneratedResourcesPath = "Assets/BodyRigGenerated/Resources";
-        private const string GeneratedProvenancePath = GeneratedResourcesPath + "/bodyrig-build-provenance.json";
+        private const string GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json";
         private const string ApplicationId = "dk.ternedal.bodyrig.reference";
 
         // UniVRM resolves these shaders at runtime with Shader.Find(). If no serialized
