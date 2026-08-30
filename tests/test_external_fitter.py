@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -201,12 +202,13 @@ out.joinpath('result.json').write_text(json.dumps({
     assert result.fit.avatar_vrm.startswith(b"glTF")
 
 
-def test_external_process_nonzero_exit_is_rejected(tmp_path: Path):
+def test_external_process_nonzero_exit_retains_forensic_staging(tmp_path: Path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     adapter = tmp_path / "fail.py"
-    adapter.write_text("raise SystemExit(23)\n", encoding="utf-8")
-    with pytest.raises(ExternalFitterError, match="exit code 23"):
+    adapter.write_text("print('fitter-diagnostic', flush=True)\nraise SystemExit(23)\n", encoding="utf-8")
+
+    with pytest.raises(ExternalFitterError, match="exit code 23") as caught:
         run_external_fitter(
             [sys.executable, str(adapter)],
             workspace=workspace,
@@ -217,3 +219,16 @@ def test_external_process_nonzero_exit_is_rejected(tmp_path: Path):
             revision="fixture-rev-1",
             timeout_seconds=30,
         )
+
+    message = str(caught.value)
+    marker = "staging retained: "
+    assert marker in message
+    staging = Path(message.rsplit(marker, 1)[1])
+    try:
+        assert staging.is_dir()
+        assert (staging / "request.json").is_file()
+        assert (staging / "adapter.log").is_file()
+        assert "fitter-diagnostic" in (staging / "adapter.log").read_text(encoding="utf-8")
+        assert (staging / "output").is_dir()
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
