@@ -34,6 +34,29 @@ function Need-Revision {
     if ($normalized -notmatch '^[0-9a-f]{40}$') { throw "$Label is not a canonical 40-character Git SHA." }
     return $normalized
 }
+function Invoke-NativeProcessWait {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    foreach ($argument in $ArgumentList) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "Failed to start Windows reference renderer: $FilePath" }
+        $process.WaitForExit()
+        return $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
@@ -130,13 +153,14 @@ try {
     Write-Host "Commit dir:   $evidenceDir"
     Write-Host "The player will cycle the fixed deformation sequence after evidence creation. Close it after visual inspection."
 
-    & $playerExe `
-        --bodyrig-runtime-manifest $runtimeManifest `
-        --bodyrig-probe-output $stagedProbe `
-        --bodyrig-deformation-output $stagedDeformation `
-        --bodyrig-renderer-name $RendererName `
-        --bodyrig-renderer-version $RendererVersion
-    $playerExit = $LASTEXITCODE
+    $playerArgs = @(
+        "--bodyrig-runtime-manifest", $runtimeManifest,
+        "--bodyrig-probe-output", $stagedProbe,
+        "--bodyrig-deformation-output", $stagedDeformation,
+        "--bodyrig-renderer-name", $RendererName,
+        "--bodyrig-renderer-version", $RendererVersion
+    )
+    $playerExit = Invoke-NativeProcessWait -FilePath $playerExe -ArgumentList $playerArgs
     if ($playerExit -ne 0) {
         throw "Windows player exited with non-zero code $playerExit; staged evidence is not authoritative."
     }
