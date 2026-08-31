@@ -20,6 +20,13 @@ from .personality_blueprint import (
     build_blueprint,
     compile_blueprint,
 )
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    canonical_sha256 as exemplar_evidence_sha256,
+    load_approval,
+    load_candidate_report,
+    verify_approval,
+)
 from .storage import person_library as default_person_library
 
 RESULT_FORMAT = "bodyrig-personality-blueprint-result"
@@ -84,9 +91,19 @@ def _parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help=(
-            "Operator-approved example utterance used only for phrasing/rhythm style. "
-            "May be repeated up to 12 times; factual content is not treated as memory."
+            "Operator-authored example utterance used only for phrasing/rhythm style. "
+            "May be repeated; total examples including approval evidence are capped at 12."
         ),
+    )
+    parser.add_argument(
+        "--style-report",
+        default="",
+        help="Transcript exemplar candidate report used with --style-approval.",
+    )
+    parser.add_argument(
+        "--style-approval",
+        default="",
+        help="Explicit exemplar approval receipt. Must verify against --style-report.",
     )
     parser.add_argument(
         "--body-package",
@@ -127,8 +144,34 @@ def main(argv: list[str] | None = None) -> int:
     body_revision = args.body_revision or None
     profile = None
     saved_revision_id = None
+    style_evidence = None
 
     try:
+        if bool(args.style_report) != bool(args.style_approval):
+            raise PersonalityBlueprintError(
+                "--style-report and --style-approval must be supplied together"
+            )
+        approved_exemplars: list[str] = []
+        if args.style_report:
+            try:
+                report = load_candidate_report(args.style_report)
+                approval = load_approval(args.style_approval)
+                verified = verify_approval(report, approval)
+            except PersonalityExemplarApprovalError as exc:
+                raise PersonalityBlueprintError(f"style approval evidence is invalid: {exc}") from exc
+            approved_exemplars = list(verified["approved_exemplars"])
+            style_evidence = {
+                "candidate_report_sha256": exemplar_evidence_sha256(report),
+                "approval_sha256": exemplar_evidence_sha256(verified),
+                "approved_count": len(approved_exemplars),
+            }
+
+        style_exemplars = [*args.style_example, *approved_exemplars]
+        if len(style_exemplars) > 12:
+            raise PersonalityBlueprintError(
+                "combined operator-authored and approved style examples exceed the 12-example limit"
+            )
+
         if args.person_library and not args.person_id:
             raise PersonalityBlueprintError(
                 "--person-library is an override and requires --person-id"
@@ -199,11 +242,16 @@ def main(argv: list[str] | None = None) -> int:
             default_language=args.default_language,
             communication=communication,
             authored_notes=args.authored_notes,
-            style_exemplars=args.style_example,
+            style_exemplars=style_exemplars,
             bodyprint=bodyprint,
             body_revision=body_revision,
         )
         candidate = compile_blueprint(blueprint)
+        if style_evidence is not None:
+            candidate["style_notes"] += (
+                f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
+                f" | style_approval_sha256={style_evidence['approval_sha256']}"
+            )
         audition_suite = build_audition_suite(candidate["default_language"])
 
         if args.save_candidate:
@@ -226,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             "blueprint": blueprint,
             "candidate": candidate,
             "audition_suite": audition_suite,
+            "style_evidence": style_evidence,
             "person_id": args.person_id or None,
             "saved_personality_revision": saved_revision_id,
         }
