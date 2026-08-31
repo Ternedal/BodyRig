@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .external_fitter_cli import validate_external_fitter_config
-from .identity import validate_visual_identity
+from .identity import bind_visual_identity_to_proof
 from .package import validate_package
 from .physical_session import validate_session
-from .portable_identity import load_portable_identity
+from .portable_identity import bind_portable_identity_to_evidence, load_portable_identity
 from .proof import load_recovery_proof, read_canonical_json
 
 FORMAT = "bodyrig-interrupted-fit-recovery-plan"
@@ -91,24 +91,32 @@ def build_recovery_plan(
             "private identity workspace has no completed SiTH reconstruction authority; expensive fit cannot be safely resumed"
         )
 
-    proof = clone / "bodyrig-recovery-proof.json"
-    identity = clone / "bodyrig-visual-identity.json"
-    portable_identity = clone / "bodyrig-portable-identity.json"
+    proof_path = clone / "bodyrig-recovery-proof.json"
+    identity_path = clone / "bodyrig-visual-identity.json"
+    portable_identity_path = clone / "bodyrig-portable-identity.json"
     fitter_config = outer / "bodyrig-sith-fitter-config.json"
     source_manifest = outer / "bodyrig-stash-source-manifest.json"
     package = clone / f"{failed['body_id']}.mrbody"
 
     try:
-        load_recovery_proof(proof)
-        validate_visual_identity(read_canonical_json(identity, label="visual identity profile"))
-        portable = load_portable_identity(portable_identity)
-        config = validate_external_fitter_config(read_canonical_json(fitter_config, label="external fitter config"))
+        proof = load_recovery_proof(proof_path)
+        identity = bind_visual_identity_to_proof(
+            read_canonical_json(identity_path, label="visual identity profile"),
+            proof,
+        )
+        portable = bind_portable_identity_to_evidence(
+            load_portable_identity(portable_identity_path),
+            proof=proof,
+            visual_identity=identity,
+            requested_alias=failed["body_id"],
+        )
+        config = validate_external_fitter_config(
+            read_canonical_json(fitter_config, label="external fitter config")
+        )
     except ValueError as exc:
         raise InterruptedFitRecoveryError(str(exc)) from exc
     if config["adapter"] != "sith-smplx-vrm" or config["revision"] != "1":
         raise InterruptedFitRecoveryError("interrupted fit does not use the production SiTH SMPL-X fitter")
-    if portable["requested_alias"] != failed["body_id"]:
-        raise InterruptedFitRecoveryError("portable identity alias does not match failed physical session")
 
     manifest = _read_json(source_manifest, label="Stash source manifest")
     if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
@@ -140,9 +148,9 @@ def build_recovery_plan(
 
     authority = {
         "failed_session_sha256": _sha256(failed_path),
-        "recovery_proof_sha256": _sha256(proof),
-        "visual_identity_sha256": _sha256(identity),
-        "portable_identity_sha256": _sha256(portable_identity),
+        "recovery_proof_sha256": _sha256(proof_path),
+        "visual_identity_sha256": _sha256(identity_path),
+        "portable_identity_sha256": _sha256(portable_identity_path),
         "fitter_config_sha256": _sha256(fitter_config),
         "source_manifest_sha256": _sha256(source_manifest),
         "reconstruction_sha256": _sha256(reconstruction),
@@ -164,9 +172,9 @@ def build_recovery_plan(
         "paths": {
             "clone_output": str(outer),
             "clone_dir": str(clone),
-            "proof": str(proof),
-            "visual_identity": str(identity),
-            "portable_identity": str(portable_identity),
+            "proof": str(proof_path),
+            "visual_identity": str(identity_path),
+            "portable_identity": str(portable_identity_path),
             "fitter_config": str(fitter_config),
             "identity_workspace": str(workspace),
             "reconstruction": str(reconstruction),
@@ -193,12 +201,28 @@ def verify_recovered_package(plan: Mapping[str, Any], package_path: str | os.Pat
             "SiTH reconstruction authority changed during recovery; refusing no-reconstruction-rerun claim"
         )
 
+    proof_path = Path(str(paths.get("proof", ""))).expanduser().resolve()
+    identity_path = Path(str(paths.get("visual_identity", ""))).expanduser().resolve()
+    portable_identity_path = Path(str(paths.get("portable_identity", ""))).expanduser().resolve()
+    try:
+        proof = load_recovery_proof(proof_path)
+        identity = bind_visual_identity_to_proof(
+            read_canonical_json(identity_path, label="visual identity profile"), proof
+        )
+        portable = bind_portable_identity_to_evidence(
+            load_portable_identity(portable_identity_path),
+            proof=proof,
+            visual_identity=identity,
+            requested_alias=str(plan.get("body_alias", "")),
+        )
+    except ValueError as exc:
+        raise InterruptedFitRecoveryError(str(exc)) from exc
+
     package = Path(package_path).expanduser().resolve()
     try:
         validated = validate_package(package)
     except ValueError as exc:
         raise InterruptedFitRecoveryError(f"recovered package failed strict validation: {exc}") from exc
-    portable = load_portable_identity(str(paths["portable_identity"]))
     if validated.manifest["id"] != portable["body_id"]:
         raise InterruptedFitRecoveryError("recovered package canonical body identity mismatch")
     return {
