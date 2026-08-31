@@ -115,6 +115,9 @@ if ($plan.package_already_complete -eq $true) {
 
 $planPath = Join-Path ([System.IO.Path]::GetTempPath()) ("bodyrig-interrupted-fit-plan-" + [Guid]::NewGuid().ToString("N") + ".json")
 $plan | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $planPath -Encoding UTF8
+$recoveredSessionStarted = $false
+$recoveredSessionPassed = $false
+$recoveryStage = "readiness"
 try {
     if ([string]::IsNullOrWhiteSpace($RecoveredSessionReport)) {
         $RecoveredSessionReport = Join-Path $CloneOutput "physical-session-recovered.json"
@@ -133,6 +136,7 @@ try {
         "--bodyrig-checkout-clean", "true",
         "--rig-setup-sha256", $rigSetupHash
     ) -Step "Recovered physical session start"
+    $recoveredSessionStarted = $true
 
     $startedRaw = @(& $BodyRigPython -m bodyrig.physical_session validate $RecoveredSessionReport)
     if ($LASTEXITCODE -ne 0 -or $startedRaw.Count -ne 1) { throw "Recovered physical session failed immediate validation." }
@@ -158,6 +162,7 @@ try {
         $RecoveredSessionReport,
         "--readiness-sha256", $readinessHash
     ) -Step "Recovered session readiness binding"
+    $recoveryStage = "clone"
 
     $packagePath = [string]$plan.paths.package
     Write-Host "BodyRig interrupted SiTH fit recovery"
@@ -198,6 +203,7 @@ try {
         $RecoveredSessionReport,
         "--clone-output", $CloneOutput
     ) -Step "Recovered physical clone PASS publication"
+    $recoveredSessionPassed = $true
     $passedRaw = @(& $BodyRigPython -m bodyrig.physical_session validate $RecoveredSessionReport)
     if ($LASTEXITCODE -ne 0 -or $passedRaw.Count -ne 1) { throw "Recovered PASS session failed strict validation." }
     $passed = ([string]$passedRaw[0]) | ConvertFrom-Json
@@ -250,6 +256,20 @@ try {
         Write-Host "Gate A output:    $GateAOutputDir"
     }
     exit 0
+} catch {
+    $original = $_
+    if ($recoveredSessionStarted -and -not $recoveredSessionPassed -and (Test-Path -LiteralPath $RecoveredSessionReport -PathType Leaf)) {
+        try {
+            $message = [string]$original.Exception.Message
+            if ([string]::IsNullOrWhiteSpace($message)) { $message = "Interrupted fit recovery failed without an error message." }
+            if ($message.Length -gt 4000) { $message = $message.Substring(0, 4000) }
+            & $BodyRigPython -m bodyrig.physical_session fail $RecoveredSessionReport --stage $recoveryStage --message $message | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Warning "Could not mark recovered physical session FAIL." }
+        } catch {
+            Write-Warning "Could not mark recovered physical session FAIL: $($_.Exception.Message)"
+        }
+    }
+    throw $original
 } finally {
     Remove-Item -LiteralPath $planPath -Force -ErrorAction SilentlyContinue
 }
