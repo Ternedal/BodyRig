@@ -50,6 +50,11 @@ def next_action(
 
     if convergence_state == "converged":
         return {"action": "stop-converged", "reason": "all fidelity thresholds reached"}
+    if convergence_state == "manual-review":
+        return {
+            "action": "stop-budget",
+            "reason": "convergence candidate budget reached; preserve best-so-far for human strategy review",
+        }
 
     used = {str(value).lower() for value in used_adjustment_sha256}
     adjustment = str(adjustment_request_sha256 or "").lower()
