@@ -26,34 +26,6 @@ class FidelityConvergenceError(ValueError):
     pass
 
 
-@dataclass(frozen=True)
-class FidelityPolicy:
-    face_appearance: float = 0.84
-    body_silhouette: float = 0.88
-    hair_appearance: float = 0.78
-    skin_material: float = 0.78
-    photorealism: float = 0.82
-    overall: float = 0.84
-    min_improvement: float = 0.01
-    plateau_window: int = 3
-    max_iterations: int = 10
-
-    def __post_init__(self) -> None:
-        for field in SCORE_FIELDS:
-            _ratio(getattr(self, field), field=f"policy.{field}")
-        _ratio(self.min_improvement, field="policy.min_improvement")
-        if isinstance(self.plateau_window, bool) or not 2 <= self.plateau_window <= 10:
-            raise FidelityConvergenceError("policy.plateau_window must be an integer in 2..10")
-        if isinstance(self.max_iterations, bool) or not 1 <= self.max_iterations <= 50:
-            raise FidelityConvergenceError("policy.max_iterations must be an integer in 1..50")
-
-    def thresholds(self) -> dict[str, float]:
-        return {field: float(getattr(self, field)) for field in SCORE_FIELDS}
-
-
-DEFAULT_POLICY = FidelityPolicy()
-
-
 def _ratio(value: Any, *, field: str) -> float:
     if (
         isinstance(value, bool)
@@ -75,6 +47,34 @@ def _text(value: Any, *, field: str, maximum: int = 160) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > maximum:
         raise FidelityConvergenceError(f"{field} must contain 1..{maximum} characters")
     return value.strip()
+
+
+@dataclass(frozen=True)
+class FidelityPolicy:
+    face_appearance: float = 0.84
+    body_silhouette: float = 0.88
+    hair_appearance: float = 0.78
+    skin_material: float = 0.78
+    photorealism: float = 0.82
+    overall: float = 0.84
+    min_improvement: float = 0.01
+    plateau_window: int = 3
+    max_iterations: int = 10
+
+    def __post_init__(self) -> None:
+        for field in SCORE_FIELDS:
+            _ratio(getattr(self, field), field=f"policy.{field}")
+        _ratio(self.min_improvement, field="policy.min_improvement")
+        if isinstance(self.plateau_window, bool) or not isinstance(self.plateau_window, int) or not 2 <= self.plateau_window <= 10:
+            raise FidelityConvergenceError("policy.plateau_window must be an integer in 2..10")
+        if isinstance(self.max_iterations, bool) or not isinstance(self.max_iterations, int) or not 1 <= self.max_iterations <= 50:
+            raise FidelityConvergenceError("policy.max_iterations must be an integer in 1..50")
+
+    def thresholds(self) -> dict[str, float]:
+        return {field: float(getattr(self, field)) for field in SCORE_FIELDS}
+
+
+DEFAULT_POLICY = FidelityPolicy()
 
 
 def validate_measurement(value: Mapping[str, Any] | Any) -> dict[str, Any]:
