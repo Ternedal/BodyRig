@@ -121,7 +121,7 @@ def test_pbr_refinement_rejects_hash_mismatch_and_double_application() -> None:
         metallic_roughness_png=roughness,
         metrics=metrics(normal, roughness),
     )
-    with pytest.raises(PbrMaterialError, match="already PBR-refined"):
+    with pytest.raises(PbrMaterialError, match="PBR refinement"):
         refine_glb_pbr(
             refined,
             normal_png=normal,
