@@ -27,6 +27,8 @@ except ImportError:  # standalone bridge execution inside the SiTH fitter enviro
 
 DETAIL_STRENGTH = 0.45
 CHANNEL_DELTA_CAP = 0.035
+DETAIL_FULL_RESPONSE = 0.045
+DETAIL_ZERO_RESPONSE = 0.10
 METHOD = "source-luminance-bounded-detail-v1"
 
 
@@ -41,7 +43,8 @@ def derive_basecolor_detail(np: Any, texture_png: bytes) -> tuple[bytes, dict[st
     high-pass luminance residual is added back to RGB equally per channel, which
     preserves source chroma apart from unavoidable clipping. Every channel delta
     is capped to roughly 9/255 so this layer cannot invent strong new markings or
-    facial features.
+    facial features. Already-sharp local jumps are suppressed so UV-island seams
+    and other hard atlas boundaries are not amplified.
     """
 
     try:
@@ -53,11 +56,22 @@ def derive_basecolor_detail(np: Any, texture_png: bytes) -> tuple[bytes, dict[st
     smooth = _box_blur(np, luminance, 2)
     detail = luminance - smooth
 
-    # Avoid amplifying clipping-prone highlights and shadows. Midtones retain
-    # full detail strength; deep shadows/highlights fade the effect smoothly.
+    # Avoid amplifying clipping-prone highlights/shadows and already-sharp
+    # transitions. The latter is important for UV atlases: a strong island edge
+    # must not gain a sharpening halo simply because it borders unused texels.
     headroom = np.minimum(luminance, 1.0 - luminance)
     headroom_gate = np.clip(headroom / 0.16, 0.0, 1.0)
-    delta = np.clip(detail * DETAIL_STRENGTH, -CHANNEL_DELTA_CAP, CHANNEL_DELTA_CAP) * headroom_gate
+    detail_magnitude = np.abs(detail)
+    structure_gate = np.clip(
+        (DETAIL_ZERO_RESPONSE - detail_magnitude) / (DETAIL_ZERO_RESPONSE - DETAIL_FULL_RESPONSE),
+        0.0,
+        1.0,
+    )
+    delta = (
+        np.clip(detail * DETAIL_STRENGTH, -CHANNEL_DELTA_CAP, CHANNEL_DELTA_CAP)
+        * headroom_gate
+        * structure_gate
+    )
     refined = np.clip(rgb + delta[:, :, None], 0.0, 1.0)
     refined_u8 = np.clip(refined * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
@@ -78,6 +92,8 @@ def derive_basecolor_detail(np: Any, texture_png: bytes) -> tuple[bytes, dict[st
         "method": METHOD,
         "detail_strength": DETAIL_STRENGTH,
         "channel_delta_cap": CHANNEL_DELTA_CAP,
+        "detail_full_response": DETAIL_FULL_RESPONSE,
+        "detail_zero_response": DETAIL_ZERO_RESPONSE,
         "max_observed_channel_delta": round(max_delta, 6),
         "mean_abs_channel_delta": round(mean_delta, 6),
         "changed_pixel_fraction": round(changed_fraction, 6),
@@ -127,9 +143,13 @@ def refine_glb_basecolor(
 
     detail_strength = _metric_float(metrics, "detail_strength", minimum=0.0, maximum=1.0)
     channel_delta_cap = _metric_float(metrics, "channel_delta_cap", minimum=0.0, maximum=0.08)
+    detail_full_response = _metric_float(metrics, "detail_full_response", minimum=0.0, maximum=0.20)
+    detail_zero_response = _metric_float(metrics, "detail_zero_response", minimum=0.0, maximum=0.25)
     max_observed = _metric_float(metrics, "max_observed_channel_delta", minimum=0.0, maximum=0.08)
     mean_abs = _metric_float(metrics, "mean_abs_channel_delta", minimum=0.0, maximum=0.08)
     changed_fraction = _metric_float(metrics, "changed_pixel_fraction", minimum=0.0, maximum=1.0)
+    if detail_full_response >= detail_zero_response:
+        raise BaseColorDetailError("base-color detail structure gate is invalid")
     if max_observed > channel_delta_cap + (1.0 / 255.0) + 1e-6:
         raise BaseColorDetailError("refined base-color metrics exceed the declared channel delta cap")
 
@@ -194,6 +214,8 @@ def refine_glb_basecolor(
         "refinedBaseColorSha256": actual_refined_sha,
         "detailStrength": detail_strength,
         "channelDeltaCap": channel_delta_cap,
+        "detailFullResponse": detail_full_response,
+        "detailZeroResponse": detail_zero_response,
         "maxObservedChannelDelta": max_observed,
         "meanAbsChannelDelta": mean_abs,
         "changedPixelFraction": changed_fraction,
