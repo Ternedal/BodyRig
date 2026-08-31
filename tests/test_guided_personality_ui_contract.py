@@ -38,10 +38,22 @@ def test_guided_studio_exposes_structured_traits_preview_and_candidate_save() ->
     assert "saveButton" in html
 
 
-def test_guided_ui_does_not_offer_component_activation_or_transcript_bypass() -> None:
+def test_guided_ui_requires_bound_report_and_approval_for_transcript_examples() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+    authoring = Path("bodyrig/personality_authoring.py").read_text(encoding="utf-8")
 
     assert "/activate/" not in html
-    assert "--style-report" not in html
-    assert "--style-approval" not in html
-    assert "Transcript-eksempler skal gå gennem den separate approval-gate." in html
+    assert 'id="styleReportFile" type="file"' in html
+    assert 'id="styleApprovalFile" type="file"' in html
+    assert "style_report: state.styleReport" in html
+    assert "style_approval: state.styleApproval" in html
+    assert "file.text()" in html
+    assert "filstier sendes ikke til BodyRig" in html
+    assert "candidate report og approval receipt" in html
+    assert "style_report: dict[str, Any] | None" in guided
+    assert "style_approval: dict[str, Any] | None" in guided
+    assert "verify_approval(normalized_report, normalized_approval)" in authoring
+    assert "style_report_sha256=" in authoring
+    assert "style_approval_sha256=" in authoring
+    assert "personality-style-evidence" in authoring
