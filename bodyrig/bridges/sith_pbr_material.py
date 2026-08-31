@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+import binascii
+import hashlib
+import math
+import struct
+import zlib
+from typing import Any
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+class PbrMaterialError(ValueError):
+    pass
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def _paeth(a: int, b: int, c: int) -> int:
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+        return a
+    if pb <= pc:
+        return b
+    return c
+
+
+def _decode_rgb_png(np: Any, value: bytes) -> Any:
+    if not isinstance(value, bytes) or not value.startswith(PNG_SIGNATURE):
+        raise PbrMaterialError("source texture is not PNG")
+    offset = len(PNG_SIGNATURE)
+    ihdr = None
+    idat = bytearray()
+    seen_iend = False
+    while offset + 12 <= len(value):
+        length = struct.unpack(">I", value[offset:offset + 4])[0]
+        kind = value[offset + 4:offset + 8]
+        payload_start = offset + 8
+        payload_end = payload_start + length
+        crc_end = payload_end + 4
+        if crc_end > len(value):
+            raise PbrMaterialError("source PNG chunk is truncated")
+        payload = value[payload_start:payload_end]
+        expected_crc = struct.unpack(">I", value[payload_end:crc_end])[0]
+        if (binascii.crc32(kind + payload) & 0xFFFFFFFF) != expected_crc:
+            raise PbrMaterialError("source PNG chunk CRC mismatch")
+        if kind == b"IHDR":
+            if ihdr is not None or length != 13:
+                raise PbrMaterialError("source PNG IHDR is invalid")
+            ihdr = payload
+        elif kind == b"IDAT":
+            idat.extend(payload)
+        elif kind == b"IEND":
+            seen_iend = True
+            break
+        offset = crc_end
+    if ihdr is None or not idat or not seen_iend:
+        raise PbrMaterialError("source PNG is incomplete")
+
+    width, height, bit_depth, color_type, compression, filtering, interlace = struct.unpack(">IIBBBBB", ihdr)
+    if width < 1 or height < 1 or width > 8192 or height > 8192:
+        raise PbrMaterialError("source PNG dimensions are outside the accepted range")
+    if bit_depth != 8 or color_type not in {2, 6} or compression != 0 or filtering != 0 or interlace != 0:
+        raise PbrMaterialError("PBR refinement requires non-interlaced 8-bit RGB/RGBA PNG")
+    channels = 3 if color_type == 2 else 4
+    stride = width * channels
+    try:
+        raw = zlib.decompress(bytes(idat))
+    except zlib.error as exc:
+        raise PbrMaterialError("source PNG IDAT could not be decompressed") from exc
+    expected = height * (stride + 1)
+    if len(raw) != expected:
+        raise PbrMaterialError("source PNG decompressed byte count mismatch")
+
+    rows = bytearray(height * stride)
+    previous = bytearray(stride)
+    source_offset = 0
+    for y in range(height):
+        filter_type = raw[source_offset]
+        source_offset += 1
+        encoded = raw[source_offset:source_offset + stride]
+        source_offset += stride
+        row = bytearray(stride)
+        if filter_type not in {0, 1, 2, 3, 4}:
+            raise PbrMaterialError("source PNG uses an unsupported row filter")
+        for x in range(stride):
+            left = row[x - channels] if x >= channels else 0
+            up = previous[x]
+            upper_left = previous[x - channels] if x >= channels else 0
+            sample = encoded[x]
+            if filter_type == 0:
+                value_byte = sample
+            elif filter_type == 1:
+                value_byte = (sample + left) & 0xFF
+            elif filter_type == 2:
+                value_byte = (sample + up) & 0xFF
+            elif filter_type == 3:
+                value_byte = (sample + ((left + up) // 2)) & 0xFF
+            else:
+                value_byte = (sample + _paeth(left, up, upper_left)) & 0xFF
+            row[x] = value_byte
+        rows[y * stride:(y + 1) * stride] = row
+        previous = row
+
+    array = np.frombuffer(bytes(rows), dtype=np.uint8).reshape(height, width, channels)
+    return array[:, :, :3].copy()
+
+
+def _encode_rgb_png(np: Any, rgb: Any) -> bytes:
+    if getattr(rgb, "ndim", None) != 3 or rgb.shape[2] != 3:
+        raise PbrMaterialError("derived PBR texture must be HxWx3")
+    height, width, _ = rgb.shape
+    if width < 1 or height < 1 or width > 8192 or height > 8192:
+        raise PbrMaterialError("derived PBR texture dimensions are invalid")
+    pixels = np.asarray(rgb, dtype=np.uint8)
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        rows.extend(pixels[y].tobytes())
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        PNG_SIGNATURE
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _box_blur(np: Any, value: Any, radius: int) -> Any:
+    if radius < 1:
+        return value.copy()
+    size = 2 * radius + 1
+    padded = np.pad(value, ((radius, radius), (radius, radius)), mode="edge")
+    integral = np.pad(padded, ((1, 0), (1, 0)), mode="constant").cumsum(axis=0).cumsum(axis=1)
+    total = (
+        integral[size:, size:]
+        - integral[:-size, size:]
+        - integral[size:, :-size]
+        + integral[:-size, :-size]
+    )
+    return total / float(size * size)
+
+
+def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str, float | str]]:
+    """Derive restrained PBR detail maps from the exact source-derived base color.
+
+    This is a deterministic appearance refinement, not a measurement of physical
+    skin properties. Only high-frequency luminance detail influences normals;
+    broad lighting gradients are intentionally removed before gradient mapping.
+    The roughness map stays in a conservative dielectric range and metallic is
+    always zero.
+    """
+
+    rgb_u8 = _decode_rgb_png(np, texture_png)
+    rgb = rgb_u8.astype(np.float32) / 255.0
+    luminance = 0.2126 * rgb[:, :, 0] + 0.7152 * rgb[:, :, 1] + 0.0722 * rgb[:, :, 2]
+    smooth = _box_blur(np, luminance, 2)
+    detail = luminance - smooth
+
+    gradient_y, gradient_x = np.gradient(detail)
+    normal_strength = 8.0
+    nx = -gradient_x * normal_strength
+    ny = -gradient_y * normal_strength
+    nz = np.ones_like(nx)
+    length = np.sqrt(nx * nx + ny * ny + nz * nz)
+    length = np.maximum(length, 1e-8)
+    normal = np.stack((nx / length, ny / length, nz / length), axis=2)
+    normal_rgb = np.clip((normal * 0.5 + 0.5) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+    maximum = rgb.max(axis=2)
+    minimum = rgb.min(axis=2)
+    saturation = np.where(maximum > 1e-6, (maximum - minimum) / maximum, 0.0)
+    micro = np.clip(np.abs(detail) / 0.12, 0.0, 1.0)
+    darkness = 1.0 - luminance
+    roughness = 0.72 - 0.12 * saturation * darkness - 0.08 * micro
+    roughness = np.clip(roughness, 0.46, 0.82)
+    metallic_roughness = np.empty_like(rgb_u8)
+    metallic_roughness[:, :, 0] = 255
+    metallic_roughness[:, :, 1] = np.clip(roughness * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    metallic_roughness[:, :, 2] = 0
+
+    normal_png = _encode_rgb_png(np, normal_rgb)
+    metallic_roughness_png = _encode_rgb_png(np, metallic_roughness)
+    metrics: dict[str, float | str] = {
+        "method": "source-basecolor-highpass-pbr-v1",
+        "normal_scale": 0.45,
+        "roughness_min": round(float(roughness.min()), 6),
+        "roughness_max": round(float(roughness.max()), 6),
+        "roughness_mean": round(float(roughness.mean()), 6),
+        "normal_texture_sha256": hashlib.sha256(normal_png).hexdigest(),
+        "metallic_roughness_texture_sha256": hashlib.sha256(metallic_roughness_png).hexdigest(),
+    }
+    if not all(math.isfinite(float(metrics[field])) for field in ("normal_scale", "roughness_min", "roughness_max", "roughness_mean")):
+        raise PbrMaterialError("derived PBR metrics are non-finite")
+    return normal_png, metallic_roughness_png, metrics
