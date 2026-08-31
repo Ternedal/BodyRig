@@ -124,6 +124,8 @@ New-Item -ItemType Directory -Path $WorkRoot | Out-Null
 
 $referenceDir = Join-Path $WorkRoot "references"
 $referenceManifest = Join-Path $referenceDir "reference-set.json"
+$frozenBodyReference = Join-Path $referenceDir "private-body-reference-rgba.png"
+$frozenBodyReferenceSha = ""
 $profileLauncher = Resolve-InputFile -Path (Join-Path $repoRoot "clone-body-from-stash-profiled-ready.ps1") -Label "Profiled physical clone launcher"
 $gateA = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
 $fidelityRenderer = Resolve-InputFile -Path (Join-Path $repoRoot "run-fidelity-windows-render-probe.ps1") -Label "Fidelity Windows renderer"
@@ -133,7 +135,7 @@ Write-Host "Revision:   $head"
 Write-Host "Performer:  $PerformerId"
 Write-Host "Body alias: $BodyId"
 Write-Host "Work root:  $WorkRoot"
-Write-Host "Rule: low likeness ITERATES; only invalid evidence/process errors are hard failures."
+Write-Host "Target: high likeness AND photorealistic rendering. Low scores iterate; only invalid evidence/process errors are hard failures."
 Write-Host ""
 
 $referenceArgs = @(
@@ -208,6 +210,16 @@ try {
             if (-not (Test-Path -LiteralPath $bodyReference -PathType Leaf)) {
                 throw "Private full-body RGBA reference was not produced: $bodyReference"
             }
+            if ($iteration -eq 1) {
+                if (Test-Path -LiteralPath $frozenBodyReference) { throw "Frozen body reference unexpectedly already exists." }
+                Copy-Item -LiteralPath $bodyReference -Destination $frozenBodyReference
+                $frozenBodyReferenceSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $frozenBodyReference).Hash.ToLowerInvariant()
+                if ($frozenBodyReferenceSha -notmatch '^[0-9a-f]{64}$') { throw "Frozen body reference SHA-256 is invalid." }
+            } else {
+                if (-not (Test-Path -LiteralPath $frozenBodyReference -PathType Leaf)) { throw "Frozen body reference disappeared during convergence." }
+                $currentFrozenHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $frozenBodyReference).Hash.ToLowerInvariant()
+                if ($currentFrozenHash -ne $frozenBodyReferenceSha) { throw "Frozen body reference changed during convergence." }
+            }
 
             & $gateA -SessionReport $sessionReport -BodyRigPython $BodyRigPython -OutputDir $acceptanceDir
             if ($LASTEXITCODE -ne 0) { throw "Gate A failed operationally in fidelity iteration $iteration" }
@@ -228,7 +240,7 @@ try {
                 "--rig-setup", $RigSetupReport,
                 "--reference-set", $referenceManifest,
                 "--render-set", $renderManifest,
-                "--body-reference-rgba", $bodyReference,
+                "--body-reference-rgba", $frozenBodyReference,
                 "--iteration", [string]$iteration,
                 "--out", $evaluationPath
             )
@@ -237,28 +249,26 @@ try {
 
             $decisionArgs = @("-m", "bodyrig.fidelity_convergence_cli")
             $decisionArgs += $evaluationPaths
-            $decisionArgs += @(
-                "--out", $decisionPath,
-                "--max-iterations", [string]$MaxIterations
-            )
+            $decisionArgs += @("--out", $decisionPath, "--max-iterations", [string]$MaxIterations)
             Invoke-Checked -Executable $BodyRigPython -Arguments $decisionArgs -Step "Visual fidelity convergence decision iteration $iteration"
             $decision = Get-Content -LiteralPath $decisionPath -Raw -Encoding UTF8 | ConvertFrom-Json
             $terminalDecision = $decision
 
-            Write-Host ("Scores: face={0:N3} body={1:N3} hair={2:N3} skin={3:N3} overall={4:N3}" -f `
+            Write-Host ("Scores: face={0:N3} body={1:N3} hair={2:N3} skin={3:N3} photo={4:N3} overall={5:N3}" -f `
                 [double]$decision.scores.face_appearance,
                 [double]$decision.scores.body_silhouette,
                 [double]$decision.scores.hair_appearance,
                 [double]$decision.scores.skin_material,
+                [double]$decision.scores.photorealism,
                 [double]$decision.scores.overall)
             Write-Host "Decision: $([string]$decision.state) | focus=$([string]$decision.next_focus) | best=iteration-$([int]$decision.best_iteration)"
 
             if ([string]$decision.state -eq "converged") {
-                Write-Host "Visual thresholds reached. Automatic generation stops before human visual authority."
+                Write-Host "Likeness + photorealism thresholds reached. Automatic generation stops before human visual authority."
                 break
             }
             if ([string]$decision.state -eq "manual-review") {
-                Write-Host "Automatic batch budget exhausted. Keeping best-so-far for human strategy review; this is NOT a likeness FAIL."
+                Write-Host "Automatic batch budget exhausted. Keeping best-so-far for strategy review; this is NOT a visual FAIL."
                 break
             }
 
@@ -272,6 +282,8 @@ try {
                 Write-CreateOnlyJson -Path $nextRequestPath -Value $plan.adjustment_request
                 $currentAdjustmentRequest = $nextRequestPath
                 Write-Host "Next candidate carries a bounded shoulder/hip correction: $([string]$plan.feedback)"
+            } else {
+                $currentAdjustmentRequest = ""
             }
             $retunedSearch = ([string]$decision.state -eq "plateau")
             if ($retunedSearch) {
@@ -298,6 +310,9 @@ try {
 }
 
 if ($null -eq $terminalDecision) { throw "Fidelity convergence produced no decision." }
+if (-not (Test-Path -LiteralPath $frozenBodyReference -PathType Leaf)) { throw "Fidelity convergence lost its frozen body reference." }
+$currentFrozenHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $frozenBodyReference).Hash.ToLowerInvariant()
+if ($currentFrozenHash -ne $frozenBodyReferenceSha) { throw "Frozen body reference changed before result publication." }
 $bestIteration = [int]$terminalDecision.best_iteration
 $bestDir = Join-Path $WorkRoot ("iteration-{0:D2}" -f $bestIteration)
 $bestAcceptance = Join-Path $bestDir "acceptance"
@@ -308,13 +323,16 @@ $result = [ordered]@{
     bodyrig_revision = $head
     performer_id = $PerformerId
     body_alias = $BodyId
+    target = "high-likeness-photorealistic-avatar"
     state = [string]$terminalDecision.state
     iterations_completed = [int]$terminalDecision.iteration
     best_iteration = $bestIteration
     best_candidate_sha256 = [string]$terminalDecision.best_candidate_sha256
     best_overall = [double]$terminalDecision.best_overall
+    best_photorealism = [double]$terminalDecision.scores.photorealism
     best_acceptance_dir = ("iteration-{0:D2}/acceptance" -f $bestIteration)
     reference_set = "references/reference-set.json"
+    body_reference_sha256 = $frozenBodyReferenceSha
     human_visual_authority_required = $true
     production_activation = $false
     semantics = "visual-fidelity-not-identity-verification"
@@ -330,6 +348,6 @@ Write-Host "Result:       $resultPath"
 if ([string]$terminalDecision.state -eq "converged") {
     Write-Host "NEXT: run human Windows visual review on the BEST candidate. Do not auto-accept or proceed to Quest."
 } else {
-    Write-Host "NEXT: inspect best-so-far and retune/start another convergence batch. Low likeness was never recorded as FAIL."
+    Write-Host "NEXT: inspect best-so-far and retune/start another convergence batch. Low likeness/realism was never recorded as FAIL."
 }
 exit 0
