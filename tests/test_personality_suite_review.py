@@ -138,15 +138,17 @@ def test_suite_review_rejects_missing_duplicate_or_wrong_probe_execution(tmp_pat
 
 
 def test_suite_review_rejects_wrong_prompt_or_model(tmp_path: Path) -> None:
-    profile = _profile(tmp_path)
-    wrong_prompt = _auditions(tmp_path / "prompt", profile, wrong_prompt="Et andet prompt")
+    prompt_root = tmp_path / "prompt"
+    prompt_profile = _profile(prompt_root)
+    wrong_prompt = _auditions(prompt_root, prompt_profile, wrong_prompt="Et andet prompt")
     with pytest.raises(PersonalitySuiteReviewError, match="prompt does not match"):
-        _seal(tmp_path / "prompt", profile, wrong_prompt)
+        _seal(prompt_root, prompt_profile, wrong_prompt)
 
-    profile2 = _profile(tmp_path / "model")
-    wrong_model = _auditions(tmp_path / "model", profile2, wrong_model_probe="gentle-disagreement")
+    model_root = tmp_path / "model"
+    model_profile = _profile(model_root)
+    wrong_model = _auditions(model_root, model_profile, wrong_model_probe="gentle-disagreement")
     with pytest.raises(PersonalitySuiteReviewError, match="different ModelRig model"):
-        _seal(tmp_path / "model", profile2, wrong_model)
+        _seal(model_root, model_profile, wrong_model)
 
 
 def test_suite_review_detects_post_seal_audio_tamper(tmp_path: Path) -> None:
