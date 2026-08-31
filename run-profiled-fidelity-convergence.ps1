@@ -443,7 +443,7 @@ try {
             Copy-Item -LiteralPath $bodyReference -Destination $frozenBodyReference
             $frozenBodyReferenceSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $frozenBodyReference).Hash.ToLowerInvariant()
         } elseif ((Get-FileHash -Algorithm SHA256 -LiteralPath $frozenBodyReference).Hash.ToLowerInvariant() -ne $frozenBodyReferenceSha) {
-            throw "Frozen source-derived body reference changed during convergence."
+            throw "Frozen body reference changed during convergence."
         }
         foreach ($path in $currentObservationWorkspaces) { Remove-PrivateWorkspaceIfNeeded -Path $path }
 
