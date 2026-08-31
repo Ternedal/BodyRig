@@ -5,6 +5,27 @@ from pathlib import Path
 
 from bodyrig import personality_blueprint_cli
 from bodyrig.person_profiles import create_profile, load_profile
+from bodyrig.personality_exemplar_approval import build_approval
+
+
+def _style_report() -> dict:
+    return {
+        "format": "bodyrig-personality-exemplar-candidates",
+        "version": 1,
+        "source_count": 1,
+        "source_sha256": ["c" * 64],
+        "candidate_count": 3,
+        "candidates": [
+            "Ja ja, det går nok.",
+            "Nå, videre.",
+            "Det var da typisk.",
+        ],
+        "suggested_exemplars": ["Ja ja, det går nok.", "Det var da typisk."],
+        "operator_review_required": True,
+        "speaker_identity_authority": False,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
 
 
 def test_cli_builds_operator_grounded_candidate_without_body(capsys) -> None:
@@ -30,10 +51,74 @@ def test_cli_builds_operator_grounded_candidate_without_body(capsys) -> None:
         "Ja ja, det skal nok gå.",
         "Det er altså ikke verdens undergang.",
     ]
+    assert result["style_evidence"] is None
     assert "Tør, underspillet humor." in result["candidate"]["instructions"]
     assert "style_exemplars=2" in result["candidate"]["style_notes"]
     assert len(result["audition_suite"]["probes"]) == 6
     assert result["audition_suite"]["human_review_required"] is True
+
+
+def test_cli_consumes_only_approval_bound_transcript_examples(tmp_path: Path, capsys) -> None:
+    report_value = _style_report()
+    approval_value = build_approval(
+        report_value,
+        selected_candidate_indexes=[0, 2],
+        speaker_identity_confirmed=True,
+        style_use_approved=True,
+    )
+    report = tmp_path / "report.json"
+    approval = tmp_path / "approval.json"
+    report.write_text(json.dumps(report_value), encoding="utf-8")
+    approval.write_text(json.dumps(approval_value), encoding="utf-8")
+
+    rc = personality_blueprint_cli.main([
+        "--style-report", str(report),
+        "--style-approval", str(approval),
+        "--directness", "0.8",
+    ])
+
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["blueprint"]["style_exemplars"] == [
+        "Ja ja, det går nok.",
+        "Det var da typisk.",
+    ]
+    assert result["style_evidence"]["approved_count"] == 2
+    assert len(result["style_evidence"]["candidate_report_sha256"]) == 64
+    assert len(result["style_evidence"]["approval_sha256"]) == 64
+    assert "style_report_sha256=" in result["candidate"]["style_notes"]
+    assert "style_approval_sha256=" in result["candidate"]["style_notes"]
+
+
+def test_cli_rejects_mismatched_style_report_and_approval(tmp_path: Path, capsys) -> None:
+    report_value = _style_report()
+    approval_value = build_approval(
+        report_value,
+        selected_candidate_indexes=[0],
+        speaker_identity_confirmed=True,
+        style_use_approved=True,
+    )
+    report_value["candidates"][0] = "En anden replik."
+    report_value["suggested_exemplars"] = ["Det var da typisk."]
+    report = tmp_path / "report.json"
+    approval = tmp_path / "approval.json"
+    report.write_text(json.dumps(report_value), encoding="utf-8")
+    approval.write_text(json.dumps(approval_value), encoding="utf-8")
+
+    rc = personality_blueprint_cli.main([
+        "--style-report", str(report),
+        "--style-approval", str(approval),
+    ])
+
+    assert rc == 1
+    assert "exact candidate report" in capsys.readouterr().err
+
+
+def test_cli_requires_style_report_and_approval_together(capsys) -> None:
+    rc = personality_blueprint_cli.main(["--style-report", "report.json"])
+
+    assert rc == 1
+    assert "must be supplied together" in capsys.readouterr().err
 
 
 def test_cli_requires_body_package_and_revision_together(capsys) -> None:
