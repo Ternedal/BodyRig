@@ -46,15 +46,24 @@ def test_scheduler_never_repeats_same_adjustment_and_caps_expensive_rebuilds() -
     assert "preserve best-so-far" in exhausted["reason"]
 
 
-def test_converged_always_stops_without_spending_more_compute() -> None:
-    result = next_action(
+def test_converged_and_manual_review_never_spend_more_compute() -> None:
+    converged = next_action(
         convergence_state="converged",
         full_rebuilds_completed=1,
         refinements_on_current_rebuild=0,
         adjustment_request_sha256="b" * 64,
         used_adjustment_sha256=[],
     )
-    assert result["action"] == "stop-converged"
+    assert converged["action"] == "stop-converged"
+
+    manual = next_action(
+        convergence_state="manual-review",
+        full_rebuilds_completed=1,
+        refinements_on_current_rebuild=0,
+        adjustment_request_sha256="c" * 64,
+        used_adjustment_sha256=[],
+    )
+    assert manual["action"] == "stop-budget"
 
 
 def test_policy_defaults_bound_full_5_hour_reconstructions() -> None:
