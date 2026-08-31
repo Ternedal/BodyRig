@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from .package import MRBodyError, validate_package
+from .person_profiles import (
+    PersonProfileError,
+    add_personality_revision,
+    load_profile,
+)
 from .personality_blueprint import (
     PersonalityBlueprintError,
     build_blueprint,
@@ -48,6 +53,15 @@ def _write_create_only(path: Path, value: dict[str, Any]) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _find_body_revision(profile: dict[str, Any], revision_id: str) -> dict[str, Any]:
+    for item in profile.get("body_revisions", []):
+        if item.get("revision_id") == revision_id:
+            return dict(item)
+    raise PersonalityBlueprintError(
+        f"body revision {revision_id!r} is not registered on the selected person"
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -71,12 +85,23 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--body-revision",
         default="",
-        help="Required body-rXXXX binding when --body-package is supplied.",
+        help=(
+            "Body-rXXXX grounding. With --person-library/--person-id the registered "
+            "package is resolved automatically; otherwise --body-package is required."
+        ),
     )
+    parser.add_argument("--person-library", default="")
+    parser.add_argument("--person-id", default="")
+    parser.add_argument(
+        "--save-candidate",
+        action="store_true",
+        help="Append the compiled personality as a new immutable personality-rXXXX candidate.",
+    )
+    parser.add_argument("--feedback", default="")
     parser.add_argument(
         "--out",
         default="",
-        help="Optional create-only JSON result path. JSON is always also printed to stdout.",
+        help="Optional create-only JSON result path. Required with --save-candidate.",
     )
     return parser
 
@@ -84,22 +109,65 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     bodyprint = None
-    body_revision = None
+    body_revision = args.body_revision or None
+    profile = None
+    saved_revision_id = None
 
     try:
-        if bool(args.body_package) != bool(args.body_revision):
+        if bool(args.person_library) != bool(args.person_id):
             raise PersonalityBlueprintError(
-                "--body-package and --body-revision must be supplied together"
+                "--person-library and --person-id must be supplied together"
             )
-        if args.body_package:
-            package = Path(args.body_package).expanduser().resolve()
+        if args.save_candidate and not args.person_library:
+            raise PersonalityBlueprintError(
+                "--save-candidate requires --person-library and --person-id"
+            )
+        if args.save_candidate and not args.out:
+            raise PersonalityBlueprintError(
+                "--save-candidate requires --out so the authored blueprint is preserved create-only"
+            )
+        output = Path(args.out).expanduser().resolve() if args.out else None
+        if output is not None and output.exists():
+            raise PersonalityBlueprintError(f"blueprint output already exists: {output}")
+
+        if args.person_library:
+            try:
+                profile = load_profile(args.person_library, args.person_id)
+            except PersonProfileError as exc:
+                raise PersonalityBlueprintError(str(exc)) from exc
+
+        package_path = args.body_package
+        if body_revision and profile is not None:
+            registered = _find_body_revision(profile, body_revision)
+            registered_package = str(registered["package_path"])
+            if package_path:
+                explicit = Path(package_path).expanduser().resolve()
+                expected = Path(registered_package).expanduser().resolve()
+                if explicit != expected:
+                    raise PersonalityBlueprintError(
+                        "--body-package does not match the package registered for --body-revision"
+                    )
+            package_path = registered_package
+        elif bool(package_path) != bool(body_revision):
+            raise PersonalityBlueprintError(
+                "standalone body grounding requires --body-package and --body-revision together"
+            )
+
+        if package_path:
+            package = Path(package_path).expanduser().resolve()
             if not package.is_file():
                 raise PersonalityBlueprintError(f"body package not found: {package}")
             try:
-                bodyprint = validate_package(package).bodyprint
+                validated_body = validate_package(package)
             except (MRBodyError, OSError) as exc:
                 raise PersonalityBlueprintError(f"body package is invalid: {exc}") from exc
-            body_revision = args.body_revision
+            if profile is not None and body_revision:
+                registered = _find_body_revision(profile, body_revision)
+                if validated_body.manifest["id"] != registered["body_id"]:
+                    raise PersonalityBlueprintError(
+                        "registered body revision id does not match the validated .mrbody identity"
+                    )
+            bodyprint = validated_body.bodyprint
 
         communication = {
             "directness": args.directness,
@@ -117,14 +185,31 @@ def main(argv: list[str] | None = None) -> int:
             body_revision=body_revision,
         )
         candidate = compile_blueprint(blueprint)
+
+        if args.save_candidate:
+            try:
+                updated = add_personality_revision(
+                    args.person_library,
+                    args.person_id,
+                    instructions=candidate["instructions"],
+                    default_language=candidate["default_language"],
+                    style_notes=candidate["style_notes"],
+                    feedback=args.feedback,
+                )
+            except PersonProfileError as exc:
+                raise PersonalityBlueprintError(str(exc)) from exc
+            saved_revision_id = updated["personality_revisions"][-1]["revision_id"]
+
         result = {
             "format": RESULT_FORMAT,
             "version": RESULT_VERSION,
             "blueprint": blueprint,
             "candidate": candidate,
+            "person_id": args.person_id or None,
+            "saved_personality_revision": saved_revision_id,
         }
-        if args.out:
-            _write_create_only(Path(args.out).expanduser().resolve(), result)
+        if output is not None:
+            _write_create_only(output, result)
     except PersonalityBlueprintError as exc:
         print(f"BodyRig personality blueprint: FAIL: {exc}", file=sys.stderr)
         return 1
