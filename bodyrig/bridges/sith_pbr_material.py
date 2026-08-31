@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import binascii
 import hashlib
+import json
 import math
 import struct
 import zlib
-from typing import Any
+from typing import Any, Mapping
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+GLB_MAGIC = b"glTF"
+JSON_CHUNK = b"JSON"
+BIN_CHUNK = b"BIN\x00"
 
 
 class PbrMaterialError(ValueError):
@@ -203,3 +207,140 @@ def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str
     if not all(math.isfinite(float(metrics[field])) for field in ("normal_scale", "roughness_min", "roughness_max", "roughness_mean")):
         raise PbrMaterialError("derived PBR metrics are non-finite")
     return normal_png, metallic_roughness_png, metrics
+
+
+def _pad4(data: bytes, pad: bytes) -> bytes:
+    return data + pad * ((-len(data)) % 4)
+
+
+def _read_glb(value: bytes) -> tuple[dict[str, Any], bytes]:
+    if not isinstance(value, bytes) or len(value) < 20 or value[:4] != GLB_MAGIC:
+        raise PbrMaterialError("avatar is not a GLB/VRM")
+    version, declared_length = struct.unpack("<II", value[4:12])
+    if version != 2 or declared_length != len(value):
+        raise PbrMaterialError("avatar GLB header is invalid")
+    offset = 12
+    document = None
+    binary = b""
+    while offset + 8 <= len(value):
+        length, kind = struct.unpack("<I4s", value[offset:offset + 8])
+        offset += 8
+        end = offset + length
+        if end > len(value):
+            raise PbrMaterialError("avatar GLB chunk is truncated")
+        payload = value[offset:end]
+        offset = end
+        if kind == JSON_CHUNK:
+            if document is not None:
+                raise PbrMaterialError("avatar GLB contains multiple JSON chunks")
+            try:
+                document = json.loads(payload.rstrip(b" \x00").decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise PbrMaterialError("avatar GLB JSON is invalid") from exc
+        elif kind == BIN_CHUNK:
+            if binary:
+                raise PbrMaterialError("avatar GLB contains multiple BIN chunks")
+            binary = payload
+    if not isinstance(document, dict):
+        raise PbrMaterialError("avatar GLB has no JSON document")
+    buffers = document.get("buffers")
+    if not isinstance(buffers, list) or len(buffers) != 1 or not isinstance(buffers[0], dict):
+        raise PbrMaterialError("avatar GLB buffer contract is unsupported")
+    byte_length = buffers[0].get("byteLength")
+    if isinstance(byte_length, bool) or not isinstance(byte_length, int) or byte_length < 0 or byte_length > len(binary):
+        raise PbrMaterialError("avatar GLB buffer byteLength is invalid")
+    return document, binary[:byte_length]
+
+
+def _write_glb(document: Mapping[str, Any], binary: bytes) -> bytes:
+    json_chunk = _pad4(
+        json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"),
+        b" ",
+    )
+    bin_chunk = _pad4(binary, b"\x00")
+    chunks = struct.pack("<I4s", len(json_chunk), JSON_CHUNK) + json_chunk
+    if bin_chunk:
+        chunks += struct.pack("<I4s", len(bin_chunk), BIN_CHUNK) + bin_chunk
+    return GLB_MAGIC + struct.pack("<II", 2, 12 + len(chunks)) + chunks
+
+
+def refine_glb_pbr(
+    avatar_vrm: bytes,
+    *,
+    normal_png: bytes,
+    metallic_roughness_png: bytes,
+    metrics: Mapping[str, float | str],
+) -> bytes:
+    """Add core-glTF PBR maps to a completed BodyRig VRM without touching rig geometry."""
+
+    if not normal_png.startswith(PNG_SIGNATURE) or not metallic_roughness_png.startswith(PNG_SIGNATURE):
+        raise PbrMaterialError("derived PBR maps must be PNG")
+    normal_sha = hashlib.sha256(normal_png).hexdigest()
+    roughness_sha = hashlib.sha256(metallic_roughness_png).hexdigest()
+    if metrics.get("normal_texture_sha256") != normal_sha or metrics.get("metallic_roughness_texture_sha256") != roughness_sha:
+        raise PbrMaterialError("derived PBR map hashes do not match metrics")
+    normal_scale = metrics.get("normal_scale")
+    if isinstance(normal_scale, bool) or not isinstance(normal_scale, (int, float)) or not 0.0 < float(normal_scale) <= 1.0:
+        raise PbrMaterialError("PBR normal scale is invalid")
+
+    document, binary_bytes = _read_glb(avatar_vrm)
+    materials = document.get("materials")
+    images = document.get("images")
+    textures = document.get("textures")
+    views = document.get("bufferViews")
+    samplers = document.get("samplers")
+    if not isinstance(materials, list) or len(materials) != 1 or not isinstance(materials[0], dict):
+        raise PbrMaterialError("BodyRig PBR refinement requires exactly one material")
+    if not isinstance(images, list) or len(images) < 2 or not isinstance(textures, list) or len(textures) != 1:
+        raise PbrMaterialError("BodyRig PBR refinement requires the base texture and thumbnail contract")
+    if not isinstance(views, list) or not isinstance(samplers, list) or len(samplers) != 1:
+        raise PbrMaterialError("BodyRig PBR refinement buffer/sampler contract mismatch")
+    material = materials[0]
+    pbr = material.get("pbrMetallicRoughness")
+    if not isinstance(pbr, dict) or pbr.get("baseColorTexture") != {"index": 0}:
+        raise PbrMaterialError("BodyRig base-color material contract mismatch")
+    if "normalTexture" in material or "metallicRoughnessTexture" in pbr:
+        raise PbrMaterialError("BodyRig avatar is already PBR-refined")
+
+    binary = bytearray(binary_bytes)
+
+    def add_image(payload: bytes, name: str) -> int:
+        while len(binary) % 4:
+            binary.append(0)
+        offset = len(binary)
+        binary.extend(payload)
+        views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(payload)})
+        images.append({"name": name, "bufferView": len(views) - 1, "mimeType": "image/png"})
+        return len(images) - 1
+
+    normal_source = add_image(normal_png, "BodyRigSourceDerivedNormal")
+    roughness_source = add_image(metallic_roughness_png, "BodyRigSourceDerivedMetallicRoughness")
+    textures.append({"sampler": 0, "source": normal_source})
+    normal_texture = len(textures) - 1
+    textures.append({"sampler": 0, "source": roughness_source})
+    roughness_texture = len(textures) - 1
+
+    material["normalTexture"] = {"index": normal_texture, "scale": float(normal_scale)}
+    pbr["metallicFactor"] = 0.0
+    pbr["roughnessFactor"] = 1.0
+    pbr["metallicRoughnessTexture"] = {"index": roughness_texture}
+
+    extras = document.setdefault("extras", {})
+    if not isinstance(extras, dict):
+        raise PbrMaterialError("BodyRig GLB extras contract is invalid")
+    bodyrig = extras.setdefault("bodyrig", {})
+    if not isinstance(bodyrig, dict) or "materialRefinement" in bodyrig:
+        raise PbrMaterialError("BodyRig material refinement extras are invalid or duplicated")
+    bodyrig["materialRefinement"] = {
+        "method": str(metrics.get("method") or ""),
+        "normalTextureSha256": normal_sha,
+        "metallicRoughnessTextureSha256": roughness_sha,
+        "normalScale": float(normal_scale),
+        "roughnessMin": float(metrics.get("roughness_min")),
+        "roughnessMax": float(metrics.get("roughness_max")),
+        "roughnessMean": float(metrics.get("roughness_mean")),
+        "physicalMeasurement": False,
+        "sourceDerivedHeuristic": True,
+    }
+    document["buffers"][0]["byteLength"] = len(binary)
+    return _write_glb(document, bytes(binary))
