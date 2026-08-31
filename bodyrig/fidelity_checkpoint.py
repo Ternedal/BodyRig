@@ -90,7 +90,8 @@ def _relative(value: Any, *, field: str) -> str:
 
 
 def _work_key(path: str) -> str:
-    return f"work-root:{path.replace('\\', '/')}"
+    normalized = path.replace("\\", "/")
+    return f"work-root:{normalized}"
 
 
 def _private_key(path: str) -> str:
