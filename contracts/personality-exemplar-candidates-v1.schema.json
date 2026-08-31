@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/personality-exemplar-candidates-v1.schema.json",
+  "title": "BodyRig Personality Exemplar Candidates v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "source_count",
+    "source_sha256",
+    "candidate_count",
+    "candidates",
+    "suggested_exemplars",
+    "operator_review_required",
+    "speaker_identity_authority",
+    "personality_authority",
+    "content_semantics"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-personality-exemplar-candidates"},
+    "version": {"const": 1},
+    "source_count": {"type": "integer", "minimum": 1, "maximum": 20},
+    "source_sha256": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "candidate_count": {"type": "integer", "minimum": 1, "maximum": 200},
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 1000}
+    },
+    "suggested_exemplars": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 1000}
+    },
+    "operator_review_required": {"const": true},
+    "speaker_identity_authority": {"const": false},
+    "personality_authority": {"const": false},
+    "content_semantics": {"const": "style-only-not-biography-or-memory"}
+  }
+}
