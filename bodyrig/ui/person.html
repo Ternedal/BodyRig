@@ -112,6 +112,16 @@
             </article>
             <article class="card"><div class="card-label">Personality-kandidater</div><div id="personalityRevisions" class="revision-list"></div></article>
           </div>
+          <article class="card space-top">
+            <div class="card-row">
+              <div><div class="card-label">Personality-værktøjer</div><p class="muted-text">Arbejd videre med den valgte person uden at aktivere en komponent.</p></div>
+              <div class="action-row">
+                <a id="guidedPersonalityLink" class="secondary" href="/ui/personality_guided.html" onclick="this.href='/ui/personality_guided.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Guided Personality</a>
+                <a id="personalitySuiteLink" class="secondary" href="/ui/personality_audition_suite.html" onclick="this.href='/ui/personality_audition_suite.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Kør 6-scenarie audition</a>
+              </div>
+            </div>
+            <p class="fine-print">Guided Personality opretter kun kandidater. 6-scenarie-audition skaber supplementary review-evidence og er ikke activation-authority.</p>
+          </article>
         </section>
 
         <section id="tab-assemble" class="tab-panel hidden">
