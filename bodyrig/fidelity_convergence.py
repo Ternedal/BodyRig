@@ -17,6 +17,7 @@ SCORE_FIELDS = (
     "body_silhouette",
     "hair_appearance",
     "skin_material",
+    "photorealism",
     "overall",
 )
 
@@ -31,6 +32,7 @@ class FidelityPolicy:
     body_silhouette: float = 0.88
     hair_appearance: float = 0.78
     skin_material: float = 0.78
+    photorealism: float = 0.82
     overall: float = 0.84
     min_improvement: float = 0.01
     plateau_window: int = 3
@@ -164,7 +166,7 @@ def decide_convergence(
 
     if converged:
         state = "converged"
-        reason = "all visual-fidelity thresholds are satisfied"
+        reason = "all likeness and photorealism thresholds are satisfied"
         strategy = "human-review"
     elif len(history) >= policy.max_iterations:
         state = "manual-review"
@@ -176,7 +178,7 @@ def decide_convergence(
         strategy = "retune-search"
     else:
         state = "iterate"
-        reason = "visual fidelity remains below target; generate another candidate"
+        reason = "likeness or photorealism remains below target; generate another candidate"
         strategy = "continue-search"
 
     next_focus = None
