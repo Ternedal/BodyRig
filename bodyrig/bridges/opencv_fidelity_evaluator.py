@@ -2,9 +2,9 @@
 """BodyRig visual-fidelity evaluator for private convergence workspaces.
 
 This bridge compares a synthetic BodyRig candidate against an operator-selected
-Stash performer reference set. It measures visual appearance and photo-domain
-realism only. The metrics are deliberately non-biometric and remain subordinate
-to human visual review.
+Stash performer reference set. It measures visual appearance, photo-domain
+realism and broad non-biometric human plausibility only. The metrics remain
+subordinate to human visual review and are never identity verification.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 EVALUATOR = "bodyrig-opencv-visual-fidelity"
-REVISION = "2"
+REVISION = "3"
 SEMANTICS = "visual-fidelity-not-identity-verification"
 VIEWS = ("front-full", "three-quarter-full", "side-full", "face-front")
 
@@ -175,6 +175,47 @@ def skin_crop(image: Any, face_box: tuple[int, int, int, int] | None):
     ]
 
 
+def skin_liveliness(cv2: Any, image: Any) -> tuple[float, float]:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    return (
+        float(hsv[:, :, 1].mean()) / 255.0,
+        float(hsv[:, :, 2].mean()) / 255.0,
+    )
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[middle])
+    return (float(ordered[middle - 1]) + float(ordered[middle])) / 2.0
+
+
+def skin_liveliness_similarity(reference_stats: list[tuple[float, float]], candidate: tuple[float, float]) -> float:
+    if not reference_stats:
+        return 0.5
+    reference_saturation = _median([item[0] for item in reference_stats])
+    reference_value = _median([item[1] for item in reference_stats])
+    saturation_error = min(1.0, abs(reference_saturation - candidate[0]) / 0.35)
+    value_error = min(1.0, abs(reference_value - candidate[1]) / 0.30)
+    return clamp(1.0 - 0.55 * saturation_error - 0.45 * value_error)
+
+
+def bilateral_face_plausibility(cv2: Any, np: Any, image: Any) -> float:
+    """Broad low-frequency bilateral balance, not a facial identity descriptor."""
+    resized = cv2.resize(image, (160, 160), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (15, 15), 0)
+    left = gray[:, :80].astype(np.float32)
+    right = cv2.flip(gray[:, 80:], 1).astype(np.float32)
+    left = (left - float(left.mean())) / max(1.0, float(left.std()))
+    right = (right - float(right.mean())) / max(1.0, float(right.std()))
+    error = float(np.mean(np.abs(left - right)))
+    return clamp(1.0 - error / 2.5)
+
+
 def render_mask(cv2: Any, np: Any, image: Any):
     h, w = image.shape[:2]
     corners = np.array([image[0, 0], image[0, w - 1], image[h - 1, 0], image[h - 1, w - 1]], dtype=np.float32)
@@ -231,6 +272,35 @@ def profile_similarity(left: list[float], right: list[float]) -> float:
         return 0.0
     error = sum(abs(a - b) for a, b in zip(left, right)) / len(left)
     return clamp(1.0 - error / 0.35)
+
+
+def head_shoulder_plausibility(profile: list[float]) -> tuple[float, float]:
+    if len(profile) < 4:
+        return 0.0, 0.0
+    head_width = (profile[0] + profile[1]) / 2.0
+    shoulder_width = max(1e-6, (profile[2] + profile[3]) / 2.0)
+    ratio = head_width / shoulder_width
+    if 0.28 <= ratio <= 0.68:
+        score = 1.0
+    elif ratio < 0.28:
+        score = clamp(1.0 - (0.28 - ratio) / 0.18)
+    else:
+        score = clamp(1.0 - (ratio - 0.68) / 0.25)
+    return score, ratio
+
+
+def human_plausibility_score(
+    *,
+    face_detected: bool,
+    bilateral_balance: float,
+    head_shoulder: float,
+    liveliness: float,
+) -> float:
+    detectability = 1.0 if face_detected else 0.45
+    components = (detectability, bilateral_balance, head_shoulder, liveliness)
+    weighted = 0.30 * components[0] + 0.25 * components[1] + 0.25 * components[2] + 0.20 * components[3]
+    bottleneck_cap = 0.60 + 0.40 * min(components)
+    return clamp(min(weighted, bottleneck_cap))
 
 
 def load_reference_images(cv2: Any, root: Path, manifest: dict[str, Any]):
@@ -314,11 +384,13 @@ def main() -> int:
             candidate_box = None
         else:
             candidate_face, candidate_box = candidate_face_detected
+        candidate_skin = skin_crop(renders["face-front"], candidate_box)
 
         face_scores: list[float] = []
         hair_scores: list[float] = []
         skin_scores: list[float] = []
         photorealism_scores: list[float] = []
+        reference_liveliness: list[tuple[float, float]] = []
         for image, _meta in references:
             detected = largest_face(cv2, cascade, image)
             if detected is None:
@@ -331,9 +403,9 @@ def main() -> int:
             if getattr(ref_hair, "size", 0) and getattr(cand_hair, "size", 0):
                 hair_scores.append(hist_similarity(cv2, ref_hair, cand_hair))
             ref_skin = skin_crop(image, ref_box)
-            cand_skin = skin_crop(renders["face-front"], candidate_box)
-            if getattr(ref_skin, "size", 0) and getattr(cand_skin, "size", 0):
-                skin_scores.append(hist_similarity(cv2, ref_skin, cand_skin))
+            if getattr(ref_skin, "size", 0) and getattr(candidate_skin, "size", 0):
+                skin_scores.append(hist_similarity(cv2, ref_skin, candidate_skin))
+                reference_liveliness.append(skin_liveliness(cv2, ref_skin))
 
         face_score = max(face_scores) if face_scores else 0.0
         hair_score = max(hair_scores) if hair_scores else 0.0
@@ -359,19 +431,34 @@ def main() -> int:
             body_reference_kind = "private-rgba-capture"
         reference_authority_sha = combined_reference_sha(stash_reference_sha, body_reference_sha)
 
+        bilateral_score = bilateral_face_plausibility(cv2, np, candidate_face)
+        head_shoulder_score, head_shoulder_ratio = head_shoulder_plausibility(candidate_profile)
+        liveliness_score = skin_liveliness_similarity(
+            reference_liveliness,
+            skin_liveliness(cv2, candidate_skin),
+        ) if getattr(candidate_skin, "size", 0) else 0.0
+        plausibility_score = human_plausibility_score(
+            face_detected=candidate_face_detected is not None,
+            bilateral_balance=bilateral_score,
+            head_shoulder=head_shoulder_score,
+            liveliness=liveliness_score,
+        )
+
         scores = {
             "face_appearance": round(face_score, 6),
             "body_silhouette": round(body_score, 6),
             "hair_appearance": round(hair_score, 6),
             "skin_material": round(skin_score, 6),
             "photorealism": round(photorealism_score, 6),
+            "human_plausibility": round(plausibility_score, 6),
         }
         scores["overall"] = round(
-            0.32 * scores["face_appearance"]
-            + 0.24 * scores["body_silhouette"]
-            + 0.10 * scores["hair_appearance"]
+            0.28 * scores["face_appearance"]
+            + 0.20 * scores["body_silhouette"]
+            + 0.08 * scores["hair_appearance"]
             + 0.10 * scores["skin_material"]
-            + 0.24 * scores["photorealism"],
+            + 0.18 * scores["photorealism"]
+            + 0.16 * scores["human_plausibility"],
             6,
         )
 
@@ -401,6 +488,15 @@ def main() -> int:
             },
             "body_reference": {"kind": body_reference_kind, "sha256": body_reference_sha},
             "shape_hint": shape_hint,
+            "plausibility": {
+                "face_detectability": 1.0 if candidate_face_detected is not None else 0.45,
+                "bilateral_balance": round(bilateral_score, 6),
+                "head_shoulder_proportion": round(head_shoulder_score, 6),
+                "head_shoulder_ratio": round(float(head_shoulder_ratio), 6),
+                "skin_liveliness": round(liveliness_score, 6),
+                "score": round(plausibility_score, 6),
+                "semantics": "broad-render-plausibility-not-age-or-identity-classification",
+            },
             "diagnostics": {
                 "stash_reference_set_sha256": stash_reference_sha,
                 "reference_image_count": len(references),
