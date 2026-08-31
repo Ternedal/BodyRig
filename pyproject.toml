@@ -44,6 +44,7 @@ bodyrig-materialize = "bodyrig.materialize_cli:main"
 bodyrig-acceptance-status = "bodyrig.acceptance_status_cli:main"
 bodyrig-personality-blueprint = "bodyrig.personality_blueprint_cli:main"
 bodyrig-personality-exemplars = "bodyrig.personality_exemplars_cli:main"
+bodyrig-personality-approve-exemplars = "bodyrig.personality_exemplar_approval_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["bodyrig"]
