@@ -24,7 +24,7 @@ Det er altså ikke verdens undergang.
 """
 
     assert parse_transcript_text(text) == [
-        "Ja ja , det skal nok gå.",
+        "Ja ja, det skal nok gå.",
         "Det er altså ikke verdens undergang.",
     ]
 
@@ -69,6 +69,7 @@ Det var da typisk.
 
     assert left == right
     assert left["operator_review_required"] is True
+    assert left["speaker_identity_authority"] is False
     assert left["personality_authority"] is False
     assert left["content_semantics"] == "style-only-not-biography-or-memory"
     assert left["source_count"] == 2
