@@ -261,7 +261,7 @@ try {
                 [double]$decision.scores.skin_material,
                 [double]$decision.scores.photorealism,
                 [double]$decision.scores.overall)
-            Write-Host "Decision: $([string]$decision.state) | focus=$([string]$decision.next_focus) | best=iteration-$([int]$decision.best_iteration)"
+            Write-Host "Decision: $([string]$decision.state) | strategy=$([string]$decision.strategy) | focus=$([string]$decision.next_focus) | best=iteration-$([int]$decision.best_iteration)"
 
             if ([string]$decision.state -eq "converged") {
                 Write-Host "Likeness + photorealism thresholds reached. Automatic generation stops before human visual authority."
@@ -288,6 +288,9 @@ try {
             $retunedSearch = ([string]$decision.state -eq "plateau")
             if ($retunedSearch) {
                 Write-Host "Plateau detected: automatically switching to wide-stride deterministic seed search."
+            }
+            if ([string]$decision.strategy -eq "appearance-search") {
+                Write-Host "Appearance/material fidelity is the dominant gap. Continuing candidate search, but PBR/material refinement is the intended next strategy layer."
             }
         } finally {
             $newIdentity = New-DirectoriesSince -Root $identityRoot -Prefix "$BodyId-" -Before $beforeIdentity
@@ -316,6 +319,7 @@ if ($currentFrozenHash -ne $frozenBodyReferenceSha) { throw "Frozen body referen
 $bestIteration = [int]$terminalDecision.best_iteration
 $bestDir = Join-Path $WorkRoot ("iteration-{0:D2}" -f $bestIteration)
 $bestAcceptance = Join-Path $bestDir "acceptance"
+$bestRender = Join-Path $bestDir "comparison-render"
 $resultPath = Join-Path $WorkRoot "convergence-result.json"
 $result = [ordered]@{
     format = "bodyrig-fidelity-convergence-run"
@@ -328,9 +332,10 @@ $result = [ordered]@{
     iterations_completed = [int]$terminalDecision.iteration
     best_iteration = $bestIteration
     best_candidate_sha256 = [string]$terminalDecision.best_candidate_sha256
-    best_overall = [double]$terminalDecision.best_overall
-    best_photorealism = [double]$terminalDecision.scores.photorealism
+    best_overall = [double]$terminalDecision.best_scores.overall
+    best_photorealism = [double]$terminalDecision.best_scores.photorealism
     best_acceptance_dir = ("iteration-{0:D2}/acceptance" -f $bestIteration)
+    best_comparison_render_dir = ("iteration-{0:D2}/comparison-render" -f $bestIteration)
     reference_set = "references/reference-set.json"
     body_reference_sha256 = $frozenBodyReferenceSha
     human_visual_authority_required = $true
@@ -342,8 +347,9 @@ Write-CreateOnlyJson -Path $resultPath -Value $result
 Write-Host ""
 Write-Host "BodyRig fidelity convergence batch complete"
 Write-Host "State:        $([string]$terminalDecision.state)"
-Write-Host "Best:         iteration $bestIteration | overall=$([double]$terminalDecision.best_overall)"
+Write-Host "Best:         iteration $bestIteration | overall=$([double]$terminalDecision.best_scores.overall) | photo=$([double]$terminalDecision.best_scores.photorealism)"
 Write-Host "Best Gate A:  $bestAcceptance"
+Write-Host "Best renders: $bestRender"
 Write-Host "Result:       $resultPath"
 if ([string]$terminalDecision.state -eq "converged") {
     Write-Host "NEXT: run human Windows visual review on the BEST candidate. Do not auto-accept or proceed to Quest."
