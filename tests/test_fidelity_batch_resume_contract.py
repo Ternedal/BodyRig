@@ -27,8 +27,9 @@ def test_resume_uses_active_compute_time_not_downtime_for_budget() -> None:
     assert "Get-ActiveElapsedSeconds" in text
     assert "activeElapsedBaseSeconds" in text
     assert "segmentStart" in text
-    assert "WallClockAllowsAnotherFullRebuild" in text
-    assert "Get-ActiveElapsedSeconds" in text[text.index("function WallClockAllowsAnotherFullRebuild") :]
+    start = text.index("function WallClockAllowsAnotherFullRebuild")
+    end = text.index("function Load-ResumeCheckpoint")
+    assert "Get-ActiveElapsedSeconds" in text[start:end]
 
 
 def test_checkpoint_is_published_only_after_prepublication_verification() -> None:
@@ -41,13 +42,16 @@ def test_checkpoint_is_published_only_after_prepublication_verification() -> Non
 
 def test_error_path_preserves_private_workspace_for_resume() -> None:
     text = source()
-    catch = text[text.index("} catch {") :]
+    start = text.index('} catch {\n    try { Update-Progress -State "error"')
+    end = text.index("\n}\n\n$bestRecord", start) + 2
+    catch = text[start:end]
     assert "preserving private workspace" in catch.lower()
-    assert "Remove-PrivateWorkspaceIfNeeded -Path $currentIdentityWorkspace" not in catch
+    assert "Remove-PrivateWorkspaceIfNeeded" not in catch
 
 
 def test_full_rebuild_cleanup_waits_for_newer_checkpoint() -> None:
     text = source()
     assert "$retiredIdentityWorkspace = $currentIdentityWorkspace" in text
-    assert "Write-FidelityCheckpoint -CheckpointStage \"post-reconstruction\"" in text
-    assert "Remove-PrivateWorkspaceIfNeeded -Path $retiredIdentityWorkspace" in text
+    checkpoint = text.index('Write-FidelityCheckpoint -CheckpointStage "post-reconstruction"')
+    cleanup = text.index("Remove-PrivateWorkspaceIfNeeded -Path $retiredIdentityWorkspace")
+    assert checkpoint < cleanup
