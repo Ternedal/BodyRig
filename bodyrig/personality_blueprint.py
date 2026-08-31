@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from copy import deepcopy
@@ -124,6 +126,18 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
 
 
+def blueprint_sha256(value: Mapping[str, Any] | Any) -> str:
+    blueprint = validate_blueprint(value)
+    encoded = json.dumps(
+        blueprint,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _bodyprint_ratio(section: Mapping[str, Any] | None, field: str, fallback: float = 0.5) -> float:
     if not isinstance(section, Mapping) or field not in section:
         return fallback
@@ -194,6 +208,7 @@ def _band(value: float, low: str, middle: str, high: str) -> str:
 
 def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
     blueprint = validate_blueprint(value)
+    digest = blueprint_sha256(blueprint)
     c = blueprint["communication"]
     e = blueprint["embodiment"]
 
@@ -211,6 +226,7 @@ def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
         instructions.append("Operator-authored notes:\n" + blueprint["authored_notes"])
 
     style_notes = [
+        f"blueprint_sha256={digest}",
         "Embodiment / mannerism grounding (for compatible runtime layers):",
         f"movement energy={e['movement_energy']:.2f}",
         f"gesture frequency={e['gesture_frequency']:.2f}",
