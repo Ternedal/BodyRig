@@ -14,6 +14,8 @@ def test_cli_builds_operator_grounded_candidate_without_body(capsys) -> None:
         "--warmth", "0.7",
         "--verbosity", "0.2",
         "--authored-notes", "Tør, underspillet humor.",
+        "--style-example", "Ja ja, det skal nok gå.",
+        "--style-example", "Det er altså ikke verdens undergang.",
     ])
 
     assert rc == 0
@@ -24,7 +26,14 @@ def test_cli_builds_operator_grounded_candidate_without_body(capsys) -> None:
         "embodiment": "operator-authored",
         "body_revision": None,
     }
+    assert result["blueprint"]["style_exemplars"] == [
+        "Ja ja, det skal nok gå.",
+        "Det er altså ikke verdens undergang.",
+    ]
     assert "Tør, underspillet humor." in result["candidate"]["instructions"]
+    assert "style_exemplars=2" in result["candidate"]["style_notes"]
+    assert len(result["audition_suite"]["probes"]) == 6
+    assert result["audition_suite"]["human_review_required"] is True
 
 
 def test_cli_requires_body_package_and_revision_together(capsys) -> None:
