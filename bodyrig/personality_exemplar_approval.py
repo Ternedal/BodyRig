@@ -213,6 +213,30 @@ def validate_approval(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
 
 
+def verify_approval(
+    report: Mapping[str, Any] | Any,
+    approval: Mapping[str, Any] | Any,
+) -> dict[str, Any]:
+    validated_report = validate_candidate_report(report)
+    validated_approval = validate_approval(approval)
+    actual_report_sha = canonical_sha256(validated_report)
+    if validated_approval["candidate_report_sha256"] != actual_report_sha:
+        raise PersonalityExemplarApprovalError(
+            "approval receipt does not match the exact candidate report"
+        )
+    indexes = validated_approval["selected_candidate_indexes"]
+    if any(index >= validated_report["candidate_count"] for index in indexes):
+        raise PersonalityExemplarApprovalError(
+            "approval references a candidate index outside the bound report"
+        )
+    expected = [validated_report["candidates"][index] for index in indexes]
+    if validated_approval["approved_exemplars"] != expected:
+        raise PersonalityExemplarApprovalError(
+            "approved exemplars no longer match their bound candidate indexes"
+        )
+    return validated_approval
+
+
 def _strict_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -235,6 +259,10 @@ def load_approval(path: str | Path) -> dict[str, Any]:
     if not resolved.is_file():
         raise PersonalityExemplarApprovalError(f"approval receipt not found: {resolved}")
     return validate_approval(_strict_json(resolved))
+
+
+def load_verified_approval(report_path: str | Path, approval_path: str | Path) -> dict[str, Any]:
+    return verify_approval(load_candidate_report(report_path), load_approval(approval_path))
 
 
 def write_create_only(path: str | Path, value: Mapping[str, Any]) -> Path:
