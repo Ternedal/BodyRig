@@ -17,6 +17,7 @@ namespace BodyRig.ReferenceRenderer
         private const string DeformationOutputArg = "--bodyrig-deformation-output";
         private const string RendererNameArg = "--bodyrig-renderer-name";
         private const string RendererVersionArg = "--bodyrig-renderer-version";
+        private const string FidelitySnapshotDirArg = "--bodyrig-fidelity-snapshot-dir";
         private const string QuitAfterProbeArg = "--bodyrig-quit-after-probe";
 
         private string _status = "BodyRig physical probe starting...";
@@ -54,6 +55,7 @@ namespace BodyRig.ReferenceRenderer
             var manifestPath = GetArgument(RuntimeManifestArg) ?? Path.Combine(defaultRoot, "runtime", "runtime-manifest.json");
             var probePath = GetArgument(ProbeOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-renderer-probe.json");
             var deformationPath = GetArgument(DeformationOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-deformation-probe.json");
+            var fidelitySnapshotDir = GetArgument(FidelitySnapshotDirArg);
             var rendererName = GetArgument(RendererNameArg) ?? "BodyRig Reference Renderer";
             var rendererVersion = GetArgument(RendererVersionArg) ?? "reference-v1/univrm-0.131.2";
 
@@ -65,6 +67,14 @@ namespace BodyRig.ReferenceRenderer
             await probe.RunProbeAsync(manifestPath, probePath);
             FrameActiveAvatar(loader);
 
+            string fidelityManifest = null;
+            if (!string.IsNullOrWhiteSpace(fidelitySnapshotDir))
+            {
+                _status = "Renderer machine probe: PASS\nCapturing canonical fidelity views...";
+                var fidelity = gameObject.AddComponent<BodyRigFidelitySnapshotCapture>();
+                fidelityManifest = fidelity.Capture(loader, fidelitySnapshotDir);
+            }
+
             var sweep = gameObject.AddComponent<BodyRigDeformationSweep>();
             sweep.Configure(loader);
             _status = "Renderer machine probe: PASS\nStarting fixed deformation sweep...";
@@ -72,6 +82,7 @@ namespace BodyRig.ReferenceRenderer
 
             _status = "BodyRig physical evidence: PASS\n" +
                       probe.LastProbePath + "\n" + sweep.LastReportPath +
+                      (string.IsNullOrEmpty(fidelityManifest) ? "" : "\nFidelity views: " + fidelityManifest) +
                       "\nHuman visual deformation acceptance is still required.";
 
             if (HasFlag(QuitAfterProbeArg))
