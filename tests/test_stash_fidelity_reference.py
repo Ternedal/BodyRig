@@ -18,9 +18,11 @@ JPG = b"\xff\xd8\xff" + b"y" * 32
 WEBP = b"RIFF" + (24).to_bytes(4, "little") + b"WEBP" + b"z" * 24
 
 
-def client() -> StashClient:
+def client(*, fidelity_limits: list[int] | None = None) -> StashClient:
     def transport(query: str, variables: dict) -> dict:
         if "BodyRigFidelityReferences" in query:
+            if fidelity_limits is not None:
+                fidelity_limits.append(int(variables["limit"]))
             return {
                 "findPerformer": {
                     "id": "42",
@@ -62,8 +64,10 @@ def client() -> StashClient:
 
 
 def test_discovery_prefers_profile_and_solo_performer_images() -> None:
-    result = discover_performer_references(client(), "42", limit=3)
+    limits: list[int] = []
+    result = discover_performer_references(client(fidelity_limits=limits), "42", limit=3)
 
+    assert limits == [12]
     refs = result["references"]
     assert [item["kind"] for item in refs] == ["performer-profile", "stash-image", "stash-image"]
     assert refs[0]["exclusive_subject"] is True
@@ -72,6 +76,12 @@ def test_discovery_prefers_profile_and_solo_performer_images() -> None:
     assert refs[2]["stash_id"] == "101"
     assert refs[2]["exclusive_subject"] is False
     assert all(item["stash_id"] != "102" for item in refs)
+
+
+def test_discovery_window_is_capped_but_wider_than_final_reference_limit() -> None:
+    limits: list[int] = []
+    discover_performer_references(client(fidelity_limits=limits), "42", limit=24)
+    assert limits == [96]
 
 
 def test_materialized_reference_set_is_hash_bound_and_path_local(tmp_path: Path) -> None:
