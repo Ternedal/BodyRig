@@ -4,7 +4,7 @@
   "title": "BodyRig Personality Blueprint v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "version", "default_language", "communication", "embodiment", "grounding", "authored_notes"],
+  "required": ["format", "version", "default_language", "communication", "embodiment", "grounding", "style_exemplars", "authored_notes"],
   "properties": {
     "format": {"const": "bodyrig-personality-blueprint"},
     "version": {"const": 1},
@@ -44,6 +44,12 @@
         "embodiment": {"enum": ["operator-authored", "bodyprint-observed", "mixed"]},
         "body_revision": {"type": ["string", "null"], "pattern": "^body-r[0-9]{4}$"}
       }
+    },
+    "style_exemplars": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000}
     },
     "authored_notes": {"type": "string", "maxLength": 16000}
   }
