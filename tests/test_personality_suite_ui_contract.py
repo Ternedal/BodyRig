@@ -24,7 +24,8 @@ def test_suite_runner_uses_existing_execution_and_non_authoritative_review_api()
     assert "/activate/" not in html
     assert "activation_authority" not in html
     assert "state.assemblyFingerprint!==result.assembly_fingerprint" in html
-    assert "state.runKey!==currentKey()" in html
+    assert html.count("state.runKey!==currentKey()") >= 3
+    assert "resultatet kasseres fra suiten" in html
     assert "audio.addEventListener(\"ended\"" in html
 
     assert '@app.get("/api/v1/personality/audition-suite")' in guided
