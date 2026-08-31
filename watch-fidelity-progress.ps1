@@ -22,6 +22,13 @@ function Score {
     if ($null -eq $property -or $null -eq $property.Value) { return "-" }
     return ("{0:N3}" -f [double]$property.Value)
 }
+function Parse-Utc {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($Value, [ref]$parsed)) { return $null }
+    return $parsed.ToUniversalTime()
+}
 
 $WorkRoot = [IO.Path]::GetFullPath($WorkRoot)
 $progressPath = Join-Path $WorkRoot "progress.json"
@@ -40,12 +47,17 @@ while ($true) {
         Start-Sleep -Milliseconds 250
         continue
     }
+    $now = [DateTimeOffset]::UtcNow
+    $started = Parse-Utc ([string]$p.started_at)
+    $stageStarted = Parse-Utc ([string]$p.stage_started_at)
+    $liveElapsed = $(if ($null -ne $started -and [string]$p.state -eq "running") { ($now - $started).TotalSeconds } else { [double]$p.elapsed_seconds })
+    $liveStageElapsed = $(if ($null -ne $stageStarted -and [string]$p.state -eq "running") { ($now - $stageStarted).TotalSeconds } else { $null })
     if (-not $NoClear) { Clear-Host }
     Write-Host "BodyRig fidelity convergence"
     Write-Host "============================"
     Write-Host "State:       $([string]$p.state)"
-    Write-Host "Stage:       $([string]$p.stage)"
-    Write-Host "Elapsed:     $(Format-Duration $p.elapsed_seconds)"
+    Write-Host "Stage:       $([string]$p.stage) | $(Format-Duration $liveStageElapsed)"
+    Write-Host "Elapsed:     $(Format-Duration $liveElapsed)"
     Write-Host "Budget ETA:  $(Format-Duration $p.eta_seconds)"
     Write-Host "Wall budget: $([double]$p.max_wall_clock_hours)h"
     Write-Host ""
@@ -66,7 +78,7 @@ while ($true) {
         Write-Host "  preview: $(Join-Path $WorkRoot ([string]$p.best_preview_dir))"
     }
     Write-Host ""
-    Write-Host "Updated: $([string]$p.last_update)"
+    Write-Host "Progress heartbeat: $([string]$p.last_update)"
     if ([string]$p.state -in @("completed", "error")) { break }
     Start-Sleep -Seconds $RefreshSeconds
 }
