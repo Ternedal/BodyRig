@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import math
+import re
 from copy import deepcopy
 from typing import Any, Mapping
 
-from .package import validate_bodyprint
+from .package import MRBodyError, validate_bodyprint
 
 FORMAT = "bodyrig-personality-blueprint"
 VERSION = 1
+LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
+BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
 
 COMMUNICATION_FIELDS = {
     "directness",
@@ -68,6 +71,8 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         raise PersonalityBlueprintError("unsupported personality blueprint format/version")
 
     language = _text(value.get("default_language"), field="default_language", maximum=16)
+    if LANGUAGE_RE.fullmatch(language) is None:
+        raise PersonalityBlueprintError("default_language is invalid")
     communication = value.get("communication")
     embodiment = value.get("embodiment")
     grounding = value.get("grounding")
@@ -97,10 +102,12 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     body_revision = grounding.get("body_revision")
     if body_revision is not None:
         body_revision = _text(body_revision, field="grounding.body_revision", maximum=24)
-        if not body_revision.startswith("body-r"):
+        if BODY_REVISION_RE.fullmatch(body_revision) is None:
             raise PersonalityBlueprintError("grounding.body_revision must be a body revision id")
-    if embodiment_grounding == "bodyprint-observed" and body_revision is None:
-        raise PersonalityBlueprintError("bodyprint-observed embodiment requires body_revision")
+    if embodiment_grounding in {"bodyprint-observed", "mixed"} and body_revision is None:
+        raise PersonalityBlueprintError("bodyprint-grounded embodiment requires body_revision")
+    if embodiment_grounding == "operator-authored" and body_revision is not None:
+        raise PersonalityBlueprintError("operator-authored embodiment must not claim a body revision grounding")
 
     return {
         "format": FORMAT,
@@ -129,20 +136,27 @@ def _bodyprint_ratio(section: Mapping[str, Any] | None, field: str, fallback: fl
 def build_blueprint(
     *,
     default_language: str,
-    communication: Mapping[str, float],
+    communication: Mapping[str, Any],
     authored_notes: str = "",
     bodyprint: Mapping[str, Any] | None = None,
     body_revision: str | None = None,
 ) -> dict[str, Any]:
     communication_values = {
-        key: float(communication.get(key, 0.5)) for key in COMMUNICATION_FIELDS
+        key: communication.get(key, 0.5) for key in COMMUNICATION_FIELDS
     }
 
     if bodyprint is None:
+        if body_revision is not None:
+            raise PersonalityBlueprintError("body_revision requires a bodyprint source")
         embodiment = {key: 0.5 for key in EMBODIMENT_FIELDS}
         embodiment_grounding = "operator-authored"
     else:
-        validated = validate_bodyprint(deepcopy(dict(bodyprint)))
+        if body_revision is None:
+            raise PersonalityBlueprintError("bodyprint grounding requires body_revision")
+        try:
+            validated = validate_bodyprint(deepcopy(dict(bodyprint)))
+        except (MRBodyError, TypeError, ValueError) as exc:
+            raise PersonalityBlueprintError(f"bodyprint grounding is invalid: {exc}") from exc
         motion = validated.get("motion") or {}
         expression = validated.get("expression") or {}
         embodiment = {
