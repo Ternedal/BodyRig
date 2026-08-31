@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/personality-blueprint-v1.schema.json",
+  "title": "BodyRig Personality Blueprint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "default_language", "communication", "embodiment", "grounding", "authored_notes"],
+  "properties": {
+    "format": {"const": "bodyrig-personality-blueprint"},
+    "version": {"const": 1},
+    "default_language": {"type": "string", "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$"},
+    "communication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directness", "warmth", "playfulness", "formality", "verbosity", "initiative"],
+      "properties": {
+        "directness": {"type": "number", "minimum": 0, "maximum": 1},
+        "warmth": {"type": "number", "minimum": 0, "maximum": 1},
+        "playfulness": {"type": "number", "minimum": 0, "maximum": 1},
+        "formality": {"type": "number", "minimum": 0, "maximum": 1},
+        "verbosity": {"type": "number", "minimum": 0, "maximum": 1},
+        "initiative": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "embodiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["movement_energy", "gesture_frequency", "gesture_amplitude", "head_motion", "gaze_strength", "speech_motion"],
+      "properties": {
+        "movement_energy": {"type": "number", "minimum": 0, "maximum": 1},
+        "gesture_frequency": {"type": "number", "minimum": 0, "maximum": 1},
+        "gesture_amplitude": {"type": "number", "minimum": 0, "maximum": 1},
+        "head_motion": {"type": "number", "minimum": 0, "maximum": 1},
+        "gaze_strength": {"type": "number", "minimum": 0, "maximum": 1},
+        "speech_motion": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "grounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["communication", "embodiment", "body_revision"],
+      "properties": {
+        "communication": {"const": "operator-authored"},
+        "embodiment": {"enum": ["operator-authored", "bodyprint-observed", "mixed"]},
+        "body_revision": {"type": ["string", "null"], "pattern": "^body-r[0-9]{4}$"}
+      }
+    },
+    "authored_notes": {"type": "string", "maxLength": 16000}
+  }
+}
