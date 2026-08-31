@@ -14,6 +14,7 @@ from .person_profiles import (
     add_personality_revision,
     load_profile,
 )
+from .personality_audition_suite import build_audition_suite
 from .personality_blueprint import (
     PersonalityBlueprintError,
     build_blueprint,
@@ -185,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
             body_revision=body_revision,
         )
         candidate = compile_blueprint(blueprint)
+        audition_suite = build_audition_suite(candidate["default_language"])
 
         if args.save_candidate:
             try:
@@ -205,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
             "version": RESULT_VERSION,
             "blueprint": blueprint,
             "candidate": candidate,
+            "audition_suite": audition_suite,
             "person_id": args.person_id or None,
             "saved_personality_revision": saved_revision_id,
         }
