@@ -80,6 +80,18 @@ Det var da typisk.
     assert len(left["candidates"]) == 5
 
 
+def test_duplicate_source_path_or_bytes_fail_closed(tmp_path: Path) -> None:
+    first = tmp_path / "one.txt"
+    second = tmp_path / "copy.txt"
+    first.write_text("Det går nok.", encoding="utf-8")
+    second.write_bytes(first.read_bytes())
+
+    with pytest.raises(PersonalityExemplarError, match="paths must be distinct"):
+        build_exemplar_candidates([first, first])
+    with pytest.raises(PersonalityExemplarError, match="source bytes must be distinct"):
+        build_exemplar_candidates([first, second])
+
+
 def test_create_only_report_refuses_reuse(tmp_path: Path) -> None:
     target = tmp_path / "report.json"
     value = {
