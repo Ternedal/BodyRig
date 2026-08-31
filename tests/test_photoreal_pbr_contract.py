@@ -15,8 +15,10 @@ def test_gender_aware_production_wrapper_installs_pbr_after_mesh_build() -> None
     assert "_install_pbr_refinement" in source
     assert "derive_pbr_maps" in source
     assert "refine_glb_pbr" in source
+    assert "derive_basecolor_detail" in source
+    assert "refine_glb_basecolor" in source
     assert "original(*args, **kwargs)" in source
-    assert "source-derived PBR material refinement failed" in source
+    assert "source-derived appearance refinement failed" in source
 
 
 def test_pbr_refinement_uses_core_gltf_material_features_only() -> None:
@@ -35,3 +37,4 @@ def test_material_refinement_does_not_modify_base_fitter_source_contract() -> No
     assert '"baseColorTexture": {"index": 0}' in base
     assert '"roughnessFactor": 0.9' in base
     assert "sith_pbr_material" not in base
+    assert "sith_basecolor_detail" not in base

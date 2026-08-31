@@ -21,16 +21,17 @@ def test_measurement_reference_authority_binds_stash_and_private_body_reference(
     assert combined_reference_sha(stash, None) == stash
 
 
-def test_evaluator_requires_explicit_photorealism_and_human_plausibility_dimensions() -> None:
+def test_evaluator_requires_explicit_photorealism_human_plausibility_and_definition() -> None:
     source = text("bodyrig/bridges/opencv_fidelity_evaluator.py")
-    assert 'REVISION = "3"' in source
+    assert 'REVISION = "4"' in source
     assert '"photorealism"' in source
     assert '"human_plausibility"' in source
     assert "photo_statistics_similarity" in source
+    assert "facial_definition_similarity" in source
     assert "bilateral_face_plausibility" in source
     assert "head_shoulder_plausibility" in source
     assert "skin_liveliness_similarity" in source
-    assert "broad-render-plausibility-not-age-or-identity-classification" in source
+    assert "broad-render-plausibility-and-definition-not-age-or-identity-classification" in source
     assert "combined_reference_sha" in source
     assert "human_visual_authority_required" in source
 

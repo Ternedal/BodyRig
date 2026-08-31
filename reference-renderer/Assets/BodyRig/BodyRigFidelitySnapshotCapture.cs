@@ -38,12 +38,14 @@ namespace BodyRig.ReferenceRenderer
             public string Name;
             public Vector3 Position;
             public Vector3 Target;
+            public float FieldOfView;
 
-            public CameraPose(string name, Vector3 position, Vector3 target)
+            public CameraPose(string name, Vector3 position, Vector3 target, float fieldOfView)
             {
                 Name = name;
                 Position = position;
                 Target = target;
+                FieldOfView = fieldOfView;
             }
         }
 
@@ -78,13 +80,29 @@ namespace BodyRig.ReferenceRenderer
                 var head = animator != null ? animator.GetBoneTransform(HumanBodyBones.Head) : null;
                 var faceTarget = head != null ? head.position : center + Vector3.up * height * 0.38f;
                 var faceDistance = Mathf.Max(height * 0.24f, 0.30f);
+                var faceZoomDistance = Mathf.Max(height * 0.19f, 0.24f);
 
-                var poses = new[]
+                // Keep these four manifest-backed views stable. Evaluator version 1
+                // binds this exact sequence and older evidence must remain readable.
+                var canonicalPoses = new[]
                 {
-                    new CameraPose("front-full", bodyTarget + new Vector3(0f, 0f, radius), bodyTarget),
-                    new CameraPose("three-quarter-full", bodyTarget + new Vector3(radius * 0.70f, 0f, radius * 0.70f), bodyTarget),
-                    new CameraPose("side-full", bodyTarget + new Vector3(radius, 0f, 0f), bodyTarget),
-                    new CameraPose("face-front", faceTarget + new Vector3(0f, 0f, faceDistance), faceTarget),
+                    new CameraPose("front-full", bodyTarget + new Vector3(0f, 0f, radius), bodyTarget, 35f),
+                    new CameraPose("three-quarter-full", bodyTarget + new Vector3(radius * 0.70f, 0f, radius * 0.70f), bodyTarget, 35f),
+                    new CameraPose("side-full", bodyTarget + new Vector3(radius, 0f, 0f), bodyTarget, 35f),
+                    new CameraPose("face-front", faceTarget + new Vector3(0f, 0f, faceDistance), faceTarget, 24f),
+                };
+
+                // Human-review diagnostics are intentionally outside the v1
+                // fidelity manifest. They add inspection detail without changing
+                // machine-evaluator authority or acceptance semantics.
+                var diagnosticPoses = new[]
+                {
+                    new CameraPose("face-zoom", faceTarget + new Vector3(0f, 0f, faceZoomDistance), faceTarget, 20f),
+                    new CameraPose(
+                        "face-three-quarter",
+                        faceTarget + new Vector3(faceDistance * 0.62f, height * 0.01f, faceDistance * 0.78f),
+                        faceTarget,
+                        24f),
                 };
 
                 var camera = Camera.main;
@@ -94,19 +112,10 @@ namespace BodyRig.ReferenceRenderer
                 var entries = new List<SnapshotEntry>();
                 try
                 {
-                    foreach (var pose in poses)
+                    foreach (var pose in canonicalPoses)
                     {
-                        camera.transform.position = pose.Position;
-                        camera.transform.LookAt(pose.Target);
-                        camera.fieldOfView = pose.Name == "face-front" ? 24f : 35f;
-                        var bytes = RenderPng(camera, 1024, 1024);
-                        var filename = pose.Name + ".png";
-                        var path = Path.Combine(root, filename);
-                        using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                        {
-                            stream.Write(bytes, 0, bytes.Length);
-                            stream.Flush(true);
-                        }
+                        var bytes = CapturePose(camera, pose);
+                        var filename = WriteSnapshot(root, pose.Name, bytes);
                         entries.Add(new SnapshotEntry
                         {
                             view = pose.Name,
@@ -115,6 +124,12 @@ namespace BodyRig.ReferenceRenderer
                             width = 1024,
                             height = 1024,
                         });
+                    }
+
+                    foreach (var pose in diagnosticPoses)
+                    {
+                        var bytes = CapturePose(camera, pose);
+                        WriteSnapshot(root, pose.Name, bytes);
                     }
                 }
                 finally
@@ -140,6 +155,26 @@ namespace BodyRig.ReferenceRenderer
                 try { Directory.Delete(root, true); } catch { }
                 throw;
             }
+        }
+
+        private static byte[] CapturePose(Camera camera, CameraPose pose)
+        {
+            camera.transform.position = pose.Position;
+            camera.transform.LookAt(pose.Target);
+            camera.fieldOfView = pose.FieldOfView;
+            return RenderPng(camera, 1024, 1024);
+        }
+
+        private static string WriteSnapshot(string root, string name, byte[] bytes)
+        {
+            var filename = name + ".png";
+            var path = Path.Combine(root, filename);
+            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush(true);
+            }
+            return filename;
         }
 
         private static byte[] RenderPng(Camera camera, int width, int height)

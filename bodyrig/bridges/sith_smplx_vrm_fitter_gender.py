@@ -9,7 +9,9 @@ in-memory patches for the current process only:
 * run BodyRig's bounded source-shell repair before BodyPrint adjustment and VRM
   serialization so clothing/silhouette offsets cannot become armpit membranes,
 * post-process the completed VRM with deterministic source-derived core-glTF PBR
-  normal + metallic/roughness maps without changing rig geometry.
+  normal + metallic/roughness maps without changing rig geometry,
+* restore a tightly bounded amount of local luminance definition to the exact
+  source base-color texture without synthesizing new markings or facial traits.
 
 Neither the pinned SiTH checkout nor the reviewed adjusted bridge file is
 modified on disk.
@@ -86,9 +88,14 @@ def _patch_source(source: str, gender: str) -> str:
 def _install_pbr_refinement() -> None:
     try:
         import sith_smplx_vrm_fitter as base
+        from sith_basecolor_detail import (
+            BaseColorDetailError,
+            derive_basecolor_detail,
+            refine_glb_basecolor,
+        )
         from sith_pbr_material import PbrMaterialError, derive_pbr_maps, refine_glb_pbr
     except ImportError as exc:
-        raise RuntimeError(f"PBR refinement modules are unavailable: {exc}") from exc
+        raise RuntimeError(f"appearance refinement modules are unavailable: {exc}") from exc
 
     original = base._build_vrm
 
@@ -96,7 +103,7 @@ def _install_pbr_refinement() -> None:
         texture_png = kwargs.get("texture_png")
         np = kwargs.get("np")
         if np is None or not isinstance(texture_png, bytes):
-            raise base.FitterError("BodyRig PBR refinement requires numpy and the source PNG texture")
+            raise base.FitterError("BodyRig appearance refinement requires numpy and the source PNG texture")
         avatar_vrm, thumbnail = original(*args, **kwargs)
         try:
             normal_png, roughness_png, metrics = derive_pbr_maps(np, texture_png)
@@ -106,14 +113,30 @@ def _install_pbr_refinement() -> None:
                 metallic_roughness_png=roughness_png,
                 metrics=metrics,
             )
-        except PbrMaterialError as exc:
-            raise base.FitterError(f"source-derived PBR material refinement failed: {exc}") from exc
+            detail_png, detail_metrics = derive_basecolor_detail(np, texture_png)
+            refined = refine_glb_basecolor(
+                refined,
+                refined_basecolor_png=detail_png,
+                metrics=detail_metrics,
+            )
+        except (PbrMaterialError, BaseColorDetailError) as exc:
+            raise base.FitterError(f"source-derived appearance refinement failed: {exc}") from exc
         print(
             "BodyRig source-derived PBR: "
             f"roughness_mean={float(metrics['roughness_mean']):.4f} "
             f"normal_scale={float(metrics['normal_scale']):.3f} "
             f"normal_sha256={str(metrics['normal_texture_sha256'])[:12]}... "
             f"roughness_sha256={str(metrics['metallic_roughness_texture_sha256'])[:12]}...",
+            file=sys.stderr,
+        )
+        print(
+            "BodyRig bounded base-color detail: "
+            f"strength={float(detail_metrics['detail_strength']):.3f} "
+            f"max_delta={float(detail_metrics['max_observed_channel_delta']):.4f} "
+            f"mean_delta={float(detail_metrics['mean_abs_channel_delta']):.4f} "
+            f"changed={float(detail_metrics['changed_pixel_fraction']):.3f} "
+            f"source_sha256={str(detail_metrics['source_basecolor_sha256'])[:12]}... "
+            f"refined_sha256={str(detail_metrics['refined_basecolor_sha256'])[:12]}...",
             file=sys.stderr,
         )
         return refined, thumbnail
