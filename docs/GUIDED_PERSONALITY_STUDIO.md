@@ -29,10 +29,33 @@ Derudover kan operatoren angive:
 
 - standardsprog,
 - authored notes,
-- op til 12 direkte authored style exemplars,
-- valgfri konkret `body-rXXXX` som mannerism-grounding.
+- direkte operator-authored style exemplars,
+- valgfri konkret `body-rXXXX` som mannerism-grounding,
+- en transcript candidate report + dens eksplicitte approval receipt.
+
+Det samlede antal direkte + transcript-godkendte style exemplars er højst 12.
 
 Hvis en body revision vælges, validerer BodyRig den registrerede `.mrbody` og dens SHA-256 og bruger kun observerbare BodyPrint-felter som movement energy, gesture frequency/amplitude, head motion, gaze og speech-motion. Kommunikationspersonlighed bliver fortsat ikke infereret fra krop eller video.
+
+## Browser-import af transcript evidence
+
+Guided Studio kan importere de to JSON-filer fra transcript-workflowet:
+
+1. `bodyrig-personality-exemplar-candidates` report,
+2. `bodyrig-personality-exemplar-approval` receipt.
+
+Browseren læser JSON-indholdet lokalt via File API. **Lokale filstier sendes ikke til BodyRig.** Requesten indeholder selve JSON-objekterne.
+
+BodyRig stoler ikke på browserens status. Ved hvert preview/save:
+
+- candidate report valideres mod sin v1-kontrakt,
+- approval receipt valideres mod sin v1-kontrakt,
+- report canonical SHA-256 skal matche receiptens binding,
+- alle selected indexes skal eksistere,
+- approved exemplar-tekst skal matche præcis de valgte indexes,
+- speaker identity og style use skal allerede være eksplicit godkendt.
+
+En report uden approval eller approval uden report afvises fail-closed.
 
 ## Preview er non-mutating
 
@@ -43,11 +66,12 @@ returnerer:
 - normalized blueprint,
 - blueprint SHA-256,
 - kompilerede ModelRig instructions/style notes,
+- evt. style evidence hashes + approved count,
 - seks-scenarie audition suite.
 
-Preview skriver hverken blueprint-evidence eller en personality revision.
+Preview skriver hverken blueprint-evidence, transcript-evidence eller en personality revision.
 
-UI'en binder preview til den præcise request. Ændres slider, body grounding, sprog, notes eller style example, låses Save igen indtil et nyt preview er bygget.
+UI'en binder preview til den præcise request. Ændres slider, body grounding, sprog, notes, direkte style example eller de importerede evidence-objekter, låses Save igen indtil et nyt preview er bygget.
 
 ## Gem kandidat
 
@@ -56,10 +80,12 @@ UI'en binder preview til den præcise request. Ændres slider, body grounding, s
 følger denne rækkefølge:
 
 1. load og valider Person Profile,
-2. valider evt. exact body revision + `.mrbody` bytes,
-3. byg og valider Personality Blueprint,
-4. skriv immutable blueprint-evidence,
-5. opret en almindelig `personality-rXXXX` candidate.
+2. verifier evt. transcript report + approval,
+3. valider evt. exact body revision + `.mrbody` bytes,
+4. byg og valider Personality Blueprint,
+5. skriv evt. immutable transcript report/approval evidence,
+6. skriv immutable blueprint-evidence,
+7. opret en almindelig `personality-rXXXX` candidate.
 
 Blueprint-evidence ligger separat fra Person Profile-schemaet:
 
@@ -67,9 +93,22 @@ Blueprint-evidence ligger separat fra Person Profile-schemaet:
 <people-root>/personality-blueprints/<person-id>/<blueprint-sha256>.json
 ```
 
-Samme blueprint må genbruge præcis samme immutable evidence-fil. En digest-path med andre bytes afvises fail-closed.
+Verificeret transcript evidence gemmes canonical og content-addressed:
 
-Den kompilerede candidates `style_notes` indeholder allerede `blueprint_sha256=<...>`, og Person Assembly-fingerprintet inkluderer personality style notes. Dermed er senere audition og Person Revision transitivt bundet til blueprint-evidencen.
+```text
+<people-root>/personality-style-evidence/<person-id>/reports/<report-sha256>.json
+<people-root>/personality-style-evidence/<person-id>/approvals/<approval-sha256>.json
+```
+
+Samme evidence må genbruge præcis samme immutable digest-fil. En digest-path med andre bytes afvises fail-closed.
+
+Den kompilerede candidates `style_notes` indeholder:
+
+- `blueprint_sha256=<...>`,
+- ved transcript evidence: `style_report_sha256=<...>`,
+- ved transcript evidence: `style_approval_sha256=<...>`.
+
+Person Assembly-fingerprintet inkluderer personality style notes. Dermed er senere audition og Person Revision transitivt bundet til både blueprint og den præcise transcript review/approval evidence.
 
 ## Ingen direkte aktivering
 
@@ -78,7 +117,10 @@ Guided Studio kan kun oprette en personality candidate. Det har ingen component-
 Den eksisterende authority chain gælder fortsat:
 
 ```text
-Guided Blueprint
+Transcript sources (valgfri)
+  -> candidate report
+  -> explicit speaker/style approval
+  -> Guided Blueprint
   -> personality-rXXXX candidate
   -> vælg exact body + voice + personality
   -> ModelRig execution
@@ -89,16 +131,15 @@ Guided Blueprint
   -> atomic activation
 ```
 
-## Transcript-eksempler
+## Transcript-workflow
 
-Den første Guided Studio-flade accepterer kun direkte operator-authored style examples. Transcript-derived replikker skal fortsat gennem den provenance-komplette kæde:
+Transcript-derived replikker skal fortsat først gennem den provenance-komplette extraction/approval-kæde:
 
 ```text
 bodyrig-personality-exemplars
   -> candidate report
   -> bodyrig-personality-approve-exemplars
   -> approval receipt
-  -> bodyrig-personality-blueprint --style-report ... --style-approval ...
 ```
 
-UI-import af verificerede transcript approval receipts er et separat næste lag; UI'en må ikke skabe en genvej uden om speaker/style approval-gaten.
+Forskellen er nu, at de to færdige evidencefiler kan trækkes direkte ind i Guided Studio, så man ikke behøver bruge blueprint-CLI'en bagefter. UI'en laver **ikke** approval selv og kan derfor ikke omgå speaker/style-gaten.
