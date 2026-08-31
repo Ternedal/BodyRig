@@ -17,6 +17,13 @@ from .personality_blueprint import (
     compile_blueprint,
     validate_blueprint,
 )
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    canonical_sha256 as exemplar_evidence_sha256,
+    validate_approval,
+    validate_candidate_report,
+    verify_approval,
+)
 
 
 class PersonalityAuthoringError(ValueError):
@@ -57,20 +64,57 @@ def _validated_bodyprint(profile: Mapping[str, Any], revision_id: str) -> dict[s
     return dict(validated.bodyprint)
 
 
-def build_guided_personality(
+def _resolve_style_evidence(
+    report: Mapping[str, Any] | None,
+    approval: Mapping[str, Any] | None,
+) -> tuple[list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    if (report is None) != (approval is None):
+        raise PersonalityAuthoringError("style candidate report and approval receipt must be supplied together")
+    if report is None or approval is None:
+        return [], None, None, None
+    try:
+        normalized_report = validate_candidate_report(report)
+        normalized_approval = validate_approval(approval)
+        verified = verify_approval(normalized_report, normalized_approval)
+    except PersonalityExemplarApprovalError as exc:
+        raise PersonalityAuthoringError(f"style approval evidence is invalid: {exc}") from exc
+    report_sha = exemplar_evidence_sha256(normalized_report)
+    approval_sha = exemplar_evidence_sha256(verified)
+    return (
+        list(verified["approved_exemplars"]),
+        {
+            "candidate_report_sha256": report_sha,
+            "approval_sha256": approval_sha,
+            "approved_count": len(verified["approved_exemplars"]),
+        },
+        normalized_report,
+        verified,
+    )
+
+
+def _build_guided(
     root: str | os.PathLike[str],
     person_id: str,
     *,
     default_language: str,
     communication: Mapping[str, Any],
-    authored_notes: str = "",
-    style_exemplars: Sequence[str] | None = None,
-    body_revision: str | None = None,
-) -> dict[str, Any]:
+    authored_notes: str,
+    style_exemplars: Sequence[str] | None,
+    body_revision: str | None,
+    style_report: Mapping[str, Any] | None,
+    style_approval: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     try:
         profile = load_profile(root, person_id)
     except PersonProfileError as exc:
         raise PersonalityAuthoringError(str(exc)) from exc
+
+    approved, style_evidence, normalized_report, normalized_approval = _resolve_style_evidence(
+        style_report, style_approval
+    )
+    combined_examples = [*list(style_exemplars or []), *approved]
+    if len(combined_examples) > 12:
+        raise PersonalityAuthoringError("combined direct and transcript-approved style exemplars exceed the 12-example limit")
 
     bodyprint = None
     if body_revision:
@@ -80,23 +124,90 @@ def build_guided_personality(
             default_language=default_language,
             communication=communication,
             authored_notes=authored_notes,
-            style_exemplars=style_exemplars,
+            style_exemplars=combined_examples,
             bodyprint=bodyprint,
             body_revision=body_revision,
         )
         candidate = compile_blueprint(blueprint)
     except PersonalityBlueprintError as exc:
         raise PersonalityAuthoringError(str(exc)) from exc
-    return {
+
+    if style_evidence is not None:
+        candidate["style_notes"] += (
+            f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
+            f" | style_approval_sha256={style_evidence['approval_sha256']}"
+        )
+    result = {
         "blueprint": blueprint,
         "blueprint_sha256": blueprint_sha256(blueprint),
         "candidate": candidate,
         "audition_suite": build_audition_suite(candidate["default_language"]),
+        "style_evidence": style_evidence,
     }
+    return result, normalized_report, normalized_approval
 
 
-def _evidence_path(root: Path, person_id: str, digest: str) -> Path:
-    return root / "personality-blueprints" / person_id / f"{digest}.json"
+def build_guided_personality(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    default_language: str,
+    communication: Mapping[str, Any],
+    authored_notes: str = "",
+    style_exemplars: Sequence[str] | None = None,
+    body_revision: str | None = None,
+    style_report: Mapping[str, Any] | None = None,
+    style_approval: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    result, _report, _approval = _build_guided(
+        root,
+        person_id,
+        default_language=default_language,
+        communication=communication,
+        authored_notes=authored_notes,
+        style_exemplars=style_exemplars,
+        body_revision=body_revision,
+        style_report=style_report,
+        style_approval=style_approval,
+    )
+    return result
+
+
+def _persist_json(path: Path, value: Mapping[str, Any], *, label: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        allow_nan=False,
+    ) + "\n"
+    if path.exists():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise PersonalityAuthoringError(f"existing {label} evidence is unreadable") from exc
+        if existing != encoded:
+            raise PersonalityAuthoringError(f"{label} digest path contains different bytes")
+        return path
+
+    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temp.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp, path)
+        except FileExistsError:
+            existing = path.read_text(encoding="utf-8")
+            if existing != encoded:
+                raise PersonalityAuthoringError(f"{label} evidence raced with different bytes")
+        except OSError as exc:
+            raise PersonalityAuthoringError(f"could not commit {label} evidence create-only") from exc
+    finally:
+        temp.unlink(missing_ok=True)
+    return path
 
 
 def persist_blueprint_evidence(
@@ -111,41 +222,30 @@ def persist_blueprint_evidence(
     except (PersonProfileError, PersonalityBlueprintError) as exc:
         raise PersonalityAuthoringError(str(exc)) from exc
     digest = blueprint_sha256(normalized)
-    path = _evidence_path(root_path, person_id, digest)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        normalized,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-        allow_nan=False,
-    ) + "\n"
-    if path.exists():
-        try:
-            existing = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise PersonalityAuthoringError("existing personality blueprint evidence is unreadable") from exc
-        if existing != encoded:
-            raise PersonalityAuthoringError("personality blueprint digest path contains different bytes")
-        return path
+    path = root_path / "personality-blueprints" / person_id / f"{digest}.json"
+    return _persist_json(path, normalized, label="personality blueprint")
 
-    temp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+
+def persist_style_evidence(
+    root: str | os.PathLike[str],
+    person_id: str,
+    report: Mapping[str, Any],
+    approval: Mapping[str, Any],
+) -> dict[str, Path]:
+    root_path = Path(root).expanduser().resolve()
     try:
-        with temp.open("x", encoding="utf-8", newline="\n") as handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temp, path)
-        except FileExistsError:
-            existing = path.read_text(encoding="utf-8")
-            if existing != encoded:
-                raise PersonalityAuthoringError("personality blueprint evidence raced with different bytes")
-        except OSError as exc:
-            raise PersonalityAuthoringError("could not commit personality blueprint evidence create-only") from exc
-    finally:
-        temp.unlink(missing_ok=True)
-    return path
+        load_profile(root_path, person_id)
+        normalized_report = validate_candidate_report(report)
+        verified_approval = verify_approval(normalized_report, approval)
+    except (PersonProfileError, PersonalityExemplarApprovalError) as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+    report_sha = exemplar_evidence_sha256(normalized_report)
+    approval_sha = exemplar_evidence_sha256(verified_approval)
+    base = root_path / "personality-style-evidence" / person_id
+    return {
+        "report": _persist_json(base / "reports" / f"{report_sha}.json", normalized_report, label="style report"),
+        "approval": _persist_json(base / "approvals" / f"{approval_sha}.json", verified_approval, label="style approval"),
+    }
 
 
 def save_guided_personality(
@@ -157,9 +257,11 @@ def save_guided_personality(
     authored_notes: str = "",
     style_exemplars: Sequence[str] | None = None,
     body_revision: str | None = None,
+    style_report: Mapping[str, Any] | None = None,
+    style_approval: Mapping[str, Any] | None = None,
     feedback: str = "",
 ) -> dict[str, Any]:
-    result = build_guided_personality(
+    result, normalized_report, normalized_approval = _build_guided(
         root,
         person_id,
         default_language=default_language,
@@ -167,8 +269,13 @@ def save_guided_personality(
         authored_notes=authored_notes,
         style_exemplars=style_exemplars,
         body_revision=body_revision,
+        style_report=style_report,
+        style_approval=style_approval,
     )
-    evidence = persist_blueprint_evidence(root, person_id, result["blueprint"])
+    style_paths = None
+    if normalized_report is not None and normalized_approval is not None:
+        style_paths = persist_style_evidence(root, person_id, normalized_report, normalized_approval)
+    blueprint_path = persist_blueprint_evidence(root, person_id, result["blueprint"])
     candidate = result["candidate"]
     try:
         profile = add_personality_revision(
@@ -183,7 +290,8 @@ def save_guided_personality(
         raise PersonalityAuthoringError(str(exc)) from exc
     return {
         **result,
-        "evidence_path": str(evidence),
+        "evidence_path": str(blueprint_path),
+        "style_evidence_paths": {key: str(path) for key, path in style_paths.items()} if style_paths else None,
         "profile": profile,
         "saved_personality_revision": profile["personality_revisions"][-1]["revision_id"],
     }
