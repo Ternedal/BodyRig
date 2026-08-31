@@ -165,15 +165,19 @@ def decide_convergence(
     if converged:
         state = "converged"
         reason = "all visual-fidelity thresholds are satisfied"
+        strategy = "human-review"
     elif len(history) >= policy.max_iterations:
         state = "manual-review"
-        reason = "maximum iteration budget reached without convergence"
+        reason = "current automatic iteration budget is exhausted without convergence; review the best candidate and start a retuned batch if needed"
+        strategy = "manual-retune"
     elif _plateau(history, policy=policy):
         state = "plateau"
-        reason = "visual-fidelity improvement has plateaued; retune search strategy before continuing"
+        reason = "visual-fidelity improvement has plateaued; automatically retune the candidate search and continue"
+        strategy = "retune-search"
     else:
         state = "iterate"
         reason = "visual fidelity remains below target; generate another candidate"
+        strategy = "continue-search"
 
     next_focus = None
     if unmet:
@@ -192,6 +196,7 @@ def decide_convergence(
         "version": DECISION_VERSION,
         "state": state,
         "reason": reason,
+        "strategy": strategy,
         "iteration": latest["iteration"],
         "candidate_sha256": latest["candidate_sha256"],
         "reference_set_sha256": reference_set,
@@ -204,7 +209,7 @@ def decide_convergence(
         "best_iteration": best["iteration"],
         "best_candidate_sha256": best["candidate_sha256"],
         "best_overall": best["scores"]["overall"],
-        "continue_automatically": state == "iterate",
+        "continue_automatically": state in {"iterate", "plateau"},
         "human_visual_authority_required": True,
         "semantics": "visual-fidelity-not-identity-verification",
     }
