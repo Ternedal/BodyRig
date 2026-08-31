@@ -111,6 +111,13 @@ def build_recovery_plan(
         raise InterruptedFitRecoveryError("portable identity alias does not match failed physical session")
 
     manifest = _read_json(source_manifest, label="Stash source manifest")
+    if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+        raise InterruptedFitRecoveryError("unsupported Stash source manifest format/version")
+    if manifest.get("source_kind") != "stash-local":
+        raise InterruptedFitRecoveryError("interrupted physical recovery requires a stash-local source manifest")
+    selected = manifest.get("selected")
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 10:
+        raise InterruptedFitRecoveryError("Stash source manifest must contain 1..10 selected sources")
     performer = manifest.get("performer")
     if not isinstance(performer, Mapping):
         raise InterruptedFitRecoveryError("Stash source manifest performer binding is missing")
