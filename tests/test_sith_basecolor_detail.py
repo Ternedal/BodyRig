@@ -79,6 +79,8 @@ def _detail_metrics(refined: bytes, *, source: bytes = b"base") -> dict[str, obj
         "method": METHOD,
         "detail_strength": 0.45,
         "channel_delta_cap": 0.035,
+        "detail_full_response": 0.045,
+        "detail_zero_response": 0.10,
         "max_observed_channel_delta": 0.031,
         "mean_abs_channel_delta": 0.006,
         "changed_pixel_fraction": 0.62,
@@ -116,6 +118,8 @@ def test_basecolor_refinement_preserves_texture_indices_and_pbr_maps() -> None:
     assert detail["sourceBaseColorSha256"] == hashlib.sha256(b"base").hexdigest()
     assert detail["refinedBaseColorSha256"] == hashlib.sha256(refined_png).hexdigest()
     assert detail["maxObservedChannelDelta"] == pytest.approx(0.031)
+    assert detail["detailFullResponse"] == pytest.approx(0.045)
+    assert detail["detailZeroResponse"] == pytest.approx(0.10)
 
 
 def test_basecolor_refinement_rejects_wrong_source_hash() -> None:
@@ -146,3 +150,12 @@ def test_basecolor_refinement_rejects_metric_over_cap_and_double_application() -
             refined_basecolor_png=refined_png,
             metrics=_detail_metrics(refined_png),
         )
+
+
+def test_basecolor_refinement_rejects_invalid_structure_gate_contract() -> None:
+    refined_png = PNG_SIGNATURE + b"bounded-detail"
+    bad = _detail_metrics(refined_png)
+    bad["detail_full_response"] = 0.12
+    bad["detail_zero_response"] = 0.10
+    with pytest.raises(BaseColorDetailError, match="structure gate"):
+        refine_glb_basecolor(_pbr_avatar(), refined_basecolor_png=refined_png, metrics=bad)
