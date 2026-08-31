@@ -79,6 +79,15 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--initiative", type=float, default=0.5)
     parser.add_argument("--authored-notes", default="")
     parser.add_argument(
+        "--style-example",
+        action="append",
+        default=[],
+        help=(
+            "Operator-approved example utterance used only for phrasing/rhythm style. "
+            "May be repeated up to 12 times; factual content is not treated as memory."
+        ),
+    )
+    parser.add_argument(
         "--body-package",
         default="",
         help="Optional validated .mrbody used only to seed observable embodiment/mannerism fields.",
@@ -182,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
             default_language=args.default_language,
             communication=communication,
             authored_notes=args.authored_notes,
+            style_exemplars=args.style_example,
             bodyprint=bodyprint,
             body_revision=body_revision,
         )
