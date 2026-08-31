@@ -102,17 +102,8 @@ if ($reconstructionShaAfter -ne $reconstructionShaBefore) {
     throw "SiTH reconstruction authority changed during cheap fidelity refit; refusing resume claim."
 }
 
-$validationRaw = @(& $BodyRigPython -c @'
-import hashlib,json,pathlib,sys
-from bodyrig.package import validate_package
-p=pathlib.Path(sys.argv[1]).resolve()
-v=validate_package(p)
-print(json.dumps({
-  "body_id":v.manifest["id"],
-  "package_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
-  "pipeline":v.provenance["pipeline"],
-},separators=(",",":")))
-'@ $packagePath)
+$validationCode = "import hashlib,json,pathlib,sys; from bodyrig.package import validate_package; p=pathlib.Path(sys.argv[1]).resolve(); v=validate_package(p); print(json.dumps({'body_id':v.manifest['id'],'package_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'pipeline':v.provenance['pipeline']},separators=(',',':')))"
+$validationRaw = @(& $BodyRigPython -c $validationCode $packagePath)
 if ($LASTEXITCODE -ne 0 -or $validationRaw.Count -ne 1) { throw "Refit package failed strict validation." }
 try { $validated = ([string]$validationRaw[0]) | ConvertFrom-Json }
 catch { throw "Refit package validator returned unreadable JSON." }
