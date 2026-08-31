@@ -2,20 +2,24 @@
 """Gender-aware high-fidelity entrypoint for BodyRig's pinned SiTH bridge.
 
 The reviewed fitter still contains a literal SMPL-X ``male`` constructor and the
-historical source-shell skinning path.  This wrapper applies two fail-closed,
+historical source-shell skinning path. This wrapper applies fail-closed,
 in-memory patches for the current process only:
 
-* select the requested licensed SMPL-X body model (female/male/neutral), and
+* select the requested licensed SMPL-X body model (female/male/neutral),
 * run BodyRig's bounded source-shell repair before BodyPrint adjustment and VRM
-  serialization so clothing/silhouette offsets cannot become armpit membranes.
+  serialization so clothing/silhouette offsets cannot become armpit membranes,
+* post-process the completed VRM with deterministic source-derived core-glTF PBR
+  normal + metallic/roughness maps without changing rig geometry.
 
-Neither the pinned SiTH checkout nor the reviewed bridge file is modified.
+Neither the pinned SiTH checkout nor the reviewed adjusted bridge file is
+modified on disk.
 """
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 GENDERS = ("female", "male", "neutral")
 GENDER_MARKER = 'gender="male",'
@@ -79,6 +83,44 @@ def _patch_source(source: str, gender: str) -> str:
     return source
 
 
+def _install_pbr_refinement() -> None:
+    try:
+        import sith_smplx_vrm_fitter as base
+        from sith_pbr_material import PbrMaterialError, derive_pbr_maps, refine_glb_pbr
+    except ImportError as exc:
+        raise RuntimeError(f"PBR refinement modules are unavailable: {exc}") from exc
+
+    original = base._build_vrm
+
+    def refined_build_vrm(*args: Any, **kwargs: Any):
+        texture_png = kwargs.get("texture_png")
+        np = kwargs.get("np")
+        if np is None or not isinstance(texture_png, bytes):
+            raise base.FitterError("BodyRig PBR refinement requires numpy and the source PNG texture")
+        avatar_vrm, thumbnail = original(*args, **kwargs)
+        try:
+            normal_png, roughness_png, metrics = derive_pbr_maps(np, texture_png)
+            refined = refine_glb_pbr(
+                avatar_vrm,
+                normal_png=normal_png,
+                metallic_roughness_png=roughness_png,
+                metrics=metrics,
+            )
+        except PbrMaterialError as exc:
+            raise base.FitterError(f"source-derived PBR material refinement failed: {exc}") from exc
+        print(
+            "BodyRig source-derived PBR: "
+            f"roughness_mean={float(metrics['roughness_mean']):.4f} "
+            f"normal_scale={float(metrics['normal_scale']):.3f} "
+            f"normal_sha256={str(metrics['normal_texture_sha256'])[:12]}... "
+            f"roughness_sha256={str(metrics['metallic_roughness_texture_sha256'])[:12]}...",
+            file=sys.stderr,
+        )
+        return refined, thumbnail
+
+    base._build_vrm = refined_build_vrm
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--bodyrig-smplx-gender", required=True, choices=GENDERS)
@@ -96,6 +138,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     sys.path.insert(0, str(target.parent))
+    try:
+        _install_pbr_refinement()
+    except RuntimeError as exc:
+        print(f"BodyRig gender-aware fitter: FAIL: {exc}", file=sys.stderr)
+        return 1
+
     sys.argv = [str(target), *remainder]
     namespace = {
         "__name__": "__main__",
