@@ -74,6 +74,7 @@ def test_compiler_is_deterministic_modelrig_ready_and_digest_bound() -> None:
             initiative=0.8,
         ),
         authored_notes="Vær tør og menneskelig, ikke serviceagtig.",
+        style_exemplars=["Det går nok. Det er bare aftensmad, ikke en katastrofe."],
         bodyprint=bodyprint(),
         body_revision="body-r0001",
     )
@@ -88,7 +89,12 @@ def test_compiler_is_deterministic_modelrig_ready_and_digest_bound() -> None:
     assert "warm" in first["instructions"]
     assert "short, compact answers" in first["instructions"]
     assert "private thoughts" in first["instructions"]
+    assert "style exemplars only" in first["instructions"]
+    assert "not a catastrophe" not in first["instructions"]
+    assert "Det går nok" in first["instructions"]
+    assert "do not treat their factual content" in first["instructions"]
     assert f"blueprint_sha256={digest}" in first["style_notes"]
+    assert "style_exemplars=1" in first["style_notes"]
     assert "movement energy=0.72" in first["style_notes"]
     assert "body revision=body-r0001" in first["style_notes"]
 
@@ -105,6 +111,22 @@ def test_blueprint_digest_changes_when_authored_behavior_changes() -> None:
 
     assert blueprint_sha256(first) != blueprint_sha256(second)
     assert compile_blueprint(first)["style_notes"] != compile_blueprint(second)["style_notes"]
+
+
+def test_style_exemplars_are_operator_selected_and_bounded() -> None:
+    value = build_blueprint(
+        default_language="da",
+        communication=communication(),
+        style_exemplars=["Kort svar.", "Lidt tørt, men venligt."],
+    )
+    assert value["style_exemplars"] == ["Kort svar.", "Lidt tørt, men venligt."]
+
+    with pytest.raises(PersonalityBlueprintError, match="at most 12"):
+        build_blueprint(
+            default_language="da",
+            communication=communication(),
+            style_exemplars=[f"example {index}" for index in range(13)],
+        )
 
 
 def test_validator_refuses_video_motion_as_inner_personality_authority() -> None:
