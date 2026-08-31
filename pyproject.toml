@@ -42,6 +42,7 @@ bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
 bodyrig-materialize = "bodyrig.materialize_cli:main"
 bodyrig-acceptance-status = "bodyrig.acceptance_status_cli:main"
+bodyrig-personality-blueprint = "bodyrig.personality_blueprint_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["bodyrig"]
