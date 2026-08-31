@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import uuid
@@ -29,22 +30,30 @@ def _find_body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[st
     raise PersonalityAuthoringError(f"body revision {revision_id!r} is not registered on this person")
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as exc:
+        raise PersonalityAuthoringError("registered body package could not be hashed") from exc
+    return digest.hexdigest()
+
+
 def _validated_bodyprint(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
     item = _find_body_revision(profile, revision_id)
     package = Path(str(item["package_path"])).expanduser().resolve()
     if not package.is_file():
         raise PersonalityAuthoringError("registered body package is missing")
+    if _sha256_file(package) != item["package_sha256"]:
+        raise PersonalityAuthoringError("registered body package bytes no longer match the body revision")
     try:
         validated = validate_package(package)
     except (MRBodyError, OSError) as exc:
         raise PersonalityAuthoringError(f"registered body package is invalid: {exc}") from exc
     if validated.manifest["id"] != item["body_id"]:
         raise PersonalityAuthoringError("registered body identity no longer matches its .mrbody package")
-    import hashlib
-
-    digest = hashlib.sha256(package.read_bytes()).hexdigest()
-    if digest != item["package_sha256"]:
-        raise PersonalityAuthoringError("registered body package bytes no longer match the body revision")
     return dict(validated.bodyprint)
 
 
