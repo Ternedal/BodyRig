@@ -85,7 +85,7 @@ def parse_transcript_text(text: str) -> list[str]:
     return result
 
 
-def _source_digest(path: Path) -> str:
+def _read_source(path: Path) -> tuple[str, str]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -94,24 +94,14 @@ def _source_digest(path: Path) -> str:
         raise PersonalityExemplarError(
             f"transcript source exceeds {MAX_SOURCE_BYTES} byte limit: {path.name}"
         )
-    return hashlib.sha256(raw).hexdigest()
-
-
-def _source_text(path: Path) -> str:
+    digest = hashlib.sha256(raw).hexdigest()
     try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise PersonalityExemplarError(f"could not read transcript source: {path.name}") from exc
-    if len(raw) > MAX_SOURCE_BYTES:
-        raise PersonalityExemplarError(
-            f"transcript source exceeds {MAX_SOURCE_BYTES} byte limit: {path.name}"
-        )
-    try:
-        return raw.decode("utf-8-sig")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise PersonalityExemplarError(
             f"transcript source must be UTF-8 text: {path.name}"
         ) from exc
+    return digest, text
 
 
 def _evenly_spaced(values: list[str], limit: int) -> list[str]:
@@ -135,15 +125,24 @@ def build_exemplar_candidates(
     paths = [Path(item).expanduser().resolve() for item in sources]
     if not 1 <= len(paths) <= 20:
         raise PersonalityExemplarError("personality exemplar extraction requires 1..20 transcript sources")
+    if len({os.path.normcase(str(path)) for path in paths}) != len(paths):
+        raise PersonalityExemplarError("transcript source paths must be distinct")
 
     source_hashes: list[str] = []
+    source_hash_set: set[str] = set()
     all_candidates: list[str] = []
     seen: set[str] = set()
     for path in paths:
         if not path.is_file():
             raise PersonalityExemplarError(f"transcript source not found: {path}")
-        source_hashes.append(_source_digest(path))
-        for item in parse_transcript_text(_source_text(path)):
+        digest, text = _read_source(path)
+        if digest in source_hash_set:
+            raise PersonalityExemplarError(
+                "transcript source bytes must be distinct; duplicate source content is not valid provenance"
+            )
+        source_hash_set.add(digest)
+        source_hashes.append(digest)
+        for item in parse_transcript_text(text):
             key = item.casefold()
             if key in seen:
                 continue
