@@ -125,36 +125,21 @@ def _gray_entropy(cv2: Any, np: Any, gray: Any) -> float:
 
 
 def photo_statistics(cv2: Any, np: Any, image: Any) -> dict[str, float]:
-    """Return coarse natural-photo statistics without performing recognition.
-
-    The features are intentionally generic: local detail, luminance contrast,
-    edge density and grayscale entropy. Comparing these with real Stash photos
-    helps reject flat/waxy or over-sharpened CG renders while keeping human
-    visual review as the final authority.
-    """
-
+    """Return generic natural-photo statistics without recognition features."""
     resized = cv2.resize(image, (192, 192), interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
     laplacian = cv2.Laplacian(gray, cv2.CV_32F)
-    detail = math.log1p(float(laplacian.var()))
-    contrast = float(gray.std()) / 64.0
-    edges = cv2.Canny(gray, 60, 150)
-    edge_density = float((edges > 0).mean())
-    entropy = _gray_entropy(cv2, np, gray)
     return {
-        "detail": detail,
-        "contrast": contrast,
-        "edge_density": edge_density,
-        "entropy": entropy,
+        "detail": math.log1p(float(laplacian.var())),
+        "contrast": float(gray.std()) / 64.0,
+        "edge_density": float((cv2.Canny(gray, 60, 150) > 0).mean()),
+        "entropy": _gray_entropy(cv2, np, gray),
     }
 
 
 def photo_statistics_similarity(cv2: Any, np: Any, reference: Any, candidate: Any) -> float:
     left = photo_statistics(cv2, np, reference)
     right = photo_statistics(cv2, np, candidate)
-    # Normalizers are deliberately generous because Stash references may have
-    # different lighting/compression. A candidate must still sit in the same
-    # broad natural-photo statistics regime to score highly.
     errors = (
         min(1.0, abs(left["detail"] - right["detail"]) / 2.25),
         min(1.0, abs(left["contrast"] - right["contrast"]) / 0.55),
@@ -192,9 +177,7 @@ def skin_crop(image: Any, face_box: tuple[int, int, int, int] | None):
 
 def render_mask(cv2: Any, np: Any, image: Any):
     h, w = image.shape[:2]
-    corners = np.array([
-        image[0, 0], image[0, w - 1], image[h - 1, 0], image[h - 1, w - 1]
-    ], dtype=np.float32)
+    corners = np.array([image[0, 0], image[0, w - 1], image[h - 1, 0], image[h - 1, w - 1]], dtype=np.float32)
     background = corners.mean(axis=0)
     distance = np.linalg.norm(image.astype(np.float32) - background.reshape(1, 1, 3), axis=2)
     mask = (distance > 24.0).astype("uint8") * 255
@@ -288,6 +271,12 @@ def load_render_images(cv2: Any, root: Path, manifest: dict[str, Any]):
     return require_sha(manifest.get("package_sha256"), "render-set.package_sha256"), result
 
 
+def combined_reference_sha(stash_reference_sha: str, body_reference_sha: str | None) -> str:
+    if body_reference_sha is None:
+        return stash_reference_sha
+    return hashlib.sha256(f"{stash_reference_sha}:{body_reference_sha}".encode("ascii")).hexdigest()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--reference-set", required=True)
@@ -313,7 +302,7 @@ def main() -> int:
             raise RuntimeError("fidelity measurement output already exists")
         ref_manifest = read_json(ref_manifest_path, "reference-set manifest")
         render_manifest = read_json(render_manifest_path, "render-set manifest")
-        reference_sha, references = load_reference_images(cv2, ref_manifest_path.parent, ref_manifest)
+        stash_reference_sha, references = load_reference_images(cv2, ref_manifest_path.parent, ref_manifest)
         candidate_sha, renders = load_render_images(cv2, render_manifest_path.parent, render_manifest)
 
         cascade = cv2.CascadeClassifier(str(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"))
@@ -368,6 +357,7 @@ def main() -> int:
             reference_profile = width_profile(cv2, rgba_mask(body_image))
             body_score = profile_similarity(reference_profile, candidate_profile)
             body_reference_kind = "private-rgba-capture"
+        reference_authority_sha = combined_reference_sha(stash_reference_sha, body_reference_sha)
 
         scores = {
             "face_appearance": round(face_score, 6),
@@ -387,7 +377,6 @@ def main() -> int:
 
         shape_hint = None
         if reference_profile is not None:
-            # Width rows 2/3 approximate shoulder/upper-torso, rows 4/5 hips.
             shoulder_delta = ((reference_profile[2] + reference_profile[3]) - (candidate_profile[2] + candidate_profile[3])) / 2.0
             hip_delta = ((reference_profile[4] + reference_profile[5]) - (candidate_profile[4] + candidate_profile[5])) / 2.0
             shape_hint = {
@@ -405,17 +394,15 @@ def main() -> int:
                 "version": 1,
                 "iteration": args.iteration,
                 "candidate_sha256": candidate_sha,
-                "reference_set_sha256": reference_sha,
+                "reference_set_sha256": reference_authority_sha,
                 "evaluator": {"name": EVALUATOR, "revision": REVISION},
                 "scores": scores,
                 "semantics": SEMANTICS,
             },
-            "body_reference": {
-                "kind": body_reference_kind,
-                "sha256": body_reference_sha,
-            },
+            "body_reference": {"kind": body_reference_kind, "sha256": body_reference_sha},
             "shape_hint": shape_hint,
             "diagnostics": {
+                "stash_reference_set_sha256": stash_reference_sha,
                 "reference_image_count": len(references),
                 "face_reference_count": len(face_scores),
                 "photorealism_reference_count": len(photorealism_scores),
