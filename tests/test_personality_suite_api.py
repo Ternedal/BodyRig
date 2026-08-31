@@ -104,6 +104,8 @@ def test_suite_api_exposes_definition_and_seals_non_authoritative_review(tmp_pat
     assert sealed.status_code == 200
     payload = sealed.json()
     assert len(payload["review_sha256"]) == 64
+    assert payload["review"]["modelrig_version"] == "modelrig-test-1"
+    assert payload["review"]["voicerig_version"] == "voicerig-test-1"
     assert payload["review"]["human_review_required"] is True
     assert payload["review"]["activation_authority"] is False
     assert load_profile(root, profile["person_id"])["active_person_revision"] is None
@@ -113,6 +115,8 @@ def test_suite_api_exposes_definition_and_seals_non_authoritative_review(tmp_pat
     )
     assert checked.status_code == 200
     assert checked.json()["review_sha256"] == payload["review_sha256"]
+    assert checked.json()["review"]["modelrig_version"] == "modelrig-test-1"
+    assert checked.json()["review"]["voicerig_version"] == "voicerig-test-1"
 
 
 def test_suite_api_rejects_partial_evidence_without_writing_review(tmp_path: Path, monkeypatch) -> None:
