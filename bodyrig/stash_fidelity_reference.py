@@ -14,6 +14,7 @@ from .stash_source import StashClient, StashSourceError
 FORMAT = "bodyrig-fidelity-reference-set"
 VERSION = 1
 MAX_REFERENCES = 24
+MAX_DISCOVERY_IMAGES = 100
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
 
 
@@ -35,6 +36,7 @@ def discover_performer_references(
         raise StashFidelityReferenceError("performer id is required")
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_REFERENCES:
         raise StashFidelityReferenceError(f"reference limit must be in 1..{MAX_REFERENCES}")
+    discovery_limit = min(MAX_DISCOVERY_IMAGES, max(limit, limit * 4))
 
     query = """
 query BodyRigFidelityReferences($id: ID!, $limit: Int!) {
@@ -58,7 +60,7 @@ query BodyRigFidelityReferences($id: ID!, $limit: Int!) {
 }
 """
     try:
-        data = client._graphql(query, {"id": performer_id, "limit": limit})
+        data = client._graphql(query, {"id": performer_id, "limit": discovery_limit})
     except Exception as exc:
         raise StashFidelityReferenceError(f"Stash fidelity reference query failed: {exc}") from exc
 
