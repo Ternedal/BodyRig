@@ -138,6 +138,16 @@ def _plateau(history: Sequence[dict[str, Any]], *, policy: FidelityPolicy) -> bo
     return max(values) - min(values) < policy.min_improvement
 
 
+def _best_rank(item: Mapping[str, Any], thresholds: Mapping[str, float]) -> tuple[float, float, float, int]:
+    gaps = [_normalized_gap(item["scores"], thresholds, field) for field in SCORE_FIELDS]
+    return (
+        max(gaps),
+        sum(gaps),
+        -float(item["scores"]["overall"]),
+        int(item["iteration"]),
+    )
+
+
 def decide_convergence(
     measurements: Sequence[Mapping[str, Any]],
     *,
@@ -162,9 +172,14 @@ def decide_convergence(
     latest = history[-1]
     thresholds = policy.thresholds()
     unmet = [field for field in SCORE_FIELDS if latest["scores"][field] < thresholds[field]]
-    converged = not unmet
+    next_focus = None
+    if unmet:
+        next_focus = max(
+            unmet,
+            key=lambda field: (_normalized_gap(latest["scores"], thresholds, field), field),
+        )
 
-    if converged:
+    if not unmet:
         state = "converged"
         reason = "all likeness and photorealism thresholds are satisfied"
         strategy = "human-review"
@@ -176,19 +191,16 @@ def decide_convergence(
         state = "plateau"
         reason = "visual-fidelity improvement has plateaued; automatically retune the candidate search and continue"
         strategy = "retune-search"
+    elif next_focus in {"photorealism", "skin_material", "hair_appearance"}:
+        state = "iterate"
+        reason = "appearance realism remains below target; refine appearance/material search"
+        strategy = "appearance-search"
     else:
         state = "iterate"
-        reason = "likeness or photorealism remains below target; generate another candidate"
+        reason = "visual likeness remains below target; generate another candidate"
         strategy = "continue-search"
 
-    next_focus = None
-    if unmet:
-        next_focus = max(
-            unmet,
-            key=lambda field: (_normalized_gap(latest["scores"], thresholds, field), field),
-        )
-
-    best = max(history, key=lambda item: (item["scores"]["overall"], -item["iteration"]))
+    best = min(history, key=lambda item: _best_rank(item, thresholds))
     improvement = 0.0
     if len(history) > 1:
         improvement = latest["scores"]["overall"] - history[-2]["scores"]["overall"]
@@ -210,6 +222,7 @@ def decide_convergence(
         "improvement_from_previous": improvement,
         "best_iteration": best["iteration"],
         "best_candidate_sha256": best["candidate_sha256"],
+        "best_scores": deepcopy(best["scores"]),
         "best_overall": best["scores"]["overall"],
         "continue_automatically": state in {"iterate", "plateau"},
         "human_visual_authority_required": True,
