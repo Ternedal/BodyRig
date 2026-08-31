@@ -119,7 +119,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
                 "version": 1,
                 "source_kind": "stash-local",
                 "performer": {"id": "42", "name": "Fixture Person"},
-                "selected": [],
+                "selected": [{"path": str(source_a)}, {"path": str(source_b)}],
             }
         ),
         encoding="utf-8",
