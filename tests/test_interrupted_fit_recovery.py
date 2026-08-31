@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from bodyrig.appearance_boundary import provenance_stage as appearance_boundary_stage
+from bodyrig.avatar import ProceduralAvatarFitter
 from bodyrig.interrupted_fit_recovery import (
     InterruptedFitRecoveryError,
     build_recovery_plan,
+    verify_recovered_package,
 )
+from bodyrig.package import build_package
 from bodyrig.physical_session import mark_fail, mark_readiness_pass, start_session
-from bodyrig.portable_identity import build_portable_identity
+from bodyrig.portable_identity import build_portable_identity, load_portable_identity, provenance_identity_stage
 
 
 REVISION = "1" * 40
@@ -139,6 +143,35 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return failed, outer, workspace
 
 
+def _build_recovered_package(outer: Path) -> Path:
+    portable = load_portable_identity(outer / "clone" / "bodyrig-portable-identity.json")
+    fitted = ProceduralAvatarFitter().fit(BODYPRINT, name="Fixture Person")
+    package = outer / "clone" / "fixture-person.mrbody"
+    build_package(
+        package,
+        body_id=portable["body_id"],
+        name="Fixture Person",
+        avatar_vrm=fitted.avatar_vrm,
+        bodyprint=BODYPRINT,
+        provenance={
+            "format": "modelrig-body-provenance",
+            "version": 1,
+            "created_at": "2026-08-31T12:00:00Z",
+            "source": {"kind": "user-supplied-local-media", "count": 2},
+            "synthetic_avatar": True,
+            "pipeline": [
+                {"stage": "body-recovery", "adapter": "fixture-recovery", "revision": "recovery-v1"},
+                {"stage": "visual-identity-capture", "adapter": "fixture-capture", "revision": "capture-v1"},
+                provenance_identity_stage(portable),
+                appearance_boundary_stage(),
+                {"stage": "avatar-fitting", "adapter": "sith-smplx-vrm", "revision": "1"},
+            ],
+        },
+        thumbnail_png=fitted.thumbnail_png,
+    )
+    return package
+
+
 def test_interrupted_clone_plan_binds_completed_reconstruction_without_rerun(tmp_path: Path) -> None:
     failed, outer, workspace = _fixture(tmp_path)
     plan = build_recovery_plan(
@@ -154,6 +187,26 @@ def test_interrupted_clone_plan_binds_completed_reconstruction_without_rerun(tmp
     assert plan["expensive_reconstruction_rerun"] is False
     assert plan["package_already_complete"] is False
     assert len(plan["authority"]["reconstruction_sha256"]) == 64
+
+
+def test_recovered_package_verifies_only_while_reconstruction_authority_is_unchanged(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    plan = build_recovery_plan(
+        failed_session_path=failed,
+        stash_clone_output=outer,
+        identity_workspace=workspace,
+        current_revision=REVISION,
+    )
+    package = _build_recovered_package(outer)
+    verified = verify_recovered_package(plan, package)
+    assert len(verified["package_sha256"]) == 64
+    assert verified["reconstruction_sha256"] == plan["authority"]["reconstruction_sha256"]
+    assert verified["expensive_reconstruction_rerun"] is False
+
+    reconstruction = workspace / "sith-input-v1" / "reconstruction.json"
+    reconstruction.write_bytes(reconstruction.read_bytes() + b" ")
+    with pytest.raises(InterruptedFitRecoveryError, match="reconstruction authority changed"):
+        verify_recovered_package(plan, package)
 
 
 def test_recovery_refuses_session_from_another_revision(tmp_path: Path) -> None:
