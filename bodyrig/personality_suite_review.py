@@ -131,7 +131,9 @@ def validate_suite_review(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "voice_revision",
         "personality_revision",
         "assembly_fingerprint",
+        "modelrig_version",
         "model",
+        "voicerig_version",
         "default_language",
         "suite_definition_sha256",
         "probe_results",
@@ -172,7 +174,9 @@ def validate_suite_review(value: Mapping[str, Any] | Any) -> dict[str, Any]:
         "voice_revision": _text(value.get("voice_revision"), field="voice_revision", maximum=24),
         "personality_revision": _text(value.get("personality_revision"), field="personality_revision", maximum=24),
         "assembly_fingerprint": _sha(value.get("assembly_fingerprint"), field="assembly_fingerprint"),
+        "modelrig_version": _text(value.get("modelrig_version"), field="modelrig_version", maximum=160),
         "model": _text(value.get("model"), field="model", maximum=256),
+        "voicerig_version": _text(value.get("voicerig_version"), field="voicerig_version", maximum=160),
         "default_language": _text(value.get("default_language"), field="default_language", maximum=16),
         "suite_definition_sha256": _sha(value.get("suite_definition_sha256"), field="suite_definition_sha256"),
         "probe_results": probe_results,
@@ -238,6 +242,8 @@ def seal_suite_review(
         raise PersonalitySuiteReviewError("each suite probe must use a distinct audition")
 
     probe_results: list[dict[str, str]] = []
+    modelrig_version: str | None = None
+    voicerig_version: str | None = None
     for probe in suite["probes"]:
         probe_id = str(probe["id"])
         audition_id = audition_ids[probe_id]
@@ -254,6 +260,16 @@ def seal_suite_review(
             raise PersonalitySuiteReviewError(f"{probe_id}: {exc}") from exc
         if receipt["model"] != model:
             raise PersonalitySuiteReviewError(f"{probe_id}: audition used a different ModelRig model")
+        current_modelrig_version = str(receipt["modelrig_version"])
+        current_voicerig_version = str(receipt["voicerig_version"])
+        if modelrig_version is None:
+            modelrig_version = current_modelrig_version
+        elif current_modelrig_version != modelrig_version:
+            raise PersonalitySuiteReviewError(f"{probe_id}: ModelRig runtime version changed during suite")
+        if voicerig_version is None:
+            voicerig_version = current_voicerig_version
+        elif current_voicerig_version != voicerig_version:
+            raise PersonalitySuiteReviewError(f"{probe_id}: VoiceRig runtime version changed during suite")
         expected_prompt_sha = _sha256_text(str(probe["prompt"]))
         if receipt["prompt_sha256"] != expected_prompt_sha:
             raise PersonalitySuiteReviewError(f"{probe_id}: audition prompt does not match the suite definition")
@@ -269,6 +285,8 @@ def seal_suite_review(
             "reply_sha256": str(receipt["reply_sha256"]),
             "audio_sha256": str(receipt["audio_sha256"]),
         })
+    if modelrig_version is None or voicerig_version is None:
+        raise PersonalitySuiteReviewError("suite execution runtime provenance is incomplete")
 
     review = validate_suite_review({
         "format": FORMAT,
@@ -280,7 +298,9 @@ def seal_suite_review(
         "voice_revision": voice_revision,
         "personality_revision": personality_revision,
         "assembly_fingerprint": expected_fingerprint,
+        "modelrig_version": modelrig_version,
         "model": model,
+        "voicerig_version": voicerig_version,
         "default_language": default_language,
         "suite_definition_sha256": _canonical_sha256(suite),
         "probe_results": probe_results,
@@ -358,8 +378,12 @@ def verify_suite_review(
             current_receipt_sha = receipt_sha256(root, person_id=person_id, audition_id=item["audition_id"])
         except PersonAuditionError as exc:
             raise PersonalitySuiteReviewError(f"{item['probe_id']}: {exc}") from exc
+        if receipt["modelrig_version"] != review["modelrig_version"]:
+            raise PersonalitySuiteReviewError(f"{item['probe_id']}: ModelRig runtime version changed")
         if receipt["model"] != review["model"]:
             raise PersonalitySuiteReviewError(f"{item['probe_id']}: ModelRig model changed")
+        if receipt["voicerig_version"] != review["voicerig_version"]:
+            raise PersonalitySuiteReviewError(f"{item['probe_id']}: VoiceRig runtime version changed")
         if receipt["prompt_sha256"] != expected_prompt_sha:
             raise PersonalitySuiteReviewError(f"{item['probe_id']}: audition prompt no longer matches suite")
         if current_receipt_sha != item["audition_receipt_sha256"]:
