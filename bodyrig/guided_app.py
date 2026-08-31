@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,6 +32,8 @@ class GuidedPersonalityRequest(BaseModel):
     communication: GuidedCommunication
     authored_notes: str = Field(default="", max_length=16_000)
     style_exemplars: list[str] = Field(default_factory=list, max_length=12)
+    style_report: dict[str, Any] | None = None
+    style_approval: dict[str, Any] | None = None
     body_revision: str | None = Field(default=None, max_length=24)
 
 
@@ -39,17 +41,21 @@ class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
     feedback: str = Field(default="", max_length=8000)
 
 
+def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
+    return {
+        "default_language": request.default_language,
+        "communication": request.communication.model_dump(),
+        "authored_notes": request.authored_notes,
+        "style_exemplars": request.style_exemplars,
+        "style_report": request.style_report,
+        "style_approval": request.style_approval,
+        "body_revision": request.body_revision,
+    }
+
+
 def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
     try:
-        return build_guided_personality(
-            person_library(),
-            person_id,
-            default_language=request.default_language,
-            communication=request.communication.model_dump(),
-            authored_notes=request.authored_notes,
-            style_exemplars=request.style_exemplars,
-            body_revision=request.body_revision,
-        )
+        return build_guided_personality(person_library(), person_id, **_authoring_kwargs(request))
     except PersonalityAuthoringError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -65,11 +71,7 @@ def guided_personality_revision(person_id: str, request: GuidedPersonalitySaveRe
         result = save_guided_personality(
             person_library(),
             person_id,
-            default_language=request.default_language,
-            communication=request.communication.model_dump(),
-            authored_notes=request.authored_notes,
-            style_exemplars=request.style_exemplars,
-            body_revision=request.body_revision,
+            **_authoring_kwargs(request),
             feedback=request.feedback,
         )
     except PersonalityAuthoringError as exc:
@@ -78,6 +80,7 @@ def guided_personality_revision(person_id: str, request: GuidedPersonalitySaveRe
         "blueprint_sha256": result["blueprint_sha256"],
         "candidate": result["candidate"],
         "audition_suite": result["audition_suite"],
+        "style_evidence": result["style_evidence"],
         "saved_personality_revision": result["saved_personality_revision"],
         "profile": result["profile"],
     }
