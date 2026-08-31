@@ -22,7 +22,9 @@ En enkelt fri testprompt er dårlig evidence for, om en personality faktisk føl
 - samme exact `voice-rXXXX`,
 - samme exact `personality-rXXXX`,
 - samme Person Assembly fingerprint,
-- samme ModelRig-model.
+- samme ModelRig-model,
+- samme ModelRig-runtimeversion,
+- samme VoiceRig-runtimeversion.
 
 De seks probes dækker:
 
@@ -61,6 +63,8 @@ exact assembly
   -> immutable WAV evidence
 ```
 
+Hver almindelig audition receipt bærer request-lokal `modelrig_version` og `voicerig_version`. Ved suite-forsegling skal begge runtimeversioner være identiske på tværs af alle seks probes. En serviceopgradering eller et versionsskift midt i suiten får derfor hele forseglingen til at fejle lukket, også selv om ModelRig-modelnavnet er uændret.
+
 Runneren viser både ModelRig-svaret og VoiceRig-lyden pr. probe. Når lydfilen er hørt til ende, markeres den lokalt som hørt i UI'en. Denne lokale UI-markering er ikke authority og gemmes ikke som human approval.
 
 ## Forsegling
@@ -80,6 +84,8 @@ Serveren forsegler kun reportet hvis:
 - hver receipt stadig verificerer mod sin WAV,
 - alle receipts har samme exact assembly fingerprint,
 - alle receipts er kørt med samme angivne ModelRig-model,
+- alle receipts har samme ModelRig-runtimeversion,
+- alle receipts har samme VoiceRig-runtimeversion,
 - hver receipts `prompt_sha256` matcher den autoritative prompt i suite-definitionen.
 
 Det create-only report ligger her:
@@ -88,9 +94,10 @@ Det create-only report ligger her:
 <people-root>/personality-suite-reviews/<person-id>/suite-review-<uuid>.json
 ```
 
-Reportet indeholder ikke rå prompts, replies eller tokens. Det indeholder hash-bindinger til:
+Reportet indeholder ikke rå prompts, replies eller tokens. Det indeholder runtime-provenance og hash-bindinger til:
 
 - suite-definitionen,
+- exact ModelRig- og VoiceRig-runtimeversion,
 - hver forventet prompt,
 - hver audition receipt,
 - hvert ModelRig reply,
@@ -102,7 +109,7 @@ Et eksisterende report kan genverificeres med:
 GET /api/v1/people/{person_id}/personality/audition-suite/reviews/{review_id}
 ```
 
-Genverificering afviser blandt andet ændret component fingerprint, ændret suite-definition, ændret audition receipt og ændret/tampered WAV.
+Genverificering afviser blandt andet ændret component fingerprint, ændret suite-definition, ændrede runtimeversioner, ændret audition receipt og ændret/tampered WAV.
 
 ## Authority boundary
 
