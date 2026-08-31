@@ -18,8 +18,9 @@ def measurement(
     body: float | None = None,
     hair: float | None = None,
     skin: float | None = None,
+    photorealism: float | None = None,
     reference: str = "a" * 64,
-    evaluator_revision: str = "eval-r1",
+    evaluator_revision: str = "eval-r2",
     candidate: str | None = None,
 ) -> dict:
     return {
@@ -34,6 +35,7 @@ def measurement(
             "body_silhouette": overall if body is None else body,
             "hair_appearance": overall if hair is None else hair,
             "skin_material": overall if skin is None else skin,
+            "photorealism": overall if photorealism is None else photorealism,
             "overall": overall,
         },
         "semantics": "visual-fidelity-not-identity-verification",
@@ -42,7 +44,6 @@ def measurement(
 
 def test_below_target_means_iterate_not_fail() -> None:
     result = decide_convergence([measurement(1, overall=0.55)])
-
     assert result["state"] == "iterate"
     assert result["continue_automatically"] is True
     assert result["human_visual_authority_required"] is True
@@ -58,25 +59,33 @@ def test_converges_only_when_every_required_visual_dimension_passes() -> None:
             body=0.92,
             hair=0.84,
             skin=0.82,
+            photorealism=0.88,
         )
     ])
-
     assert result["state"] == "converged"
     assert result["continue_automatically"] is False
     assert result["unmet"] == []
 
 
-def test_high_overall_does_not_hide_bad_face_likeness() -> None:
+def test_high_overall_does_not_hide_bad_face_appearance() -> None:
     result = decide_convergence([
-        measurement(1, overall=0.90, face=0.50, body=0.94, hair=0.90, skin=0.90)
+        measurement(1, overall=0.90, face=0.50, body=0.94, hair=0.90, skin=0.90, photorealism=0.90)
     ])
-
     assert result["state"] == "iterate"
     assert "face_appearance" in result["unmet"]
     assert result["next_focus"] == "face_appearance"
 
 
-def test_plateau_requests_retune_instead_of_declaring_failure() -> None:
+def test_high_likeness_does_not_hide_non_photorealistic_render() -> None:
+    result = decide_convergence([
+        measurement(1, overall=0.90, face=0.91, body=0.94, hair=0.89, skin=0.88, photorealism=0.45)
+    ])
+    assert result["state"] == "iterate"
+    assert "photorealism" in result["unmet"]
+    assert result["next_focus"] == "photorealism"
+
+
+def test_plateau_retunes_and_keeps_running_instead_of_stopping() -> None:
     policy = FidelityPolicy(min_improvement=0.02, plateau_window=3, max_iterations=10)
     result = decide_convergence(
         [
@@ -86,10 +95,10 @@ def test_plateau_requests_retune_instead_of_declaring_failure() -> None:
         ],
         policy=policy,
     )
-
     assert result["state"] == "plateau"
-    assert result["continue_automatically"] is False
-    assert "retune" in result["reason"]
+    assert result["continue_automatically"] is True
+    assert result["strategy"] == "retune-search"
+    assert "automatically retune" in result["reason"]
 
 
 def test_max_iteration_budget_escalates_to_manual_review_not_failure() -> None:
@@ -102,17 +111,16 @@ def test_max_iteration_budget_escalates_to_manual_review_not_failure() -> None:
         ],
         policy=policy,
     )
-
     assert result["state"] == "manual-review"
     assert result["continue_automatically"] is False
     assert result["best_iteration"] == 3
+    assert "fail" not in result["state"]
 
 
 def test_best_candidate_survives_a_worse_new_iteration() -> None:
     result = decide_convergence(
         [measurement(1, overall=0.72), measurement(2, overall=0.65)]
     )
-
     assert result["best_iteration"] == 1
     assert result["best_overall"] == pytest.approx(0.72)
     assert result["best_candidate_sha256"] == f"{1:064x}"
@@ -124,11 +132,10 @@ def test_history_must_keep_exact_reference_and_evaluator_authority() -> None:
             measurement(1, overall=0.5),
             measurement(2, overall=0.6, reference="b" * 64),
         ])
-
     with pytest.raises(FidelityConvergenceError, match="same evaluator revision"):
         decide_convergence([
             measurement(1, overall=0.5),
-            measurement(2, overall=0.6, evaluator_revision="eval-r2"),
+            measurement(2, overall=0.6, evaluator_revision="eval-r3"),
         ])
 
 
@@ -137,9 +144,8 @@ def test_history_must_be_contiguous() -> None:
         decide_convergence([measurement(1, overall=0.5), measurement(3, overall=0.6)])
 
 
-def test_measurement_refuses_identity_verification_semantics() -> None:
+def test_measurement_rejects_wrong_visual_fidelity_semantics() -> None:
     value = measurement(1, overall=0.5)
-    value["semantics"] = "identity-match"
-
+    value["semantics"] = "unsupported-visual-semantics"
     with pytest.raises(FidelityConvergenceError, match="semantics"):
         validate_measurement(value)
