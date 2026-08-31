@@ -36,6 +36,9 @@ def test_physical_loop_freezes_source_body_reference_and_never_promotes_automati
     assert 'Frozen body reference changed during convergence.' in source
     assert '--body-reference-rgba", $frozenBodyReference' in source
     assert 'scores.photorealism' in source
+    assert 'best_scores.photorealism' in source
+    assert 'best_comparison_render_dir' in source
+    assert 'appearance-search' in source
     assert 'production_activation = $false' in source
     assert 'human_visual_authority_required = $true' in source
     assert 'complete-reference-renderer-acceptance' not in source
