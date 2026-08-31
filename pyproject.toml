@@ -19,7 +19,7 @@ dependencies = [
 test = ["pytest>=8.0", "httpx>=0.27", "httpx2>=2.12.0"]
 
 [project.scripts]
-bodyrig = "bodyrig.app:run"
+bodyrig = "bodyrig.guided_app:run"
 bodyrig-recover = "bodyrig.recover_cli:main"
 bodyrig-recovery-preflight = "bodyrig.preflight_cli:main"
 bodyrig-capture-identity = "bodyrig.identity_capture_cli:main"
