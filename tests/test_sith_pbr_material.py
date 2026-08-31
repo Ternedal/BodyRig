@@ -47,7 +47,7 @@ def base_avatar() -> bytes:
         ],
         "extras": {"bodyrig": {"placeholder": False}},
     }
-    return _write_glb(document, b"base" + b"thumb")
+    return _write_glb(document, b"base" + b"thmb")
 
 
 def metrics(normal: bytes, roughness: bytes) -> dict[str, float | str]:
@@ -92,6 +92,7 @@ def test_pbr_refinement_preserves_source_base_color_and_thumbnail_index() -> Non
         {"sampler": 0, "source": 2},
         {"sampler": 0, "source": 3},
     ]
+    assert binary.startswith(b"basethmb")
     assert binary.endswith(roughness)
 
     refinement = document["extras"]["bodyrig"]["materialRefinement"]
