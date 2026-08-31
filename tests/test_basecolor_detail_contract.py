@@ -10,7 +10,12 @@ def test_basecolor_detail_is_bounded_source_luminance_not_generation() -> None:
     source = DETAIL.read_text(encoding="utf-8")
     assert "DETAIL_STRENGTH = 0.45" in source
     assert "CHANNEL_DELTA_CAP = 0.035" in source
+    assert "DETAIL_FULL_RESPONSE = 0.045" in source
+    assert "DETAIL_ZERO_RESPONSE = 0.10" in source
     assert "detail = luminance - smooth" in source
+    assert "detail_magnitude = np.abs(detail)" in source
+    assert "structure_gate = np.clip(" in source
+    assert "* structure_gate" in source
     assert "np.clip(detail * DETAIL_STRENGTH, -CHANNEL_DELTA_CAP, CHANNEL_DELTA_CAP)" in source
     assert "rgb + delta[:, :, None]" in source
     assert '"source_derived": True' in source
