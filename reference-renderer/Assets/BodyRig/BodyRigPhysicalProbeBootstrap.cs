@@ -105,6 +105,16 @@ namespace BodyRig.ReferenceRenderer
                       "\nInspect cross-limb leakage, collapse, clipping and unnatural folds.\nClose player when visual review is complete.";
         }
 
+        private static Light CreateDirectionalLight(string name, float intensity, Vector3 rotation)
+        {
+            var lightObject = new GameObject(name);
+            var light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = intensity;
+            lightObject.transform.rotation = Quaternion.Euler(rotation);
+            return light;
+        }
+
         private static void CreateVisualRig()
         {
             if (Camera.main == null)
@@ -121,14 +131,26 @@ namespace BodyRig.ReferenceRenderer
 
             if (FindObjectOfType<Light>() == null)
             {
-                var lightObject = new GameObject("BodyRig Acceptance Light");
-                var light = lightObject.AddComponent<Light>();
-                light.type = LightType.Directional;
-                light.intensity = 1.25f;
-                lightObject.transform.rotation = Quaternion.Euler(45f, -25f, 0f);
+                // Fixed portrait-style lighting intentionally preserves facial
+                // volume. The previous high flat ambient + single light could
+                // wash local normals and make eyes/nose/mouth read as one soft
+                // clay surface in canonical fidelity snapshots.
+                CreateDirectionalLight(
+                    "BodyRig Fidelity Key Light",
+                    1.15f,
+                    new Vector3(36f, -32f, 0f));
+                CreateDirectionalLight(
+                    "BodyRig Fidelity Fill Light",
+                    0.28f,
+                    new Vector3(18f, 145f, 0f));
+                CreateDirectionalLight(
+                    "BodyRig Fidelity Rim Light",
+                    0.38f,
+                    new Vector3(52f, 205f, 0f));
             }
 
-            RenderSettings.ambientLight = new Color(0.45f, 0.45f, 0.45f, 1f);
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.16f, 0.16f, 0.16f, 1f);
         }
 
         private static void FrameActiveAvatar(BodyRigAvatarLoader loader)
