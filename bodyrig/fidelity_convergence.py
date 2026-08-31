@@ -18,6 +18,7 @@ SCORE_FIELDS = (
     "hair_appearance",
     "skin_material",
     "photorealism",
+    "human_plausibility",
     "overall",
 )
 
@@ -56,6 +57,7 @@ class FidelityPolicy:
     hair_appearance: float = 0.78
     skin_material: float = 0.78
     photorealism: float = 0.82
+    human_plausibility: float = 0.82
     overall: float = 0.84
     min_improvement: float = 0.01
     plateau_window: int = 3
@@ -181,7 +183,7 @@ def decide_convergence(
 
     if not unmet:
         state = "converged"
-        reason = "all likeness and photorealism thresholds are satisfied"
+        reason = "all likeness, human-plausibility and photorealism thresholds are satisfied"
         strategy = "human-review"
     elif len(history) >= policy.max_iterations:
         state = "manual-review"
@@ -191,6 +193,10 @@ def decide_convergence(
         state = "plateau"
         reason = "visual-fidelity improvement has plateaued; automatically retune the candidate search and continue"
         strategy = "retune-search"
+    elif next_focus == "human_plausibility":
+        state = "iterate"
+        reason = "the render remains visually implausible or uncanny; generate another candidate before human review"
+        strategy = "plausibility-search"
     elif next_focus in {"photorealism", "skin_material", "hair_appearance"}:
         state = "iterate"
         reason = "appearance realism remains below target; refine appearance/material search"
