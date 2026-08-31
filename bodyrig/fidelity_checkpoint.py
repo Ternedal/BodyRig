@@ -7,13 +7,21 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 FORMAT = "bodyrig-fidelity-convergence-checkpoint"
 VERSION = 1
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
+CHECKPOINT_RE = re.compile(r"^checkpoint-(\d{6})\.json$")
 STAGES = {"post-reconstruction", "post-candidate"}
+SNAPSHOT_NAMES = (
+    "front-full.png",
+    "three-quarter-full.png",
+    "side-full.png",
+    "face-front.png",
+    "fidelity-render-set.json",
+)
 
 
 class FidelityCheckpointError(ValueError):
@@ -74,11 +82,85 @@ def _sha(value: Any, *, field: str) -> str:
 
 
 def _relative(value: Any, *, field: str) -> str:
-    raw = _text(value, field=field, maximum=512).replace("\\", "/")
+    raw = _text(value, field=field, maximum=1024).replace("\\", "/")
     path = Path(raw)
     if path.is_absolute() or raw.startswith("../") or "/../" in raw or raw in {".", ".."}:
         raise FidelityCheckpointError(f"{field} must be a safe relative path")
     return raw
+
+
+def _work_key(path: str) -> str:
+    return f"work-root:{path.replace('\\', '/')}"
+
+
+def _private_key(path: str) -> str:
+    return f"private:{str(Path(path).expanduser().resolve())}"
+
+
+def _validate_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "max_full_rebuilds",
+        "max_refinements_per_rebuild",
+        "max_wall_clock_hours",
+        "base_sith_seed",
+        "reference_limit",
+    }:
+        raise FidelityCheckpointError("checkpoint policy fields must match v1 exactly")
+    return {
+        "max_full_rebuilds": _integer(value.get("max_full_rebuilds"), field="policy.max_full_rebuilds", minimum=1),
+        "max_refinements_per_rebuild": _integer(
+            value.get("max_refinements_per_rebuild"), field="policy.max_refinements_per_rebuild"
+        ),
+        "max_wall_clock_hours": _number(
+            value.get("max_wall_clock_hours"), field="policy.max_wall_clock_hours", minimum=0.01
+        ),
+        "base_sith_seed": _integer(value.get("base_sith_seed"), field="policy.base_sith_seed"),
+        "reference_limit": _integer(value.get("reference_limit"), field="policy.reference_limit", minimum=1),
+    }
+
+
+def _required_artifact_keys(
+    *,
+    body_alias: str,
+    full_rebuilds_completed: int,
+    current_baseline_clone_output: str,
+    current_identity_workspace: str,
+    candidate_records: list[dict[str, Any]],
+    latest_candidate: dict[str, Any] | None,
+) -> set[str]:
+    required = {
+        _work_key("references/reference-set.json"),
+        _work_key("references/private-body-reference-rgba.png"),
+    }
+    baseline = current_baseline_clone_output.rstrip("/")
+    required.update(
+        {
+            _work_key(f"{baseline}/clone/{body_alias}.mrbody"),
+            _work_key(f"{baseline}/clone/bodyrig-recovery-proof.json"),
+            _work_key(f"{baseline}/clone/bodyrig-visual-identity.json"),
+            _work_key(f"{baseline}/clone/bodyrig-portable-identity.json"),
+            _work_key(f"{baseline}/bodyrig-sith-fitter-config.json"),
+        }
+    )
+    if full_rebuilds_completed < 1:
+        raise FidelityCheckpointError("resumable checkpoint requires at least one completed full rebuild")
+    required.add(_work_key(f"rebuild-{full_rebuilds_completed:02d}/physical-session.json"))
+    reconstruction = Path(current_identity_workspace) / "sith-input-v1" / "reconstruction.json"
+    required.add(_private_key(str(reconstruction)))
+
+    for record in candidate_records:
+        required.add(_work_key(record["package_path"]))
+        required.add(_work_key(record["evaluation_path"]))
+        snapshot_root = record["render_dir"].rstrip("/") + "/snapshots"
+        for name in SNAPSHOT_NAMES:
+            required.add(_work_key(f"{snapshot_root}/{name}"))
+
+    if latest_candidate is not None:
+        for field in ("decision_path", "evaluation_path", "adjustment_plan_path"):
+            required.add(_work_key(latest_candidate[field]))
+        if latest_candidate["adjustment_request_path"]:
+            required.add(_work_key(latest_candidate["adjustment_request_path"]))
+    return required
 
 
 def validate_checkpoint(value: Any) -> dict[str, Any]:
@@ -104,6 +186,7 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
         raise FidelityCheckpointError("checkpoint fields must match v1 exactly")
     if value.get("format") != FORMAT or value.get("version") != VERSION:
         raise FidelityCheckpointError("unsupported checkpoint format/version")
+
     sequence = _integer(value.get("sequence"), field="sequence", minimum=1)
     stage = value.get("stage")
     if stage not in STAGES:
@@ -113,28 +196,9 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
         raise FidelityCheckpointError("bodyrig_revision must be lowercase Git SHA")
     performer_id = _text(value.get("performer_id"), field="performer_id", maximum=160)
     body_alias = _text(value.get("body_alias"), field="body_alias", maximum=160)
+    policy = _validate_policy(value.get("policy"))
     rig_setup_sha = _sha(value.get("rig_setup_sha256"), field="rig_setup_sha256")
-    elapsed = _number(value.get("active_elapsed_seconds"), field="active_elapsed_seconds")
-
-    policy = value.get("policy")
-    if not isinstance(policy, dict) or set(policy) != {
-        "max_full_rebuilds",
-        "max_refinements_per_rebuild",
-        "max_wall_clock_hours",
-        "base_sith_seed",
-        "reference_limit",
-    }:
-        raise FidelityCheckpointError("checkpoint policy fields must match v1 exactly")
-    validated_policy = {
-        "max_full_rebuilds": _integer(policy.get("max_full_rebuilds"), field="policy.max_full_rebuilds", minimum=1),
-        "max_refinements_per_rebuild": _integer(
-            policy.get("max_refinements_per_rebuild"),
-            field="policy.max_refinements_per_rebuild",
-        ),
-        "max_wall_clock_hours": _number(policy.get("max_wall_clock_hours"), field="policy.max_wall_clock_hours", minimum=0.01),
-        "base_sith_seed": _integer(policy.get("base_sith_seed"), field="policy.base_sith_seed"),
-        "reference_limit": _integer(policy.get("reference_limit"), field="policy.reference_limit", minimum=1),
-    }
+    active_elapsed = _number(value.get("active_elapsed_seconds"), field="active_elapsed_seconds")
 
     state = value.get("state")
     if not isinstance(state, dict):
@@ -183,26 +247,22 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
     full_durations = durations("full_durations")
     refinement_durations = durations("refinement_durations")
     phase = state.get("phase_timings")
-    if not isinstance(phase, dict) or set(phase) != {
-        "full-rebuild",
-        "resume-refinement",
-        "gate-a",
-        "render",
-        "evaluate",
-    }:
+    phase_fields = {"full-rebuild", "resume-refinement", "gate-a", "render", "evaluate"}
+    if not isinstance(phase, dict) or set(phase) != phase_fields:
         raise FidelityCheckpointError("state.phase_timings fields must match v1 exactly")
-    phase_timings = {
-        key: [_number(item, field=f"state.phase_timings.{key}[]") for item in raw]
-        for key, raw in phase.items()
-        if isinstance(raw, list)
-    }
-    if len(phase_timings) != len(phase):
-        raise FidelityCheckpointError("state.phase_timings entries must be arrays")
+    phase_timings: dict[str, list[float]] = {}
+    for key in phase_fields:
+        raw = phase[key]
+        if not isinstance(raw, list):
+            raise FidelityCheckpointError("state.phase_timings entries must be arrays")
+        phase_timings[key] = [_number(item, field=f"state.phase_timings.{key}[]") for item in raw]
 
     evaluation_paths = state.get("evaluation_paths")
     if not isinstance(evaluation_paths, list):
         raise FidelityCheckpointError("state.evaluation_paths must be an array")
     validated_evaluations = [_relative(item, field="state.evaluation_paths[]") for item in evaluation_paths]
+    if len(set(validated_evaluations)) != len(validated_evaluations):
+        raise FidelityCheckpointError("state.evaluation_paths contains duplicates")
 
     records = state.get("candidate_records")
     if not isinstance(records, list):
@@ -232,6 +292,12 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
                 ),
             }
         )
+    relative_names = [item["relative_name"] for item in validated_records]
+    if len(set(relative_names)) != len(relative_names):
+        raise FidelityCheckpointError("candidate relative_name values must be unique")
+    record_evaluations = [item["evaluation_path"] for item in validated_records]
+    if record_evaluations != validated_evaluations:
+        raise FidelityCheckpointError("evaluation_paths must exactly match candidate record order")
 
     used = state.get("used_adjustment_hashes")
     if not isinstance(used, list):
@@ -240,16 +306,12 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
     if len(set(validated_used)) != len(validated_used):
         raise FidelityCheckpointError("state.used_adjustment_hashes contains duplicates")
 
-    frozen_sha = _sha(
-        state.get("frozen_body_reference_sha256"), field="state.frozen_body_reference_sha256"
-    )
+    frozen_sha = _sha(state.get("frozen_body_reference_sha256"), field="state.frozen_body_reference_sha256")
     current_baseline = _relative(
         state.get("current_baseline_clone_output"), field="state.current_baseline_clone_output"
     )
     current_workspace = _text(
-        state.get("current_identity_workspace"),
-        field="state.current_identity_workspace",
-        maximum=4096,
+        state.get("current_identity_workspace"), field="state.current_identity_workspace", maximum=4096
     )
     effective_name = _text(state.get("effective_name"), field="state.effective_name", maximum=160)
     first_renderer_build = state.get("first_renderer_build")
@@ -257,7 +319,7 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
         raise FidelityCheckpointError("state.first_renderer_build must be boolean")
 
     latest_candidate = state.get("latest_candidate")
-    validated_latest = None
+    validated_latest: dict[str, Any] | None = None
     if latest_candidate is not None:
         if not isinstance(latest_candidate, dict) or set(latest_candidate) != {
             "decision_path",
@@ -274,10 +336,7 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
                 latest_candidate["adjustment_plan_path"], field="latest_candidate.adjustment_plan_path"
             ),
             "adjustment_request_path": (
-                _relative(
-                    latest_candidate["adjustment_request_path"],
-                    field="latest_candidate.adjustment_request_path",
-                )
+                _relative(latest_candidate["adjustment_request_path"], field="latest_candidate.adjustment_request_path")
                 if latest_candidate["adjustment_request_path"]
                 else ""
             ),
@@ -288,15 +347,17 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
             ),
         }
 
-    if stage == "post-candidate" and validated_latest is None:
-        raise FidelityCheckpointError("post-candidate checkpoint requires latest_candidate")
-    if stage == "post-reconstruction" and validated_latest is not None:
+    if stage == "post-candidate":
+        if validated_latest is None or not validated_records:
+            raise FidelityCheckpointError("post-candidate checkpoint requires a latest candidate")
+        if validated_latest["evaluation_path"] != validated_evaluations[-1]:
+            raise FidelityCheckpointError("latest candidate evaluation must be the final evaluation path")
+    elif validated_latest is not None:
         raise FidelityCheckpointError("post-reconstruction checkpoint may not contain latest_candidate")
-    if len(validated_records) != len(validated_evaluations):
-        raise FidelityCheckpointError("candidate record count must equal evaluation path count")
-    if full_completed > validated_policy["max_full_rebuilds"]:
+
+    if full_completed > policy["max_full_rebuilds"]:
         raise FidelityCheckpointError("checkpoint full rebuild count exceeds policy")
-    if current_refinements > validated_policy["max_refinements_per_rebuild"]:
+    if current_refinements > policy["max_refinements_per_rebuild"]:
         raise FidelityCheckpointError("checkpoint current refinement count exceeds policy")
     if refinements < current_refinements:
         raise FidelityCheckpointError("checkpoint total refinements is lower than current rebuild refinements")
@@ -305,7 +366,7 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
     if not isinstance(artifacts, list) or not artifacts:
         raise FidelityCheckpointError("checkpoint artifacts must be a non-empty array")
     validated_artifacts: list[dict[str, str]] = []
-    seen_paths: set[str] = set()
+    artifact_keys: set[str] = set()
     for index, artifact in enumerate(artifacts):
         if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "scope"}:
             raise FidelityCheckpointError(f"artifacts[{index}] fields are invalid")
@@ -315,13 +376,32 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
         raw_path = _text(artifact.get("path"), field=f"artifacts[{index}].path", maximum=4096)
         if scope == "work-root":
             raw_path = _relative(raw_path, field=f"artifacts[{index}].path")
-        normalized_key = f"{scope}:{raw_path}"
-        if normalized_key in seen_paths:
+            key = _work_key(raw_path)
+        else:
+            raw_path = str(Path(raw_path).expanduser().resolve())
+            key = _private_key(raw_path)
+        if key in artifact_keys:
             raise FidelityCheckpointError("checkpoint contains duplicate artifact paths")
-        seen_paths.add(normalized_key)
+        artifact_keys.add(key)
         validated_artifacts.append(
-            {"path": raw_path, "sha256": _sha(artifact.get("sha256"), field=f"artifacts[{index}].sha256"), "scope": scope}
+            {
+                "path": raw_path,
+                "sha256": _sha(artifact.get("sha256"), field=f"artifacts[{index}].sha256"),
+                "scope": scope,
+            }
         )
+
+    required_artifacts = _required_artifact_keys(
+        body_alias=body_alias,
+        full_rebuilds_completed=full_completed,
+        current_baseline_clone_output=current_baseline,
+        current_identity_workspace=current_workspace,
+        candidate_records=validated_records,
+        latest_candidate=validated_latest,
+    )
+    missing = sorted(required_artifacts - artifact_keys)
+    if missing:
+        raise FidelityCheckpointError(f"checkpoint state references unhashed artifacts: {missing[0]}")
 
     if value.get("human_visual_authority_required") is not True:
         raise FidelityCheckpointError("checkpoint must require human visual authority")
@@ -336,9 +416,9 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
         "bodyrig_revision": revision,
         "performer_id": performer_id,
         "body_alias": body_alias,
-        "policy": validated_policy,
+        "policy": policy,
         "rig_setup_sha256": rig_setup_sha,
-        "active_elapsed_seconds": elapsed,
+        "active_elapsed_seconds": active_elapsed,
         "state": {
             "full_rebuilds_completed": full_completed,
             "refinements_completed": refinements,
@@ -396,81 +476,83 @@ def load_latest_checkpoint(
     expected_policy: Mapping[str, Any],
     expected_rig_setup_sha256: str,
 ) -> tuple[Path, dict[str, Any]]:
-    root = Path(checkpoint_dir).expanduser().resolve()
-    if not root.is_dir():
-        raise FidelityCheckpointError(f"checkpoint directory not found: {root}")
-    candidates = sorted(root.glob("checkpoint-*.json"))
+    directory = Path(checkpoint_dir).expanduser().resolve()
+    if not directory.is_dir():
+        raise FidelityCheckpointError(f"checkpoint directory not found: {directory}")
+    candidates: list[tuple[int, Path]] = []
+    for path in directory.iterdir():
+        if not path.is_file():
+            continue
+        match = CHECKPOINT_RE.fullmatch(path.name)
+        if match:
+            candidates.append((int(match.group(1)), path))
     if not candidates:
-        raise FidelityCheckpointError("no fidelity checkpoints found")
-    latest_path = candidates[-1]
-    checkpoint = validate_checkpoint(_read_json(latest_path, label="fidelity checkpoint"))
-    expected_name = f"checkpoint-{checkpoint['sequence']:06d}.json"
-    if latest_path.name != expected_name:
-        raise FidelityCheckpointError("latest checkpoint filename does not match embedded sequence")
+        raise FidelityCheckpointError("no fidelity convergence checkpoints found")
+    candidates.sort(key=lambda item: item[0])
+    sequences = [item[0] for item in candidates]
+    expected_sequences = list(range(1, sequences[-1] + 1))
+    if sequences != expected_sequences:
+        raise FidelityCheckpointError("checkpoint sequence contains a gap or duplicate")
+    for sequence, path in candidates:
+        raw = _read_json(path, label="fidelity convergence checkpoint")
+        content_sequence = raw.get("sequence")
+        if content_sequence != sequence:
+            raise FidelityCheckpointError("checkpoint filename sequence does not match content")
+
+    latest_path = candidates[-1][1]
+    checkpoint = validate_checkpoint(_read_json(latest_path, label="fidelity convergence checkpoint"))
     if checkpoint["bodyrig_revision"] != expected_revision:
         raise FidelityCheckpointError("checkpoint belongs to a different BodyRig revision")
     if checkpoint["performer_id"] != expected_performer_id:
         raise FidelityCheckpointError("checkpoint performer differs from requested performer")
     if checkpoint["body_alias"] != expected_body_alias:
         raise FidelityCheckpointError("checkpoint body alias differs from requested body")
-    if checkpoint["policy"] != dict(expected_policy):
-        raise FidelityCheckpointError("checkpoint cost policy differs from requested policy")
-    if checkpoint["rig_setup_sha256"] != expected_rig_setup_sha256:
-        raise FidelityCheckpointError("checkpoint rig setup differs from current rig setup")
+    if checkpoint["policy"] != _validate_policy(dict(expected_policy)):
+        raise FidelityCheckpointError("checkpoint policy differs from requested convergence policy")
+    if checkpoint["rig_setup_sha256"] != _sha(
+        expected_rig_setup_sha256, field="expected_rig_setup_sha256"
+    ):
+        raise FidelityCheckpointError("checkpoint rig setup bytes differ from current rig setup")
     verify_checkpoint_artifacts(checkpoint, work_root=work_root)
     return latest_path, checkpoint
 
 
-def _expected_policy_from_args(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "max_full_rebuilds": args.max_full_rebuilds,
-        "max_refinements_per_rebuild": args.max_refinements_per_rebuild,
-        "max_wall_clock_hours": args.max_wall_clock_hours,
-        "base_sith_seed": args.base_sith_seed,
-        "reference_limit": args.reference_limit,
-    }
+def _strict_policy(text: str) -> dict[str, Any]:
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise FidelityCheckpointError("--policy-json is invalid JSON") from exc
+    return _validate_policy(value)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Validate BodyRig fidelity convergence checkpoints.")
+    parser = argparse.ArgumentParser(description="Validate and load fail-closed BodyRig fidelity convergence checkpoints.")
     sub = parser.add_subparsers(dest="command", required=True)
-    validate = sub.add_parser("validate")
-    validate.add_argument("checkpoint")
-    validate.add_argument("--work-root", required=True)
     latest = sub.add_parser("latest")
     latest.add_argument("--checkpoint-dir", required=True)
     latest.add_argument("--work-root", required=True)
     latest.add_argument("--revision", required=True)
     latest.add_argument("--performer-id", required=True)
     latest.add_argument("--body-alias", required=True)
+    latest.add_argument("--policy-json", required=True)
     latest.add_argument("--rig-setup-sha256", required=True)
-    latest.add_argument("--max-full-rebuilds", type=int, required=True)
-    latest.add_argument("--max-refinements-per-rebuild", type=int, required=True)
-    latest.add_argument("--max-wall-clock-hours", type=float, required=True)
-    latest.add_argument("--base-sith-seed", type=int, required=True)
-    latest.add_argument("--reference-limit", type=int, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "validate":
-            path = Path(args.checkpoint).expanduser().resolve()
-            checkpoint = validate_checkpoint(_read_json(path, label="fidelity checkpoint"))
-            verify_checkpoint_artifacts(checkpoint, work_root=args.work_root)
-            result = {"checkpoint": str(path), "checkpoint_sha256": sha256_file(path), "stage": checkpoint["stage"], "sequence": checkpoint["sequence"]}
-        else:
-            path, checkpoint = load_latest_checkpoint(
-                args.checkpoint_dir,
-                work_root=args.work_root,
-                expected_revision=args.revision,
-                expected_performer_id=args.performer_id,
-                expected_body_alias=args.body_alias,
-                expected_policy=_expected_policy_from_args(args),
-                expected_rig_setup_sha256=args.rig_setup_sha256,
-            )
-            result = {"checkpoint": str(path), "checkpoint_sha256": sha256_file(path), "data": checkpoint}
+        policy = _strict_policy(args.policy_json)
+        path, checkpoint = load_latest_checkpoint(
+            args.checkpoint_dir,
+            work_root=args.work_root,
+            expected_revision=args.revision,
+            expected_performer_id=args.performer_id,
+            expected_body_alias=args.body_alias,
+            expected_policy=policy,
+            expected_rig_setup_sha256=args.rig_setup_sha256,
+        )
+        value = {"checkpoint_path": str(path), "checkpoint": checkpoint}
     except (FidelityCheckpointError, OSError, ValueError) as exc:
         print(f"BodyRig fidelity checkpoint: FAIL: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+    print(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     return 0
 
 
