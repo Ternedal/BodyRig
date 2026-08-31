@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 EVALUATOR = "bodyrig-opencv-visual-fidelity"
-REVISION = "3"
+REVISION = "4"
 SEMANTICS = "visual-fidelity-not-identity-verification"
 VIEWS = ("front-full", "three-quarter-full", "side-full", "face-front")
 
@@ -148,6 +148,83 @@ def photo_statistics_similarity(cv2: Any, np: Any, reference: Any, candidate: An
     )
     weighted_error = 0.34 * errors[0] + 0.22 * errors[1] + 0.22 * errors[2] + 0.22 * errors[3]
     return clamp(1.0 - weighted_error)
+
+
+def facial_definition_statistics(cv2: Any, np: Any, image: Any) -> dict[str, float]:
+    """Measure whether facial features remain locally defined instead of melting together.
+
+    The values are generic image-structure statistics. They are deliberately
+    non-biometric and are only meaningful relative to the frozen performer
+    reference photos used by the same convergence run.
+    """
+    resized = cv2.resize(image, (192, 192), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (0, 0), 1.35)
+    residual = gray.astype(np.float32) - blurred.astype(np.float32)
+    equalized = cv2.equalizeHist(gray)
+    edges = cv2.Canny(equalized, 55, 145)
+    laplacian = cv2.Laplacian(gray, cv2.CV_32F)
+
+    # The face crop contains a little padding. These broad bands intentionally
+    # cover eyes/brows and nose/mouth rather than locating biometric landmarks.
+    eye_band = edges[36:92, 22:170]
+    midface_band = edges[78:162, 30:162]
+    return {
+        "detail": math.log1p(float(laplacian.var())),
+        "local_contrast": float(residual.std()) / 32.0,
+        "eye_edge_density": float((eye_band > 0).mean()) if eye_band.size else 0.0,
+        "midface_edge_density": float((midface_band > 0).mean()) if midface_band.size else 0.0,
+    }
+
+
+def _definition_metric_similarity(candidate: float, reference: float, tolerance: float) -> float:
+    epsilon = 1e-6
+    ratio = (max(0.0, float(candidate)) + epsilon) / (max(0.0, float(reference)) + epsilon)
+    return clamp(math.exp(-abs(math.log(ratio)) / tolerance))
+
+
+def facial_definition_similarity(reference_stats: list[dict[str, float]], candidate: dict[str, float]) -> float:
+    """Reference-relative anti-smearing score for eyes/nose/mouth definition.
+
+    The sharpest available reference faces are used so a single blurred source
+    photo cannot make a blurred synthetic face look acceptable. Very high/noisy
+    detail is also penalized by the symmetric log-ratio similarity.
+    """
+    if not reference_stats:
+        return 0.0
+    strongest = sorted(
+        reference_stats,
+        key=lambda item: (
+            float(item.get("detail", 0.0)),
+            float(item.get("eye_edge_density", 0.0)) + float(item.get("midface_edge_density", 0.0)),
+        ),
+        reverse=True,
+    )[: min(3, len(reference_stats))]
+    scores: list[float] = []
+    for reference in strongest:
+        detail = _definition_metric_similarity(candidate.get("detail", 0.0), reference.get("detail", 0.0), 0.72)
+        local = _definition_metric_similarity(
+            candidate.get("local_contrast", 0.0), reference.get("local_contrast", 0.0), 0.58
+        )
+        eyes = _definition_metric_similarity(
+            candidate.get("eye_edge_density", 0.0), reference.get("eye_edge_density", 0.0), 0.68
+        )
+        midface = _definition_metric_similarity(
+            candidate.get("midface_edge_density", 0.0), reference.get("midface_edge_density", 0.0), 0.68
+        )
+        weighted = 0.35 * detail + 0.25 * local + 0.20 * eyes + 0.20 * midface
+
+        # A face that has materially less structure than a sharp reference is
+        # explicitly capped. This is the failure mode behind the smooth,
+        # ultrasound/clay-like render: features remain present but visually melt.
+        under_ratios = []
+        for key in ("detail", "local_contrast", "eye_edge_density", "midface_edge_density"):
+            ref_value = max(1e-6, float(reference.get(key, 0.0)))
+            under_ratios.append(float(candidate.get(key, 0.0)) / ref_value)
+        weakest_ratio = min(under_ratios)
+        under_definition_cap = clamp(0.25 + 0.75 * min(1.0, weakest_ratio / 0.90))
+        scores.append(min(weighted, under_definition_cap))
+    return clamp(sum(scores) / len(scores))
 
 
 def hair_crop(image: Any, face_box: tuple[int, int, int, int] | None):
@@ -295,11 +372,18 @@ def human_plausibility_score(
     bilateral_balance: float,
     head_shoulder: float,
     liveliness: float,
+    facial_definition: float = 1.0,
 ) -> float:
     detectability = 1.0 if face_detected else 0.45
-    components = (detectability, bilateral_balance, head_shoulder, liveliness)
-    weighted = 0.30 * components[0] + 0.25 * components[1] + 0.25 * components[2] + 0.20 * components[3]
-    bottleneck_cap = 0.60 + 0.40 * min(components)
+    components = (detectability, bilateral_balance, head_shoulder, liveliness, facial_definition)
+    weighted = (
+        0.18 * components[0]
+        + 0.18 * components[1]
+        + 0.18 * components[2]
+        + 0.16 * components[3]
+        + 0.30 * components[4]
+    )
+    bottleneck_cap = 0.50 + 0.50 * min(components)
     return clamp(min(weighted, bottleneck_cap))
 
 
@@ -385,12 +469,14 @@ def main() -> int:
         else:
             candidate_face, candidate_box = candidate_face_detected
         candidate_skin = skin_crop(renders["face-front"], candidate_box)
+        candidate_definition = facial_definition_statistics(cv2, np, candidate_face)
 
         face_scores: list[float] = []
         hair_scores: list[float] = []
         skin_scores: list[float] = []
         photorealism_scores: list[float] = []
         reference_liveliness: list[tuple[float, float]] = []
+        reference_definition: list[dict[str, float]] = []
         for image, _meta in references:
             detected = largest_face(cv2, cascade, image)
             if detected is None:
@@ -398,6 +484,7 @@ def main() -> int:
             ref_face, ref_box = detected
             face_scores.append(face_similarity(cv2, ref_face, candidate_face))
             photorealism_scores.append(photo_statistics_similarity(cv2, np, ref_face, candidate_face))
+            reference_definition.append(facial_definition_statistics(cv2, np, ref_face))
             ref_hair = hair_crop(image, ref_box)
             cand_hair = hair_crop(renders["face-front"], candidate_box)
             if getattr(ref_hair, "size", 0) and getattr(cand_hair, "size", 0):
@@ -410,11 +497,17 @@ def main() -> int:
         face_score = max(face_scores) if face_scores else 0.0
         hair_score = max(hair_scores) if hair_scores else 0.0
         skin_score = max(skin_scores) if skin_scores else 0.0
+        facial_definition_score = facial_definition_similarity(reference_definition, candidate_definition)
         if photorealism_scores:
             strongest = sorted(photorealism_scores, reverse=True)[: min(3, len(photorealism_scores))]
-            photorealism_score = sum(strongest) / len(strongest)
+            raw_photorealism_score = sum(strongest) / len(strongest)
         else:
-            photorealism_score = 0.0
+            raw_photorealism_score = 0.0
+        # Generic photo statistics alone can mistake a smooth, feature-smeared
+        # render for a plausible photograph. Facial definition therefore acts
+        # as a hard cap on the public photorealism dimension.
+        definition_photorealism_cap = clamp(0.45 + 0.55 * facial_definition_score)
+        photorealism_score = min(raw_photorealism_score, definition_photorealism_cap)
 
         candidate_mask = render_mask(cv2, np, renders["front-full"])
         body_reference_path = Path(args.body_reference_rgba).expanduser().resolve() if args.body_reference_rgba else None
@@ -442,6 +535,7 @@ def main() -> int:
             bilateral_balance=bilateral_score,
             head_shoulder=head_shoulder_score,
             liveliness=liveliness_score,
+            facial_definition=facial_definition_score,
         )
 
         scores = {
@@ -494,14 +588,24 @@ def main() -> int:
                 "head_shoulder_proportion": round(head_shoulder_score, 6),
                 "head_shoulder_ratio": round(float(head_shoulder_ratio), 6),
                 "skin_liveliness": round(liveliness_score, 6),
+                "facial_definition": round(facial_definition_score, 6),
                 "score": round(plausibility_score, 6),
-                "semantics": "broad-render-plausibility-not-age-or-identity-classification",
+                "semantics": "broad-render-plausibility-and-definition-not-age-or-identity-classification",
+            },
+            "facial_definition": {
+                "score": round(facial_definition_score, 6),
+                "candidate": {key: round(float(value), 6) for key, value in candidate_definition.items()},
+                "reference_face_count": len(reference_definition),
+                "photorealism_raw": round(raw_photorealism_score, 6),
+                "photorealism_definition_cap": round(definition_photorealism_cap, 6),
+                "semantics": "reference-relative-local-feature-definition-not-biometric-identification",
             },
             "diagnostics": {
                 "stash_reference_set_sha256": stash_reference_sha,
                 "reference_image_count": len(references),
                 "face_reference_count": len(face_scores),
                 "photorealism_reference_count": len(photorealism_scores),
+                "facial_definition_reference_count": len(reference_definition),
                 "candidate_face_detected": candidate_face_detected is not None,
             },
             "human_visual_authority_required": True,
