@@ -52,15 +52,7 @@ def test_below_target_means_iterate_not_fail() -> None:
 
 def test_converges_only_when_every_required_visual_dimension_passes() -> None:
     result = decide_convergence([
-        measurement(
-            1,
-            overall=0.90,
-            face=0.90,
-            body=0.92,
-            hair=0.84,
-            skin=0.82,
-            photorealism=0.88,
-        )
+        measurement(1, overall=0.90, face=0.90, body=0.92, hair=0.84, skin=0.82, photorealism=0.88)
     ])
     assert result["state"] == "converged"
     assert result["continue_automatically"] is False
@@ -83,16 +75,13 @@ def test_high_likeness_does_not_hide_non_photorealistic_render() -> None:
     assert result["state"] == "iterate"
     assert "photorealism" in result["unmet"]
     assert result["next_focus"] == "photorealism"
+    assert result["strategy"] == "appearance-search"
 
 
 def test_plateau_retunes_and_keeps_running_instead_of_stopping() -> None:
     policy = FidelityPolicy(min_improvement=0.02, plateau_window=3, max_iterations=10)
     result = decide_convergence(
-        [
-            measurement(1, overall=0.61),
-            measurement(2, overall=0.615),
-            measurement(3, overall=0.619),
-        ],
+        [measurement(1, overall=0.61), measurement(2, overall=0.615), measurement(3, overall=0.619)],
         policy=policy,
     )
     assert result["state"] == "plateau"
@@ -104,11 +93,7 @@ def test_plateau_retunes_and_keeps_running_instead_of_stopping() -> None:
 def test_max_iteration_budget_escalates_to_manual_review_not_failure() -> None:
     policy = FidelityPolicy(max_iterations=3, plateau_window=3, min_improvement=0.001)
     result = decide_convergence(
-        [
-            measurement(1, overall=0.40),
-            measurement(2, overall=0.50),
-            measurement(3, overall=0.60),
-        ],
+        [measurement(1, overall=0.40), measurement(2, overall=0.50), measurement(3, overall=0.60)],
         policy=policy,
     )
     assert result["state"] == "manual-review"
@@ -118,25 +103,27 @@ def test_max_iteration_budget_escalates_to_manual_review_not_failure() -> None:
 
 
 def test_best_candidate_survives_a_worse_new_iteration() -> None:
-    result = decide_convergence(
-        [measurement(1, overall=0.72), measurement(2, overall=0.65)]
-    )
+    result = decide_convergence([measurement(1, overall=0.72), measurement(2, overall=0.65)])
     assert result["best_iteration"] == 1
     assert result["best_overall"] == pytest.approx(0.72)
     assert result["best_candidate_sha256"] == f"{1:064x}"
+    assert result["best_scores"]["overall"] == pytest.approx(0.72)
+
+
+def test_best_candidate_prioritizes_weakest_dimension_over_raw_average() -> None:
+    result = decide_convergence([
+        measurement(1, overall=0.90, face=0.50, body=0.95, hair=0.95, skin=0.95, photorealism=0.95),
+        measurement(2, overall=0.82, face=0.82, body=0.86, hair=0.82, skin=0.82, photorealism=0.82),
+    ])
+    assert result["best_iteration"] == 2
+    assert result["best_scores"]["face_appearance"] == pytest.approx(0.82)
 
 
 def test_history_must_keep_exact_reference_and_evaluator_authority() -> None:
     with pytest.raises(FidelityConvergenceError, match="same reference set"):
-        decide_convergence([
-            measurement(1, overall=0.5),
-            measurement(2, overall=0.6, reference="b" * 64),
-        ])
+        decide_convergence([measurement(1, overall=0.5), measurement(2, overall=0.6, reference="b" * 64)])
     with pytest.raises(FidelityConvergenceError, match="same evaluator revision"):
-        decide_convergence([
-            measurement(1, overall=0.5),
-            measurement(2, overall=0.6, evaluator_revision="eval-r3"),
-        ])
+        decide_convergence([measurement(1, overall=0.5), measurement(2, overall=0.6, evaluator_revision="eval-r3")])
 
 
 def test_history_must_be_contiguous() -> None:
