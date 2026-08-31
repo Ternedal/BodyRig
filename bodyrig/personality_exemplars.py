@@ -5,7 +5,6 @@ import html
 import json
 import os
 import re
-import sys
 import uuid
 from pathlib import Path
 from typing import Any, Iterable
@@ -29,6 +28,7 @@ class PersonalityExemplarError(ValueError):
 def _clean_text(value: str) -> str:
     value = html.unescape(TAG_RE.sub(" ", value))
     value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"\s+([,.;:!?])", r"\1", value)
     return value
 
 
@@ -166,6 +166,7 @@ def build_exemplar_candidates(
         "candidates": all_candidates,
         "suggested_exemplars": _evenly_spaced(all_candidates, suggested_limit),
         "operator_review_required": True,
+        "speaker_identity_authority": False,
         "personality_authority": False,
         "content_semantics": "style-only-not-biography-or-memory",
     }
