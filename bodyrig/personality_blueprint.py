@@ -5,7 +5,7 @@ import json
 import math
 import re
 from copy import deepcopy
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .package import MRBodyError, validate_bodyprint
 
@@ -37,6 +37,7 @@ TOP_FIELDS = {
     "communication",
     "embodiment",
     "grounding",
+    "style_exemplars",
     "authored_notes",
 }
 GROUNDING_FIELDS = {"communication", "embodiment", "body_revision"}
@@ -64,6 +65,21 @@ def _text(value: Any, *, field: str, maximum: int, empty: bool = False) -> str:
     if (not empty and not cleaned) or len(cleaned) > maximum:
         raise PersonalityBlueprintError(f"{field} is invalid")
     return cleaned
+
+
+def _style_exemplars(value: Any) -> list[str]:
+    if not isinstance(value, list) or len(value) > 12:
+        raise PersonalityBlueprintError("style_exemplars must be a list with at most 12 items")
+    result: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        text = _text(item, field=f"style_exemplars[{index}]", maximum=1000)
+        key = text.casefold()
+        if key in seen:
+            raise PersonalityBlueprintError("style_exemplars must be unique")
+        seen.add(key)
+        result.append(text)
+    return result
 
 
 def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
@@ -122,6 +138,7 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
             "embodiment": embodiment_grounding,
             "body_revision": body_revision,
         },
+        "style_exemplars": _style_exemplars(value.get("style_exemplars")),
         "authored_notes": _text(value.get("authored_notes"), field="authored_notes", maximum=16_000, empty=True),
     }
 
@@ -152,6 +169,7 @@ def build_blueprint(
     default_language: str,
     communication: Mapping[str, Any],
     authored_notes: str = "",
+    style_exemplars: Sequence[str] | None = None,
     bodyprint: Mapping[str, Any] | None = None,
     body_revision: str | None = None,
 ) -> dict[str, Any]:
@@ -194,6 +212,7 @@ def build_blueprint(
             "embodiment": embodiment_grounding,
             "body_revision": body_revision if bodyprint is not None else None,
         },
+        "style_exemplars": list(style_exemplars or []),
         "authored_notes": authored_notes,
     })
 
@@ -222,11 +241,17 @@ def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
         _band(c["initiative"], "Mostly respond to what is asked instead of steering the exchange.", "Take a balanced amount of conversational initiative.", "Proactively connect ideas, ask useful follow-ups and move the exchange forward."),
         "Do not claim private thoughts, beliefs, memories, relationships or life events unless they are explicitly supplied by the active ModelRig context.",
     ]
+    if blueprint["style_exemplars"]:
+        instructions.extend([
+            "The following operator-approved utterances are style exemplars only. Imitate their phrasing, rhythm and conversational texture when useful, but do not treat their factual content as current truth, biography or memory:",
+            *[f"- {text}" for text in blueprint["style_exemplars"]],
+        ])
     if blueprint["authored_notes"]:
         instructions.append("Operator-authored notes:\n" + blueprint["authored_notes"])
 
     style_notes = [
         f"blueprint_sha256={digest}",
+        f"style_exemplars={len(blueprint['style_exemplars'])}",
         "Embodiment / mannerism grounding (for compatible runtime layers):",
         f"movement energy={e['movement_energy']:.2f}",
         f"gesture frequency={e['gesture_frequency']:.2f}",
