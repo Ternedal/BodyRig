@@ -69,12 +69,25 @@ def _assembly(profile: dict) -> dict:
     )
 
 
-def _auditions(root: Path, profile: dict, *, wrong_prompt: str | None = None, wrong_model_probe: str | None = None) -> dict[str, str]:
+def _auditions(
+    root: Path,
+    profile: dict,
+    *,
+    wrong_prompt: str | None = None,
+    wrong_model_probe: str | None = None,
+    wrong_modelrig_version_probe: str | None = None,
+    wrong_voicerig_version_probe: str | None = None,
+) -> dict[str, str]:
     assembly = _assembly(profile)
     result: dict[str, str] = {}
     for probe in build_audition_suite("da")["probes"]:
         prompt = wrong_prompt if probe["id"] == "small-mishap" and wrong_prompt is not None else probe["prompt"]
         model = "other-model" if probe["id"] == wrong_model_probe else MODEL
+        runtime = dict(RUNTIME)
+        if probe["id"] == wrong_modelrig_version_probe:
+            runtime["modelrig_version"] = "modelrig-test-2"
+        if probe["id"] == wrong_voicerig_version_probe:
+            runtime["voicerig_version"] = "voicerig-test-2"
         receipt = write_audition(
             root,
             person_id=profile["person_id"],
@@ -83,7 +96,7 @@ def _auditions(root: Path, profile: dict, *, wrong_prompt: str | None = None, wr
             prompt=prompt,
             reply=f"Svar for {probe['id']}",
             audio=b"RIFF" + bytes([len(result)]) + b"\x00" * 63,
-            **RUNTIME,
+            **runtime,
         )
         result[probe["id"]] = receipt["audition_id"]
     return result
@@ -112,6 +125,8 @@ def test_suite_review_seals_exact_six_probe_execution_without_activation_authori
 
     assert review["format"] == "bodyrig-personality-suite-review"
     assert review["version"] == 1
+    assert review["modelrig_version"] == "modelrig-test-1"
+    assert review["voicerig_version"] == "voicerig-test-1"
     assert review["human_review_required"] is True
     assert review["activation_authority"] is False
     assert [item["probe_id"] for item in review["probe_results"]] == [
@@ -149,6 +164,28 @@ def test_suite_review_rejects_wrong_prompt_or_model(tmp_path: Path) -> None:
     wrong_model = _auditions(model_root, model_profile, wrong_model_probe="gentle-disagreement")
     with pytest.raises(PersonalitySuiteReviewError, match="different ModelRig model"):
         _seal(model_root, model_profile, wrong_model)
+
+
+def test_suite_review_rejects_mixed_execution_runtime_versions(tmp_path: Path) -> None:
+    mr_root = tmp_path / "modelrig-version"
+    mr_profile = _profile(mr_root)
+    mixed_modelrig = _auditions(
+        mr_root,
+        mr_profile,
+        wrong_modelrig_version_probe="take-initiative",
+    )
+    with pytest.raises(PersonalitySuiteReviewError, match="ModelRig runtime version changed during suite"):
+        _seal(mr_root, mr_profile, mixed_modelrig)
+
+    vr_root = tmp_path / "voicerig-version"
+    vr_profile = _profile(vr_root)
+    mixed_voicerig = _auditions(
+        vr_root,
+        vr_profile,
+        wrong_voicerig_version_probe="unknown-memory-boundary",
+    )
+    with pytest.raises(PersonalitySuiteReviewError, match="VoiceRig runtime version changed during suite"):
+        _seal(vr_root, vr_profile, mixed_voicerig)
 
 
 def test_suite_review_detects_post_seal_audio_tamper(tmp_path: Path) -> None:
