@@ -4,15 +4,26 @@ import hashlib
 import math
 from typing import Any, Mapping
 
-from sith_pbr_material import (
-    PNG_SIGNATURE,
-    PbrMaterialError,
-    _box_blur,
-    _decode_rgb_png,
-    _encode_rgb_png,
-    _read_glb,
-    _write_glb,
-)
+try:
+    from .sith_pbr_material import (
+        PNG_SIGNATURE,
+        PbrMaterialError,
+        _box_blur,
+        _decode_rgb_png,
+        _encode_rgb_png,
+        _read_glb,
+        _write_glb,
+    )
+except ImportError:  # standalone bridge execution inside the SiTH fitter environment
+    from sith_pbr_material import (  # type: ignore[no-redef]
+        PNG_SIGNATURE,
+        PbrMaterialError,
+        _box_blur,
+        _decode_rgb_png,
+        _encode_rgb_png,
+        _read_glb,
+        _write_glb,
+    )
 
 DETAIL_STRENGTH = 0.45
 CHANNEL_DELTA_CAP = 0.035
@@ -156,8 +167,11 @@ def refine_glb_basecolor(
     view = views[view_index]
     if not isinstance(view, dict):
         raise BaseColorDetailError("embedded base-color bufferView is invalid")
-    offset = int(view.get("byteOffset", 0))
+    offset_raw = view.get("byteOffset", 0)
     length = view.get("byteLength")
+    if isinstance(offset_raw, bool) or not isinstance(offset_raw, int):
+        raise BaseColorDetailError("embedded base-color byte offset is invalid")
+    offset = offset_raw
     if isinstance(length, bool) or not isinstance(length, int) or offset < 0 or length < 1 or offset + length > len(binary_bytes):
         raise BaseColorDetailError("embedded base-color byte range is invalid")
     embedded_source = binary_bytes[offset:offset + length]
