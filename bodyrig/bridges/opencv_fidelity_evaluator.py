@@ -2,8 +2,9 @@
 """BodyRig visual-fidelity evaluator for private convergence workspaces.
 
 This bridge compares a synthetic BodyRig candidate against an operator-selected
-Stash performer reference set. It deliberately measures visual appearance only;
-it is not a biometric identity verifier and must not be used as identity proof.
+Stash performer reference set. It measures visual appearance and photo-domain
+realism only. The metrics are deliberately non-biometric and remain subordinate
+to human visual review.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 EVALUATOR = "bodyrig-opencv-visual-fidelity"
-REVISION = "1"
+REVISION = "2"
 SEMANTICS = "visual-fidelity-not-identity-verification"
 VIEWS = ("front-full", "three-quarter-full", "side-full", "face-front")
 
@@ -110,6 +111,58 @@ def face_similarity(cv2: Any, reference: Any, candidate: Any) -> float:
     # Texture/color and coarse edge layout are intentionally mixed. This is a
     # visual heuristic across photo/render domains, not face recognition.
     return clamp(0.62 * hist_similarity(cv2, reference, candidate) + 0.38 * edge_similarity(cv2, reference, candidate))
+
+
+def _gray_entropy(cv2: Any, np: Any, gray: Any) -> float:
+    hist = cv2.calcHist([gray], [0], None, [64], [0, 256]).reshape(-1).astype("float64")
+    total = float(hist.sum())
+    if total <= 0:
+        return 0.0
+    probabilities = hist / total
+    probabilities = probabilities[probabilities > 0]
+    entropy = -float(np.sum(probabilities * np.log2(probabilities)))
+    return entropy / 6.0
+
+
+def photo_statistics(cv2: Any, np: Any, image: Any) -> dict[str, float]:
+    """Return coarse natural-photo statistics without performing recognition.
+
+    The features are intentionally generic: local detail, luminance contrast,
+    edge density and grayscale entropy. Comparing these with real Stash photos
+    helps reject flat/waxy or over-sharpened CG renders while keeping human
+    visual review as the final authority.
+    """
+
+    resized = cv2.resize(image, (192, 192), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    laplacian = cv2.Laplacian(gray, cv2.CV_32F)
+    detail = math.log1p(float(laplacian.var()))
+    contrast = float(gray.std()) / 64.0
+    edges = cv2.Canny(gray, 60, 150)
+    edge_density = float((edges > 0).mean())
+    entropy = _gray_entropy(cv2, np, gray)
+    return {
+        "detail": detail,
+        "contrast": contrast,
+        "edge_density": edge_density,
+        "entropy": entropy,
+    }
+
+
+def photo_statistics_similarity(cv2: Any, np: Any, reference: Any, candidate: Any) -> float:
+    left = photo_statistics(cv2, np, reference)
+    right = photo_statistics(cv2, np, candidate)
+    # Normalizers are deliberately generous because Stash references may have
+    # different lighting/compression. A candidate must still sit in the same
+    # broad natural-photo statistics regime to score highly.
+    errors = (
+        min(1.0, abs(left["detail"] - right["detail"]) / 2.25),
+        min(1.0, abs(left["contrast"] - right["contrast"]) / 0.55),
+        min(1.0, abs(left["edge_density"] - right["edge_density"]) / 0.18),
+        min(1.0, abs(left["entropy"] - right["entropy"]) / 0.28),
+    )
+    weighted_error = 0.34 * errors[0] + 0.22 * errors[1] + 0.22 * errors[2] + 0.22 * errors[3]
+    return clamp(1.0 - weighted_error)
 
 
 def hair_crop(image: Any, face_box: tuple[int, int, int, int] | None):
@@ -276,12 +329,14 @@ def main() -> int:
         face_scores: list[float] = []
         hair_scores: list[float] = []
         skin_scores: list[float] = []
+        photorealism_scores: list[float] = []
         for image, _meta in references:
             detected = largest_face(cv2, cascade, image)
             if detected is None:
                 continue
             ref_face, ref_box = detected
             face_scores.append(face_similarity(cv2, ref_face, candidate_face))
+            photorealism_scores.append(photo_statistics_similarity(cv2, np, ref_face, candidate_face))
             ref_hair = hair_crop(image, ref_box)
             cand_hair = hair_crop(renders["face-front"], candidate_box)
             if getattr(ref_hair, "size", 0) and getattr(cand_hair, "size", 0):
@@ -294,6 +349,11 @@ def main() -> int:
         face_score = max(face_scores) if face_scores else 0.0
         hair_score = max(hair_scores) if hair_scores else 0.0
         skin_score = max(skin_scores) if skin_scores else 0.0
+        if photorealism_scores:
+            strongest = sorted(photorealism_scores, reverse=True)[: min(3, len(photorealism_scores))]
+            photorealism_score = sum(strongest) / len(strongest)
+        else:
+            photorealism_score = 0.0
 
         candidate_mask = render_mask(cv2, np, renders["front-full"])
         body_reference_path = Path(args.body_reference_rgba).expanduser().resolve() if args.body_reference_rgba else None
@@ -314,12 +374,14 @@ def main() -> int:
             "body_silhouette": round(body_score, 6),
             "hair_appearance": round(hair_score, 6),
             "skin_material": round(skin_score, 6),
+            "photorealism": round(photorealism_score, 6),
         }
         scores["overall"] = round(
-            0.40 * scores["face_appearance"]
-            + 0.30 * scores["body_silhouette"]
-            + 0.15 * scores["hair_appearance"]
-            + 0.15 * scores["skin_material"],
+            0.32 * scores["face_appearance"]
+            + 0.24 * scores["body_silhouette"]
+            + 0.10 * scores["hair_appearance"]
+            + 0.10 * scores["skin_material"]
+            + 0.24 * scores["photorealism"],
             6,
         )
 
@@ -356,6 +418,7 @@ def main() -> int:
             "diagnostics": {
                 "reference_image_count": len(references),
                 "face_reference_count": len(face_scores),
+                "photorealism_reference_count": len(photorealism_scores),
                 "candidate_face_detected": candidate_face_detected is not None,
             },
             "human_visual_authority_required": True,
