@@ -20,6 +20,7 @@ from .personality_blueprint import (
     build_blueprint,
     compile_blueprint,
 )
+from .storage import person_library as default_person_library
 
 RESULT_FORMAT = "bodyrig-personality-blueprint-result"
 RESULT_VERSION = 1
@@ -96,11 +97,15 @@ def _parser() -> argparse.ArgumentParser:
         "--body-revision",
         default="",
         help=(
-            "Body-rXXXX grounding. With --person-library/--person-id the registered "
-            "package is resolved automatically; otherwise --body-package is required."
+            "Body-rXXXX grounding. With --person-id the registered package is resolved "
+            "automatically; otherwise --body-package is required."
         ),
     )
-    parser.add_argument("--person-library", default="")
+    parser.add_argument(
+        "--person-library",
+        default="",
+        help="Optional Person Profile registry override. Defaults to BodyRig's canonical data directory.",
+    )
     parser.add_argument("--person-id", default="")
     parser.add_argument(
         "--save-candidate",
@@ -124,14 +129,17 @@ def main(argv: list[str] | None = None) -> int:
     saved_revision_id = None
 
     try:
-        if bool(args.person_library) != bool(args.person_id):
+        if args.person_library and not args.person_id:
             raise PersonalityBlueprintError(
-                "--person-library and --person-id must be supplied together"
+                "--person-library is an override and requires --person-id"
             )
-        if args.save_candidate and not args.person_library:
-            raise PersonalityBlueprintError(
-                "--save-candidate requires --person-library and --person-id"
-            )
+        person_root = (
+            Path(args.person_library).expanduser().resolve()
+            if args.person_library
+            else default_person_library()
+        )
+        if args.save_candidate and not args.person_id:
+            raise PersonalityBlueprintError("--save-candidate requires --person-id")
         if args.save_candidate and not args.out:
             raise PersonalityBlueprintError(
                 "--save-candidate requires --out so the authored blueprint is preserved create-only"
@@ -140,9 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         if output is not None and output.exists():
             raise PersonalityBlueprintError(f"blueprint output already exists: {output}")
 
-        if args.person_library:
+        if args.person_id:
             try:
-                profile = load_profile(args.person_library, args.person_id)
+                profile = load_profile(person_root, args.person_id)
             except PersonProfileError as exc:
                 raise PersonalityBlueprintError(str(exc)) from exc
 
@@ -201,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.save_candidate:
             try:
                 updated = add_personality_revision(
-                    args.person_library,
+                    person_root,
                     args.person_id,
                     instructions=candidate["instructions"],
                     default_language=candidate["default_language"],
