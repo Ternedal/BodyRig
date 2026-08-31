@@ -315,6 +315,9 @@ function Evaluate-Candidate {
         [double]$decision.scores.face_appearance,[double]$decision.scores.body_silhouette,[double]$decision.scores.hair_appearance,
         [double]$decision.scores.skin_material,[double]$decision.scores.photorealism,[double]$decision.scores.human_plausibility,[double]$decision.scores.overall)
     Write-Host "Decision: $([string]$decision.state) | strategy=$([string]$decision.strategy) | focus=$([string]$decision.next_focus) | best=$bestCandidate"
+    if ([string]$decision.strategy -eq "appearance-search") {
+        Write-Host "Appearance-search: hair/skin/photorealism remains the bottleneck; preserve best-so-far and avoid blind geometry churn."
+    }
 
     Invoke-Checked -Executable $BodyRigPython -Arguments @("-m", "bodyrig.fidelity_adjustment", $evaluationPath, "--out", $adjustmentPlanPath) -Step "Bounded silhouette adjustment planning"
     $plan = Get-Content -LiteralPath $adjustmentPlanPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -526,6 +529,7 @@ try {
 
 $bestRecord = $candidateRecords | Where-Object { [string]$_.relative_name -eq $bestCandidate } | Select-Object -First 1
 if ($null -eq $bestRecord) { throw "Best-so-far candidate record is unavailable." }
+$best_scores = $bestScores
 $resultPath = Join-Path $WorkRoot "convergence-result.json"
 $result = [ordered]@{
     format = "bodyrig-fidelity-convergence-run"
@@ -546,7 +550,10 @@ $result = [ordered]@{
     observed_refinement_seconds_average = Average-Seconds -Values $refinementDurations
     best_candidate = $bestCandidate
     best_package_sha256 = (Get-FileHash -LiteralPath ([string]$bestRecord.package_path) -Algorithm SHA256).Hash.ToLowerInvariant()
-    best_scores = $bestScores
+    best_scores = $best_scores
+    best_photorealism = [double]$best_scores.photorealism
+    best_human_plausibility = [double]$best_scores.human_plausibility
+    best_overall = [double]$best_scores.overall
     best_comparison_render_dir = ([string]$bestRecord.relative_name + "/comparison-render")
     best_has_gate_a = (-not [string]::IsNullOrWhiteSpace([string]$bestRecord.acceptance_dir))
     reference_set = "references/reference-set.json"
@@ -573,7 +580,7 @@ Write-Host "Reason:         $terminalReason"
 Write-Host "Elapsed:        $(Format-Duration -Seconds ([DateTime]::UtcNow.Subtract($runStart).TotalSeconds))"
 Write-Host "Full rebuilds:  $fullRebuildsCompleted/$MaxFullRebuilds | average=$(Format-Duration -Seconds (Average-Seconds -Values $fullDurations))"
 Write-Host "Cheap refits:   $refinementsCompleted | average=$(Format-Duration -Seconds (Average-Seconds -Values $refinementDurations))"
-Write-Host "Best:           $bestCandidate"
+Write-Host ("Best:           {0} | photo={1:N3} plausible={2:N3} overall={3:N3}" -f $bestCandidate, [double]$best_scores.photorealism, [double]$best_scores.human_plausibility, [double]$best_scores.overall)
 Write-Host "Best preview:   $bestPreviewDir"
 Write-Host "Progress:       $progressPath"
 Write-Host "Result:         $resultPath"
