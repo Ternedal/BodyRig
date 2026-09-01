@@ -34,7 +34,7 @@
         }
       },
       "then": {
-        "required": ["physical_clone", "skin_qa"]
+        "required": ["physical_clone", "skin_qa", "mesh_topology_qa"]
       }
     }
   ],
@@ -62,7 +62,18 @@
       "properties": {
         "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "structural_pass": {"const": true},
-        "automated_assessment": {"enum": ["low-risk", "review", "high-risk"]},
+        "automated_assessment": {"enum": ["low-risk", "review"]},
+        "manual_review_required": {"const": true}
+      }
+    },
+    "mesh_topology_qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_sha256", "structural_pass", "automated_assessment", "manual_review_required"],
+      "properties": {
+        "report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "structural_pass": {"const": true},
+        "automated_assessment": {"enum": ["pass", "review"]},
         "manual_review_required": {"const": true}
       }
     },
