@@ -27,6 +27,15 @@ def _finite_nonnegative(value: Any, *, label: str) -> float:
     return result
 
 
+def _finite_signed(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AnatomyBakeMetadataError(f"{label} is invalid")
+    result = float(value)
+    if not math.isfinite(result):
+        raise AnatomyBakeMetadataError(f"{label} is invalid")
+    return result
+
+
 def _ratio(value: Any, *, label: str) -> float:
     result = _finite_nonnegative(value, label=label)
     if result > 1.0:
@@ -58,6 +67,8 @@ def anatomy_appearance_transfer(
         mapping_metrics.get("anatomy_restricted_texel_ratio"),
         label="anatomy restricted texel ratio",
     )
+    if abs(restricted_ratio - 1.0) > 1e-9:
+        raise AnatomyBakeMetadataError("anatomy restriction does not cover every baked texel")
     retry_count = _finite_nonnegative(
         mapping_metrics.get("normal_retry_texel_count"),
         label="normal retry texel count",
@@ -66,11 +77,17 @@ def anatomy_appearance_transfer(
         mapping_metrics.get("normal_retry_texel_ratio"),
         label="normal retry texel ratio",
     )
-    alignment_mean = float(mapping_metrics.get("normal_alignment_mean", float("nan")))
-    alignment_p05 = float(mapping_metrics.get("normal_alignment_p05", float("nan")))
-    if not math.isfinite(alignment_mean) or not -1.0 <= alignment_mean <= 1.0:
+    alignment_mean = _finite_signed(
+        mapping_metrics.get("normal_alignment_mean"),
+        label="normal alignment mean",
+    )
+    alignment_p05 = _finite_signed(
+        mapping_metrics.get("normal_alignment_p05"),
+        label="normal alignment p05",
+    )
+    if not -1.0 <= alignment_mean <= 1.0:
         raise AnatomyBakeMetadataError("normal alignment mean is invalid")
-    if not math.isfinite(alignment_p05) or not -1.0 <= alignment_p05 <= 1.0:
+    if not -1.0 <= alignment_p05 <= 1.0:
         raise AnatomyBakeMetadataError("normal alignment p05 is invalid")
     low_alignment_ratio = _ratio(
         mapping_metrics.get("normal_low_alignment_ratio"),
