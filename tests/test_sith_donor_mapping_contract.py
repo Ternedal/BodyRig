@@ -10,7 +10,9 @@ FITTER = ROOT / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_donor.py"
 def test_donor_appearance_mapping_is_exact_tiled_nearest_source_search() -> None:
     source = FITTER.read_text(encoding="utf-8")
 
-    assert "exact nearest textured source vertex" in source
+    assert "exact nearest usable textured source vertex" in source
+    assert "usable_source_vertices = _usable_textured_source_vertices(" in source
+    assert "valid_source = sorted(vertex for vertex in source_uv_map if vertex in usable_source_vertices)" in source
     assert "for donor_start in range(0, donor_count, donor_chunk):" in source
     assert "for source_start in range(0, int(textured_source.shape[0]), source_tile):" in source
     assert "distances = torch.cdist(donor_tensor.unsqueeze(0), source.unsqueeze(0)).squeeze(0)" in source
