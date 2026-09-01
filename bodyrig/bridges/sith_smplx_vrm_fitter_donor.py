@@ -8,7 +8,8 @@ preserve reconstruction membranes, holes and high-frequency geometric noise.
 This fitter reverses that authority boundary:
 * fitted SMPL-X owns vertices, faces and LBS weights;
 * SiTH remains source-derived appearance authority through its exact texture;
-* each SMPL-X donor vertex is mapped to a textured SiTH source vertex for UV;
+* each SMPL-X donor vertex is mapped to its exact nearest textured SiTH source
+  vertex for deterministic UV transfer;
 * BodyPrint adjustments remain bounded and operate on the stable donor mesh;
 * no source-reconstruction vertex is serialized as final body geometry.
 """
@@ -100,7 +101,12 @@ def _map_donor_vertices_to_textured_source(
     source_uv_map: dict[int, int],
     device: Any,
 ) -> tuple[list[int], list[float]]:
-    """Map every donor vertex to a textured source vertex with bounded GPU memory."""
+    """Find the exact nearest textured source vertex for every donor vertex.
+
+    The search is tiled so the full donor-by-source distance matrix is never held
+    in VRAM. Ties remain deterministic because source indices are sorted and later
+    tiles replace an earlier match only when the distance is strictly smaller.
+    """
 
     valid_source = sorted(source_uv_map)
     if len(valid_source) < 3:
@@ -109,55 +115,37 @@ def _map_donor_vertices_to_textured_source(
     textured_source = source_posed[valid_index]
 
     donor_count = int(donor_posed.shape[0])
+    if donor_count < 3:
+        raise base.FitterError("SMPL-X donor mesh exposes too few vertices")
     best_source = [-1] * donor_count
     best_distance = [float("inf")] * donor_count
 
-    # Source -> nearest donor is memory efficient and normally assigns appearance
-    # evidence to every exposed donor surface vertex. Keep only the closest source
-    # sample per donor vertex.
-    source_chunk = 768
-    for start in range(0, int(textured_source.shape[0]), source_chunk):
-        chunk = textured_source[start:start + source_chunk]
-        distances = torch.cdist(chunk.unsqueeze(0), donor_posed.unsqueeze(0)).squeeze(0)
-        nearest_distance, nearest_donor = torch.min(distances, dim=1)
-        source_indices = valid_index[start:start + len(chunk)].detach().cpu().tolist()
-        donor_indices = nearest_donor.detach().cpu().tolist()
-        distance_values = nearest_distance.detach().cpu().tolist()
-        for source_vertex, donor_vertex, distance in zip(source_indices, donor_indices, distance_values):
-            donor_vertex = int(donor_vertex)
-            distance = float(distance)
-            if distance < best_distance[donor_vertex]:
-                best_distance[donor_vertex] = distance
-                best_source[donor_vertex] = int(source_vertex)
+    donor_chunk = 256
+    source_tile = 8192
+    for donor_start in range(0, donor_count, donor_chunk):
+        donor_tensor = donor_posed[donor_start:donor_start + donor_chunk]
+        local_count = int(donor_tensor.shape[0])
+        local_best = torch.full((local_count,), float("inf"), dtype=torch.float32, device=device)
+        local_source = torch.full((local_count,), -1, dtype=torch.long, device=device)
 
-    missing = [index for index, source_vertex in enumerate(best_source) if source_vertex < 0]
-    if missing:
-        # Closed/internal or sparsely sampled donor areas may receive no source in
-        # the inverse assignment. Resolve only those vertices with a tiled exact
-        # nearest-source search to avoid a donor_count x source_count allocation.
-        donor_chunk = 96
-        source_tile = 4096
-        for missing_start in range(0, len(missing), donor_chunk):
-            donor_ids = missing[missing_start:missing_start + donor_chunk]
-            donor_tensor = donor_posed[torch.tensor(donor_ids, dtype=torch.long, device=device)]
-            local_best = torch.full((len(donor_ids),), float("inf"), dtype=torch.float32, device=device)
-            local_source = torch.full((len(donor_ids),), -1, dtype=torch.long, device=device)
-            for source_start in range(0, int(textured_source.shape[0]), source_tile):
-                source = textured_source[source_start:source_start + source_tile]
-                distances = torch.cdist(donor_tensor.unsqueeze(0), source.unsqueeze(0)).squeeze(0)
-                tile_distance, tile_local = torch.min(distances, dim=1)
-                improve = tile_distance < local_best
-                if bool(torch.any(improve).item()):
-                    local_best = torch.where(improve, tile_distance, local_best)
-                    source_global = valid_index[source_start + tile_local]
-                    local_source = torch.where(improve, source_global, local_source)
-            resolved_source = local_source.detach().cpu().tolist()
-            resolved_distance = local_best.detach().cpu().tolist()
-            for donor_vertex, source_vertex, distance in zip(donor_ids, resolved_source, resolved_distance):
-                if int(source_vertex) < 0 or not math.isfinite(float(distance)):
-                    raise base.FitterError("donor appearance mapping could not resolve a textured source vertex")
-                best_source[donor_vertex] = int(source_vertex)
-                best_distance[donor_vertex] = float(distance)
+        for source_start in range(0, int(textured_source.shape[0]), source_tile):
+            source = textured_source[source_start:source_start + source_tile]
+            distances = torch.cdist(donor_tensor.unsqueeze(0), source.unsqueeze(0)).squeeze(0)
+            tile_distance, tile_local = torch.min(distances, dim=1)
+            improve = tile_distance < local_best
+            if bool(torch.any(improve).item()):
+                local_best = torch.where(improve, tile_distance, local_best)
+                source_global = valid_index[source_start + tile_local]
+                local_source = torch.where(improve, source_global, local_source)
+
+        resolved_source = local_source.detach().cpu().tolist()
+        resolved_distance = local_best.detach().cpu().tolist()
+        for offset, (source_vertex, distance) in enumerate(zip(resolved_source, resolved_distance)):
+            donor_vertex = donor_start + offset
+            if int(source_vertex) < 0 or not math.isfinite(float(distance)):
+                raise base.FitterError("donor appearance mapping could not resolve a textured source vertex")
+            best_source[donor_vertex] = int(source_vertex)
+            best_distance[donor_vertex] = float(distance)
 
     if any(source_vertex < 0 for source_vertex in best_source) or any(not math.isfinite(value) for value in best_distance):
         raise base.FitterError("donor appearance mapping is incomplete or non-finite")
