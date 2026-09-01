@@ -22,6 +22,7 @@ from typing import Any
 
 GENDERS = ("female", "male", "neutral")
 GENDER_MARKER = 'gender="male",'
+R7_BAKE_RESOLUTION = 1024
 
 
 def _replace_once(source: str, old: str, new: str, *, label: str) -> str:
@@ -110,12 +111,13 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
     try:
         import numpy as np
         import torch
+        import sith_canonical_texture_bake as canonical_bake
         import sith_donor_vrm_metadata as donor_metadata
         import sith_smplx_vrm_fitter as base
         import sith_surface_uv_transfer as surface_uv
-        from sith_canonical_texture_bake import (
-            CanonicalTextureBakeError,
-            bake_sith_surface_to_canonical_smplx,
+        from sith_canonical_bake_metadata import (
+            CanonicalBakeMetadataError,
+            replace_with_canonical_bake_metadata,
         )
     except ImportError as exc:
         raise RuntimeError(f"canonical SMPL-X texture bake modules are unavailable: {exc}") from exc
@@ -129,6 +131,11 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         raise RuntimeError("canonical texture bake could not resolve the pinned SiTH repository") from exc
     if not (sith_repo / "data" / "smplx_uv.obj").is_file():
         raise RuntimeError("pinned SiTH canonical SMPL-X UV template is missing")
+
+    # SiTH's reconstructed source texture is 1024x1024. R7 keeps that native
+    # information scale rather than spending 4x texel queries on an upsampled
+    # atlas that cannot add source detail.
+    canonical_bake.BAKE_RESOLUTION = R7_BAKE_RESOLUTION
 
     state: dict[str, Any] = {}
     original_validate_workspace = base._validate_workspace
@@ -149,6 +156,9 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         source_texcoords,
         donor_to_source_vertex,
     ):
+        # The legacy source-UV projection API is retained only as an injection
+        # point. R7 never executes its projection algorithm and never serializes
+        # reconstruction UVs onto donor topology.
         del source_positions, source_faces, source_texcoords, donor_to_source_vertex
         paths = state.get("paths")
         if not isinstance(paths, dict):
@@ -156,7 +166,7 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         if not torch.cuda.is_available():
             raise surface_uv.SurfaceUvTransferError("canonical texture bake requires CUDA")
         try:
-            texcoords, faces, baked_texture, metrics = bake_sith_surface_to_canonical_smplx(
+            texcoords, faces, baked_texture, metrics = canonical_bake.bake_sith_surface_to_canonical_smplx(
                 torch=torch,
                 np=np,
                 donor_positions=donor_positions,
@@ -166,10 +176,23 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
                 source_texture_path=paths["texture"],
                 device=torch.device("cuda"),
             )
-        except (CanonicalTextureBakeError, OSError, RuntimeError) as exc:
+        except (canonical_bake.CanonicalTextureBakeError, OSError, RuntimeError) as exc:
             raise surface_uv.SurfaceUvTransferError(f"canonical SMPL-X texture bake failed: {exc}") from exc
+
+        # Keep the truthful bake measurements separate from the old donor
+        # projection compatibility fields. Zero means no legacy UV projection
+        # was executed; the real closest-surface bake distances remain in the
+        # R7 authority metrics below.
+        bake_metrics = dict(metrics)
+        compatibility_metrics = dict(metrics)
+        compatibility_metrics["projection_distance_p95"] = 0.0
+        compatibility_metrics["projection_distance_max"] = 0.0
+        compatibility_metrics["seam_seed_corner_ratio"] = 0.0
+        compatibility_metrics["degenerate_source_candidate_count"] = 0.0
+        compatibility_metrics["maximum_local_source_face_candidates"] = 1.0
+
         state["baked_texture"] = baked_texture
-        state["bake_metrics"] = metrics
+        state["bake_metrics"] = bake_metrics
         print(
             "BodyRig canonical SMPL-X texture bake: "
             f"size={int(float(metrics['bake_width']))}x{int(float(metrics['bake_height']))} "
@@ -179,7 +202,7 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
             f"texture_sha256={str(metrics['baked_basecolor_sha256'])[:12]}...",
             file=sys.stderr,
         )
-        return texcoords, faces, metrics
+        return texcoords, faces, compatibility_metrics
 
     def baked_build_vrm(*args: Any, **kwargs: Any):
         baked_texture = state.get("baked_texture")
@@ -192,9 +215,15 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         bake_metrics = state.get("bake_metrics")
         if not isinstance(bake_metrics, dict):
             raise donor_metadata.DonorVrmMetadataError("canonical texture bake metrics are unavailable")
-        merged = dict(mapping_metrics)
-        merged.update(bake_metrics)
-        return original_mark_donor_topology(avatar_vrm, mapping_metrics=merged)
+        legacy_metrics = dict(mapping_metrics)
+        legacy_metrics.update(bake_metrics)
+        try:
+            marked = original_mark_donor_topology(avatar_vrm, mapping_metrics=legacy_metrics)
+            return replace_with_canonical_bake_metadata(marked, mapping_metrics=bake_metrics)
+        except CanonicalBakeMetadataError as exc:
+            raise donor_metadata.DonorVrmMetadataError(
+                f"canonical texture bake metadata binding failed: {exc}"
+            ) from exc
 
     base._validate_workspace = capture_workspace
     base._build_vrm = baked_build_vrm
