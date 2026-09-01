@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
@@ -7,6 +8,15 @@ from sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
 
 class DonorVrmMetadataError(ValueError):
     pass
+
+
+def _finite_nonnegative_metric(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise DonorVrmMetadataError(f"{label} is invalid")
+    result = float(value)
+    if not math.isfinite(result) or result < 0.0:
+        raise DonorVrmMetadataError(f"{label} is invalid")
+    return result
 
 
 def mark_donor_topology(
@@ -33,16 +43,20 @@ def mark_donor_topology(
     if "geometryAuthority" in bodyrig or "appearanceTransfer" in bodyrig:
         raise DonorVrmMetadataError("donor topology metadata is already present")
 
-    source_p95 = mapping_metrics.get("source_surface_distance_p95")
-    source_max = mapping_metrics.get("source_surface_distance_max")
-    seam_ratio = mapping_metrics.get("multi_uv_source_vertex_ratio")
-    for label, value in (
-        ("source_surface_distance_p95", source_p95),
-        ("source_surface_distance_max", source_max),
-        ("multi_uv_source_vertex_ratio", seam_ratio),
-    ):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) < 0.0:
-            raise DonorVrmMetadataError(f"{label} is invalid")
+    source_p95 = _finite_nonnegative_metric(
+        mapping_metrics.get("source_surface_distance_p95"),
+        label="source_surface_distance_p95",
+    )
+    source_max = _finite_nonnegative_metric(
+        mapping_metrics.get("source_surface_distance_max"),
+        label="source_surface_distance_max",
+    )
+    seam_ratio = _finite_nonnegative_metric(
+        mapping_metrics.get("multi_uv_source_vertex_ratio"),
+        label="multi_uv_source_vertex_ratio",
+    )
+    if seam_ratio > 1.0:
+        raise DonorVrmMetadataError("multi_uv_source_vertex_ratio is invalid")
 
     transfer["method"] = "smplx-donor-topology-direct-lbs-v1"
     transfer["nearestDistanceP95"] = 0.0
@@ -54,9 +68,9 @@ def mark_donor_topology(
     }
     bodyrig["appearanceTransfer"] = {
         "method": "sith-source-nearest-textured-vertex-uv-v1",
-        "sourceSurfaceDistanceP95": round(float(source_p95), 6),
-        "sourceSurfaceDistanceMax": round(float(source_max), 6),
-        "multiUvSourceVertexRatio": round(float(seam_ratio), 6),
+        "sourceSurfaceDistanceP95": round(source_p95, 6),
+        "sourceSurfaceDistanceMax": round(source_max, 6),
+        "multiUvSourceVertexRatio": round(seam_ratio, 6),
         "sourceTextureBytesPreserved": True,
         "geometryModified": False,
     }
