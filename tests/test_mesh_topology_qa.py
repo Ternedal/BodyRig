@@ -37,7 +37,6 @@ def test_quantile_is_deterministic() -> None:
 def test_topology_classifier_fails_observed_membrane_class() -> None:
     assert _assessment(
         max_edge_ratio=0.15053027,
-        max_aspect=3886.9164,
         candidate_ratio=0.005,
     ) == "fail"
 
@@ -45,7 +44,6 @@ def test_topology_classifier_fails_observed_membrane_class() -> None:
 def test_topology_classifier_keeps_small_local_tessellation() -> None:
     assert _assessment(
         max_edge_ratio=0.03,
-        max_aspect=40.0,
         candidate_ratio=0.0001,
     ) == "pass"
 
@@ -53,6 +51,5 @@ def test_topology_classifier_keeps_small_local_tessellation() -> None:
 def test_topology_classifier_routes_borderline_mesh_to_review() -> None:
     assert _assessment(
         max_edge_ratio=0.09,
-        max_aspect=100.0,
         candidate_ratio=0.0001,
     ) == "review"
