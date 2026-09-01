@@ -93,7 +93,7 @@ def _closest_barycentric(
         return (0.0, 1.0, 0.0), _length_sq(bp)
 
     vc = d1 * d4 - d3 * d2
-    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= d1:
         denominator = d1 - d3
         if abs(denominator) <= DISTANCE_EPSILON:
             raise SurfaceUvTransferError("source triangle edge is numerically degenerate")
@@ -207,6 +207,7 @@ def build_surface_projected_donor_uvs(
     projection_distances: list[float] = []
     seam_seed_corners = 0
     degenerate_candidates = 0
+    degenerate_donor_faces = 0
     maximum_candidates = 0
 
     for raw_face in donor_faces:
@@ -218,8 +219,13 @@ def build_surface_projected_donor_uvs(
         donor_normal = _unit_normal(
             donor[donor_vertices[0]], donor[donor_vertices[1]], donor[donor_vertices[2]]
         )
+        # A posed SMPL-X donor can contain a geometrically zero-area face while
+        # retaining valid, distinct topology indices. The donor normal is used
+        # only as a source-face tie-breaker, not by barycentric projection or
+        # serialization. Preserve the donor face and fall back to distance plus
+        # deterministic source-face index when no donor normal exists.
         if donor_normal is None:
-            raise SurfaceUvTransferError("donor UV topology contains a geometric degenerate face")
+            degenerate_donor_faces += 1
 
         output_face: list[tuple[int, int]] = []
         for donor_vertex in donor_vertices:
@@ -253,7 +259,11 @@ def build_surface_projected_donor_uvs(
                 except SurfaceUvTransferError:
                     degenerate_candidates += 1
                     continue
-                normal_alignment = max(-1.0, min(1.0, _dot(donor_normal, normal)))
+                normal_alignment = (
+                    max(-1.0, min(1.0, _dot(donor_normal, normal)))
+                    if donor_normal is not None
+                    else 0.0
+                )
                 distance_key = round(distance_sq, 12)
                 candidate = (distance_key, -normal_alignment, face_index, barycentric, distance_sq)
                 if best is None or candidate[:3] < best[:3]:
@@ -285,6 +295,7 @@ def build_surface_projected_donor_uvs(
         "projection_distance_max": max(projection_distances),
         "seam_seed_corner_ratio": float(seam_seed_corners / max(1, len(projected_uvs))),
         "degenerate_source_candidate_count": float(degenerate_candidates),
+        "degenerate_donor_face_count": float(degenerate_donor_faces),
         "maximum_local_source_face_candidates": float(maximum_candidates),
     }
     if not all(math.isfinite(value) and value >= 0.0 for value in metrics.values()):
