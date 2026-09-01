@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 
-def test_source_shell_repair_contract_is_fail_closed_and_head_preserving() -> None:
+def test_source_shell_repair_contract_remains_available_as_legacy_reference() -> None:
     repo = Path(__file__).resolve().parents[1]
     path = repo / "bodyrig" / "bridges" / "sith_mesh_fidelity.py"
     source = path.read_text(encoding="utf-8")
@@ -18,18 +18,29 @@ def test_source_shell_repair_contract_is_fail_closed_and_head_preserving() -> No
     assert "cross_region_face_ratio" in source
     assert "if removed_ratio > MAX_CROSS_REGION_REMOVAL_RATIO:" in source
     assert "raise MeshFidelityError" in source
-    assert "torso" in source.lower()
-    assert "distal" in source.lower()
     ast.parse(source)
 
 
-def test_gender_wrapper_contains_fail_closed_shell_patch_contract() -> None:
+def test_gender_wrapper_routes_through_stable_donor_topology() -> None:
     repo = Path(__file__).resolve().parents[1]
     source = (repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_gender.py").read_text(encoding="utf-8")
 
-    assert "from sith_mesh_fidelity import MeshFidelityError, repair_source_shell" in source
-    assert "donor_rest_positions = v_shaped[0, selected_nearest]" in source
-    assert "rest_positions, faces, shell_metrics = repair_source_shell(" in source
-    assert "SiTH source-shell fidelity repair failed" in source
-    assert '"source_shell_cross_region_faces_removed"' in source
+    assert 'with_name("sith_smplx_vrm_fitter_donor.py")' in source
+    assert "source-shell repair" not in source.lower()
+    assert "repair_source_shell" not in source
+    assert "_install_pbr_refinement" in source
+    assert "GENDER_MARKER" in source
+    ast.parse(source)
+
+
+def test_donor_fitter_does_not_serialize_source_vertices_as_body_geometry() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = (repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_donor.py").read_text(encoding="utf-8")
+
+    assert "rest_positions = v_shaped[0]" in source
+    assert "full_weights = model.lbs_weights" in source
+    assert "donor_faces_raw = _donor_faces(model)" in source
+    assert "build_donor_faces(" in source
+    assert "sourceMeshGeometryUsed" not in source  # metadata helper owns this contract
+    assert "unskin(" not in source
     ast.parse(source)
