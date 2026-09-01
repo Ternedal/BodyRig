@@ -23,12 +23,13 @@ def test_pinned_sith_fit_is_gender_patched_in_memory_only() -> None:
     assert "write_text(" not in source
 
 
-def test_final_vrm_rigging_is_gender_and_fidelity_patched_in_memory_only() -> None:
+def test_final_vrm_rigging_is_gender_and_donor_topology_patched_in_memory_only() -> None:
     source = text("bodyrig/bridges/sith_smplx_vrm_fitter_gender.py")
     assert 'GENDER_MARKER = \'gender="male",\'' in source
     assert "_replace_once(" in source
     assert "source.replace(old, new, 1)" in source
-    assert "repair_source_shell" in source
+    assert 'with_name("sith_smplx_vrm_fitter_donor.py")' in source
+    assert "repair_source_shell" not in source
     assert "write_text(" not in source
 
 
