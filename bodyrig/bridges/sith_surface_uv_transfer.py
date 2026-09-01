@@ -9,6 +9,7 @@ class SurfaceUvTransferError(ValueError):
 
 
 DISTANCE_EPSILON = 1e-12
+MAX_LOCAL_SOURCE_FACE_HOPS = 2
 
 
 def _vec3(value: Sequence[float], *, label: str) -> tuple[float, float, float]:
@@ -93,7 +94,7 @@ def _closest_barycentric(
         return (0.0, 1.0, 0.0), _length_sq(bp)
 
     vc = d1 * d4 - d3 * d2
-    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= d1:
         denominator = d1 - d3
         if abs(denominator) <= DISTANCE_EPSILON:
             raise SurfaceUvTransferError("source triangle edge is numerically degenerate")
@@ -150,6 +151,39 @@ def _percentile(values: list[float], fraction: float) -> float:
     return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
 
 
+def _bounded_local_source_faces(
+    *,
+    source_seed: int,
+    adjacency: dict[int, list[int]],
+    vertex_neighbors: dict[int, set[int]],
+    source_normals: Sequence[tuple[float, float, float] | None],
+) -> tuple[list[int], int]:
+    """Return incident faces, expanding at most two source-mesh vertex hops when all are degenerate."""
+
+    direct = sorted(set(adjacency.get(source_seed, [])))
+    if not direct or any(source_normals[face_index] is not None for face_index in direct):
+        return direct, 0
+
+    candidates = set(direct)
+    visited = {source_seed}
+    frontier = {source_seed}
+    for hop in range(1, MAX_LOCAL_SOURCE_FACE_HOPS + 1):
+        next_frontier: set[int] = set()
+        for vertex in sorted(frontier):
+            next_frontier.update(vertex_neighbors.get(vertex, set()))
+        next_frontier.difference_update(visited)
+        if not next_frontier:
+            break
+        visited.update(next_frontier)
+        for vertex in sorted(next_frontier):
+            candidates.update(adjacency.get(vertex, []))
+        ordered = sorted(candidates)
+        if any(source_normals[face_index] is not None for face_index in ordered):
+            return ordered, hop
+        frontier = next_frontier
+    return sorted(candidates), -1
+
+
 def build_surface_projected_donor_uvs(
     *,
     donor_faces: Iterable[Sequence[int]],
@@ -162,10 +196,10 @@ def build_surface_projected_donor_uvs(
     """Project each donor face corner onto a nearby textured source triangle.
 
     Nearest-source vertices are used only as a local search seed. The final UV is
-    barycentrically interpolated from the closest incident source triangle. Each
-    donor face corner receives its own UV index, so source atlas seams can remain
-    face-local instead of being collapsed to one canonical UV per source vertex.
-    Geometry indices are never changed.
+    barycentrically interpolated from the closest incident source triangle. If
+    every incident source triangle is geometrically degenerate, the search may
+    expand by at most two source-mesh vertex hops. Each donor face corner gets its
+    own UV index so source atlas seams remain face-local. Geometry indices never change.
     """
 
     donor = [_vec3(row, label="donor position") for row in donor_positions]
@@ -178,6 +212,7 @@ def build_surface_projected_donor_uvs(
 
     parsed_source_faces: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int]]] = []
     adjacency: dict[int, list[int]] = {}
+    vertex_neighbors: dict[int, set[int]] = {}
     source_normals: list[tuple[float, float, float] | None] = []
     for face_index, raw_face in enumerate(source_faces):
         if len(raw_face) != 3:
@@ -199,6 +234,7 @@ def build_surface_projected_donor_uvs(
         source_normals.append(normal)
         for vertex in unique_vertices:
             adjacency.setdefault(vertex, []).append(face_index)
+            vertex_neighbors.setdefault(vertex, set()).update(unique_vertices - {vertex})
     if not parsed_source_faces:
         raise SurfaceUvTransferError("source UV topology contains no faces")
 
@@ -208,6 +244,8 @@ def build_surface_projected_donor_uvs(
     seam_seed_corners = 0
     degenerate_candidates = 0
     degenerate_donor_faces = 0
+    expanded_source_search_corners = 0
+    maximum_source_search_hops = 0
     maximum_candidates = 0
 
     for raw_face in donor_faces:
@@ -230,18 +268,28 @@ def build_surface_projected_donor_uvs(
         output_face: list[tuple[int, int]] = []
         for donor_vertex in donor_vertices:
             source_seed = int(donor_to_source_vertex[donor_vertex])
-            candidates = adjacency.get(source_seed)
-            if source_seed < 0 or source_seed >= len(source) or not candidates:
+            direct_candidates = adjacency.get(source_seed)
+            if source_seed < 0 or source_seed >= len(source) or not direct_candidates:
                 raise SurfaceUvTransferError("donor UV mapping selected an untextured source vertex")
-            maximum_candidates = max(maximum_candidates, len(candidates))
             seed_uvs = {
                 uv
-                for face_index in candidates
+                for face_index in direct_candidates
                 for vertex, uv in parsed_source_faces[face_index]
                 if vertex == source_seed
             }
             if len(seed_uvs) > 1:
                 seam_seed_corners += 1
+
+            candidates, expansion_hops = _bounded_local_source_faces(
+                source_seed=source_seed,
+                adjacency=adjacency,
+                vertex_neighbors=vertex_neighbors,
+                source_normals=source_normals,
+            )
+            if expansion_hops > 0:
+                expanded_source_search_corners += 1
+                maximum_source_search_hops = max(maximum_source_search_hops, expansion_hops)
+            maximum_candidates = max(maximum_candidates, len(candidates))
 
             point = donor[donor_vertex]
             best: tuple[float, float, int, tuple[float, float, float], float] | None = None
@@ -269,7 +317,7 @@ def build_surface_projected_donor_uvs(
                 if best is None or candidate[:3] < best[:3]:
                     best = candidate
             if best is None:
-                raise SurfaceUvTransferError("donor UV corner has no non-degenerate local source triangle")
+                raise SurfaceUvTransferError("donor UV corner has no non-degenerate bounded-local source triangle")
 
             _, _negative_alignment, face_index, barycentric, distance_sq = best
             source_face = parsed_source_faces[face_index]
@@ -296,6 +344,8 @@ def build_surface_projected_donor_uvs(
         "seam_seed_corner_ratio": float(seam_seed_corners / max(1, len(projected_uvs))),
         "degenerate_source_candidate_count": float(degenerate_candidates),
         "degenerate_donor_face_count": float(degenerate_donor_faces),
+        "expanded_source_search_corner_count": float(expanded_source_search_corners),
+        "maximum_source_search_hops": float(maximum_source_search_hops),
         "maximum_local_source_face_candidates": float(maximum_candidates),
     }
     if not all(math.isfinite(value) and value >= 0.0 for value in metrics.values()):
