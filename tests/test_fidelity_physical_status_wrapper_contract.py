@@ -16,7 +16,7 @@ def test_physical_session_status_is_read_only_and_emits_only_allowed_next_steps(
     assert "review-pr40-pr41-appearance" in text
     assert "-ApproveGeometry" in text
     assert "Do not start another reconstruction" in text
-    assert "production activation: FALSE" in text
+    assert "Production activation: FALSE" in text
     assert "Remove-Item -LiteralPath" not in text
     assert "Move-Item" not in text
     assert "Set-Content" not in text
