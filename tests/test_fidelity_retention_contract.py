@@ -9,8 +9,10 @@ SCRIPT = ROOT / "run-profiled-fidelity-convergence.ps1"
 
 def test_full_rebuild_always_retains_private_workspace_until_checkpoint() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
-    assert '$cloneArgs = @(' in source
-    assert '"-KeepPrivateWorkspace"' in source
+    assert '$cloneArgs = @{' in source
+    assert 'KeepPrivateWorkspace = $true' in source
+    assert '& $profileLauncher @cloneArgs' in source
+    assert '$cloneArgs = @(' not in source
     assert 'Write-FidelityCheckpoint -CheckpointStage "post-reconstruction"' in source
 
 
