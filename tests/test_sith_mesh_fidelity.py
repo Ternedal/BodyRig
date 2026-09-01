@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 
 def test_source_shell_repair_contract_is_fail_closed_and_head_preserving() -> None:
     repo = Path(__file__).resolve().parents[1]
@@ -30,7 +32,7 @@ def test_source_shell_repair_contract_is_fail_closed_and_head_preserving() -> No
 
 
 def test_source_shell_repair_removes_long_sliver_without_joint_region_signal() -> None:
-    import numpy as np
+    np = pytest.importorskip("numpy")
 
     from bodyrig.bridges.sith_mesh_fidelity import repair_source_shell
 
