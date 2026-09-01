@@ -40,7 +40,27 @@ def test_donor_fitter_does_not_serialize_source_vertices_as_body_geometry() -> N
     assert "rest_positions = v_shaped[0]" in source
     assert "full_weights = model.lbs_weights" in source
     assert "donor_faces_raw = _donor_faces(model)" in source
-    assert "build_donor_faces(" in source
+    assert "build_surface_projected_donor_uvs(" in source
+    assert "donor_positions=posed_donor.detach().cpu().tolist()" in source
+    assert "source_positions=source_positions" in source
+    assert "texcoords=projected_texcoords" in source
+    assert "rest_positions = source" not in source
     assert "sourceMeshGeometryUsed" not in source  # metadata helper owns this contract
     assert "unskin(" not in source
+    ast.parse(source)
+
+
+def test_vrm_writer_keeps_face_local_uv_seams_without_changing_skin_authority() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    source = (repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter.py").read_text(encoding="utf-8")
+
+    # A source/donor vertex may legitimately have different UVs on adjacent
+    # faces. The writer must therefore duplicate the serialized GLB vertex by
+    # (geometry vertex, UV) while reusing the exact donor position and skin data.
+    assert "vertex_map: dict[tuple[int, int], int]" in source
+    assert "key = (vertex_index, uv_index)" in source
+    assert "positions_out.append(rest_positions[vertex_index])" in source
+    assert "u, v = texcoords[uv_index]" in source
+    assert "joints_out.append(joints4[vertex_index])" in source
+    assert "weights_out.append(weights4[vertex_index])" in source
     ast.parse(source)

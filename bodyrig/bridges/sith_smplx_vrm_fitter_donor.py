@@ -9,7 +9,9 @@ This fitter reverses that authority boundary:
 * fitted SMPL-X owns vertices, faces and LBS weights;
 * SiTH remains source-derived appearance authority through its exact texture;
 * each SMPL-X donor vertex is mapped to its exact nearest textured SiTH source
-  vertex for deterministic UV transfer;
+  vertex as a local search seed;
+* donor face corners then receive local-triangle barycentric UVs so source atlas
+  seams are not collapsed to one canonical UV per source vertex;
 * BodyPrint adjustments remain bounded and operate on the stable donor mesh;
 * no source-reconstruction vertex is serialized as final body geometry.
 """
@@ -31,12 +33,9 @@ from sith_anatomy_guard import (
     classify_strong_limb_regions,
     forbidden_joint_indices,
 )
-from sith_donor_topology import (
-    DonorTopologyError,
-    build_donor_faces,
-    canonical_source_uv_map,
-)
+from sith_donor_topology import DonorTopologyError, canonical_source_uv_map
 from sith_donor_vrm_metadata import DonorVrmMetadataError, mark_donor_topology
+from sith_surface_uv_transfer import SurfaceUvTransferError, build_surface_projected_donor_uvs
 
 _CURRENT_ADJUSTMENT: dict[str, Any] | None = None
 
@@ -248,7 +247,7 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
                 faces=source_faces,
             )
         except DonorTopologyError as exc:
-            raise base.FitterError(f"SiTH donor appearance UV mapping failed: {exc}") from exc
+            raise base.FitterError(f"SiTH donor appearance UV seed mapping failed: {exc}") from exc
 
         source_tensor = torch.tensor(source_obj, dtype=torch.float32, device=device)
         donor_to_source, source_distances = _map_donor_vertices_to_textured_source(
@@ -260,14 +259,16 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         )
         donor_faces_raw = _donor_faces(model)
         try:
-            faces = build_donor_faces(
+            projected_texcoords, faces, projection_metrics = build_surface_projected_donor_uvs(
                 donor_faces=donor_faces_raw,
-                donor_vertex_count=len(rest_positions),
+                donor_positions=posed_donor.detach().cpu().tolist(),
+                source_positions=source_positions,
+                source_faces=source_faces,
+                source_texcoords=texcoords,
                 donor_to_source_vertex=donor_to_source,
-                source_uv_map=source_uv_map,
             )
-        except DonorTopologyError as exc:
-            raise base.FitterError(f"SMPL-X donor topology binding failed: {exc}") from exc
+        except SurfaceUvTransferError as exc:
+            raise base.FitterError(f"SiTH donor barycentric UV projection failed: {exc}") from exc
 
         adjustment_metrics: dict[str, float] = {"max_joint_delta": 0.0}
         if _CURRENT_ADJUSTMENT is not None:
@@ -321,11 +322,18 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
     source_distance_array = np.asarray(source_distances, dtype=np.float32)
     source_p95 = float(np.quantile(source_distance_array, 0.95))
     source_max = float(np.max(source_distance_array))
-    if not math.isfinite(source_p95) or not math.isfinite(source_max):
+    projection_p95 = float(projection_metrics["projection_distance_p95"])
+    projection_max = float(projection_metrics["projection_distance_max"])
+    if not all(math.isfinite(value) for value in (source_p95, source_max, projection_p95, projection_max)):
         raise base.FitterError("SMPL-X donor appearance mapping distance is non-finite")
     if source_p95 > 0.30 or source_max > 0.85:
         raise base.FitterError(
             f"SiTH source appearance is too far from fitted SMPL-X donor surface (p95={source_p95:.4f}, max={source_max:.4f})"
+        )
+    if projection_max > source_max + 0.002:
+        raise base.FitterError(
+            "SiTH barycentric UV projection escaped its nearest-source locality "
+            f"(projection_max={projection_max:.6f}, seed_max={source_max:.6f})"
         )
 
     quality = {
@@ -337,13 +345,16 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         "source_surface_distance_p95": source_p95,
         "source_surface_distance_max": source_max,
         "source_multi_uv_vertex_ratio": float(uv_metrics["multi_uv_source_vertex_ratio"]),
+        "uv_projection_distance_p95": projection_p95,
+        "uv_projection_distance_max": projection_max,
+        "uv_seam_seed_corner_ratio": float(projection_metrics["seam_seed_corner_ratio"]),
     }
     texture = paths["texture"].read_bytes()
     avatar, thumbnail = base._build_vrm(
         np=np,
         name=name,
         rest_positions=rest_positions,
-        texcoords=texcoords,
+        texcoords=projected_texcoords,
         faces=faces,
         joints4=joints4,
         weights4=weights4,
@@ -359,6 +370,12 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
                 "source_surface_distance_p95": source_p95,
                 "source_surface_distance_max": source_max,
                 "multi_uv_source_vertex_ratio": float(uv_metrics["multi_uv_source_vertex_ratio"]),
+                "projection_distance_p95": projection_p95,
+                "projection_distance_max": projection_max,
+                "seam_seed_corner_ratio": float(projection_metrics["seam_seed_corner_ratio"]),
+                "projected_corner_count": float(projection_metrics["projected_corner_count"]),
+                "degenerate_source_candidate_count": float(projection_metrics["degenerate_source_candidate_count"]),
+                "maximum_local_source_face_candidates": float(projection_metrics["maximum_local_source_face_candidates"]),
             },
         )
     except DonorVrmMetadataError as exc:
@@ -368,8 +385,9 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         "BodyRig SMPL-X donor topology: "
         f"vertices={len(rest_positions)} faces={len(faces)} "
         f"fit_max={fit_max:.6f} fit_rms={fit_rms:.6f} "
-        f"source_uv_p95={source_p95:.6f} source_uv_max={source_max:.6f} "
-        f"multi_uv_ratio={float(uv_metrics['multi_uv_source_vertex_ratio']):.6f}",
+        f"source_seed_p95={source_p95:.6f} source_seed_max={source_max:.6f} "
+        f"uv_projection_p95={projection_p95:.6f} uv_projection_max={projection_max:.6f} "
+        f"seam_seed_ratio={float(projection_metrics['seam_seed_corner_ratio']):.6f}",
         file=sys.stderr,
     )
     return avatar, thumbnail, quality

@@ -103,8 +103,34 @@ def mark_donor_topology(
         mapping_metrics.get("multi_uv_source_vertex_ratio"),
         label="multi_uv_source_vertex_ratio",
     )
-    if seam_ratio > 1.0:
-        raise DonorVrmMetadataError("multi_uv_source_vertex_ratio is invalid")
+    projection_p95 = _finite_nonnegative_metric(
+        mapping_metrics.get("projection_distance_p95"),
+        label="projection_distance_p95",
+    )
+    projection_max = _finite_nonnegative_metric(
+        mapping_metrics.get("projection_distance_max"),
+        label="projection_distance_max",
+    )
+    seam_seed_ratio = _finite_nonnegative_metric(
+        mapping_metrics.get("seam_seed_corner_ratio"),
+        label="seam_seed_corner_ratio",
+    )
+    projected_corners = _finite_nonnegative_metric(
+        mapping_metrics.get("projected_corner_count"),
+        label="projected_corner_count",
+    )
+    degenerate_candidates = _finite_nonnegative_metric(
+        mapping_metrics.get("degenerate_source_candidate_count"),
+        label="degenerate_source_candidate_count",
+    )
+    maximum_candidates = _finite_nonnegative_metric(
+        mapping_metrics.get("maximum_local_source_face_candidates"),
+        label="maximum_local_source_face_candidates",
+    )
+    if seam_ratio > 1.0 or seam_seed_ratio > 1.0:
+        raise DonorVrmMetadataError("donor UV seam ratio is invalid")
+    if projected_corners < 3.0 or maximum_candidates < 1.0:
+        raise DonorVrmMetadataError("donor barycentric UV projection coverage is invalid")
 
     transfer["method"] = "smplx-donor-topology-direct-lbs-v1"
     transfer["nearestDistanceP95"] = 0.0
@@ -115,10 +141,17 @@ def mark_donor_topology(
         "stableTopology": True,
     }
     bodyrig["appearanceTransfer"] = {
-        "method": "sith-source-nearest-textured-vertex-uv-v1",
-        "sourceSurfaceDistanceP95": round(source_p95, 6),
-        "sourceSurfaceDistanceMax": round(source_max, 6),
+        "method": "sith-source-local-triangle-barycentric-uv-v1",
+        "nearestSourceSeedDistanceP95": round(source_p95, 6),
+        "nearestSourceSeedDistanceMax": round(source_max, 6),
+        "surfaceProjectionDistanceP95": round(projection_p95, 6),
+        "surfaceProjectionDistanceMax": round(projection_max, 6),
         "multiUvSourceVertexRatio": round(seam_ratio, 6),
+        "seamSeedCornerRatio": round(seam_seed_ratio, 6),
+        "projectedCornerCount": int(projected_corners),
+        "degenerateSourceCandidateCount": int(degenerate_candidates),
+        "maximumLocalSourceFaceCandidates": int(maximum_candidates),
+        "faceCornerUvIndicesIndependent": True,
         "sourceTextureBytesPreserved": True,
         "activeBaseColorUsesExactSourceBytes": False,
         "sourceDerivedPbrApplied": True,

@@ -26,7 +26,9 @@ def test_gender_wrapper_patches_only_gender_on_donor_topology_bridge() -> None:
     assert "failed to load the licensed SMPL-X female model" in patched
     assert "rest_positions = v_shaped[0]" in patched
     assert "full_weights = model.lbs_weights" in patched
-    assert "build_donor_faces(" in patched
+    assert "donor_faces_raw = _donor_faces(model)" in patched
+    assert "build_surface_projected_donor_uvs(" in patched
+    assert "texcoords=projected_texcoords" in patched
     assert "repair_source_shell" not in patched
     ast.parse(patched)
 
