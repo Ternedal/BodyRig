@@ -158,16 +158,11 @@ def test_status_requests_finalizer_after_pr41_render(tmp_path: Path, monkeypatch
     assert value["next_action"] == "finalize-pr40-pr41-review"
 
 
-def test_status_finishes_only_at_human_appearance_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    work, baseline, rig, _ = _sealed(tmp_path, monkeypatch)
-    pr41 = work / "pr41-clean-ab"
-    pr41.mkdir()
-    package = pr41 / "lauren-phillips-pr41-ab.mrbody"
-    package.write_bytes(b"fixture")
-    _snapshots(pr41 / "comparison-render" / "snapshots", package_sha=_sha(package))
+def _final_review_fixture(work: Path) -> tuple[Path, Path]:
     final = work / "pr40-pr41-review"
     final.mkdir()
-    (final / "pr40-pr41-ab-evidence.json").write_text(
+    evidence_path = final / "pr40-pr41-ab-evidence.json"
+    evidence_path.write_text(
         json.dumps(
             {
                 "format": status.AB_FORMAT,
@@ -182,11 +177,42 @@ def test_status_finishes_only_at_human_appearance_review(tmp_path: Path, monkeyp
     review = final / "review-bundle"
     review.mkdir()
     (review / "index.html").write_text("<html></html>", encoding="utf-8")
+    (review / "review-bundle-receipt.json").write_text("{}", encoding="utf-8")
+    return evidence_path, review
+
+
+def test_status_finishes_only_at_human_appearance_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    work, baseline, rig, _ = _sealed(tmp_path, monkeypatch)
+    pr41 = work / "pr41-clean-ab"
+    pr41.mkdir()
+    package = pr41 / "lauren-phillips-pr41-ab.mrbody"
+    package.write_bytes(b"fixture")
+    _snapshots(pr41 / "comparison-render" / "snapshots", package_sha=_sha(package))
+    _, review = _final_review_fixture(work)
+    monkeypatch.setattr(status, "verify_review_bundle", lambda *args, **kwargs: {"fixture": True})
     value = status.physical_status(work_root=work, baseline_snapshots=baseline, rig_setup=rig)
     assert value["phase"] == "awaiting-human-appearance-review"
     assert value["next_action"] == "review-pr40-pr41-appearance"
     assert value["human_visual_authority_required"] is True
     assert value["production_activation"] is False
+    assert value["paths"]["review_receipt"] == str(review / "review-bundle-receipt.json")
+
+
+def test_status_refuses_unverified_final_review_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    work, baseline, rig, _ = _sealed(tmp_path, monkeypatch)
+    pr41 = work / "pr41-clean-ab"
+    pr41.mkdir()
+    package = pr41 / "lauren-phillips-pr41-ab.mrbody"
+    package.write_bytes(b"fixture")
+    _snapshots(pr41 / "comparison-render" / "snapshots", package_sha=_sha(package))
+    _final_review_fixture(work)
+
+    def reject(*args, **kwargs):
+        raise status.FidelityReviewReceiptError("fixture tamper")
+
+    monkeypatch.setattr(status, "verify_review_bundle", reject)
+    with pytest.raises(status.FidelityPhysicalStatusError, match="final review bundle authority is invalid"):
+        status.physical_status(work_root=work, baseline_snapshots=baseline, rig_setup=rig)
 
 
 def test_status_refuses_incomplete_existing_baseline(tmp_path: Path) -> None:
