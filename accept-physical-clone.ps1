@@ -258,6 +258,18 @@ if ([string]$skinQa.body_id -ne $bodyId -or ([string]$skinQa.package_sha256).ToL
 if ($skinQa.structural_pass -ne $true -or $skinQa.manual_review_required -ne $true) { throw "Anatomical skin QA did not produce the required structural/manual-review state." }
 $skinAssessment = [string]$skinQa.automated_assessment
 if ($skinAssessment -notin @("low-risk", "review", "high-risk")) { throw "Anatomical skin QA assessment is unsupported." }
+if ($skinAssessment -eq "high-risk") { throw "Anatomical skin QA is high-risk; Gate A refuses automated acceptance." }
+
+$topologyQaPath = Join-Path $OutputDir "bodyrig-mesh-topology-qa.json"
+& $BodyRigPython -m bodyrig.mesh_topology_qa $packagePath --out $topologyQaPath | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Mesh topology QA failed; high-fidelity Gate A cannot continue." }
+$topologyQaFile = Read-Json $topologyQaPath "Mesh topology QA report"
+$topologyQa = $topologyQaFile.Value
+if ([string]$topologyQa.format -ne "bodyrig-mesh-topology-qa" -or [int]$topologyQa.version -ne 1) { throw "Mesh topology QA report format/version mismatch." }
+if ([string]$topologyQa.body_id -ne $bodyId -or ([string]$topologyQa.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Mesh topology QA is not bound to the accepted package." }
+if ($topologyQa.structural_pass -ne $true -or $topologyQa.manual_review_required -ne $true) { throw "Mesh topology QA rejected the package structure." }
+$topologyAssessment = [string]$topologyQa.automated_assessment
+if ($topologyAssessment -notin @("pass", "review")) { throw "Mesh topology QA assessment is not acceptable for Gate A." }
 
 $runtimeDir = Join-Path $OutputDir "runtime"
 & $BodyRigPython -m bodyrig.materialize_cli $packagePath --out $runtimeDir | Out-Null
@@ -306,6 +318,12 @@ $report = [ordered]@{
         report_sha256 = $skinQaFile.Hash
         structural_pass = $true
         automated_assessment = $skinAssessment
+        manual_review_required = $true
+    }
+    mesh_topology_qa = [ordered]@{
+        report_sha256 = $topologyQaFile.Hash
+        structural_pass = $true
+        automated_assessment = $topologyAssessment
         manual_review_required = $true
     }
     recovery = [ordered]@{
@@ -366,6 +384,7 @@ if ($hasBodyprintAdjustment) {
 Write-Host "Package: $packagePath"
 Write-Host "Package SHA-256: $packageHash"
 Write-Host "Skin QA: $skinAssessment | $skinQaPath"
+Write-Host "Mesh topology QA: $topologyAssessment | $topologyQaPath"
 Write-Host "Runtime manifest: $runtimeManifestPath"
 Write-Host "Acceptance report: $reportPath"
 Write-Host "Next: physically inspect deformation and load the same runtime manifest in built WindowsPlayer and Quest-class Android renderer."
