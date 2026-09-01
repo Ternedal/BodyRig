@@ -55,7 +55,7 @@ def _base(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 def _baseline(path: Path) -> Path:
-    return _snapshots(path, package_sha=status.KNOWN_BAD_PACKAGE_SHA256)
+    return _snapshots(path / "snapshots", package_sha=status.KNOWN_BAD_PACKAGE_SHA256)
 
 
 def _checkpoint(work: Path, *, stage: str) -> tuple[Path, dict]:
