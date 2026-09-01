@@ -32,6 +32,18 @@ if ((git -C $helper rev-parse HEAD).Trim() -ne $helperSha) { throw 'Wrong helper
 if ((git -C $helper status --porcelain).Count -ne 0) { throw 'Helper checkout is not clean' }
 ```
 
+## Read-only session status
+
+After the helper worktree exists, this is the preferred entrypoint whenever the physical session is resumed or its state is uncertain:
+
+```powershell
+& "$helper\fidelity-physical-session-status.ps1" `
+  -MainCheckout $main `
+  -BodyRigPython $python
+```
+
+The status tool is read-only. It verifies existing checkpoint/handoff authority before advancing and emits only the next allowed action. In particular, an existing #40 work root can never cause it to recommend a second full reconstruction. Invalid, partial or tampered authority is `BLOCKED` rather than guessed around.
+
 ## 2. Render the historical bad baseline
 
 The integration checkout passed to this script must be exact-clean `64aa10bf...`. The script locates the old package by exact SHA-256; it refuses substitution.
@@ -79,7 +91,7 @@ Optional read-only watcher from another PowerShell window:
 .\watch-fidelity-progress.ps1 -WorkRoot $work -RefreshSeconds 5
 ```
 
-Do not interact with or terminate the long-running reconstruction console merely because progress appears quiet.
+Do not interact with or terminate the long-running reconstruction console merely because progress appears quiet. If a verified `post-reconstruction` checkpoint exists but the original process has stopped, resume that checkpoint path rather than starting another full reconstruction.
 
 ## 4. Human geometry gate before PR #41
 
