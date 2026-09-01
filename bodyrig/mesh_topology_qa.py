@@ -17,14 +17,12 @@ SEVERE_EDGE_BODY_SCALE_RATIO = 0.16
 SLIVER_MIN_EDGE_BODY_SCALE_RATIO = 0.04
 SLIVER_MIN_ASPECT = 12.0
 
-# Acceptance thresholds are deliberately much looser than ordinary local mesh
-# tessellation. They are intended to catch the physically observed membrane /
-# fan failure class, not to grade cosmetic triangle quality.
+# Acceptance thresholds catch physically large membrane/fan failures. Extreme
+# aspect ratio alone is not acceptance-significant because tiny local triangles
+# can be arbitrarily thin without becoming a visible cross-body bridge.
 FAIL_MAX_EDGE_BODY_SCALE_RATIO = 0.12
-FAIL_MAX_ASPECT = 1000.0
 FAIL_CANDIDATE_RATIO = 0.002
 REVIEW_MAX_EDGE_BODY_SCALE_RATIO = 0.08
-REVIEW_MAX_ASPECT = 250.0
 REVIEW_CANDIDATE_RATIO = 0.0005
 
 
@@ -72,18 +70,10 @@ def _triangle_metrics(
     return max_edge, altitude, aspect
 
 
-def _assessment(*, max_edge_ratio: float, max_aspect: float, candidate_ratio: float) -> str:
-    if (
-        max_edge_ratio >= FAIL_MAX_EDGE_BODY_SCALE_RATIO
-        or max_aspect >= FAIL_MAX_ASPECT
-        or candidate_ratio >= FAIL_CANDIDATE_RATIO
-    ):
+def _assessment(*, max_edge_ratio: float, candidate_ratio: float) -> str:
+    if max_edge_ratio >= FAIL_MAX_EDGE_BODY_SCALE_RATIO or candidate_ratio >= FAIL_CANDIDATE_RATIO:
         return "fail"
-    if (
-        max_edge_ratio >= REVIEW_MAX_EDGE_BODY_SCALE_RATIO
-        or max_aspect >= REVIEW_MAX_ASPECT
-        or candidate_ratio >= REVIEW_CANDIDATE_RATIO
-    ):
+    if max_edge_ratio >= REVIEW_MAX_EDGE_BODY_SCALE_RATIO or candidate_ratio >= REVIEW_CANDIDATE_RATIO:
         return "review"
     return "pass"
 
@@ -188,11 +178,7 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
     max_edge_ratio = max(edge_ratios)
     max_aspect = max(aspects)
     candidate_ratio = candidate_count / max(1, triangle_count)
-    assessment = _assessment(
-        max_edge_ratio=max_edge_ratio,
-        max_aspect=max_aspect,
-        candidate_ratio=candidate_ratio,
-    )
+    assessment = _assessment(max_edge_ratio=max_edge_ratio, candidate_ratio=candidate_ratio)
     worst.sort(key=lambda item: (item["max_edge_body_scale_ratio"], item["aspect"]), reverse=True)
     return {
         "format": FORMAT,
@@ -233,10 +219,8 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
         },
         "acceptance_thresholds": {
             "fail_max_edge_body_scale_ratio": FAIL_MAX_EDGE_BODY_SCALE_RATIO,
-            "fail_max_aspect": FAIL_MAX_ASPECT,
             "fail_candidate_ratio": FAIL_CANDIDATE_RATIO,
             "review_max_edge_body_scale_ratio": REVIEW_MAX_EDGE_BODY_SCALE_RATIO,
-            "review_max_aspect": REVIEW_MAX_ASPECT,
             "review_candidate_ratio": REVIEW_CANDIDATE_RATIO,
         },
         "automated_assessment": assessment,
