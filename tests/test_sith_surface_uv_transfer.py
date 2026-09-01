@@ -6,8 +6,21 @@ import pytest
 
 from bodyrig.bridges.sith_surface_uv_transfer import (
     SurfaceUvTransferError,
+    _closest_barycentric,
     build_surface_projected_donor_uvs,
 )
+
+
+def test_closest_barycentric_uses_canonical_ab_edge_region() -> None:
+    barycentric, distance_sq = _closest_barycentric(
+        (0.5, -0.2, 0.0),
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    )
+
+    assert barycentric == pytest.approx((0.5, 0.5, 0.0), abs=1e-10)
+    assert distance_sq == pytest.approx(0.04, abs=1e-10)
 
 
 def test_surface_projection_preserves_triangle_uvs_for_exact_geometry() -> None:
@@ -26,6 +39,8 @@ def test_surface_projection_preserves_triangle_uvs_for_exact_geometry() -> None:
     assert metrics["projection_distance_p95"] == pytest.approx(0.0)
     assert metrics["projection_distance_max"] == pytest.approx(0.0)
     assert metrics["degenerate_donor_face_count"] == 0.0
+    assert metrics["expanded_source_search_corner_count"] == 0.0
+    assert metrics["maximum_source_search_hops"] == 0.0
 
 
 def test_surface_projection_interpolates_uv_inside_source_triangle() -> None:
@@ -105,6 +120,44 @@ def test_surface_projection_preserves_geometric_degenerate_donor_face() -> None:
     assert texcoords == pytest.approx([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)])
     assert metrics["projected_corner_count"] == 3.0
     assert metrics["degenerate_donor_face_count"] == 1.0
+
+
+def test_surface_projection_expands_locally_when_seed_incident_faces_are_degenerate() -> None:
+    source_positions = [
+        (0.0, 0.0, 0.0),
+        (0.5, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.5, 1.0, 0.0),
+        (0.0, 1.0, 0.0),
+    ]
+    source_texcoords = [
+        (0.0, 0.0),
+        (0.5, 0.0),
+        (1.0, 0.0),
+        (0.5, 0.0),
+        (0.5, 1.0),
+        (0.0, 1.0),
+    ]
+    source_faces = [
+        [(0, 0), (1, 1), (2, 2)],  # geometrically degenerate seed face
+        [(1, 3), (3, 4), (4, 5)],  # valid one-hop neighbor face
+    ]
+
+    texcoords, faces, metrics = build_surface_projected_donor_uvs(
+        donor_faces=[(0, 1, 2)],
+        donor_positions=[(0.10, 0.05, 0.0), (0.50, 0.10, 0.0), (0.90, 0.05, 0.0)],
+        source_positions=source_positions,
+        source_faces=source_faces,
+        source_texcoords=source_texcoords,
+        donor_to_source_vertex=[0, 1, 2],
+    )
+
+    assert faces == [[(0, 0), (1, 1), (2, 2)]]
+    assert len(texcoords) == 3
+    assert metrics["expanded_source_search_corner_count"] == 2.0
+    assert metrics["maximum_source_search_hops"] == 1.0
+    assert metrics["degenerate_source_candidate_count"] > 0.0
+    assert metrics["maximum_local_source_face_candidates"] == 2.0
 
 
 def test_surface_projection_rejects_degenerate_source_face() -> None:
