@@ -5,8 +5,9 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from .fidelity_checkpoint import SNAPSHOT_NAMES, FidelityCheckpointError, load_latest_checkpoint, sha256_file
+from .fidelity_checkpoint import FidelityCheckpointError, load_latest_checkpoint, sha256_file
 from .fidelity_physical_handoff import FidelityPhysicalHandoffError, verify_physical_handoff
+from .fidelity_review_bundle import KNOWN_BAD_PACKAGE_SHA256, FidelityReviewBundleError, _snapshots_dir
 
 PR40_REVISION = "c9dc066ef40f95a6004499a895b22a9cb3ff26c7"
 PERFORMER_ID = "42"
@@ -56,13 +57,12 @@ def _status(*, phase: str, next_action: str, summary: str, paths: Mapping[str, s
     }
 
 
-def _canonical_snapshot_set(root: Path, *, label: str) -> bool:
-    if not root.is_dir():
-        return False
-    missing = [name for name in SNAPSHOT_NAMES if not (root / name).is_file()]
-    if missing:
-        raise FidelityPhysicalStatusError(f"{label} is incomplete; missing {missing[0]}: {root}")
-    return True
+def _verified_render_set(path: Path, *, label: str, package_sha256: str) -> Path:
+    try:
+        root, _ = _snapshots_dir(path, label=label, expected_package_sha256=package_sha256)
+    except FidelityReviewBundleError as exc:
+        raise FidelityPhysicalStatusError(f"{label} render authority is invalid: {exc}") from exc
+    return root
 
 
 def _checkpoint_files(checkpoint_dir: Path) -> list[Path]:
@@ -92,13 +92,17 @@ def physical_status(
             summary="The exact physically-bad historical baseline has not been rendered yet.",
             paths={"baseline_snapshots": str(baseline)},
         )
-    _canonical_snapshot_set(baseline, label="historical baseline snapshots")
+    baseline = _verified_render_set(
+        baseline,
+        label="historical baseline",
+        package_sha256=KNOWN_BAD_PACKAGE_SHA256,
+    )
 
     if not work.exists():
         return _status(
             phase="pr40-not-started",
             next_action="run-pr40-reconstruction",
-            summary="Historical baseline is ready; the planned one-rebuild/zero-refinement #40 run has not started.",
+            summary="Historical baseline is byte-verified; the planned one-rebuild/zero-refinement #40 run has not started.",
             paths={"baseline_snapshots": str(baseline), "work_root": str(work)},
         )
     if not work.is_dir():
@@ -106,6 +110,8 @@ def physical_status(
 
     checkpoint_dir = work / "checkpoints"
     if not _checkpoint_files(checkpoint_dir):
+        if (work / "convergence-result.json").exists():
+            raise FidelityPhysicalStatusError("#40 work root has a terminal convergence result but no checkpoint authority")
         progress = work / "progress.json"
         return _status(
             phase="pr40-awaiting-checkpoint",
@@ -128,6 +134,8 @@ def physical_status(
         raise FidelityPhysicalStatusError(f"#40 checkpoint authority is invalid: {exc}") from exc
 
     if checkpoint["stage"] == "post-reconstruction":
+        if (work / "convergence-result.json").exists():
+            raise FidelityPhysicalStatusError("#40 has a terminal convergence result while latest authority is only post-reconstruction")
         return _status(
             phase="pr40-reconstruction-checkpointed",
             next_action="continue-pr40-gate-render-evaluation",
@@ -141,16 +149,22 @@ def physical_status(
     if len(records) != 1 or records[0]["mode"] != "full-reconstruction":
         raise FidelityPhysicalStatusError("#40 post-candidate checkpoint is not the planned single full-reconstruction candidate")
     record = records[0]
+    package_path = (work / record["package_path"]).resolve()
+    if not package_path.is_file():
+        raise FidelityPhysicalStatusError(f"#40 candidate package is missing: {package_path}")
     render = (work / record["render_dir"]).resolve()
-    snapshots = render / "snapshots"
-    _canonical_snapshot_set(snapshots, label="#40 snapshots")
+    snapshots = _verified_render_set(
+        render / "snapshots",
+        label="#40",
+        package_sha256=sha256_file(package_path),
+    )
 
     handoff_path = work / "handoff" / "pr40-physical-handoff.json"
     if not handoff_path.exists():
         return _status(
             phase="pr40-awaiting-human-geometry-review",
             next_action="review-and-seal-pr40-geometry",
-            summary="#40 machine evidence is complete. Human geometry review is now required before #41; do not infer face/appearance approval from this gate.",
+            summary="#40 machine/render evidence is byte-verified. Human geometry review is now required before #41; do not infer face/appearance approval from this gate.",
             paths={"work_root": str(work), "checkpoint": str(checkpoint_path), "pr40_snapshots": str(snapshots)},
         )
 
@@ -179,14 +193,18 @@ def physical_status(
         )
     if not pr41_package.is_file():
         raise FidelityPhysicalStatusError(f"#41 A/B output exists without its package: {pr41_package}")
-    _canonical_snapshot_set(pr41_snapshots, label="#41 snapshots")
+    pr41_snapshots = _verified_render_set(
+        pr41_snapshots,
+        label="#41",
+        package_sha256=sha256_file(pr41_package),
+    )
 
     final_root = work / "pr40-pr41-review"
     if not final_root.exists():
         return _status(
             phase="pr41-render-ready",
             next_action="finalize-pr40-pr41-review",
-            summary="#41 package/render are present and #40 handoff still verifies. Run the machine A/B proof and build the human review surface.",
+            summary="#41 package/render are byte-verified and #40 handoff still verifies. Run the machine A/B proof and build the human review surface.",
             paths={
                 "work_root": str(work),
                 "handoff": str(handoff_path),
