@@ -7,9 +7,9 @@ refinements. Geometry authority remains byte-for-byte in
 ``sith_smplx_vrm_fitter_donor.py``: fitted SMPL-X owns final vertices/faces/LBS.
 
 Appearance is installed process-locally before that fitter executes. The donor
-uses SiTH's canonical SMPL-X UV atlas and receives a closest-surface texture bake
-from the retained SiTH reconstruction. The reconstruction UV atlas is therefore
-never serialized onto donor topology.
+uses SiTH's canonical SMPL-X UV atlas and receives an anatomy-restricted,
+normal-aware closest-surface texture bake from the retained SiTH reconstruction.
+The reconstruction UV atlas is therefore never serialized onto donor topology.
 
 Neither the pinned SiTH checkout nor licensed SMPL-X assets are modified.
 """
@@ -22,7 +22,7 @@ from typing import Any
 
 GENDERS = ("female", "male", "neutral")
 GENDER_MARKER = 'gender="male",'
-R7_BAKE_RESOLUTION = 1024
+R8_BAKE_RESOLUTION = 1024
 
 
 def _replace_once(source: str, old: str, new: str, *, label: str) -> str:
@@ -107,35 +107,32 @@ def _install_pbr_refinement() -> None:
     base._build_vrm = refined_build_vrm
 
 
-def _install_canonical_texture_bake(*, model_dir: str) -> None:
+def _install_canonical_texture_bake(*, model_dir: str, gender: str) -> None:
     try:
         import numpy as np
         import torch
-        import sith_canonical_texture_bake as canonical_bake
+        import sith_anatomy_texture_bake as anatomy_bake
         import sith_donor_vrm_metadata as donor_metadata
         import sith_smplx_vrm_fitter as base
         import sith_surface_uv_transfer as surface_uv
-        from sith_canonical_bake_metadata import (
-            CanonicalBakeMetadataError,
-            replace_with_canonical_bake_metadata,
+        from sith_anatomy_bake_metadata import (
+            AnatomyBakeMetadataError,
+            replace_with_anatomy_bake_metadata,
         )
     except ImportError as exc:
-        raise RuntimeError(f"canonical SMPL-X texture bake modules are unavailable: {exc}") from exc
+        raise RuntimeError(f"anatomy-aware SMPL-X texture bake modules are unavailable: {exc}") from exc
 
     resolved_model_dir = Path(model_dir).expanduser().resolve()
     if resolved_model_dir.name != "smplx" or resolved_model_dir.parent.name != "body_models":
-        raise RuntimeError("canonical texture bake could not resolve the pinned SiTH repository")
+        raise RuntimeError("anatomy texture bake could not resolve the pinned SiTH repository")
     try:
         sith_repo = resolved_model_dir.parents[2]
     except IndexError as exc:
-        raise RuntimeError("canonical texture bake could not resolve the pinned SiTH repository") from exc
+        raise RuntimeError("anatomy texture bake could not resolve the pinned SiTH repository") from exc
     if not (sith_repo / "data" / "smplx_uv.obj").is_file():
         raise RuntimeError("pinned SiTH canonical SMPL-X UV template is missing")
-
-    # SiTH's reconstructed source texture is 1024x1024. R7 keeps that native
-    # information scale rather than spending 4x texel queries on an upsampled
-    # atlas that cannot add source detail.
-    canonical_bake.BAKE_RESOLUTION = R7_BAKE_RESOLUTION
+    if gender not in GENDERS:
+        raise RuntimeError("anatomy texture bake gender authority is invalid")
 
     state: dict[str, Any] = {}
     original_validate_workspace = base._validate_workspace
@@ -157,16 +154,16 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         donor_to_source_vertex,
     ):
         # The legacy source-UV projection API is retained only as an injection
-        # point. R7 never executes its projection algorithm and never serializes
-        # reconstruction UVs onto donor topology.
+        # point. R8 never executes that projector. Donor geometry is still the
+        # fitted SMPL-X mesh; source geometry is used only as appearance input.
         del source_positions, source_faces, source_texcoords, donor_to_source_vertex
         paths = state.get("paths")
         if not isinstance(paths, dict):
-            raise surface_uv.SurfaceUvTransferError("canonical texture bake workspace authority is unavailable")
+            raise surface_uv.SurfaceUvTransferError("anatomy texture bake workspace authority is unavailable")
         if not torch.cuda.is_available():
-            raise surface_uv.SurfaceUvTransferError("canonical texture bake requires CUDA")
+            raise surface_uv.SurfaceUvTransferError("anatomy texture bake requires CUDA")
         try:
-            texcoords, faces, baked_texture, metrics = canonical_bake.bake_sith_surface_to_canonical_smplx(
+            texcoords, faces, baked_texture, metrics = anatomy_bake.bake_sith_surface_to_anatomy_canonical_smplx(
                 torch=torch,
                 np=np,
                 donor_positions=donor_positions,
@@ -174,15 +171,14 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
                 sith_repo=sith_repo,
                 source_mesh_obj=paths["mesh_obj"],
                 source_texture_path=paths["texture"],
+                model_dir=resolved_model_dir,
+                gender=gender,
                 device=torch.device("cuda"),
+                resolution=R8_BAKE_RESOLUTION,
             )
-        except (canonical_bake.CanonicalTextureBakeError, OSError, RuntimeError) as exc:
-            raise surface_uv.SurfaceUvTransferError(f"canonical SMPL-X texture bake failed: {exc}") from exc
+        except (anatomy_bake.AnatomyTextureBakeError, OSError, RuntimeError) as exc:
+            raise surface_uv.SurfaceUvTransferError(f"anatomy-aware SMPL-X texture bake failed: {exc}") from exc
 
-        # Keep the truthful bake measurements separate from the old donor
-        # projection compatibility fields. Zero means no legacy UV projection
-        # was executed; the real closest-surface bake distances remain in the
-        # R7 authority metrics below.
         bake_metrics = dict(metrics)
         compatibility_metrics = dict(metrics)
         compatibility_metrics["projection_distance_p95"] = 0.0
@@ -194,11 +190,13 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
         state["baked_texture"] = baked_texture
         state["bake_metrics"] = bake_metrics
         print(
-            "BodyRig canonical SMPL-X texture bake: "
+            "BodyRig anatomy-aware SMPL-X texture bake: "
             f"size={int(float(metrics['bake_width']))}x{int(float(metrics['bake_height']))} "
             f"occupied={float(metrics['bake_occupied_ratio']):.3f} "
             f"surface_p95={float(metrics['bake_surface_distance_p95']):.6f} "
             f"surface_max={float(metrics['bake_surface_distance_max']):.6f} "
+            f"normal_retry={float(metrics['normal_retry_texel_ratio']):.3f} "
+            f"normal_p05={float(metrics['normal_alignment_p05']):.3f} "
             f"texture_sha256={str(metrics['baked_basecolor_sha256'])[:12]}...",
             file=sys.stderr,
         )
@@ -207,22 +205,22 @@ def _install_canonical_texture_bake(*, model_dir: str) -> None:
     def baked_build_vrm(*args: Any, **kwargs: Any):
         baked_texture = state.get("baked_texture")
         if not isinstance(baked_texture, bytes):
-            raise base.FitterError("canonical SMPL-X baked texture was not produced")
+            raise base.FitterError("anatomy-aware SMPL-X baked texture was not produced")
         kwargs["texture_png"] = baked_texture
         return refined_build_vrm(*args, **kwargs)
 
     def baked_mark_donor_topology(avatar_vrm: bytes, *, mapping_metrics):
         bake_metrics = state.get("bake_metrics")
         if not isinstance(bake_metrics, dict):
-            raise donor_metadata.DonorVrmMetadataError("canonical texture bake metrics are unavailable")
+            raise donor_metadata.DonorVrmMetadataError("anatomy texture bake metrics are unavailable")
         legacy_metrics = dict(mapping_metrics)
         legacy_metrics.update(bake_metrics)
         try:
             marked = original_mark_donor_topology(avatar_vrm, mapping_metrics=legacy_metrics)
-            return replace_with_canonical_bake_metadata(marked, mapping_metrics=bake_metrics)
-        except CanonicalBakeMetadataError as exc:
+            return replace_with_anatomy_bake_metadata(marked, mapping_metrics=bake_metrics)
+        except AnatomyBakeMetadataError as exc:
             raise donor_metadata.DonorVrmMetadataError(
-                f"canonical texture bake metadata binding failed: {exc}"
+                f"anatomy texture bake metadata binding failed: {exc}"
             ) from exc
 
     base._validate_workspace = capture_workspace
@@ -264,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(target.parent))
     try:
         _install_pbr_refinement()
-        _install_canonical_texture_bake(model_dir=model_dir)
+        _install_canonical_texture_bake(model_dir=model_dir, gender=args.bodyrig_smplx_gender)
     except RuntimeError as exc:
         print(f"BodyRig gender-aware fitter: FAIL: {exc}", file=sys.stderr)
         return 1
