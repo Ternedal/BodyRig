@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -17,13 +18,55 @@ SNAPSHOTS = (
 )
 EVIDENCE_FORMAT = "bodyrig-fidelity-ab-evidence"
 EVIDENCE_VERSION = 1
+RENDER_SET_FORMAT = "bodyrig-fidelity-render-set"
+RENDER_SET_VERSION = 1
+RENDER_SET_SEMANTICS = "visual-fidelity-not-identity-verification"
+KNOWN_BAD_PACKAGE_SHA256 = "8a8915658201eb8a391a3a2771b2e36bc4fe0e20d293259e015938d5aa6f1897"
 
 
 class FidelityReviewBundleError(ValueError):
     pass
 
 
-def _snapshots_dir(path: str | os.PathLike[str], *, label: str) -> Path:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as exc:
+        raise FidelityReviewBundleError(f"could not hash review artifact: {path}") from exc
+    return digest.hexdigest()
+
+
+def _need_sha256(value: Any, *, label: str) -> str:
+    raw = str(value or "").strip().lower()
+    if len(raw) != 64 or any(char not in "0123456789abcdef" for char in raw):
+        raise FidelityReviewBundleError(f"{label} is not a canonical SHA-256")
+    return raw
+
+
+def _read_json(path: Path, *, label: str) -> dict[str, Any]:
+    if not path.is_file():
+        raise FidelityReviewBundleError(f"{label} not found: {path}")
+    try:
+        value = json.loads(
+            path.read_text(encoding="utf-8-sig"),
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise FidelityReviewBundleError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise FidelityReviewBundleError(f"{label} must be an object")
+    return value
+
+
+def _snapshots_dir(
+    path: str | os.PathLike[str],
+    *,
+    label: str,
+    expected_package_sha256: str,
+) -> tuple[Path, dict[str, Any]]:
     resolved = Path(path).expanduser().resolve()
     if resolved.is_dir() and resolved.name == "snapshots":
         root = resolved
@@ -31,37 +74,64 @@ def _snapshots_dir(path: str | os.PathLike[str], *, label: str) -> Path:
         root = resolved / "snapshots"
     else:
         raise FidelityReviewBundleError(f"{label} snapshots directory not found: {resolved}")
-    for name, _ in SNAPSHOTS:
-        if not (root / name).is_file():
+
+    manifest_path = root / "fidelity-render-set.json"
+    manifest = _read_json(manifest_path, label=f"{label} fidelity-render-set.json")
+    if (
+        manifest.get("format") != RENDER_SET_FORMAT
+        or manifest.get("version") != RENDER_SET_VERSION
+        or manifest.get("semantics") != RENDER_SET_SEMANTICS
+    ):
+        raise FidelityReviewBundleError(f"{label} fidelity-render-set format/version/semantics mismatch")
+    package_sha = _need_sha256(manifest.get("package_sha256"), label=f"{label} render-set package SHA")
+    if package_sha != _need_sha256(expected_package_sha256, label=f"{label} expected package SHA"):
+        raise FidelityReviewBundleError(f"{label} render-set is not bound to the expected package bytes")
+
+    entries = manifest.get("snapshots")
+    if not isinstance(entries, list) or len(entries) != len(SNAPSHOTS):
+        raise FidelityReviewBundleError(f"{label} fidelity-render-set must contain exactly four canonical snapshots")
+    for index, (name, _) in enumerate(SNAPSHOTS):
+        entry = entries[index]
+        expected_view = name.removesuffix(".png")
+        if not isinstance(entry, dict):
+            raise FidelityReviewBundleError(f"{label} canonical snapshot entry is invalid: {expected_view}")
+        if entry.get("view") != expected_view or entry.get("file") != name:
+            raise FidelityReviewBundleError(f"{label} canonical snapshot order/file binding mismatch: {expected_view}")
+        if entry.get("width") != 1024 or entry.get("height") != 1024:
+            raise FidelityReviewBundleError(f"{label} canonical snapshot dimensions are invalid: {name}")
+        image = root / name
+        if not image.is_file():
             raise FidelityReviewBundleError(f"{label} canonical snapshot missing: {name}")
-    manifest = root / "fidelity-render-set.json"
-    if not manifest.is_file():
-        raise FidelityReviewBundleError(f"{label} fidelity-render-set.json is missing")
-    try:
-        value = json.loads(manifest.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise FidelityReviewBundleError(f"{label} fidelity-render-set.json is invalid") from exc
-    if not isinstance(value, dict):
-        raise FidelityReviewBundleError(f"{label} fidelity-render-set.json must be an object")
-    return root
+        expected_sha = _need_sha256(entry.get("sha256"), label=f"{label} {name} SHA")
+        if _sha256_file(image) != expected_sha:
+            raise FidelityReviewBundleError(f"{label} canonical snapshot hash mismatch: {name}")
+    return root, manifest
 
 
 def _read_evidence(path: str | os.PathLike[str]) -> dict[str, Any]:
     resolved = Path(path).expanduser().resolve()
-    if not resolved.is_file():
-        raise FidelityReviewBundleError(f"A/B evidence not found: {resolved}")
-    try:
-        value = json.loads(resolved.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise FidelityReviewBundleError("A/B evidence is invalid JSON") from exc
-    if not isinstance(value, dict) or value.get("format") != EVIDENCE_FORMAT or value.get("version") != EVIDENCE_VERSION:
+    value = _read_json(resolved, label="A/B evidence")
+    if value.get("format") != EVIDENCE_FORMAT or value.get("version") != EVIDENCE_VERSION:
         raise FidelityReviewBundleError("unsupported A/B evidence format/version")
     invariants = value.get("invariants")
     if not isinstance(invariants, dict) or invariants.get("clean_appearance_ab") is not True:
         raise FidelityReviewBundleError("review bundle requires passing clean appearance A/B evidence")
+    left = value.get("left")
+    right = value.get("right")
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        raise FidelityReviewBundleError("A/B evidence is missing package-side authority")
+    _need_sha256(left.get("package_sha256"), label="#40 A/B package SHA")
+    _need_sha256(right.get("package_sha256"), label="#41 A/B package SHA")
     if value.get("human_visual_authority_required") is not True or value.get("production_activation") is not False:
         raise FidelityReviewBundleError("A/B evidence has invalid human/production authority semantics")
     return value
+
+
+def _copy_exact(source: Path, destination: Path, *, label: str) -> None:
+    before = _sha256_file(source)
+    shutil.copyfile(source, destination)
+    if _sha256_file(destination) != before:
+        raise FidelityReviewBundleError(f"{label} changed while copying into the review bundle")
 
 
 def _short_sha(value: Any) -> str:
@@ -104,10 +174,23 @@ def build_review_bundle(
     ab_evidence: str | os.PathLike[str],
     output_dir: str | os.PathLike[str],
 ) -> Path:
-    historical = _snapshots_dir(historical_render, label="historical baseline")
-    pr40 = _snapshots_dir(pr40_render, label="#40")
-    pr41 = _snapshots_dir(pr41_render, label="#41")
-    evidence = _read_evidence(ab_evidence)
+    evidence_path = Path(ab_evidence).expanduser().resolve()
+    evidence = _read_evidence(evidence_path)
+    historical, _ = _snapshots_dir(
+        historical_render,
+        label="historical baseline",
+        expected_package_sha256=KNOWN_BAD_PACKAGE_SHA256,
+    )
+    pr40, _ = _snapshots_dir(
+        pr40_render,
+        label="#40",
+        expected_package_sha256=str(evidence["left"]["package_sha256"]),
+    )
+    pr41, _ = _snapshots_dir(
+        pr41_render,
+        label="#41",
+        expected_package_sha256=str(evidence["right"]["package_sha256"]),
+    )
     output = Path(output_dir).expanduser().resolve()
     if output.exists():
         raise FidelityReviewBundleError(f"review bundle output already exists: {output}")
@@ -126,10 +209,14 @@ def build_review_bundle(
         for prefix, _, source in columns:
             for name, _ in SNAPSHOTS:
                 target_name = f"{prefix}-{name}"
-                shutil.copyfile(source / name, temp / target_name)
+                _copy_exact(source / name, temp / target_name, label=f"{prefix} {name}")
                 image_map[(prefix, name)] = target_name
-            shutil.copyfile(source / "fidelity-render-set.json", temp / f"{prefix}-fidelity-render-set.json")
-        shutil.copyfile(Path(ab_evidence).expanduser().resolve(), temp / "fidelity-ab-evidence.json")
+            _copy_exact(
+                source / "fidelity-render-set.json",
+                temp / f"{prefix}-fidelity-render-set.json",
+                label=f"{prefix} render-set manifest",
+            )
+        _copy_exact(evidence_path, temp / "fidelity-ab-evidence.json", label="A/B evidence")
 
         header_cells = "".join(f"<th>{html.escape(title)}</th>" for _, title, _ in columns)
         view_rows = []
@@ -165,7 +252,7 @@ code {{ overflow-wrap: anywhere; }}
 <body>
 <main>
 <h1>BodyRig physical fidelity review</h1>
-<p class="notice"><strong>Machine boundary:</strong> clean #40 → #41 appearance-only A/B is PASS. This page does not decide visual quality. Human review remains authoritative; production activation remains false.</p>
+<p class="notice"><strong>Machine boundary:</strong> clean #40 → #41 appearance-only A/B is PASS and every displayed PNG is SHA-bound to its renderer manifest/package. This page still does not decide visual quality. Human review remains authoritative; production activation remains false.</p>
 {_invariant_table(evidence)}
 <table class="review">
 <thead><tr>{header_cells}</tr></thead>
