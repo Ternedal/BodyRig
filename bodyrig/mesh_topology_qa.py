@@ -12,6 +12,20 @@ from bodyrig.skin_qa import SkinQaError, _accessor, _parse_glb
 
 FORMAT = "bodyrig-mesh-topology-qa"
 VERSION = 1
+LONG_EDGE_BODY_SCALE_RATIO = 0.08
+SEVERE_EDGE_BODY_SCALE_RATIO = 0.16
+SLIVER_MIN_EDGE_BODY_SCALE_RATIO = 0.04
+SLIVER_MIN_ASPECT = 12.0
+
+# Acceptance thresholds are deliberately much looser than ordinary local mesh
+# tessellation. They are intended to catch the physically observed membrane /
+# fan failure class, not to grade cosmetic triangle quality.
+FAIL_MAX_EDGE_BODY_SCALE_RATIO = 0.12
+FAIL_MAX_ASPECT = 1000.0
+FAIL_CANDIDATE_RATIO = 0.002
+REVIEW_MAX_EDGE_BODY_SCALE_RATIO = 0.08
+REVIEW_MAX_ASPECT = 250.0
+REVIEW_CANDIDATE_RATIO = 0.0005
 
 
 class MeshTopologyQaError(ValueError):
@@ -56,6 +70,22 @@ def _triangle_metrics(
     altitude = double_area / max(max_edge, 1e-12)
     aspect = max_edge / max(altitude, 1e-12)
     return max_edge, altitude, aspect
+
+
+def _assessment(*, max_edge_ratio: float, max_aspect: float, candidate_ratio: float) -> str:
+    if (
+        max_edge_ratio >= FAIL_MAX_EDGE_BODY_SCALE_RATIO
+        or max_aspect >= FAIL_MAX_ASPECT
+        or candidate_ratio >= FAIL_CANDIDATE_RATIO
+    ):
+        return "fail"
+    if (
+        max_edge_ratio >= REVIEW_MAX_EDGE_BODY_SCALE_RATIO
+        or max_aspect >= REVIEW_MAX_ASPECT
+        or candidate_ratio >= REVIEW_CANDIDATE_RATIO
+    ):
+        return "review"
+    return "pass"
 
 
 def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[str, Any]:
@@ -120,6 +150,7 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
     long_edge_count = 0
     severe_edge_count = 0
     sliver_bridge_count = 0
+    candidate_count = 0
     degenerate_count = 0
     worst: list[dict[str, Any]] = []
 
@@ -131,14 +162,17 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
         aspects.append(aspect)
         if altitude <= body_scale * 1e-7:
             degenerate_count += 1
-        if edge_ratio >= 0.08:
+        is_long = edge_ratio >= LONG_EDGE_BODY_SCALE_RATIO
+        is_severe = edge_ratio >= SEVERE_EDGE_BODY_SCALE_RATIO
+        is_sliver_bridge = edge_ratio >= SLIVER_MIN_EDGE_BODY_SCALE_RATIO and aspect >= SLIVER_MIN_ASPECT
+        if is_long:
             long_edge_count += 1
-        if edge_ratio >= 0.16:
+        if is_severe:
             severe_edge_count += 1
-        is_sliver_bridge = edge_ratio >= 0.04 and aspect >= 12.0
         if is_sliver_bridge:
             sliver_bridge_count += 1
-        if edge_ratio >= 0.08 or is_sliver_bridge:
+        if is_long or is_sliver_bridge:
+            candidate_count += 1
             worst.append(
                 {
                     "triangle": triangle_index // 3,
@@ -151,6 +185,14 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
             )
 
     triangle_count = len(indices) // 3
+    max_edge_ratio = max(edge_ratios)
+    max_aspect = max(aspects)
+    candidate_ratio = candidate_count / max(1, triangle_count)
+    assessment = _assessment(
+        max_edge_ratio=max_edge_ratio,
+        max_aspect=max_aspect,
+        candidate_ratio=candidate_ratio,
+    )
     worst.sort(key=lambda item: (item["max_edge_body_scale_ratio"], item["aspect"]), reverse=True)
     return {
         "format": FORMAT,
@@ -172,22 +214,34 @@ def analyze_avatar(avatar: bytes, *, body_id: str, package_sha256: str) -> dict[
         "triangle_geometry": {
             "max_edge_body_scale_ratio_p95": round(_quantile(edge_ratios, 0.95), 8),
             "max_edge_body_scale_ratio_p99": round(_quantile(edge_ratios, 0.99), 8),
-            "max_edge_body_scale_ratio_max": round(max(edge_ratios), 8),
+            "max_edge_body_scale_ratio_max": round(max_edge_ratio, 8),
             "aspect_p95": round(_quantile(aspects, 0.95), 4),
             "aspect_p99": round(_quantile(aspects, 0.99), 4),
-            "aspect_max": round(max(aspects), 4),
+            "aspect_max": round(max_aspect, 4),
             "long_edge_count_ge_0_08_body_scale": long_edge_count,
             "severe_edge_count_ge_0_16_body_scale": severe_edge_count,
             "sliver_bridge_count_edge_ge_0_04_aspect_ge_12": sliver_bridge_count,
+            "candidate_count": candidate_count,
+            "candidate_ratio": round(candidate_ratio, 8),
             "degenerate_triangle_count": degenerate_count,
-            "candidate_ratio": round((long_edge_count + sliver_bridge_count) / max(1, triangle_count), 8),
         },
         "diagnostic_thresholds": {
-            "long_edge_body_scale_ratio": 0.08,
-            "severe_edge_body_scale_ratio": 0.16,
-            "sliver_min_edge_body_scale_ratio": 0.04,
-            "sliver_min_aspect": 12.0,
+            "long_edge_body_scale_ratio": LONG_EDGE_BODY_SCALE_RATIO,
+            "severe_edge_body_scale_ratio": SEVERE_EDGE_BODY_SCALE_RATIO,
+            "sliver_min_edge_body_scale_ratio": SLIVER_MIN_EDGE_BODY_SCALE_RATIO,
+            "sliver_min_aspect": SLIVER_MIN_ASPECT,
         },
+        "acceptance_thresholds": {
+            "fail_max_edge_body_scale_ratio": FAIL_MAX_EDGE_BODY_SCALE_RATIO,
+            "fail_max_aspect": FAIL_MAX_ASPECT,
+            "fail_candidate_ratio": FAIL_CANDIDATE_RATIO,
+            "review_max_edge_body_scale_ratio": REVIEW_MAX_EDGE_BODY_SCALE_RATIO,
+            "review_max_aspect": REVIEW_MAX_ASPECT,
+            "review_candidate_ratio": REVIEW_CANDIDATE_RATIO,
+        },
+        "automated_assessment": assessment,
+        "structural_pass": assessment != "fail",
+        "manual_review_required": True,
         "worst_candidates": worst[:50],
     }
 
