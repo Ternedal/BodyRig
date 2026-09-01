@@ -93,7 +93,7 @@ def _closest_barycentric(
         return (0.0, 1.0, 0.0), _length_sq(bp)
 
     vc = d1 * d4 - d3 * d2
-    if vc <= 0.0 and d1 >= 0.0 and d3 <= d1:
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
         denominator = d1 - d3
         if abs(denominator) <= DISTANCE_EPSILON:
             raise SurfaceUvTransferError("source triangle edge is numerically degenerate")
