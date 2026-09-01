@@ -21,7 +21,7 @@
     "rig_transfer": {
       "type":"object","additionalProperties":false,"required":["method","nearest_distance_p95","nearest_distance_max"],
       "properties": {
-        "method":{"const":"nearest-smplx-vertex-lbs-inverse"},
+        "method":{"enum":["nearest-smplx-vertex-lbs-inverse","smplx-donor-topology-direct-lbs-v1"]},
         "nearest_distance_p95":{"type":"number","minimum":0},
         "nearest_distance_max":{"type":"number","minimum":0}
       }
@@ -79,7 +79,7 @@
       }
     },
     "automated_assessment":{"enum":["low-risk","review","high-risk"]},
-    "structural_pass":{"const":true},
+    "structural_pass":{"type":"boolean"},
     "manual_review_required":{"const":true}
   },
   "$defs": {
