@@ -332,6 +332,7 @@ function Write-FidelityCheckpoint {
     $sessionReport = Join-Path $WorkRoot ("rebuild-{0:D2}\physical-session.json" -f $fullRebuildsCompleted)
     Add-CheckpointArtifact -List $artifacts -Seen $seen -Path $sessionReport -Scope "work-root"
     Add-CheckpointArtifact -List $artifacts -Seen $seen -Path (Join-Path $currentIdentityWorkspace "sith-input-v1\reconstruction.json") -Scope "private"
+    Add-CheckpointArtifact -List $artifacts -Seen $seen -Path (Join-Path $currentIdentityWorkspace "sith-input-v1\reconstruction-authority.json") -Scope "private"
 
     $stateRecords = @()
     foreach ($record in $candidateRecords) {
