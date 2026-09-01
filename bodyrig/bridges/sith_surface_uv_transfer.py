@@ -198,8 +198,10 @@ def build_surface_projected_donor_uvs(
     Nearest-source vertices are used only as a local search seed. The final UV is
     barycentrically interpolated from the closest incident source triangle. If
     every incident source triangle is geometrically degenerate, the search may
-    expand by at most two source-mesh vertex hops. Each donor face corner gets its
-    own UV index so source atlas seams remain face-local. Geometry indices never change.
+    expand by at most two source-mesh vertex hops. Face-local UV indices remain
+    independent, but repeated non-seam donor vertices share one deterministic UV
+    coordinate so adjacent donor faces stay continuous. True source seams retain
+    face-local UV coordinates. Geometry indices never change.
     """
 
     donor = [_vec3(row, label="donor position") for row in donor_positions]
@@ -247,6 +249,7 @@ def build_surface_projected_donor_uvs(
     expanded_source_search_corners = 0
     maximum_source_search_hops = 0
     maximum_candidates = 0
+    continuity_candidates: dict[int, list[tuple[float, int, float, float]]] = {}
 
     for raw_face in donor_faces:
         if len(raw_face) != 3:
@@ -332,7 +335,23 @@ def build_surface_projected_donor_uvs(
             projected_uvs.append((u, v))
             output_face.append((donor_vertex, uv_index))
             projection_distances.append(math.sqrt(max(0.0, distance_sq)))
+            if len(seed_uvs) == 1:
+                continuity_candidates.setdefault(donor_vertex, []).append((distance_sq, uv_index, u, v))
         projected_faces.append(output_face)
+
+    continuity_vertices = 0
+    continuity_reused_corners = 0
+    for entries in continuity_candidates.values():
+        if len(entries) < 2:
+            continue
+        _distance_sq, _canonical_index, canonical_u, canonical_v = min(
+            entries,
+            key=lambda item: (round(item[0], 12), item[1]),
+        )
+        continuity_vertices += 1
+        continuity_reused_corners += len(entries) - 1
+        for _entry_distance, uv_index, _raw_u, _raw_v in entries:
+            projected_uvs[uv_index] = (canonical_u, canonical_v)
 
     if not projected_faces or len(projected_uvs) != len(projected_faces) * 3:
         raise SurfaceUvTransferError("projected donor UV output is incomplete")
@@ -347,6 +366,8 @@ def build_surface_projected_donor_uvs(
         "expanded_source_search_corner_count": float(expanded_source_search_corners),
         "maximum_source_search_hops": float(maximum_source_search_hops),
         "maximum_local_source_face_candidates": float(maximum_candidates),
+        "continuous_donor_vertex_count": float(continuity_vertices),
+        "continuous_reused_corner_count": float(continuity_reused_corners),
     }
     if not all(math.isfinite(value) and value >= 0.0 for value in metrics.values()):
         raise SurfaceUvTransferError("projected donor UV metrics are invalid")
