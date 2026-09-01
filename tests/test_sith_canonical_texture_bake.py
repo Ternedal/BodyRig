@@ -151,15 +151,15 @@ def test_canonical_uv_template_rejects_donor_topology_mismatch(tmp_path: Path) -
         )
 
 
-def test_r7_wrapper_never_executes_legacy_uv_projection_and_uses_native_resolution() -> None:
-    source = (BRIDGES / "sith_smplx_vrm_fitter_gender.py").read_text(encoding="utf-8")
+def test_r7_global_canonical_bake_remains_available_as_frozen_reference() -> None:
+    source = (BRIDGES / "sith_canonical_texture_bake.py").read_text(encoding="utf-8")
+    wrapper = (BRIDGES / "sith_smplx_vrm_fitter_gender.py").read_text(encoding="utf-8")
 
-    assert "R7_BAKE_RESOLUTION = 1024" in source
-    assert "canonical_bake.BAKE_RESOLUTION = R7_BAKE_RESOLUTION" in source
-    assert "bake_sith_surface_to_canonical_smplx(" in source
-    assert 'compatibility_metrics["projection_distance_p95"] = 0.0' in source
-    assert 'compatibility_metrics["projection_distance_max"] = 0.0' in source
-    assert "replace_with_canonical_bake_metadata(" in source
-    assert "original_transfer(" not in source
-    assert "original_build_surface_projected_donor_uvs" not in source
+    assert "def bake_sith_surface_to_canonical_smplx(" in source
+    assert "closest_tex(" in source
+    assert "bake_sith_surface_to_canonical_smplx(" not in wrapper
+    assert "R7_BAKE_RESOLUTION" not in wrapper
+    assert "original_transfer(" not in wrapper
+    assert "original_build_surface_projected_donor_uvs" not in wrapper
     ast.parse(source)
+    ast.parse(wrapper)
