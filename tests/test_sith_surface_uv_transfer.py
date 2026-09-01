@@ -25,6 +25,7 @@ def test_surface_projection_preserves_triangle_uvs_for_exact_geometry() -> None:
     assert metrics["projected_corner_count"] == 3.0
     assert metrics["projection_distance_p95"] == pytest.approx(0.0)
     assert metrics["projection_distance_max"] == pytest.approx(0.0)
+    assert metrics["degenerate_donor_face_count"] == 0.0
 
 
 def test_surface_projection_interpolates_uv_inside_source_triangle() -> None:
@@ -88,6 +89,22 @@ def test_surface_projection_keeps_source_uv_seam_face_local() -> None:
     assert first_shared_uv != second_shared_uv
     assert metrics["seam_seed_corner_ratio"] > 0.0
     assert math.isfinite(metrics["projection_distance_p95"])
+
+
+def test_surface_projection_preserves_geometric_degenerate_donor_face() -> None:
+    texcoords, faces, metrics = build_surface_projected_donor_uvs(
+        donor_faces=[(0, 1, 2)],
+        donor_positions=[(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (1.0, 0.0, 0.0)],
+        source_positions=[(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)],
+        source_faces=[[(0, 0), (1, 1), (2, 2)]],
+        source_texcoords=[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+        donor_to_source_vertex=[0, 1, 1],
+    )
+
+    assert faces == [[(0, 0), (1, 1), (2, 2)]]
+    assert texcoords == pytest.approx([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0)])
+    assert metrics["projected_corner_count"] == 3.0
+    assert metrics["degenerate_donor_face_count"] == 1.0
 
 
 def test_surface_projection_rejects_degenerate_source_face() -> None:
