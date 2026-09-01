@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from .fidelity_checkpoint import FidelityCheckpointError, load_latest_checkpoint, sha256_file
 from .fidelity_physical_handoff import FidelityPhysicalHandoffError, verify_physical_handoff
 from .fidelity_review_bundle import KNOWN_BAD_PACKAGE_SHA256, FidelityReviewBundleError, _snapshots_dir
+from .fidelity_review_receipt import FidelityReviewReceiptError, verify_review_bundle
 
 PR40_REVISION = "c9dc066ef40f95a6004499a895b22a9cb3ff26c7"
 PERFORMER_ID = "42"
@@ -152,11 +153,12 @@ def physical_status(
     package_path = (work / record["package_path"]).resolve()
     if not package_path.is_file():
         raise FidelityPhysicalStatusError(f"#40 candidate package is missing: {package_path}")
+    pr40_package_sha = sha256_file(package_path)
     render = (work / record["render_dir"]).resolve()
     snapshots = _verified_render_set(
         render / "snapshots",
         label="#40",
-        package_sha256=sha256_file(package_path),
+        package_sha256=pr40_package_sha,
     )
 
     handoff_path = work / "handoff" / "pr40-physical-handoff.json"
@@ -193,10 +195,11 @@ def physical_status(
         )
     if not pr41_package.is_file():
         raise FidelityPhysicalStatusError(f"#41 A/B output exists without its package: {pr41_package}")
+    pr41_package_sha = sha256_file(pr41_package)
     pr41_snapshots = _verified_render_set(
         pr41_snapshots,
         label="#41",
-        package_sha256=sha256_file(pr41_package),
+        package_sha256=pr41_package_sha,
     )
 
     final_root = work / "pr40-pr41-review"
@@ -217,7 +220,9 @@ def physical_status(
         raise FidelityPhysicalStatusError(f"final review output is not a directory: {final_root}")
 
     evidence_path = final_root / "pr40-pr41-ab-evidence.json"
-    review_index = final_root / "review-bundle" / "index.html"
+    review_root = final_root / "review-bundle"
+    review_index = review_root / "index.html"
+    review_receipt = review_root / "review-bundle-receipt.json"
     evidence = _read_json(evidence_path, label="final #40/#41 A/B evidence")
     if evidence.get("format") != AB_FORMAT or evidence.get("version") != AB_VERSION:
         raise FidelityPhysicalStatusError("final #40/#41 A/B evidence format/version is invalid")
@@ -226,17 +231,31 @@ def physical_status(
         raise FidelityPhysicalStatusError("final #40/#41 A/B evidence does not prove a clean appearance-only comparison")
     if evidence.get("human_visual_authority_required") is not True or evidence.get("production_activation") is not False:
         raise FidelityPhysicalStatusError("final A/B evidence has invalid authority semantics")
+    evidence_sha = sha256_file(evidence_path)
+    try:
+        verify_review_bundle(
+            review_root,
+            expected_historical_package_sha256=KNOWN_BAD_PACKAGE_SHA256,
+            expected_pr40_package_sha256=pr40_package_sha,
+            expected_pr41_package_sha256=pr41_package_sha,
+            expected_evidence_sha256=evidence_sha,
+        )
+    except (FidelityReviewReceiptError, OSError, ValueError) as exc:
+        raise FidelityPhysicalStatusError(f"final review bundle authority is invalid: {exc}") from exc
     if not review_index.is_file():
         raise FidelityPhysicalStatusError(f"final human review page is missing: {review_index}")
+    if not review_receipt.is_file():
+        raise FidelityPhysicalStatusError(f"final human review receipt is missing: {review_receipt}")
 
     return _status(
         phase="awaiting-human-appearance-review",
         next_action="review-pr40-pr41-appearance",
-        summary="Machine A/B is clean and the review page is ready. Human face/skin/hair/appearance review is the remaining authority; production activation is still false.",
+        summary="Machine A/B and sealed review-bundle bytes are clean. Human face/skin/hair/appearance review is the remaining authority; production activation is still false.",
         paths={
             "work_root": str(work),
             "handoff": str(handoff_path),
             "ab_evidence": str(evidence_path),
             "review_page": str(review_index),
+            "review_receipt": str(review_receipt),
         },
     )
