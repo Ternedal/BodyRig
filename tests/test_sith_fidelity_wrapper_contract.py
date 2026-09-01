@@ -14,27 +14,27 @@ def _load_wrapper(repo: Path):
     return module
 
 
-def test_gender_wrapper_injects_fidelity_repair_into_reviewed_bridge() -> None:
+def test_gender_wrapper_patches_only_gender_on_donor_topology_bridge() -> None:
     repo = Path(__file__).resolve().parents[1]
     wrapper = _load_wrapper(repo)
-    source_path = repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_adjusted.py"
+    source_path = repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_donor.py"
     source = source_path.read_text(encoding="utf-8")
 
     patched = wrapper._patch_source(source, "female")
 
     assert "gender='female'," in patched
-    assert "from sith_mesh_fidelity import MeshFidelityError, repair_source_shell" in patched
-    assert "donor_rest_positions = v_shaped[0, selected_nearest]" in patched
-    assert "rest_positions, faces, shell_metrics = repair_source_shell(" in patched
-    assert '"source_shell_cross_region_faces_removed"' in patched
-    assert '"source_shell_head_vertices_preserved"' in patched
+    assert "failed to load the licensed SMPL-X female model" in patched
+    assert "rest_positions = v_shaped[0]" in patched
+    assert "full_weights = model.lbs_weights" in patched
+    assert "build_donor_faces(" in patched
+    assert "repair_source_shell" not in patched
     ast.parse(patched)
 
 
-def test_gender_wrapper_rejects_drifted_source_markers() -> None:
+def test_gender_wrapper_rejects_drifted_donor_source_markers() -> None:
     repo = Path(__file__).resolve().parents[1]
     wrapper = _load_wrapper(repo)
-    source = (repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_adjusted.py").read_text(encoding="utf-8")
+    source = (repo / "bodyrig" / "bridges" / "sith_smplx_vrm_fitter_donor.py").read_text(encoding="utf-8")
     drifted = source.replace('gender="male",', 'gender="neutral",', 1)
 
     try:
@@ -42,4 +42,4 @@ def test_gender_wrapper_rejects_drifted_source_markers() -> None:
     except RuntimeError as exc:
         assert "SMPL-X gender patch" in str(exc)
     else:
-        raise AssertionError("wrapper accepted a drifted reviewed bridge")
+        raise AssertionError("wrapper accepted a drifted donor-topology bridge")
