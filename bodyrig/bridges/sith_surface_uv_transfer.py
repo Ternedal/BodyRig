@@ -9,6 +9,7 @@ class SurfaceUvTransferError(ValueError):
 
 
 DISTANCE_EPSILON = 1e-12
+UV_SEAM_COORD_EPSILON = 1e-6
 MAX_LOCAL_SOURCE_FACE_HOPS = 2
 
 
@@ -28,6 +29,25 @@ def _uv2(value: Sequence[float], *, label: str) -> tuple[float, float]:
     if not all(math.isfinite(item) for item in result):
         raise SurfaceUvTransferError(f"{label} contains a non-finite coordinate")
     return result  # type: ignore[return-value]
+
+
+def _distinct_uv_coordinate_count(
+    uv_indices: Iterable[int],
+    texcoords: Sequence[tuple[float, float]],
+) -> int:
+    """Count materially distinct UV coordinates, not merely distinct UV indices."""
+
+    representatives: list[tuple[float, float]] = []
+    for uv_index in sorted(set(int(value) for value in uv_indices)):
+        uv = texcoords[uv_index]
+        if any(
+            abs(uv[0] - representative[0]) <= UV_SEAM_COORD_EPSILON
+            and abs(uv[1] - representative[1]) <= UV_SEAM_COORD_EPSILON
+            for representative in representatives
+        ):
+            continue
+        representatives.append(uv)
+    return len(representatives)
 
 
 def _sub(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
@@ -199,9 +219,10 @@ def build_surface_projected_donor_uvs(
     barycentrically interpolated from the closest incident source triangle. If
     every incident source triangle is geometrically degenerate, the search may
     expand by at most two source-mesh vertex hops. Face-local UV indices remain
-    independent, but repeated non-seam donor vertices share one deterministic UV
-    coordinate so adjacent donor faces stay continuous. True source seams retain
-    face-local UV coordinates. Geometry indices never change.
+    independent, but repeated donor vertices share one deterministic UV coordinate
+    unless the source seed exposes materially different UV coordinates. Duplicate
+    UV indices with equivalent coordinates are not treated as atlas seams. Geometry
+    indices never change.
     """
 
     donor = [_vec3(row, label="donor position") for row in donor_positions]
@@ -244,6 +265,7 @@ def build_surface_projected_donor_uvs(
     projected_faces: list[list[tuple[int, int]]] = []
     projection_distances: list[float] = []
     seam_seed_corners = 0
+    duplicate_uv_index_non_seam_corners = 0
     degenerate_candidates = 0
     degenerate_donor_faces = 0
     expanded_source_search_corners = 0
@@ -274,14 +296,17 @@ def build_surface_projected_donor_uvs(
             direct_candidates = adjacency.get(source_seed)
             if source_seed < 0 or source_seed >= len(source) or not direct_candidates:
                 raise SurfaceUvTransferError("donor UV mapping selected an untextured source vertex")
-            seed_uvs = {
+            seed_uv_indices = {
                 uv
                 for face_index in direct_candidates
                 for vertex, uv in parsed_source_faces[face_index]
                 if vertex == source_seed
             }
-            if len(seed_uvs) > 1:
+            seed_uv_coordinate_count = _distinct_uv_coordinate_count(seed_uv_indices, texcoords)
+            if seed_uv_coordinate_count > 1:
                 seam_seed_corners += 1
+            elif len(seed_uv_indices) > 1:
+                duplicate_uv_index_non_seam_corners += 1
 
             candidates, expansion_hops = _bounded_local_source_faces(
                 source_seed=source_seed,
@@ -335,7 +360,7 @@ def build_surface_projected_donor_uvs(
             projected_uvs.append((u, v))
             output_face.append((donor_vertex, uv_index))
             projection_distances.append(math.sqrt(max(0.0, distance_sq)))
-            if len(seed_uvs) == 1:
+            if seed_uv_coordinate_count == 1:
                 continuity_candidates.setdefault(donor_vertex, []).append((distance_sq, uv_index, u, v))
         projected_faces.append(output_face)
 
@@ -361,6 +386,7 @@ def build_surface_projected_donor_uvs(
         "projection_distance_p95": _percentile(projection_distances, 0.95),
         "projection_distance_max": max(projection_distances),
         "seam_seed_corner_ratio": float(seam_seed_corners / max(1, len(projected_uvs))),
+        "duplicate_uv_index_non_seam_corner_count": float(duplicate_uv_index_non_seam_corners),
         "degenerate_source_candidate_count": float(degenerate_candidates),
         "degenerate_donor_face_count": float(degenerate_donor_faces),
         "expanded_source_search_corner_count": float(expanded_source_search_corners),
