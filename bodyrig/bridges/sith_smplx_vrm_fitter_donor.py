@@ -9,7 +9,7 @@ This fitter reverses that authority boundary:
 * fitted SMPL-X owns vertices, faces and LBS weights;
 * SiTH remains source-derived appearance authority through its exact texture;
 * each SMPL-X donor vertex is mapped to its exact nearest textured SiTH source
-  vertex as a local search seed;
+  vertex that belongs to at least one geometrically usable source face;
 * donor face corners then receive local-triangle barycentric UVs so source atlas
   seams are not collapsed to one canonical UV per source vertex;
 * BodyPrint adjustments remain bounded and operate on the stable donor mesh;
@@ -38,6 +38,7 @@ from sith_donor_vrm_metadata import DonorVrmMetadataError, mark_donor_topology
 from sith_surface_uv_transfer import SurfaceUvTransferError, build_surface_projected_donor_uvs
 
 _CURRENT_ADJUSTMENT: dict[str, Any] | None = None
+_SOURCE_FACE_AREA_EPSILON = 1e-12
 
 
 def _validate_request(path: Any, adapter: str, revision: str) -> dict[str, Any]:
@@ -92,24 +93,73 @@ def _donor_faces(model: Any) -> list[list[int]]:
     return result
 
 
+def _usable_textured_source_vertices(
+    *,
+    source_positions: Any,
+    source_faces: Any,
+    source_uv_map: dict[int, int],
+) -> set[int]:
+    """Return textured source vertices incident to a non-degenerate geometric face.
+
+    A UV-bearing vertex is not a valid appearance seed when every incident face
+    has zero geometric area. Selecting such a vertex caused the physical #41
+    fit-only A/B to fail only after donor mapping. Filter it before nearest-seed
+    selection instead; geometry, topology, skinning and source texture bytes are
+    unchanged.
+    """
+
+    usable: set[int] = set()
+    source_count = len(source_positions)
+    for raw_face in source_faces:
+        if len(raw_face) != 3:
+            raise base.FitterError("SiTH source UV topology must be triangular")
+        vertices = [int(corner[0]) for corner in raw_face]
+        if any(vertex < 0 or vertex >= source_count for vertex in vertices):
+            raise base.FitterError("SiTH source UV face index is outside range")
+        if len(set(vertices)) != 3:
+            continue
+
+        a = source_positions[vertices[0]]
+        b = source_positions[vertices[1]]
+        c = source_positions[vertices[2]]
+        ab = (float(b[0]) - float(a[0]), float(b[1]) - float(a[1]), float(b[2]) - float(a[2]))
+        ac = (float(c[0]) - float(a[0]), float(c[1]) - float(a[1]), float(c[2]) - float(a[2]))
+        cross = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        area_sq = cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]
+        if not math.isfinite(area_sq):
+            raise base.FitterError("SiTH source UV face geometry is non-finite")
+        if area_sq <= _SOURCE_FACE_AREA_EPSILON:
+            continue
+        usable.update(vertex for vertex in vertices if vertex in source_uv_map)
+
+    if len(usable) < 3:
+        raise base.FitterError("SiTH source mesh exposes too few textured vertices on non-degenerate faces")
+    return usable
+
+
 def _map_donor_vertices_to_textured_source(
     *,
     torch: Any,
     donor_posed: Any,
     source_posed: Any,
     source_uv_map: dict[int, int],
+    usable_source_vertices: set[int],
     device: Any,
 ) -> tuple[list[int], list[float]]:
-    """Find the exact nearest textured source vertex for every donor vertex.
+    """Find the exact nearest usable textured source vertex for every donor vertex.
 
     The search is tiled so the full donor-by-source distance matrix is never held
     in VRAM. Ties remain deterministic because source indices are sorted and later
     tiles replace an earlier match only when the distance is strictly smaller.
     """
 
-    valid_source = sorted(source_uv_map)
+    valid_source = sorted(vertex for vertex in source_uv_map if vertex in usable_source_vertices)
     if len(valid_source) < 3:
-        raise base.FitterError("SiTH source mesh exposes too few textured vertices")
+        raise base.FitterError("SiTH source mesh exposes too few usable textured vertices")
     valid_index = torch.tensor(valid_source, dtype=torch.long, device=device)
     textured_source = source_posed[valid_index]
 
@@ -142,7 +192,7 @@ def _map_donor_vertices_to_textured_source(
         for offset, (source_vertex, distance) in enumerate(zip(resolved_source, resolved_distance)):
             donor_vertex = donor_start + offset
             if int(source_vertex) < 0 or not math.isfinite(float(distance)):
-                raise base.FitterError("donor appearance mapping could not resolve a textured source vertex")
+                raise base.FitterError("donor appearance mapping could not resolve a usable textured source vertex")
             best_source[donor_vertex] = int(source_vertex)
             best_distance[donor_vertex] = float(distance)
 
@@ -249,12 +299,18 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         except DonorTopologyError as exc:
             raise base.FitterError(f"SiTH donor appearance UV seed mapping failed: {exc}") from exc
 
+        usable_source_vertices = _usable_textured_source_vertices(
+            source_positions=source_positions,
+            source_faces=source_faces,
+            source_uv_map=source_uv_map,
+        )
         source_tensor = torch.tensor(source_obj, dtype=torch.float32, device=device)
         donor_to_source, source_distances = _map_donor_vertices_to_textured_source(
             torch=torch,
             donor_posed=posed_donor,
             source_posed=source_tensor,
             source_uv_map=source_uv_map,
+            usable_source_vertices=usable_source_vertices,
             device=device,
         )
         donor_faces_raw = _donor_faces(model)
@@ -348,6 +404,8 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         "uv_projection_distance_p95": projection_p95,
         "uv_projection_distance_max": projection_max,
         "uv_seam_seed_corner_ratio": float(projection_metrics["seam_seed_corner_ratio"]),
+        "usable_source_seed_vertex_count": float(len(usable_source_vertices)),
+        "filtered_source_seed_vertex_count": float(len(source_uv_map) - len(usable_source_vertices)),
     }
     texture = paths["texture"].read_bytes()
     avatar, thumbnail = base._build_vrm(
@@ -386,6 +444,8 @@ def _rig_mesh(paths: dict[str, Any], *, model_dir: str, name: str) -> tuple[byte
         f"vertices={len(rest_positions)} faces={len(faces)} "
         f"fit_max={fit_max:.6f} fit_rms={fit_rms:.6f} "
         f"source_seed_p95={source_p95:.6f} source_seed_max={source_max:.6f} "
+        f"usable_source_seeds={len(usable_source_vertices)} "
+        f"filtered_source_seeds={len(source_uv_map) - len(usable_source_vertices)} "
         f"uv_projection_p95={projection_p95:.6f} uv_projection_max={projection_max:.6f} "
         f"seam_seed_ratio={float(projection_metrics['seam_seed_corner_ratio']):.6f}",
         file=sys.stderr,
