@@ -1,0 +1,1 @@
+Topology QA from PR #39 remains useful even though the delete-face repair failed human visual review. Any follow-up fitter architecture should retain the diagnostic classifier but must not interpret topology PASS as visual acceptance.
