@@ -21,6 +21,13 @@ def test_progress_is_backend_evidence_based_not_fake_eta() -> None:
     assert "Date.now()" not in JS
 
 
+def test_grouped_reconstruction_phase_does_not_pretend_sith_already_started() -> None:
+    assert 'job?.stage === "high_fidelity_reconstruction"' in JS
+    assert "PHALP/4D-Humans" in JS
+    assert "Recovery/identity/high-fidelity pipeline" in JS
+    assert "Do not pretend" in JS
+
+
 def test_failed_job_surfaces_backend_diagnostic_tail() -> None:
     assert "job.diagnostic_tail" in JS
     assert "FAILURE.has(job.status)" in JS
