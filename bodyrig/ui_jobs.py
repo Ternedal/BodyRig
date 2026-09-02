@@ -17,6 +17,7 @@ from .bodyprint_adjustment import (
     build_adjustment_request,
 )
 from .package import install_package
+from .person_body_review import PersonBodyReviewError, persist_review, validate_fidelity_output
 from .person_profiles import add_body_revision, add_voice_revision, load_profile
 from .person_source_alignment import (
     PersonSourceAlignmentError,
@@ -136,6 +137,7 @@ def operator_checkout_status() -> dict[str, Any]:
     required = [
         root / "clone-body-from-stash-ready.ps1",
         root / "accept-physical-clone.ps1",
+        root / "run-fidelity-windows-render-probe.ps1",
         root / "bodyrig" / "__init__.py",
     ]
     if any(not path.is_file() for path in required):
@@ -299,6 +301,7 @@ class UiJobManager:
                 "session_report": str(job_root / "physical-session.json"),
                 "clone_output": str(job_root / "clone-output"),
                 "acceptance_dir": str(job_root / "acceptance"),
+                "fidelity_dir": str(job_root / "fidelity-review"),
                 "log_path": str(job_root / "job.log"),
                 "adjustment_request": str(adjustment_path) if adjustment_path is not None else None,
                 "adjustment_feedback_sha256": adjustment_request["feedback_sha256"] if adjustment_request else None,
@@ -306,6 +309,7 @@ class UiJobManager:
                 "body_revision": None,
                 "canonical_body_id": None,
                 "source_binding_sha256": None,
+                "body_review_sha256": None,
                 "error": None,
             }
             _write_job(job)
@@ -660,6 +664,36 @@ class UiJobManager:
             if not body_id or not package_path.is_file():
                 raise UiJobError("Gate A passed without a canonical .mrbody package")
 
+            fidelity_args = [
+                ps,
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(root / "run-fidelity-windows-render-probe.ps1"),
+                "-AcceptanceDir",
+                job["acceptance_dir"],
+                "-OutputDir",
+                job["fidelity_dir"],
+                "-BodyRigPython",
+                sys.executable,
+            ]
+            code = self._run_command(job, fidelity_args)
+            if code != 0:
+                raise UiJobError(f"fidelity reference-render review capture failed with exit code {code}")
+            try:
+                validate_fidelity_output(job["fidelity_dir"], body_id=body_id, package_sha256=expected_hash)
+                review = persist_review(
+                    person_library(),
+                    person_id=str(job["person_id"]),
+                    fidelity_output_dir=job["fidelity_dir"],
+                    body_id=body_id,
+                    package_sha256=expected_hash,
+                )
+            except PersonBodyReviewError as exc:
+                raise UiJobError(f"fidelity review evidence is not authoritative: {exc}") from exc
+            review_receipt_sha = file_sha256(Path(review["root"]) / "review.json")
+
             manifest_path, source_files = _body_source_evidence(
                 job["clone_output"],
                 performer_id=str(source["performer_id"]),
@@ -706,6 +740,7 @@ class UiJobManager:
                 current["source_binding_sha256"] = file_sha256(
                     person_library() / ".source-bindings" / current["person_id"] / f"{body_revision}.json"
                 )
+                current["body_review_sha256"] = review_receipt_sha
                 current["status"] = "succeeded"
                 current["completed_utc"] = _now()
                 current["pid"] = None
