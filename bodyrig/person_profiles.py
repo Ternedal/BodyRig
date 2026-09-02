@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .person_source_alignment import PersonSourceAlignmentError, require_alignment, write_binding
+
 FORMAT = "modelrig-person-profile"
 VERSION = 1
 PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
@@ -435,7 +437,21 @@ def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id
         "feedback": feedback,
     })
     profile["voice_revisions"].append(revision)
-    return _save(root, profile)
+    saved = _save(root, profile)
+    if saved.get("source") is not None:
+        try:
+            write_binding(
+                root,
+                saved,
+                kind="voice",
+                revision_id=revision["revision_id"],
+                evidence_kind="voicerig-package-v1",
+                evidence_sha256=revision["package_sha256"],
+                evidence_ref=revision["voice_package"],
+            )
+        except PersonSourceAlignmentError as exc:
+            raise PersonProfileError(f"could not bind voice revision to person source: {exc}") from exc
+    return saved
 
 
 def add_personality_revision(root: str | os.PathLike[str], person_id: str, *, instructions: str, default_language: str = "da", style_notes: str = "", feedback: str = "", activate: bool = False) -> dict[str, Any]:
@@ -480,6 +496,17 @@ def add_person_revision(
     personality_ids = {item["revision_id"] for item in profile["personality_revisions"]}
     if revision["body_revision"] not in body_ids or revision["voice_revision"] not in voice_ids or revision["personality_revision"] not in personality_ids:
         raise PersonProfileError("person revision must reference existing body, voice and personality revisions")
+    if profile.get("source") is not None:
+        try:
+            require_alignment(
+                root,
+                profile,
+                body_revision=revision["body_revision"],
+                voice_revision=revision["voice_revision"],
+                personality_revision=revision["personality_revision"],
+            )
+        except PersonSourceAlignmentError as exc:
+            raise PersonProfileError(f"person source alignment failed: {exc}") from exc
     profile["person_revisions"].append(revision)
     if activate:
         profile["active_person_revision"] = revision["revision_id"]
@@ -488,8 +515,19 @@ def add_person_revision(
 
 def activate_person_revision(root: str | os.PathLike[str], person_id: str, revision_id: str) -> dict[str, Any]:
     profile = load_profile(root, person_id)
-    valid = {item["revision_id"] for item in profile["person_revisions"]}
-    if revision_id not in valid:
+    selected = next((item for item in profile["person_revisions"] if item["revision_id"] == revision_id), None)
+    if selected is None:
         raise PersonProfileError("unknown approved person revision")
+    if profile.get("source") is not None:
+        try:
+            require_alignment(
+                root,
+                profile,
+                body_revision=selected["body_revision"],
+                voice_revision=selected["voice_revision"],
+                personality_revision=selected["personality_revision"],
+            )
+        except PersonSourceAlignmentError as exc:
+            raise PersonProfileError(f"person source alignment failed: {exc}") from exc
     profile["active_person_revision"] = revision_id
     return _save(root, profile)
