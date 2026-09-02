@@ -65,7 +65,7 @@
       card.id = "autoPersonalityCard";
       card.innerHTML = `
         <div class="card-label">Automatisk personality</div>
-        <p class="muted-text">Personality oprettes automatisk som del af person-buildet og bindes til samme Stash/body-authority. Manuel redigering er kun et avanceret efterfølgende værktøj.</p>
+        <p class="muted-text">BodyRig bruger captions/transcript fra de samme verificerede Stash-kilder som speaking-style evidence. Findes der ingen tekst-evidence, bruges en neutral fallback i stedet for at gætte personlighed eller biografi.</p>
         <div id="autoPersonalityStatus" class="proposal muted-text">Venter på source-bound body.</div>`;
       personalitySplit.insertBefore(card, legacyPersonality);
     }
@@ -79,7 +79,7 @@
         <div class="card-row">
           <div>
             <div class="card-label">Automatisk person-build</div>
-            <p class="muted-text">Én source authority: Stash → krop → VoiceRig-stemme → personality. Komponenterne bliver stadig først aktive efter samlet audition/review.</p>
+            <p class="muted-text">Én source authority: Stash → krop → VoiceRig-stemme → source-derived personality. Komponenterne bliver stadig først aktive efter samlet audition/review.</p>
           </div>
           <span class="badge">AUTO</span>
         </div>
@@ -121,6 +121,8 @@
         body_job_id: bodyJob.job_id,
         body_revision: null,
         personality_revision: null,
+        personality_transcript_count: null,
+        personality_style_exemplar_count: null,
         voice_job_id: null,
         voice_revision: null,
       });
@@ -132,7 +134,7 @@
   }
 
   function matchingAutomaticPersonality(profile, bodyRevision) {
-    const feedback = `Automatic source-grounded baseline from ${bodyRevision}`;
+    const feedback = `Automatic source-derived personality from ${bodyRevision}`;
     const aligned = profile?._source_alignment?.components?.personality || {};
     return [...(profile?.personality_revisions || [])]
       .reverse()
@@ -147,32 +149,23 @@
       saveWorkflow(workflow);
       return workflow;
     }
-    setStatus(`Krop ${workflow.body_revision} er klar. Bygger personality automatisk …`);
+
+    setStatus(`Krop ${workflow.body_revision} er klar. Udleder speaking-style/personality fra de samme Stash-kilder …`);
     const result = await request(
-      `/api/v1/people/${encodeURIComponent(workflow.person_id)}/personality/guided/revisions`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          default_language: "en",
-          communication: {
-            directness: 0.5,
-            warmth: 0.5,
-            playfulness: 0.5,
-            formality: 0.5,
-            verbosity: 0.5,
-            initiative: 0.5,
-          },
-          authored_notes: "Source-conservative automatic baseline. Do not invent biography, memories, relationships, private facts, or behavioral traits that are not supported by source evidence.",
-          style_exemplars: [],
-          style_report: null,
-          style_approval: null,
-          body_revision: workflow.body_revision,
-          feedback: `Automatic source-grounded baseline from ${workflow.body_revision}`,
-        }),
-      },
+      `/api/v1/people/${encodeURIComponent(workflow.person_id)}/personality/build-from-source?body_revision=${encodeURIComponent(workflow.body_revision)}&language=en`,
+      { method: "POST" },
     );
-    workflow.personality_revision = result.saved_personality_revision;
+    workflow.personality_revision = result.personality_revision;
+    workflow.personality_transcript_count = Number(result.transcript_count || 0);
+    workflow.personality_style_exemplar_count = Number(result.style_exemplar_count || 0);
     saveWorkflow(workflow);
+
+    const personalityStatus = $("autoPersonalityStatus");
+    if (personalityStatus) {
+      personalityStatus.textContent = workflow.personality_transcript_count > 0
+        ? `${workflow.personality_revision}: ${workflow.personality_transcript_count} transcript/caption-kilder · ${workflow.personality_style_exemplar_count} style-exemplars.`
+        : `${workflow.personality_revision}: ingen transcript/caption-evidence; neutral source-bound fallback uden gættet biografi eller indre personlighed.`;
+    }
     return workflow;
   }
 
@@ -262,7 +255,11 @@
         workflow.completed_utc = new Date().toISOString();
         saveWorkflow(workflow);
         setStatus(`Klar til samlet audition: ${workflow.body_revision} + ${workflow.voice_revision} + ${workflow.personality_revision}.`);
-        if ($("autoPersonalityStatus")) $("autoPersonalityStatus").textContent = `${workflow.personality_revision} er source-bundet og bygget automatisk.`;
+        if ($("autoPersonalityStatus")) {
+          $("autoPersonalityStatus").textContent = workflow.personality_transcript_count > 0
+            ? `${workflow.personality_revision} er source-bundet med transcript/caption speaking-style evidence.`
+            : `${workflow.personality_revision} er source-bundet med neutral fallback, fordi der ikke fandtes transcript/caption-evidence.`;
+        }
         if (button) button.disabled = false;
         clearWorkflow(id);
         setTimeout(() => window.location.reload(), 800);
