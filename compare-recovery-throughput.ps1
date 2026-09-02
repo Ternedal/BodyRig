@@ -21,14 +21,22 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($DataDir)) {
-    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-        throw "LOCALAPPDATA is unavailable; pass -DataDir explicitly."
+    if (-not [string]::IsNullOrWhiteSpace($env:BODYRIG_DATA_DIR)) {
+        $DataDir = Join-Path $env:BODYRIG_DATA_DIR "ui-jobs"
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $DataDir = Join-Path $env:LOCALAPPDATA "BodyRig\ui-jobs"
+    } else {
+        throw "BodyRig data root is unavailable; pass -DataDir explicitly."
     }
-    $DataDir = Join-Path $env:LOCALAPPDATA "BodyRig\ui-jobs"
 }
 $DataDir = [System.IO.Path]::GetFullPath($DataDir)
 if (-not (Test-Path -LiteralPath $DataDir -PathType Container)) {
     throw "BodyRig UI job directory is missing: $DataDir"
+}
+$dataRoot = Split-Path -Parent $DataDir
+$personRoot = Join-Path $dataRoot "people"
+if (-not (Test-Path -LiteralPath $personRoot -PathType Container)) {
+    throw "BodyRig Person Library is missing beside the UI job root: $personRoot"
 }
 
 $baseline = Join-Path (Join-Path $DataDir $BaselineJobId) "job.json"
@@ -45,7 +53,8 @@ foreach ($entry in @(
 $argsList = @(
     "-m", "bodyrig.recovery_throughput_audit",
     $baseline,
-    $candidate
+    $candidate,
+    "--person-root", $personRoot
 )
 if (-not [string]::IsNullOrWhiteSpace($Out)) {
     $outPath = [System.IO.Path]::GetFullPath($Out)
@@ -55,6 +64,7 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
 Write-Host "BodyRig recovery throughput A/B audit"
 Write-Host "Baseline:  $BaselineJobId"
 Write-Host "Candidate: $CandidateJobId"
+Write-Host "Data root: $dataRoot"
 Write-Host "Authority: read-only machine evidence; human visual review remains mandatory"
 Write-Host ""
 
