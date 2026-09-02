@@ -198,6 +198,37 @@ def test_candidate_status_maps_physical_gates_without_granting_production(
     assert value["production_activation"] is False
 
 
+def test_human_review_next_command_includes_required_quality_checklist_switch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    acceptance = tmp_path / "acceptance"
+    acceptance.mkdir()
+    _gate(acceptance)
+    status = AcceptanceStatus(
+        state="human-review",
+        gate="windows-attestation",
+        acceptance_dir=str(acceptance),
+        body_id=BODY_ID,
+        bodyrig_revision=BODYRIG_REVISION,
+        message="review required",
+        next_command=(
+            '.\\record-renderer-acceptance.ps1 -AcceptanceReport "gate.json" '
+            '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
+            '-RendererVersion "<exact version>" -QualityNote "<your physical review>"'
+        ),
+    )
+    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: status)
+
+    value = inspect_candidate_release_status(
+        [_job(acceptance)],
+        person_id=PERSON_ID,
+        body_revision=BODY_REVISION,
+        body_id=BODY_ID,
+        package_sha256=PACKAGE_SHA,
+    )
+    assert "-Pass -ConfirmQualityChecklist -RendererName" in value["next_command"]
+
+
 def test_complete_release_requires_strict_windows_and_quest_platform_attestations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
