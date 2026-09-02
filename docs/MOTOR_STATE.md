@@ -1,8 +1,8 @@
-# BodyRig Motor State v1
+# BodyRig Motor State v1 + v2
 
 ModelRig owns **what** the assistant means to express. BodyRig owns **how this body performs it**.
 
-The boundary is therefore deliberately two-stage:
+The boundary is deliberately two-stage:
 
 ```text
 ModelRig BodyCue
@@ -30,24 +30,11 @@ A restrained BodyPrint may have low observed gesture amplitude and head motion. 
 
 The renderer still owns engine-specific animation details such as Unity bone rotations or animation clips. BodyRig does **not** expose raw bone transforms as the ModelRig integration contract.
 
-## Example
+## Motor State v1
 
-Input cue:
+Motor State v1 is the compatibility contract. Its performed values are already personalized by BodyRig against the active BodyPrint.
 
-```json
-{
-  "type": "modelrig-body-cue",
-  "version": 1,
-  "utterance_id": "u-42",
-  "emotion": "amused",
-  "intensity": 0.6,
-  "energy": 0.5,
-  "gesture": "small_shrug",
-  "gaze": "user"
-}
-```
-
-Resolved output:
+Example:
 
 ```json
 {
@@ -74,7 +61,44 @@ Resolved output:
 }
 ```
 
-The exact numeric example is illustrative. The runtime values are deterministic from the current cue and active BodyPrint.
+The exact numeric example is illustrative. Runtime values are deterministic from the current cue and active BodyPrint.
+
+## Motor State v2
+
+Motor State v2 preserves the performed state and adds an optional `embodiment` receipt containing only physical-style values that were actually present in the active BodyPrint.
+
+```json
+{
+  "type": "bodyrig-motor-state",
+  "version": 2,
+  "body_id": "person-a",
+  "utterance_id": "u-42",
+  "motion": {
+    "energy": 0.58,
+    "head_motion": 0.73
+  },
+  "gesture": {
+    "id": "small_shrug",
+    "amplitude": 0.79
+  },
+  "gaze": {
+    "target": "user",
+    "strength": 0.77
+  },
+  "embodiment": {
+    "source": "modelrig-bodyprint-v1",
+    "observed": {
+      "gesture_frequency": 0.57,
+      "turn_speed": 0.42,
+      "walk_cadence_spm": 112.0
+    }
+  }
+}
+```
+
+The receipt is evidence, not a second personalization pass. A renderer must not multiply `embodiment.observed.gesture_amplitude`, `head_motion`, `gaze_strength`, `speech_motion`, or other observations into the already-resolved performed values again. It must also not create a gesture, gait event, expression, or semantic action solely because an observed BodyPrint field exists.
+
+The reference Unity renderer therefore accepts both Motor State v1 and v2, validates the v2 evidence source/ranges when present, and renders the same performed gesture/head/gaze/speech values for an otherwise equivalent v1/v2 state.
 
 ## VoiceRig synchronization
 
@@ -103,10 +127,14 @@ After a body is active and a BodyCue has been received:
 
 ```text
 GET /api/v1/runtime/motor-state
+GET /api/v2/runtime/motor-state
 ```
 
-returns `bodyrig-motor-state` v1.
+The v1 endpoint returns the unchanged v1 compatibility contract. The v2 endpoint returns Motor State v2 with observed embodiment evidence when the active BodyPrint contains supported observed values.
 
-Before those prerequisites exist the endpoint returns conflict rather than synthesizing identity/style values without a BodyPrint.
+Before those prerequisites exist both endpoints return conflict rather than synthesizing identity/style values without a BodyPrint.
 
-The machine-readable contract is `contracts/bodyrig-motor-state-v1.schema.json`.
+Machine-readable contracts:
+
+- `contracts/bodyrig-motor-state-v1.schema.json`
+- `contracts/bodyrig-motor-state-v2.schema.json`
