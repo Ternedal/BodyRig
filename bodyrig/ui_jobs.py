@@ -33,6 +33,7 @@ VERSION = 1
 _FINAL = {"succeeded", "failed", "canceled", "interrupted"}
 _OPEN = {"uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"}
 _ADJUSTMENT_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
+_BODY_LOG_TAIL_BYTES = 128 * 1024
 
 
 class UiJobError(RuntimeError):
@@ -78,6 +79,137 @@ def _read_job(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION:
         raise UiJobError(f"unsupported UI job state: {path}")
     return value
+
+
+def _read_log_tail(path_value: Any, *, maximum_bytes: int = _BODY_LOG_TAIL_BYTES) -> str:
+    path_text = str(path_value or "").strip()
+    if not path_text:
+        return ""
+    path = Path(path_text)
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - maximum_bytes), os.SEEK_SET)
+            raw = handle.read(maximum_bytes)
+    except OSError:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def _elapsed_seconds(job: dict[str, Any]) -> int:
+    started = str(job.get("started_utc") or "").strip()
+    if not started:
+        return 0
+    try:
+        start = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        completed = str(job.get("completed_utc") or "").strip()
+        end = datetime.fromisoformat(completed.replace("Z", "+00:00")) if completed else datetime.now(timezone.utc)
+    except ValueError:
+        return 0
+    if start.tzinfo is None or end.tzinfo is None:
+        return 0
+    return max(0, int((end - start).total_seconds()))
+
+
+def _diagnostic_tail(log_text: str, *, maximum_lines: int = 24, maximum_chars: int = 4000) -> str | None:
+    lines = [line.rstrip() for line in log_text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    value = "\n".join(lines[-maximum_lines:])
+    return value[-maximum_chars:]
+
+
+def _body_job_view(job: dict[str, Any]) -> dict[str, Any]:
+    """Return a read-only UI view with evidence-backed phase progress.
+
+    The percentage is deliberately a coarse pipeline phase estimate, not a time
+    prediction. Files written by the physical pipeline and stable log markers
+    move the phase forward; no synthetic timer increments the percentage.
+    """
+    view = dict(job)
+    if view.get("kind") != "body-build":
+        return view
+
+    status = str(view.get("status") or "")
+    log_text = _read_log_tail(view.get("log_path"))
+    clone_root = Path(str(view.get("clone_output") or "")) if view.get("clone_output") else None
+    acceptance_root = Path(str(view.get("acceptance_dir") or "")) if view.get("acceptance_dir") else None
+    fidelity_root = Path(str(view.get("fidelity_dir") or "")) if view.get("fidelity_dir") else None
+
+    progress = 0
+    stage = "queued"
+    message = "Venter på den fysiske BodyRig-pipeline."
+
+    if status == "succeeded":
+        progress = 100
+        stage = "complete"
+        message = "Kroppen er bygget, valideret, render-reviewet og registreret."
+    elif status == "queued":
+        progress = 0
+    else:
+        progress = 2
+        stage = "starting"
+        message = "Starter den fysiske BodyRig-pipeline."
+
+        if "BodyRig rig readiness: READY" in log_text:
+            progress = 5
+            stage = "readiness"
+            message = "Rig-readiness er grøn; validerer fysisk source authority."
+        if "Live readiness: PASS" in log_text:
+            progress = 8
+            stage = "readiness_complete"
+            message = "Readiness er færdig; Stash/SiTH-pipelinen starter."
+        if "Starting Stash clone pipeline." in log_text:
+            progress = 10
+            stage = "source_selection"
+            message = "Vælger og dekoder Stash-kilder."
+
+        source_manifest = clone_root / "bodyrig-stash-source-manifest.json" if clone_root else None
+        if source_manifest is not None and source_manifest.is_file():
+            progress = 18
+            stage = "sources_selected"
+            message = "Stash-kilder er valgt; observationer og identity evidence analyseres."
+
+        observation_evidence = clone_root / "bodyrig-observation-evidence.json" if clone_root else None
+        if observation_evidence is not None and observation_evidence.is_file():
+            progress = 32
+            stage = "high_fidelity_reconstruction"
+            message = "Observationer er valgt; SiTH/SMPL-X high-fidelity rekonstruktion kører. Dette er normalt den længste fase."
+
+        if "BodyRig Stash clone: PASS" in log_text:
+            progress = 70
+            stage = "clone_complete"
+            message = "Source-derived kropsrekonstruktion er færdig; Gate A validering starter."
+
+        if acceptance_root is not None and acceptance_root.is_dir():
+            progress = max(progress, 78)
+            stage = "gate_a"
+            message = "Gate A validerer den kanoniske .mrbody og runtime-bytes."
+        if acceptance_root is not None and (acceptance_root / "bodyrig-acceptance.json").is_file():
+            progress = max(progress, 85)
+            stage = "gate_a_complete"
+            message = "Gate A er færdig; Windows fidelity-review renderes."
+
+        if fidelity_root is not None and fidelity_root.is_dir():
+            progress = max(progress, 90)
+            stage = "fidelity_review"
+            message = "Reference-rendereren bygger de kanoniske fidelity-review billeder."
+        if fidelity_root is not None and (fidelity_root / "review.json").is_file():
+            progress = max(progress, 96)
+            stage = "registering"
+            message = "Fidelity-evidence er klar; source-binding og body revision registreres."
+
+    view["progress"] = int(max(0, min(100, progress)))
+    view["progress_kind"] = "pipeline-phase-estimate-v1"
+    view["stage"] = stage
+    view["message"] = message
+    view["elapsed_seconds"] = _elapsed_seconds(view)
+    if status in {"failed", "canceled", "interrupted"}:
+        view["diagnostic_tail"] = _diagnostic_tail(log_text)
+    else:
+        view["diagnostic_tail"] = None
+    return view
 
 
 def _body_source_evidence(clone_output: str, *, performer_id: str) -> tuple[Path, list[dict[str, str]]]:
@@ -226,6 +358,8 @@ class UiJobManager:
         job = _read_job(path)
         if job.get("kind") == "voice-build" and job.get("status") not in _FINAL:
             return self._sync_voice_job(job)
+        if job.get("kind") == "body-build":
+            return _body_job_view(job)
         return job
 
     def list(self, *, person_id: str | None = None) -> list[dict[str, Any]]:
@@ -239,7 +373,7 @@ class UiJobManager:
             except UiJobError:
                 continue
             if person_id is None or job.get("person_id") == person_id:
-                jobs.append(job)
+                jobs.append(_body_job_view(job) if job.get("kind") == "body-build" else job)
         return sorted(jobs, key=lambda item: str(item.get("created_utc", "")), reverse=True)
 
     def start_body_build(
@@ -557,6 +691,7 @@ class UiJobManager:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8", newline="\n") as log:
             log.write(f"\n[{_now()}] RUN {' '.join(args[:4])} ...\n")
+            log.flush()
             child_env = os.environ.copy()
             adjustment_request = str(job.get("adjustment_request") or "").strip()
             if adjustment_request:
@@ -564,7 +699,7 @@ class UiJobManager:
             else:
                 child_env.pop(_ADJUSTMENT_ENV, None)
             with self._lock:
-                current = self.get(job["job_id"])
+                current = _read_job(_job_path(job["job_id"]))
                 if current.get("status") != "running":
                     raise UiJobError(
                         f"UI job is no longer running; refusing subprocess start from state {current.get('status')!r}"
@@ -602,7 +737,7 @@ class UiJobManager:
     def _run_body_build(self, job_id: str) -> None:
         try:
             with self._lock:
-                job = self.get(job_id)
+                job = _read_job(_job_path(job_id))
                 if job.get("status") != "queued":
                     return
                 job["status"] = "running"
@@ -701,7 +836,7 @@ class UiJobManager:
             manifest_sha = file_sha256(manifest_path)
 
             with self._lock:
-                current = self.get(job_id)
+                current = _read_job(_job_path(job_id))
                 if current.get("status") != "running":
                     return
                 installed = install_package(
