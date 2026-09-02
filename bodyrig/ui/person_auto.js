@@ -2,6 +2,8 @@
   const $ = (id) => document.getElementById(id);
   const OPEN = new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"]);
   const FAIL = new Set(["failed", "canceled", "interrupted"]);
+  const BODY_EXPECTED_SECONDS = 45 * 60;
+  const BODY_UPPER_SECONDS = 120 * 60;
   let timer = null;
 
   async function request(path, options = {}) {
@@ -50,6 +52,67 @@
     status.classList.toggle("error", failed);
   }
 
+  function elapsedSeconds(job) {
+    if (!job?.started_utc) return 0;
+    const start = new Date(job.started_utc).getTime();
+    if (!Number.isFinite(start)) return 0;
+    const end = job.completed_utc ? new Date(job.completed_utc).getTime() : Date.now();
+    if (!Number.isFinite(end)) return 0;
+    return Math.max(0, Math.round((end - start) / 1000));
+  }
+
+  function formatDuration(seconds) {
+    const value = Math.max(0, Math.round(Number(seconds) || 0));
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const secs = value % 60;
+    if (hours > 0) return `${hours} t ${minutes} min`;
+    if (minutes > 0) return `${minutes} min ${secs} sek`;
+    return `${secs} sek`;
+  }
+
+  function renderBodyProgress(job) {
+    const wrap = $("autoPersonBuildProgress");
+    const bar = $("autoPersonBuildProgressBar");
+    const text = $("autoPersonBuildProgressText");
+    if (!wrap || !bar || !text) return;
+    if (!job) {
+      wrap.hidden = true;
+      return;
+    }
+
+    wrap.hidden = false;
+    const elapsed = elapsedSeconds(job);
+    const reported = Number(job.progress);
+    const hasReportedProgress = Number.isFinite(reported) && reported > 0 && reported <= 100;
+
+    if (job.status === "succeeded") {
+      bar.max = 100;
+      bar.value = 100;
+      text.textContent = `Krop: færdig · 100% · kørt ${formatDuration(elapsed)}`;
+      return;
+    }
+
+    if (hasReportedProgress) {
+      bar.max = 100;
+      bar.value = Math.max(0, Math.min(100, reported));
+      const phase = String(job.message || job.stage || job.status || "kører");
+      text.textContent = `Krop: ${phase} · ca. ${Math.round(reported)}% · kørt ${formatDuration(elapsed)}`;
+      return;
+    }
+
+    bar.max = BODY_UPPER_SECONDS;
+    bar.value = Math.min(BODY_UPPER_SECONDS, elapsed);
+    if (job.status === "queued") {
+      text.textContent = "Krop: venter på fysisk pipeline …";
+    } else if (elapsed > BODY_UPPER_SECONDS) {
+      text.textContent = `Krop: kører · ${formatDuration(elapsed)} · over det typiske 45–120 min-vindue`;
+    } else {
+      const expectedReached = elapsed >= BODY_EXPECTED_SECONDS ? " · inde i normalt færdigvindue" : "";
+      text.textContent = `Krop: kører · ${formatDuration(elapsed)} / typisk 45–120 min${expectedReached}`;
+    }
+  }
+
   function ensureUi() {
     const voiceSplit = document.querySelector("#tab-voice .split");
     const legacyVoice = voiceSplit?.querySelector("article.card");
@@ -84,8 +147,12 @@
           <span class="badge">AUTO</span>
         </div>
         <button id="autoPersonBuildButton" class="primary full">Byg hele personen fra Stash</button>
+        <div id="autoPersonBuildProgress" class="space-top" hidden>
+          <progress id="autoPersonBuildProgressBar" max="100" value="0" style="width:100%"></progress>
+          <div id="autoPersonBuildProgressText" class="fine-print">Forbereder …</div>
+        </div>
         <div id="autoPersonBuildStatus" class="proposal muted-text">Klar når personen er bundet til Stash.</div>
-        <p class="fine-print">Et fysisk body-build genstartes aldrig skjult efter et crash. Hvis VoiceRig ikke kan afgøre speaker/reference sikkert, stopper automatikken ved det ene nødvendige review-valg og fortsætter bagefter.</p>`;
+        <p class="fine-print">Body-progress viser rigtig backend-progress, når BodyRig har den; ellers vises køretid mod det typiske 45–120 min-vindue i stedet for en opdigtet procent. Et fysisk body-build genstartes aldrig skjult efter et crash.</p>`;
       overview.appendChild(card);
       $("autoPersonBuildButton").addEventListener("click", () => void startFullBuild());
     }
@@ -112,6 +179,7 @@
         method: "POST",
         body: JSON.stringify({}),
       });
+      renderBodyProgress(bodyJob);
       saveWorkflow({
         version: 1,
         person_id: id,
@@ -207,6 +275,7 @@
     let workflow = loadWorkflow(id);
     if (!workflow) {
       if (button) button.disabled = false;
+      renderBodyProgress(null);
       return schedule(3000);
     }
     if (button) button.disabled = workflow.state !== "failed" && workflow.state !== "complete";
@@ -221,9 +290,13 @@
       if (!workflow.body_revision) {
         let bodyJob = jobs.find((item) => item?.job_id === workflow.body_job_id) || null;
         if (!bodyJob) bodyJob = await request(`/api/v1/jobs/${encodeURIComponent(workflow.body_job_id)}`);
-        if (FAIL.has(bodyJob.status)) throw new Error(bodyJob.error || `Body-build ${bodyJob.status}.`);
+        renderBodyProgress(bodyJob);
+        if (FAIL.has(bodyJob.status)) {
+          const diagnostic = String(bodyJob.diagnostic_tail || "").trim();
+          throw new Error(`${bodyJob.error || `Body-build ${bodyJob.status}.`}${diagnostic ? `\n\n${diagnostic}` : ""}`);
+        }
         if (bodyJob.status !== "succeeded") {
-          setStatus(`Krop: ${bodyJob.status}${bodyJob.error ? ` · ${bodyJob.error}` : ""}`);
+          setStatus(bodyJob.message || `Krop: ${bodyJob.status}`);
           return schedule(2000);
         }
         if (!bodyJob.body_revision) throw new Error("Body-build sluttede uden en registreret body revision.");
