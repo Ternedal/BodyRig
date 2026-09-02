@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Annotated, Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from .app import DEFAULT_HOST, DEFAULT_PORT, app, person_library
@@ -13,6 +13,7 @@ from .personality_authoring import (
     build_guided_personality,
     save_guided_personality,
 )
+from .personality_source import SourcePersonalityError, build_source_personality
 from .personality_suite_review import (
     PersonalitySuiteReviewError,
     seal_suite_review,
@@ -102,6 +103,23 @@ def guided_personality_revision(person_id: str, request: GuidedPersonalitySaveRe
         "saved_personality_revision": result["saved_personality_revision"],
         "profile": result["profile"],
     }
+
+
+@app.post("/api/v1/people/{person_id}/personality/build-from-source")
+def source_personality_revision(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+    language: str = Query(default="en", min_length=2, max_length=16),
+) -> dict:
+    try:
+        return build_source_personality(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+            default_language=language,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/personality/audition-suite")
