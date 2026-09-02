@@ -105,7 +105,11 @@ def test_source_backed_voice_revision_is_bound_to_exact_package(tmp_path: Path) 
         "ref": "fixture.mrvoice",
         "source_files": [],
     }
-    assert profile["_source_alignment"]["components"]["voice"]["voice-r0001"]["aligned"] is True
+    alignment = profile["_source_alignment"]
+    assert set(alignment) == {"required", "source", "components", "aligned_revisions", "blocked_revisions"}
+    assert alignment["required"] is True
+    assert alignment["source"] == profile["source"]
+    assert alignment["components"]["voice"]["voice-r0001"]["aligned"] is True
 
     persisted = json.loads((tmp_path / f"{profile['person_id']}.json").read_text(encoding="utf-8"))
     assert "_source_alignment" not in persisted
