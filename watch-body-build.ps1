@@ -98,6 +98,78 @@ function Resolve-BodyJob {
     return [pscustomobject]@{ Root = $selected.Root; Job = $selected.Job }
 }
 
+function Convert-WslMountPathToWindows {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $match = [regex]::Match($Path, '^/mnt/([A-Za-z])/(.+)$')
+    if (-not $match.Success) { return $null }
+    $drive = $match.Groups[1].Value.ToUpperInvariant()
+    $tail = $match.Groups[2].Value.Replace('/', '\')
+    return "$drive`:\$tail"
+}
+
+function Get-CheckpointProgress {
+    param([Parameter(Mandatory = $true)][string[]]$Sources)
+
+    $roots = New-Object System.Collections.Generic.List[string]
+    foreach ($source in $Sources) {
+        $windowsSource = Convert-WslMountPathToWindows -Path $source
+        if ([string]::IsNullOrWhiteSpace($windowsSource)) { continue }
+        $parent = Split-Path -Parent $windowsSource
+        if ([string]::IsNullOrWhiteSpace($parent)) { continue }
+        $root = Join-Path $parent "bodyrig-recovery-checkpoints"
+        if ((Test-Path -LiteralPath $root -PathType Container) -and -not $roots.Contains($root)) {
+            $roots.Add($root)
+        }
+    }
+    if ($roots.Count -eq 0) { return $null }
+
+    $statuses = @(
+        foreach ($root in $roots) {
+            Get-ChildItem -LiteralPath $root -Filter "segment-*.status.json" -File -ErrorAction SilentlyContinue |
+                ForEach-Object {
+                    try { $value = Read-JsonFile -Path $_.FullName } catch { return }
+                    if ([string]$value.format -ne "bodyrig-recovery-segment-status") { return }
+                    if ($null -eq $value.source_index) { return }
+                    [pscustomobject]@{
+                        Root = $root
+                        Path = $_.FullName
+                        SourceIndex = [int]$value.source_index
+                        State = [string]$value.state
+                        Detail = [string]$value.detail
+                    }
+                }
+        }
+    )
+    if ($statuses.Count -eq 0) { return $null }
+
+    $running = @($statuses | Where-Object { $_.State -eq "running" } | Sort-Object SourceIndex | Select-Object -Last 1)
+    $failed = @($statuses | Where-Object { $_.State -eq "failed" } | Sort-Object SourceIndex | Select-Object -Last 1)
+    $completed = @($statuses | Where-Object { $_.State -eq "complete" } | Select-Object -ExpandProperty SourceIndex -Unique).Count
+    $current = if ($running.Count -gt 0) { $running[0] } elseif ($failed.Count -gt 0) { $failed[0] } else { $null }
+
+    $liveLogPath = ""
+    $liveTail = ""
+    $logModified = $null
+    if ($null -ne $current) {
+        $prefix = "segment-{0:D2}" -f ($current.SourceIndex + 1)
+        $liveLogPath = Join-Path $current.Root "$prefix.log"
+        $liveTail = Read-TailText -Path $liveLogPath -Lines 80
+        if (Test-Path -LiteralPath $liveLogPath -PathType Leaf) {
+            $logModified = (Get-Item -LiteralPath $liveLogPath).LastWriteTime
+        }
+    }
+
+    return [pscustomobject]@{
+        CurrentSegment = if ($null -ne $current) { $current.SourceIndex + 1 } else { $null }
+        CurrentState = if ($null -ne $current) { $current.State } else { "complete" }
+        CompletedSegments = $completed
+        CheckpointRoots = @($roots)
+        LiveLogPath = $liveLogPath
+        LiveLogModified = $logModified
+        Tail = $liveTail
+    }
+}
+
 function Get-RecoveryStage {
     param([Parameter(Mandatory = $true)]$Job)
 
@@ -119,14 +191,15 @@ function Get-RecoveryStage {
         $stderrPath = Join-Path $candidate.FullName "stderr.log"
         $statusPath = Join-Path $candidate.FullName "status.json"
         $stderr = Read-TailText -Path $stderrPath -Lines 120
+        $checkpoint = Get-CheckpointProgress -Sources $sources
 
         $segmentMatches = @([regex]::Matches($stderr, 'Saving tracks at\s*:\s*.*?segment-(\d+)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase))
         $completedMatches = @([regex]::Matches($stderr, 'Tracking\s*:\s*segment-(\d+).*?100%', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase))
-        $currentIndex = $null
+        $fallbackCurrent = $null
         if ($segmentMatches.Count -gt 0) {
-            $currentIndex = [int]$segmentMatches[-1].Groups[1].Value + 1
+            $fallbackCurrent = [int]$segmentMatches[-1].Groups[1].Value + 1
         }
-        $completed = @($completedMatches | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique).Count
+        $fallbackCompleted = @($completedMatches | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique).Count
 
         $status = $null
         if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
@@ -138,15 +211,24 @@ function Get-RecoveryStage {
             $stderrModified = (Get-Item -LiteralPath $stderrPath).LastWriteTime
         }
 
+        $currentSegment = if ($null -ne $checkpoint -and $null -ne $checkpoint.CurrentSegment) { $checkpoint.CurrentSegment } else { $fallbackCurrent }
+        $completedSegments = if ($null -ne $checkpoint) { $checkpoint.CompletedSegments } else { $fallbackCompleted }
+        $tail = if ($null -ne $checkpoint -and -not [string]::IsNullOrWhiteSpace([string]$checkpoint.Tail)) { [string]$checkpoint.Tail } else { $stderr }
+        $progressSource = if ($null -ne $checkpoint) { "checkpoint" } else { "staging" }
+
         return [pscustomobject]@{
             Root = $candidate.FullName
             SourceCount = $sources.Count
-            CurrentSegment = $currentIndex
-            CompletedSegments = $completed
+            CurrentSegment = $currentSegment
+            CurrentState = if ($null -ne $checkpoint) { $checkpoint.CurrentState } else { "unknown" }
+            CompletedSegments = $completedSegments
+            ProgressSource = $progressSource
             StderrPath = $stderrPath
             StderrModified = $stderrModified
+            LiveLogPath = if ($null -ne $checkpoint) { $checkpoint.LiveLogPath } else { "" }
+            LiveLogModified = if ($null -ne $checkpoint) { $checkpoint.LiveLogModified } else { $null }
             Status = $status
-            Tail = $stderr
+            Tail = $tail
         }
     }
     return $null
@@ -237,12 +319,18 @@ while ($true) {
     if ($recovery) {
         Write-Host ""
         if ($null -ne $recovery.CurrentSegment) {
-            Write-Host "Recovery: segment $($recovery.CurrentSegment)/$($recovery.SourceCount) | completed: $($recovery.CompletedSegments)"
+            Write-Host "Recovery: segment $($recovery.CurrentSegment)/$($recovery.SourceCount) | completed: $($recovery.CompletedSegments) | state: $($recovery.CurrentState)"
         } else {
-            Write-Host "Recovery: staging aktiv | sources: $($recovery.SourceCount)"
+            Write-Host "Recovery: staging aktiv | sources: $($recovery.SourceCount) | completed: $($recovery.CompletedSegments)"
         }
+        Write-Host "Progress authority: $($recovery.ProgressSource)"
         Write-Host "Staging:  $($recovery.Root)"
-        if ($null -ne $recovery.StderrModified) {
+        if (-not [string]::IsNullOrWhiteSpace([string]$recovery.LiveLogPath)) {
+            Write-Host "Segment log: $($recovery.LiveLogPath)"
+        }
+        if ($null -ne $recovery.LiveLogModified) {
+            Write-Host "Segment log sidst ændret: $($recovery.LiveLogModified)"
+        } elseif ($null -ne $recovery.StderrModified) {
             Write-Host "Recovery log sidst ændret: $($recovery.StderrModified)"
         }
         if ($null -ne $recovery.Status) {
