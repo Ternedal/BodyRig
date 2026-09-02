@@ -49,7 +49,9 @@ def test_monitor_prefers_live_checkpoint_status_and_segment_log() -> None:
 def test_monitor_translates_checkpoint_sources_without_shelling_out() -> None:
     assert "function Convert-WslMountPathToWindows" in SCRIPT
     assert "^/mnt/([A-Za-z])/(.+)$" in SCRIPT
-    assert ".Replace('/', '\\\\')" in SCRIPT
+    # PowerShell uses backtick, not backslash, as its escape character. A
+    # single-quoted '\\' literal therefore contains exactly one backslash.
+    assert ".Replace('/', '\\')" in SCRIPT
 
 
 def test_monitor_surfaces_segment_and_gpu_progress_without_fake_eta() -> None:
