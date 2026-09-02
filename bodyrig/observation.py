@@ -17,13 +17,6 @@ SELECTION_FORMAT = "bodyrig-observation-selection"
 SEGMENTS_FORMAT = "bodyrig-observation-segments"
 VERSION = 1
 VIEWS = {"front", "left_profile", "right_profile", "rear", "unknown"}
-# PHALP/HMR2 cost scales strongly with frame count. The observation window is
-# already quality-selected and at most 12 seconds; cap only when the source is
-# above 15 fps so lower-rate media is never duplicated. The fps expression is
-# evaluated by FFmpeg against source_fps and leaves spatial resolution untouched.
-# Identity capture samples by timestamp (0.75 s intervals), so 15 fps still
-# leaves substantially denser temporal evidence than that stage consumes.
-OBSERVATION_SEGMENT_FPS = 15
 
 
 class ObservationError(ValueError):
@@ -489,11 +482,6 @@ def materialize_segments(
                 "-an",
                 "-sn",
                 "-dn",
-                # Keep the exact spatial resolution for identity/texture while
-                # bounding redundant temporal work for PHALP/HMR2. source_fps
-                # prevents the cap from ever manufacturing extra low-fps frames.
-                "-vf",
-                f"fps='min({OBSERVATION_SEGMENT_FPS},source_fps)'",
                 "-c:v",
                 "libx264",
                 "-preset",
