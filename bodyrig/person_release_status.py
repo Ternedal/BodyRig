@@ -12,10 +12,21 @@ from .acceptance_status import (
     QUALITY_REVIEW_FIELDS,
     inspect_acceptance_dir,
 )
+from .reference_acceptance_policy import apply_reference_policy
 
 FORMAT = "bodyrig-person-release-status"
 VERSION = 1
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_REFERENCE_OPERATOR_FILES = (
+    "run-reference-windows-renderer-probe.ps1",
+    "record-reference-renderer-acceptance.ps1",
+    "run-reference-quest-renderer-probe.ps1",
+    "complete-reference-acceptance.ps1",
+    "reference-renderer/renderer-contract.json",
+    "reference-renderer/build-reference-renderer.ps1",
+    "reference-renderer/ProjectSettings/ProjectVersion.txt",
+    "reference-renderer/Packages/manifest.json",
+)
 
 
 class PersonReleaseStatusError(RuntimeError):
@@ -105,7 +116,9 @@ def _strict_platform_attestation(acceptance_dir: Path, *, prefix: str, platform:
 
 def _stages(gate: str, state: str) -> dict[str, str]:
     stages = {"gate_a": "pass", "windows": "pending", "quest": "pending", "release": "pending"}
-    if gate == "windows-probe":
+    if state == "blocked":
+        stages.update({"windows": "blocked", "quest": "blocked", "release": "blocked"})
+    elif gate == "windows-probe":
         stages["windows"] = "machine-probe-required"
     elif gate == "windows-attestation":
         stages["windows"] = "human-review-required"
@@ -124,21 +137,27 @@ def _stages(gate: str, state: str) -> dict[str, str]:
     return stages
 
 
-def _operator_next_command(*, gate: str, state: str, acceptance_dir: Path) -> str | None:
-    quoted = f'"{acceptance_dir}"'
+def _operator_next_command(*, gate: str, state: str, acceptance_dir: Path, operator_root: Path) -> str | None:
+    if state == "blocked":
+        return None
+    quoted_acceptance = f'"{acceptance_dir}"'
+
+    def invoke(script_name: str) -> str:
+        return f'& "{(operator_root / script_name).resolve()}"'
+
     if gate == "windows-probe":
-        return f'.\\run-reference-windows-renderer-probe.ps1 -AcceptanceDir {quoted}'
+        return f'{invoke("run-reference-windows-renderer-probe.ps1")} -AcceptanceDir {quoted_acceptance}'
     if gate == "windows-attestation":
         return (
-            f'.\\record-reference-renderer-acceptance.ps1 -AcceptanceDir {quoted} '
+            f'{invoke("record-reference-renderer-acceptance.ps1")} -AcceptanceDir {quoted_acceptance} '
             '-Platform "windows-unity-univrm" -ConfirmQualityChecklist '
             '-QualityNote "<your physical review>"'
         )
     if gate == "quest-probe":
-        return f'.\\run-reference-quest-renderer-probe.ps1 -AcceptanceDir {quoted}'
+        return f'{invoke("run-reference-quest-renderer-probe.ps1")} -AcceptanceDir {quoted_acceptance}'
     if gate == "quest-attestation":
         return (
-            f'.\\record-reference-renderer-acceptance.ps1 -AcceptanceDir {quoted} '
+            f'{invoke("record-reference-renderer-acceptance.ps1")} -AcceptanceDir {quoted_acceptance} '
             '-Platform "android-quest-class" -ConfirmQualityChecklist '
             '-QualityNote "<your physical headset review>"'
         )
@@ -146,8 +165,38 @@ def _operator_next_command(*, gate: str, state: str, acceptance_dir: Path) -> st
         if state == "complete":
             return None
         if state == "ready":
-            return f'.\\complete-reference-acceptance.ps1 -AcceptanceDir {quoted}'
+            return f'{invoke("complete-reference-acceptance.ps1")} -AcceptanceDir {quoted_acceptance}'
     raise PersonReleaseStatusError(f"unsupported actionable physical acceptance state: {state}/{gate}")
+
+
+def _operator_checkout_authority(
+    *,
+    expected_revision: str,
+    authority: Mapping[str, Any] | None,
+) -> tuple[bool, Path | None, str | None, dict[str, Any]]:
+    if authority is None:
+        from .ui_jobs import operator_checkout_status
+
+        authority = operator_checkout_status()
+    value = dict(authority)
+    if value.get("ok") is not True:
+        return False, None, str(value.get("reason") or "BodyRig operator checkout is not authoritative"), value
+    actual_revision = str(value.get("revision") or "").strip().lower()
+    if actual_revision != str(expected_revision or "").strip().lower():
+        return (
+            False,
+            None,
+            f"BodyRig operator checkout revision {actual_revision or '?'} does not match acceptance revision {expected_revision or '?'}",
+            value,
+        )
+    root_raw = str(value.get("root") or "").strip()
+    if not root_raw:
+        return False, None, "BodyRig operator checkout authority has no checkout root", value
+    root = Path(root_raw).expanduser().resolve()
+    missing = [name for name in _REFERENCE_OPERATOR_FILES if not (root / name).is_file()]
+    if missing:
+        return False, None, "BodyRig operator checkout is missing canonical reference dependencies: " + ", ".join(missing), value
+    return True, root, None, value
 
 
 def inspect_candidate_release_status(
@@ -157,6 +206,7 @@ def inspect_candidate_release_status(
     body_revision: str,
     body_id: str,
     package_sha256: str,
+    operator_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected_sha = _sha(package_sha256, "registered body package_sha256")
     candidates = [
@@ -183,6 +233,7 @@ def inspect_candidate_release_status(
             "production_activation": False,
             "message": "No succeeded BodyRig UI physical-build evidence chain is available for this body revision.",
             "next_command": None,
+            "operator_checkout": {"required": False, "ready": False, "reason": "No originating physical-build chain"},
             "stages": {"gate_a": "unknown", "windows": "unknown", "quest": "unknown", "release": "unknown"},
         }
 
@@ -197,7 +248,7 @@ def inspect_candidate_release_status(
     acceptance_dir = Path(acceptance_raw).expanduser().resolve()
 
     try:
-        status = inspect_acceptance_dir(acceptance_dir)
+        status = apply_reference_policy(inspect_acceptance_dir(acceptance_dir))
     except AcceptanceStatusError as exc:
         raise PersonReleaseStatusError(f"physical acceptance evidence is invalid: {exc}") from exc
 
@@ -210,12 +261,40 @@ def inspect_candidate_release_status(
     if _sha(package.get("package_sha256"), "Gate A package SHA-256") != expected_sha:
         raise PersonReleaseStatusError("Gate A package SHA no longer matches the registered body revision")
 
-    if status.gate in {"quest-probe", "quest-attestation", "release"}:
+    if status.state != "blocked" and status.gate in {"quest-probe", "quest-attestation", "release"}:
         _strict_platform_attestation(acceptance_dir, prefix="windows", platform="windows-unity-univrm")
-    if status.gate == "release":
+    if status.state != "blocked" and status.gate == "release":
         _strict_platform_attestation(acceptance_dir, prefix="quest", platform="android-quest-class")
 
     payload = asdict(status)
+    production = payload["state"] == "complete" and payload["gate"] == "release"
+    operator_required = not production and payload["state"] not in {"blocked", "unavailable"}
+    operator_ready = False
+    operator_root: Path | None = None
+    operator_reason: str | None = None
+    authority_value: dict[str, Any] = {}
+    if operator_required:
+        operator_ready, operator_root, operator_reason, authority_value = _operator_checkout_authority(
+            expected_revision=str(payload["bodyrig_revision"] or ""),
+            authority=operator_authority,
+        )
+    elif payload["state"] == "blocked":
+        operator_reason = "Physical acceptance is blocked before an operator command can be authorized"
+    else:
+        operator_reason = None
+
+    message = str(payload["message"])
+    if operator_required and not operator_ready and operator_reason:
+        message += f" Executable next command withheld: {operator_reason}."
+    next_command = None
+    if operator_ready and operator_root is not None:
+        next_command = _operator_next_command(
+            gate=payload["gate"],
+            state=payload["state"],
+            acceptance_dir=acceptance_dir,
+            operator_root=operator_root,
+        )
+
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -226,12 +305,15 @@ def inspect_candidate_release_status(
         "body_id": body_id,
         "package_sha256": expected_sha,
         "bodyrig_revision": payload["bodyrig_revision"],
-        "production_activation": payload["state"] == "complete" and payload["gate"] == "release",
-        "message": payload["message"],
-        "next_command": _operator_next_command(
-            gate=payload["gate"],
-            state=payload["state"],
-            acceptance_dir=acceptance_dir,
-        ),
+        "production_activation": production,
+        "message": message,
+        "next_command": next_command,
+        "operator_checkout": {
+            "required": operator_required,
+            "ready": operator_ready,
+            "reason": operator_reason,
+            "revision": authority_value.get("revision"),
+            "root": authority_value.get("root") if operator_ready else None,
+        },
         "stages": _stages(payload["gate"], payload["state"]),
     }
