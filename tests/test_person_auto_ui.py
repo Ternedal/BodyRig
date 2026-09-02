@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "bodyrig" / "ui" / "person.html").read_text(encoding="utf-8")
 JS = (ROOT / "bodyrig" / "ui" / "person_auto.js").read_text(encoding="utf-8")
+SOURCE = (ROOT / "bodyrig" / "personality_source.py").read_text(encoding="utf-8")
 
 
 def test_person_studio_loads_one_click_source_workflow() -> None:
@@ -25,8 +26,9 @@ def test_manual_voice_and_personality_are_not_primary_flow() -> None:
 def test_automatic_personality_uses_transcript_evidence_or_neutral_fallback() -> None:
     assert "transcript/caption-kilder" in JS
     assert "neutral source-bound fallback" in JS
-    assert "Automatic source-derived personality from" in JS
     assert "body_revision=" in JS
+    assert "Automatic source-derived personality from" in SOURCE
+    assert "observed-speaking-style-only-not-biography-memory-beliefs-or-inner-personality" in SOURCE
 
 
 def test_automatic_flow_survives_refresh_without_restarting_physical_body() -> None:
