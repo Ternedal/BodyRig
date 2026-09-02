@@ -14,7 +14,9 @@ if str(BRIDGES) not in sys.path:
 from sith_anatomy_bake_metadata import (  # noqa: E402
     AnatomyBakeMetadataError,
     anatomy_appearance_transfer,
+    replace_with_anatomy_bake_metadata,
 )
+from sith_pbr_material import _read_glb, _write_glb  # noqa: E402
 
 
 def _bodyrig() -> dict:
@@ -83,3 +85,24 @@ def test_anatomy_metadata_rejects_string_normal_metric() -> None:
 
     with pytest.raises(AnatomyBakeMetadataError, match="normal alignment mean is invalid"):
         anatomy_appearance_transfer(_bodyrig(), metrics)
+
+
+def test_anatomy_metadata_embeds_fail_closed_component_receipt() -> None:
+    document = {
+        "buffers": [{"byteLength": 0}],
+        "extras": {"bodyrig": _bodyrig()},
+    }
+    avatar = _write_glb(document, b"")
+
+    updated = replace_with_anatomy_bake_metadata(avatar, mapping_metrics=_metrics())
+    parsed, _binary = _read_glb(updated)
+    receipt = parsed["extras"]["bodyrig"]["fidelityComponents"]
+
+    assert receipt["highFidelityReady"] is False
+    assert receipt["humanReviewRequired"] is True
+    assert receipt["productionReady"] is False
+    assert receipt["components"]["body_anatomy"] == "not-evaluated"
+    assert receipt["components"]["skin_appearance"] == "partial"
+    assert receipt["components"]["hair"] == "missing"
+    assert receipt["components"]["eyes"] == "missing"
+    assert receipt["components"]["face_secondary"] == "missing"
