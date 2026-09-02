@@ -124,16 +124,30 @@ def _stages(gate: str, state: str) -> dict[str, str]:
     return stages
 
 
-def _operator_next_command(gate: str, command: Any) -> str | None:
-    text = str(command or "").strip()
-    if not text:
-        return None
-    if gate in {"windows-attestation", "quest-attestation"} and "-ConfirmQualityChecklist" not in text:
-        marker = " -Pass "
-        if marker not in text:
-            raise PersonReleaseStatusError("human-review next command is missing the canonical -Pass marker")
-        text = text.replace(marker, " -Pass -ConfirmQualityChecklist ", 1)
-    return text
+def _operator_next_command(*, gate: str, state: str, acceptance_dir: Path) -> str | None:
+    quoted = f'"{acceptance_dir}"'
+    if gate == "windows-probe":
+        return f'.\\run-reference-windows-renderer-probe.ps1 -AcceptanceDir {quoted}'
+    if gate == "windows-attestation":
+        return (
+            f'.\\record-reference-renderer-acceptance.ps1 -AcceptanceDir {quoted} '
+            '-Platform "windows-unity-univrm" -ConfirmQualityChecklist '
+            '-QualityNote "<your physical review>"'
+        )
+    if gate == "quest-probe":
+        return f'.\\run-reference-quest-renderer-probe.ps1 -AcceptanceDir {quoted}'
+    if gate == "quest-attestation":
+        return (
+            f'.\\record-reference-renderer-acceptance.ps1 -AcceptanceDir {quoted} '
+            '-Platform "android-quest-class" -ConfirmQualityChecklist '
+            '-QualityNote "<your physical headset review>"'
+        )
+    if gate == "release":
+        if state == "complete":
+            return None
+        if state == "ready":
+            return f'.\\complete-reference-acceptance.ps1 -AcceptanceDir {quoted}'
+    raise PersonReleaseStatusError(f"unsupported actionable physical acceptance state: {state}/{gate}")
 
 
 def inspect_candidate_release_status(
@@ -214,6 +228,10 @@ def inspect_candidate_release_status(
         "bodyrig_revision": payload["bodyrig_revision"],
         "production_activation": payload["state"] == "complete" and payload["gate"] == "release",
         "message": payload["message"],
-        "next_command": _operator_next_command(payload["gate"], payload["next_command"]),
+        "next_command": _operator_next_command(
+            gate=payload["gate"],
+            state=payload["state"],
+            acceptance_dir=acceptance_dir,
+        ),
         "stages": _stages(payload["gate"], payload["state"]),
     }
