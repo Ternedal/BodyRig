@@ -169,6 +169,17 @@ $packageResultPath = Need-File -Path (Join-Path $packageDir "subject-anatomy-can
 try { $packageResult = Get-Content -LiteralPath $packageResultPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Subject anatomy package result is unreadable." }
 $packagePath = Need-File -Path (Join-Path $packageDir ([string]$packageResult.package)) -Label "Subject anatomy comparison package"
+$expectedFaceBlockers = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
+if ($packageResult.high_fidelity_ready -ne $false -or
+    $packageResult.face_secondary_ready -ne $false -or
+    (@($packageResult.face_secondary_blockers) -join ",") -ne ($expectedFaceBlockers -join ",") -or
+    $packageResult.bodyprint_adjustment -ne $false -or
+    $packageResult.expensive_reconstruction_rerun -ne $false -or
+    $packageResult.comparison_only -ne $true -or
+    $packageResult.human_review_required -ne $true -or
+    $packageResult.production_activation -ne $false) {
+    throw "Subject anatomy package result violates the high-fidelity fail-closed authority boundary."
+}
 
 $renderArgs = @{
     PackagePath = $packagePath
@@ -202,6 +213,9 @@ $summary = [ordered]@{
     package = $packagePath
     package_sha256 = [string]$packageResult.package_sha256
     canonical_body_id = [string]$packageResult.canonical_body_id
+    high_fidelity_ready = $false
+    face_secondary_ready = $false
+    face_secondary_blockers = @($packageResult.face_secondary_blockers)
     comparison_render = $renderDir
     snapshots = (Join-Path $renderDir "snapshots")
     bodyprint_adjustment = $false
@@ -220,6 +234,8 @@ Write-Host "Alias:           $([string]$packageResult.requested_alias)"
 Write-Host "Baseline gross:  $([bool]$baseline.grossAnatomyPass)"
 Write-Host "Candidate gross: $([bool]$candidate.grossAnatomyPass)"
 Write-Host "Package SHA:     $([string]$packageResult.package_sha256)"
+Write-Host "High fidelity:   FALSE"
+Write-Host "Face secondary:  BLOCKED ($(@($packageResult.face_secondary_blockers) -join ', '))"
 Write-Host "Snapshots:       $(Join-Path $renderDir 'snapshots')"
 Write-Host "Human review:    REQUIRED"
 Write-Host "Production:      FALSE"
