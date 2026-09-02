@@ -17,9 +17,11 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert 'value.production_activation === true' in js
     assert 'En aktiv Person Revision betyder kun' in js
     assert 'det er ikke production authority.' in js
-    assert 'High-fidelity completeness og fysisk release er separate gates.' in js
+    assert 'Production kræver tre uafhængige led:' in js
+    assert 'komplette high-fidelity component receipts' in js
+    assert 'high-fidelity human review' in js
+    assert 'fysiske Windows + Quest final release authority' in js
     assert 'Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.' in js
-    assert 'Static fidelity-billeder er ikke release authority.' in js
     assert 'blocked: "Blokeret"' in js
     assert 'Operator checkout blokerer næste kommando:' in js
     assert 'Fysisk acceptance er blokeret ved' in js
