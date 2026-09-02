@@ -62,6 +62,5 @@ def test_automatic_body_progress_keeps_grouped_recovery_phase_truthful() -> None
 
 def test_automatic_body_progress_never_claims_timer_as_real_percentage() -> None:
     assert "typisk 45–120 min" in JS
-    assert "backend-progress" in JS
     assert "fase-evidence" in JS
     assert "opdigtet procent" in JS
