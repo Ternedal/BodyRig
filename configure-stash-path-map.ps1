@@ -66,6 +66,17 @@ if ([string]::IsNullOrWhiteSpace($apiKey)) {
     throw "BodyRig Stash path map: API-key kunne ikke dekrypteres for denne Windows-bruger."
 }
 
+function Get-OptionalPropertyValue {
+    param(
+        [object]$Object,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 function Invoke-StashGraphQl {
     param(
         [Parameter(Mandatory = $true)][string]$Query,
@@ -74,11 +85,19 @@ function Invoke-StashGraphQl {
     $payload = [ordered]@{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 12 -Compress
     $headers = @{ ApiKey = $apiKey }
     $response = Invoke-RestMethod -Method Post -Uri $graphqlUrl -Headers $headers -ContentType "application/json" -Body $payload -TimeoutSec 30
-    if ($null -ne $response.errors -and @($response.errors).Count -gt 0) {
-        $message = (@($response.errors) | ForEach-Object { [string]$_.message }) -join "; "
+    $errors = @(Get-OptionalPropertyValue -Object $response -Name "errors")
+    if ($errors.Count -gt 0 -and $null -ne $errors[0]) {
+        $message = ($errors | ForEach-Object {
+            $value = Get-OptionalPropertyValue -Object $_ -Name "message"
+            if ($null -ne $value) { [string]$value }
+        }) -join "; "
         throw "Stash GraphQL error: $message"
     }
-    return $response.data
+    $data = Get-OptionalPropertyValue -Object $response -Name "data"
+    if ($null -eq $data) {
+        throw "Stash GraphQL response mangler data."
+    }
+    return $data
 }
 
 $performerIds = @(
@@ -89,8 +108,12 @@ $performerIds = @(
             } catch {
                 return
             }
-            if ([string]$profile.source.kind -eq "stash-performer" -and -not [string]::IsNullOrWhiteSpace([string]$profile.source.performer_id)) {
-                [string]$profile.source.performer_id
+            $source = Get-OptionalPropertyValue -Object $profile -Name "source"
+            if ($null -eq $source) { return }
+            $kind = [string](Get-OptionalPropertyValue -Object $source -Name "kind")
+            $performerId = [string](Get-OptionalPropertyValue -Object $source -Name "performer_id")
+            if ($kind -eq "stash-performer" -and -not [string]::IsNullOrWhiteSpace($performerId)) {
+                $performerId
             }
         } |
         Sort-Object -Unique
@@ -121,7 +144,7 @@ query BodyRigPathDiscoveryLegacy($id: ID!, $limit: Int!) {
 }
 '@
 
-$rawPaths = New-Object System.Collections.Generic.List[string]
+$rawPaths = [System.Collections.Generic.List[string]]::new()
 foreach ($performerId in $performerIds) {
     $variables = @{ id = $performerId; limit = 200 }
     try {
@@ -129,11 +152,19 @@ foreach ($performerId in $performerIds) {
     } catch {
         $data = Invoke-StashGraphQl -Query $legacyQuery -Variables $variables
     }
-    foreach ($scene in @($data.findScenes.scenes)) {
-        $scenePerformerIds = @($scene.performers | ForEach-Object { [string]$_.id })
+    $findScenes = Get-OptionalPropertyValue -Object $data -Name "findScenes"
+    $scenes = @(Get-OptionalPropertyValue -Object $findScenes -Name "scenes")
+    foreach ($scene in $scenes) {
+        if ($null -eq $scene) { continue }
+        $performers = @(Get-OptionalPropertyValue -Object $scene -Name "performers")
+        $scenePerformerIds = @($performers | ForEach-Object {
+            [string](Get-OptionalPropertyValue -Object $_ -Name "id")
+        })
         if ($scenePerformerIds -notcontains [string]$performerId) { continue }
-        foreach ($file in @($scene.files)) {
-            $path = [string]$file.path
+        $files = @(Get-OptionalPropertyValue -Object $scene -Name "files")
+        foreach ($file in $files) {
+            if ($null -eq $file) { continue }
+            $path = [string](Get-OptionalPropertyValue -Object $file -Name "path")
             if (-not [string]::IsNullOrWhiteSpace($path) -and $path -match '^[A-Za-z]:[\\/]') {
                 $rawPaths.Add($path.Replace('/', '\'))
             }
@@ -155,7 +186,7 @@ foreach ($driveGroup in $driveGroups) {
         continue
     }
 
-    $prefixes = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+    $prefixes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     [void]$prefixes.Add("$drive`:\")
     foreach ($rawPath in @($driveGroup.Group)) {
         $relative = $rawPath.Substring(3)
@@ -191,10 +222,11 @@ foreach ($driveGroup in $driveGroups) {
     }
 
     if ($bestHits -gt 0 -and -not [string]::IsNullOrWhiteSpace($bestPrefix)) {
-        $mapping[$bestPrefix.TrimEnd('\')] = $shareRoot
+        $cleanPrefix = $bestPrefix.TrimEnd('\')
+        $mapping[$cleanPrefix] = $shareRoot
         $proof += [ordered]@{
             drive = $drive
-            source_prefix = $bestPrefix.TrimEnd('\')
+            source_prefix = $cleanPrefix
             share = $shareRoot
             verified_files = $bestHits
             candidate_files = $bestCoverage
