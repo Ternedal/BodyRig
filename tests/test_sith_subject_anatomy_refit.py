@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
-from bodyrig.bridges.sith_subject_anatomy_refit import (
+
+ROOT = Path(__file__).resolve().parents[1]
+BRIDGES = ROOT / "bodyrig" / "bridges"
+if str(BRIDGES) not in sys.path:
+    sys.path.insert(0, str(BRIDGES))
+
+from sith_subject_anatomy_refit import (  # noqa: E402
     SubjectAnatomyRefitError,
     _fit_payload,
     build_receipt,
