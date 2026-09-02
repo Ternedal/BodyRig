@@ -9,7 +9,7 @@ from bodyrig.bridges.avatar_fidelity_components import (
 
 
 def test_current_pipeline_truthfully_blocks_high_fidelity() -> None:
-    receipt = current_pipeline_receipt(reconstruction_gender="female")
+    receipt = current_pipeline_receipt()
     validated = validate_receipt(receipt)
 
     assert validated["components"] == {
@@ -31,7 +31,7 @@ def test_current_pipeline_truthfully_blocks_high_fidelity() -> None:
 
 
 def test_components_only_reach_high_fidelity_when_every_gate_is_complete() -> None:
-    receipt = current_pipeline_receipt(reconstruction_gender="female")
+    receipt = current_pipeline_receipt()
     for component in (
         "body_anatomy",
         "skin_appearance",
@@ -49,7 +49,7 @@ def test_components_only_reach_high_fidelity_when_every_gate_is_complete() -> No
 
 
 def test_component_receipt_rejects_inconsistent_ready_claim() -> None:
-    receipt = current_pipeline_receipt(reconstruction_gender="female")
+    receipt = current_pipeline_receipt()
     receipt["highFidelityReady"] = True
 
     try:
@@ -61,7 +61,7 @@ def test_component_receipt_rejects_inconsistent_ready_claim() -> None:
 
 
 def test_component_receipt_rejects_production_authorization() -> None:
-    receipt = current_pipeline_receipt(reconstruction_gender="female")
+    receipt = current_pipeline_receipt()
     receipt["productionReady"] = True
 
     try:
