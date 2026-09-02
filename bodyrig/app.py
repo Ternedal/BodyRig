@@ -426,6 +426,18 @@ def create_voice_revision(person_id: str, request: VoiceRevisionRequest) -> dict
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/people/{person_id}/voice/build-from-source")
+def start_source_voice_build(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+    language: str = Query(default="da", min_length=2, max_length=32),
+) -> dict:
+    try:
+        return ui_jobs.start_voice_build(person_id, body_revision=body_revision, language=language)
+    except (UiJobError, PersonProfileError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/people/{person_id}/voice/preview")
 def voice_preview(person_id: str, revision: str | None = None):
     try:
@@ -691,6 +703,22 @@ def get_ui_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/jobs/{job_id}/speaker")
+def choose_ui_voice_speaker(job_id: str, anchor: str = Query(min_length=3, max_length=64)) -> dict:
+    try:
+        return ui_jobs.choose_voice_speaker(job_id, anchor)
+    except UiJobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/jobs/{job_id}/reference")
+def choose_ui_voice_reference(job_id: str, choice: int = Query(ge=1, le=4)) -> dict:
+    try:
+        return ui_jobs.choose_voice_reference(job_id, choice)
+    except UiJobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/jobs/{job_id}/cancel")
 def cancel_ui_job(job_id: str) -> dict:
     try:
@@ -778,7 +806,7 @@ def apply_speech_timing(timing: SpeechTiming) -> dict:
         return runtime.apply_speech(timing).__dict__
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
+    
 
 @app.get("/api/v1/runtime/state")
 def runtime_state() -> dict:
