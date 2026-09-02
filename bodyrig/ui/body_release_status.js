@@ -9,6 +9,7 @@
     pass: "PASS",
     pending: "Afventer",
     unknown: "Ukendt",
+    blocked: "Blokeret",
     "machine-probe-required": "Probe kræves",
     "human-review-required": "Human review",
     "release-gate-required": "Release gate",
@@ -19,6 +20,8 @@
     "windows-attestation": "Windows human quality review",
     "quest-probe": "Quest fysisk probe",
     "quest-attestation": "Quest human quality review",
+    "reference-layout": "Canonical renderer-layout",
+    "reference-contract": "Reference renderer-contract",
     release: "Final release gate",
   };
   let requestSerial = 0;
@@ -125,6 +128,7 @@
     if (!summary || !badge || !next || !command) return;
     renderStages(value.stages);
     const production = value.production_activation === true && value.state === "complete" && value.gate === "release";
+    const operator = value.operator_checkout && typeof value.operator_checkout === "object" ? value.operator_checkout : {};
     badge.textContent = production ? "Production gate PASS" : "Production låst";
     badge.classList.toggle("muted", !production);
     const gate = GATE_LABELS[value.gate] || value.gate || "Ukendt gate";
@@ -133,6 +137,10 @@
       next.textContent = "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen release-status antages.";
     } else if (production) {
       next.textContent = "Final release artifact er revalideret som production-activating PASS for denne eksakte body revision.";
+    } else if (value.state === "blocked") {
+      next.textContent = `Fysisk acceptance er blokeret ved ${gate}. Ret evidence/contract-driften før næste trin.`;
+    } else if (operator.required === true && operator.ready !== true) {
+      next.textContent = `Operator checkout blokerer næste kommando: ${operator.reason || "checkout-authority kunne ikke bevises"}.`;
     } else {
       next.textContent = `Næste authority: ${gate}. Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.`;
     }
