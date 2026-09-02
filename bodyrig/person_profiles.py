@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .person_source_alignment import PersonSourceAlignmentError, read_binding, require_alignment, write_binding
+from .person_source_alignment import PersonSourceAlignmentError, read_binding, require_alignment
 
 FORMAT = "modelrig-person-profile"
 VERSION = 1
@@ -477,21 +477,7 @@ def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id
     })
     profile["voice_revisions"].append(revision)
     saved = _save(root, profile)
-    if saved.get("source") is not None:
-        try:
-            write_binding(
-                root,
-                saved,
-                kind="voice",
-                revision_id=revision["revision_id"],
-                evidence_kind="voicerig-package-v1",
-                evidence_sha256=revision["package_sha256"],
-                evidence_ref=revision["voice_package"],
-            )
-        except PersonSourceAlignmentError as exc:
-            raise PersonProfileError(f"could not bind voice revision to person source: {exc}") from exc
-        return load_profile(root, person_id)
-    return saved
+    return load_profile(root, person_id) if saved.get("source") is not None else saved
 
 
 def add_personality_revision(root: str | os.PathLike[str], person_id: str, *, instructions: str, default_language: str = "da", style_notes: str = "", feedback: str = "", activate: bool = False) -> dict[str, Any]:
