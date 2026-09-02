@@ -4,6 +4,7 @@ import math
 from typing import Any, Mapping
 
 from avatar_fidelity_components import current_pipeline_receipt
+from face_secondary_fidelity import current_face_secondary_receipt
 from sith_canonical_bake_metadata import (
     CanonicalBakeMetadataError,
     canonical_appearance_transfer,
@@ -143,6 +144,9 @@ def replace_with_anatomy_bake_metadata(
         raise AnatomyBakeMetadataError("BodyRig VRM metadata is missing")
     if "fidelityComponents" in bodyrig:
         raise AnatomyBakeMetadataError("BodyRig fidelity component receipt is already present")
+    if "faceSecondaryFidelity" in bodyrig:
+        raise AnatomyBakeMetadataError("BodyRig face-secondary receipt is already present")
     bodyrig["appearanceTransfer"] = anatomy_appearance_transfer(bodyrig, mapping_metrics)
     bodyrig["fidelityComponents"] = current_pipeline_receipt()
+    bodyrig["faceSecondaryFidelity"] = current_face_secondary_receipt()
     return _write_glb(document, binary)
