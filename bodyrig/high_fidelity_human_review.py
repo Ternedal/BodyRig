@@ -204,13 +204,17 @@ def review_status(package_path: str | Path) -> dict[str, Any]:
         audit = audit_high_fidelity_package(package)
     except (OSError, HighFidelityPackageAuditError) as exc:
         return {"state": "unavailable", "passed": False, "reason": f"High-fidelity package audit failed: {exc}"}
+    actual_sha = _sha256_file(package)
+    audited_sha = str(audit.get("package_sha256") or "").strip().lower()
+    if audited_sha != actual_sha:
+        raise HighFidelityHumanReviewError("high-fidelity audit package SHA no longer matches package bytes")
     if audit.get("high_fidelity_ready") is not True:
         return {
             "state": "blocked",
             "passed": False,
             "reason": "High-fidelity component gates must be complete before human fidelity review.",
         }
-    path = review_path(package, package_sha256=str(audit.get("package_sha256") or ""))
+    path = review_path(package, package_sha256=actual_sha)
     if not path.is_file():
         return {
             "state": "required",
