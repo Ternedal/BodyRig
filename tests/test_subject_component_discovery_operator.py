@@ -11,6 +11,7 @@ def test_subject_component_discovery_is_bound_to_exact_anatomy_candidate() -> No
         '[string]$candidateAudit.donorObjSha256 -ne $donorSha',
         '[string]$hair.donorObjSha256 -ne $donorSha',
         '[string]$eyes.donorObjSha256 -ne $donorSha',
+        '[string]$eyeAppearance.donorObjSha256 -ne $donorSha',
         '$summary.reconstruction_rerun -ne $false',
         '$summary.production_activation -ne $false',
         'high_fidelity_ready = $false',
@@ -24,6 +25,11 @@ def test_subject_component_discovery_keeps_incomplete_eye_truth_explicit() -> No
     source = (Path(__file__).resolve().parents[1] / "run-subject-component-discovery.ps1").read_text(encoding="utf-8")
 
     assert '$eyes.sourceDerivedIrisAppearance -ne $false' in source
+    assert '$eyeAppearance.sourceDerivedEyeSurfaceAppearance -ne $true' in source
+    assert '$eyeAppearance.irisIdentityIsolated -ne $false' in source
+    assert '[string]$eyeAppearance.irisAppearanceStatus -ne "review-pending"' in source
+    assert 'source_derived_eye_surface_appearance = $true' in source
     assert 'source_derived_iris_appearance = $false' in source
-    assert 'Iris:           MISSING' in source
+    assert 'iris_identity_isolated = $false' in source
+    assert 'Iris identity:  REVIEW-PENDING (not isolated)' in source
     assert 'Human review:   REQUIRED' in source
