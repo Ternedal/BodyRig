@@ -1,12 +1,21 @@
 param(
     [string]$Remote = "origin",
     [string]$Branch = "agent/person-studio-photoreal-20260902",
+    [string]$RepoRoot = "",
     [switch]$NoBrowser
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-Set-Location $PSScriptRoot
+
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = $PSScriptRoot
+}
+$RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git") -PathType Container)) {
+    throw "RepoRoot er ikke et BodyRig Git-checkout: $RepoRoot"
+}
+Set-Location $RepoRoot
 
 function Get-BodyRigHealth {
     try {
@@ -89,7 +98,7 @@ if ($LASTEXITCODE -ne 0 -or $dirtyAfter.Count -gt 0) {
     throw "Target checkout er ikke clean efter update."
 }
 
-$python = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+$python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Repoets .venv mangler. Opret den først med Python 3.11."
 }
@@ -99,7 +108,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "BodyRig venv-opdatering fejlede."
 }
 
-$start = Join-Path $PSScriptRoot "start-windows.ps1"
+$start = Join-Path $RepoRoot "start-windows.ps1"
 if ($NoBrowser) {
     & $start -NoBrowser
 } else {
