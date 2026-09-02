@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import ntpath
 from types import SimpleNamespace
 
 import bodyrig.stash_cli as stash_cli
@@ -10,7 +10,7 @@ from bodyrig.stash_cli import _auto_remote_vr_path
 def _windows_os(*, isfile):
     return SimpleNamespace(
         name="nt",
-        path=SimpleNamespace(join=os.path.join, isfile=isfile),
+        path=SimpleNamespace(join=ntpath.join, isfile=isfile),
     )
 
 
