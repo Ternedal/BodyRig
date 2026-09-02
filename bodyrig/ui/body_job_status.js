@@ -88,7 +88,7 @@
         timer = setTimeout(refresh, 0);
         return;
       }
-      const job = Array.isArray(payload.jobs) && payload.jobs.length ? payload.jobs[0] : null;
+      const job = Array.isArray(payload.jobs) ? payload.jobs.find((item) => item?.kind === "body-build") || null : null;
       render(job);
       timer = setTimeout(refresh, job && ACTIVE.has(job.status) ? 2000 : 5000);
     } catch (error) {
@@ -320,5 +320,304 @@
     }
   });
   ensureAlignmentCard();
+  void refresh();
+})();
+
+(() => {
+  const OPEN = new Set(["uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"]);
+  const POLL_FAST = new Set(["uploading", "queued", "running", "cancelling"]);
+  let timer = null;
+  let lastPersonId = "";
+  let currentProfile = null;
+  let currentJob = null;
+
+  function currentPersonId() {
+    return (document.getElementById("personId")?.textContent || "").trim();
+  }
+
+  async function apiJson(url, options = {}) {
+    const response = await fetch(url, {
+      ...options,
+      headers: { Accept: "application/json", ...(options.headers || {}) },
+      cache: "no-store",
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail || payload));
+    return payload;
+  }
+
+  function ensureCard() {
+    let card = document.getElementById("sourceVoiceBuildCard");
+    if (card) return card;
+    const tab = document.getElementById("tab-voice");
+    if (!tab) return null;
+    card = document.createElement("article");
+    card.id = "sourceVoiceBuildCard";
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-row">
+        <div>
+          <div class="card-label">Source-bound VoiceRig</div>
+          <p class="muted-text">Byg stemmen af de samme eksakte Stash-videofiler, som den valgte body revision er bundet til.</p>
+        </div>
+        <span id="sourceVoiceBadge" class="badge muted">Ikke startet</span>
+      </div>
+      <div class="field-row">
+        <div><label for="sourceVoiceBody">Kilde-body</label><select id="sourceVoiceBody"><option value="">Henter source-bound bodies…</option></select></div>
+        <div><label for="sourceVoiceLanguage">Sprog</label><input id="sourceVoiceLanguage" value="da" maxlength="32"></div>
+      </div>
+      <button id="sourceVoiceStart" class="primary full" disabled>Byg stemme fra samme Stash-kilde</button>
+      <div id="sourceVoiceSummary" class="fine-print">Vælg en source-bound body revision.</div>
+      <progress id="sourceVoiceProgress" max="100" value="0" class="full"></progress>
+      <div id="sourceVoiceChoices" class="revision-list"></div>
+      <div id="sourceVoiceResult" class="proposal muted-text"></div>
+      <p class="fine-print">Manuelt valgte/importerede VoiceRig-stemmer er fortsat brugbare som drafts, men får ikke source authority og kan derfor ikke godkendes som samme Stash-person.</p>`;
+    tab.prepend(card);
+    document.getElementById("sourceVoiceStart")?.addEventListener("click", () => void startBuild());
+    return card;
+  }
+
+  function statusLabel(status) {
+    return ({
+      uploading: "Uploader",
+      queued: "I kø",
+      running: "Bygger",
+      needs_speaker: "Vælg speaker",
+      needs_reference: "Vælg reference",
+      cancelling: "Annullerer",
+      succeeded: "Kilde ✓",
+      failed: "Fejlet",
+      canceled: "Annulleret",
+      interrupted: "Afbrudt",
+    })[status] || status || "Ikke startet";
+  }
+
+  function setStartEnabled() {
+    const button = document.getElementById("sourceVoiceStart");
+    const body = document.getElementById("sourceVoiceBody");
+    if (!button || !body) return;
+    button.disabled = !currentProfile?.source || !body.value || Boolean(currentJob && OPEN.has(currentJob.status));
+  }
+
+  function populateBodies(profile) {
+    const select = document.getElementById("sourceVoiceBody");
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = "";
+    const statuses = profile?._source_alignment?.components?.body || {};
+    const bodies = (profile?.body_revisions || []).filter((item) => statuses[item.revision_id]?.aligned === true);
+    if (!bodies.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = profile?.source ? "Ingen source-bound body med verificeret evidence" : "Personen har ingen Stash source authority";
+      select.appendChild(option);
+    } else {
+      for (const item of bodies) {
+        const option = document.createElement("option");
+        option.value = item.revision_id;
+        option.textContent = `${item.revision_id} · ${item.body_id} · ${statuses[item.revision_id].evidence_kind || "source evidence"}`;
+        select.appendChild(option);
+      }
+      if (bodies.some((item) => item.revision_id === previous)) select.value = previous;
+      else select.value = bodies.at(-1).revision_id;
+    }
+    const language = document.getElementById("sourceVoiceLanguage");
+    if (language && !language.dataset.userEdited) {
+      const latestPersonality = (profile?.personality_revisions || []).at(-1);
+      language.value = latestPersonality?.default_language || "da";
+    }
+    select.onchange = setStartEnabled;
+    if (language && !language.dataset.wired) {
+      language.dataset.wired = "1";
+      language.addEventListener("input", () => { language.dataset.userEdited = "1"; });
+    }
+    setStartEnabled();
+  }
+
+  function addAudioChoice(container, choice, kind) {
+    const row = document.createElement("div");
+    row.className = "revision-item";
+    const top = document.createElement("div");
+    top.className = "revision-top";
+    const text = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "revision-id";
+    title.textContent = String(choice.label || (kind === "speaker" ? choice.anchor : `Reference ${choice.choice}`));
+    const meta = document.createElement("div");
+    meta.className = "revision-meta";
+    if (kind === "speaker") meta.textContent = `${Number(choice.speech_seconds || 0).toFixed(1)} s tale · ${choice.anchor || ""}`;
+    else meta.textContent = `Quality ${choice.quality_score ?? "?"} · ${Number(choice.reference_seconds || 0).toFixed(1)} s reference`;
+    text.append(title, meta);
+    const button = document.createElement("button");
+    button.className = "secondary";
+    button.type = "button";
+    button.textContent = "Vælg";
+    button.addEventListener("click", () => void choose(kind, choice, button));
+    top.append(text, button);
+    row.appendChild(top);
+    if (choice.preview_wav_base64) {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "none";
+      audio.className = "full";
+      audio.src = `data:audio/wav;base64,${choice.preview_wav_base64}`;
+      row.appendChild(audio);
+    }
+    container.appendChild(row);
+  }
+
+  function renderChoices(job) {
+    const target = document.getElementById("sourceVoiceChoices");
+    if (!target) return;
+    target.innerHTML = "";
+    if (job?.status === "needs_speaker" && Array.isArray(job.speaker_choices)) {
+      for (const choice of job.speaker_choices) addAudioChoice(target, choice, "speaker");
+    } else if (job?.status === "needs_reference" && Array.isArray(job.reference_choices)) {
+      for (const choice of job.reference_choices) addAudioChoice(target, choice, "reference");
+    }
+  }
+
+  function renderJob(job) {
+    currentJob = job || null;
+    const badge = document.getElementById("sourceVoiceBadge");
+    const summary = document.getElementById("sourceVoiceSummary");
+    const progress = document.getElementById("sourceVoiceProgress");
+    const result = document.getElementById("sourceVoiceResult");
+    if (!badge || !summary || !progress || !result) return;
+    if (!job) {
+      badge.textContent = "Ikke startet";
+      badge.classList.add("muted");
+      summary.textContent = "Ingen source-derived VoiceRig-job for denne person endnu.";
+      progress.value = 0;
+      result.textContent = "";
+      renderChoices(null);
+      setStartEnabled();
+      return;
+    }
+    badge.textContent = statusLabel(job.status);
+    badge.classList.toggle("muted", job.status !== "succeeded");
+    progress.value = Number.isFinite(Number(job.progress)) ? Math.max(0, Math.min(100, Number(job.progress))) : 0;
+    summary.textContent = `${job.body_revision || "?"} · ${job.stage || job.status} · ${job.message || ""}`;
+    renderChoices(job);
+    if (job.status === "succeeded") {
+      result.innerHTML = "";
+      const text = document.createElement("div");
+      text.textContent = `${job.voice_revision} · ${job.voice_package} · source-binding ${String(job.source_binding_sha256 || "").slice(0, 16)}…`;
+      const reload = document.createElement("button");
+      reload.type = "button";
+      reload.className = "secondary";
+      reload.textContent = "Indlæs den nye voice-kandidat i Person Studio";
+      reload.addEventListener("click", () => location.reload());
+      result.append(text, reload);
+    } else if (["failed", "canceled", "interrupted"].includes(job.status)) {
+      result.textContent = job.error ? `Fail-closed: ${job.error}` : statusLabel(job.status);
+    } else {
+      result.textContent = `VoiceRig job ${job.voicerig_job_id || "oprettes"} · source manifest ${String(job.source_manifest_sha256 || "").slice(0, 16)}…`;
+    }
+    setStartEnabled();
+  }
+
+  async function choose(kind, choice, button) {
+    if (!currentJob) return;
+    button.disabled = true;
+    try {
+      const suffix = kind === "speaker"
+        ? `/speaker?anchor=${encodeURIComponent(choice.anchor)}`
+        : `/reference?choice=${encodeURIComponent(choice.choice)}`;
+      const job = await apiJson(`/api/v1/jobs/${encodeURIComponent(currentJob.job_id)}${suffix}`, { method: "POST" });
+      renderJob(job);
+      schedule();
+    } catch (error) {
+      const result = document.getElementById("sourceVoiceResult");
+      if (result) result.textContent = `Valget blev afvist: ${error.message}`;
+      button.disabled = false;
+    }
+  }
+
+  async function startBuild() {
+    const personId = currentPersonId();
+    const body = document.getElementById("sourceVoiceBody")?.value || "";
+    const language = (document.getElementById("sourceVoiceLanguage")?.value || "da").trim();
+    if (!personId || !body) return;
+    const button = document.getElementById("sourceVoiceStart");
+    if (button) button.disabled = true;
+    try {
+      const job = await apiJson(
+        `/api/v1/people/${encodeURIComponent(personId)}/voice/build-from-source?body_revision=${encodeURIComponent(body)}&language=${encodeURIComponent(language)}`,
+        { method: "POST" },
+      );
+      renderJob(job);
+      schedule();
+    } catch (error) {
+      const result = document.getElementById("sourceVoiceResult");
+      if (result) result.textContent = `Source voice-build kunne ikke startes: ${error.message}`;
+      currentJob = null;
+      setStartEnabled();
+    }
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    const delay = currentJob && POLL_FAST.has(currentJob.status) ? 2000 : currentJob && OPEN.has(currentJob.status) ? 5000 : 8000;
+    timer = setTimeout(() => void refresh(), delay);
+  }
+
+  async function refresh() {
+    clearTimeout(timer);
+    ensureCard();
+    const personId = currentPersonId();
+    lastPersonId = personId;
+    if (!personId) {
+      currentProfile = null;
+      renderJob(null);
+      schedule();
+      return;
+    }
+    try {
+      const [profile, jobsPayload] = await Promise.all([
+        apiJson(`/api/v1/people/${encodeURIComponent(personId)}`),
+        apiJson(`/api/v1/jobs?person_id=${encodeURIComponent(personId)}`),
+      ]);
+      if (currentPersonId() !== personId) return void refresh();
+      currentProfile = profile;
+      populateBodies(profile);
+      let job = Array.isArray(jobsPayload.jobs) ? jobsPayload.jobs.find((item) => item?.kind === "voice-build") || null : null;
+      if (job && OPEN.has(job.status)) job = await apiJson(`/api/v1/jobs/${encodeURIComponent(job.job_id)}`);
+      if (currentPersonId() !== personId) return void refresh();
+      renderJob(job);
+    } catch (error) {
+      const badge = document.getElementById("sourceVoiceBadge");
+      const result = document.getElementById("sourceVoiceResult");
+      if (badge) {
+        badge.textContent = "Statusfejl";
+        badge.classList.add("muted");
+      }
+      if (result) result.textContent = `Kunne ikke verificere source voice-status: ${error.message}`;
+      currentJob = { status: "running" };
+      setStartEnabled();
+    } finally {
+      schedule();
+    }
+  }
+
+  const personIdNode = document.getElementById("personId");
+  if (personIdNode) {
+    new MutationObserver(() => {
+      const personId = currentPersonId();
+      if (personId !== lastPersonId) {
+        clearTimeout(timer);
+        currentJob = null;
+        currentProfile = null;
+        void refresh();
+      }
+    }).observe(personIdNode, { childList: true, characterData: true, subtree: true });
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      clearTimeout(timer);
+      void refresh();
+    }
+  });
+  ensureCard();
   void refresh();
 })();
