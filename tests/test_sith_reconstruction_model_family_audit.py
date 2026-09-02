@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
-from bodyrig.bridges.sith_reconstruction_model_family_audit import (
+
+ROOT = Path(__file__).resolve().parents[1]
+BRIDGES = ROOT / "bodyrig" / "bridges"
+if str(BRIDGES) not in sys.path:
+    sys.path.insert(0, str(BRIDGES))
+
+from sith_reconstruction_model_family_audit import (  # noqa: E402
     ReconstructionModelFamilyAuditError,
     build_receipt,
 )
