@@ -27,6 +27,10 @@ from .portable_identity import (
     provenance_identity_stage,
 )
 from .proof import ProofError, load_recovery_proof, read_canonical_json
+from .subject_anatomy_provenance import (
+    SubjectAnatomyProvenanceError,
+    provenance_stage as subject_anatomy_provenance_stage,
+)
 
 CONFIG_FORMAT = "bodyrig-external-fitter-config"
 CONFIG_VERSION = 1
@@ -130,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         help="Optional proof-bound bodyrig-bodyprint-adjustment-evidence v1 JSON",
     )
+    parser.add_argument(
+        "--subject-anatomy-refit",
+        default="",
+        help="Optional comparison-only bodyrig-subject-anatomy-refit v1 evidence to bind into package provenance",
+    )
     parser.add_argument("--name", required=True, help="Display name for the avatar")
     parser.add_argument("--out", required=True, help="Output .mrbody path")
     args = parser.parse_args(argv)
@@ -171,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             adjustment_hash = adjustment_evidence_sha256(adjustment_path)
 
+        anatomy_stage = None
+        if str(args.subject_anatomy_refit or "").strip():
+            anatomy_stage = subject_anatomy_provenance_stage(args.subject_anatomy_refit)
+
         fitted = run_external_fitter(
             config["command"],
             workspace=args.identity_workspace,
@@ -198,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
                     "revision": adjustment_hash,
                 }
             )
+        if anatomy_stage is not None:
+            pipeline.append(anatomy_stage)
         pipeline.append(
             {
                 "stage": "visual-identity-capture",
@@ -240,6 +255,7 @@ def main(argv: list[str] | None = None) -> int:
         VisualIdentityError,
         PortableIdentityError,
         BodyprintAdjustmentEvidenceError,
+        SubjectAnatomyProvenanceError,
         ExternalFitterConfigError,
         ExternalFitterError,
         MRBodyError,
