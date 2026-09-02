@@ -11,7 +11,8 @@ def test_person_studio_loads_one_click_source_workflow() -> None:
     assert "Byg hele personen fra Stash" in JS
     assert "/body/build" in JS
     assert "/voice/build-from-source" in JS
-    assert "/personality/guided/revisions" in JS
+    assert "/personality/build-from-source" in JS
+    assert "/personality/guided/revisions" not in JS
 
 
 def test_manual_voice_and_personality_are_not_primary_flow() -> None:
@@ -21,10 +22,11 @@ def test_manual_voice_and_personality_are_not_primary_flow() -> None:
     assert "Automatisk personality" in JS
 
 
-def test_automatic_personality_is_source_conservative_and_body_bound() -> None:
-    assert "Do not invent biography, memories, relationships, private facts" in JS
-    assert "body_revision: workflow.body_revision" in JS
-    assert "Automatic source-grounded baseline from" in JS
+def test_automatic_personality_uses_transcript_evidence_or_neutral_fallback() -> None:
+    assert "transcript/caption-kilder" in JS
+    assert "neutral source-bound fallback" in JS
+    assert "Automatic source-derived personality from" in JS
+    assert "body_revision=" in JS
 
 
 def test_automatic_flow_survives_refresh_without_restarting_physical_body() -> None:
