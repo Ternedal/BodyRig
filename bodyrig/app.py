@@ -33,6 +33,7 @@ from .person_audition import (
     verify_audition,
     write_audition,
 )
+from .person_body_review import PersonBodyReviewError, read_review, review_image_path
 from .person_profiles import (
     PersonProfileError,
     activate_person_revision,
@@ -741,6 +742,58 @@ def body_preview(person_id: str, revision: str | None = None):
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Body preview is invalid: {exc}") from exc
     return Response(content=payload, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/people/{person_id}/body/review")
+def body_review(person_id: str, revision: str | None = None) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        review = read_review(person_library(), profile, body_revision=str(item["revision_id"]))
+    except PersonBodyReviewError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "person_id": person_id,
+        "body_revision": item["revision_id"],
+        "body_id": review["body_id"],
+        "package_sha256": review["package_sha256"],
+        "bodyrig_revision": review["bodyrig_revision"],
+        "semantics": review["semantics"],
+        "views": [
+            {
+                "view": view["view"],
+                "sha256": view["sha256"],
+                "width": view["width"],
+                "height": view["height"],
+                "url": f"/api/v1/people/{person_id}/body/review/{view['view']}?revision={item['revision_id']}",
+            }
+            for view in review["views"]
+        ],
+    }
+
+
+@app.get("/api/v1/people/{person_id}/body/review/{view}")
+def body_review_image(person_id: str, view: str, revision: str | None = None):
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        path = review_image_path(
+            person_library(),
+            profile,
+            body_revision=str(item["revision_id"]),
+            view=view,
+        )
+    except PersonBodyReviewError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/people/{person_id}/body/avatar")
