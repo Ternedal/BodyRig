@@ -45,6 +45,7 @@ from .person_profiles import (
     list_profiles,
     load_profile,
 )
+from .person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
 from .runtime import BodyRuntime
 from .stash_source import StashClient, StashConfig, StashSourceError
 from .storage import body_library as _body_library
@@ -774,6 +775,26 @@ def body_review(person_id: str, revision: str | None = None) -> dict:
             for view in review["views"]
         ],
     }
+
+
+@app.get("/api/v1/people/{person_id}/body/release-status")
+def body_release_status(person_id: str, revision: str | None = None) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        return inspect_candidate_release_status(
+            ui_jobs.list(person_id=person_id),
+            person_id=person_id,
+            body_revision=str(item["revision_id"]),
+            body_id=str(item["body_id"]),
+            package_sha256=str(item["package_sha256"]),
+        )
+    except PersonReleaseStatusError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/people/{person_id}/body/review/{view}")
