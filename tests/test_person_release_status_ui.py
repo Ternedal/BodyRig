@@ -13,6 +13,8 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert '/body/release-status?revision=' in js
     assert 'Gate A' in js and 'Windows' in js and 'Quest' in js and 'Release' in js
     assert 'Production låst' in js and 'Production gate PASS' in js
+    assert 'En aktiv Person Revision betyder kun' in js
+    assert 'det er ikke production authority.' in js
     assert 'Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.' in js
     assert 'Static fidelity-billeder er ikke release authority.' in js
     assert 'blocked: "Blokeret"' in js
