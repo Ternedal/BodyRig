@@ -168,6 +168,8 @@ def test_review_does_not_survive_package_byte_change(
     first_audit = _audit(package)
     monkeypatch.setattr("bodyrig.high_fidelity_human_review.audit_high_fidelity_package", lambda _: first_audit)
     write_review(package, checklist=_checklist(), quality_note="review for original bytes")
+    original_review = review_path(package)
+    assert original_review.is_file()
 
     package.write_bytes(b"changed-package-bytes")
     changed_audit = _audit(package)
@@ -176,7 +178,8 @@ def test_review_does_not_survive_package_byte_change(
     status = review_status(package)
     assert status["state"] == "required"
     assert status["passed"] is False
-    assert not review_path(package).with_name(review_path(package).name).samefile(review_path(package)) if False else True
+    assert review_path(package) != original_review
+    assert original_review.is_file()
 
 
 def test_component_state_drift_invalidates_existing_review_even_when_package_sha_is_same(
