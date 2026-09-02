@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from bodyrig.face_secondary_fidelity import (
+from bodyrig.bridges.face_secondary_fidelity import (
     FaceSecondaryFidelityError,
     current_face_secondary_receipt,
     validate_face_secondary_receipt,
