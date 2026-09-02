@@ -49,10 +49,19 @@ def test_automatic_body_progress_uses_backend_evidence_when_available() -> None:
     assert "job.progress" in JS
     assert "job.message || job.stage" in JS
     assert "progress_kind" in JS
+    assert "pipeline-phase-estimate-v1" in JS
     assert "diagnostic_tail" in JS
+
+
+def test_automatic_body_progress_keeps_grouped_recovery_phase_truthful() -> None:
+    assert "bodyPhaseMessage" in JS
+    assert 'job?.stage === "high_fidelity_reconstruction"' in JS
+    assert "Recovery/identity/high-fidelity pipeline" in JS
+    assert "PHALP/4D-Humans" in JS
 
 
 def test_automatic_body_progress_never_claims_timer_as_real_percentage() -> None:
     assert "typisk 45–120 min" in JS
     assert "backend-progress" in JS
+    assert "fase-evidence" in JS
     assert "opdigtet procent" in JS
