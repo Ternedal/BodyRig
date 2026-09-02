@@ -12,7 +12,9 @@ from .acceptance_status import (
     QUALITY_REVIEW_FIELDS,
     inspect_acceptance_dir,
 )
+from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .reference_acceptance_policy import apply_reference_policy
+from .storage import body_library
 
 FORMAT = "bodyrig-person-release-status"
 VERSION = 1
@@ -50,6 +52,66 @@ def _sha(value: Any, label: str) -> str:
     if not _SHA256.fullmatch(text):
         raise PersonReleaseStatusError(f"{label} is not a canonical SHA-256")
     return text
+
+
+def _registered_fidelity_status(*, body_id: str, expected_sha: str) -> dict[str, Any]:
+    package = body_library() / f"{body_id}.mrbody"
+    unavailable = {
+        "state": "unavailable",
+        "high_fidelity_ready": False,
+        "components": {},
+        "blockers": [],
+        "face_secondary": {
+            "ready": False,
+            "components": {},
+            "blockers": [],
+            "semantic_vertex_map_authority": "unavailable",
+        },
+        "human_review_required": True,
+        "production_ready": False,
+        "reason": None,
+    }
+    if not package.is_file():
+        return {
+            **unavailable,
+            "reason": "Canonical installed body package is unavailable for high-fidelity audit.",
+        }
+    try:
+        audit = audit_high_fidelity_package(package)
+    except (OSError, HighFidelityPackageAuditError) as exc:
+        return {
+            **unavailable,
+            "reason": f"High-fidelity package evidence is unavailable or invalid: {exc}",
+        }
+
+    audited_body_id = str(audit.get("canonical_body_id") or "")
+    if audited_body_id != body_id:
+        raise PersonReleaseStatusError("high-fidelity package body id no longer matches the registered revision")
+    audited_sha = _sha(audit.get("package_sha256"), "high-fidelity package SHA-256")
+    if audited_sha != expected_sha:
+        raise PersonReleaseStatusError("high-fidelity package SHA no longer matches the registered body revision")
+
+    ready = bool(audit.get("high_fidelity_ready"))
+    components = dict(audit.get("components") or {})
+    blockers = list(audit.get("top_level_blockers") or [])
+    face_ready = bool(audit.get("face_secondary_ready"))
+    face_components = dict(audit.get("face_secondary_components") or {})
+    face_blockers = list(audit.get("face_secondary_blockers") or [])
+    return {
+        "state": "ready" if ready else "blocked",
+        "high_fidelity_ready": ready,
+        "components": components,
+        "blockers": blockers,
+        "face_secondary": {
+            "ready": face_ready,
+            "components": face_components,
+            "blockers": face_blockers,
+            "semantic_vertex_map_authority": str(audit.get("semantic_vertex_map_authority") or "unavailable"),
+        },
+        "human_review_required": bool(audit.get("human_review_required", True)),
+        "production_ready": bool(audit.get("production_ready", False)),
+        "reason": None if ready else "High-fidelity body components remain incomplete or unapproved.",
+    }
 
 
 def _platform_paths(acceptance_dir: Path, prefix: str) -> tuple[Path, Path]:
@@ -209,6 +271,7 @@ def inspect_candidate_release_status(
     operator_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected_sha = _sha(package_sha256, "registered body package_sha256")
+    fidelity = _registered_fidelity_status(body_id=body_id, expected_sha=expected_sha)
     candidates = [
         dict(job)
         for job in jobs
@@ -231,6 +294,8 @@ def inspect_candidate_release_status(
             "package_sha256": expected_sha,
             "bodyrig_revision": None,
             "production_activation": False,
+            "production_ready": False,
+            "fidelity": fidelity,
             "message": "No succeeded BodyRig UI physical-build evidence chain is available for this body revision.",
             "next_command": None,
             "operator_checkout": {"required": False, "ready": False, "reason": "No originating physical-build chain"},
@@ -268,6 +333,7 @@ def inspect_candidate_release_status(
 
     payload = asdict(status)
     production = payload["state"] == "complete" and payload["gate"] == "release"
+    production_ready = production and fidelity.get("high_fidelity_ready") is True
     operator_required = not production and payload["state"] not in {"blocked", "unavailable"}
     operator_ready = False
     operator_root: Path | None = None
@@ -286,6 +352,8 @@ def inspect_candidate_release_status(
     message = str(payload["message"])
     if operator_required and not operator_ready and operator_reason:
         message += f" Executable next command withheld: {operator_reason}."
+    if production and not production_ready:
+        message += " Physical release is complete, but Person Studio production remains locked by high-fidelity component evidence."
     next_command = None
     if operator_ready and operator_root is not None:
         next_command = _operator_next_command(
@@ -306,6 +374,8 @@ def inspect_candidate_release_status(
         "package_sha256": expected_sha,
         "bodyrig_revision": payload["bodyrig_revision"],
         "production_activation": production,
+        "production_ready": production_ready,
+        "fidelity": fidelity,
         "message": message,
         "next_command": next_command,
         "operator_checkout": {
