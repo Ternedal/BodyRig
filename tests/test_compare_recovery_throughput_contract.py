@@ -19,8 +19,8 @@ def test_wrapper_uses_the_same_bodyrig_data_root_for_jobs_and_people() -> None:
     assert '"--person-root", $personRoot' in SCRIPT
 
 
-def test_wrapper_invokes_canonical_throughput_audit_module() -> None:
-    assert '"-m", "bodyrig.recovery_throughput_audit"' in SCRIPT
+def test_wrapper_invokes_versioned_sampling_audit_module() -> None:
+    assert '"-m", "bodyrig.recovery_throughput_sampling_audit"' in SCRIPT
     assert '"--out"' in SCRIPT
     assert '".venv\\Scripts\\python.exe"' in SCRIPT
 
