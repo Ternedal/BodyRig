@@ -57,10 +57,18 @@ def test_materialized_observation_segments_cap_temporal_rate_without_scaling(tmp
     assert len(calls) == 1
     argv = calls[0]
     filter_index = argv.index("-vf")
-    assert argv[filter_index + 1] == "fps=15"
+    assert argv[filter_index + 1] == "fps='min(15,source_fps)'"
     assert "scale=" not in " ".join(argv)
     assert argv[argv.index("-t") + 1] == "12.000"
     assert manifest["segments"][0]["duration_seconds"] == 12.0
+
+
+def test_segment_fps_cap_never_requests_temporal_upsampling() -> None:
+    source = Path(__file__).resolve().parents[1] / "bodyrig" / "observation.py"
+    text = source.read_text(encoding="utf-8")
+    assert "source_fps" in text
+    assert "min({OBSERVATION_SEGMENT_FPS},source_fps)" in text
+    assert 'f"fps={OBSERVATION_SEGMENT_FPS}"' not in text
 
 
 def test_segment_fps_cap_is_not_a_spatial_quality_tradeoff() -> None:
@@ -69,5 +77,5 @@ def test_segment_fps_cap_is_not_a_spatial_quality_tradeoff() -> None:
     # selected observation bytes used by identity capture/high-fidelity fitting.
     source = Path(__file__).resolve().parents[1] / "bodyrig" / "observation.py"
     text = source.read_text(encoding="utf-8")
-    assert 'f"fps={OBSERVATION_SEGMENT_FPS}"' in text
+    assert 'f"fps=\'min({OBSERVATION_SEGMENT_FPS},source_fps)\'"' in text
     assert '"scale=' not in text
