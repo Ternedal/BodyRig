@@ -71,6 +71,13 @@
     return `${secs} sek`;
   }
 
+  function bodyPhaseMessage(job) {
+    if (job?.stage === "high_fidelity_reconstruction") {
+      return "Recovery/identity/high-fidelity pipeline kører. Lange PHALP/4D-Humans segmenter kan være stille i hovedloggen.";
+    }
+    return String(job?.message || job?.stage || job?.status || "kører");
+  }
+
   function renderBodyProgress(job) {
     const wrap = $("autoPersonBuildProgress");
     const bar = $("autoPersonBuildProgressBar");
@@ -96,8 +103,9 @@
     if (hasReportedProgress) {
       bar.max = 100;
       bar.value = Math.max(0, Math.min(100, reported));
-      const phase = String(job.message || job.stage || job.status || "kører");
-      text.textContent = `Krop: ${phase} · ca. ${Math.round(reported)}% · kørt ${formatDuration(elapsed)}`;
+      const phase = bodyPhaseMessage(job);
+      const estimate = job.progress_kind === "pipeline-phase-estimate-v1" ? "faseestimat" : "progress";
+      text.textContent = `Krop: ${phase} · ca. ${Math.round(reported)}% ${estimate} · kørt ${formatDuration(elapsed)}`;
       return;
     }
 
@@ -152,7 +160,7 @@
           <div id="autoPersonBuildProgressText" class="fine-print">Forbereder …</div>
         </div>
         <div id="autoPersonBuildStatus" class="proposal muted-text">Klar når personen er bundet til Stash.</div>
-        <p class="fine-print">Body-progress viser rigtig backend-progress, når BodyRig har den; ellers vises køretid mod det typiske 45–120 min-vindue i stedet for en opdigtet procent. Et fysisk body-build genstartes aldrig skjult efter et crash.</p>`;
+        <p class="fine-print">Body-progress viser backend-progress som fase-evidence, når BodyRig har den; ellers vises køretid mod det typiske 45–120 min-vindue i stedet for en opdigtet procent. Et fysisk body-build genstartes aldrig skjult efter et crash.</p>`;
       overview.appendChild(card);
       $("autoPersonBuildButton").addEventListener("click", () => void startFullBuild());
     }
@@ -296,7 +304,7 @@
           throw new Error(`${bodyJob.error || `Body-build ${bodyJob.status}.`}${diagnostic ? `\n\n${diagnostic}` : ""}`);
         }
         if (bodyJob.status !== "succeeded") {
-          setStatus(bodyJob.message || `Krop: ${bodyJob.status}`);
+          setStatus(bodyPhaseMessage(bodyJob));
           return schedule(2000);
         }
         if (!bodyJob.body_revision) throw new Error("Body-build sluttede uden en registreret body revision.");
