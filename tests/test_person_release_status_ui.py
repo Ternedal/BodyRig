@@ -15,6 +15,9 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert 'Production låst' in js and 'Production gate PASS' in js
     assert 'Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.' in js
     assert 'Static fidelity-billeder er ikke release authority.' in js
+    assert 'blocked: "Blokeret"' in js
+    assert 'Operator checkout blokerer næste kommando:' in js
+    assert 'Fysisk acceptance er blokeret ved' in js
     assert '.body-release-stages' in css
     assert 'var(--panel-2)' in css
 
@@ -33,6 +36,11 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert 'Gate A package SHA no longer matches the registered body revision' in status
     assert 'attestation.get("attestation") != "operator-supplied"' in status
     assert 'bodyrig-human-quality-v1' in status
+    assert 'apply_reference_policy(inspect_acceptance_dir(acceptance_dir))' in status
+    assert '_REFERENCE_OPERATOR_FILES' in status
+    assert 'does not match acceptance revision' in status
+    assert 'Executable next command withheld' in status
+    assert 'operator_checkout' in status
     assert 'production_activation' in status
 
 
