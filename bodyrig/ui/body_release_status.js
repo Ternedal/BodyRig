@@ -24,6 +24,27 @@
     "reference-contract": "Reference renderer-contract",
     release: "Final release gate",
   };
+  const FIDELITY_LABELS = {
+    body_anatomy: "Anatomi",
+    skin_appearance: "Hud / overflade",
+    hair: "Hår",
+    eyes: "Øjne",
+    face_secondary: "Ansigtsdetaljer",
+  };
+  const FACE_LABELS = {
+    eyebrow_appearance: "Øjenbryn",
+    lip_boundary: "Læbekant",
+    mouth_interior: "Mundinteriør",
+    teeth: "Tænder",
+    eyelashes: "Øjenvipper",
+  };
+  const FIDELITY_STATE_LABELS = {
+    complete: "Komplet",
+    partial: "Delvis",
+    missing: "Mangler",
+    "not-evaluated": "Ikke evalueret",
+    unknown: "Ukendt",
+  };
   let requestSerial = 0;
   let lastKey = "";
 
@@ -55,7 +76,18 @@
       <div id="bodyReleaseStages" class="body-release-stages"></div>
       <div id="bodyReleaseNext" class="body-release-next fine-print"></div>
       <pre id="bodyReleaseCommand" class="proposal body-release-command hidden"></pre>
-      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Static fidelity-billeder er ikke release authority. Production kræver machine/deformation evidence + operator-supplied bodyrig-human-quality-v1 på både Windows og Quest samt den eksisterende final release gate.</p>`;
+      <div class="divider"></div>
+      <div class="card-row">
+        <div>
+          <div class="card-label">High-fidelity komponenter</div>
+          <div id="bodyFidelitySummary" class="muted-text">Ingen fidelity-evidence læst.</div>
+        </div>
+        <span id="bodyFidelityBadge" class="badge muted">Ukendt</span>
+      </div>
+      <div id="bodyFidelityComponents" class="body-release-stages"></div>
+      <div id="bodyFaceFidelitySummary" class="fine-print"></div>
+      <div id="bodyFaceFidelityComponents" class="body-release-stages"></div>
+      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. High-fidelity completeness og fysisk release er separate gates. Static fidelity-billeder er ikke release authority. Production kræver både komplette high-fidelity receipts og machine/deformation evidence + operator-supplied bodyrig-human-quality-v1 på Windows og Quest.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
     if (gallery) gallery.insertAdjacentElement("afterend", card);
     else {
@@ -74,6 +106,11 @@
       stages: document.getElementById("bodyReleaseStages"),
       next: document.getElementById("bodyReleaseNext"),
       command: document.getElementById("bodyReleaseCommand"),
+      fidelitySummary: document.getElementById("bodyFidelitySummary"),
+      fidelityBadge: document.getElementById("bodyFidelityBadge"),
+      fidelityComponents: document.getElementById("bodyFidelityComponents"),
+      faceSummary: document.getElementById("bodyFaceFidelitySummary"),
+      faceComponents: document.getElementById("bodyFaceFidelityComponents"),
     };
   }
 
@@ -95,6 +132,54 @@
     }
   }
 
+  function renderComponentSet(container, components, labels) {
+    if (!container) return;
+    container.replaceChildren();
+    const value = components && typeof components === "object" ? components : {};
+    for (const key of Object.keys(labels)) {
+      const state = typeof value[key] === "string" ? value[key] : "unknown";
+      const item = document.createElement("div");
+      item.className = `body-release-stage ${state === "complete" ? "pass" : "pending"}`;
+      const name = document.createElement("strong");
+      name.textContent = labels[key];
+      const status = document.createElement("span");
+      status.textContent = FIDELITY_STATE_LABELS[state] || state;
+      item.append(name, status);
+      container.appendChild(item);
+    }
+  }
+
+  function renderFidelity(fidelity) {
+    const { fidelitySummary, fidelityBadge, fidelityComponents, faceSummary, faceComponents } = nodes();
+    if (!fidelitySummary || !fidelityBadge || !fidelityComponents || !faceSummary || !faceComponents) return;
+    if (!fidelity || typeof fidelity !== "object" || fidelity.state === "unavailable") {
+      fidelityBadge.textContent = "Evidence mangler";
+      fidelityBadge.classList.add("muted");
+      fidelitySummary.textContent = fidelity?.reason || "High-fidelity package-evidence kunne ikke revalideres.";
+      faceSummary.textContent = "Nested face-secondary authority er ikke tilgængelig.";
+      renderComponentSet(fidelityComponents, {}, FIDELITY_LABELS);
+      renderComponentSet(faceComponents, {}, FACE_LABELS);
+      return;
+    }
+
+    const ready = fidelity.high_fidelity_ready === true;
+    fidelityBadge.textContent = ready ? "HF-komponenter komplette" : "HF blokeret";
+    fidelityBadge.classList.toggle("muted", !ready);
+    const blockers = Array.isArray(fidelity.blockers) ? fidelity.blockers : [];
+    fidelitySummary.textContent = ready
+      ? "Alle krævede high-fidelity komponentreceipts er komplette; human review er stadig en separat authority."
+      : `Blockers: ${blockers.length ? blockers.map((key) => FIDELITY_LABELS[key] || key).join(", ") : "ukendt fidelity-blocker"}.`;
+    renderComponentSet(fidelityComponents, fidelity.components, FIDELITY_LABELS);
+
+    const face = fidelity.face_secondary && typeof fidelity.face_secondary === "object" ? fidelity.face_secondary : {};
+    const faceBlockers = Array.isArray(face.blockers) ? face.blockers : [];
+    const semantic = face.semantic_vertex_map_authority || "unavailable";
+    faceSummary.textContent = face.ready === true
+      ? `Ansigtsdetaljer komplette · semantic vertex-map authority: ${semantic}.`
+      : `Ansigtsdetaljer blokeret: ${faceBlockers.length ? faceBlockers.map((key) => FACE_LABELS[key] || key).join(", ") : "ukendt"} · semantic vertex-map authority: ${semantic}.`;
+    renderComponentSet(faceComponents, face.components, FACE_LABELS);
+  }
+
   function reset(message) {
     const { summary, badge, next, command } = nodes();
     if (summary) summary.textContent = message;
@@ -108,6 +193,7 @@
       command.classList.add("hidden");
     }
     renderStages({ gate_a: "unknown", windows: "unknown", quest: "unknown", release: "unknown" });
+    renderFidelity(null);
   }
 
   async function apiJson(url) {
@@ -127,16 +213,20 @@
     const { summary, badge, next, command } = nodes();
     if (!summary || !badge || !next || !command) return;
     renderStages(value.stages);
-    const production = value.production_activation === true && value.state === "complete" && value.gate === "release";
+    renderFidelity(value.fidelity);
+    const physicalProduction = value.production_activation === true && value.state === "complete" && value.gate === "release";
+    const production = value.production_ready === true;
     const operator = value.operator_checkout && typeof value.operator_checkout === "object" ? value.operator_checkout : {};
-    badge.textContent = production ? "Production gate PASS" : "Production låst";
+    badge.textContent = production ? "Production klar" : "Production låst";
     badge.classList.toggle("muted", !production);
     const gate = GATE_LABELS[value.gate] || value.gate || "Ukendt gate";
     summary.textContent = `${value.body_revision || "?"} · ${gate} · ${value.message || "Ingen statusbesked"}`;
     if (value.state === "unavailable") {
-      next.textContent = "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen release-status antages.";
+      next.textContent = "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen fysisk release-status antages.";
     } else if (production) {
-      next.textContent = "Final release artifact er revalideret som production-activating PASS for denne eksakte body revision.";
+      next.textContent = "Fysisk final release og high-fidelity component gate er begge revalideret som PASS for denne eksakte body revision.";
+    } else if (physicalProduction) {
+      next.textContent = "Fysisk final release er PASS, men production er stadig låst af high-fidelity component evidence.";
     } else if (value.state === "blocked") {
       next.textContent = `Fysisk acceptance er blokeret ved ${gate}. Ret evidence/contract-driften før næste trin.`;
     } else if (operator.required === true && operator.ready !== true) {
@@ -165,7 +255,7 @@
     if (!revision) return reset("Ingen body-revision endnu.");
 
     const { summary, badge } = nodes();
-    if (summary) summary.textContent = `${revision} · revaliderer fysisk acceptance chain…`;
+    if (summary) summary.textContent = `${revision} · revaliderer fysisk acceptance + high-fidelity evidence…`;
     if (badge) {
       badge.textContent = "Kontrollerer";
       badge.classList.add("muted");
@@ -176,7 +266,7 @@
       render(value);
     } catch (error) {
       if (serial !== requestSerial) return;
-      reset(`Fail-closed: release evidence kunne ikke valideres for ${revision}: ${error.message}`);
+      reset(`Fail-closed: release/fidelity evidence kunne ikke valideres for ${revision}: ${error.message}`);
     }
   }
 
