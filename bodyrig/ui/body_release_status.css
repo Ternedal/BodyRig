@@ -11,7 +11,7 @@
   padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: var(--surface-2);
+  background: var(--panel-2);
 }
 
 .body-release-stage strong {
