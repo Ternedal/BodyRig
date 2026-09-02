@@ -9,6 +9,14 @@ def test_update_never_reuses_powershell_pid_constant_as_loop_variable() -> None:
     assert "foreach ($ownerprocessid in $listenerpids)" in SCRIPT.lower()
 
 
+def test_update_preserves_listener_results_as_arrays_under_strict_mode() -> None:
+    assert "$listenerPids = @(Get-BodyRigListeners)" in SCRIPT
+    assert "$remainingListenerPids = @(Get-BodyRigListeners)" in SCRIPT
+    assert "if ($listenerPids.Count -eq 0)" in SCRIPT
+    assert "if ($remainingListenerPids.Count -eq 0)" in SCRIPT
+    assert "if ((Get-BodyRigListeners).Count -eq 0)" not in SCRIPT
+
+
 def test_update_verifies_service_before_stopping_listener() -> None:
     assert '[string]$health.service -ne "bodyrig"' in SCRIPT
     assert "Refuserer at stoppe en ukendt proces" in SCRIPT
