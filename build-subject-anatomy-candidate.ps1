@@ -149,6 +149,28 @@ if ($anatomyStages.Count -ne 1) { throw "Subject anatomy package does not contai
 if ([string]$anatomyStages[0].revision -ne $refitEvidenceSha) { throw "Subject anatomy package provenance does not bind the refit evidence bytes." }
 if ($adjustmentStages.Count -ne 0) { throw "Subject anatomy comparison unexpectedly contains a BodyPrint adjustment stage." }
 
+$fidelityRaw = @(& $BodyRigPython -m bodyrig.high_fidelity_package_audit $packagePath 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    throw "Subject anatomy package failed high-fidelity metadata audit: $($fidelityRaw -join ' | ')"
+}
+if ($fidelityRaw.Count -ne 1) { throw "High-fidelity package audit returned an unexpected output shape." }
+try { $fidelity = ([string]$fidelityRaw[0]) | ConvertFrom-Json -Depth 20 }
+catch { throw "High-fidelity package audit returned unreadable JSON." }
+$expectedFaceBlockers = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
+if ([string]$fidelity.format -ne "bodyrig-high-fidelity-package-audit" -or
+    [int]$fidelity.version -ne 1 -or
+    [string]$fidelity.package_sha256 -ne [string]$validated.package_sha256 -or
+    [string]$fidelity.canonical_body_id -ne [string]$validated.body_id -or
+    $fidelity.high_fidelity_ready -ne $false -or
+    $fidelity.face_secondary_ready -ne $false -or
+    [string]$fidelity.semantic_vertex_map_authority -ne "unavailable" -or
+    $fidelity.human_review_required -ne $true -or
+    $fidelity.production_ready -ne $false -or
+    (@($fidelity.face_secondary_blockers) -join ",") -ne ($expectedFaceBlockers -join ",") -or
+    -not (@($fidelity.top_level_blockers) -contains "face_secondary")) {
+    throw "Subject anatomy package high-fidelity receipts violate the current fail-closed authority boundary."
+}
+
 $result = [ordered]@{
     format = "bodyrig-subject-anatomy-candidate-result"
     version = 1
@@ -162,6 +184,9 @@ $result = [ordered]@{
     retained_source_mesh_sha256 = $sourceMeshShaBefore
     subject_anatomy_refit_sha256 = $refitEvidenceSha
     candidate_reconstruction_sha256 = [string]$workspaceEvidence.candidateReconstructionSha256
+    high_fidelity_ready = $false
+    face_secondary_ready = $false
+    face_secondary_blockers = @($fidelity.face_secondary_blockers)
     bodyprint_adjustment = $false
     expensive_reconstruction_rerun = $false
     comparison_only = $true
@@ -177,6 +202,8 @@ Write-Host "Package:        $packagePath"
 Write-Host "Package SHA:    $([string]$validated.package_sha256)"
 Write-Host "Canonical body: $([string]$validated.body_id)"
 Write-Host "Alias:          $BodyId"
+Write-Host "High fidelity:  FALSE"
+Write-Host "Face secondary: BLOCKED ($(@($fidelity.face_secondary_blockers) -join ', '))"
 Write-Host "Reconstruction: reused unchanged ($reconstructionShaBefore)"
 Write-Host "Source mesh:    reused unchanged ($sourceMeshShaBefore)"
 Write-Host "BodyPrint:      adjustment FALSE"
