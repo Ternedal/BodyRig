@@ -25,9 +25,7 @@ def _status(value: Any, *, label: str) -> str:
     return value
 
 
-def current_pipeline_receipt(*, reconstruction_gender: str) -> dict[str, Any]:
-    if reconstruction_gender not in {"female", "male", "neutral"}:
-        raise FidelityComponentError("reconstruction SMPL-X model family is invalid")
+def current_pipeline_receipt() -> dict[str, Any]:
     components = {
         "body_anatomy": "not-evaluated",
         "skin_appearance": "partial",
@@ -39,7 +37,6 @@ def current_pipeline_receipt(*, reconstruction_gender: str) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "reconstructionSmplxModelFamily": reconstruction_gender,
         "components": components,
         "highFidelityReady": False,
         "blockers": blockers,
@@ -51,9 +48,6 @@ def current_pipeline_receipt(*, reconstruction_gender: str) -> dict[str, Any]:
 def validate_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     if value.get("format") != FORMAT or value.get("version") != VERSION:
         raise FidelityComponentError("fidelity component receipt format is invalid")
-    gender = value.get("reconstructionSmplxModelFamily")
-    if gender not in {"female", "male", "neutral"}:
-        raise FidelityComponentError("reconstruction SMPL-X model family is invalid")
     raw_components = value.get("components")
     if not isinstance(raw_components, Mapping) or set(raw_components) != set(REQUIRED_COMPONENTS):
         raise FidelityComponentError("fidelity component set is invalid")
@@ -75,7 +69,6 @@ def validate_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "reconstructionSmplxModelFamily": gender,
         "components": components,
         "highFidelityReady": ready,
         "blockers": expected_blockers,
