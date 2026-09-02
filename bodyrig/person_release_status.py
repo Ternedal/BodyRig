@@ -124,6 +124,18 @@ def _stages(gate: str, state: str) -> dict[str, str]:
     return stages
 
 
+def _operator_next_command(gate: str, command: Any) -> str | None:
+    text = str(command or "").strip()
+    if not text:
+        return None
+    if gate in {"windows-attestation", "quest-attestation"} and "-ConfirmQualityChecklist" not in text:
+        marker = " -Pass "
+        if marker not in text:
+            raise PersonReleaseStatusError("human-review next command is missing the canonical -Pass marker")
+        text = text.replace(marker, " -Pass -ConfirmQualityChecklist ", 1)
+    return text
+
+
 def inspect_candidate_release_status(
     jobs: Iterable[Mapping[str, Any]],
     *,
@@ -202,6 +214,6 @@ def inspect_candidate_release_status(
         "bodyrig_revision": payload["bodyrig_revision"],
         "production_activation": payload["state"] == "complete" and payload["gate"] == "release",
         "message": payload["message"],
-        "next_command": payload["next_command"],
+        "next_command": _operator_next_command(payload["gate"], payload["next_command"]),
         "stages": _stages(payload["gate"], payload["state"]),
     }
