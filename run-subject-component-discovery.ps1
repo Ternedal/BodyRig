@@ -100,10 +100,12 @@ if (Test-Path -LiteralPath $OutputRoot) { throw "Subject component discovery out
 New-Item -ItemType Directory -Path $OutputRoot | Out-Null
 $hairDir = Join-Path $OutputRoot "hair"
 $eyesDir = Join-Path $OutputRoot "eyes"
+$eyeAppearanceDir = Join-Path $OutputRoot "eye-appearance"
 $receiptPath = Join-Path $OutputRoot "subject-component-discovery.json"
 
 $hairScript = Need-File -Path (Join-Path $repoRoot "extract-retained-hair.ps1") -Label "Source hair discovery operator"
 $eyeScript = Need-File -Path (Join-Path $repoRoot "extract-eye-components.ps1") -Label "Eye component discovery operator"
+$eyeAppearanceScript = Need-File -Path (Join-Path $repoRoot "extract-eye-appearance.ps1") -Label "Eye appearance discovery operator"
 $common = @{
     Distribution = $Distribution
     InstallRoot = $InstallRoot
@@ -130,10 +132,19 @@ $eyeArgs.TargetFamily = $targetFamily
 $eyeArgs.OutputDir = $eyesDir
 Invoke-Checked -Script $eyeScript -Arguments $eyeArgs -Label "Explicit eye geometry discovery"
 
+$eyeAppearanceArgs = $common.Clone()
+$eyeAppearanceArgs.IdentityWorkspace = $IdentityWorkspace
+$eyeAppearanceArgs.DonorObj = $donorObj
+$eyeAppearanceArgs.TargetFamily = $targetFamily
+$eyeAppearanceArgs.OutputDir = $eyeAppearanceDir
+Invoke-Checked -Script $eyeAppearanceScript -Arguments $eyeAppearanceArgs -Label "Source-derived eye surface appearance discovery"
+
 $hairEvidencePath = Need-File -Path (Join-Path $hairDir "source-hair-candidate.json") -Label "Hair candidate evidence"
 $eyeEvidencePath = Need-File -Path (Join-Path $eyesDir "eye-component-candidate.json") -Label "Eye candidate evidence"
+$eyeAppearanceEvidencePath = Need-File -Path (Join-Path $eyeAppearanceDir "eye-appearance-candidate.json") -Label "Eye appearance evidence"
 $hair = Read-Json -Path $hairEvidencePath -Label "Hair candidate evidence"
 $eyes = Read-Json -Path $eyeEvidencePath -Label "Eye candidate evidence"
+$eyeAppearance = Read-Json -Path $eyeAppearanceEvidencePath -Label "Eye appearance evidence"
 
 if ([string]$hair.format -ne "bodyrig-source-hair-candidate" -or [int]$hair.version -ne 1 -or
     [string]$hair.donorObjSha256 -ne $donorSha -or
@@ -150,6 +161,21 @@ if ([string]$eyes.format -ne "bodyrig-eye-component-candidate" -or [int]$eyes.ve
     $eyes.generativeIdentitySynthesis -ne $false -or $eyes.comparisonOnly -ne $true -or
     $eyes.humanReviewRequired -ne $true -or $eyes.productionReady -ne $false) {
     throw "Eye discovery evidence is not bound to the exact subject donor/authority boundary."
+}
+if ([string]$eyeAppearance.format -ne "bodyrig-eye-appearance-candidate" -or [int]$eyeAppearance.version -ne 1 -or
+    [string]$eyeAppearance.donorObjSha256 -ne $donorSha -or
+    [string]$eyeAppearance.targetModelFamily -ne $targetFamily -or
+    $eyeAppearance.sourceDerivedEyeSurfaceAppearance -ne $true -or
+    $eyeAppearance.irisIdentityIsolated -ne $false -or
+    [string]$eyeAppearance.irisAppearanceStatus -ne "review-pending" -or
+    [string]$eyeAppearance.cornealMaterialStatus -ne "missing" -or
+    [string]$eyeAppearance.eyelashStatus -ne "missing" -or
+    [string]$eyeAppearance.componentStatus -ne "partial" -or
+    $eyeAppearance.bodyTopologyModified -ne $false -or
+    $eyeAppearance.generativeIdentitySynthesis -ne $false -or
+    $eyeAppearance.comparisonOnly -ne $true -or
+    $eyeAppearance.humanReviewRequired -ne $true -or $eyeAppearance.productionReady -ne $false) {
+    throw "Eye appearance evidence is not bound to the exact subject donor/authority boundary."
 }
 
 $result = [ordered]@{
@@ -172,14 +198,19 @@ $result = [ordered]@{
     }
     eyes = [ordered]@{
         status = "partial"
-        evidence = $eyeEvidencePath
-        evidence_sha256 = (Sha256 $eyeEvidencePath)
+        geometry_evidence = $eyeEvidencePath
+        geometry_evidence_sha256 = (Sha256 $eyeEvidencePath)
+        appearance_evidence = $eyeAppearanceEvidencePath
+        appearance_evidence_sha256 = (Sha256 $eyeAppearanceEvidencePath)
         left_face_count = [int]$eyes.leftEyeFaceCount
         right_face_count = [int]$eyes.rightEyeFaceCount
         explicit_geometry = $true
+        source_derived_eye_surface_appearance = $true
         source_derived_iris_appearance = $false
-        corneal_material_status = [string]$eyes.cornealMaterialStatus
-        eyelash_status = [string]$eyes.eyelashStatus
+        iris_identity_isolated = $false
+        iris_appearance_status = [string]$eyeAppearance.irisAppearanceStatus
+        corneal_material_status = [string]$eyeAppearance.cornealMaterialStatus
+        eyelash_status = [string]$eyeAppearance.eyelashStatus
         human_review_required = $true
     }
     body_topology_modified = $false
@@ -196,9 +227,10 @@ Write-Host ""
 Write-Host "BodyRig subject component discovery: CANDIDATES READY"
 Write-Host "Hair faces:     $([int]$hair.selectedFaceCount)"
 Write-Host "Eye faces L/R:  $([int]$eyes.leftEyeFaceCount) / $([int]$eyes.rightEyeFaceCount)"
-Write-Host "Iris:           MISSING"
-Write-Host "Cornea:         $([string]$eyes.cornealMaterialStatus)"
-Write-Host "Eyelashes:      $([string]$eyes.eyelashStatus)"
+Write-Host "Eye surface:    SOURCE-DERIVED REVIEW CANDIDATE"
+Write-Host "Iris identity:  REVIEW-PENDING (not isolated)"
+Write-Host "Cornea:         $([string]$eyeAppearance.cornealMaterialStatus)"
+Write-Host "Eyelashes:      $([string]$eyeAppearance.eyelashStatus)"
 Write-Host "Human review:   REQUIRED"
 Write-Host "High fidelity:  FALSE"
 Write-Host "Production:     FALSE"
