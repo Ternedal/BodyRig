@@ -87,7 +87,14 @@
       <div id="bodyFidelityComponents" class="body-release-stages"></div>
       <div id="bodyFaceFidelitySummary" class="fine-print"></div>
       <div id="bodyFaceFidelityComponents" class="body-release-stages"></div>
-      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. High-fidelity completeness og fysisk release er separate gates. Static fidelity-billeder er ikke release authority. Production kræver både komplette high-fidelity receipts og machine/deformation evidence + operator-supplied bodyrig-human-quality-v1 på Windows og Quest.</p>`;
+      <div class="card-row space-top">
+        <div>
+          <div class="card-label">High-fidelity human review</div>
+          <div id="bodyFidelityReviewSummary" class="muted-text">Review authority er ikke læst.</div>
+        </div>
+        <span id="bodyFidelityReviewBadge" class="badge muted">Ukendt</span>
+      </div>
+      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Production kræver tre uafhængige led: komplette high-fidelity component receipts, et eksplicit package-/component-state-bundet high-fidelity human review og den fysiske Windows + Quest final release authority.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
     if (gallery) gallery.insertAdjacentElement("afterend", card);
     else {
@@ -111,6 +118,8 @@
       fidelityComponents: document.getElementById("bodyFidelityComponents"),
       faceSummary: document.getElementById("bodyFaceFidelitySummary"),
       faceComponents: document.getElementById("bodyFaceFidelityComponents"),
+      fidelityReviewSummary: document.getElementById("bodyFidelityReviewSummary"),
+      fidelityReviewBadge: document.getElementById("bodyFidelityReviewBadge"),
     };
   }
 
@@ -149,6 +158,29 @@
     }
   }
 
+  function renderHumanFidelityReview(review) {
+    const { fidelityReviewSummary, fidelityReviewBadge } = nodes();
+    if (!fidelityReviewSummary || !fidelityReviewBadge) return;
+    const value = review && typeof review === "object" ? review : {};
+    const state = typeof value.state === "string" ? value.state : "unavailable";
+    if (state === "pass" && value.passed === true) {
+      fidelityReviewBadge.textContent = "Review PASS";
+      fidelityReviewBadge.classList.remove("muted");
+      const when = value.reviewed_utc ? ` · ${value.reviewed_utc}` : "";
+      fidelityReviewSummary.textContent = `Eksakt package + component-state review er revalideret${when}.`;
+      return;
+    }
+    fidelityReviewBadge.classList.add("muted");
+    if (state === "required") {
+      fidelityReviewBadge.textContent = "Review kræves";
+    } else if (state === "blocked") {
+      fidelityReviewBadge.textContent = "Review blokeret";
+    } else {
+      fidelityReviewBadge.textContent = "Review mangler";
+    }
+    fidelityReviewSummary.textContent = value.reason || "High-fidelity human review authority er ikke tilgængelig.";
+  }
+
   function renderFidelity(fidelity) {
     const { fidelitySummary, fidelityBadge, fidelityComponents, faceSummary, faceComponents } = nodes();
     if (!fidelitySummary || !fidelityBadge || !fidelityComponents || !faceSummary || !faceComponents) return;
@@ -159,6 +191,7 @@
       faceSummary.textContent = "Nested face-secondary authority er ikke tilgængelig.";
       renderComponentSet(fidelityComponents, {}, FIDELITY_LABELS);
       renderComponentSet(faceComponents, {}, FACE_LABELS);
+      renderHumanFidelityReview(fidelity?.human_review);
       return;
     }
 
@@ -167,7 +200,7 @@
     fidelityBadge.classList.toggle("muted", !ready);
     const blockers = Array.isArray(fidelity.blockers) ? fidelity.blockers : [];
     fidelitySummary.textContent = ready
-      ? "Alle krævede high-fidelity komponentreceipts er komplette; human review er stadig en separat authority."
+      ? "Alle krævede high-fidelity component receipts er komplette; det eksplicitte human review verificeres separat nedenfor."
       : `Blockers: ${blockers.length ? blockers.map((key) => FIDELITY_LABELS[key] || key).join(", ") : "ukendt fidelity-blocker"}.`;
     renderComponentSet(fidelityComponents, fidelity.components, FIDELITY_LABELS);
 
@@ -178,6 +211,7 @@
       ? `Ansigtsdetaljer komplette · semantic vertex-map authority: ${semantic}.`
       : `Ansigtsdetaljer blokeret: ${faceBlockers.length ? faceBlockers.map((key) => FACE_LABELS[key] || key).join(", ") : "ukendt"} · semantic vertex-map authority: ${semantic}.`;
     renderComponentSet(faceComponents, face.components, FACE_LABELS);
+    renderHumanFidelityReview(fidelity.human_review);
   }
 
   function reset(message) {
@@ -215,6 +249,8 @@
     renderStages(value.stages);
     renderFidelity(value.fidelity);
     const physicalProduction = value.production_activation === true && value.state === "complete" && value.gate === "release";
+    const fidelityReady = value.fidelity?.high_fidelity_ready === true;
+    const fidelityReviewReady = value.fidelity?.human_review?.passed === true;
     const production = value.production_ready === true;
     const operator = value.operator_checkout && typeof value.operator_checkout === "object" ? value.operator_checkout : {};
     badge.textContent = production ? "Production klar" : "Production låst";
@@ -224,7 +260,9 @@
     if (value.state === "unavailable") {
       next.textContent = "Denne body har ingen verificerbar UI physical-build acceptance chain. Ingen fysisk release-status antages.";
     } else if (production) {
-      next.textContent = "Fysisk final release og high-fidelity component gate er begge revalideret som PASS for denne eksakte body revision.";
+      next.textContent = "High-fidelity component gate, eksplicit high-fidelity human review og fysisk final release er alle revalideret som PASS for denne eksakte body revision.";
+    } else if (physicalProduction && fidelityReady && !fidelityReviewReady) {
+      next.textContent = "Fysisk final release og high-fidelity komponenter er PASS, men production er stadig låst indtil det eksplicitte high-fidelity human review er registreret for den eksakte package/component-state.";
     } else if (physicalProduction) {
       next.textContent = "Fysisk final release er PASS, men production er stadig låst af high-fidelity component evidence.";
     } else if (value.state === "blocked") {
