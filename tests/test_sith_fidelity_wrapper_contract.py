@@ -45,3 +45,72 @@ def test_gender_wrapper_rejects_drifted_donor_source_markers() -> None:
         assert "SMPL-X gender patch" in str(exc)
     else:
         raise AssertionError("wrapper accepted a drifted donor-topology bridge")
+
+
+def test_reconstruction_gender_authority_selects_only_strict_reproducer() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    wrapper = _load_wrapper(repo)
+
+    authority = wrapper._select_reconstruction_gender(
+        {
+            "female": (0.0002, 0.00005),
+            "male": (0.031, 0.011),
+            "neutral": (0.018, 0.007),
+        }
+    )
+
+    assert authority == "female"
+
+
+def test_reconstruction_gender_authority_rejects_cli_override() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    wrapper = _load_wrapper(repo)
+
+    try:
+        wrapper._select_reconstruction_gender(
+            {
+                "female": (0.0002, 0.00005),
+                "male": (0.031, 0.011),
+                "neutral": (0.018, 0.007),
+            },
+            asserted_gender="male",
+        )
+    except RuntimeError as exc:
+        assert "conflicts with retained reconstruction authority" in str(exc)
+    else:
+        raise AssertionError("CLI gender assertion overrode retained reconstruction authority")
+
+
+def test_reconstruction_gender_authority_rejects_ambiguous_geometry() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    wrapper = _load_wrapper(repo)
+
+    try:
+        wrapper._select_reconstruction_gender(
+            {
+                "female": (0.0002, 0.00005),
+                "neutral": (0.0003, 0.00008),
+            }
+        )
+    except RuntimeError as exc:
+        assert "ambiguous" in str(exc)
+    else:
+        raise AssertionError("ambiguous SMPL-X reconstruction authority was accepted")
+
+
+def test_reconstruction_gender_authority_rejects_no_matching_model() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    wrapper = _load_wrapper(repo)
+
+    try:
+        wrapper._select_reconstruction_gender(
+            {
+                "female": (0.021, 0.009),
+                "male": (0.019, 0.008),
+                "neutral": (0.017, 0.006),
+            }
+        )
+    except RuntimeError as exc:
+        assert "does not uniquely reproduce" in str(exc)
+    else:
+        raise AssertionError("non-reproducing SMPL-X model family was accepted")
