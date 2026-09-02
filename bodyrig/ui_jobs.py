@@ -17,6 +17,11 @@ from .bodyprint_adjustment import (
 )
 from .package import install_package
 from .person_profiles import add_body_revision, load_profile
+from .person_source_alignment import (
+    PersonSourceAlignmentError,
+    file_sha256,
+    write_binding as write_source_binding,
+)
 from .storage import body_library, person_library, ui_jobs_dir
 
 FORMAT = "bodyrig-ui-job"
@@ -68,6 +73,39 @@ def _read_job(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION:
         raise UiJobError(f"unsupported UI job state: {path}")
     return value
+
+
+def _body_source_evidence(clone_output: str, *, performer_id: str) -> tuple[Path, list[dict[str, str]]]:
+    manifest_path = Path(clone_output).expanduser().resolve() / "bodyrig-stash-source-manifest.json"
+    if not manifest_path.is_file():
+        raise UiJobError("physical body build completed without its Stash source manifest")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UiJobError("physical body build Stash source manifest is unreadable") from exc
+    if not isinstance(manifest, dict) or manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+        raise UiJobError("physical body build Stash source manifest format/version mismatch")
+    performer = manifest.get("performer")
+    if not isinstance(performer, dict) or str(performer.get("id") or "") != str(performer_id):
+        raise UiJobError("physical body build Stash performer no longer matches the Person source")
+    selected = manifest.get("selected")
+    if not isinstance(selected, list) or not selected:
+        raise UiJobError("physical body build Stash source manifest has no selected media")
+    source_files: list[dict[str, str]] = []
+    for item in selected:
+        if not isinstance(item, dict):
+            raise UiJobError("physical body build Stash selected-source entry is invalid")
+        source_path = Path(str(item.get("path") or "")).expanduser().resolve()
+        if not source_path.is_file():
+            raise UiJobError(f"physical body build source file is no longer readable: {source_path.name}")
+        source_files.append(
+            {
+                "scene_id": str(item.get("scene_id") or ""),
+                "name": source_path.name,
+                "sha256": file_sha256(source_path),
+            }
+        )
+    return manifest_path, source_files
 
 
 def _powershell() -> str:
@@ -241,6 +279,7 @@ class UiJobManager:
                 "body_feedback": normalized_feedback if adjustment_request else "",
                 "body_revision": None,
                 "canonical_body_id": None,
+                "source_binding_sha256": None,
                 "error": None,
             }
             _write_job(job)
@@ -360,6 +399,12 @@ class UiJobManager:
             if not body_id or not package_path.is_file():
                 raise UiJobError("Gate A passed without a canonical .mrbody package")
 
+            manifest_path, source_files = _body_source_evidence(
+                job["clone_output"],
+                performer_id=str(source["performer_id"]),
+            )
+            manifest_sha = file_sha256(manifest_path)
+
             with self._lock:
                 current = self.get(job_id)
                 if current.get("status") != "running":
@@ -381,8 +426,25 @@ class UiJobManager:
                     preview_path=None,
                     feedback=feedback_note,
                 )
-                current["body_revision"] = updated["body_revisions"][-1]["revision_id"]
+                body_revision = updated["body_revisions"][-1]["revision_id"]
+                try:
+                    binding = write_source_binding(
+                        person_library(),
+                        updated,
+                        kind="body",
+                        revision_id=body_revision,
+                        evidence_kind="stash-physical-source-manifest-v1",
+                        evidence_sha256=manifest_sha,
+                        evidence_ref=str(manifest_path),
+                        source_files=source_files,
+                    )
+                except PersonSourceAlignmentError as exc:
+                    raise UiJobError(f"body candidate could not be bound to exact Stash source evidence: {exc}") from exc
+                current["body_revision"] = body_revision
                 current["canonical_body_id"] = body_id
+                current["source_binding_sha256"] = file_sha256(
+                    person_library() / ".source-bindings" / current["person_id"] / f"{body_revision}.json"
+                )
                 current["status"] = "succeeded"
                 current["completed_utc"] = _now()
                 current["pid"] = None
