@@ -18,6 +18,17 @@
     return `${secs} sek`;
   }
 
+  function displayPhase(job) {
+    // Backend v1 groups recovery, identity capture and SiTH fitting under one
+    // evidence phase. Do not pretend that observation evidence means SiTH has
+    // already started: PHALP/4D-Humans recovery may still be processing the
+    // selected segments at this point.
+    if (job?.stage === "high_fidelity_reconstruction") {
+      return "Recovery/identity/high-fidelity pipeline kører. Lange PHALP/4D-Humans segmenter kan ligge i denne fase uden nye linjer i hovedloggen.";
+    }
+    return String(job?.message || job?.stage || job?.status || "ukendt fase");
+  }
+
   function ensurePanel() {
     const card = document.getElementById("bodyJobCard");
     if (!card) return null;
@@ -58,7 +69,7 @@
     bar.value = job.status === "succeeded" ? 100 : progress;
 
     const elapsed = formatDuration(job.elapsed_seconds);
-    const phase = String(job.message || job.stage || job.status || "ukendt fase");
+    const phase = displayPhase(job);
     if (job.status === "succeeded") {
       text.textContent = `Færdig · 100% · samlet køretid ${elapsed}`;
     } else if (ACTIVE.has(job.status)) {
