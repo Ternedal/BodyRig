@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$IdentityWorkspace,
     [Parameter(Mandatory = $true)][string]$SubjectRefitDir,
     [Parameter(Mandatory = $true)][string]$OutputDir,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[a-z0-9æøå_-]{1,160}$')][string]$BodyId,
+    [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')][string]$BodyId = "",
     [Parameter(Mandatory = $true)][ValidateLength(1, 160)][string]$Name,
     [string]$BodyRigPython = ""
 )
@@ -75,6 +75,16 @@ $reconstruction = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\r
 $sourceMesh = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\meshes\000_reco.obj") -Label "Retained source mesh"
 $refitEvidence = Need-File -Path (Join-Path $SubjectRefitDir "subject-anatomy-refit.json") -Label "Subject anatomy refit evidence"
 
+try { $portableReceipt = Get-Content -LiteralPath $portableIdentity -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
+catch { throw "Baseline portable identity is unreadable." }
+$portableAlias = ([string]$portableReceipt.requested_alias).Trim()
+if ($portableAlias -notmatch '^[a-z0-9æøå_-]{1,160}$') { throw "Baseline portable identity requested_alias is invalid." }
+if ([string]::IsNullOrWhiteSpace($BodyId)) {
+    $BodyId = $portableAlias
+} elseif ($BodyId -ne $portableAlias) {
+    throw "Requested BodyId '$BodyId' conflicts with portable identity alias '$portableAlias'. Omit -BodyId to reuse canonical alias."
+}
+
 $reconstructionShaBefore = Sha256 $reconstruction
 $sourceMeshShaBefore = Sha256 $sourceMesh
 $refitEvidenceSha = Sha256 $refitEvidence
@@ -82,6 +92,7 @@ $workspace = Join-Path $OutputDir "candidate-workspace"
 
 Write-Host "BodyRig subject anatomy candidate"
 Write-Host "Revision:       $head"
+Write-Host "Alias:          $BodyId (portable identity authority)"
 Write-Host "Reconstruction: $reconstructionShaBefore"
 Write-Host "Source mesh:    $sourceMeshShaBefore"
 Write-Host "Refit evidence: $refitEvidenceSha"
@@ -143,6 +154,7 @@ $result = [ordered]@{
     version = 1
     bodyrig_revision = $head
     mode = "derived-smplx-shape-on-retained-sith-source"
+    requested_alias = $BodyId
     package = [IO.Path]::GetFileName($packagePath)
     package_sha256 = [string]$validated.package_sha256
     canonical_body_id = [string]$validated.body_id
@@ -164,6 +176,7 @@ Write-Host "BodyRig subject anatomy candidate: PASS"
 Write-Host "Package:        $packagePath"
 Write-Host "Package SHA:    $([string]$validated.package_sha256)"
 Write-Host "Canonical body: $([string]$validated.body_id)"
+Write-Host "Alias:          $BodyId"
 Write-Host "Reconstruction: reused unchanged ($reconstructionShaBefore)"
 Write-Host "Source mesh:    reused unchanged ($sourceMeshShaBefore)"
 Write-Host "BodyPrint:      adjustment FALSE"
