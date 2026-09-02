@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
+from avatar_fidelity_components import current_pipeline_receipt
 from sith_canonical_bake_metadata import (
     CanonicalBakeMetadataError,
     canonical_appearance_transfer,
@@ -140,5 +141,8 @@ def replace_with_anatomy_bake_metadata(
     bodyrig = extras.get("bodyrig") if isinstance(extras, dict) else None
     if not isinstance(bodyrig, dict):
         raise AnatomyBakeMetadataError("BodyRig VRM metadata is missing")
+    if "fidelityComponents" in bodyrig:
+        raise AnatomyBakeMetadataError("BodyRig fidelity component receipt is already present")
     bodyrig["appearanceTransfer"] = anatomy_appearance_transfer(bodyrig, mapping_metrics)
+    bodyrig["fidelityComponents"] = current_pipeline_receipt()
     return _write_glb(document, binary)
