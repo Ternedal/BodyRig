@@ -12,9 +12,12 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert '/ui/body_release_status.js' in html
     assert '/body/release-status?revision=' in js
     assert 'Gate A' in js and 'Windows' in js and 'Quest' in js and 'Release' in js
-    assert 'Production låst' in js and 'Production gate PASS' in js
+    assert 'Production låst' in js and 'Production klar' in js
+    assert 'value.production_ready === true' in js
+    assert 'value.production_activation === true' in js
     assert 'En aktiv Person Revision betyder kun' in js
     assert 'det er ikke production authority.' in js
+    assert 'High-fidelity completeness og fysisk release er separate gates.' in js
     assert 'Person Studio kan kun vise status; den kan ikke selv attestere fysisk kvalitet.' in js
     assert 'Static fidelity-billeder er ikke release authority.' in js
     assert 'blocked: "Blokeret"' in js
@@ -44,6 +47,8 @@ def test_person_studio_release_status_is_read_only_and_candidate_bound() -> None
     assert 'Executable next command withheld' in status
     assert 'operator_checkout' in status
     assert 'production_activation' in status
+    assert 'production_ready' in status
+    assert 'fidelity' in status
 
 
 def test_release_status_ui_has_no_physical_acceptance_write_action() -> None:
