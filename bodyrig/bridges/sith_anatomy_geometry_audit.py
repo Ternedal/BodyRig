@@ -60,6 +60,38 @@ def _parse_positions(path: Path) -> list[tuple[float, float, float]]:
     return result
 
 
+def _finite_nonnegative(value: float, *, label: str) -> float:
+    result = float(value)
+    if not math.isfinite(result) or result < 0.0:
+        raise AnatomyGeometryAuditError(f"{label} is invalid")
+    return result
+
+
+def global_geometry_gate(*, source_p95: float, donor_p95: float) -> bool:
+    source = _finite_nonnegative(source_p95, label="global source-to-donor p95")
+    donor = _finite_nonnegative(donor_p95, label="global donor-to-source p95")
+    return source <= GLOBAL_SOURCE_P95_MAX and donor <= GLOBAL_DONOR_P95_MAX
+
+
+def band_geometry_gate(
+    *,
+    source_p95: float,
+    donor_p95: float,
+    width_ratio: float,
+    depth_ratio: float,
+) -> bool:
+    source = _finite_nonnegative(source_p95, label="band source-to-donor p95")
+    donor = _finite_nonnegative(donor_p95, label="band donor-to-source p95")
+    width = _finite_nonnegative(width_ratio, label="band width ratio")
+    depth = _finite_nonnegative(depth_ratio, label="band depth ratio")
+    return (
+        source <= BAND_DISTANCE_P95_MAX
+        and donor <= BAND_DISTANCE_P95_MAX
+        and BAND_SPAN_RATIO_MIN <= width <= BAND_SPAN_RATIO_MAX
+        and BAND_SPAN_RATIO_MIN <= depth <= BAND_SPAN_RATIO_MAX
+    )
+
+
 def _quantile(np: Any, values: Any, q: float) -> float:
     if values.size == 0:
         raise AnatomyGeometryAuditError("anatomy audit region has no vertices")
@@ -107,7 +139,7 @@ def summarize_geometry(
     global_source_p95 = _quantile(np, s2d, 0.95) / body_height
     global_donor_p95 = _quantile(np, d2s, 0.95) / body_height
     bands: dict[str, Any] = {}
-    gross_pass = global_source_p95 <= GLOBAL_SOURCE_P95_MAX and global_donor_p95 <= GLOBAL_DONOR_P95_MAX
+    gross_pass = global_geometry_gate(source_p95=global_source_p95, donor_p95=global_donor_p95)
 
     donor_y = (donor[:, 1] - y_min) / body_height
     source_y = (source[:, 1] - y_min) / body_height
@@ -127,11 +159,11 @@ def summarize_geometry(
         source_depth = _robust_span(np, source_region, 2)
         width_ratio = source_width / donor_width
         depth_ratio = source_depth / donor_depth
-        band_pass = (
-            source_p95 <= BAND_DISTANCE_P95_MAX
-            and donor_p95 <= BAND_DISTANCE_P95_MAX
-            and BAND_SPAN_RATIO_MIN <= width_ratio <= BAND_SPAN_RATIO_MAX
-            and BAND_SPAN_RATIO_MIN <= depth_ratio <= BAND_SPAN_RATIO_MAX
+        band_pass = band_geometry_gate(
+            source_p95=source_p95,
+            donor_p95=donor_p95,
+            width_ratio=width_ratio,
+            depth_ratio=depth_ratio,
         )
         gross_pass = gross_pass and band_pass
         bands[name] = {
