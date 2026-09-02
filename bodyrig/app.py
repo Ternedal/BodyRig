@@ -793,6 +793,14 @@ def motor_state() -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.get("/api/v2/runtime/motor-state")
+def motor_state_v2() -> dict:
+    try:
+        return runtime.motor_state_v2()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def run() -> None:
     import uvicorn
 
