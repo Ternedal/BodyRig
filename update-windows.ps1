@@ -109,6 +109,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "BodyRig venv-opdatering fejlede."
 }
 
+$stashPathConfig = Join-Path $RepoRoot "configure-stash-path-map.ps1"
+if (Test-Path -LiteralPath $stashPathConfig -PathType Leaf) {
+    & $stashPathConfig
+}
+
 $start = Join-Path $RepoRoot "start-windows.ps1"
 if ($NoBrowser) {
     & $start -NoBrowser
