@@ -42,3 +42,17 @@ def test_automatic_flow_stops_only_for_voice_disambiguation() -> None:
     assert 'job.status === "needs_speaker"' in JS
     assert 'job.status === "needs_reference"' in JS
     assert "person-buildet fortsætter automatisk bagefter" in JS
+
+
+def test_automatic_body_progress_uses_backend_evidence_when_available() -> None:
+    assert "renderBodyProgress" in JS
+    assert "job.progress" in JS
+    assert "job.message || job.stage" in JS
+    assert "progress_kind" in JS
+    assert "diagnostic_tail" in JS
+
+
+def test_automatic_body_progress_never_claims_timer_as_real_percentage() -> None:
+    assert "typisk 45–120 min" in JS
+    assert "backend-progress" in JS
+    assert "opdigtet procent" in JS
