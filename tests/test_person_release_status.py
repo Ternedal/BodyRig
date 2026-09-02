@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from bodyrig.acceptance_status import AcceptanceStatus
-from bodyrig.person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
+from bodyrig.person_release_status import (
+    PersonReleaseStatusError,
+    _operator_next_command,
+    inspect_candidate_release_status,
+)
 
 PERSON_ID = "person-" + "1" * 32
 BODY_REVISION = "body-r0001"
@@ -198,24 +202,47 @@ def test_candidate_status_maps_physical_gates_without_granting_production(
     assert value["production_activation"] is False
 
 
-def test_human_review_next_command_includes_required_quality_checklist_switch(
+@pytest.mark.parametrize(
+    ("gate", "state", "expected_script"),
+    [
+        ("windows-probe", "ready", "run-reference-windows-renderer-probe.ps1"),
+        ("windows-attestation", "human-review", "record-reference-renderer-acceptance.ps1"),
+        ("quest-probe", "ready", "run-reference-quest-renderer-probe.ps1"),
+        ("quest-attestation", "human-review", "record-reference-renderer-acceptance.ps1"),
+        ("release", "ready", "complete-reference-acceptance.ps1"),
+    ],
+)
+def test_person_studio_next_commands_use_canonical_reference_wrappers(
+    tmp_path: Path, gate: str, state: str, expected_script: str
+) -> None:
+    acceptance = (tmp_path / "acceptance").resolve()
+    command = _operator_next_command(gate=gate, state=state, acceptance_dir=acceptance)
+    assert command is not None
+    assert command.startswith(f".\\{expected_script}")
+    assert f'-AcceptanceDir "{acceptance}"' in command
+    assert ".\\run-windows-renderer-probe.ps1" not in command
+    assert ".\\run-quest-renderer-probe.ps1" not in command
+    assert ".\\record-renderer-acceptance.ps1" not in command
+    assert ".\\complete-acceptance.ps1" not in command
+    if gate in {"windows-attestation", "quest-attestation"}:
+        assert "-ConfirmQualityChecklist" in command
+        assert "-QualityNote " in command
+
+
+def test_candidate_status_ignores_core_next_command_and_renders_reference_authority(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     _gate(acceptance)
     status = AcceptanceStatus(
-        state="human-review",
-        gate="windows-attestation",
+        state="ready",
+        gate="windows-probe",
         acceptance_dir=str(acceptance),
         body_id=BODY_ID,
         bodyrig_revision=BODYRIG_REVISION,
-        message="review required",
-        next_command=(
-            '.\\record-renderer-acceptance.ps1 -AcceptanceReport "gate.json" '
-            '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
-            '-RendererVersion "<exact version>" -QualityNote "<your physical review>"'
-        ),
+        message="probe required",
+        next_command='.\\run-windows-renderer-probe.ps1 -AcceptanceDir "wrong-core-path"',
     )
     monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: status)
 
@@ -226,7 +253,18 @@ def test_human_review_next_command_includes_required_quality_checklist_switch(
         body_id=BODY_ID,
         package_sha256=PACKAGE_SHA,
     )
-    assert "-Pass -ConfirmQualityChecklist -RendererName" in value["next_command"]
+    assert value["next_command"] == (
+        f'.\\run-reference-windows-renderer-probe.ps1 -AcceptanceDir "{acceptance.resolve()}"'
+    )
+    assert "wrong-core-path" not in value["next_command"]
+
+
+def test_complete_person_release_has_no_next_operator_command(tmp_path: Path) -> None:
+    assert _operator_next_command(
+        gate="release",
+        state="complete",
+        acceptance_dir=(tmp_path / "acceptance").resolve(),
+    ) is None
 
 
 def test_complete_release_requires_strict_windows_and_quest_platform_attestations(
