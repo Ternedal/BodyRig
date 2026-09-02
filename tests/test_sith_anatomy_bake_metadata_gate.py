@@ -87,7 +87,7 @@ def test_anatomy_metadata_rejects_string_normal_metric() -> None:
         anatomy_appearance_transfer(_bodyrig(), metrics)
 
 
-def test_anatomy_metadata_embeds_fail_closed_component_receipt() -> None:
+def test_anatomy_metadata_embeds_fail_closed_component_receipts() -> None:
     document = {
         "buffers": [{"byteLength": 0}],
         "extras": {"bodyrig": _bodyrig()},
@@ -96,7 +96,9 @@ def test_anatomy_metadata_embeds_fail_closed_component_receipt() -> None:
 
     updated = replace_with_anatomy_bake_metadata(avatar, mapping_metrics=_metrics())
     parsed, _binary = _read_glb(updated)
-    receipt = parsed["extras"]["bodyrig"]["fidelityComponents"]
+    bodyrig = parsed["extras"]["bodyrig"]
+    receipt = bodyrig["fidelityComponents"]
+    face = bodyrig["faceSecondaryFidelity"]
 
     assert receipt["highFidelityReady"] is False
     assert receipt["humanReviewRequired"] is True
@@ -106,3 +108,30 @@ def test_anatomy_metadata_embeds_fail_closed_component_receipt() -> None:
     assert receipt["components"]["hair"] == "missing"
     assert receipt["components"]["eyes"] == "missing"
     assert receipt["components"]["face_secondary"] == "missing"
+
+    assert face["format"] == "bodyrig-face-secondary-fidelity"
+    assert face["version"] == 1
+    assert face["components"] == {
+        "eyebrow_appearance": "not-evaluated",
+        "lip_boundary": "not-evaluated",
+        "mouth_interior": "missing",
+        "teeth": "missing",
+        "eyelashes": "missing",
+    }
+    assert face["faceSecondaryReady"] is False
+    assert face["semanticVertexMapAuthority"] == "unavailable"
+    assert face["humanReviewRequired"] is True
+    assert face["productionReady"] is False
+
+
+def test_anatomy_metadata_rejects_preexisting_face_secondary_receipt() -> None:
+    bodyrig = _bodyrig()
+    bodyrig["faceSecondaryFidelity"] = {"unexpected": True}
+    document = {
+        "buffers": [{"byteLength": 0}],
+        "extras": {"bodyrig": bodyrig},
+    }
+    avatar = _write_glb(document, b"")
+
+    with pytest.raises(AnatomyBakeMetadataError, match="face-secondary receipt is already present"):
+        replace_with_anatomy_bake_metadata(avatar, mapping_metrics=_metrics())
