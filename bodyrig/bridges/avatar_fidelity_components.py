@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from face_secondary_fidelity import (
-    FaceSecondaryFidelityError,
-    validate_face_secondary_receipt,
-)
+try:
+    from face_secondary_fidelity import (
+        FaceSecondaryFidelityError,
+        validate_face_secondary_receipt,
+    )
+except ImportError:  # Normal BodyRig package/test import path.
+    from bodyrig.bridges.face_secondary_fidelity import (
+        FaceSecondaryFidelityError,
+        validate_face_secondary_receipt,
+    )
 
 
 FORMAT = "bodyrig-avatar-fidelity-components"
