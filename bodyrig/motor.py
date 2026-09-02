@@ -18,6 +18,63 @@ def _number(section: Mapping[str, Any] | None, key: str, default: float) -> floa
     return _clamp01(float(value))
 
 
+def _observed_number(
+    section: Mapping[str, Any] | None,
+    key: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float | None:
+    """Return one actually observed BodyPrint number without inventing a default."""
+
+    if not section or key not in section:
+        return None
+    value = section.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not minimum <= number <= maximum:
+        return None
+    return number
+
+
+def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
+    """Flatten only behavior values that are genuinely present in BodyPrint.
+
+    Motor State v1 historically resolves several missing values through neutral
+    defaults. V2 keeps that compatible performed state, but its embodiment
+    receipt must never turn those defaults into claimed personal observations.
+    """
+
+    motion = bodyprint.get("motion") if isinstance(bodyprint.get("motion"), Mapping) else {}
+    expression = bodyprint.get("expression") if isinstance(bodyprint.get("expression"), Mapping) else {}
+    runtime = bodyprint.get("runtime") if isinstance(bodyprint.get("runtime"), Mapping) else {}
+
+    specifications = (
+        (motion, "energy", 0.0, 1.0),
+        (motion, "gesture_frequency", 0.0, 1.0),
+        (motion, "gesture_amplitude", 0.0, 1.0),
+        (motion, "head_motion", 0.0, 1.0),
+        (motion, "turn_speed", 0.0, 1.0),
+        (motion, "walk_cadence_spm", 0.0, 300.0),
+        (expression, "blink_rate_per_min", 0.0, 120.0),
+        (expression, "gaze_strength", 0.0, 1.0),
+        (expression, "head_tilt", 0.0, 1.0),
+        (expression, "speech_motion", 0.0, 1.0),
+        (runtime, "idle_strength", 0.0, 1.0),
+        (runtime, "gaze_smoothing", 0.0, 1.0),
+        (runtime, "gesture_intensity", 0.0, 1.0),
+        (runtime, "breathing_strength", 0.0, 1.0),
+    )
+
+    observed: dict[str, float] = {}
+    for section, key, minimum, maximum in specifications:
+        value = _observed_number(section, key, minimum=minimum, maximum=maximum)
+        if value is not None:
+            observed[key] = value
+    return observed
+
+
 def resolve_motor_state(
     *,
     body_id: str,
@@ -30,6 +87,9 @@ def resolve_motor_state(
     This is intentionally renderer-neutral: it resolves personal amplitudes and
     behaviour strengths, not Unity bone rotations. A renderer may map the
     resulting gesture/posture ids onto its own animation system.
+
+    This function is the frozen Motor State v1 behavior. Keep it backwards
+    compatible; richer observed embodiment belongs in ``resolve_motor_state_v2``.
     """
 
     motion = bodyprint.get("motion") if isinstance(bodyprint.get("motion"), dict) else {}
@@ -97,4 +157,35 @@ def resolve_motor_state(
             speech_result["amplitude"] = _clamp01(speech.amplitude * (0.5 + speech_motion))
         result["speech"] = speech_result
 
+    return result
+
+
+def resolve_motor_state_v2(
+    *,
+    body_id: str,
+    bodyprint: Mapping[str, Any],
+    cue: BodyCue,
+    speech: SpeechTiming | None = None,
+) -> dict[str, Any]:
+    """Resolve Motor State v2 without changing v1 performance semantics.
+
+    V2 carries an additional renderer-neutral receipt of *actually observed*
+    BodyPrint behavior values. Missing BodyPrint fields are omitted instead of
+    being synthesized as personal identity/style facts.
+    """
+
+    result = resolve_motor_state(
+        body_id=body_id,
+        bodyprint=bodyprint,
+        cue=cue,
+        speech=speech,
+    )
+    result["version"] = 2
+
+    observed = _observed_embodiment(bodyprint)
+    if observed:
+        result["embodiment"] = {
+            "source": "modelrig-bodyprint-v1",
+            "observed": observed,
+        }
     return result
