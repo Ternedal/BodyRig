@@ -51,7 +51,7 @@ foreach ($entry in @(
 }
 
 $argsList = @(
-    "-m", "bodyrig.recovery_throughput_audit",
+    "-m", "bodyrig.recovery_throughput_sampling_audit",
     $baseline,
     $candidate,
     "--person-root", $personRoot
@@ -61,7 +61,7 @@ if (-not [string]::IsNullOrWhiteSpace($Out)) {
     $argsList += @("--out", $outPath)
 }
 
-Write-Host "BodyRig recovery throughput A/B audit"
+Write-Host "BodyRig recovery throughput sampling A/B audit"
 Write-Host "Baseline:  $BaselineJobId"
 Write-Host "Candidate: $CandidateJobId"
 Write-Host "Data root: $dataRoot"
@@ -72,11 +72,11 @@ Write-Host ""
 $code = $LASTEXITCODE
 if ($code -ne 0) {
     Write-Host ""
-    Write-Host "BodyRig recovery throughput A/B audit: BLOCKED"
+    Write-Host "BodyRig recovery throughput sampling A/B audit: BLOCKED"
     exit $code
 }
 
 Write-Host ""
-Write-Host "BodyRig recovery throughput A/B audit: MACHINE PASS"
+Write-Host "BodyRig recovery throughput sampling A/B audit: MACHINE PASS"
 Write-Host "Candidate is eligible for human A/B fidelity review only; no promotion authority was granted."
 exit 0
