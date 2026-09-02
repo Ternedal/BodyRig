@@ -94,6 +94,17 @@ def binding_path(root: str | os.PathLike[str], person_id: str, kind: str, revisi
     return _binding_dir(root, person_id) / f"{revision_id}.json"
 
 
+def _same_binding(existing: Mapping[str, Any], candidate: Mapping[str, Any]) -> bool:
+    return (
+        existing.get("format") == candidate.get("format")
+        and existing.get("version") == candidate.get("version")
+        and existing.get("person_id") == candidate.get("person_id")
+        and existing.get("source") == candidate.get("source")
+        and existing.get("component") == candidate.get("component")
+        and existing.get("evidence") == candidate.get("evidence")
+    )
+
+
 def write_binding(
     root: str | os.PathLike[str],
     profile: Mapping[str, Any],
@@ -151,18 +162,25 @@ def write_binding(
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         existing = read_binding(root, profile, kind=kind, revision_id=revision_id)
-        if existing != receipt:
-            raise PersonSourceAlignmentError(f"source binding already exists for {revision_id}")
+        if not _same_binding(existing, receipt):
+            raise PersonSourceAlignmentError(f"source binding already exists for {revision_id} with different evidence")
         return existing
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temp = Path(temp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n")
-        os.replace(temp, path)
+        try:
+            os.link(temp, path)
+        except FileExistsError:
+            existing = read_binding(root, profile, kind=kind, revision_id=revision_id)
+            if not _same_binding(existing, receipt):
+                raise PersonSourceAlignmentError(f"source binding raced with different evidence for {revision_id}")
+        finally:
+            temp.unlink(missing_ok=True)
     finally:
         temp.unlink(missing_ok=True)
-    return receipt
+    return read_binding(root, profile, kind=kind, revision_id=revision_id)
 
 
 def read_binding(
