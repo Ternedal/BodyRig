@@ -52,6 +52,15 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def _file_sha(path: Path, label: str) -> str:
+    if not path.is_file():
+        raise PersonBodyReviewError(f"{label} is missing: {path.name}")
+    try:
+        return file_sha256(path)
+    except OSError as exc:
+        raise PersonBodyReviewError(f"{label} could not be read: {path.name}") from exc
+
+
 def _body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
     for item in profile.get("body_revisions", []):
         if isinstance(item, Mapping) and item.get("revision_id") == revision_id:
@@ -136,9 +145,7 @@ def validate_fidelity_output(
             raise PersonBodyReviewError("fidelity snapshots must be 1024x1024")
         expected_sha = _sha(snapshot.get("sha256"), f"snapshot.{view}.sha256")
         image_path = snapshots_dir / filename
-        if not image_path.is_file():
-            raise PersonBodyReviewError(f"fidelity snapshot is missing: {filename}")
-        actual_sha = file_sha256(image_path)
+        actual_sha = _file_sha(image_path, f"fidelity snapshot {filename}")
         if actual_sha != expected_sha:
             raise PersonBodyReviewError(f"fidelity snapshot bytes no longer match manifest: {filename}")
         views.append(
@@ -157,9 +164,9 @@ def validate_fidelity_output(
         "bodyrig_revision": revision,
         "runtime_manifest_sha256": _sha(comparison["runtime_manifest_sha256"], "comparison.runtime_manifest_sha256"),
         "comparison_authority_path": str(comparison_path),
-        "comparison_authority_sha256": file_sha256(comparison_path),
+        "comparison_authority_sha256": _file_sha(comparison_path, "fidelity comparison authority"),
         "render_manifest_path": str(manifest_path),
-        "render_manifest_sha256": file_sha256(manifest_path),
+        "render_manifest_sha256": _file_sha(manifest_path, "fidelity render-set manifest"),
         "snapshots_dir": str(snapshots_dir),
         "views": views,
     }
@@ -195,13 +202,13 @@ def persist_review(
             source = snapshots_source / view["file"]
             destination = temp / view["file"]
             shutil.copyfile(source, destination)
-            if file_sha256(destination) != view["sha256"]:
+            if _file_sha(destination, f"persisted fidelity snapshot {view['file']}") != view["sha256"]:
                 raise PersonBodyReviewError(f"fidelity snapshot changed while persisting review: {view['file']}")
         shutil.copyfile(validated["render_manifest_path"], temp / "fidelity-render-set.json")
         shutil.copyfile(validated["comparison_authority_path"], temp / "comparison-authority.json")
-        if file_sha256(temp / "fidelity-render-set.json") != validated["render_manifest_sha256"]:
+        if _file_sha(temp / "fidelity-render-set.json", "persisted fidelity render manifest") != validated["render_manifest_sha256"]:
             raise PersonBodyReviewError("fidelity render manifest changed while persisting review")
-        if file_sha256(temp / "comparison-authority.json") != validated["comparison_authority_sha256"]:
+        if _file_sha(temp / "comparison-authority.json", "persisted fidelity comparison authority") != validated["comparison_authority_sha256"]:
             raise PersonBodyReviewError("fidelity comparison authority changed while persisting review")
 
         receipt = {
@@ -262,9 +269,9 @@ def read_review_by_package(
         raise PersonBodyReviewError("body review semantics mismatch")
     render_manifest_sha = _sha(receipt.get("render_manifest_sha256"), "review.render_manifest_sha256")
     comparison_sha = _sha(receipt.get("comparison_authority_sha256"), "review.comparison_authority_sha256")
-    if file_sha256(target / "fidelity-render-set.json") != render_manifest_sha:
+    if _file_sha(target / "fidelity-render-set.json", "persisted fidelity render manifest") != render_manifest_sha:
         raise PersonBodyReviewError("persisted fidelity render manifest has changed")
-    if file_sha256(target / "comparison-authority.json") != comparison_sha:
+    if _file_sha(target / "comparison-authority.json", "persisted fidelity comparison authority") != comparison_sha:
         raise PersonBodyReviewError("persisted fidelity comparison authority has changed")
 
     views = receipt.get("views")
@@ -278,7 +285,7 @@ def read_review_by_package(
             raise PersonBodyReviewError("body review canonical view identity mismatch")
         expected_sha = _sha(view.get("sha256"), f"review.{expected_view}.sha256")
         path = target / str(view["file"])
-        if file_sha256(path) != expected_sha:
+        if _file_sha(path, f"persisted body review image {view['file']}") != expected_sha:
             raise PersonBodyReviewError(f"persisted body review image has changed: {view['file']}")
         clean_views.append(dict(view))
     return {**receipt, "views": clean_views, "root": str(target)}
