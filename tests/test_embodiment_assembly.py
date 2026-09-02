@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from bodyrig.embodiment_assembly import (
     EmbodimentAssemblyError,
     build_embodiment_bound_assembly,
+    build_embodiment_bound_assembly_from_library,
 )
-from bodyrig.personality_blueprint import build_blueprint, compile_blueprint
-from bodyrig.personality_embodiment_binding import build_binding
+from bodyrig.personality_blueprint import blueprint_sha256, build_blueprint, compile_blueprint
+from bodyrig.personality_embodiment_binding import build_binding, write_binding
 
 
 def _communication(**overrides: float) -> dict[str, float]:
@@ -75,6 +79,7 @@ def test_assembly_v2_fingerprint_binds_verified_embodiment_receipt() -> None:
         voice_revision="voice-r0001",
         personality_revision="personality-r0001",
         embodiment_binding=binding,
+        blueprint=blueprint,
     )
 
     assert assembly["format"] == "bodyrig-person-assembly"
@@ -102,4 +107,47 @@ def test_assembly_v2_rejects_personality_revision_not_named_by_binding() -> None
             voice_revision="voice-r0001",
             personality_revision="personality-r0002",
             embodiment_binding=binding,
+            blueprint=blueprint,
+        )
+
+
+def test_library_assembly_reloads_and_verifies_persisted_blueprint(tmp_path: Path) -> None:
+    profile, blueprint = _profile()
+    write_binding(
+        tmp_path,
+        profile,
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+    )
+    digest = blueprint_sha256(blueprint)
+    evidence = (
+        tmp_path
+        / "personality-blueprints"
+        / profile["person_id"]
+        / f"{digest}.json"
+    )
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text(json.dumps(blueprint), encoding="utf-8")
+
+    assembly = build_embodiment_bound_assembly_from_library(
+        tmp_path,
+        profile,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+    )
+    assert assembly["embodiment_binding"]["blueprint_sha256"] == digest
+
+    tampered = build_blueprint(
+        default_language="da",
+        communication=_communication(directness=0.9),
+    )
+    evidence.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(EmbodimentAssemblyError, match="SHA-256 mismatch"):
+        build_embodiment_bound_assembly_from_library(
+            tmp_path,
+            profile,
+            body_revision="body-r0001",
+            voice_revision="voice-r0001",
+            personality_revision="personality-r0001",
         )
