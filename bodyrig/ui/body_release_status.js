@@ -55,7 +55,7 @@
       <div id="bodyReleaseStages" class="body-release-stages"></div>
       <div id="bodyReleaseNext" class="body-release-next fine-print"></div>
       <pre id="bodyReleaseCommand" class="proposal body-release-command hidden"></pre>
-      <p class="fine-print">Read-only status. Static fidelity-billeder er ikke release authority. Production kræver machine/deformation evidence + operator-supplied bodyrig-human-quality-v1 på både Windows og Quest samt den eksisterende final release gate.</p>`;
+      <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Static fidelity-billeder er ikke release authority. Production kræver machine/deformation evidence + operator-supplied bodyrig-human-quality-v1 på både Windows og Quest samt den eksisterende final release gate.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
     if (gallery) gallery.insertAdjacentElement("afterend", card);
     else {
