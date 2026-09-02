@@ -93,11 +93,11 @@ def _platform(acceptance_dir: Path, prefix: str, platform: str, unity_platform: 
             "machine_probe": True,
             "deformation_probe": True,
             "production_activation": False,
-            "renderer_name": probe["active_renderer"]["name"],
-            "renderer_version": probe["active_renderer"]["version"],
+            "renderer_name": RENDERER_NAME,
+            "renderer_version": RENDERER_VERSION,
             "unity_platform": unity_platform,
-            "unity_version": probe["unity_version"],
-            "graphics_device": probe["graphics_device"],
+            "unity_version": UNITY_VERSION,
+            "graphics_device": "test-gpu",
             "deformation_sequence_revision": DEFORMATION_REVISION,
             "quality_review": dict(QUALITY_REVIEW),
             "quality_note": "physical review passed",
@@ -105,11 +105,16 @@ def _platform(acceptance_dir: Path, prefix: str, platform: str, unity_platform: 
     )
 
 
-def _status(gate: str, state: str = "ready") -> AcceptanceStatus:
+def _status(
+    gate: str,
+    state: str = "ready",
+    *,
+    acceptance_dir: Path | str | None = None,
+) -> AcceptanceStatus:
     return AcceptanceStatus(
         state=state,
         gate=gate,
-        acceptance_dir="unused",
+        acceptance_dir=str(acceptance_dir) if acceptance_dir is not None else "unused",
         body_id=BODY_ID,
         bodyrig_revision=BODYRIG_REVISION,
         message="test status",
@@ -126,6 +131,22 @@ def _authority(tmp_path: Path, *, revision: str = BODYRIG_REVISION, omit: str | 
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("test\n", encoding="utf-8")
     return {"ok": True, "revision": revision, "root": str(root)}
+
+
+def _inspect(
+    acceptance: Path,
+    tmp_path: Path,
+    *,
+    authority: dict | None = None,
+) -> dict:
+    return inspect_candidate_release_status(
+        [_job(acceptance)],
+        person_id=PERSON_ID,
+        body_revision=BODY_REVISION,
+        body_id=BODY_ID,
+        package_sha256=PACKAGE_SHA,
+        operator_authority=authority if authority is not None else _authority(tmp_path),
+    )
 
 
 def test_release_status_is_unavailable_without_originating_body_job() -> None:
@@ -146,17 +167,13 @@ def test_release_status_rejects_gate_a_package_mismatch(tmp_path: Path, monkeypa
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     _gate(acceptance, package_sha="5" * 64)
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("windows-probe"))
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("windows-probe", acceptance_dir=acceptance),
+    )
 
     with pytest.raises(PersonReleaseStatusError, match="Gate A package SHA no longer matches"):
-        inspect_candidate_release_status(
-            [_job(acceptance)],
-            person_id=PERSON_ID,
-            body_revision=BODY_REVISION,
-            body_id=BODY_ID,
-            package_sha256=PACKAGE_SHA,
-            operator_authority=_authority(tmp_path),
-        )
+        _inspect(acceptance, tmp_path)
 
 
 def test_reference_policy_blocks_missing_structured_quality_review(
@@ -170,16 +187,12 @@ def test_reference_policy_blocks_missing_structured_quality_review(
     value = json.loads(attestation.read_text(encoding="utf-8"))
     value.pop("quality_review")
     _write(attestation, value)
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("quest-probe"))
-
-    result = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=_authority(tmp_path),
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("quest-probe", acceptance_dir=acceptance),
     )
+
+    result = _inspect(acceptance, tmp_path)
     assert result["state"] == "blocked"
     assert result["gate"] == "reference-contract"
     assert result["next_command"] is None
@@ -198,17 +211,13 @@ def test_windows_complete_status_requires_operator_supplied_attestation(
     value = json.loads(attestation.read_text(encoding="utf-8"))
     value["attestation"] = "synthetic"
     _write(attestation, value)
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("quest-probe"))
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("quest-probe", acceptance_dir=acceptance),
+    )
 
     with pytest.raises(PersonReleaseStatusError, match="not operator-supplied"):
-        inspect_candidate_release_status(
-            [_job(acceptance)],
-            person_id=PERSON_ID,
-            body_revision=BODY_REVISION,
-            body_id=BODY_ID,
-            package_sha256=PACKAGE_SHA,
-            operator_authority=_authority(tmp_path),
-        )
+        _inspect(acceptance, tmp_path)
 
 
 def test_candidate_status_maps_physical_gates_without_granting_production(
@@ -218,16 +227,12 @@ def test_candidate_status_maps_physical_gates_without_granting_production(
     acceptance.mkdir()
     _gate(acceptance)
     _platform(acceptance, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("quest-probe"))
-
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=_authority(tmp_path),
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("quest-probe", acceptance_dir=acceptance),
     )
+
+    value = _inspect(acceptance, tmp_path)
     assert value["stages"] == {
         "gate_a": "pass",
         "windows": "pass",
@@ -279,26 +284,20 @@ def test_candidate_status_ignores_core_next_command_and_renders_checkout_bound_a
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     _gate(acceptance)
+    status = _status("windows-probe", acceptance_dir=acceptance)
     status = AcceptanceStatus(
-        state="ready",
-        gate="windows-probe",
-        acceptance_dir=str(acceptance),
-        body_id=BODY_ID,
-        bodyrig_revision=BODYRIG_REVISION,
+        state=status.state,
+        gate=status.gate,
+        acceptance_dir=status.acceptance_dir,
+        body_id=status.body_id,
+        bodyrig_revision=status.bodyrig_revision,
         message="probe required",
         next_command='.\\run-windows-renderer-probe.ps1 -AcceptanceDir "wrong-core-path"',
     )
     monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: status)
     authority = _authority(tmp_path)
 
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=authority,
-    )
+    value = _inspect(acceptance, tmp_path, authority=authority)
     expected_script = (Path(authority["root"]) / "run-reference-windows-renderer-probe.ps1").resolve()
     assert value["next_command"] == f'& "{expected_script}" -AcceptanceDir "{acceptance.resolve()}"'
     assert "wrong-core-path" not in value["next_command"]
@@ -310,16 +309,12 @@ def test_operator_revision_mismatch_withholds_executable_next_command(
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     _gate(acceptance)
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("windows-probe"))
-
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=_authority(tmp_path, revision="9" * 40),
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("windows-probe", acceptance_dir=acceptance),
     )
+
+    value = _inspect(acceptance, tmp_path, authority=_authority(tmp_path, revision="9" * 40))
     assert value["next_command"] is None
     assert value["operator_checkout"]["ready"] is False
     assert "does not match acceptance revision" in value["operator_checkout"]["reason"]
@@ -332,15 +327,15 @@ def test_missing_reference_dependency_withholds_executable_next_command(
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     _gate(acceptance)
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("windows-probe"))
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("windows-probe", acceptance_dir=acceptance),
+    )
 
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=_authority(tmp_path, omit="run-reference-windows-renderer-probe.ps1"),
+    value = _inspect(
+        acceptance,
+        tmp_path,
+        authority=_authority(tmp_path, omit="run-reference-windows-renderer-probe.ps1"),
     )
     assert value["next_command"] is None
     assert value["operator_checkout"]["ready"] is False
@@ -354,16 +349,12 @@ def test_legacy_root_renderer_evidence_is_blocked_in_person_studio(
     acceptance.mkdir()
     _gate(acceptance)
     (acceptance / "windows-probe.json").write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("windows-attestation", "human-review"))
-
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
-        operator_authority=_authority(tmp_path),
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("windows-attestation", "human-review", acceptance_dir=acceptance),
     )
+
+    value = _inspect(acceptance, tmp_path)
     assert value["state"] == "blocked"
     assert value["gate"] == "reference-layout"
     assert value["next_command"] is None
@@ -387,15 +378,12 @@ def test_complete_release_requires_strict_windows_and_quest_platform_attestation
     _gate(acceptance)
     _platform(acceptance, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
     _platform(acceptance, "quest", "android-quest-class", "Android", "Meta Quest 2")
-    monkeypatch.setattr("bodyrig.person_release_status.inspect_acceptance_dir", lambda _: _status("release", "complete"))
-
-    value = inspect_candidate_release_status(
-        [_job(acceptance)],
-        person_id=PERSON_ID,
-        body_revision=BODY_REVISION,
-        body_id=BODY_ID,
-        package_sha256=PACKAGE_SHA,
+    monkeypatch.setattr(
+        "bodyrig.person_release_status.inspect_acceptance_dir",
+        lambda _: _status("release", "complete", acceptance_dir=acceptance),
     )
+
+    value = _inspect(acceptance, tmp_path)
     assert value["production_activation"] is True
     assert value["next_command"] is None
     assert value["operator_checkout"]["required"] is False
