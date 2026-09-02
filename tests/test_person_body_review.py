@@ -67,6 +67,19 @@ def _fidelity_output(tmp_path: Path, *, body_id: str, package_sha256: str) -> Pa
     return root
 
 
+def _profile(person_id: str, body_id: str, package_sha: str) -> dict:
+    return {
+        "person_id": person_id,
+        "body_revisions": [
+            {
+                "revision_id": "body-r0001",
+                "body_id": body_id,
+                "package_sha256": package_sha,
+            }
+        ],
+    }
+
+
 def test_persisted_body_review_is_bound_to_exact_package_and_four_views(tmp_path: Path) -> None:
     person_id = "person-" + "1" * 32
     body_id = "bodyid-" + "2" * 24
@@ -89,17 +102,7 @@ def test_persisted_body_review_is_bound_to_exact_package_and_four_views(tmp_path
     assert persisted["semantics"] == "visual-fidelity-not-identity-verification"
     assert [item["view"] for item in persisted["views"]] == list(CANONICAL_VIEWS)
 
-    profile = {
-        "person_id": person_id,
-        "body_revisions": [
-            {
-                "revision_id": "body-r0001",
-                "body_id": body_id,
-                "package_sha256": package_sha,
-            }
-        ],
-    }
-    reread = read_review(library, profile, body_revision="body-r0001")
+    reread = read_review(library, _profile(person_id, body_id, package_sha), body_revision="body-r0001")
     assert reread["package_sha256"] == package_sha
     assert len(reread["views"]) == 4
 
@@ -117,22 +120,33 @@ def test_persisted_body_review_fails_closed_after_image_tampering(tmp_path: Path
         body_id=body_id,
         package_sha256=package_sha,
     )
-    profile = {
-        "person_id": person_id,
-        "body_revisions": [
-            {
-                "revision_id": "body-r0001",
-                "body_id": body_id,
-                "package_sha256": package_sha,
-            }
-        ],
-    }
 
     image = library / ".body-reviews" / person_id / package_sha / "front-full.png"
     image.write_bytes(image.read_bytes() + b"tamper")
 
     with pytest.raises(PersonBodyReviewError, match="persisted body review image has changed"):
-        read_review(library, profile, body_revision="body-r0001")
+        read_review(library, _profile(person_id, body_id, package_sha), body_revision="body-r0001")
+
+
+def test_persisted_body_review_fails_closed_when_image_is_missing(tmp_path: Path) -> None:
+    person_id = "person-" + "a" * 32
+    body_id = "bodyid-" + "b" * 24
+    package_sha = "c" * 64
+    source = _fidelity_output(tmp_path, body_id=body_id, package_sha256=package_sha)
+    library = tmp_path / "people"
+    persist_review(
+        library,
+        person_id=person_id,
+        fidelity_output_dir=source,
+        body_id=body_id,
+        package_sha256=package_sha,
+    )
+
+    image = library / ".body-reviews" / person_id / package_sha / "side-full.png"
+    image.unlink()
+
+    with pytest.raises(PersonBodyReviewError, match="persisted body review image side-full.png is missing"):
+        read_review(library, _profile(person_id, body_id, package_sha), body_revision="body-r0001")
 
 
 def test_fidelity_output_rejects_wrong_candidate_package(tmp_path: Path) -> None:
