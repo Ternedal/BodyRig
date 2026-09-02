@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from bodyrig.person_assembly import PersonAssemblyError, build_assembly
 from bodyrig.person_profiles import (
     PersonProfileError,
     activate_person_revision,
@@ -12,6 +13,7 @@ from bodyrig.person_profiles import (
     add_personality_revision,
     add_voice_revision,
     create_profile,
+    load_profile,
 )
 from bodyrig.person_source_alignment import read_binding, write_binding
 
@@ -34,14 +36,14 @@ def _profile(root: Path) -> dict:
 
 
 def _components(root: Path, person_id: str) -> dict:
-    profile = add_body_revision(
+    add_body_revision(
         root,
         person_id,
         body_id="fixture-body",
         package_sha256="a" * 64,
         package_path=str(root / "fixture.mrbody"),
     )
-    profile = add_voice_revision(
+    add_voice_revision(
         root,
         person_id,
         voice_id="fixture-voice",
@@ -102,9 +104,10 @@ def test_source_backed_voice_revision_is_bound_to_exact_package(tmp_path: Path) 
         "ref": "fixture.mrvoice",
         "source_files": [],
     }
+    assert profile["_source_alignment"]["components"]["voice"]["voice-r0001"]["aligned"] is True
 
 
-def test_source_backed_person_revision_fails_closed_when_component_binding_is_missing(tmp_path: Path) -> None:
+def test_source_backed_profile_exposes_blockers_and_assembly_fails_before_audition(tmp_path: Path) -> None:
     profile = _profile(tmp_path)
     profile = _components(tmp_path, profile["person_id"])
     write_binding(
@@ -116,6 +119,21 @@ def test_source_backed_person_revision_fails_closed_when_component_binding_is_mi
         evidence_sha256="c" * 64,
         evidence_ref="fixture-body-source",
     )
+    profile = load_profile(tmp_path, profile["person_id"])
+
+    alignment = profile["_source_alignment"]
+    assert alignment["source"]["performer_id"] == "42"
+    assert alignment["components"]["body"]["body-r0001"]["aligned"] is True
+    assert alignment["components"]["voice"]["voice-r0001"]["aligned"] is True
+    assert alignment["components"]["personality"]["personality-r0001"]["aligned"] is False
+
+    with pytest.raises(PersonAssemblyError, match="personality-r0001.*source binding missing"):
+        build_assembly(
+            profile,
+            body_revision="body-r0001",
+            voice_revision="voice-r0001",
+            personality_revision="personality-r0001",
+        )
 
     with pytest.raises(PersonProfileError, match="personality.*source binding missing"):
         add_person_revision(
@@ -133,6 +151,17 @@ def test_source_backed_person_revision_and_activation_require_all_bindings(tmp_p
     profile = _profile(tmp_path)
     profile = _components(tmp_path, profile["person_id"])
     _bind_body_and_personality(tmp_path, profile)
+    profile = load_profile(tmp_path, profile["person_id"])
+
+    alignment = profile["_source_alignment"]["components"]
+    assert all(alignment[kind][f"{kind}-r0001"]["aligned"] for kind in ("body", "voice", "personality"))
+    assembly = build_assembly(
+        profile,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+    )
+    assert len(assembly["assembly_fingerprint"]) == 64
 
     profile = add_person_revision(
         tmp_path,
