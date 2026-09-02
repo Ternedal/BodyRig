@@ -57,7 +57,10 @@ def select_eye_faces(
             if not math.isfinite(weight) or weight < 0.0:
                 raise EyeComponentExtractError("eye component LBS weight is invalid")
             values.append(weight)
-        if sum(value >= VERTEX_EYE_WEIGHT_THRESHOLD for value in values) >= 2 and sum(values) / 3.0 >= FACE_EYE_WEIGHT_THRESHOLD:
+        # Explicit eye components must be interior eye geometry, never a mixed
+        # eye/face boundary triangle. Requiring all three corners to carry eye
+        # authority keeps eyelid/skin faces out of this component fail-closed.
+        if all(value >= VERTEX_EYE_WEIGHT_THRESHOLD for value in values) and sum(values) / 3.0 >= FACE_EYE_WEIGHT_THRESHOLD:
             selected.append(face_index)
     return selected
 
