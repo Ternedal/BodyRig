@@ -9,6 +9,7 @@ from .person_assembly import PersonAssemblyError, build_assembly
 from .personality_embodiment_binding import (
     PersonalityEmbodimentBindingError,
     read_binding,
+    read_blueprint_evidence,
     verify_binding,
 )
 
@@ -38,14 +39,16 @@ def build_embodiment_bound_assembly(
     voice_revision: str,
     personality_revision: str,
     embodiment_binding: Mapping[str, Any],
+    blueprint: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build person assembly v2 with an exact personality/body embodiment gate."""
+    """Build person assembly v2 with exact blueprint/personality/body lineage."""
 
     try:
         verified = verify_binding(
             profile,
             embodiment_binding,
             selected_body_revision=body_revision,
+            blueprint=blueprint,
         )
     except PersonalityEmbodimentBindingError as exc:
         raise EmbodimentAssemblyError(str(exc)) from exc
@@ -98,7 +101,7 @@ def build_embodiment_bound_assembly_from_library(
     voice_revision: str,
     personality_revision: str,
 ) -> dict[str, Any]:
-    """Load the create-only binding and build a fail-closed assembly v2."""
+    """Load create-only binding + persisted blueprint and build fail-closed v2."""
 
     person_id = str(profile.get("person_id") or "")
     try:
@@ -106,6 +109,12 @@ def build_embodiment_bound_assembly_from_library(
             root,
             person_id=person_id,
             personality_revision=personality_revision,
+        )
+        digest = str(binding.get("blueprint_sha256") or "")
+        blueprint = read_blueprint_evidence(
+            root,
+            person_id=person_id,
+            digest=digest,
         )
     except PersonalityEmbodimentBindingError as exc:
         raise EmbodimentAssemblyError(str(exc)) from exc
@@ -115,4 +124,5 @@ def build_embodiment_bound_assembly_from_library(
         voice_revision=voice_revision,
         personality_revision=personality_revision,
         embodiment_binding=binding,
+        blueprint=blueprint,
     )
