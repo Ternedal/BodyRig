@@ -28,6 +28,14 @@ def test_update_installs_only_after_old_service_has_been_stopped() -> None:
     assert stop_index < install_index
 
 
+def test_update_can_bootstrap_from_temp_against_explicit_repo_root() -> None:
+    assert '[string]$RepoRoot = ""' in SCRIPT
+    assert '$RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)' in SCRIPT
+    assert 'Join-Path $RepoRoot ".git"' in SCRIPT
+    assert 'Join-Path $RepoRoot ".venv\\Scripts\\python.exe"' in SCRIPT
+    assert 'Join-Path $RepoRoot "start-windows.ps1"' in SCRIPT
+
+
 def test_update_verifies_running_revision_after_restart() -> None:
     assert '[string]$state.revision -ne $target' in SCRIPT
     assert 'Write-Host "BodyRig update: READY"' in SCRIPT
