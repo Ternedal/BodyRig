@@ -1,13 +1,14 @@
 #!/usr/bin/env python
-"""Gender-aware high-fidelity entrypoint for BodyRig donor-topology fitting.
+"""Reconstruction-authoritative high-fidelity entrypoint for BodyRig donor fitting.
 
-The production fitter keeps licensed SMPL-X model selection process-local and
-post-processes the completed VRM with deterministic source-derived appearance
-refinements. Geometry authority remains byte-for-byte in
-``sith_smplx_vrm_fitter_donor.py``: fitted SMPL-X owns final vertices/faces/LBS.
+The retained SiTH reconstruction is the sole geometry-model authority. The
+wrapper reproduces the retained fitted SMPL-X OBJ against the locally licensed
+female/male/neutral model families and accepts exactly one model that satisfies
+the same strict fit bounds as the donor fitter. A legacy CLI gender value may be
+supplied only as an assertion; it can never override reconstruction evidence.
 
-Appearance is installed process-locally before that fitter executes. The donor
-uses SiTH's canonical SMPL-X UV atlas and receives an anatomy-restricted,
+Appearance is installed process-locally before the donor fitter executes. The
+donor uses SiTH's canonical SMPL-X UV atlas and receives an anatomy-restricted,
 normal-aware closest-surface texture bake from the retained SiTH reconstruction.
 The reconstruction UV atlas is therefore never serialized onto donor topology.
 
@@ -16,13 +17,16 @@ Neither the pinned SiTH checkout nor licensed SMPL-X assets are modified.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 GENDERS = ("female", "male", "neutral")
 GENDER_MARKER = 'gender="male",'
 R8_BAKE_RESOLUTION = 1024
+FIT_MAX_THRESHOLD = 0.005
+FIT_RMS_THRESHOLD = 0.001
 
 
 def _replace_once(source: str, old: str, new: str, *, label: str) -> str:
@@ -33,6 +37,8 @@ def _replace_once(source: str, old: str, new: str, *, label: str) -> str:
 
 
 def _patch_source(source: str, gender: str) -> str:
+    if gender not in GENDERS:
+        raise RuntimeError("SMPL-X reconstruction gender authority is invalid")
     source = _replace_once(
         source,
         GENDER_MARKER,
@@ -46,6 +52,144 @@ def _patch_source(source: str, gender: str) -> str:
         label="SMPL-X gender error patch",
     )
     return source
+
+
+def _select_reconstruction_gender(
+    metrics: Mapping[str, tuple[float, float]],
+    *,
+    asserted_gender: str | None = None,
+) -> str:
+    if asserted_gender is not None and asserted_gender not in GENDERS:
+        raise RuntimeError("SMPL-X gender assertion is invalid")
+    if not metrics:
+        raise RuntimeError("no licensed SMPL-X model could be evaluated against the retained reconstruction")
+
+    candidates: list[str] = []
+    for gender, raw in metrics.items():
+        if gender not in GENDERS or not isinstance(raw, tuple) or len(raw) != 2:
+            raise RuntimeError("SMPL-X reconstruction fit metrics are invalid")
+        fit_max, fit_rms = (float(raw[0]), float(raw[1]))
+        if not math.isfinite(fit_max) or not math.isfinite(fit_rms) or fit_max < 0.0 or fit_rms < 0.0:
+            raise RuntimeError("SMPL-X reconstruction fit metrics are invalid")
+        if fit_max <= FIT_MAX_THRESHOLD and fit_rms <= FIT_RMS_THRESHOLD:
+            candidates.append(gender)
+
+    if len(candidates) != 1:
+        summary = ", ".join(
+            f"{gender}:max={metrics[gender][0]:.6f}/rms={metrics[gender][1]:.6f}"
+            for gender in GENDERS
+            if gender in metrics
+        )
+        if not candidates:
+            raise RuntimeError(
+                "retained reconstruction does not uniquely reproduce with any licensed SMPL-X model "
+                f"({summary})"
+            )
+        raise RuntimeError(
+            "retained reconstruction is ambiguous across licensed SMPL-X model families "
+            f"({summary})"
+        )
+
+    authority = candidates[0]
+    if asserted_gender is not None and asserted_gender != authority:
+        raise RuntimeError(
+            f"SMPL-X gender assertion {asserted_gender!r} conflicts with retained reconstruction authority {authority!r}"
+        )
+    return authority
+
+
+def _invocation_paths_from_remainder(remainder: list[str]) -> tuple[str, str]:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--smplx-model-dir", required=True)
+    parser.add_argument("--bodyrig-workspace", required=True)
+    try:
+        args, _unknown = parser.parse_known_args(remainder)
+    except SystemExit as exc:
+        raise RuntimeError("SMPL-X model directory/workspace is missing from fitter invocation") from exc
+    model_dir = str(args.smplx_model_dir).strip()
+    workspace = str(args.bodyrig_workspace).strip()
+    if not model_dir or not workspace:
+        raise RuntimeError("SMPL-X model directory/workspace is missing from fitter invocation")
+    return model_dir, workspace
+
+
+def _infer_reconstruction_gender(*, model_dir: str, workspace: str, asserted_gender: str | None) -> tuple[str, dict[str, tuple[float, float]]]:
+    try:
+        import numpy as np
+        import torch
+        from smplx import SMPLX
+        import sith_smplx_vrm_fitter as base
+    except ImportError as exc:
+        raise RuntimeError(f"SMPL-X reconstruction authority dependencies are unavailable: {exc}") from exc
+    if not torch.cuda.is_available():
+        raise RuntimeError("SMPL-X reconstruction authority requires CUDA")
+
+    stage = Path(workspace).expanduser().resolve() / "sith-input-v1" / "smplx"
+    donor_path = stage / "000_smplx.obj"
+    params_path = stage / "000_fit.json"
+    try:
+        donor_obj = np.asarray(base._parse_positions(donor_path), dtype=np.float32)
+        params = base._fit_params(params_path)
+    except Exception as exc:
+        raise RuntimeError(f"retained SMPL-X reconstruction evidence is unreadable: {exc}") from exc
+
+    device = torch.device("cuda")
+    donor_tensor = torch.tensor(donor_obj, dtype=torch.float32, device=device)
+
+    def tensor(field: str, width: int) -> Any:
+        return torch.tensor(params[field], dtype=torch.float32, device=device).view(1, width)
+
+    kwargs = {
+        "betas": tensor("betas", 10),
+        "expression": tensor("expression", 10),
+        "global_orient": tensor("global_orient", 3),
+        "body_pose": tensor("body_pose", 63),
+        "left_hand_pose": tensor("left_hand_pose", 45),
+        "right_hand_pose": tensor("right_hand_pose", 45),
+        "jaw_pose": tensor("jaw_pose", 3),
+        "leye_pose": tensor("leye_pose", 3),
+        "reye_pose": tensor("reye_pose", 3),
+        "transl": tensor("transl", 3),
+        "return_verts": True,
+    }
+    scale = float(params["scale"][0])
+    metrics: dict[str, tuple[float, float]] = {}
+    load_errors: dict[str, str] = {}
+
+    for gender in GENDERS:
+        model = None
+        try:
+            model = SMPLX(
+                model_path=model_dir,
+                gender=gender,
+                use_pca=False,
+                flat_hand_mean=False,
+                use_face_contour=True,
+                num_betas=10,
+                num_expression_coeffs=10,
+            ).to(device)
+            model.eval()
+            with torch.no_grad():
+                output = model(**kwargs)
+                posed = output.vertices[0] * scale
+                if posed.shape != donor_tensor.shape:
+                    raise RuntimeError("topology mismatch")
+                delta = torch.linalg.vector_norm(posed - donor_tensor, dim=1)
+                fit_max = float(delta.max().item())
+                fit_rms = float(torch.sqrt(torch.mean(delta * delta)).item())
+                metrics[gender] = (fit_max, fit_rms)
+        except Exception as exc:
+            load_errors[gender] = str(exc)
+        finally:
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    authority = _select_reconstruction_gender(metrics, asserted_gender=asserted_gender)
+    if load_errors:
+        unavailable = ", ".join(sorted(load_errors))
+        print(f"BodyRig reconstruction gender authority: unavailable model families={unavailable}", file=sys.stderr)
+    return authority, metrics
 
 
 def _install_pbr_refinement() -> None:
@@ -153,9 +297,6 @@ def _install_canonical_texture_bake(*, model_dir: str, gender: str) -> None:
         source_texcoords,
         donor_to_source_vertex,
     ):
-        # The legacy source-UV projection API is retained only as an injection
-        # point. R8 never executes that projector. Donor geometry is still the
-        # fitted SMPL-X mesh; source geometry is used only as appearance input.
         del source_positions, source_faces, source_texcoords, donor_to_source_vertex
         paths = state.get("paths")
         if not isinstance(paths, dict):
@@ -229,42 +370,45 @@ def _install_canonical_texture_bake(*, model_dir: str, gender: str) -> None:
     donor_metadata.mark_donor_topology = baked_mark_donor_topology
 
 
-def _model_dir_from_remainder(remainder: list[str]) -> str:
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--smplx-model-dir", required=True)
-    try:
-        args, _unknown = parser.parse_known_args(remainder)
-    except SystemExit as exc:
-        raise RuntimeError("SMPL-X model directory is missing from fitter invocation") from exc
-    value = str(args.smplx_model_dir).strip()
-    if not value:
-        raise RuntimeError("SMPL-X model directory is missing from fitter invocation")
-    return value
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--bodyrig-smplx-gender", required=True, choices=GENDERS)
+    parser.add_argument("--bodyrig-smplx-gender", required=False, choices=GENDERS)
     args, remainder = parser.parse_known_args(argv)
 
     target = Path(__file__).resolve().with_name("sith_smplx_vrm_fitter_donor.py")
     if not target.is_file():
-        print("BodyRig gender-aware fitter: FAIL: donor-topology fitter source is missing", file=sys.stderr)
-        return 1
-    try:
-        source = target.read_text(encoding="utf-8")
-        patched = _patch_source(source, args.bodyrig_smplx_gender)
-        model_dir = _model_dir_from_remainder(remainder)
-    except (OSError, UnicodeDecodeError, RuntimeError) as exc:
-        print(f"BodyRig gender-aware fitter: FAIL: {exc}", file=sys.stderr)
+        print("BodyRig reconstruction-authoritative fitter: FAIL: donor-topology fitter source is missing", file=sys.stderr)
         return 1
 
     sys.path.insert(0, str(target.parent))
     try:
+        source = target.read_text(encoding="utf-8")
+        model_dir, workspace = _invocation_paths_from_remainder(remainder)
+        authority_gender, fit_metrics = _infer_reconstruction_gender(
+            model_dir=model_dir,
+            workspace=workspace,
+            asserted_gender=args.bodyrig_smplx_gender,
+        )
+        patched = _patch_source(source, authority_gender)
+    except (OSError, UnicodeDecodeError, RuntimeError) as exc:
+        print(f"BodyRig reconstruction-authoritative fitter: FAIL: {exc}", file=sys.stderr)
+        return 1
+
+    summary = " ".join(
+        f"{gender}=max:{fit_metrics[gender][0]:.6f},rms:{fit_metrics[gender][1]:.6f}"
+        for gender in GENDERS
+        if gender in fit_metrics
+    )
+    print(
+        f"BodyRig reconstruction geometry authority: gender={authority_gender} {summary}",
+        file=sys.stderr,
+    )
+
+    try:
         _install_pbr_refinement()
-        _install_canonical_texture_bake(model_dir=model_dir, gender=args.bodyrig_smplx_gender)
+        _install_canonical_texture_bake(model_dir=model_dir, gender=authority_gender)
     except RuntimeError as exc:
-        print(f"BodyRig gender-aware fitter: FAIL: {exc}", file=sys.stderr)
+        print(f"BodyRig reconstruction-authoritative fitter: FAIL: {exc}", file=sys.stderr)
         return 1
 
     sys.argv = [str(target), *remainder]
