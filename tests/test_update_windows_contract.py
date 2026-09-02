@@ -36,6 +36,13 @@ def test_update_installs_only_after_old_service_has_been_stopped() -> None:
     assert stop_index < install_index
 
 
+def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
+    configure_index = SCRIPT.index('Join-Path $RepoRoot "configure-stash-path-map.ps1"')
+    start_index = SCRIPT.index('Join-Path $RepoRoot "start-windows.ps1"')
+    assert '& $stashPathConfig' in SCRIPT
+    assert configure_index < start_index
+
+
 def test_update_can_bootstrap_from_temp_against_explicit_repo_root() -> None:
     assert '[string]$RepoRoot = ""' in SCRIPT
     assert '$RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)' in SCRIPT
