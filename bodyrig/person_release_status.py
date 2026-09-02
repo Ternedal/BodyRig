@@ -12,6 +12,7 @@ from .acceptance_status import (
     QUALITY_REVIEW_FIELDS,
     inspect_acceptance_dir,
 )
+from .high_fidelity_human_review import HighFidelityHumanReviewError, review_status as fidelity_human_review_status
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .reference_acceptance_policy import apply_reference_policy
 from .storage import body_library
@@ -68,6 +69,11 @@ def _registered_fidelity_status(*, body_id: str, expected_sha: str) -> dict[str,
             "semantic_vertex_map_authority": "unavailable",
         },
         "human_review_required": True,
+        "human_review": {
+            "state": "unavailable",
+            "passed": False,
+            "reason": "High-fidelity package authority is unavailable.",
+        },
         "production_ready": False,
         "reason": None,
     }
@@ -91,12 +97,18 @@ def _registered_fidelity_status(*, body_id: str, expected_sha: str) -> dict[str,
     if audited_sha != expected_sha:
         raise PersonReleaseStatusError("high-fidelity package SHA no longer matches the registered body revision")
 
+    try:
+        human_review = fidelity_human_review_status(package)
+    except HighFidelityHumanReviewError as exc:
+        raise PersonReleaseStatusError(f"high-fidelity human review authority is invalid: {exc}") from exc
+
     ready = bool(audit.get("high_fidelity_ready"))
     components = dict(audit.get("components") or {})
     blockers = list(audit.get("top_level_blockers") or [])
     face_ready = bool(audit.get("face_secondary_ready"))
     face_components = dict(audit.get("face_secondary_components") or {})
     face_blockers = list(audit.get("face_secondary_blockers") or [])
+    review_passed = human_review.get("passed") is True
     return {
         "state": "ready" if ready else "blocked",
         "high_fidelity_ready": ready,
@@ -109,8 +121,17 @@ def _registered_fidelity_status(*, body_id: str, expected_sha: str) -> dict[str,
             "semantic_vertex_map_authority": str(audit.get("semantic_vertex_map_authority") or "unavailable"),
         },
         "human_review_required": bool(audit.get("human_review_required", True)),
-        "production_ready": bool(audit.get("production_ready", False)),
-        "reason": None if ready else "High-fidelity body components remain incomplete or unapproved.",
+        "human_review": human_review,
+        "production_ready": ready and review_passed,
+        "reason": (
+            None
+            if ready and review_passed
+            else (
+                str(human_review.get("reason") or "Explicit high-fidelity human review is required.")
+                if ready
+                else "High-fidelity body components remain incomplete or unapproved."
+            )
+        ),
     }
 
 
@@ -333,7 +354,9 @@ def inspect_candidate_release_status(
 
     payload = asdict(status)
     production = payload["state"] == "complete" and payload["gate"] == "release"
-    production_ready = production and fidelity.get("high_fidelity_ready") is True
+    fidelity_ready = fidelity.get("high_fidelity_ready") is True
+    fidelity_review_ready = (fidelity.get("human_review") or {}).get("passed") is True
+    production_ready = production and fidelity_ready and fidelity_review_ready
     operator_required = not production and payload["state"] not in {"blocked", "unavailable"}
     operator_ready = False
     operator_root: Path | None = None
@@ -352,8 +375,10 @@ def inspect_candidate_release_status(
     message = str(payload["message"])
     if operator_required and not operator_ready and operator_reason:
         message += f" Executable next command withheld: {operator_reason}."
-    if production and not production_ready:
+    if production and not fidelity_ready:
         message += " Physical release is complete, but Person Studio production remains locked by high-fidelity component evidence."
+    elif production and not fidelity_review_ready:
+        message += " Physical release and high-fidelity components are complete, but explicit high-fidelity human review is still required."
     next_command = None
     if operator_ready and operator_root is not None:
         next_command = _operator_next_command(
