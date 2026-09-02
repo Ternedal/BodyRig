@@ -23,14 +23,24 @@ BODYPRINT = {
     },
     "motion": {
         "energy": 0.72,
+        "gesture_frequency": 0.57,
         "gesture_amplitude": 0.83,
         "head_motion": 0.61,
+        "turn_speed": 0.42,
+        "walk_cadence_spm": 112.0,
     },
     "expression": {
+        "blink_rate_per_min": 17.0,
         "gaze_strength": 0.77,
+        "head_tilt": 0.31,
         "speech_motion": 0.66,
     },
-    "runtime": {"gesture_intensity": 0.8},
+    "runtime": {
+        "idle_strength": 0.41,
+        "gaze_smoothing": 0.52,
+        "gesture_intensity": 0.8,
+        "breathing_strength": 0.28,
+    },
 }
 
 
@@ -101,18 +111,46 @@ def test_import_activate_cue_and_motor_state(tmp_path: Path, monkeypatch):
     assert motor.status_code == 200
     payload = motor.json()
     assert payload["type"] == "bodyrig-motor-state"
+    assert payload["version"] == 1
     assert payload["body_id"] == "api-person"
     assert payload["gesture"]["id"] == "small_shrug"
     assert 0.0 < payload["gesture"]["amplitude"] <= 1.0
     assert payload["gaze"]["strength"] == BODYPRINT["expression"]["gaze_strength"]
+
+    motor_v2 = client.get("/api/v2/runtime/motor-state")
+    assert motor_v2.status_code == 200
+    payload_v2 = motor_v2.json()
+    expected_performed = dict(payload)
+    expected_performed["version"] = 2
+    expected_performed["embodiment"] = payload_v2["embodiment"]
+    assert payload_v2 == expected_performed
+    assert payload_v2["embodiment"] == {
+        "source": "modelrig-bodyprint-v1",
+        "observed": {
+            "energy": 0.72,
+            "gesture_frequency": 0.57,
+            "gesture_amplitude": 0.83,
+            "head_motion": 0.61,
+            "turn_speed": 0.42,
+            "walk_cadence_spm": 112.0,
+            "blink_rate_per_min": 17.0,
+            "gaze_strength": 0.77,
+            "head_tilt": 0.31,
+            "speech_motion": 0.66,
+            "idle_strength": 0.41,
+            "gaze_smoothing": 0.52,
+            "gesture_intensity": 0.8,
+            "breathing_strength": 0.28,
+        },
+    }
 
 
 def test_motor_state_requires_activated_bodyprint(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(app_module, "body_library", lambda: tmp_path / "library")
     monkeypatch.setattr(app_module, "runtime", BodyRuntime())
     client = _client(monkeypatch)
-    response = client.get("/api/v1/runtime/motor-state")
-    assert response.status_code == 409
+    assert client.get("/api/v1/runtime/motor-state").status_code == 409
+    assert client.get("/api/v2/runtime/motor-state").status_code == 409
 
 
 def test_body_build_api_rejects_changes_not_generated_from_same_feedback(tmp_path: Path, monkeypatch):
