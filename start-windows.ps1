@@ -59,8 +59,62 @@ if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     throw "LOCALAPPDATA er ikke tilgængelig; BodyRig kan ikke gemme sikker UI-process state."
 }
 $StateDir = Join-Path $env:LOCALAPPDATA "BodyRig"
+$ConfigDir = Join-Path $StateDir "config"
+$StashConfigPath = Join-Path $ConfigDir "stash.json"
 $StatePath = Join-Path $StateDir "ui-service.json"
 New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
+New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
+
+function Save-StashLocalConfig {
+    if ([string]::IsNullOrWhiteSpace($env:STASH_URL) -or [string]::IsNullOrWhiteSpace($env:STASH_API_KEY)) { return }
+    $secure = ConvertTo-SecureString $env:STASH_API_KEY -AsPlainText -Force
+    $protected = ConvertFrom-SecureString $secure
+    $config = [ordered]@{
+        format = "bodyrig-local-stash-config"
+        version = 1
+        url = $env:STASH_URL.Trim()
+        api_key_dpapi = $protected
+        updated_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    $temp = "$StashConfigPath.tmp-$([Guid]::NewGuid().ToString('N'))"
+    [System.IO.File]::WriteAllText($temp, (($config | ConvertTo-Json -Depth 4) + "`n"), [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temp -Destination $StashConfigPath -Force
+}
+
+function Restore-StashLocalConfig {
+    if (-not (Test-Path -LiteralPath $StashConfigPath -PathType Leaf)) { return }
+    try {
+        $config = Get-Content -LiteralPath $StashConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        return
+    }
+    if ([string]$config.format -ne "bodyrig-local-stash-config" -or [int]$config.version -ne 1) { return }
+    $savedUrl = [string]$config.url
+    if ([string]::IsNullOrWhiteSpace($savedUrl) -or [string]::IsNullOrWhiteSpace([string]$config.api_key_dpapi)) { return }
+
+    if ([string]::IsNullOrWhiteSpace($env:STASH_URL)) {
+        $env:STASH_URL = $savedUrl
+    }
+    if (-not [string]::Equals($env:STASH_URL.Trim(), $savedUrl.Trim(), [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:STASH_API_KEY)) { return }
+
+    try {
+        $secure = ConvertTo-SecureString ([string]$config.api_key_dpapi)
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try {
+            $env:STASH_API_KEY = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+    } catch {
+        $env:STASH_API_KEY = $null
+    }
+}
+
+Restore-StashLocalConfig
+Save-StashLocalConfig
 
 function Read-LaunchState {
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { return $null }
