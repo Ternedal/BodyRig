@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .person_source_alignment import PersonSourceAlignmentError, require_alignment, write_binding
+from .person_source_alignment import PersonSourceAlignmentError, read_binding, require_alignment, write_binding
 
 FORMAT = "modelrig-person-profile"
 VERSION = 1
@@ -312,6 +312,40 @@ def active_bundle(profile: Mapping[str, Any]) -> dict[str, Any] | None:
     raise PersonProfileError("active person revision is missing")
 
 
+def _source_alignment_snapshot(root: str | os.PathLike[str], profile: Mapping[str, Any]) -> dict[str, Any] | None:
+    source = profile.get("source")
+    if not isinstance(source, Mapping):
+        return None
+    components: dict[str, dict[str, Any]] = {}
+    aligned_revisions = 0
+    blocked_revisions = 0
+    for kind in ("body", "voice", "personality"):
+        statuses: dict[str, Any] = {}
+        for item in profile.get(f"{kind}_revisions", []):
+            if not isinstance(item, Mapping):
+                continue
+            revision_id = str(item.get("revision_id") or "")
+            try:
+                receipt = read_binding(root, profile, kind=kind, revision_id=revision_id)
+                statuses[revision_id] = {
+                    "aligned": True,
+                    "evidence_kind": receipt["evidence"]["kind"],
+                    "evidence_sha256": receipt["evidence"]["sha256"],
+                }
+                aligned_revisions += 1
+            except PersonSourceAlignmentError as exc:
+                statuses[revision_id] = {"aligned": False, "reason": str(exc)}
+                blocked_revisions += 1
+        components[kind] = statuses
+    return {
+        "required": True,
+        "source": dict(source),
+        "components": components,
+        "aligned_revisions": aligned_revisions,
+        "blocked_revisions": blocked_revisions,
+    }
+
+
 def _path(root: Path, person_id: str) -> Path:
     if not PERSON_ID_RE.fullmatch(person_id):
         raise PersonProfileError("person_id is invalid")
@@ -339,14 +373,19 @@ def _write_replace(path: Path, value: Mapping[str, Any]) -> None:
 
 
 def load_profile(root: str | os.PathLike[str], person_id: str) -> dict[str, Any]:
-    path = _path(Path(root).expanduser().resolve(), person_id)
+    directory = Path(root).expanduser().resolve()
+    path = _path(directory, person_id)
     if not path.is_file():
         raise PersonProfileError(f"person profile not found: {person_id}")
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise PersonProfileError(f"person profile is invalid JSON: {person_id}") from exc
-    return validate_profile(value)
+    profile = validate_profile(value)
+    alignment = _source_alignment_snapshot(directory, profile)
+    if alignment is not None:
+        profile["_source_alignment"] = alignment
+    return profile
 
 
 def list_profiles(root: str | os.PathLike[str]) -> list[dict[str, Any]]:
@@ -397,7 +436,7 @@ def _next_revision(profile: Mapping[str, Any], kind: str) -> str:
 
 
 def _save(root: str | os.PathLike[str], profile: Mapping[str, Any]) -> dict[str, Any]:
-    value = dict(profile)
+    value = {field: profile[field] for field in TOP_FIELDS if field in profile}
     value["updated_utc"] = _utc_now()
     value = validate_profile(value)
     path = _path(Path(root).expanduser().resolve(), value["person_id"])
@@ -451,6 +490,7 @@ def add_voice_revision(root: str | os.PathLike[str], person_id: str, *, voice_id
             )
         except PersonSourceAlignmentError as exc:
             raise PersonProfileError(f"could not bind voice revision to person source: {exc}") from exc
+        return load_profile(root, person_id)
     return saved
 
 
@@ -467,7 +507,8 @@ def add_personality_revision(root: str | os.PathLike[str], person_id: str, *, in
         "feedback": feedback,
     })
     profile["personality_revisions"].append(revision)
-    return _save(root, profile)
+    saved = _save(root, profile)
+    return load_profile(root, person_id) if saved.get("source") is not None else saved
 
 
 def add_person_revision(
@@ -510,7 +551,8 @@ def add_person_revision(
     profile["person_revisions"].append(revision)
     if activate:
         profile["active_person_revision"] = revision["revision_id"]
-    return _save(root, profile)
+    saved = _save(root, profile)
+    return load_profile(root, person_id) if saved.get("source") is not None else saved
 
 
 def activate_person_revision(root: str | os.PathLike[str], person_id: str, revision_id: str) -> dict[str, Any]:
@@ -530,4 +572,5 @@ def activate_person_revision(root: str | os.PathLike[str], person_id: str, revis
         except PersonSourceAlignmentError as exc:
             raise PersonProfileError(f"person source alignment failed: {exc}") from exc
     profile["active_person_revision"] = revision_id
-    return _save(root, profile)
+    saved = _save(root, profile)
+    return load_profile(root, person_id) if saved.get("source") is not None else saved
