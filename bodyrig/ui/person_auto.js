@@ -133,24 +133,10 @@
     }
   }
 
-  function matchingAutomaticPersonality(profile, bodyRevision) {
-    const feedback = `Automatic source-derived personality from ${bodyRevision}`;
-    const aligned = profile?._source_alignment?.components?.personality || {};
-    return [...(profile?.personality_revisions || [])]
-      .reverse()
-      .find((item) => item.feedback === feedback && aligned[item.revision_id]?.aligned === true) || null;
-  }
-
-  async function ensurePersonality(workflow, profile) {
+  async function ensurePersonality(workflow) {
     if (workflow.personality_revision) return workflow;
-    const existing = matchingAutomaticPersonality(profile, workflow.body_revision);
-    if (existing) {
-      workflow.personality_revision = existing.revision_id;
-      saveWorkflow(workflow);
-      return workflow;
-    }
 
-    setStatus(`Krop ${workflow.body_revision} er klar. Udleder speaking-style/personality fra de samme Stash-kilder …`);
+    setStatus(`Krop ${workflow.body_revision} er klar. Revaliderer source-evidence og udleder speaking-style/personality …`);
     const result = await request(
       `/api/v1/people/${encodeURIComponent(workflow.person_id)}/personality/build-from-source?body_revision=${encodeURIComponent(workflow.body_revision)}&language=en`,
       { method: "POST" },
@@ -246,7 +232,7 @@
         saveWorkflow(workflow);
       }
 
-      workflow = await ensurePersonality(workflow, profile);
+      workflow = await ensurePersonality(workflow);
       const refreshedJobs = (await request(`/api/v1/jobs?person_id=${encodeURIComponent(id)}`)).jobs || [];
       workflow = await ensureVoice(workflow, refreshedJobs);
 
