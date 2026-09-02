@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$IdentityWorkspace,
     [Parameter(Mandatory = $true)][ValidateSet("female", "male", "neutral")][string]$TargetFamily,
     [Parameter(Mandatory = $true)][string]$RunRoot,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[a-z0-9æøå_-]{1,160}$')][string]$BodyId,
+    [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')][string]$BodyId = "",
     [Parameter(Mandatory = $true)][ValidateLength(1, 160)][string]$Name,
     [string]$Distribution = "Ubuntu-22.04",
     [string]$InstallRoot = "",
@@ -88,6 +88,7 @@ Write-Host "BodyRig subject anatomy physical gate"
 Write-Host "Revision:      $head"
 Write-Host "Target family: $TargetFamily"
 Write-Host "Run root:      $RunRoot"
+Write-Host "Alias:         $(if ([string]::IsNullOrWhiteSpace($BodyId)) { 'portable identity authority' } else { $BodyId })"
 Write-Host "SiTH rerun:    FALSE"
 Write-Host "Production:    FALSE"
 Write-Host ""
@@ -158,9 +159,9 @@ $buildArgs = @{
     IdentityWorkspace = $IdentityWorkspace
     SubjectRefitDir = $refitDir
     OutputDir = $packageDir
-    BodyId = $BodyId
     Name = $Name
 }
+if (-not [string]::IsNullOrWhiteSpace($BodyId)) { $buildArgs.BodyId = $BodyId }
 if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $buildArgs.BodyRigPython = $BodyRigPython }
 [void](Invoke-GateScript -Script $buildScript -Arguments $buildArgs -Label "Subject anatomy package build")
 
@@ -191,6 +192,7 @@ $summary = [ordered]@{
     bodyrig_revision = $head
     target_model_family = $TargetFamily
     retained_model_family = [string]$family.authorityModelFamily
+    requested_alias = [string]$packageResult.requested_alias
     retained_family_evidence = $familyEvidence
     retained_anatomy_evidence = $baselineEvidence
     retained_gross_anatomy_pass = [bool]$baseline.grossAnatomyPass
@@ -214,6 +216,7 @@ Write-Host ""
 Write-Host "BodyRig subject anatomy physical gate: MACHINE PASS"
 Write-Host "Retained family: $([string]$family.authorityModelFamily)"
 Write-Host "Target family:   $TargetFamily"
+Write-Host "Alias:           $([string]$packageResult.requested_alias)"
 Write-Host "Baseline gross:  $([bool]$baseline.grossAnatomyPass)"
 Write-Host "Candidate gross: $([bool]$candidate.grossAnatomyPass)"
 Write-Host "Package SHA:     $([string]$packageResult.package_sha256)"
