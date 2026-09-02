@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from .package import MRBodyError, validate_package
 from .person_profiles import PersonProfileError, add_personality_revision, load_profile
+from .person_source_alignment import PersonSourceAlignmentError, write_binding as write_source_binding
 from .personality_audition_suite import build_audition_suite
 from .personality_blueprint import (
     PersonalityBlueprintError,
@@ -288,10 +289,28 @@ def save_guided_personality(
         )
     except PersonProfileError as exc:
         raise PersonalityAuthoringError(str(exc)) from exc
+
+    saved_revision = profile["personality_revisions"][-1]["revision_id"]
+    source_binding = None
+    if body_revision is not None and profile.get("source") is not None:
+        try:
+            source_binding = write_source_binding(
+                root,
+                profile,
+                kind="personality",
+                revision_id=saved_revision,
+                evidence_kind="personality-blueprint-v1",
+                evidence_sha256=result["blueprint_sha256"],
+                evidence_ref=str(blueprint_path),
+            )
+        except PersonSourceAlignmentError as exc:
+            raise PersonalityAuthoringError(f"could not bind guided personality to source: {exc}") from exc
+
     return {
         **result,
         "evidence_path": str(blueprint_path),
         "style_evidence_paths": {key: str(path) for key, path in style_paths.items()} if style_paths else None,
+        "source_binding": source_binding,
         "profile": profile,
-        "saved_personality_revision": profile["personality_revisions"][-1]["revision_id"],
+        "saved_personality_revision": saved_revision,
     }
