@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -105,6 +106,9 @@ def test_source_backed_voice_revision_is_bound_to_exact_package(tmp_path: Path) 
         "source_files": [],
     }
     assert profile["_source_alignment"]["components"]["voice"]["voice-r0001"]["aligned"] is True
+
+    persisted = json.loads((tmp_path / f"{profile['person_id']}.json").read_text(encoding="utf-8"))
+    assert "_source_alignment" not in persisted
 
 
 def test_source_backed_profile_exposes_blockers_and_assembly_fails_before_audition(tmp_path: Path) -> None:
