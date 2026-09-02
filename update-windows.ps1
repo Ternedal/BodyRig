@@ -33,7 +33,7 @@ function Get-BodyRigListeners {
 }
 
 function Stop-VerifiedBodyRigService {
-    $listenerPids = Get-BodyRigListeners
+    $listenerPids = @(Get-BodyRigListeners)
     if ($listenerPids.Count -eq 0) { return }
 
     $health = Get-BodyRigHealth
@@ -48,7 +48,8 @@ function Stop-VerifiedBodyRigService {
 
     for ($attempt = 0; $attempt -lt 40; $attempt++) {
         Start-Sleep -Milliseconds 250
-        if ((Get-BodyRigListeners).Count -eq 0) { return }
+        $remainingListenerPids = @(Get-BodyRigListeners)
+        if ($remainingListenerPids.Count -eq 0) { return }
     }
     throw "BodyRig-servicen slap ikke port 8775 efter stop."
 }
