@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from face_secondary_fidelity import (
+    FaceSecondaryFidelityError,
+    validate_face_secondary_receipt,
+)
+
 
 FORMAT = "bodyrig-avatar-fidelity-components"
 VERSION = 1
@@ -87,8 +92,51 @@ def with_component_status(
     if component not in REQUIRED_COMPONENTS:
         raise FidelityComponentError("unknown fidelity component")
     next_status = _status(status, label=component)
+    if component == "face_secondary" and next_status == "complete":
+        raise FidelityComponentError(
+            "face_secondary can only become complete through a validated face-secondary receipt"
+        )
     components = dict(receipt["components"])
     components[component] = next_status
+    blockers = [name for name in REQUIRED_COMPONENTS if components[name] != "complete"]
+    return {
+        **receipt,
+        "components": components,
+        "highFidelityReady": len(blockers) == 0,
+        "blockers": blockers,
+        "humanReviewRequired": True,
+        "productionReady": False,
+    }
+
+
+def with_face_secondary_receipt(
+    value: Mapping[str, Any],
+    *,
+    face_secondary_receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    receipt = validate_receipt(value)
+    try:
+        secondary = validate_face_secondary_receipt(face_secondary_receipt)
+    except FaceSecondaryFidelityError as exc:
+        raise FidelityComponentError(str(exc)) from exc
+
+    if secondary["faceSecondaryReady"] is True:
+        next_status = "complete"
+    elif any(
+        secondary["components"][name] in {"complete", "partial"}
+        for name in secondary["components"]
+    ):
+        next_status = "partial"
+    elif any(
+        secondary["components"][name] == "missing"
+        for name in secondary["components"]
+    ):
+        next_status = "missing"
+    else:
+        next_status = "not-evaluated"
+
+    components = dict(receipt["components"])
+    components["face_secondary"] = next_status
     blockers = [name for name in REQUIRED_COMPONENTS if components[name] != "complete"]
     return {
         **receipt,
