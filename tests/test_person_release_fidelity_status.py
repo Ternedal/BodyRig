@@ -238,5 +238,10 @@ def test_release_status_ui_uses_three_part_production_gate_and_is_read_only() ->
     assert "Øjenbryn" in js and "Mundinteriør" in js and "Tænder" in js and "Øjenvipper" in js
     assert "semantic_vertex_map_authority" in js
     assert "tre uafhængige led" in js
+    assert "record-high-fidelity-human-review.ps1" in js
+    assert "-ConfirmQualityChecklist" in js
+    assert "-QualityNote" in js
+    assert "^[A-Za-z0-9._-]{3,160}$" in js
+    assert "clean Git authority" in js
     assert 'method: "POST"' not in js
     assert "method: 'POST'" not in js
