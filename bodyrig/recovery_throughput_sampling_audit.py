@@ -20,7 +20,9 @@ from .storage import person_library
 
 FORMAT = "bodyrig-recovery-throughput-sampling-audit"
 VERSION = 1
+BASELINE_BODYRIG_REVISION = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+_GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _RUN_RE = re.compile(r"^\[([^\]]+)\]\s+RUN\b")
 
 
@@ -63,6 +65,13 @@ def _sha(value: Any, label: str) -> str:
     return text
 
 
+def _bodyrig_revision(value: Any, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if _GIT_SHA_RE.fullmatch(text) is None:
+        raise RecoverySamplingAuditError(f"{label} is not an exact 40-character Git revision")
+    return text
+
+
 def _job_path(value: str | Path) -> Path:
     path = Path(value).expanduser().resolve()
     return path / "job.json" if path.is_dir() else path
@@ -77,6 +86,7 @@ def _load_job(value: str | Path) -> dict[str, Any]:
     for field in (
         "job_id",
         "person_id",
+        "bodyrig_revision",
         "body_revision",
         "canonical_body_id",
         "clone_output",
@@ -88,6 +98,7 @@ def _load_job(value: str | Path) -> dict[str, Any]:
     ):
         if not str(job.get(field) or "").strip():
             raise RecoverySamplingAuditError(f"succeeded body-build job is missing {field}")
+    job["bodyrig_revision"] = _bodyrig_revision(job["bodyrig_revision"], "job.bodyrig_revision")
     _sha(job["source_binding_sha256"], "job.source_binding_sha256")
     _sha(job["body_review_sha256"], "job.body_review_sha256")
     return job
@@ -320,8 +331,30 @@ def _ratio(candidate: float | int | None, baseline: float | int | None) -> float
     return a / b
 
 
-def compare_runs(baseline: RunEvidence, candidate: RunEvidence) -> dict[str, Any]:
+def compare_runs(
+    baseline: RunEvidence,
+    candidate: RunEvidence,
+    *,
+    expected_candidate_bodyrig_revision: str | None = None,
+) -> dict[str, Any]:
     blockers: list[str] = []
+
+    baseline_bodyrig_revision = _bodyrig_revision(
+        baseline.job.get("bodyrig_revision"), "baseline job.bodyrig_revision"
+    )
+    candidate_bodyrig_revision = _bodyrig_revision(
+        candidate.job.get("bodyrig_revision"), "candidate job.bodyrig_revision"
+    )
+    expected_candidate = (
+        _bodyrig_revision(expected_candidate_bodyrig_revision, "expected candidate BodyRig revision")
+        if expected_candidate_bodyrig_revision is not None
+        else None
+    )
+    if baseline_bodyrig_revision != BASELINE_BODYRIG_REVISION:
+        blockers.append("baseline BodyRig revision is not the exact uncapped Person Studio authority")
+    if expected_candidate is not None and candidate_bodyrig_revision != expected_candidate:
+        blockers.append("candidate BodyRig revision does not match the exact comparator checkout authority")
+
     if baseline.job.get("person_id") != candidate.job.get("person_id"):
         blockers.append("baseline and candidate person_id differ")
 
@@ -382,6 +415,12 @@ def compare_runs(baseline: RunEvidence, candidate: RunEvidence) -> dict[str, Any
         "baseline_job_id": baseline.job.get("job_id"),
         "candidate_job_id": candidate.job.get("job_id"),
         "person_id": baseline.job.get("person_id"),
+        "baseline_bodyrig_revision": baseline_bodyrig_revision,
+        "expected_baseline_bodyrig_revision": BASELINE_BODYRIG_REVISION,
+        "candidate_bodyrig_revision": candidate_bodyrig_revision,
+        "expected_candidate_bodyrig_revision": expected_candidate,
+        "software_authority_bound": baseline_bodyrig_revision == BASELINE_BODYRIG_REVISION
+        and (expected_candidate is None or candidate_bodyrig_revision == expected_candidate),
         "sampling_policy": RECOVERY_TEMPORAL_SAMPLING_POLICY,
         "sampling_revision": RECOVERY_TEMPORAL_SAMPLING_REVISION,
         "baseline_recovery_revision": baseline_revision,
@@ -425,11 +464,13 @@ def audit(
     baseline_job: str | Path,
     candidate_job: str | Path,
     *,
+    expected_candidate_bodyrig_revision: str,
     person_root: str | Path | None = None,
 ) -> dict[str, Any]:
     return compare_runs(
         collect_run(baseline_job, person_root=person_root),
         collect_run(candidate_job, person_root=person_root),
+        expected_candidate_bodyrig_revision=expected_candidate_bodyrig_revision,
     )
 
 
@@ -449,6 +490,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("baseline_job", help="uncapped succeeded body-build job directory or job.json")
     parser.add_argument("candidate_job", help="sampling-candidate succeeded body-build job directory or job.json")
+    parser.add_argument(
+        "--candidate-bodyrig-revision",
+        required=True,
+        help="exact 40-character BodyRig candidate checkout revision used as comparator authority",
+    )
     parser.add_argument("--person-root", default="", help="optional Person Library root override")
     parser.add_argument("--out", default="", help="optional create-only JSON report")
     args = parser.parse_args(argv)
@@ -456,6 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         result = audit(
             args.baseline_job,
             args.candidate_job,
+            expected_candidate_bodyrig_revision=args.candidate_bodyrig_revision,
             person_root=args.person_root or None,
         )
         if args.out:
