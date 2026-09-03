@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -173,6 +176,81 @@ def test_source_personality_is_idempotent_for_identical_evidence(tmp_path: Path)
     assert second["evidence_sha256"] == first["evidence_sha256"]
     updated = load_profile(tmp_path, profile["person_id"])
     assert [item["revision_id"] for item in updated["personality_revisions"]] == ["personality-r0001"]
+
+
+def test_concurrent_identical_source_personality_builds_share_one_inflight_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import bodyrig.personality_source as module
+
+    entered = threading.Event()
+    release = threading.Event()
+    calls: list[tuple[str, str, str]] = []
+
+    def slow_build(root, person_id, *, body_revision, default_language="en"):
+        calls.append((str(person_id), str(body_revision), str(default_language)))
+        entered.set()
+        assert release.wait(2)
+        return {
+            "ok": True,
+            "person_id": person_id,
+            "body_revision": body_revision,
+            "personality_revision": "personality-r0001",
+            "default_language": default_language,
+        }
+
+    monkeypatch.setattr(module, "_build_source_personality", slow_build)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            module.build_source_personality,
+            tmp_path,
+            "person-" + "a" * 32,
+            body_revision="body-r0001",
+            default_language="en",
+        )
+        assert entered.wait(1)
+        second = pool.submit(
+            module.build_source_personality,
+            tmp_path,
+            "person-" + "a" * 32,
+            body_revision="body-r0001",
+            default_language="en",
+        )
+        time.sleep(0.05)
+        assert len(calls) == 1
+        release.set()
+        assert first.result(timeout=2) == second.result(timeout=2)
+
+    assert calls == [("person-" + "a" * 32, "body-r0001", "en")]
+
+
+def test_completed_source_personality_build_is_not_cached_across_later_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import bodyrig.personality_source as module
+
+    calls = 0
+
+    def fast_build(root, person_id, *, body_revision, default_language="en"):
+        nonlocal calls
+        calls += 1
+        return {
+            "ok": True,
+            "person_id": person_id,
+            "body_revision": body_revision,
+            "personality_revision": "personality-r0001",
+            "default_language": default_language,
+        }
+
+    monkeypatch.setattr(module, "_build_source_personality", fast_build)
+    for _ in range(2):
+        module.build_source_personality(
+            tmp_path,
+            "person-" + "b" * 32,
+            body_revision="body-r0001",
+            default_language="en",
+        )
+    assert calls == 2
 
 
 def test_transcript_discovery_scans_shared_media_directory_once(
