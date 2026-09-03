@@ -26,8 +26,8 @@ def _tracks():
     ]
 
 
-def test_production_bridge_routes_through_checkpoint_layer():
-    assert bridge_script_path().name == "hmr2_checkpoint_bridge.py"
+def test_production_bridge_routes_through_resume_and_checkpoint_layers():
+    assert bridge_script_path().name == "hmr2_resume_bridge.py"
 
 
 def test_completed_segment_is_reused_without_restarting_4d_humans(monkeypatch, tmp_path):
