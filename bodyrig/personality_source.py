@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
+import threading
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,6 +23,17 @@ class SourcePersonalityError(ValueError):
 _TRANSCRIPT_SUFFIXES = {".srt", ".vtt", ".txt"}
 _MAX_TRANSCRIPTS = 20
 _MAX_EXEMPLARS = 12
+
+
+@dataclass
+class _InFlightBuild:
+    done: threading.Event = field(default_factory=threading.Event)
+    result: dict[str, Any] | None = None
+    error: BaseException | None = None
+
+
+_INFLIGHT_GUARD = threading.Lock()
+_INFLIGHT: dict[tuple[str, str, str, str], _InFlightBuild] = {}
 
 
 def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
@@ -109,10 +123,7 @@ def _sidecar_transcripts(
     entries = _directory_transcript_files(media.parent, cache)
     stem_prefix = media.stem.casefold() + "."
     full_prefix = media.name.casefold() + "."
-    exact = {
-        (media.stem + suffix).casefold()
-        for suffix in _TRANSCRIPT_SUFFIXES
-    }
+    exact = {(media.stem + suffix).casefold() for suffix in _TRANSCRIPT_SUFFIXES}
     result = [
         path
         for name, path in entries
@@ -170,7 +181,7 @@ def _instructions(exemplars: list[str]) -> str:
     return "\n".join(lines)
 
 
-def build_source_personality(
+def _build_source_personality(
     root: str | os.PathLike[str],
     person_id: str,
     *,
@@ -240,6 +251,10 @@ def build_source_personality(
     )
     feedback = f"Automatic source-derived personality from {body_revision}"
 
+    # Reload immediately before the create decision. Sequential retries still
+    # revalidate source bytes, but must reuse an identical revision created by a
+    # prior request rather than trusting the profile snapshot from before hashing.
+    profile = load_profile(root, person_id)
     existing = next(
         (
             item
@@ -298,3 +313,59 @@ def build_source_personality(
         "source_binding": binding,
         "profile": profile,
     }
+
+
+def build_source_personality(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_revision: str,
+    default_language: str = "en",
+) -> dict[str, Any]:
+    """Build once for identical concurrent requests, while keeping later retries strict.
+
+    FastAPI executes this synchronous endpoint in a threadpool. Person Studio
+    rerenders or a manual retry can therefore submit identical requests at the
+    same time. Coalescing only an *in-flight* identical request prevents duplicate
+    full-media SHA scans and duplicate revisions. Once the leader finishes, the
+    entry is removed, so a later call performs the full fail-closed source-byte
+    revalidation again.
+    """
+    root_key = os.path.normcase(str(Path(root).expanduser().resolve()))
+    key = (root_key, str(person_id), str(body_revision), str(default_language))
+    with _INFLIGHT_GUARD:
+        flight = _INFLIGHT.get(key)
+        if flight is None:
+            flight = _InFlightBuild()
+            _INFLIGHT[key] = flight
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        flight.done.wait()
+        if flight.error is not None:
+            if isinstance(flight.error, SourcePersonalityError):
+                raise SourcePersonalityError(str(flight.error)) from flight.error
+            raise RuntimeError("concurrent source personality build failed") from flight.error
+        if flight.result is None:
+            raise RuntimeError("concurrent source personality build completed without a result")
+        return copy.deepcopy(flight.result)
+
+    try:
+        result = _build_source_personality(
+            root,
+            person_id,
+            body_revision=body_revision,
+            default_language=default_language,
+        )
+        flight.result = copy.deepcopy(result)
+        return result
+    except BaseException as exc:
+        flight.error = exc
+        raise
+    finally:
+        flight.done.set()
+        with _INFLIGHT_GUARD:
+            if _INFLIGHT.get(key) is flight:
+                del _INFLIGHT[key]
