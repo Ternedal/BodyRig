@@ -206,5 +206,6 @@ if ($finalStatus -ne "succeeded") {
 Write-Host "BodyRig recovery throughput A/B candidate: SUCCEEDED"
 Write-Host "Job:      $jobId"
 Write-Host "Revision: $head"
-Write-Host "Next: run compare-recovery-throughput-auto.ps1 from this same clean candidate checkout."
+Write-Host "Next:     $RepoRoot\prepare-recovery-throughput-review.ps1 -PersonId $PersonId"
+Write-Host "The review-preparation helper keeps human review, restore and promotion as explicit later gates."
 exit 0
