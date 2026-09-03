@@ -173,4 +173,6 @@ def test_person_studio_loads_resume_control_and_reconnects_auto_flow() -> None:
     assert "/resume-status" in javascript
     assert "body_job_id = resumeJobId" in javascript
     assert 'workflow.state = "body"' in javascript
+    assert 'if (workflow.body_job_id !== sourceJobId) return;' in javascript
+    assert 'workflow.body_job_id !== sourceJobId && workflow.state !== "failed"' not in javascript
     assert "PHALP/4D-Humans reconstruction genkøres ikke" in javascript
