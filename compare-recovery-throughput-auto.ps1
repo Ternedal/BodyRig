@@ -10,6 +10,18 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Get-JsonPropertyValue {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Object,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = $PSScriptRoot
 }
@@ -35,8 +47,12 @@ if (-not (Test-Path -LiteralPath $jobsRoot -PathType Container)) {
     throw "BodyRig UI jobs root not found: $jobsRoot"
 }
 
-$samplingRevision = (& $python -c "from bodyrig.bridges.hmr2_config import RECOVERY_TEMPORAL_SAMPLING_REVISION; print(RECOVERY_TEMPORAL_SAMPLING_REVISION)").Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($samplingRevision)) {
+$samplingOutput = @(& $python -c "from bodyrig.bridges.hmr2_config import RECOVERY_TEMPORAL_SAMPLING_REVISION; print(RECOVERY_TEMPORAL_SAMPLING_REVISION)")
+if ($LASTEXITCODE -ne 0 -or $samplingOutput.Count -eq 0) {
+    throw "Could not resolve BodyRig recovery sampling revision from the checked-out candidate."
+}
+$samplingRevision = ([string]$samplingOutput[-1]).Trim()
+if ([string]::IsNullOrWhiteSpace($samplingRevision)) {
     throw "Could not resolve BodyRig recovery sampling revision from the checked-out candidate."
 }
 $suffix = ";s:$samplingRevision"
@@ -49,31 +65,45 @@ foreach ($jobFile in @(Get-ChildItem -LiteralPath $jobsRoot -Directory -Filter "
     } catch {
         continue
     }
-    if ($job.format -ne "bodyrig-ui-job" -or $job.version -ne 1) { continue }
-    if ($job.kind -ne "body-build" -or $job.status -ne "succeeded") { continue }
-    if ($job.person_id -ne $PersonId) { continue }
-    if ([string]::IsNullOrWhiteSpace([string]$job.completed_utc)) { continue }
-    if ([string]::IsNullOrWhiteSpace([string]$job.clone_output)) { continue }
 
-    $proofPath = Join-Path ([string]$job.clone_output) "clone\bodyrig-recovery-proof.json"
+    $format = Get-JsonPropertyValue -Object $job -Name "format"
+    $version = Get-JsonPropertyValue -Object $job -Name "version"
+    $kind = Get-JsonPropertyValue -Object $job -Name "kind"
+    $status = Get-JsonPropertyValue -Object $job -Name "status"
+    $personIdValue = [string](Get-JsonPropertyValue -Object $job -Name "person_id")
+    $completedUtc = [string](Get-JsonPropertyValue -Object $job -Name "completed_utc")
+    $cloneOutput = [string](Get-JsonPropertyValue -Object $job -Name "clone_output")
+    $jobId = [string](Get-JsonPropertyValue -Object $job -Name "job_id")
+
+    if ($format -ne "bodyrig-ui-job" -or $version -ne 1) { continue }
+    if ($kind -ne "body-build" -or $status -ne "succeeded") { continue }
+    if ($personIdValue -ne $PersonId) { continue }
+    if ($jobId -notmatch '^job-[0-9a-f]{32}$') { continue }
+    if ([string]::IsNullOrWhiteSpace($completedUtc)) { continue }
+    if ([string]::IsNullOrWhiteSpace($cloneOutput)) { continue }
+
+    $proofPath = Join-Path $cloneOutput "clone\bodyrig-recovery-proof.json"
     if (-not (Test-Path -LiteralPath $proofPath -PathType Leaf)) { continue }
     try {
         $proof = Get-Content -LiteralPath $proofPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
     } catch {
         continue
     }
-    if ($proof.format -ne "bodyrig-recovery-proof" -or $proof.version -ne 1) { continue }
-    $revision = [string]$proof.revision
+
+    $proofFormat = Get-JsonPropertyValue -Object $proof -Name "format"
+    $proofVersion = Get-JsonPropertyValue -Object $proof -Name "version"
+    $revision = [string](Get-JsonPropertyValue -Object $proof -Name "revision")
+    if ($proofFormat -ne "bodyrig-recovery-proof" -or $proofVersion -ne 1) { continue }
     if ([string]::IsNullOrWhiteSpace($revision)) { continue }
 
     try {
-        $completed = [DateTimeOffset]::Parse([string]$job.completed_utc)
+        $completed = [DateTimeOffset]::Parse($completedUtc)
     } catch {
         continue
     }
 
     $records += [pscustomobject]@{
-        JobId = [string]$job.job_id
+        JobId = $jobId
         Completed = $completed
         Revision = $revision
         IsCandidate = $revision.EndsWith($suffix, [StringComparison]::Ordinal)
