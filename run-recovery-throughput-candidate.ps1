@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$BaselineRevision = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+$BaselineRevision = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 $ExpectedSamplingRevision = "15fps-v1"
 $BaseUrl = "http://127.0.0.1:8775"
 
