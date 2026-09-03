@@ -3,11 +3,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,8 +19,7 @@ from .package import validate_package
 from .physical_session import validate_session
 from .portable_identity import bind_portable_identity_to_evidence, load_portable_identity
 from .proof import load_recovery_proof, read_canonical_json
-from .skin_qa import write_report as write_skin_report
-from .skin_qa_gate import analyze_package as analyze_skin
+from .skin_qa import analyze_package as analyze_skin, write_report as write_skin_report
 
 FORMAT = "bodyrig-gate-a-validation-authority"
 VERSION = 1
@@ -28,6 +27,10 @@ VERSION = 1
 
 class GateAResumeError(RuntimeError):
     pass
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _sha256(path: Path) -> str:
@@ -42,7 +45,10 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise GateAResumeError(f"{label} not found: {path}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"), parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)))
+        value = json.loads(
+            path.read_text(encoding="utf-8-sig"),
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+        )
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise GateAResumeError(f"{label} is invalid JSON: {path}") from exc
     if not isinstance(value, dict):
@@ -67,7 +73,7 @@ def _copy_exact(source: Path, destination: Path, *, label: str) -> None:
         raise GateAResumeError(f"{label} changed while copying into resumed Gate A")
 
 
-def _need_revision(value: str, *, label: str) -> str:
+def _need_revision(value: Any, *, label: str) -> str:
     normalized = str(value or "").strip().lower()
     if len(normalized) != 40 or any(ch not in "0123456789abcdef" for ch in normalized):
         raise GateAResumeError(f"{label} is not a canonical Git SHA")
@@ -85,8 +91,7 @@ def _validate_package_lineage(
 ) -> dict[str, Any]:
     proof = load_recovery_proof(proof_path)
     identity = bind_visual_identity_to_proof(
-        read_canonical_json(identity_path, label="visual identity profile"),
-        proof,
+        read_canonical_json(identity_path, label="visual identity profile"), proof
     )
     portable = bind_portable_identity_to_evidence(
         load_portable_identity(portable_identity_path),
@@ -109,6 +114,23 @@ def _validate_package_lineage(
     if package.manifest["id"] != portable["body_id"]:
         raise GateAResumeError("resumed package canonical body identity mismatch")
 
+    bodyprint = proof.get("bodyprint")
+    if not isinstance(bodyprint, Mapping):
+        raise GateAResumeError("recovery proof BodyPrint is missing")
+    shape = bodyprint.get("shape")
+    motion = bodyprint.get("motion")
+    shape_present = isinstance(shape, Mapping) and all(
+        key in shape for key in ("shoulder_to_height", "hip_to_height", "arm_to_height", "leg_to_height")
+    )
+    motion_present = (
+        isinstance(motion, Mapping)
+        and "energy" in motion
+        and any(key in motion for key in ("gesture_amplitude", "head_motion"))
+    )
+    observed_frames = int(proof.get("observed_frames", 0))
+    if observed_frames < 2 or not shape_present or not motion_present:
+        raise GateAResumeError("recovery proof lacks required source-derived shape/motion evidence")
+
     pipeline = package.provenance["pipeline"]
     recovery = next((item for item in pipeline if item.get("stage") == "body-recovery"), None)
     visual = next((item for item in pipeline if item.get("stage") == "visual-identity-capture"), None)
@@ -122,12 +144,20 @@ def _validate_package_lineage(
     if not fitting or fitting.get("adapter") != "sith-smplx-vrm" or fitting.get("revision") != "1":
         raise GateAResumeError("resumed Gate A requires the production sith-smplx-vrm v1 fitter")
     expected_identity_revision = portable["body_id"].removeprefix("bodyid-")
-    if len(identity_stages) != 1 or identity_stages[0].get("adapter") != "bodyrig.portable_identity" or identity_stages[0].get("revision") != expected_identity_revision:
+    if (
+        len(identity_stages) != 1
+        or identity_stages[0].get("adapter") != "bodyrig.portable_identity"
+        or identity_stages[0].get("revision") != expected_identity_revision
+    ):
         raise GateAResumeError("resumed package portable identity provenance mismatch")
     if adjustment_sha is None:
         if adjustment_stages:
             raise GateAResumeError("resumed package contains unexpected BodyPrint adjustment provenance")
-    elif len(adjustment_stages) != 1 or adjustment_stages[0].get("adapter") != "bodyrig.bodyprint_adjustment" or adjustment_stages[0].get("revision") != adjustment_sha:
+    elif (
+        len(adjustment_stages) != 1
+        or adjustment_stages[0].get("adapter") != "bodyrig.bodyprint_adjustment"
+        or adjustment_stages[0].get("revision") != adjustment_sha
+    ):
         raise GateAResumeError("resumed package BodyPrint adjustment provenance mismatch")
 
     with zipfile.ZipFile(package_path, "r") as archive:
@@ -146,7 +176,9 @@ def _validate_package_lineage(
         "recovery_adapter": str(proof["adapter"]),
         "recovery_revision": str(proof["revision"]),
         "track_id": str(proof["track_id"]),
-        "observed_frames": int(proof["observed_frames"]),
+        "observed_frames": observed_frames,
+        "shape_present": shape_present,
+        "motion_present": motion_present,
         "adjustment_sha256": adjustment_sha,
     }
 
@@ -168,6 +200,8 @@ def resume_gate_a(
     if session["status"] != "pass" or session["stage"] != "complete" or session["bodyrig_checkout_clean"] is not True:
         raise GateAResumeError("only a completed clean physical clone PASS can be resumed at Gate A")
     producer_revision = _need_revision(session["bodyrig_revision"], label="physical producer revision")
+    if producer_revision == validator_revision:
+        raise GateAResumeError("historical Gate A resume requires a distinct validator revision")
 
     readiness_path = session_report.with_suffix(".readiness.json")
     readiness = _read_json(readiness_path, label="physical clone readiness")
@@ -258,6 +292,7 @@ def resume_gate_a(
             raise GateAResumeError("materialized runtime manifest format/version mismatch")
         if runtime.get("body_id") != lineage["body_id"] or str(runtime.get("package_sha256") or "").lower() != source_package_sha:
             raise GateAResumeError("materialized runtime identity does not match the resumed package")
+        runtime_hash = _sha256(runtime_manifest_path)
 
         authority = {
             "format": FORMAT,
@@ -267,6 +302,9 @@ def resume_gate_a(
             "physical_session_sha256": _sha256(session_report),
             "readiness_sha256": _sha256(readiness_path),
             "package_sha256": source_package_sha,
+            "skin_qa_sha256": _sha256(skin_path),
+            "mesh_topology_qa_sha256": _sha256(topology_path),
+            "runtime_manifest_sha256": runtime_hash,
             "reason": "resume-existing-clone-after-validator-contract-failure",
             "package_rebuilt": False,
             "recovery_rerun": False,
@@ -275,16 +313,15 @@ def resume_gate_a(
         }
         authority_path = output_dir / "bodyrig-gate-a-validation-authority.json"
         _create_json(authority_path, authority)
+        authority_hash = _sha256(authority_path)
 
         checks = {
             "bodyrig_checkout_clean": True,
-            "historical_physical_producer_bound": True,
-            "validator_revision_bound": True,
             "preflight_ok": True,
             "recovery_adapter_pinned": True,
             "observed_frames_ge_2": lineage["observed_frames"] >= 2,
-            "source_derived_shape_present": True,
-            "source_derived_motion_present": True,
+            "source_derived_shape_present": lineage["shape_present"],
+            "source_derived_motion_present": lineage["motion_present"],
             "bodyprint_matches_package": True,
             "source_count_matches_package": True,
             "recovery_provenance_matches": True,
@@ -298,16 +335,14 @@ def resume_gate_a(
         report = {
             "format": "bodyrig-rig-acceptance",
             "version": 1,
+            "created_at": _utc_now(),
             "bodyrig_revision": validator_revision,
             "bodyrig_checkout_clean": True,
-            "producer_revision": producer_revision,
             "source_count": lineage["source_count"],
             "physical_clone": {
                 "session_sha256": _sha256(session_copy),
                 "readiness_sha256": _sha256(readiness_copy),
                 "mode": "stash-sith-high-fidelity",
-                "producer_revision": producer_revision,
-                "gate_a_resume_authority_sha256": _sha256(authority_path),
             },
             "skin_qa": {
                 "report_sha256": _sha256(skin_path),
@@ -341,7 +376,7 @@ def resume_gate_a(
             },
             "runtime": {
                 "manifest": "runtime/runtime-manifest.json",
-                "manifest_sha256": _sha256(runtime_manifest_path),
+                "manifest_sha256": runtime_hash,
                 "materialized_from_package": True,
             },
             "checks": checks,
@@ -359,6 +394,8 @@ def resume_gate_a(
             "body_id": lineage["body_id"],
             "producer_revision": producer_revision,
             "validator_revision": validator_revision,
+            "validation_authority": str(authority_path),
+            "validation_authority_sha256": authority_hash,
             "skin_assessment": skin_assessment,
             "topology_assessment": topology_assessment,
             "recovery_rerun": False,
@@ -370,7 +407,9 @@ def resume_gate_a(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Resume Gate A from a completed historical BodyRig physical clone without rerunning recovery/fitting.")
+    parser = argparse.ArgumentParser(
+        description="Resume Gate A from a completed historical BodyRig physical clone without rerunning recovery/fitting."
+    )
     parser.add_argument("--session-report", required=True)
     parser.add_argument("--validator-revision", required=True)
     parser.add_argument("--out", required=True)
