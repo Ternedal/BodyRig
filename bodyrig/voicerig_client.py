@@ -5,6 +5,9 @@ import json
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -19,6 +22,8 @@ MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_VOICE_PACKAGE_BYTES = 160 * 1024 * 1024
 MAX_AUDIO_BYTES = 64 * 1024 * 1024
 MAX_SOURCE_FILES = 20
+VOICE_UPLOAD_SAMPLE_RATE = 24_000
+_VIDEO_SOURCE_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"}
 _JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
@@ -44,6 +49,66 @@ def _job_id(value: str) -> str:
     if not _JOB_ID_RE.fullmatch(clean):
         raise VoiceRigClientError("Invalid VoiceRig job id")
     return clean
+
+
+def _prepare_voice_upload_paths(paths: list[Path], root: Path) -> list[Path]:
+    """Normalize video sources to VoiceRig's canonical audio before transport.
+
+    BodyRig has already verified the original source bytes before this function is
+    called. The original Stash file SHA-256 values remain the source authority;
+    this is only a transport optimization. VoiceRig itself normalizes arbitrary
+    media to 24 kHz mono PCM before diarization, so doing that decode here and
+    wrapping it as FLAC avoids sending video bytes without changing the audio
+    representation VoiceRig analyzes.
+    """
+    if not any(path.suffix.lower() in _VIDEO_SOURCE_EXTENSIONS for path in paths):
+        return list(paths)
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise VoiceRigClientError("FFmpeg is required to extract audio before VoiceRig upload")
+    root.mkdir(parents=True, exist_ok=True)
+
+    prepared: list[Path] = []
+    for index, path in enumerate(paths, start=1):
+        if path.suffix.lower() not in _VIDEO_SOURCE_EXTENSIONS:
+            prepared.append(path)
+            continue
+
+        target = root / f"source-{index:02d}.flac"
+        command = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-i",
+            str(path),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            str(VOICE_UPLOAD_SAMPLE_RATE),
+            "-sample_fmt",
+            "s16",
+            "-c:a",
+            "flac",
+            str(target),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+        except OSError as exc:
+            raise VoiceRigClientError(f"Could not extract VoiceRig audio from {path.name}: {exc}") from exc
+        if result.returncode != 0:
+            detail = (result.stderr or "unknown FFmpeg error").strip()
+            raise VoiceRigClientError(f"Could not extract VoiceRig audio from {path.name}: {detail[:500]}")
+        if not target.is_file() or target.stat().st_size < 128:
+            raise VoiceRigClientError(f"VoiceRig source has no usable audio: {path.name}")
+        prepared.append(target)
+    return prepared
 
 
 @dataclass(frozen=True)
@@ -204,27 +269,14 @@ class VoiceRigClient:
             raise VoiceRigClientError("VoiceRig synthesis did not return WAV audio")
         return raw
 
-    def start_voice_job(
+    def _upload_voice_job(
         self,
         *,
-        name: str,
-        language: str,
-        files: list[str | os.PathLike[str]],
-        accent: str = "",
+        clean_name: str,
+        clean_language: str,
+        accent: str,
+        paths: list[Path],
     ) -> dict[str, Any]:
-        clean_name = str(name or "").strip()
-        clean_language = str(language or "").strip()
-        if not clean_name or len(clean_name) > 160:
-            raise VoiceRigClientError("VoiceRig build name is invalid")
-        if not clean_language or len(clean_language) > 32:
-            raise VoiceRigClientError("VoiceRig build language is invalid")
-        paths = [Path(value).expanduser().resolve() for value in files]
-        if not 1 <= len(paths) <= MAX_SOURCE_FILES:
-            raise VoiceRigClientError(f"VoiceRig source build requires 1..{MAX_SOURCE_FILES} files")
-        for path in paths:
-            if not path.is_file():
-                raise VoiceRigClientError(f"VoiceRig source file is not readable: {path.name}")
-
         boundary = f"bodyrig-{uuid.uuid4().hex}"
         boundary_bytes = boundary.encode("ascii")
 
@@ -293,6 +345,36 @@ class VoiceRigClient:
             raise VoiceRigClientError(f"Could not upload source media to VoiceRig: {exc}") from exc
         finally:
             connection.close()
+
+    def start_voice_job(
+        self,
+        *,
+        name: str,
+        language: str,
+        files: list[str | os.PathLike[str]],
+        accent: str = "",
+    ) -> dict[str, Any]:
+        clean_name = str(name or "").strip()
+        clean_language = str(language or "").strip()
+        if not clean_name or len(clean_name) > 160:
+            raise VoiceRigClientError("VoiceRig build name is invalid")
+        if not clean_language or len(clean_language) > 32:
+            raise VoiceRigClientError("VoiceRig build language is invalid")
+        paths = [Path(value).expanduser().resolve() for value in files]
+        if not 1 <= len(paths) <= MAX_SOURCE_FILES:
+            raise VoiceRigClientError(f"VoiceRig source build requires 1..{MAX_SOURCE_FILES} files")
+        for path in paths:
+            if not path.is_file():
+                raise VoiceRigClientError(f"VoiceRig source file is not readable: {path.name}")
+
+        with tempfile.TemporaryDirectory(prefix="bodyrig-voicerig-audio-") as temp:
+            upload_paths = _prepare_voice_upload_paths(paths, Path(temp))
+            return self._upload_voice_job(
+                clean_name=clean_name,
+                clean_language=clean_language,
+                accent=accent,
+                paths=upload_paths,
+            )
 
     def voice_job(self, job_id: str) -> dict[str, Any]:
         clean = _job_id(job_id)
