@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
-from .package import validate_package
+from .package import MRBodyError, validate_package
 from .physical_session import validate_session
 
 FORMAT = "bodyrig-post-clone-continuation-plan"
@@ -114,7 +114,7 @@ def build_post_clone_plan(
     package_path = clone_dir / f"{session['body_id']}.mrbody"
     try:
         package = validate_package(package_path)
-    except (OSError, ValueError) as exc:
+    except (MRBodyError, OSError, ValueError) as exc:
         raise PostCloneContinuationError(f"completed physical clone package is invalid: {exc}") from exc
     package_sha = _sha256(package_path, label="physical clone package")
     authority["package_sha256"] = package_sha
