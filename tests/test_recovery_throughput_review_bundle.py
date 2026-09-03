@@ -93,6 +93,8 @@ def test_bundle_is_create_only_hash_bound_and_non_authoritative(tmp_path: Path, 
         assert (out / "candidate" / f"{view}.png").is_file()
     assert bundle.verify_bundle(out) == receipt
 
+    retry_runs = iter((baseline, candidate))
+    monkeypatch.setattr(bundle, "collect_run", lambda *args, **kwargs: next(retry_runs))
     with pytest.raises(bundle.RecoveryThroughputReviewBundleError, match="refusing to overwrite"):
         bundle.build_bundle(
             "baseline",
