@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +32,10 @@ class VoiceRigClientError(RuntimeError):
     pass
 
 
+class VoiceRigUploadCancelled(VoiceRigClientError):
+    pass
+
+
 def _loopback_host(host: str | None) -> bool:
     if not host:
         return False
@@ -51,16 +56,25 @@ def _job_id(value: str) -> str:
     return clean
 
 
-def _prepare_voice_upload_paths(paths: list[Path], root: Path) -> list[Path]:
-    """Normalize video sources to VoiceRig's canonical audio before transport.
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise VoiceRigUploadCancelled("VoiceRig source transport was canceled before remote job creation")
+
+
+def _prepare_voice_upload_paths(
+    paths: list[Path],
+    root: Path,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> list[Path]:
+    """Extract audio from video locally before VoiceRig transport.
 
     BodyRig has already verified the original source bytes before this function is
-    called. The original Stash file SHA-256 values remain the source authority;
-    this is only a transport optimization. VoiceRig itself normalizes arbitrary
-    media to 24 kHz mono PCM before diarization, so doing that decode here and
-    wrapping it as FLAC avoids sending video bytes without changing the audio
-    representation VoiceRig analyzes.
+    called. Original Stash SHA-256 values remain source authority. VoiceRig only
+    needs audio, so video inputs become 24 kHz mono FLAC locally and raw video
+    bytes never enter the multipart transport.
     """
+    _check_cancel(cancel_event)
     if not any(path.suffix.lower() in _VIDEO_SOURCE_EXTENSIONS for path in paths):
         return list(paths)
 
@@ -71,6 +85,7 @@ def _prepare_voice_upload_paths(paths: list[Path], root: Path) -> list[Path]:
 
     prepared: list[Path] = []
     for index, path in enumerate(paths, start=1):
+        _check_cancel(cancel_event)
         if path.suffix.lower() not in _VIDEO_SOURCE_EXTENSIONS:
             prepared.append(path)
             continue
@@ -99,15 +114,42 @@ def _prepare_voice_upload_paths(paths: list[Path], root: Path) -> list[Path]:
             str(target),
         ]
         try:
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            if cancel_event is None:
+                result = subprocess.run(command, capture_output=True, text=True, check=False)
+                returncode = result.returncode
+                stderr = result.stderr or ""
+            else:
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                while process.poll() is None:
+                    if cancel_event.wait(0.1):
+                        process.terminate()
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=5)
+                        raise VoiceRigUploadCancelled(
+                            f"VoiceRig audio extraction canceled while processing {path.name}"
+                        )
+                _, stderr = process.communicate()
+                returncode = process.returncode
+        except VoiceRigUploadCancelled:
+            target.unlink(missing_ok=True)
+            raise
         except OSError as exc:
             raise VoiceRigClientError(f"Could not extract VoiceRig audio from {path.name}: {exc}") from exc
-        if result.returncode != 0:
-            detail = (result.stderr or "unknown FFmpeg error").strip()
+        if returncode != 0:
+            detail = (stderr or "unknown FFmpeg error").strip()
             raise VoiceRigClientError(f"Could not extract VoiceRig audio from {path.name}: {detail[:500]}")
         if not target.is_file() or target.stat().st_size < 128:
             raise VoiceRigClientError(f"VoiceRig source has no usable audio: {path.name}")
         prepared.append(target)
+    _check_cancel(cancel_event)
     return prepared
 
 
@@ -276,7 +318,9 @@ class VoiceRigClient:
         clean_language: str,
         accent: str,
         paths: list[Path],
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
+        _check_cancel(cancel_event)
         boundary = f"bodyrig-{uuid.uuid4().hex}"
         boundary_bytes = boundary.encode("ascii")
 
@@ -316,6 +360,7 @@ class VoiceRigClient:
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         connection = connection_class(parsed.hostname, port, timeout=max(self.config.timeout_seconds, 300))
         try:
+            _check_cancel(cancel_event)
             connection.putrequest("POST", target)
             connection.putheader("Accept", "application/json")
             connection.putheader("User-Agent", "BodyRig/0.1 VoiceRigBridge")
@@ -323,13 +368,17 @@ class VoiceRigClient:
             connection.putheader("Content-Length", str(content_length))
             connection.endheaders()
             for part in parts:
+                _check_cancel(cancel_event)
                 connection.send(part)
             for path, header in zip(paths, file_headers, strict=True):
+                _check_cancel(cancel_event)
                 connection.send(header)
                 with path.open("rb") as handle:
                     while chunk := handle.read(1024 * 1024):
+                        _check_cancel(cancel_event)
                         connection.send(chunk)
                 connection.send(b"\r\n")
+            _check_cancel(cancel_event)
             connection.send(closing)
             response = connection.getresponse()
             raw = response.read(MAX_JSON_BYTES + 1)
@@ -339,9 +388,13 @@ class VoiceRigClient:
                 detail = raw.decode("utf-8", errors="replace")[:1000]
                 raise VoiceRigClientError(f"VoiceRig HTTP {response.status}: {detail or response.reason}")
             return self._job_from_response(raw, "voice build")
+        except VoiceRigUploadCancelled:
+            raise
         except VoiceRigClientError:
             raise
         except (http.client.HTTPException, TimeoutError, OSError) as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                raise VoiceRigUploadCancelled("VoiceRig source transport was canceled") from exc
             raise VoiceRigClientError(f"Could not upload source media to VoiceRig: {exc}") from exc
         finally:
             connection.close()
@@ -353,6 +406,7 @@ class VoiceRigClient:
         language: str,
         files: list[str | os.PathLike[str]],
         accent: str = "",
+        cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         clean_name = str(name or "").strip()
         clean_language = str(language or "").strip()
@@ -367,13 +421,23 @@ class VoiceRigClient:
             if not path.is_file():
                 raise VoiceRigClientError(f"VoiceRig source file is not readable: {path.name}")
 
+        _check_cancel(cancel_event)
         with tempfile.TemporaryDirectory(prefix="bodyrig-voicerig-audio-") as temp:
-            upload_paths = _prepare_voice_upload_paths(paths, Path(temp))
+            if cancel_event is None:
+                upload_paths = _prepare_voice_upload_paths(paths, Path(temp))
+                return self._upload_voice_job(
+                    clean_name=clean_name,
+                    clean_language=clean_language,
+                    accent=accent,
+                    paths=upload_paths,
+                )
+            upload_paths = _prepare_voice_upload_paths(paths, Path(temp), cancel_event=cancel_event)
             return self._upload_voice_job(
                 clean_name=clean_name,
                 clean_language=clean_language,
                 accent=accent,
                 paths=upload_paths,
+                cancel_event=cancel_event,
             )
 
     def voice_job(self, job_id: str) -> dict[str, Any]:
