@@ -5,6 +5,7 @@
   const BODY_EXPECTED_SECONDS = 45 * 60;
   const BODY_UPPER_SECONDS = 120 * 60;
   let timer = null;
+  let lastPersonId = "";
 
   async function request(path, options = {}) {
     const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -360,8 +361,15 @@
   window.addEventListener("DOMContentLoaded", () => {
     ensureUi();
     const idNode = $("personId");
+    lastPersonId = personId();
     if (idNode) {
-      new MutationObserver(() => schedule(0)).observe(idNode, { childList: true, characterData: true, subtree: true });
+      new MutationObserver(() => {
+        const current = personId();
+        if (current !== lastPersonId) {
+          lastPersonId = current;
+          schedule(0);
+        }
+      }).observe(idNode, { childList: true, characterData: true, subtree: true });
     }
     void tick();
   }, { once: true });
