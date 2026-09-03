@@ -53,7 +53,8 @@ def test_candidate_runner_uses_monitor_and_only_succeeds_on_terminal_success() -
     assert 'Path "/api/v1/jobs/$jobId"' in SCRIPT
     assert '$finalStatus -ne "succeeded"' in SCRIPT
     assert "diagnostic_tail" in SCRIPT
-    assert "compare-recovery-throughput-auto.ps1" in SCRIPT
+    assert "prepare-recovery-throughput-review.ps1 -PersonId $PersonId" in SCRIPT
+    assert "keeps human review, restore and promotion as explicit later gates" in SCRIPT
 
 
 def test_candidate_runner_has_no_checkout_or_process_mutation_commands() -> None:
