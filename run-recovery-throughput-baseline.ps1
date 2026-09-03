@@ -140,7 +140,7 @@ $activeBodyJobs = @(
 )
 if ($activeBodyJobs.Count -gt 0) {
     $ids = @($activeBodyJobs | ForEach-Object { [string](Get-Prop $_ "job_id" "unknown") }) -join ", "
-    throw "A body-build is already active for $PersonId: $ids"
+    throw "A body-build is already active for ${PersonId}: $ids"
 }
 
 $request = @{ feedback = ""; changes = @() } | ConvertTo-Json -Depth 4 -Compress
