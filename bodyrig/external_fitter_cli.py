@@ -27,6 +27,10 @@ from .portable_identity import (
     provenance_identity_stage,
 )
 from .proof import ProofError, load_recovery_proof, read_canonical_json
+from .retained_anatomy_source import (
+    RetainedAnatomySourceError,
+    publish_retained_anatomy_source,
+)
 from .subject_anatomy_provenance import (
     SubjectAnatomyProvenanceError,
     provenance_stage as subject_anatomy_provenance_stage,
@@ -37,6 +41,8 @@ CONFIG_VERSION = 1
 ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 ADJUSTMENT_REQUEST_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
 BOUND_ADJUSTMENT_FILENAME = "bodyrig-bodyprint-adjustment.json"
+BUILTIN_SITH_ADAPTER = "sith-smplx-vrm"
+RETAINED_ANATOMY_DIRNAME = "retained-anatomy-source"
 
 
 class ExternalFitterConfigError(ValueError):
@@ -248,6 +254,11 @@ def main(argv: list[str] | None = None) -> int:
             provenance=provenance,
             thumbnail_png=fitted.fit.thumbnail_png,
         )
+        if config["adapter"] == BUILTIN_SITH_ADAPTER:
+            publish_retained_anatomy_source(
+                args.identity_workspace,
+                output.parent / RETAINED_ANATOMY_DIRNAME,
+            )
     except (
         OSError,
         ValueError,
@@ -256,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         PortableIdentityError,
         BodyprintAdjustmentEvidenceError,
         SubjectAnatomyProvenanceError,
+        RetainedAnatomySourceError,
         ExternalFitterConfigError,
         ExternalFitterError,
         MRBodyError,
