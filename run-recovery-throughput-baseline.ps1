@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$ExpectedBaselineRevision = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+$ExpectedBaselineRevision = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 $BaseUrl = "http://127.0.0.1:8775"
 
 function Get-Prop {
@@ -91,17 +91,21 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git") -PathType Containe
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "Git is not available."
 }
+$python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw "BodyRig virtualenv Python is missing: $python"
+}
 
 $head = (& git -C $RepoRoot rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
-    throw "Could not resolve exact BodyRig checkout revision."
+    throw "Could not resolve exact baseline checkout revision."
 }
 if ($head -cne $ExpectedBaselineRevision) {
-    throw "Baseline checkout mismatch. Expected $ExpectedBaselineRevision, got $head. Refusing to start A/B baseline."
+    throw "Baseline checkout is not the exact uncapped authority. Expected $ExpectedBaselineRevision, got $head."
 }
 $dirty = @(& git -C $RepoRoot status --porcelain)
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not read BodyRig checkout status."
+    throw "Could not read baseline checkout status."
 }
 if ($dirty.Count -gt 0) {
     throw "Baseline checkout is dirty. Refusing to start physical A/B baseline."
@@ -151,7 +155,7 @@ if ($jobId -notmatch '^job-[0-9a-f]{32}$') {
     throw "BodyRig returned an invalid body-build job id."
 }
 if ($jobRevision -cne $ExpectedBaselineRevision) {
-    throw "Started job is not bound to the exact baseline authority. Expected $ExpectedBaselineRevision, got $jobRevision."
+    throw "Started job is not bound to exact baseline authority. Expected $ExpectedBaselineRevision, got $jobRevision."
 }
 
 Write-Host "BodyRig recovery throughput A/B baseline: STARTED"
@@ -159,7 +163,6 @@ Write-Host "Person:    $PersonId"
 Write-Host "Performer: $performerId"
 Write-Host "Job:       $jobId"
 Write-Host "Revision:  $jobRevision"
-Write-Host "Mode:      uncapped recovery baseline"
 
 if ($NoWatch) {
     Write-Host "Monitor:   $RepoRoot\watch-body-build.ps1 -JobId $jobId"
@@ -195,6 +198,6 @@ if ($finalStatus -ne "succeeded") {
 
 Write-Host "BodyRig recovery throughput A/B baseline: SUCCEEDED"
 Write-Host "Job:      $jobId"
-Write-Host "Revision: $ExpectedBaselineRevision"
-Write-Host "Next: record this job as the uncapped baseline before switching to the sampled candidate."
+Write-Host "Revision: $jobRevision"
+Write-Host "Next:     switch to the reviewed sampled candidate only after recording this exact job id."
 exit 0
