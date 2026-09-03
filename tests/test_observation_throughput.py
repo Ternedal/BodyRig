@@ -8,8 +8,12 @@ import pytest
 from bodyrig.bridges import hmr2_checkpoint_bridge as bridge
 from bodyrig.bridges.hmr2_config import (
     ADAPTER_REVISION,
+    FOUR_D_HUMANS_REVISION,
+    NMR_REVISION,
+    PHALP_REVISION,
     RECOVERY_MAX_FPS,
     RECOVERY_TEMPORAL_SAMPLING_POLICY,
+    RECOVERY_TEMPORAL_SAMPLING_REVISION,
 )
 
 
@@ -106,6 +110,13 @@ def test_sampled_directory_still_uses_low_vram_phalp_launcher(tmp_path: Path) ->
     assert "overwrite=true" in command
 
 
-def test_sampling_policy_is_part_of_recovery_adapter_revision() -> None:
-    assert RECOVERY_TEMPORAL_SAMPLING_POLICY in ADAPTER_REVISION
-    assert f"sampling:{RECOVERY_TEMPORAL_SAMPLING_POLICY}" in ADAPTER_REVISION
+def test_sampling_policy_has_compact_versioned_adapter_identity() -> None:
+    # The descriptive policy remains available in checkpoint/cache metadata.
+    assert RECOVERY_TEMPORAL_SAMPLING_POLICY == "phalp-frame-stride-max-15fps-v1"
+    # The wire revision must remain inside recovery-v1's 160-char contract while
+    # preserving every exact dependency revision and a versioned sampling id.
+    assert len(ADAPTER_REVISION) <= 160
+    assert FOUR_D_HUMANS_REVISION in ADAPTER_REVISION
+    assert PHALP_REVISION in ADAPTER_REVISION
+    assert NMR_REVISION in ADAPTER_REVISION
+    assert f"s:{RECOVERY_TEMPORAL_SAMPLING_REVISION}" in ADAPTER_REVISION
