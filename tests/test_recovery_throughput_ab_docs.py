@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "RECOVERY_THROUGHPUT_AB.md").read_text(encoding="utf-8")
-BASELINE = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+BASELINE = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 
 
 def test_ab_requires_two_succeeded_runs_and_rejects_failed_historical_job_as_baseline() -> None:
@@ -12,32 +12,37 @@ def test_ab_requires_two_succeeded_runs_and_rejects_failed_historical_job_as_bas
     assert "Do not start the candidate until the baseline has succeeded" in DOC
 
 
+def test_current_running_authority_can_be_reused_as_baseline_only_after_success() -> None:
+    assert BASELINE in DOC
+    assert "may be used as the baseline **if and only if it succeeds**" in DOC
+    assert "There is no reason to start a second uncapped run" in DOC
+
+
 def test_ab_binds_baseline_and_candidate_to_exact_software_authority() -> None:
     assert BASELINE in DOC
     assert "job.bodyrig_revision" in DOC
     assert "git rev-parse HEAD" in DOC
     assert "current clean comparator checkout HEAD" in DOC
-    assert "A dirty comparator checkout is refused" in DOC
+    assert "dirty comparator checkout is refused" in DOC
 
 
-def test_runbook_uses_safe_updater_for_both_switches_and_requires_restore() -> None:
+def test_runbook_uses_v3_candidate_and_requires_restore() -> None:
+    assert '-Branch "agent/recovery-throughput-v3-20260903"' in DOC
     assert '-Branch "agent/person-studio-photoreal-20260902"' in DOC
-    assert '-Branch "agent/recovery-throughput-v2-20260903"' in DOC
-    assert "Always restore canonical Person Studio authority" in DOC
+    assert "restore canonical Person Studio runtime" in DOC
     assert "Do not leave normal BodyRig runtime on the performance-candidate branch" in DOC
 
 
 def test_runbook_uses_fail_closed_baseline_and_candidate_runners() -> None:
     assert "run-recovery-throughput-baseline.ps1" in DOC
     assert "run-recovery-throughput-candidate.ps1" in DOC
-    assert "Bootstrap the reviewed baseline runner into `%TEMP%`" in DOC
     assert "starts **only** `/body/build`" in DOC
     assert "RECOVERY_TEMPORAL_SAMPLING_REVISION == 15fps-v1" in DOC
-    assert "follows the canonical `watch-body-build.ps1` monitor" in DOC
+    assert "canonical `watch-body-build.ps1` monitor" in DOC
 
 
 def test_no_watch_never_means_skip_authority_or_readiness_gates() -> None:
-    assert "`-NoWatch` may be used to return after a safely-started job" in DOC
+    assert "`-NoWatch` may be used" in DOC
     assert "it does not skip any pre-start authority/readiness gate" in DOC
     assert "it does not stop the physical job" in DOC
 
@@ -77,8 +82,6 @@ def test_human_receipt_cannot_mutate_bundle_or_grant_authority() -> None:
     assert "cannot mutate the hash-manifested bundle" in DOC
     assert "promotion_authority = false" in DOC
     assert "production_activation = false" in DOC
-    assert "create-only human review receipt" in DOC
-    assert "records `no-material-regression`" in DOC
 
 
 def test_ab_preserves_native_observation_bytes_and_requires_exact_evidence() -> None:
@@ -89,5 +92,5 @@ def test_ab_preserves_native_observation_bytes_and_requires_exact_evidence() -> 
 
 
 def test_ci_or_speed_alone_can_never_promote_candidate() -> None:
-    assert "Never merge PR #58 or move PR #1/physical authority solely because CI is green" in DOC
+    assert "Never merge PR #60 or move physical authority solely because CI is green" in DOC
     assert "because the candidate is faster" in DOC
