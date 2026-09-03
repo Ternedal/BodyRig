@@ -903,6 +903,11 @@ def motor_state_v2() -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+# Imported late on purpose: the adapter depends on the already-initialized persisted UI job manager.
+from .ui_body_resume import router as _ui_body_resume_router
+app.include_router(_ui_body_resume_router)
+
+
 def run() -> None:
     import uvicorn
 
