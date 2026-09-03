@@ -36,7 +36,43 @@ The updater must finish `BodyRig update: READY`, and the printed revision must b
 
 If the remote Person Studio branch has moved to another revision, stop. PR #58 must be rebuilt/revalidated on that new base before an A/B run is accepted.
 
-For the throughput experiment, start only the body candidate in Person Studio rather than intentionally triggering unrelated VoiceRig/personality work. Record the succeeded baseline body-job id.
+#### Preferred baseline runner
+
+The baseline checkout intentionally does not contain performance-candidate tooling. Bootstrap the reviewed baseline runner into `%TEMP%` without changing the checked-out baseline revision:
+
+```powershell
+$repo = (Get-Location).Path
+$branch = "agent/recovery-throughput-v2-20260903"
+$tmp = Join-Path $env:TEMP "bodyrig-run-recovery-throughput-baseline.ps1"
+
+git fetch origin "refs/heads/${branch}:refs/remotes/origin/${branch}"
+if ($LASTEXITCODE -ne 0) { throw "Could not fetch BodyRig A/B tooling." }
+
+git show "origin/${branch}:run-recovery-throughput-baseline.ps1" |
+    Set-Content -LiteralPath $tmp -Encoding utf8
+
+& "C:\Program Files\PowerShell\7\pwsh.exe" `
+    -NoProfile `
+    -ExecutionPolicy Bypass `
+    -File $tmp `
+    -PersonId "person-<32 hex>" `
+    -RepoRoot $repo
+```
+
+The runner is fail-closed before the build POST. It verifies:
+
+- disk checkout HEAD is exact `76c64a9546238663dedf750a1da4a230cc1e7fa4` and clean;
+- `%LOCALAPPDATA%\BodyRig\ui-service.json` points to the same checkout and exact revision and its PID is alive;
+- BodyRig physical readiness is green;
+- Stash health + performer-read is green;
+- the requested Person has a Stash performer binding;
+- no body-build is already queued/running for that Person.
+
+It then starts **only** `/body/build`, verifies the returned job is persisted with exact baseline `bodyrig_revision`, and follows the canonical `watch-body-build.ps1` monitor until terminal state. It exits 0 only for `succeeded` and prints the persisted diagnostic tail on failure.
+
+`-NoWatch` may be used to return after a safely-started job; it does not skip any pre-start authority/readiness gate and it does not stop the physical job.
+
+Record the succeeded baseline body-job id.
 
 ### 2. Switch to the sampled candidate
 
@@ -49,7 +85,14 @@ Only after the baseline body job has succeeded:
 
 Record the exact `Revision:` printed by the updater. That exact SHA is the candidate software authority for this physical run. Do not make commits, edit files, or otherwise dirty/move the checkout between the candidate body build and the machine A/B audit.
 
-Start the body candidate for the same Person Studio person and wait for the body job to reach `succeeded`.
+Use the candidate runner:
+
+```powershell
+.\run-recovery-throughput-candidate.ps1 `
+  -PersonId "person-<32 hex>"
+```
+
+The candidate runner verifies the current clean Git HEAD, verifies the running service state points to that exact HEAD, requires `RECOVERY_TEMPORAL_SAMPLING_REVISION == 15fps-v1`, rechecks BodyRig/Stash/person/active-job gates, starts only the body build, and requires the persisted job `bodyrig_revision` to equal the exact candidate HEAD. It follows the canonical body monitor and exits 0 only for `succeeded`.
 
 ### 3. Audit before restoring the rig
 
