@@ -10,10 +10,13 @@ NMR_REVISION = "e990b3c70f48d39231f607c79d76ce3db4bf7483"
 NMR_REMOTE = "https://github.com/shubham-goel/NMR.git"
 RECOVERY_MAX_FPS = 15.0
 RECOVERY_TEMPORAL_SAMPLING_POLICY = "phalp-frame-stride-max-15fps-v1"
+RECOVERY_TEMPORAL_SAMPLING_REVISION = "15fps-v1"
 ADAPTER_NAME = "4dhumans-hmr2-phalp"
+# Keep the wire revision within the recovery-v1 160-character contract while
+# retaining every exact upstream commit plus a versioned sampling identity.
 ADAPTER_REVISION = (
     f"4dh:{FOUR_D_HUMANS_REVISION};phalp:{PHALP_REVISION};nmr:{NMR_REVISION};"
-    f"sampling:{RECOVERY_TEMPORAL_SAMPLING_POLICY}"
+    f"s:{RECOVERY_TEMPORAL_SAMPLING_REVISION}"
 )
 
 
