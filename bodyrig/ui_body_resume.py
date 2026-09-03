@@ -86,15 +86,20 @@ def _identity_workspace_from_log(job: dict[str, Any]) -> Path:
     return candidate
 
 
-def _active_jobs_for_person(person_id: str, *, ignore_job_id: str = "") -> list[dict[str, Any]]:
+def _active_jobs_for_person(person_id: str, *, ignore_job_ids: set[str] | None = None) -> list[dict[str, Any]]:
+    ignored = ignore_job_ids or set()
     return [
         job
         for job in ui_jobs.list(person_id=person_id)
-        if job.get("job_id") != ignore_job_id and job.get("status") in _OPEN
+        if str(job.get("job_id") or "") not in ignored and job.get("status") in _OPEN
     ]
 
 
-def _validated_resume_source(job_id: str) -> tuple[dict[str, Any], dict[str, Any], Path, dict[str, Any]]:
+def _validated_resume_source(
+    job_id: str,
+    *,
+    ignore_job_ids: set[str] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], Path, dict[str, Any]]:
     source = _read_job(_job_path(job_id))
     if source.get("kind") != "body-build":
         raise UiJobError("only a persisted body-build job can be resumed")
@@ -104,7 +109,9 @@ def _validated_resume_source(job_id: str) -> tuple[dict[str, Any], dict[str, Any
     person_id = str(source.get("person_id") or "").strip()
     if not person_id:
         raise UiJobError("failed body-build has no person binding")
-    if _active_jobs_for_person(person_id, ignore_job_id=job_id):
+    ignored = set(ignore_job_ids or set())
+    ignored.add(job_id)
+    if _active_jobs_for_person(person_id, ignore_job_ids=ignored):
         raise UiJobError("another BodyRig UI build is already open for this person")
 
     authority = operator_checkout_status()
@@ -165,7 +172,7 @@ def inspect_body_resume(job_id: str) -> dict[str, Any]:
 
 
 def start_body_resume(job_id: str) -> dict[str, Any]:
-    source, plan, workspace, profile = _validated_resume_source(job_id)
+    source, plan, workspace, _profile = _validated_resume_source(job_id)
     person_id = str(source["person_id"])
     with ui_jobs._lock:
         current_source = _read_job(_job_path(job_id))
@@ -173,7 +180,7 @@ def start_body_resume(job_id: str) -> dict[str, Any]:
             raise UiJobError("source body-build changed state while recovery was being prepared")
         if str(current_source.get("bodyrig_revision") or "").lower() != str(plan["bodyrig_revision"]).lower():
             raise UiJobError("source body-build authority changed while recovery was being prepared")
-        if _active_jobs_for_person(person_id, ignore_job_id=job_id):
+        if _active_jobs_for_person(person_id, ignore_job_ids={job_id}):
             raise UiJobError("another BodyRig UI build opened while late-fit recovery was being prepared")
 
         new_job_id = f"job-{uuid.uuid4().hex}"
@@ -229,7 +236,10 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
             job["started_utc"] = _now()
             _write_job(job)
 
-        source, plan, workspace, profile = _validated_resume_source(source_job_id)
+        source, plan, workspace, _profile = _validated_resume_source(
+            source_job_id,
+            ignore_job_ids={source_job_id, job_id},
+        )
         if workspace != Path(workspace_text).resolve():
             raise UiJobError("retained identity workspace changed between recovery enqueue and execution")
         if str(plan["authority"]["reconstruction_sha256"]) != str(job.get("resume_reconstruction_sha256") or ""):
