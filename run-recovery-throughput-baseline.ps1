@@ -15,7 +15,7 @@ $BaseUrl = "http://127.0.0.1:8775"
 
 function Get-Prop {
     param(
-        [Parameter(Mandatory = $true)]$Object,
+        $Object,
         [Parameter(Mandatory = $true)][string]$Name,
         $Default = $null
     )
@@ -47,6 +47,40 @@ function Invoke-BodyRigJson {
     }
 }
 
+function Assert-RunningServiceAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Revision
+    )
+    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        throw "LOCALAPPDATA is unavailable; cannot verify BodyRig service authority."
+    }
+    $statePath = Join-Path $env:LOCALAPPDATA "BodyRig\ui-service.json"
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        throw "BodyRig service state is missing: $statePath"
+    }
+    try {
+        $state = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20
+    } catch {
+        throw "BodyRig service state is unreadable: $statePath"
+    }
+    if ([string](Get-Prop $state "format" "") -cne "bodyrig-ui-service" -or [int](Get-Prop $state "version" 0) -ne 1) {
+        throw "BodyRig service state format/version mismatch."
+    }
+    $stateRoot = [System.IO.Path]::GetFullPath([string](Get-Prop $state "root" ""))
+    $stateRevision = [string](Get-Prop $state "revision" "")
+    $statePid = [int](Get-Prop $state "pid" 0)
+    if ($stateRoot -cne [System.IO.Path]::GetFullPath($Root)) {
+        throw "Running BodyRig service is bound to a different checkout: $stateRoot"
+    }
+    if ($stateRevision -cne $Revision) {
+        throw "Running BodyRig service revision mismatch. Expected $Revision, got $stateRevision."
+    }
+    if ($statePid -le 0 -or $null -eq (Get-Process -Id $statePid -ErrorAction SilentlyContinue)) {
+        throw "BodyRig service state PID is not alive: $statePid"
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Get-Location).Path
 }
@@ -72,6 +106,8 @@ if ($LASTEXITCODE -ne 0) {
 if ($dirty.Count -gt 0) {
     throw "Baseline checkout is dirty. Refusing to start physical A/B baseline."
 }
+
+Assert-RunningServiceAuthority -Root $RepoRoot -Revision $ExpectedBaselineRevision
 
 $health = Invoke-BodyRigJson -Method Get -Path "/api/v1/health"
 if ((Get-Prop $health "ok" $false) -ne $true -or [string](Get-Prop $health "service" "") -cne "bodyrig") {
@@ -126,7 +162,7 @@ Write-Host "Revision:  $jobRevision"
 Write-Host "Mode:      uncapped recovery baseline"
 
 if ($NoWatch) {
-    Write-Host "Monitor:   .\watch-body-build.ps1 -JobId $jobId"
+    Write-Host "Monitor:   $RepoRoot\watch-body-build.ps1 -JobId $jobId"
     exit 0
 }
 
