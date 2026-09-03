@@ -8,9 +8,19 @@ DOC = (Path(__file__).resolve().parents[1] / "docs" / "RECOVERY_THROUGHPUT_AB.md
 
 
 def test_auto_discovery_only_considers_succeeded_body_jobs_for_requested_person() -> None:
-    assert '$job.kind -ne "body-build" -or $job.status -ne "succeeded"' in SCRIPT
-    assert '$job.person_id -ne $PersonId' in SCRIPT
+    assert '$kind -ne "body-build" -or $status -ne "succeeded"' in SCRIPT
+    assert '$personIdValue -ne $PersonId' in SCRIPT
     assert 'bodyrig-recovery-proof.json' in SCRIPT
+
+
+def test_auto_discovery_reads_stale_json_shapes_without_strict_mode_property_access() -> None:
+    assert "function Get-JsonPropertyValue" in SCRIPT
+    assert '$Object.PSObject.Properties[$Name]' in SCRIPT
+    assert 'Get-JsonPropertyValue -Object $job -Name "format"' in SCRIPT
+    assert 'Get-JsonPropertyValue -Object $job -Name "kind"' in SCRIPT
+    assert 'Get-JsonPropertyValue -Object $proof -Name "revision"' in SCRIPT
+    assert "$job.format" not in SCRIPT
+    assert "$proof.revision" not in SCRIPT
 
 
 def test_auto_discovery_uses_candidate_sampling_revision_from_checked_out_code() -> None:
