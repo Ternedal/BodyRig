@@ -7,7 +7,7 @@ import pytest
 
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
 from bodyrig.person_source_alignment import file_sha256, read_binding, write_binding
-from bodyrig.personality_source import SourcePersonalityError, build_source_personality
+from bodyrig.personality_source import SourcePersonalityError, _discover_transcripts, build_source_personality
 
 
 def _source_profile(root: Path, *, with_transcript: bool) -> tuple[dict, Path, Path, Path | None]:
@@ -173,3 +173,39 @@ def test_source_personality_is_idempotent_for_identical_evidence(tmp_path: Path)
     assert second["evidence_sha256"] == first["evidence_sha256"]
     updated = load_profile(tmp_path, profile["person_id"])
     assert [item["revision_id"] for item in updated["personality_revisions"]] == ["personality-r0001"]
+
+
+def test_transcript_discovery_scans_shared_media_directory_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "scene-a.mp4"
+    second = tmp_path / "scene-b.mp4"
+    first.write_bytes(b"a")
+    second.write_bytes(b"b")
+    first_caption = tmp_path / "scene-a.en.srt"
+    second_caption = tmp_path / "scene-b.vtt"
+    first_caption.write_text("first caption", encoding="utf-8")
+    second_caption.write_text("second caption", encoding="utf-8")
+
+    import bodyrig.personality_source as module
+
+    real_scandir = module.os.scandir
+    calls: list[str] = []
+
+    def counted_scandir(path):
+        calls.append(str(Path(path).resolve()))
+        return real_scandir(path)
+
+    monkeypatch.setattr(module.os, "scandir", counted_scandir)
+    result = _discover_transcripts(
+        [
+            {"scene_id": "a", "path": str(first)},
+            {"scene_id": "b", "path": str(second)},
+        ]
+    )
+
+    assert calls == [str(tmp_path.resolve())]
+    assert [(item["scene_id"], item["name"]) for item in result] == [
+        ("a", first_caption.name),
+        ("b", second_caption.name),
+    ]
