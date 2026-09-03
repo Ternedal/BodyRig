@@ -149,10 +149,19 @@ def test_resume_worker_excludes_itself_from_second_active_job_gate() -> None:
     assert '"resume_reconstruction_sha256"' in source
 
 
-def test_resume_api_routes_are_registered() -> None:
-    routes = {(route.path, method) for route in app.routes for method in getattr(route, "methods", set())}
-    assert ("/api/v1/jobs/{job_id}/resume-status", "GET") in routes
-    assert ("/api/v1/jobs/{job_id}/resume", "POST") in routes
+def test_resume_api_routes_are_registered_once() -> None:
+    resume_status_routes = [
+        route
+        for route in app.routes
+        if route.path == "/api/v1/jobs/{job_id}/resume-status" and "GET" in getattr(route, "methods", set())
+    ]
+    resume_routes = [
+        route
+        for route in app.routes
+        if route.path == "/api/v1/jobs/{job_id}/resume" and "POST" in getattr(route, "methods", set())
+    ]
+    assert len(resume_status_routes) == 1
+    assert len(resume_routes) == 1
 
 
 def test_person_studio_loads_resume_control_and_reconnects_auto_flow() -> None:
