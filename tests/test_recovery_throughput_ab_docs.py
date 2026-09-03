@@ -27,6 +27,21 @@ def test_runbook_uses_safe_updater_for_both_switches_and_requires_restore() -> N
     assert "Do not leave normal BodyRig runtime on the performance-candidate branch" in DOC
 
 
+def test_runbook_uses_fail_closed_baseline_and_candidate_runners() -> None:
+    assert "run-recovery-throughput-baseline.ps1" in DOC
+    assert "run-recovery-throughput-candidate.ps1" in DOC
+    assert "Bootstrap the reviewed baseline runner into `%TEMP%`" in DOC
+    assert "starts **only** `/body/build`" in DOC
+    assert "RECOVERY_TEMPORAL_SAMPLING_REVISION == 15fps-v1" in DOC
+    assert "follows the canonical `watch-body-build.ps1` monitor" in DOC
+
+
+def test_no_watch_never_means_skip_authority_or_readiness_gates() -> None:
+    assert "`-NoWatch` may be used to return after a safely-started job" in DOC
+    assert "it does not skip any pre-start authority/readiness gate" in DOC
+    assert "it does not stop the physical job" in DOC
+
+
 def test_machine_gate_never_grants_promotion_or_production() -> None:
     assert "promotion_authority = false" in DOC
     assert "production_activation = false" in DOC
