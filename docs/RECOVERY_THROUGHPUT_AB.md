@@ -53,7 +53,30 @@ Candidate recovery checkpoints/cache are versioned independently from uncapped b
 
 ## Machine A/B gate
 
-After both jobs succeed, run from the candidate checkout:
+### Preferred: fail-closed auto-discovery
+
+After both jobs succeed, run from the candidate checkout with the Person Studio person id:
+
+```powershell
+.\compare-recovery-throughput-auto.ps1 `
+  -PersonId "person-<32 hex>"
+```
+
+The auto-discovery wrapper is read-only unless `-Out` is explicitly supplied to the underlying comparator. It:
+
+- considers only `succeeded` `body-build` jobs for the requested person;
+- reads the persisted recovery proof for classification;
+- selects the **newest** sampled candidate for that person;
+- derives that candidate's exact uncapped parent recovery revision;
+- selects the **newest** succeeded baseline with that exact parent revision;
+- does not search backwards for an older candidate merely because the newest candidate would fail the evidence gate;
+- passes the selected ids to the canonical fail-closed auditor, which then revalidates source authority, observation selection, native segment bytes, recovery identity, Gate A and persisted review evidence.
+
+If no exact parent baseline exists, or if the newest candidate and selected baseline do not share the required evidence, the A/B gate is blocked. Do not manually substitute an older passing pair to hide newer regression evidence.
+
+### Explicit job ids
+
+For forensic/reproducibility work, or when an exact pair has already been recorded, call the canonical wrapper directly:
 
 ```powershell
 .\compare-recovery-throughput.ps1 `
@@ -61,7 +84,7 @@ After both jobs succeed, run from the candidate checkout:
   -CandidateJobId "job-<candidate>"
 ```
 
-The wrapper resolves the same BodyRig data authority as the application (`BODYRIG_DATA_DIR`, otherwise `%LOCALAPPDATA%\BodyRig`) and is read-only unless `-Out` is explicitly supplied. `-Out` is create-only and refuses overwrite.
+The wrappers resolve the same BodyRig data authority as the application (`BODYRIG_DATA_DIR`, otherwise `%LOCALAPPDATA%\BodyRig`). `-Out` is create-only and refuses overwrite.
 
 The audit must block unless all of these are true:
 
