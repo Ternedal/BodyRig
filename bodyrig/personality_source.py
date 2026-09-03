@@ -54,7 +54,50 @@ def _persist_create_only(path: Path, value: Mapping[str, Any]) -> Path:
     return path
 
 
-def _sidecar_transcripts(media: Path) -> list[Path]:
+def _directory_transcript_files(
+    directory: Path,
+    cache: dict[str, tuple[tuple[str, Path], ...]],
+) -> tuple[tuple[str, Path], ...]:
+    """Scan one media directory at most once per source-personality build.
+
+    Stash source sets commonly contain several clips from the same directory. A
+    repeated Path.iterdir()+Path.is_file() pass can become very expensive on a
+    large/network-backed media share. os.scandir keeps directory-entry metadata
+    with the enumeration and the per-build cache preserves the exact discovery
+    semantics without rescanning the same directory for every source clip.
+    """
+    key = os.path.normcase(str(directory))
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    found: list[tuple[str, Path]] = []
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_file():
+                        continue
+                except OSError:
+                    continue
+                name = entry.name
+                if Path(name).suffix.casefold() not in _TRANSCRIPT_SUFFIXES:
+                    continue
+                found.append((name.casefold(), Path(entry.path).resolve()))
+    except OSError:
+        result: tuple[tuple[str, Path], ...] = ()
+    else:
+        found.sort(key=lambda item: item[0])
+        result = tuple(found)
+    cache[key] = result
+    return result
+
+
+def _sidecar_transcripts(
+    media: Path,
+    *,
+    directory_cache: dict[str, tuple[tuple[str, Path], ...]] | None = None,
+) -> list[Path]:
     """Return caption/transcript sidecars belonging to one exact media file.
 
     Stash captions live beside the scene and commonly use scene.en.srt / scene.vtt.
@@ -62,24 +105,19 @@ def _sidecar_transcripts(media: Path) -> list[Path]:
     the full media filename. Prefix matching is intentionally narrow so a scene
     called ``foo`` cannot accidentally consume ``foobar.en.srt``.
     """
-    try:
-        entries = list(media.parent.iterdir())
-    except OSError:
-        return []
+    cache = directory_cache if directory_cache is not None else {}
+    entries = _directory_transcript_files(media.parent, cache)
     stem_prefix = media.stem.casefold() + "."
     full_prefix = media.name.casefold() + "."
     exact = {
         (media.stem + suffix).casefold()
         for suffix in _TRANSCRIPT_SUFFIXES
     }
-    result: list[Path] = []
-    for item in entries:
-        if not item.is_file() or item.suffix.casefold() not in _TRANSCRIPT_SUFFIXES:
-            continue
-        name = item.name.casefold()
-        if name not in exact and not name.startswith(stem_prefix) and not name.startswith(full_prefix):
-            continue
-        result.append(item.resolve())
+    result = [
+        path
+        for name, path in entries
+        if name in exact or name.startswith(stem_prefix) or name.startswith(full_prefix)
+    ]
     result.sort(key=lambda path: path.name.casefold())
     return result
 
@@ -87,10 +125,11 @@ def _sidecar_transcripts(media: Path) -> list[Path]:
 def _discover_transcripts(source_files: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
+    directory_cache: dict[str, tuple[tuple[str, Path], ...]] = {}
     for source in source_files:
         media = Path(str(source.get("path") or "")).expanduser().resolve()
         scene_id = str(source.get("scene_id") or "")
-        for transcript in _sidecar_transcripts(media):
+        for transcript in _sidecar_transcripts(media, directory_cache=directory_cache):
             key = os.path.normcase(str(transcript))
             if key in seen:
                 continue
