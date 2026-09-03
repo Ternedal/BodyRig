@@ -19,8 +19,8 @@ def test_review_prep_doc_keeps_human_restore_and_authority_boundaries_explicit()
     assert "record a human visual PASS or FAIL" in DOC
     assert "switch Git branches or update BodyRig" in DOC
     assert "restore Person Studio authority" in DOC
-    assert "merge PR #58" in DOC
-    assert "move PR #1 physical authority" in DOC
+    assert "merge PR #60" in DOC
+    assert "move physical authority" in DOC
     assert "grant promotion or production authority" in DOC
     assert "record-recovery-throughput-human-review.ps1" in DOC
     assert "RECOVERY_THROUGHPUT_AB.md" in DOC
