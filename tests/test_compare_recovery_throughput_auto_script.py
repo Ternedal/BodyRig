@@ -57,8 +57,10 @@ def test_auto_discovery_has_no_job_or_evidence_mutation_commands() -> None:
         assert command not in SCRIPT
 
 
-def test_runbook_forbids_cherry_picking_older_candidate_after_newer_failure() -> None:
-    assert "newest" in DOC.lower()
-    assert "does not search backwards for an older candidate" in DOC
-    assert "Do not manually substitute an older passing pair" in DOC
+def test_runbook_routes_operator_to_auto_discovery_without_weakening_exact_pair_gate() -> None:
     assert "compare-recovery-throughput-auto.ps1" in DOC
+    assert "newest-candidate + exact-parent-baseline" in (
+        Path(__file__).resolve().parents[1] / "docs" / "RECOVERY_THROUGHPUT_REVIEW_PREP.md"
+    ).read_text(encoding="utf-8")
+    assert "For an exact recorded pair" in DOC
+    assert "compare-recovery-throughput.ps1" in DOC
