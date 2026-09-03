@@ -126,7 +126,7 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
 
     current = _read_job(path)
     current["producer_revision"] = producer_revision
-    current["bodyrig_revision"] = validator_revision
+    current["validator_revision"] = validator_revision
     current["status"] = "running"
     current["completed_utc"] = None
     current["pid"] = None
@@ -251,7 +251,7 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
         failed["error"] = str(exc)[:4000]
         failed["resume_stage"] = "failed"
         failed["producer_revision"] = producer_revision
-        failed["bodyrig_revision"] = validator_revision
+        failed["validator_revision"] = validator_revision
         _write_job(failed)
         raise
 
@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         "body_revision": result.get("body_revision"),
         "canonical_body_id": result.get("canonical_body_id"),
         "producer_revision": result.get("producer_revision"),
-        "validator_revision": result.get("bodyrig_revision"),
+        "validator_revision": result.get("validator_revision"),
         "resumed_without_clone_rerun": result.get("resumed_without_clone_rerun"),
     }, ensure_ascii=False, separators=(",", ":")))
     return 0
