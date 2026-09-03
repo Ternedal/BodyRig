@@ -8,18 +8,69 @@ The candidate is a performance change, not a quality or release authority. CI al
 
 Two **succeeded** Person Studio `body-build` jobs for the same person are required:
 
-1. **Baseline** — uncapped recovery from `agent/person-studio-photoreal-20260902`.
-2. **Candidate** — recovery-only sampling from `agent/recovery-throughput-v2-20260903`.
+1. **Baseline** — uncapped recovery from exact Person Studio authority `76c64a9546238663dedf750a1da4a230cc1e7fa4` on `agent/person-studio-photoreal-20260902`.
+2. **Candidate** — recovery-only sampling from the exact clean HEAD being reviewed on `agent/recovery-throughput-v2-20260903`.
 
 The failed 2026-09-02 job `job-8a5bece5df0f4707a1186b53e01eb4db` is useful diagnostic evidence, but it is not an A/B baseline because it never reached succeeded body/Gate-A/fidelity-review state.
 
 Do not start the candidate until the baseline has succeeded. If the baseline fails, diagnose/fix the baseline first; do not use the performance candidate to hide a functional failure.
 
+## Software authority and safe switching
+
+The canonical comparator binds the baseline job to exact BodyRig revision `76c64a9546238663dedf750a1da4a230cc1e7fa4`. It also reads the current clean candidate checkout with `git rev-parse HEAD` and requires the candidate job's persisted `bodyrig_revision` to equal that exact SHA. A dirty comparator checkout is refused.
+
+### 1. Put the rig on the uncapped baseline authority
+
+From the BodyRig checkout:
+
+```powershell
+.\update-windows.ps1 `
+  -Branch "agent/person-studio-photoreal-20260902"
+```
+
+The updater must finish `BodyRig update: READY`, and the printed revision must be exactly:
+
+```text
+76c64a9546238663dedf750a1da4a230cc1e7fa4
+```
+
+If the remote Person Studio branch has moved to another revision, stop. PR #58 must be rebuilt/revalidated on that new base before an A/B run is accepted.
+
+For the throughput experiment, start only the body candidate in Person Studio rather than intentionally triggering unrelated VoiceRig/personality work. Record the succeeded baseline body-job id.
+
+### 2. Switch to the sampled candidate
+
+Only after the baseline body job has succeeded:
+
+```powershell
+.\update-windows.ps1 `
+  -Branch "agent/recovery-throughput-v2-20260903"
+```
+
+Record the exact `Revision:` printed by the updater. That exact SHA is the candidate software authority for this physical run. Do not make commits, edit files, or otherwise dirty/move the checkout between the candidate body build and the machine A/B audit.
+
+Start the body candidate for the same Person Studio person and wait for the body job to reach `succeeded`.
+
+### 3. Audit before restoring the rig
+
+Run the machine A/B gate **while the rig checkout is still on the exact candidate revision that produced the candidate job**. The comparator refuses a candidate job whose persisted `bodyrig_revision` differs from current clean checkout HEAD.
+
+### 4. Always restore canonical Person Studio authority
+
+After machine/human evidence has been captured — whether the experiment passes or fails — restore the rig:
+
+```powershell
+.\update-windows.ps1 `
+  -Branch "agent/person-studio-photoreal-20260902"
+```
+
+The restored revision must again be `76c64a9546238663dedf750a1da4a230cc1e7fa4`. Do not leave normal BodyRig runtime on the performance-candidate branch.
+
 ## Baseline invariants
 
 Before recording the baseline job id:
 
-- BodyRig must report the exact intended Person Studio checkout revision.
+- `job.bodyrig_revision` must equal exact uncapped authority `76c64a9546238663dedf750a1da4a230cc1e7fa4`.
 - Stash performer/source authority must be healthy.
 - The body build must finish `succeeded`.
 - Recovery proof, source binding, Gate A, fidelity output and persisted four-view review must all exist.
@@ -55,7 +106,7 @@ Candidate recovery checkpoints/cache are versioned independently from uncapped b
 
 ### Preferred: fail-closed auto-discovery
 
-After both jobs succeed, run from the candidate checkout with the Person Studio person id:
+After both jobs succeed, and before restoring Person Studio authority, run from the exact candidate checkout with the Person Studio person id:
 
 ```powershell
 .\compare-recovery-throughput-auto.ps1 `
@@ -70,13 +121,13 @@ The auto-discovery wrapper is read-only unless `-Out` is explicitly supplied to 
 - derives that candidate's exact uncapped parent recovery revision;
 - selects the **newest** succeeded baseline with that exact parent revision;
 - does not search backwards for an older candidate merely because the newest candidate would fail the evidence gate;
-- passes the selected ids to the canonical fail-closed auditor, which then revalidates source authority, observation selection, native segment bytes, recovery identity, Gate A and persisted review evidence.
+- delegates to the canonical comparator, which binds baseline software to `76c64a9546238663dedf750a1da4a230cc1e7fa4`, binds candidate software to current clean checkout HEAD, and then revalidates source authority, observation selection, native segment bytes, recovery identity, Gate A and persisted review evidence.
 
-If no exact parent baseline exists, or if the newest candidate and selected baseline do not share the required evidence, the A/B gate is blocked. Do not manually substitute an older passing pair to hide newer regression evidence.
+If no exact parent baseline exists, if software authority differs, or if the newest candidate and selected baseline do not share the required evidence, the A/B gate is blocked. Do not manually substitute an older passing pair to hide newer regression evidence.
 
 ### Explicit job ids
 
-For forensic/reproducibility work, or when an exact pair has already been recorded, call the canonical wrapper directly:
+For forensic/reproducibility work, or when an exact pair has already been recorded, call the canonical wrapper directly from the same exact clean candidate checkout:
 
 ```powershell
 .\compare-recovery-throughput.ps1 `
@@ -88,6 +139,8 @@ The wrappers resolve the same BodyRig data authority as the application (`BODYRI
 
 The audit must block unless all of these are true:
 
+- baseline `job.bodyrig_revision` is exact uncapped Person Studio authority `76c64a9546238663dedf750a1da4a230cc1e7fa4`
+- candidate `job.bodyrig_revision` equals exact current clean comparator checkout HEAD
 - same `person_id`
 - same Stash performer authority
 - same exact source-file SHA evidence
@@ -126,11 +179,12 @@ The machine audit reports identity/bodyprint numeric deltas as comparison eviden
 
 The candidate may be proposed for physical authority only when:
 
-1. baseline succeeded;
-2. candidate succeeded;
+1. baseline succeeded on exact uncapped software authority;
+2. candidate succeeded on the exact clean candidate software authority audited by the comparator;
 3. machine A/B gate passed;
 4. candidate materially reduced recovery work/wall-clock time;
 5. human visual A/B review found no material regression;
-6. the resulting authority change is explicitly reviewed and landed separately.
+6. the rig was restored to canonical Person Studio authority after evidence capture;
+7. the resulting authority change is explicitly reviewed and landed separately.
 
 Never merge PR #58 or move PR #1/physical authority solely because CI is green or because the candidate is faster.
