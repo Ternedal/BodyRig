@@ -20,7 +20,7 @@ from .storage import person_library
 
 FORMAT = "bodyrig-recovery-throughput-sampling-audit"
 VERSION = 1
-BASELINE_BODYRIG_REVISION = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+BASELINE_BODYRIG_REVISION = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _RUN_RE = re.compile(r"^\[([^\]]+)\]\s+RUN\b")
