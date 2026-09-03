@@ -179,7 +179,17 @@ def build_source_personality(
 ) -> dict[str, Any]:
     try:
         profile = load_profile(root, person_id)
-        source = source_files_for_body(root, profile, body_revision=body_revision)
+        # Personality consumes transcript/caption sidecars, not video bytes. The
+        # body source binding already seals the exact media SHA set. Revalidate
+        # the binding + manifest + source identity/presence here without reading
+        # every potentially huge source video again; consumers that actually
+        # read/upload media (VoiceRig) retain the default full byte revalidation.
+        source = source_files_for_body(
+            root,
+            profile,
+            body_revision=body_revision,
+            verify_media_bytes=False,
+        )
     except (PersonProfileError, PersonVoiceSourceError) as exc:
         raise SourcePersonalityError(str(exc)) from exc
 
