@@ -12,7 +12,8 @@ SAMPLING_STRIDE = 2
 
 def test_recovery_routes_through_cross_job_resume_layer() -> None:
     assert hmr2_config.bridge_script_path().name == "hmr2_resume_bridge.py"
-    assert hmr2_config.RECOVERY_TEMPORAL_SAMPLING_POLICY in hmr2_config.ADAPTER_REVISION
+    assert f"s:{hmr2_config.RECOVERY_TEMPORAL_SAMPLING_REVISION}" in hmr2_config.ADAPTER_REVISION
+    assert hmr2_config.RECOVERY_TEMPORAL_SAMPLING_POLICY == "phalp-frame-stride-max-15fps-v1"
 
 
 def test_global_cache_key_is_source_sha_and_pinned_revision_not_job_index(monkeypatch, tmp_path: Path) -> None:
