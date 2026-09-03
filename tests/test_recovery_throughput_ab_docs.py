@@ -61,11 +61,24 @@ def test_review_bundle_is_hash_bound_create_only_and_non_authoritative() -> None
     assert "does not record an approval" in DOC
 
 
-def test_human_review_uses_exact_four_canonical_views_and_bundle_does_not_imply_pass() -> None:
+def test_human_review_uses_exact_four_canonical_views_and_structured_receipt() -> None:
     for view in ("front-full", "three-quarter-full", "side-full", "face-front"):
         assert f"`{view}`" in DOC
-    assert "does not itself record or imply a human PASS" in DOC
-    assert "hash-bound human review bundle was generated from that exact passing pair" in DOC
+    assert "record-recovery-throughput-human-review.ps1" in DOC
+    assert "Each criterion must be explicitly `pass` or `fail`" in DOC
+    assert "review-bundle.json` and `machine-audit.json` SHA-256" in DOC
+    assert "blocked-material-regression" in DOC
+    assert "eligible-for-explicit-promotion-review" in DOC
+    assert "structured human evidence, not an authority mutation" in DOC
+
+
+def test_human_receipt_cannot_mutate_bundle_or_grant_authority() -> None:
+    assert "separate create-only receipt outside the immutable bundle" in DOC
+    assert "cannot mutate the hash-manifested bundle" in DOC
+    assert "promotion_authority = false" in DOC
+    assert "production_activation = false" in DOC
+    assert "create-only human review receipt" in DOC
+    assert "records `no-material-regression`" in DOC
 
 
 def test_ab_preserves_native_observation_bytes_and_requires_exact_evidence() -> None:
