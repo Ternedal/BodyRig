@@ -77,3 +77,11 @@ def test_registered_body_refreshes_person_studio_before_component_derivation() -
     refresh_index = JS.index("await refreshRegisteredBody(id, workflow.body_revision);")
     personality_index = JS.index("workflow = await ensurePersonality(workflow);")
     assert save_index < refresh_index < personality_index
+
+
+def test_profile_rerender_does_not_start_duplicate_auto_tick_for_same_person() -> None:
+    assert 'let lastPersonId = "";' in JS
+    assert "lastPersonId = personId();" in JS
+    assert "if (current !== lastPersonId)" in JS
+    assert "lastPersonId = current;" in JS
+    assert "schedule(0);" in JS
