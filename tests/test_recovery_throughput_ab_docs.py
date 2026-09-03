@@ -49,6 +49,25 @@ def test_machine_gate_never_grants_promotion_or_production() -> None:
     assert "eligible-for-human-ab-review" in DOC
 
 
+def test_review_bundle_is_hash_bound_create_only_and_non_authoritative() -> None:
+    assert "build-recovery-throughput-review-bundle.ps1" in DOC
+    assert "machine A/B gate passes" in DOC
+    assert "no bundle is created" in DOC
+    assert "index.html" in DOC
+    assert "machine-audit.json" in DOC
+    assert "review-bundle.json" in DOC
+    assert "persisted SHA-256 values are revalidated" in DOC
+    assert "immutable review aid" in DOC
+    assert "does not record an approval" in DOC
+
+
+def test_human_review_uses_exact_four_canonical_views_and_bundle_does_not_imply_pass() -> None:
+    for view in ("front-full", "three-quarter-full", "side-full", "face-front"):
+        assert f"`{view}`" in DOC
+    assert "does not itself record or imply a human PASS" in DOC
+    assert "hash-bound human review bundle was generated from that exact passing pair" in DOC
+
+
 def test_ab_preserves_native_observation_bytes_and_requires_exact_evidence() -> None:
     assert "must not rewrite or spatially downscale" in DOC
     assert "same exact source-file SHA evidence" in DOC
