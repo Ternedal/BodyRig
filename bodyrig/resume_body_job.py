@@ -108,17 +108,12 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
     fidelity_dir = Path(str(job["fidelity_dir"])).expanduser().resolve()
     session_report = Path(str(job["session_report"])).expanduser().resolve()
 
+    # Every resume must derive a fresh Gate A result from the immutable producer
+    # evidence. A previous acceptance directory is preserved for forensics but
+    # is never trusted as validator authority for a later attempt.
     quarantined_acceptance = None
     if acceptance_dir.exists():
-        existing_report = acceptance_dir / "bodyrig-acceptance.json"
-        if existing_report.is_file():
-            existing = _read_json(existing_report, label="existing Gate A acceptance")
-            if existing.get("automated_pass") is True and existing.get("bodyrig_revision") == validator_revision:
-                pass
-            else:
-                quarantined_acceptance = _quarantine_partial(acceptance_dir, label="partial Gate A")
-        else:
-            quarantined_acceptance = _quarantine_partial(acceptance_dir, label="partial Gate A")
+        quarantined_acceptance = _quarantine_partial(acceptance_dir, label="previous Gate A")
 
     quarantined_fidelity = None
     if fidelity_dir.exists():
@@ -136,22 +131,12 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
     _write_job(current)
 
     try:
-        if not (acceptance_dir / "bodyrig-acceptance.json").is_file():
-            gate = resume_gate_a(
-                session_report=session_report,
-                validator_revision=validator_revision,
-                output_dir=acceptance_dir,
-                python_executable=sys.executable,
-            )
-        else:
-            existing = _read_json(acceptance_dir / "bodyrig-acceptance.json", label="existing Gate A acceptance")
-            package_info = existing.get("package") or {}
-            gate = {
-                "body_id": str(package_info.get("body_id") or ""),
-                "package_sha256": str(package_info.get("package_sha256") or ""),
-                "validator_revision": validator_revision,
-                "producer_revision": producer_revision,
-            }
+        gate = resume_gate_a(
+            session_report=session_report,
+            validator_revision=validator_revision,
+            output_dir=acceptance_dir,
+            python_executable=sys.executable,
+        )
 
         body_id = str(gate["body_id"])
         expected_hash = str(gate["package_sha256"])
