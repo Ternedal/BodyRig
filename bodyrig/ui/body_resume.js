@@ -54,7 +54,7 @@
     try {
       const workflow = JSON.parse(localStorage.getItem(key) || "null");
       if (!workflow || workflow.version !== 1 || workflow.person_id !== id) return;
-      if (workflow.body_job_id !== sourceJobId && workflow.state !== "failed") return;
+      if (workflow.body_job_id !== sourceJobId) return;
       workflow.state = "body";
       workflow.body_job_id = resumeJobId;
       workflow.body_revision = null;
