@@ -98,7 +98,36 @@ The candidate runner verifies the current clean Git HEAD, verifies the running s
 
 Run the machine A/B gate **while the rig checkout is still on the exact candidate revision that produced the candidate job**. The comparator refuses a candidate job whose persisted `bodyrig_revision` differs from current clean checkout HEAD.
 
-### 4. Always restore canonical Person Studio authority
+### 4. Build the hash-bound human review bundle
+
+Only after the machine A/B gate passes, build a create-only side-by-side review bundle from the exact succeeded baseline and candidate jobs:
+
+```powershell
+.\build-recovery-throughput-review-bundle.ps1 `
+  -BaselineJobId "job-<baseline>" `
+  -CandidateJobId "job-<candidate>"
+```
+
+The wrapper requires the same clean candidate checkout used by the machine audit. It re-runs the canonical machine gate before copying any review bytes. If the machine gate is blocked, no bundle is created.
+
+The default output is under `%LOCALAPPDATA%\BodyRig\recovery-throughput-reviews\<baseline>--<candidate>` (or the equivalent `BODYRIG_DATA_DIR`). The bundle contains:
+
+- `index.html` with baseline/candidate side-by-side for all four canonical views;
+- `baseline/*.png` and `candidate/*.png` copied only after their persisted SHA-256 values are revalidated;
+- `machine-audit.json` containing the exact machine comparison;
+- `review-bundle.json` containing a hash manifest for every copied/generated file.
+
+`review-bundle.json` is deliberately non-authoritative. It always states:
+
+```text
+human_visual_review_required = true
+promotion_authority = false
+production_activation = false
+```
+
+The bundle is only an immutable review aid. It does not record an approval, cannot activate a body/person, and cannot promote PR #58.
+
+### 5. Always restore canonical Person Studio authority
 
 After machine/human evidence has been captured — whether the experiment passes or fails — restore the rig:
 
@@ -207,7 +236,7 @@ human_visual_review_required = true
 
 ## Human visual A/B gate
 
-Compare the persisted canonical review views from baseline and candidate:
+Open the generated review bundle `index.html` and compare the baseline/candidate canonical review views:
 
 - `front-full`
 - `three-quarter-full`
@@ -216,7 +245,7 @@ Compare the persisted canonical review views from baseline and candidate:
 
 Review identity-bearing shape, face, skin/texture alignment and gross anatomy. A speed improvement is not acceptable if there is a material visual regression or track/identity instability.
 
-The machine audit reports identity/bodyprint numeric deltas as comparison evidence; those metrics do not replace human visual review.
+The machine audit reports identity/bodyprint numeric deltas as comparison evidence; those metrics do not replace human visual review. The hash-bound bundle proves which rendered bytes were compared, but it does not itself record or imply a human PASS.
 
 ## Promotion rule
 
@@ -225,9 +254,10 @@ The candidate may be proposed for physical authority only when:
 1. baseline succeeded on exact uncapped software authority;
 2. candidate succeeded on the exact clean candidate software authority audited by the comparator;
 3. machine A/B gate passed;
-4. candidate materially reduced recovery work/wall-clock time;
-5. human visual A/B review found no material regression;
-6. the rig was restored to canonical Person Studio authority after evidence capture;
-7. the resulting authority change is explicitly reviewed and landed separately.
+4. the hash-bound human review bundle was generated from that exact passing pair;
+5. candidate materially reduced recovery work/wall-clock time;
+6. human visual A/B review found no material regression;
+7. the rig was restored to canonical Person Studio authority after evidence capture;
+8. the resulting authority change is explicitly reviewed and landed separately.
 
 Never merge PR #58 or move PR #1/physical authority solely because CI is green or because the candidate is faster.
