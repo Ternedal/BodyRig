@@ -1,6 +1,6 @@
 # One-command recovery throughput review preparation
 
-This helper shortens the post-candidate operator flow for PR #58 without creating a new evidence or authority path.
+This helper shortens the post-candidate operator flow for PR #60 without creating a new evidence or authority path.
 
 Use it only after the uncapped baseline and sampled candidate body-build jobs have both succeeded, while the rig is still on the exact clean candidate checkout that produced the candidate job:
 
@@ -35,8 +35,8 @@ The helper does **not**:
 - switch Git branches or update BodyRig;
 - restore Person Studio authority;
 - activate a body/person;
-- merge PR #58;
-- move PR #1 physical authority;
+- merge PR #60;
+- move physical authority;
 - grant promotion or production authority.
 
 After inspecting all four canonical views in the generated `index.html`, record the explicit human receipt with `record-recovery-throughput-human-review.ps1`. Then restore the rig to canonical Person Studio authority exactly as required by `RECOVERY_THROUGHPUT_AB.md`.
