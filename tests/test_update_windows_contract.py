@@ -43,6 +43,15 @@ def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
     assert configure_index < start_index
 
 
+def test_update_probes_latest_failed_recovery_read_only_without_blocking_launch() -> None:
+    probe_index = SCRIPT.index('Join-Path $RepoRoot "diagnose-failed-body-build.ps1"')
+    start_index = SCRIPT.index('Join-Path $RepoRoot "start-windows.ps1"')
+    assert '& $rescueProbe -RepoRoot $RepoRoot' in SCRIPT
+    assert 'Write-Warning "Recovery rescue probe' in SCRIPT
+    assert 'Update fortsætter' in SCRIPT
+    assert probe_index < start_index
+
+
 def test_update_can_bootstrap_from_temp_against_explicit_repo_root() -> None:
     assert '[string]$RepoRoot = ""' in SCRIPT
     assert '$RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)' in SCRIPT
