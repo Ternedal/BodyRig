@@ -55,6 +55,24 @@ def _validate_criteria(criteria: Mapping[str, str]) -> dict[str, str]:
     return normalized
 
 
+def _require_machine_pass(bundle_root: Path) -> tuple[Path, dict[str, Any]]:
+    machine_path = bundle_root / "machine-audit.json"
+    machine = _read_json(machine_path, label="machine A/B audit")
+    if machine.get("machine_evidence_pass") is not True or machine.get("decision") != "eligible-for-human-ab-review":
+        raise RecoveryThroughputHumanReviewError("review bundle machine evidence is not eligible for human A/B review")
+    if machine.get("promotion_authority") is not False or machine.get("production_activation") is not False:
+        raise RecoveryThroughputHumanReviewError("machine A/B evidence crossed the promotion/production authority boundary")
+    return machine_path, machine
+
+
+def _refuse_bundle_internal_output(target: Path, bundle_root: Path) -> None:
+    try:
+        target.relative_to(bundle_root)
+    except ValueError:
+        return
+    raise RecoveryThroughputHumanReviewError("human A/B review must be stored outside the immutable review bundle")
+
+
 def record_review(
     bundle_dir: str | Path,
     *,
@@ -73,13 +91,10 @@ def record_review(
     if not note_value or len(note_value) > 8000:
         raise RecoveryThroughputHumanReviewError("review note must be 1..8000 characters")
     results = _validate_criteria(criteria)
+    machine_path, _ = _require_machine_pass(bundle_root)
 
-    machine_path = bundle_root / "machine-audit.json"
-    machine = _read_json(machine_path, label="machine A/B audit")
-    if machine.get("machine_evidence_pass") is not True or machine.get("decision") != "eligible-for-human-ab-review":
-        raise RecoveryThroughputHumanReviewError("review bundle machine evidence is not eligible for human A/B review")
-    if machine.get("promotion_authority") is not False or machine.get("production_activation") is not False:
-        raise RecoveryThroughputHumanReviewError("machine A/B evidence crossed the promotion/production authority boundary")
+    target = Path(out_path).expanduser().resolve()
+    _refuse_bundle_internal_output(target, bundle_root)
 
     passed = all(results[key] == "pass" for key in _CRITERIA)
     receipt = {
@@ -106,7 +121,6 @@ def record_review(
         "production_activation": False,
     }
 
-    target = Path(out_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         with target.open("x", encoding="utf-8", newline="\n") as handle:
@@ -119,6 +133,7 @@ def record_review(
 def verify_review(review_path: str | Path, *, bundle_dir: str | Path) -> dict[str, Any]:
     bundle_root = Path(bundle_dir).expanduser().resolve()
     bundle = verify_bundle(bundle_root)
+    machine_path, _ = _require_machine_pass(bundle_root)
     receipt = _read_json(Path(review_path).expanduser().resolve(), label="human A/B review")
     if receipt.get("format") != FORMAT or receipt.get("version") != VERSION or receipt.get("semantics") != SEMANTICS:
         raise RecoveryThroughputHumanReviewError("human A/B review format/version/semantics mismatch")
@@ -138,7 +153,7 @@ def verify_review(review_path: str | Path, *, bundle_dir: str | Path) -> dict[st
         raise RecoveryThroughputHumanReviewError("human A/B review next gate does not match criteria")
     if receipt.get("review_bundle_receipt_sha256") != file_sha256(bundle_root / "review-bundle.json"):
         raise RecoveryThroughputHumanReviewError("human A/B review no longer matches review-bundle receipt bytes")
-    if receipt.get("machine_audit_sha256") != file_sha256(bundle_root / "machine-audit.json"):
+    if receipt.get("machine_audit_sha256") != file_sha256(machine_path):
         raise RecoveryThroughputHumanReviewError("human A/B review no longer matches machine-audit bytes")
     for key in (
         "person_id",
