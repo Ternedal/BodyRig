@@ -114,6 +114,21 @@ if (Test-Path -LiteralPath $stashPathConfig -PathType Leaf) {
     & $stashPathConfig
 }
 
+$rescueProbe = Join-Path $RepoRoot "diagnose-failed-body-build.ps1"
+if (Test-Path -LiteralPath $rescueProbe -PathType Leaf) {
+    Write-Host ""
+    Write-Host "BodyRig recovery rescue: probing seneste fejlede body-build (read-only)"
+    try {
+        & $rescueProbe -RepoRoot $RepoRoot
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Recovery rescue probe returnerede exit code $LASTEXITCODE; update fortsætter."
+        }
+    } catch {
+        Write-Warning "Recovery rescue probe kunne ikke gennemføres: $($_.Exception.Message). Update fortsætter."
+    }
+    Write-Host ""
+}
+
 $start = Join-Path $RepoRoot "start-windows.ps1"
 if ($NoBrowser) {
     & $start -NoBrowser
