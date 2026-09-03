@@ -64,3 +64,16 @@ def test_automatic_body_progress_never_claims_timer_as_real_percentage() -> None
     assert "typisk 45–120 min" in JS
     assert "fase-evidence" in JS
     assert "opdigtet procent" in JS
+
+
+def test_registered_body_refreshes_person_studio_before_component_derivation() -> None:
+    assert '<script src="/ui/person_app.js" defer></script>' in HTML
+    assert HTML.index('/ui/person_app.js') < HTML.index('/ui/person_auto.js')
+    assert "async function refreshRegisteredBody" in JS
+    assert 'label.textContent = bodyRevision' in JS
+    assert 'typeof loadPeople === "function"' in JS
+    assert "await loadPeople(personIdValue)" in JS
+    save_index = JS.index("saveWorkflow(workflow);\n        await refreshRegisteredBody(id, workflow.body_revision);")
+    refresh_index = JS.index("await refreshRegisteredBody(id, workflow.body_revision);")
+    personality_index = JS.index("workflow = await ensurePersonality(workflow);")
+    assert save_index < refresh_index < personality_index
