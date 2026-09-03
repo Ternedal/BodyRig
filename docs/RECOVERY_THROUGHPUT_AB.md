@@ -127,7 +127,46 @@ production_activation = false
 
 The bundle is only an immutable review aid. It does not record an approval, cannot activate a body/person, and cannot promote PR #58.
 
-### 5. Always restore canonical Person Studio authority
+### 5. Record the explicit human visual review
+
+After inspecting `index.html`, record the human result as a separate create-only receipt outside the immutable bundle:
+
+```powershell
+.\record-recovery-throughput-human-review.ps1 `
+  -BundleDir "<review-bundle-directory>" `
+  -IdentityShape pass `
+  -FaceIdentity pass `
+  -SkinTextureAlignment pass `
+  -GrossAnatomy pass `
+  -Note "No material visual regression across all four canonical views."
+```
+
+Each criterion must be explicitly `pass` or `fail`; the note is mandatory. The recorder verifies the immutable bundle and its machine A/B PASS again before writing anything. The default receipt is a sibling named `<review-bundle-directory>.human-review.json`, so recording the human decision cannot mutate the hash-manifested bundle.
+
+The receipt binds the exact `review-bundle.json` and `machine-audit.json` SHA-256 values plus every reviewed baseline/candidate view hash. One failed criterion produces:
+
+```text
+decision = material-regression
+next_gate = blocked-material-regression
+```
+
+All four passing criteria produce only:
+
+```text
+decision = no-material-regression
+next_gate = eligible-for-explicit-promotion-review
+```
+
+Even then the receipt always keeps:
+
+```text
+promotion_authority = false
+production_activation = false
+```
+
+It is structured human evidence, not an authority mutation.
+
+### 6. Always restore canonical Person Studio authority
 
 After machine/human evidence has been captured — whether the experiment passes or fails — restore the rig:
 
@@ -245,7 +284,7 @@ Open the generated review bundle `index.html` and compare the baseline/candidate
 
 Review identity-bearing shape, face, skin/texture alignment and gross anatomy. A speed improvement is not acceptable if there is a material visual regression or track/identity instability.
 
-The machine audit reports identity/bodyprint numeric deltas as comparison evidence; those metrics do not replace human visual review. The hash-bound bundle proves which rendered bytes were compared, but it does not itself record or imply a human PASS.
+The machine audit reports identity/bodyprint numeric deltas as comparison evidence; those metrics do not replace human visual review. The hash-bound bundle proves which rendered bytes were compared, and the separate human-review receipt records the explicit result without granting authority.
 
 ## Promotion rule
 
@@ -256,7 +295,7 @@ The candidate may be proposed for physical authority only when:
 3. machine A/B gate passed;
 4. the hash-bound human review bundle was generated from that exact passing pair;
 5. candidate materially reduced recovery work/wall-clock time;
-6. human visual A/B review found no material regression;
+6. a create-only human review receipt is bound to that exact bundle and records `no-material-regression` across all four explicit criteria;
 7. the rig was restored to canonical Person Studio authority after evidence capture;
 8. the resulting authority change is explicitly reviewed and landed separately.
 
