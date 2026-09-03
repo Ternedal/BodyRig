@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 SCRIPT = (Path(__file__).resolve().parents[1] / "run-recovery-throughput-baseline.ps1").read_text(encoding="utf-8")
-BASELINE = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+BASELINE = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 
 
 def test_runner_is_pinned_to_exact_uncapped_person_studio_authority() -> None:
