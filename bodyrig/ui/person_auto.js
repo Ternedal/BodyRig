@@ -23,6 +23,14 @@
     return ($("personId")?.textContent || "").trim();
   }
 
+  async function refreshRegisteredBody(personIdValue, bodyRevision) {
+    const label = $("bodyRevisionLabel");
+    if (label && bodyRevision) label.textContent = bodyRevision;
+    if (typeof loadPeople === "function") {
+      await loadPeople(personIdValue);
+    }
+  }
+
   function workflowKey(id) {
     return `bodyrig-person-auto-v1:${id}`;
   }
@@ -311,6 +319,7 @@
         workflow.body_revision = bodyJob.body_revision;
         workflow.state = "components";
         saveWorkflow(workflow);
+        await refreshRegisteredBody(id, workflow.body_revision);
       }
 
       workflow = await ensurePersonality(workflow);
