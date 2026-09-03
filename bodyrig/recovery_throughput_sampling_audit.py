@@ -12,8 +12,8 @@ from typing import Any, Mapping
 
 from .bridges.hmr2_config import RECOVERY_TEMPORAL_SAMPLING_POLICY, RECOVERY_TEMPORAL_SAMPLING_REVISION
 from .identity import bind_visual_identity_to_proof
-from .person import load_profile
 from .person_body_review import read_review_by_package, validate_fidelity_output
+from .person_profiles import load_profile
 from .person_source_alignment import binding_path, file_sha256, read_binding
 from .proof import load_recovery_proof
 from .storage import person_library
