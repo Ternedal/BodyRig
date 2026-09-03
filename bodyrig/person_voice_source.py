@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,27 +11,12 @@ class PersonVoiceSourceError(ValueError):
     pass
 
 
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
-
-
 def source_files_for_body(
     root: str | Path,
     profile: Mapping[str, Any],
     *,
     body_revision: str,
-    verify_media_bytes: bool = True,
 ) -> dict[str, Any]:
-    """Resolve the exact Stash source set bound to one body revision.
-
-    ``verify_media_bytes=True`` is the canonical mode for consumers that read or
-    upload the source media (notably VoiceRig): every source file is re-hashed
-    before it is returned. Metadata-only consumers may set it to ``False`` when
-    they only need the already-sealed body source identity. That mode still
-    verifies the create-only binding, exact manifest bytes, performer identity,
-    source ordering, scene ids, file names and file presence; it reuses the
-    immutable SHA stored in the body binding instead of rereading large media
-    bytes that the consumer never uses.
-    """
     source = profile.get("source")
     if not isinstance(source, Mapping) or source.get("kind") != "stash-performer":
         raise PersonVoiceSourceError("person has no authoritative Stash performer source")
@@ -88,11 +72,8 @@ def source_files_for_body(
         scene_id = str(item.get("scene_id") or "")
         if scene_id != str(bound.get("scene_id") or "") or path.name != str(bound.get("name") or ""):
             raise PersonVoiceSourceError(f"body source file {index} identity no longer matches its source binding")
-        bound_sha = str(bound.get("sha256") or "").strip().lower()
-        if not _SHA256.fullmatch(bound_sha):
-            raise PersonVoiceSourceError(f"body source file {index} binding SHA-256 is invalid")
-        sha = file_sha256(path) if verify_media_bytes else bound_sha
-        if sha != bound_sha:
+        sha = file_sha256(path)
+        if sha != str(bound.get("sha256") or ""):
             raise PersonVoiceSourceError(f"body source file {index} bytes no longer match its source binding")
         files.append({
             "scene_id": scene_id,
@@ -106,5 +87,4 @@ def source_files_for_body(
         "manifest_path": str(manifest_path),
         "manifest_sha256": manifest_sha,
         "source_files": files,
-        "media_bytes_revalidated": bool(verify_media_bytes),
     }
