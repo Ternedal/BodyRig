@@ -26,6 +26,7 @@ ANATOMY_APPEARANCE = "canonical-smplx-anatomy-normal-bake-v2"
 _ANATOMY_REGIONS = {"torso", "head", "left_arm", "right_arm", "left_leg", "right_leg"}
 _HEX = set("0123456789abcdef")
 _PATCH_LOCK = threading.RLock()
+_LEGACY_VALIDATE_TRANSFER_AUTHORITY = legacy._validate_transfer_authority
 
 SkinQaError = legacy.SkinQaError
 _accessor = legacy._accessor
@@ -245,7 +246,7 @@ def _validate_transfer_authority(bodyrig: dict[str, Any]) -> tuple[str, float, f
         raise SkinQaError("skin QA: donor appearance transfer metadata is invalid")
     appearance_method = appearance.get("method")
     if appearance_method == DONOR_APPEARANCE_TRANSFER:
-        return legacy._validate_transfer_authority(bodyrig)
+        return _LEGACY_VALIDATE_TRANSFER_AUTHORITY(bodyrig)
     if appearance_method == DONOR_BARYCENTRIC_APPEARANCE:
         _validate_barycentric_appearance(appearance)
     elif appearance_method == CANONICAL_APPEARANCE:
