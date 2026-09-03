@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 SCRIPT = (Path(__file__).resolve().parents[1] / "run-recovery-throughput-candidate.ps1").read_text(encoding="utf-8")
-BASELINE = "76c64a9546238663dedf750a1da4a230cc1e7fa4"
+BASELINE = "0b8f61b6f369e0d63ed006d808e316798121f79f"
 
 
 def test_candidate_runner_refuses_uncapped_baseline_and_requires_clean_checkout() -> None:
