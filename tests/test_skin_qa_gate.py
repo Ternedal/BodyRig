@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from bodyrig.skin_qa import DONOR_GEOMETRY_AUTHORITY, DONOR_RIG_TRANSFER
-from bodyrig.skin_qa_gate import ANATOMY_APPEARANCE, GateAppearanceError, _validate_transfer_authority
+from bodyrig.skin_qa import (
+    ANATOMY_APPEARANCE,
+    DONOR_GEOMETRY_AUTHORITY,
+    DONOR_RIG_TRANSFER,
+    SkinQaError,
+    _validate_transfer_authority,
+)
 
 
 def _bodyrig() -> dict:
@@ -77,19 +82,19 @@ def test_gate_accepts_current_anatomy_bake_authority() -> None:
 def test_gate_rejects_unversioned_or_unknown_appearance_method() -> None:
     value = _bodyrig()
     value["appearanceTransfer"]["method"] = "whatever-new-method"
-    with pytest.raises(GateAppearanceError, match="appearance transfer metadata is invalid"):
+    with pytest.raises(SkinQaError, match="appearance transfer metadata is invalid"):
         _validate_transfer_authority(value)
 
 
 def test_gate_rejects_anatomy_receipt_without_full_region_coverage() -> None:
     value = _bodyrig()
     value["appearanceTransfer"]["anatomyRestrictedTexelRatio"] = 0.99
-    with pytest.raises(GateAppearanceError, match="does not cover every baked texel"):
+    with pytest.raises(SkinQaError, match="does not cover every baked texel"):
         _validate_transfer_authority(value)
 
 
 def test_gate_rejects_geometry_mutation_claim() -> None:
     value = _bodyrig()
     value["appearanceTransfer"]["geometryModified"] = True
-    with pytest.raises(GateAppearanceError, match="geometryModified authority is invalid"):
+    with pytest.raises(SkinQaError, match="geometryModified authority is invalid"):
         _validate_transfer_authority(value)
