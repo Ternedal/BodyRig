@@ -1,6 +1,7 @@
 param(
     [string]$AcceptanceDir = "",
     [string]$PackagePath = "",
+    [string]$ReviewRuntimeDir = "",
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
@@ -60,8 +61,13 @@ function Invoke-NativeProcessWait {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $usingAcceptance = -not [string]::IsNullOrWhiteSpace($AcceptanceDir)
 $usingPackage = -not [string]::IsNullOrWhiteSpace($PackagePath)
-if ($usingAcceptance -eq $usingPackage) {
-    throw "Pass exactly one of -AcceptanceDir or -PackagePath for fidelity comparison rendering."
+$usingReviewRuntime = -not [string]::IsNullOrWhiteSpace($ReviewRuntimeDir)
+$modeCount = 0
+if ($usingAcceptance) { $modeCount++ }
+if ($usingPackage) { $modeCount++ }
+if ($usingReviewRuntime) { $modeCount++ }
+if ($modeCount -ne 1) {
+    throw "Pass exactly one of -AcceptanceDir, -PackagePath or -ReviewRuntimeDir for fidelity comparison rendering."
 }
 
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
@@ -83,6 +89,10 @@ $runtimeManifest = ""
 $acceptedRevision = $currentHead
 $expectedRuntimeSha = ""
 $comparisonAuthority = ""
+$reviewRuntimeAuthoritySha = ""
+$reviewAvatarSha = ""
+$reviewBodyprintSha = ""
+$reviewPackageSha = ""
 $committed = $false
 
 try {
@@ -105,7 +115,7 @@ try {
         $actualRuntimeSha = (Get-FileHash -LiteralPath $runtimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actualRuntimeSha -ne $expectedRuntimeSha) { throw "Gate A runtime manifest changed after acceptance." }
         $comparisonAuthority = "gate-a-pending-candidate"
-    } else {
+    } elseif ($usingPackage) {
         $PackagePath = Need-File -Path $PackagePath -Label "Comparison-only .mrbody package"
         if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
             $candidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -128,6 +138,55 @@ try {
         if ($actualPackageSha -ne $expectedPackageSha) { throw "Comparison-only package changed after strict materialization." }
         $expectedRuntimeSha = (Get-FileHash -LiteralPath $runtimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
         $comparisonAuthority = "validated-package-comparison-only"
+    } else {
+        $ReviewRuntimeDir = [System.IO.Path]::GetFullPath($ReviewRuntimeDir)
+        if (-not (Test-Path -LiteralPath $ReviewRuntimeDir -PathType Container)) { throw "Hair+eye review runtime directory not found: $ReviewRuntimeDir" }
+        $runtimeManifest = Need-File -Path (Join-Path $ReviewRuntimeDir "runtime-manifest.json") -Label "Hair+eye review runtime manifest"
+        $reviewAuthorityPath = Need-File -Path (Join-Path $ReviewRuntimeDir "review-runtime-authority.json") -Label "Hair+eye review runtime authority"
+        $reviewAuthority = Read-Json $reviewAuthorityPath "Hair+eye review runtime authority"
+        $expectedReviewAuthorityFields = @(
+            "format","version","bodyrigRevision","bodyId","packageSha256","sourceReviewReceiptSha256",
+            "reviewVrmSha256","bodyprintSha256","runtimeManifestSha256","sourceHairRuntimeApplied",
+            "sourceEyeSurfaceApplied","cornealMaterialStatus","physicalSilhouetteReviewRequired",
+            "physicalFaceCloseupReviewRequired","comparisonOnly","humanReviewRequired",
+            "physicalAcceptanceAuthority","productionActivation"
+        )
+        if (@(Compare-Object -ReferenceObject $expectedReviewAuthorityFields -DifferenceObject @($reviewAuthority.PSObject.Properties.Name)).Count -ne 0) {
+            throw "Hair+eye review runtime authority fields do not match v1."
+        }
+        if ([string]$reviewAuthority.format -ne "bodyrig-source-hair-eye-preview-runtime" -or [int]$reviewAuthority.version -ne 1) {
+            throw "Hair+eye review runtime authority format/version mismatch."
+        }
+        $acceptedRevision = Need-Revision ([string]$reviewAuthority.bodyrigRevision) "reviewRuntime.bodyrigRevision"
+        if ($acceptedRevision -ne $currentHead) { throw "Hair+eye review runtime was materialized from a different BodyRig revision." }
+        if ($reviewAuthority.sourceHairRuntimeApplied -ne $true -or $reviewAuthority.sourceEyeSurfaceApplied -ne $true -or
+            [string]$reviewAuthority.cornealMaterialStatus -ne "runtime-applied" -or
+            $reviewAuthority.physicalSilhouetteReviewRequired -ne $true -or $reviewAuthority.physicalFaceCloseupReviewRequired -ne $true -or
+            $reviewAuthority.comparisonOnly -ne $true -or $reviewAuthority.humanReviewRequired -ne $true -or
+            $reviewAuthority.physicalAcceptanceAuthority -ne $false -or $reviewAuthority.productionActivation -ne $false) {
+            throw "Hair+eye review runtime authority crossed the comparison-only boundary."
+        }
+        $reviewPackageSha = Need-Sha256 ([string]$reviewAuthority.packageSha256) "reviewRuntime.packageSha256"
+        $reviewAvatarSha = Need-Sha256 ([string]$reviewAuthority.reviewVrmSha256) "reviewRuntime.reviewVrmSha256"
+        $reviewBodyprintSha = Need-Sha256 ([string]$reviewAuthority.bodyprintSha256) "reviewRuntime.bodyprintSha256"
+        $expectedRuntimeSha = Need-Sha256 ([string]$reviewAuthority.runtimeManifestSha256) "reviewRuntime.runtimeManifestSha256"
+        $actualRuntimeSha = (Get-FileHash -LiteralPath $runtimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualRuntimeSha -ne $expectedRuntimeSha) { throw "Hair+eye review runtime manifest changed after materialization." }
+        $runtime = Read-Json $runtimeManifest "Hair+eye review runtime manifest"
+        if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or [int]$runtime.version -ne 1 -or
+            [string]$runtime.body_id -ne [string]$reviewAuthority.bodyId -or
+            (Need-Sha256 ([string]$runtime.package_sha256) "review runtime package SHA") -ne $reviewPackageSha -or
+            [string]$runtime.avatar -ne "avatar.vrm" -or [string]$runtime.bodyprint -ne "bodyprint.json" -or
+            (Need-Sha256 ([string]$runtime.avatar_sha256) "review runtime avatar SHA") -ne $reviewAvatarSha -or
+            (Need-Sha256 ([string]$runtime.bodyprint_sha256) "review runtime bodyprint SHA") -ne $reviewBodyprintSha) {
+            throw "Hair+eye review runtime manifest does not bind the exact review avatar/bodyprint authority."
+        }
+        $payloads = @($runtime.payloads | ForEach-Object { [string]$_ })
+        if ($payloads.Count -ne 2 -or ($payloads -notcontains "avatar.vrm") -or ($payloads -notcontains "bodyprint.json")) {
+            throw "Hair+eye review runtime manifest payload set is not canonical."
+        }
+        $reviewRuntimeAuthoritySha = (Get-FileHash -LiteralPath $reviewAuthorityPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $comparisonAuthority = "source-hair-eye-review-runtime"
     }
 
     $contract = Read-Json (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
@@ -175,6 +234,13 @@ try {
     if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Fidelity player was not built from current comparison revision." }
     if ([string]$probe.unity_version -ne $expectedUnityVersion) { throw "Fidelity player Unity version does not match renderer contract." }
     if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $expectedRuntimeSha) { throw "Fidelity machine probe is not bound to exact runtime bytes." }
+    if ($usingReviewRuntime) {
+        if ((Need-Sha256 ([string]$probe.package_sha256) "probe.package_sha256") -ne $reviewPackageSha -or
+            (Need-Sha256 ([string]$probe.avatar_sha256) "probe.avatar_sha256") -ne $reviewAvatarSha -or
+            (Need-Sha256 ([string]$probe.bodyprint_sha256) "probe.bodyprint_sha256") -ne $reviewBodyprintSha) {
+            throw "Fidelity player did not load the exact source hair+eye review avatar/runtime bytes."
+        }
+    }
     if ([string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or [string]$deformation.build_guid -ne [string]$probe.build_guid -or $deformation.complete -ne $true) {
         throw "Fidelity deformation probe is not complete and build-bound to the machine probe."
     }
@@ -212,6 +278,13 @@ try {
         comparison_only = $true
         production_activation = $false
     }
+    if ($usingReviewRuntime) {
+        $comparison.review_runtime_authority_sha256 = $reviewRuntimeAuthoritySha
+        $comparison.review_avatar_sha256 = $reviewAvatarSha
+        $comparison.source_hair_runtime_applied = $true
+        $comparison.source_eye_surface_applied = $true
+        $comparison.corneal_material_status = "runtime-applied"
+    }
     $comparison | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $attempt "comparison-authority.json") -Encoding UTF8
 
     Move-Item -LiteralPath $attempt -Destination $OutputDir
@@ -226,4 +299,8 @@ Write-Host "BodyRig fidelity comparison renders: PASS"
 Write-Host "Candidate:  $([string]$probe.package_sha256)"
 Write-Host "Output:     $OutputDir"
 Write-Host "Authority:  $comparisonAuthority; comparison-only; no renderer/human/release acceptance was written"
+if ($usingReviewRuntime) {
+    Write-Host "Avatar:     source hair + source-baked eyes + runtime cornea"
+    Write-Host "Snapshots:  front-full / three-quarter-full / side-full / face-front"
+}
 exit 0
