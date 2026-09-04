@@ -8,13 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .high_fidelity_anatomy_promotion import promotion_status as anatomy_promotion_status
 from .high_fidelity_component_review import review_status as component_review_status
-from .high_fidelity_continuation_status import (
-    HighFidelityContinuationStatusError,
-    inspect_continuation,
-)
 from .high_fidelity_hair_deformation_review import review_status as hair_deformation_review_status
 from .high_fidelity_hair_promotion import promotion_status as hair_promotion_status
 from .high_fidelity_preview_jobs import HighFidelityPreviewError, manager
+from .high_fidelity_release_readiness import (
+    HighFidelityReleaseReadinessError,
+    inspect_release_readiness,
+)
 
 router = APIRouter()
 
@@ -71,8 +71,8 @@ def get_high_fidelity_hair_promotion(job_id: str) -> dict:
 @router.get("/api/v1/high-fidelity-preview-jobs/{job_id}/continuation-status")
 def get_high_fidelity_continuation_status(job_id: str) -> dict:
     try:
-        return inspect_continuation(job_id)
-    except HighFidelityContinuationStatusError as exc:
+        return inspect_release_readiness(job_id)
+    except HighFidelityReleaseReadinessError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
