@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)][ValidateLength(3, 160)][string]$BodyId,
+    [string]$BodyId = "",
+    [string]$PackagePath = "",
     [Parameter(Mandatory = $true)][switch]$ConfirmQualityChecklist,
     [Parameter(Mandatory = $true)][ValidateLength(1, 4000)][string]$QualityNote
 )
@@ -20,6 +21,19 @@ if ([string]::IsNullOrWhiteSpace($QualityNote)) {
     throw "QualityNote must contain the operator's physical high-fidelity review."
 }
 $QualityNote = $QualityNote.Trim()
+
+$hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
+$hasPackage = -not [string]::IsNullOrWhiteSpace($PackagePath)
+if ($hasBodyId -eq $hasPackage) {
+    throw "Specify exactly one high-fidelity review source: -BodyId for an installed package OR -PackagePath for an exact promoted candidate package."
+}
+if ($hasBodyId -and $BodyId -notmatch '^[A-Za-z0-9._-]{3,160}$') {
+    throw "BodyId is not canonical."
+}
+if ($hasPackage) {
+    if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) { throw "High-fidelity package not found: $PackagePath" }
+    $PackagePath = (Resolve-Path -LiteralPath $PackagePath).Path
+}
 
 function Assert-CheckoutAuthority {
     param(
@@ -56,14 +70,16 @@ if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 11)) {
     throw "BodyRig high-fidelity review requires Python 3.11+; detected $versionText."
 }
 
+$sourceArgs = if ($hasBodyId) { @("--body-id", $BodyId) } else { @("--package", $PackagePath) }
+$expectedPackageSha = if ($hasPackage) { (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
 $previousPythonPath = $env:PYTHONPATH
 $reviewPath = ""
+$result = $null
 try {
     $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $repoRoot } else { "$repoRoot;$previousPythonPath" }
     Push-Location $repoRoot
     try {
-        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_cli `
-            --body-id $BodyId `
+        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_cli @sourceArgs `
             --confirm-quality-checklist `
             --quality-note $QualityNote)
         if ($LASTEXITCODE -ne 0) {
@@ -76,8 +92,9 @@ try {
     try { $result = $jsonText | ConvertFrom-Json }
     catch { throw "High-fidelity human review CLI did not return canonical JSON." }
     if ($result.ok -ne $true) { throw "High-fidelity human review CLI did not report PASS." }
-    if ([string]$result.body_id -ne $BodyId) { throw "High-fidelity human review CLI returned a different body id." }
+    if ($hasBodyId -and [string]$result.body_id -ne $BodyId) { throw "High-fidelity human review CLI returned a different body id." }
     if ([string]$result.package_sha256 -notmatch '^[0-9a-f]{64}$') { throw "High-fidelity human review CLI returned an invalid package SHA." }
+    if ($hasPackage -and [string]$result.package_sha256 -ne $expectedPackageSha) { throw "High-fidelity human review CLI reviewed different package bytes." }
     if ([string]$result.component_state_sha256 -notmatch '^[0-9a-f]{64}$') { throw "High-fidelity human review CLI returned an invalid component-state SHA." }
     if ($result.production_activation -ne $false) { throw "High-fidelity human review receipt must remain independently non-activating." }
     $reviewPath = [string]$result.review_path
@@ -87,17 +104,21 @@ try {
 
     try {
         [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $initialHead)
+        if ($hasPackage -and (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedPackageSha) {
+            throw "Reviewed high-fidelity package bytes changed after receipt creation."
+        }
     } catch {
         if (-not [string]::IsNullOrWhiteSpace($reviewPath) -and (Test-Path -LiteralPath $reviewPath -PathType Leaf)) {
             Remove-Item -LiteralPath $reviewPath -Force
         }
-        throw "BodyRig checkout authority changed after high-fidelity human review write; removed non-authoritative receipt '$reviewPath'. $($_.Exception.Message)"
+        throw "BodyRig checkout/package authority changed after high-fidelity human review write; removed non-authoritative receipt '$reviewPath'. $($_.Exception.Message)"
     }
 } finally {
     $env:PYTHONPATH = $previousPythonPath
 }
 
-Write-Host "BodyRig high-fidelity human review: PASS | body=$BodyId"
+Write-Host "BodyRig high-fidelity human review: PASS | body=$([string]$result.body_id)"
+Write-Host "Package SHA: $([string]$result.package_sha256)"
 Write-Host "Receipt: $reviewPath"
 Write-Host "Authority: package SHA + component-state SHA + bodyrig-high-fidelity-human-review-v1 | production_activation=false"
 exit 0
