@@ -32,7 +32,7 @@ def test_main_app_exposes_preview_start_status_and_image_routes() -> None:
     routes = {
         (route.path, frozenset(route.methods or set()))
         for route in app.routes
-        if hasattr(route, "path")
+        if hasattr(route, "path") and hasattr(route, "methods")
     }
 
     assert (
