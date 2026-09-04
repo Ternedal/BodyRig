@@ -6,7 +6,7 @@ It does **not** replace the hard evidence gates. It exists to remove operator gu
 
 ## 0. Start from the verified operator checkout
 
-Use the V1 branch that PR #1 identifies as the current exact CI-green authority. The production physical path is intentionally standardized on **PowerShell 7+ (`pwsh`)**, matching the tested operator/CI runtime. Do not use Windows PowerShell 5.1 for the physical acceptance run.
+Use exact clean current `main` as the normal software authority. If a historical or frozen physical procedure explicitly names an exact BodyRig SHA, use that SHA only for that evidence path; never discover current authority through PR #1. The production physical path is intentionally standardized on **PowerShell 7+ (`pwsh`)**, matching the tested operator/CI runtime. Do not use Windows PowerShell 5.1 for the physical acceptance run.
 
 Verify the shell and checkout before starting:
 
