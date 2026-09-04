@@ -206,3 +206,6 @@ void import("/ui/high_fidelity_component_review.js").catch((error) => {
 void import("/ui/high_fidelity_hair_deformation_review.js").catch((error) => {
   console.error("BodyRig high-fidelity hair-deformation-review UI could not be loaded", error);
 });
+void import("/ui/high_fidelity_hair_promotion.js").catch((error) => {
+  console.error("BodyRig high-fidelity hair-promotion UI could not be loaded", error);
+});
