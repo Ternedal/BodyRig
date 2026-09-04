@@ -75,10 +75,27 @@ def _document() -> dict:
     }
 
 
-def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tmp_path: Path) -> None:
-    workspace = _workspace(tmp_path, gender="female")
-    document = _document()
-    captured: dict = {}
+def _adjustment() -> dict:
+    return {
+        "format": "bodyrig-bodyprint-adjustment",
+        "version": 1,
+        "feedback_sha256": "8" * 64,
+        "changes": [
+            {
+                "field": "shape.shoulder_to_height",
+                "delta": 0.004,
+                "reason": "reviewed shoulder proportion",
+            },
+            {
+                "field": "motion.energy",
+                "delta": 0.02,
+                "reason": "reviewed motion only",
+            },
+        ],
+    }
+
+
+def _patch_glb(monkeypatch, document: dict, captured: dict) -> None:
     monkeypatch.setattr(authority, "_read_glb", lambda _raw: (document, b""))
 
     def fake_write(value, binary):
@@ -89,21 +106,75 @@ def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tm
     monkeypatch.setattr(authority, "_write_glb", fake_write)
     monkeypatch.setattr(authority, "validate_vrm1", lambda _raw: None)
 
+
+def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path, gender="female")
+    document = _document()
+    captured: dict = {}
+    _patch_glb(monkeypatch, document, captured)
+
     result = authority.bind_sith_body_geometry_authority(b"input-vrm", workspace)
     assert result == b"bound-vrm"
     receipt = captured["extras"]["bodyrig"]["sourceGeometryAuthority"]
     assert receipt["format"] == authority.FORMAT
-    assert receipt["method"] == "exact-sith-reconstruction-bytes-v1"
+    assert receipt["version"] == authority.VERSION == 2
+    assert receipt["method"] == "exact-sith-reconstruction-bytes-v2"
     assert receipt["bodyModelGender"] == "female"
     assert receipt["smplxFitProfile"] == authority.SMPLX_FIT_PROFILE
     assert receipt["reconstructionAuthoritySha256"] == _sha(
         (workspace / "sith-input-v1" / authority.AUTHORITY_FILENAME).read_bytes()
     )
+    assert receipt["bodyprintGeometryAdjustment"] == {
+        "method": authority.BODYPRINT_REPLAY_METHOD,
+        "applied": False,
+        "evidenceSha256": None,
+        "changes": [],
+    }
     assert receipt["exactByteBinding"] is True
     assert receipt["hairCandidateBindingEligible"] is True
     assert receipt["productionActivation"] is False
     assert receipt["fittedDonorObjSha256"] == _sha((workspace / "sith-input-v1/smplx/000_smplx.obj").read_bytes())
     assert receipt["sourceMeshSha256"] == _sha((workspace / "sith-input-v1/meshes/000_reco.obj").read_bytes())
+
+
+def test_bind_embeds_only_replayable_geometry_deltas_and_exact_evidence_sha(monkeypatch, tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    captured: dict = {}
+    _patch_glb(monkeypatch, _document(), captured)
+    evidence_sha = "7" * 64
+
+    authority.bind_sith_body_geometry_authority(
+        b"input-vrm",
+        workspace,
+        bodyprint_adjustment=_adjustment(),
+        bodyprint_adjustment_evidence_sha256=evidence_sha,
+    )
+
+    receipt = captured["extras"]["bodyrig"]["sourceGeometryAuthority"]
+    replay = receipt["bodyprintGeometryAdjustment"]
+    assert replay == {
+        "method": authority.BODYPRINT_REPLAY_METHOD,
+        "applied": True,
+        "evidenceSha256": evidence_sha,
+        "changes": [{"field": "shape.shoulder_to_height", "delta": 0.004}],
+    }
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "reviewed shoulder proportion" not in serialized
+    assert "reviewed motion only" not in serialized
+    assert "feedback_sha256" not in serialized
+    assert "motion.energy" not in serialized
+
+
+def test_bind_rejects_adjustment_without_exact_evidence_sha(monkeypatch, tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    monkeypatch.setattr(authority, "_read_glb", lambda _raw: (_document(), b""))
+
+    with pytest.raises(authority.SithBodyGeometryAuthorityError, match="missing its exact evidence SHA"):
+        authority.bind_sith_body_geometry_authority(
+            b"input-vrm",
+            workspace,
+            bodyprint_adjustment=_adjustment(),
+        )
 
 
 def test_bind_fails_closed_when_reconstruction_artifact_changes(monkeypatch, tmp_path: Path) -> None:
@@ -159,5 +230,7 @@ def test_builtin_external_fitter_binds_geometry_before_package_and_retention() -
     package = text.index("build_package(", bind)
     retained = text.index("publish_retained_anatomy_source(", package)
     assert bind < package < retained
+    assert "bodyprint_adjustment=adjustment_request" in text
+    assert "bodyprint_adjustment_evidence_sha256=adjustment_hash" in text
     assert "avatar_vrm=avatar_vrm" in text
     assert "SithBodyGeometryAuthorityError" in text
