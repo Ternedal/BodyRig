@@ -8,23 +8,26 @@ EXTERNAL_FITTER = ROOT / "bodyrig" / "external_fitter_cli.py"
 CLONE_SCRIPT = ROOT / "clone-body.ps1"
 
 
-def test_builtin_sith_publishes_minimal_anatomy_source_after_package_build() -> None:
+def test_builtin_sith_binds_geometry_before_package_then_publishes_minimal_anatomy_source() -> None:
     source = EXTERNAL_FITTER.read_text(encoding="utf-8")
 
-    package_build = source.index("build_package(")
-    sith_gate = source.index('if config["adapter"] == BUILTIN_SITH_ADAPTER:')
-    publish = source.index("publish_retained_anatomy_source(", sith_gate)
+    geometry_gate = source.index('if config["adapter"] == BUILTIN_SITH_ADAPTER:')
+    geometry_bind = source.index("avatar_vrm = bind_sith_body_geometry_authority(", geometry_gate)
+    package_build = source.index("build_package(", geometry_bind)
+    retention_gate = source.index('if config["adapter"] == BUILTIN_SITH_ADAPTER:', package_build)
+    publish = source.index("publish_retained_anatomy_source(", retention_gate)
 
     assert 'BUILTIN_SITH_ADAPTER = "sith-smplx-vrm"' in source
     assert 'RETAINED_ANATOMY_DIRNAME = "retained-anatomy-source"' in source
     assert "output.parent / RETAINED_ANATOMY_DIRNAME" in source
-    assert package_build < sith_gate < publish
+    assert geometry_gate < geometry_bind < package_build < retention_gate < publish
 
 
 def test_custom_fitters_do_not_implicitly_retain_private_workspace() -> None:
     source = EXTERNAL_FITTER.read_text(encoding="utf-8")
 
-    assert 'if config["adapter"] == BUILTIN_SITH_ADAPTER:' in source
+    assert source.count('if config["adapter"] == BUILTIN_SITH_ADAPTER:') >= 2
+    assert "bind_sith_body_geometry_authority(" in source
     assert "publish_retained_anatomy_source(" in source
     assert "KeepPrivateWorkspace" not in source
 
