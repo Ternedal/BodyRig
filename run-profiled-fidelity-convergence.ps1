@@ -761,19 +761,19 @@ try {
             Update-Progress -NewStage "full-reconstruction"
             Write-Host "=== Full reconstruction $rebuildNumber/$MaxFullRebuilds | SiTH seed=$currentSeed ==="
             $timer = [Diagnostics.Stopwatch]::StartNew()
-            $cloneArgs = @(
-                "-PerformerId", $PerformerId,
-                "-BodyId", $BodyId,
-                "-RigSetupReport", $RigSetupReport,
-                "-BodyRigPython", $BodyRigPython,
-                "-StashUrl", $StashUrl,
-                "-ApiKeyEnv", $ApiKeyEnv,
-                "-SithSeed", [string]$currentSeed,
-                "-OutputDir", $cloneOutput,
-                "-SessionReport", $sessionReport,
-                "-KeepPrivateWorkspace"
-            )
-            if (-not [string]::IsNullOrWhiteSpace($Name)) { $cloneArgs += @("-Name", $Name) }
+            $cloneArgs = @{
+                PerformerId = $PerformerId
+                BodyId = $BodyId
+                RigSetupReport = $RigSetupReport
+                BodyRigPython = $BodyRigPython
+                StashUrl = $StashUrl
+                ApiKeyEnv = $ApiKeyEnv
+                SithSeed = [int]$currentSeed
+                OutputDir = $cloneOutput
+                SessionReport = $sessionReport
+                KeepPrivateWorkspace = $true
+            }
+            if (-not [string]::IsNullOrWhiteSpace($Name)) { $cloneArgs.Name = $Name }
             & $profileLauncher @cloneArgs
             if ($LASTEXITCODE -ne 0) { throw "Profiled full reconstruction $rebuildNumber failed with exit code $LASTEXITCODE" }
             $timer.Stop(); $fullDurations += $timer.Elapsed.TotalSeconds; Record-Duration -Kind "full-rebuild" -Seconds $timer.Elapsed.TotalSeconds
