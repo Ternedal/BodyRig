@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -13,6 +14,7 @@ SOURCE_FORMAT = "bodyrig-eye-appearance-candidate"
 SOURCE_VERSION = 1
 MIN_RADIUS_PX = 3
 MIN_OPAQUE_FRACTION = 0.70
+REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class SourceIrisIsolationError(ValueError):
@@ -51,6 +53,13 @@ def _write_create_only(path: Path, raw: bytes) -> None:
     except Exception:
         path.unlink(missing_ok=True)
         raise
+
+
+def _revision(value: str) -> str:
+    clean = str(value or "").strip().lower()
+    if not REVISION_RE.fullmatch(clean):
+        raise SourceIrisIsolationError("BodyRig revision must be a canonical lowercase Git SHA")
+    return clean
 
 
 def _source_authority(source_dir: Path) -> tuple[dict[str, Any], Path, Path, Path]:
@@ -156,9 +165,11 @@ def build_candidate(
     *,
     source_eye_appearance_dir: str | Path,
     output_dir: str | Path,
+    bodyrig_revision: str,
     left_annotation: Mapping[str, Any],
     right_annotation: Mapping[str, Any],
 ) -> dict[str, Any]:
+    revision = _revision(bodyrig_revision)
     source_dir = Path(source_eye_appearance_dir).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
     if not source_dir.is_dir():
@@ -183,6 +194,7 @@ def build_candidate(
             "format": FORMAT,
             "version": VERSION,
             "method": METHOD,
+            "bodyrigRevision": revision,
             "sourceEyeAppearanceReceiptSha256": _sha256(receipt_path),
             "sourceCanonicalEyeBakeSha256": str(receipt["canonicalBakeSha256"]),
             "sourceLeftEyeAppearanceSha256": _sha256(left_source),
@@ -224,7 +236,7 @@ def read_candidate(output_dir: str | Path, *, source_eye_appearance_dir: str | P
             raise SourceIrisIsolationError(f"iris isolation artifact is missing: {path.name}")
     value = _read_json(candidate_path, label="iris isolation candidate")
     required = {
-        "format", "version", "method", "sourceEyeAppearanceReceiptSha256",
+        "format", "version", "method", "bodyrigRevision", "sourceEyeAppearanceReceiptSha256",
         "sourceCanonicalEyeBakeSha256", "sourceLeftEyeAppearanceSha256", "sourceRightEyeAppearanceSha256",
         "targetModelFamily", "left", "right", "sourceDerived", "humanGuidedIsolation",
         "irisIdentityIsolated", "irisIsolationStatus", "humanReviewRequired",
@@ -232,6 +244,7 @@ def read_candidate(output_dir: str | Path, *, source_eye_appearance_dir: str | P
     }
     if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("method") != METHOD:
         raise SourceIrisIsolationError("iris isolation candidate fields/format do not match v1")
+    _revision(str(value.get("bodyrigRevision") or ""))
     exact = {
         "sourceEyeAppearanceReceiptSha256": _sha256(receipt_path),
         "sourceCanonicalEyeBakeSha256": str(receipt["canonicalBakeSha256"]),
