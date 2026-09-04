@@ -20,6 +20,7 @@ def _parser() -> argparse.ArgumentParser:
     candidate = sub.add_parser("candidate", help="Create review-only iris candidates from exact source eye crops.")
     candidate.add_argument("--source-eye-appearance-dir", required=True)
     candidate.add_argument("--output-dir", required=True)
+    candidate.add_argument("--bodyrig-revision", required=True)
     for side in ("left", "right"):
         candidate.add_argument(f"--{side}-cx", required=True, type=int)
         candidate.add_argument(f"--{side}-cy", required=True, type=int)
@@ -41,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
             result = build_candidate(
                 source_eye_appearance_dir=args.source_eye_appearance_dir,
                 output_dir=args.output_dir,
+                bodyrig_revision=args.bodyrig_revision,
                 left_annotation={"cx": args.left_cx, "cy": args.left_cy, "radius": args.left_radius},
                 right_annotation={"cx": args.right_cx, "cy": args.right_cy, "radius": args.right_radius},
             )
@@ -50,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
                 "candidate_path": result["candidatePath"],
                 "left_path": result["leftPath"],
                 "right_path": result["rightPath"],
+                "bodyrig_revision": result["bodyrigRevision"],
                 "iris_identity_isolated": False,
                 "human_review_required": True,
                 "eye_component_authority": False,
