@@ -11,7 +11,12 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from .interrupted_fit_recovery import InterruptedFitRecoveryError, build_recovery_plan
+from .interrupted_fit_recovery import (
+    ADOPT_COMPLETE_PACKAGE,
+    RESUME_FIT_ONLY,
+    InterruptedFitRecoveryError,
+    build_recovery_plan,
+)
 from .package import install_package
 from .person_body_review import PersonBodyReviewError, persist_review, validate_fidelity_output
 from .person_profiles import PersonProfileError, add_body_revision, load_profile
@@ -35,6 +40,7 @@ from .ui_jobs import (
 
 router = APIRouter()
 _WORKSPACE_MARKER = "Private identity workspace: "
+_RECOVERY_MODES = {ADOPT_COMPLETE_PACKAGE, RESUME_FIT_ONLY}
 
 
 def _marker_value(line: str) -> str | None:
@@ -95,6 +101,29 @@ def _active_jobs_for_person(person_id: str, *, ignore_job_ids: set[str] | None =
     ]
 
 
+def _validate_recovery_mode(plan: dict[str, Any]) -> str:
+    mode = str(plan.get("recovery_mode") or "")
+    if mode not in _RECOVERY_MODES:
+        raise UiJobError("interrupted recovery plan selected an unsupported recovery mode")
+    complete = plan.get("package_already_complete") is True
+    if complete != (mode == ADOPT_COMPLETE_PACKAGE):
+        raise UiJobError("interrupted recovery mode/package binding is inconsistent")
+    authority = plan.get("authority")
+    if not isinstance(authority, dict):
+        raise UiJobError("interrupted recovery plan lacks exact authority")
+    reconstruction_sha = authority.get("reconstruction_sha256")
+    package_sha = plan.get("package_sha256")
+    if mode == RESUME_FIT_ONLY:
+        if not isinstance(reconstruction_sha, str) or len(reconstruction_sha) != 64:
+            raise UiJobError("fit-only recovery plan lacks canonical reconstruction authority")
+        if package_sha is not None:
+            raise UiJobError("fit-only recovery plan unexpectedly carries complete-package authority")
+    else:
+        if not isinstance(package_sha, str) or len(package_sha) != 64:
+            raise UiJobError("complete-package adoption plan lacks canonical package authority")
+    return mode
+
+
 def _validated_resume_source(
     job_id: str,
     *,
@@ -104,7 +133,7 @@ def _validated_resume_source(
     if source.get("kind") != "body-build":
         raise UiJobError("only a persisted body-build job can be resumed")
     if source.get("status") not in {"failed", "interrupted"}:
-        raise UiJobError("body-build must be failed or interrupted before late-fit recovery")
+        raise UiJobError("body-build must be failed or interrupted before recovery")
 
     person_id = str(source.get("person_id") or "").strip()
     if not person_id:
@@ -121,7 +150,7 @@ def _validated_resume_source(
     failed_revision = str(source.get("bodyrig_revision") or "").strip().lower()
     if failed_revision != current_revision:
         raise UiJobError(
-            "late-fit recovery requires the exact BodyRig revision that produced the failed physical session; "
+            "interrupted recovery requires the exact BodyRig revision that produced the failed physical session; "
             f"failed={failed_revision or 'missing'}, current={current_revision or 'missing'}"
         )
     if not os.environ.get("STASH_URL", "").strip():
@@ -139,8 +168,7 @@ def _validated_resume_source(
         )
     except (InterruptedFitRecoveryError, OSError, ValueError) as exc:
         raise UiJobError(str(exc)) from exc
-    if plan.get("package_already_complete") is True:
-        raise UiJobError("failed clone already contains a complete package; late-fit recovery refuses to overwrite it")
+    _validate_recovery_mode(plan)
 
     try:
         profile = load_profile(person_library(), person_id)
@@ -157,22 +185,33 @@ def _validated_resume_source(
 def inspect_body_resume(job_id: str) -> dict[str, Any]:
     try:
         source, plan, _workspace, _profile = _validated_resume_source(job_id)
+        mode = _validate_recovery_mode(plan)
     except (UiJobError, OSError, ValueError) as exc:
         return {"available": False, "source_job_id": job_id, "reason": str(exc)}
+    reconstruction_sha = plan["authority"].get("reconstruction_sha256")
+    package_sha = plan.get("package_sha256")
+    if mode == ADOPT_COMPLETE_PACKAGE:
+        reason = "A complete source-bound package is intact and can be adopted after fresh readiness/session validation; fitter and reconstruction will not rerun."
+    else:
+        reason = "Completed SiTH reconstruction is intact and exact-authority fit-only recovery is available."
     return {
         "available": True,
         "source_job_id": job_id,
         "person_id": source["person_id"],
         "bodyrig_revision": plan["bodyrig_revision"],
         "failed_session_id": plan["failed_session_id"],
-        "reconstruction_sha256": plan["authority"]["reconstruction_sha256"],
+        "recovery_mode": mode,
+        "reconstruction_sha256": reconstruction_sha,
+        "package_sha256": package_sha,
+        "fitter_rerun": mode == RESUME_FIT_ONLY,
         "expensive_reconstruction_rerun": False,
-        "reason": "Completed SiTH reconstruction is intact and exact-authority late-fit recovery is available.",
+        "reason": reason,
     }
 
 
 def start_body_resume(job_id: str) -> dict[str, Any]:
     source, plan, workspace, _profile = _validated_resume_source(job_id)
+    mode = _validate_recovery_mode(plan)
     person_id = str(source["person_id"])
     with ui_jobs._lock:
         current_source = _read_job(_job_path(job_id))
@@ -181,7 +220,7 @@ def start_body_resume(job_id: str) -> dict[str, Any]:
         if str(current_source.get("bodyrig_revision") or "").lower() != str(plan["bodyrig_revision"]).lower():
             raise UiJobError("source body-build authority changed while recovery was being prepared")
         if _active_jobs_for_person(person_id, ignore_job_ids={job_id}):
-            raise UiJobError("another BodyRig UI build opened while late-fit recovery was being prepared")
+            raise UiJobError("another BodyRig UI build opened while recovery was being prepared")
 
         new_job_id = f"job-{uuid.uuid4().hex}"
         root = ui_jobs_dir() / new_job_id
@@ -210,9 +249,10 @@ def start_body_resume(job_id: str) -> dict[str, Any]:
             "source_binding_sha256": None,
             "body_review_sha256": None,
             "error": None,
-            "resume_mode": "interrupted-fit",
+            "resume_mode": mode,
             "resume_of_job_id": job_id,
-            "resume_reconstruction_sha256": plan["authority"]["reconstruction_sha256"],
+            "resume_reconstruction_sha256": plan["authority"].get("reconstruction_sha256"),
+            "resume_package_sha256": plan.get("package_sha256"),
             "recovery_receipt": str(root / "interrupted-fit-recovery.json"),
         }
         _write_job(job)
@@ -224,6 +264,55 @@ def start_body_resume(job_id: str) -> dict[str, Any]:
         )
         thread.start()
         return job
+
+
+def _verify_enqueued_mode(job: dict[str, Any], plan: dict[str, Any]) -> str:
+    mode = _validate_recovery_mode(plan)
+    if str(job.get("resume_mode") or "") != mode:
+        raise UiJobError("interrupted recovery mode changed between enqueue and execution")
+    if mode == RESUME_FIT_ONLY:
+        actual = str(plan["authority"].get("reconstruction_sha256") or "")
+        expected = str(job.get("resume_reconstruction_sha256") or "")
+        if actual != expected:
+            raise UiJobError("SiTH reconstruction authority changed between recovery enqueue and execution")
+        if job.get("resume_package_sha256") is not None:
+            raise UiJobError("fit-only recovery job unexpectedly carries complete-package authority")
+    else:
+        actual = str(plan.get("package_sha256") or "")
+        expected = str(job.get("resume_package_sha256") or "")
+        if actual != expected:
+            raise UiJobError("complete-package authority changed between recovery enqueue and execution")
+        if job.get("resume_reconstruction_sha256") not in {None, ""} and plan["authority"].get("reconstruction_sha256") is None:
+            raise UiJobError("complete-package recovery job carries stale reconstruction authority")
+    return mode
+
+
+def _verify_recovery_receipt(path: Path, *, mode: str, plan: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UiJobError("interrupted recovery receipt is unreadable") from exc
+    if not isinstance(value, dict):
+        raise UiJobError("interrupted recovery receipt must be a JSON object")
+    if value.get("format") != "bodyrig-interrupted-physical-fit-recovery" or value.get("version") != 1:
+        raise UiJobError("interrupted recovery receipt format/version mismatch")
+    if value.get("recovery_mode") != mode:
+        raise UiJobError("interrupted recovery receipt changed the selected recovery mode")
+    if value.get("package_sha256") != str(plan.get("package_sha256") or value.get("package_sha256") or "") and mode == ADOPT_COMPLETE_PACKAGE:
+        raise UiJobError("adopted package receipt no longer matches plan authority")
+    if value.get("production_activation") is not False or value.get("human_visual_authority_required") is not True:
+        raise UiJobError("interrupted recovery receipt crossed the human/production authority boundary")
+    if mode == RESUME_FIT_ONLY:
+        if value.get("fitter_rerun") is not True or value.get("adopted_complete_package") is not False:
+            raise UiJobError("fit-only recovery receipt has inconsistent execution semantics")
+        if value.get("reconstruction_authority_sha256") != plan["authority"].get("reconstruction_sha256"):
+            raise UiJobError("fit-only recovery receipt no longer matches reconstruction authority")
+    else:
+        if value.get("fitter_rerun") is not False or value.get("adopted_complete_package") is not True:
+            raise UiJobError("complete-package adoption receipt has inconsistent execution semantics")
+        if value.get("package_sha256") != plan.get("package_sha256"):
+            raise UiJobError("complete-package adoption receipt no longer matches package authority")
+    return value
 
 
 def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> None:
@@ -242,16 +331,20 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
         )
         if workspace != Path(workspace_text).resolve():
             raise UiJobError("retained identity workspace changed between recovery enqueue and execution")
-        if str(plan["authority"]["reconstruction_sha256"]) != str(job.get("resume_reconstruction_sha256") or ""):
-            raise UiJobError("SiTH reconstruction authority changed between recovery enqueue and execution")
+        mode = _verify_enqueued_mode(job, plan)
 
         log_path = Path(job["log_path"])
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8", newline="\n") as log:
-            log.write(f"[{_now()}] BodyRig late-fit resume from {source_job_id}\n")
+            log.write(f"[{_now()}] BodyRig interrupted recovery from {source_job_id}\n")
             log.write(f"Private identity workspace: {workspace}\n")
-            log.write(f"Reconstruction SHA-256: {plan['authority']['reconstruction_sha256']}\n")
-            log.write("Resume policy: completed reconstruction reused unchanged; PHALP/4D-Humans recovery is not rerun.\n")
+            log.write(f"Recovery mode: {mode}\n")
+            if mode == RESUME_FIT_ONLY:
+                log.write(f"Reconstruction SHA-256: {plan['authority']['reconstruction_sha256']}\n")
+                log.write("Recovery policy: completed reconstruction reused unchanged; only the fitter may rerun. PHALP/4D-Humans recovery is not rerun.\n")
+            else:
+                log.write(f"Package SHA-256: {plan['package_sha256']}\n")
+                log.write("Recovery policy: verified complete package adopted unchanged after fresh readiness/session validation; fitter and reconstruction are not rerun.\n")
 
         ps = _powershell()
         repo_root = Path(__file__).resolve().parents[1]
@@ -277,10 +370,11 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
         ]
         code = ui_jobs._run_command(job, resume_args)
         if code != 0:
-            raise UiJobError(f"interrupted physical fit recovery failed with exit code {code}")
+            raise UiJobError(f"interrupted physical recovery failed with exit code {code}")
         recovery_receipt_path = Path(job["recovery_receipt"])
         if not recovery_receipt_path.is_file():
-            raise UiJobError("late-fit recovery returned success without its create-only recovery receipt")
+            raise UiJobError("interrupted recovery returned success without its create-only recovery receipt")
+        _verify_recovery_receipt(recovery_receipt_path, mode=mode, plan=plan)
 
         accept_args = [
             ps,
@@ -298,7 +392,7 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
         ]
         code = ui_jobs._run_command(job, accept_args)
         if code != 0:
-            raise UiJobError(f"high-fidelity Gate A failed after late-fit recovery with exit code {code}")
+            raise UiJobError(f"high-fidelity Gate A failed after interrupted recovery with exit code {code}")
 
         acceptance_path = Path(job["acceptance_dir"]) / "bodyrig-acceptance.json"
         acceptance = json.loads(acceptance_path.read_text(encoding="utf-8-sig"))
@@ -307,7 +401,7 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
         expected_hash = str(package_info.get("package_sha256") or "")
         package_path = Path(job["acceptance_dir"]) / f"{body_id}.mrbody"
         if not body_id or not package_path.is_file():
-            raise UiJobError("Gate A passed after late-fit recovery without a canonical .mrbody package")
+            raise UiJobError("Gate A passed after interrupted recovery without a canonical .mrbody package")
 
         fidelity_args = [
             ps,
@@ -325,7 +419,7 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
         ]
         code = ui_jobs._run_command(job, fidelity_args)
         if code != 0:
-            raise UiJobError(f"fidelity reference-render review capture failed after late-fit recovery with exit code {code}")
+            raise UiJobError(f"fidelity reference-render review capture failed after interrupted recovery with exit code {code}")
         try:
             validate_fidelity_output(job["fidelity_dir"], body_id=body_id, package_sha256=expected_hash)
             review = persist_review(
@@ -356,7 +450,10 @@ def _run_body_resume(job_id: str, source_job_id: str, workspace_text: str) -> No
             installed = install_package(package_path, body_library(), expected_sha256=expected_hash)
             feedback_note = str(current.get("body_feedback") or "").strip()
             if not feedback_note:
-                feedback_note = f"Recovered interrupted source-derived Stash/SiTH fit from UI job {source_job_id}"
+                if mode == ADOPT_COMPLETE_PACKAGE:
+                    feedback_note = f"Adopted verified complete interrupted source-derived Stash/SiTH package from UI job {source_job_id}"
+                else:
+                    feedback_note = f"Recovered interrupted source-derived Stash/SiTH fit from UI job {source_job_id}"
             updated = add_body_revision(
                 person_library(),
                 str(current["person_id"]),
