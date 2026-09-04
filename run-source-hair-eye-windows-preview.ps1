@@ -30,6 +30,12 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Need-Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
+    $normalized = $Value.Trim().ToLowerInvariant()
+    if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
+    return $normalized
+}
 function Resolve-BodyRigPython {
     param([Parameter(Mandatory = $true)][string]$RepoRoot,[string]$Requested = "")
     if (-not [string]::IsNullOrWhiteSpace($Requested)) { return Need-File -Path $Requested -Label "BodyRig Python" }
@@ -120,16 +126,41 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Hair+eye fidelity renderer failed with exit code $LASTEXITCODE." }
 
     $comparisonPath = Need-File -Path (Join-Path $OutputDir "comparison-authority.json") -Label "Hair+eye preview comparison authority"
+    $hairProbePath = Need-File -Path (Join-Path $OutputDir "hair-deformation-probe.json") -Label "Hair deformation machine probe"
     $snapshotManifestPath = Need-File -Path (Join-Path $OutputDir "snapshots\fidelity-render-set.json") -Label "Hair+eye preview snapshot manifest"
     $comparison = Read-Json -Path $comparisonPath -Label "Hair+eye preview comparison authority"
+    $hairProbe = Read-Json -Path $hairProbePath -Label "Hair deformation machine probe"
     $snapshotManifest = Read-Json -Path $snapshotManifestPath -Label "Hair+eye preview snapshot manifest"
+    $hairProbeSha = Sha256 $hairProbePath
     if ([string]$comparison.authority -ne "source-hair-eye-review-runtime" -or
         [string]$comparison.review_avatar_sha256 -ne (Sha256 $sourceReviewVrm) -or
         $comparison.source_hair_runtime_applied -ne $true -or $comparison.source_eye_surface_applied -ne $true -or
         [string]$comparison.corneal_material_status -ne "runtime-applied" -or
+        (Need-Sha256 ([string]$comparison.hair_deformation_probe_sha256) "comparison hair deformation SHA") -ne $hairProbeSha -or
+        $comparison.hair_deformation_machine_pass -ne $true -or $comparison.hair_deformation_human_review_required -ne $true -or
         $comparison.physical_acceptance_authority -ne $false -or $comparison.production_activation -ne $false) {
-        throw "Hair+eye preview render comparison authority is invalid."
+        throw "Hair+eye preview render comparison authority is invalid or lacks exact hair deformation evidence."
     }
+    if ([string]$hairProbe.format -ne "bodyrig-hair-deformation-probe" -or [int]$hairProbe.version -ne 1 -or
+        [string]$hairProbe.platform -ne "windows-unity-univrm" -or
+        [string]$hairProbe.bodyrig_revision -ne $head -or
+        [string]$hairProbe.package_sha256 -ne [string]$sourceReview.packageSha256 -or
+        [string]$hairProbe.avatar_sha256 -ne (Sha256 $sourceReviewVrm) -or
+        [string]$hairProbe.sequence_revision -ne "source-hair-head-turn-v1" -or
+        [string]$hairProbe.hair_node -ne "BodyRigSourceHairReview" -or
+        [string]$hairProbe.hair_mesh -ne "BodyRigSourceHairReviewMesh" -or
+        $hairProbe.skinned_mesh_renderer_found -ne $true -or $hairProbe.head_bone_resolved -ne $true -or $hairProbe.head_bone_bound -ne $true -or
+        $hairProbe.vertex_motion_observed -ne $true -or $hairProbe.restored_neutral -ne $true -or $hairProbe.complete -ne $true -or
+        $hairProbe.human_review_required -ne $true -or $hairProbe.comparison_only -ne $true -or
+        $hairProbe.hair_component_authority -ne $false -or $hairProbe.production_activation -ne $false) {
+        throw "Hair deformation machine probe is stale, incomplete or crossed the review-only authority boundary."
+    }
+    if ([double]$hairProbe.observed_head_turn_degrees -lt 18.2 -or
+        [double]$hairProbe.vertex_motion_rms_m -lt 0.00025 -or [double]$hairProbe.vertex_motion_max_m -lt 0.001 -or
+        [double]$hairProbe.restoration_rms_m -gt 0.00025 -or [double]$hairProbe.restoration_max_m -gt 0.001) {
+        throw "Hair deformation machine metrics do not satisfy the canonical head-turn thresholds."
+    }
+
     $views = @($snapshotManifest.snapshots | ForEach-Object { [string]$_.view })
     if (($views -join ',') -ne 'front-full,three-quarter-full,side-full,face-front') {
         throw "Hair+eye preview renderer did not emit the four canonical views."
@@ -144,6 +175,8 @@ try {
     Write-Host ""
     Write-Host "BodyRig source hair + eye Windows preview: READY"
     Write-Host "Hair:        RENDERED"
+    Write-Host "Hair move:   MACHINE PASS; human clipping/attachment review still required"
+    Write-Host "Hair probe:  $hairProbePath"
     Write-Host "Eye surface: RENDERED"
     Write-Host "Cornea:      RENDERED"
     Write-Host "Front:       $(Join-Path $OutputDir 'snapshots\front-full.png')"
@@ -152,7 +185,7 @@ try {
     Write-Host "Face:        $(Join-Path $OutputDir 'snapshots\face-front.png')"
     Write-Host "Face zoom:   $faceZoomPath"
     Write-Host "Eyes close:  $eyesCloseupPath"
-    Write-Host "Authority:   REVIEW ONLY; physical acceptance FALSE; production FALSE"
+    Write-Host "Authority:   REVIEW ONLY; hair component FALSE; physical acceptance FALSE; production FALSE"
     exit 0
 } finally {
     $env:PYTHONPATH = $priorPythonPath
