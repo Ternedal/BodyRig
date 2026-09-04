@@ -12,6 +12,12 @@ from bodyrig.retained_anatomy_source import (
     publish_retained_anatomy_source,
 )
 from bodyrig.sith_reconstruct import FIT_PARAM_LENGTHS
+from bodyrig.sith_reconstruction_authority import (
+    AUTHORITY_FILENAME,
+    AUTHORITY_FORMAT,
+    AUTHORITY_VERSION,
+    SMPLX_FIT_PROFILE,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -24,7 +30,7 @@ def _fit_params() -> dict[str, list[float]]:
     return value
 
 
-def _source_workspace(tmp_path: Path, *, texture_name: str = "000.png") -> Path:
+def _source_workspace(tmp_path: Path, *, texture_name: str = "000.png", gender: str = "female") -> Path:
     workspace = tmp_path / "private-identity-workspace"
     stage = workspace / "sith-input-v1"
     smplx = stage / "smplx"
@@ -82,12 +88,21 @@ def _source_workspace(tmp_path: Path, *, texture_name: str = "000.png") -> Path:
             "mesh_texture_sha256": _sha256(texture),
         },
     }
-    (stage / "reconstruction.json").write_text(json.dumps(reconstruction), encoding="utf-8")
+    reconstruction_path = stage / "reconstruction.json"
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+    model_authority = {
+        "format": AUTHORITY_FORMAT,
+        "version": AUTHORITY_VERSION,
+        "body_model_gender": gender,
+        "smplx_fit_profile": SMPLX_FIT_PROFILE,
+        "reconstruction_sha256": _sha256(reconstruction_path),
+    }
+    (stage / AUTHORITY_FILENAME).write_text(json.dumps(model_authority), encoding="utf-8")
     return workspace
 
 
-def test_publish_retains_only_anatomy_bytes_and_privacy_receipt(tmp_path: Path) -> None:
-    source = _source_workspace(tmp_path)
+def test_publish_retains_only_component_bytes_family_authority_and_privacy_receipt(tmp_path: Path) -> None:
+    source = _source_workspace(tmp_path, gender="female")
     output = tmp_path / "portable-output" / "retained-anatomy-source"
 
     receipt = publish_retained_anatomy_source(source, output)
@@ -95,6 +110,7 @@ def test_publish_retains_only_anatomy_bytes_and_privacy_receipt(tmp_path: Path) 
     expected = {
         RECEIPT_FILENAME,
         "sith-input-v1/reconstruction.json",
+        f"sith-input-v1/{AUTHORITY_FILENAME}",
         "sith-input-v1/smplx/000_smplx.obj",
         "sith-input-v1/smplx/000_fit.json",
         "sith-input-v1/meshes/000_reco.obj",
@@ -107,6 +123,9 @@ def test_publish_retains_only_anatomy_bytes_and_privacy_receipt(tmp_path: Path) 
         if path.is_file()
     }
     assert actual == expected
+    assert receipt["body_model_gender"] == "female"
+    assert receipt["smplx_fit_profile"] == SMPLX_FIT_PROFILE
+    assert receipt["reconstruction_authority_sha256"] == _sha256(output / "sith-input-v1" / AUTHORITY_FILENAME)
     assert receipt["raw_observation_media_retained"] is False
     assert receipt["prepared_input_retained"] is False
     assert receipt["back_view_retained"] is False
@@ -131,6 +150,26 @@ def test_publish_fails_closed_if_bound_reconstruction_bytes_changed(tmp_path: Pa
     with pytest.raises(RetainedAnatomySourceError, match="hash mismatch"):
         publish_retained_anatomy_source(source, output)
 
+    assert not output.exists()
+
+
+def test_publish_rejects_missing_or_mismatched_model_family_authority(tmp_path: Path) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+    authority_path.unlink()
+    with pytest.raises(RetainedAnatomySourceError, match="model-family authority is missing"):
+        publish_retained_anatomy_source(source, output)
+    assert not output.exists()
+
+    source = _source_workspace(tmp_path / "second")
+    output = tmp_path / "retained-second"
+    authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+    value = json.loads(authority_path.read_text(encoding="utf-8"))
+    value["reconstruction_sha256"] = "9" * 64
+    authority_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(RetainedAnatomySourceError, match="does not bind current reconstruction"):
+        publish_retained_anatomy_source(source, output)
     assert not output.exists()
 
 
