@@ -26,7 +26,7 @@ def test_person_studio_surfaces_checkout_bound_component_review_command() -> Non
     assert "record-high-fidelity-component-review.ps1" in ui
     assert "-PreviewJobId" in ui
     assert "-ConfirmVisualChecklist" in ui
-    assert "body_anatomy er promotion-eligible" in ui
+    assert "body_anatomy er nu promotion-eligible" in ui
     assert "runtime deformation review" in ui
     assert "iris authority" in ui
     assert "production_activation=false" in ui
