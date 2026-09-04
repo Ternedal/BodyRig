@@ -62,18 +62,24 @@ def _annotations() -> tuple[dict[str, int], dict[str, int]]:
     return ({"cx": 32, "cy": 24, "radius": 11}, {"cx": 32, "cy": 24, "radius": 11})
 
 
-def test_candidate_is_source_bound_and_cannot_grant_iris_authority(tmp_path: Path) -> None:
-    source = _source(tmp_path)
+def _build(source: Path, out: Path) -> dict:
     left, right = _annotations()
-    out = tmp_path / "iris"
-    value = build_candidate(
+    return build_candidate(
         source_eye_appearance_dir=source,
         output_dir=out,
+        bodyrig_revision=REVISION,
         left_annotation=left,
         right_annotation=right,
     )
+
+
+def test_candidate_is_source_and_revision_bound_and_cannot_grant_iris_authority(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    value = _build(source, out)
     verified = read_candidate(out, source_eye_appearance_dir=source)
     assert value["format"] == "bodyrig-source-iris-isolation-candidate"
+    assert verified["bodyrigRevision"] == REVISION
     assert verified["sourceDerived"] is True
     assert verified["humanGuidedIsolation"] is True
     assert verified["irisIdentityIsolated"] is False
@@ -92,6 +98,7 @@ def test_candidate_rejects_circle_outside_exact_source_crop(tmp_path: Path) -> N
         build_candidate(
             source_eye_appearance_dir=source,
             output_dir=tmp_path / "iris",
+            bodyrig_revision=REVISION,
             left_annotation={"cx": 4, "cy": 4, "radius": 11},
             right_annotation={"cx": 32, "cy": 24, "radius": 11},
         )
@@ -105,6 +112,7 @@ def test_candidate_rejects_source_eye_bytes_changed_after_extraction(tmp_path: P
         build_candidate(
             source_eye_appearance_dir=source,
             output_dir=tmp_path / "iris",
+            bodyrig_revision=REVISION,
             left_annotation=left,
             right_annotation=right,
         )
@@ -112,14 +120,8 @@ def test_candidate_rejects_source_eye_bytes_changed_after_extraction(tmp_path: P
 
 def test_human_review_is_the_only_step_that_grants_iris_isolation_authority(tmp_path: Path) -> None:
     source = _source(tmp_path)
-    left, right = _annotations()
     out = tmp_path / "iris"
-    build_candidate(
-        source_eye_appearance_dir=source,
-        output_dir=out,
-        left_annotation=left,
-        right_annotation=right,
-    )
+    _build(source, out)
     result = write_review(
         candidate_dir=out,
         source_eye_appearance_dir=source,
@@ -129,6 +131,7 @@ def test_human_review_is_the_only_step_that_grants_iris_isolation_authority(tmp_
     )
     verified = read_review(candidate_dir=out, source_eye_appearance_dir=source)
     assert result["irisIdentityIsolated"] is True
+    assert verified["bodyrigRevision"] == REVISION
     assert verified["irisAppearanceStatus"] == "source-isolated-review-pass"
     assert verified["humanReviewComplete"] is True
     assert verified["eyeComponentAuthority"] is False
@@ -136,16 +139,24 @@ def test_human_review_is_the_only_step_that_grants_iris_isolation_authority(tmp_
     assert verified["productionActivation"] is False
 
 
+def test_review_rejects_different_checkout_revision_than_candidate(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    _build(source, out)
+    with pytest.raises(SourceIrisIsolationReviewError, match="checkout revision mismatch"):
+        write_review(
+            candidate_dir=out,
+            source_eye_appearance_dir=source,
+            bodyrig_revision="2" * 40,
+            checklist={field: True for field in CHECKLIST_FIELDS},
+            quality_note="Wrong checkout fixture.",
+        )
+
+
 def test_review_requires_every_explicit_visual_check(tmp_path: Path) -> None:
     source = _source(tmp_path)
-    left, right = _annotations()
     out = tmp_path / "iris"
-    build_candidate(
-        source_eye_appearance_dir=source,
-        output_dir=out,
-        left_annotation=left,
-        right_annotation=right,
-    )
+    _build(source, out)
     checklist = {field: True for field in CHECKLIST_FIELDS}
     checklist["sclera_not_included_as_iris_identity"] = False
     with pytest.raises(SourceIrisIsolationReviewError, match="sclera_not_included"):
@@ -160,14 +171,8 @@ def test_review_requires_every_explicit_visual_check(tmp_path: Path) -> None:
 
 def test_review_fails_closed_if_candidate_bytes_change_after_review(tmp_path: Path) -> None:
     source = _source(tmp_path)
-    left, right = _annotations()
     out = tmp_path / "iris"
-    build_candidate(
-        source_eye_appearance_dir=source,
-        output_dir=out,
-        left_annotation=left,
-        right_annotation=right,
-    )
+    _build(source, out)
     write_review(
         candidate_dir=out,
         source_eye_appearance_dir=source,
