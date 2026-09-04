@@ -255,10 +255,30 @@ def read_candidate(output_dir: str | Path, *, source_eye_appearance_dir: str | P
     for field, expected in exact.items():
         if value.get(field) != expected:
             raise SourceIrisIsolationError(f"iris isolation candidate no longer matches source authority: {field}")
-    for side, path in (("left", left_output), ("right", right_output)):
+
+    side_fields = {
+        "annotation", "sourceWidth", "sourceHeight", "outputWidth", "outputHeight",
+        "circlePixelCount", "sourceOpaquePixelCount", "sourceOpaqueFraction", "candidatePngSha256",
+    }
+    for side, output_path, source_path in (
+        ("left", left_output, left_source),
+        ("right", right_output, right_source),
+    ):
         block = value.get(side)
-        if not isinstance(block, dict) or block.get("candidatePngSha256") != _sha256(path):
-            raise SourceIrisIsolationError(f"{side} iris candidate bytes changed after isolation")
+        if not isinstance(block, dict) or set(block) != side_fields:
+            raise SourceIrisIsolationError(f"{side} iris candidate metadata is not canonical")
+        annotation = block.get("annotation")
+        if not isinstance(annotation, dict):
+            raise SourceIrisIsolationError(f"{side} iris candidate annotation is invalid")
+        expected_raw, expected_metrics = _isolate(source_path, annotation, side=side)
+        expected_hash = hashlib.sha256(expected_raw).hexdigest()
+        if block.get("candidatePngSha256") != expected_hash or _sha256(output_path) != expected_hash:
+            raise SourceIrisIsolationError(f"{side} iris candidate bytes differ from deterministic source isolation")
+        for field, expected in expected_metrics.items():
+            if block.get(field) != expected:
+                raise SourceIrisIsolationError(
+                    f"{side} iris candidate metadata differs from deterministic source isolation: {field}"
+                )
     if (
         value.get("sourceDerived") is not True
         or value.get("humanGuidedIsolation") is not True
