@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import bodyrig.source_hair_body_binding as binding
+from bodyrig.sith_reconstruction_authority import SMPLX_FIT_PROFILE
 
 
 def _sha(raw: bytes) -> str:
@@ -20,6 +21,9 @@ def _authority() -> dict[str, object]:
         "version": 1,
         "method": "exact-sith-reconstruction-bytes-v1",
         "reconstructionSha256": "a" * 64,
+        "reconstructionAuthoritySha256": "1" * 64,
+        "bodyModelGender": "female",
+        "smplxFitProfile": SMPLX_FIT_PROFILE,
         "fittedDonorObjSha256": "b" * 64,
         "fitParamsSha256": "c" * 64,
         "sourceMeshSha256": "d" * 64,
@@ -108,6 +112,8 @@ def test_build_binding_requires_five_exact_body_source_links(monkeypatch, tmp_pa
     assert value["bodyId"] == "bodyid-1234567890abcdef12345678"
     assert value["packageSha256"] == _sha(b"package-fixture")
     assert value["avatarVrmSha256"] == _sha(b"avatar-vrm-fixture")
+    assert value["sourceGeometryAuthority"]["bodyModelGender"] == "female"
+    assert value["sourceGeometryAuthority"]["smplxFitProfile"] == SMPLX_FIT_PROFILE
     assert value["bindingStatus"] == "exact-source-and-donor-match"
     assert value["runtimeIntegrationRequired"] is True
     assert value["physicalSilhouetteReviewRequired"] is True
