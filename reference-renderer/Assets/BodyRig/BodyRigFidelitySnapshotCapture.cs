@@ -78,6 +78,8 @@ namespace BodyRig.ReferenceRenderer
 
                 var animator = loader.Active.GetComponentInChildren<Animator>(true);
                 var head = animator != null ? animator.GetBoneTransform(HumanBodyBones.Head) : null;
+                var leftEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftEye) : null;
+                var rightEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightEye) : null;
                 var faceTarget = head != null ? head.position : center + Vector3.up * height * 0.38f;
                 var faceDistance = Mathf.Max(height * 0.24f, 0.30f);
                 var faceZoomDistance = Mathf.Max(height * 0.19f, 0.24f);
@@ -95,7 +97,7 @@ namespace BodyRig.ReferenceRenderer
                 // Human-review diagnostics are intentionally outside the v1
                 // fidelity manifest. They add inspection detail without changing
                 // machine-evaluator authority or acceptance semantics.
-                var diagnosticPoses = new[]
+                var diagnosticPoses = new List<CameraPose>
                 {
                     new CameraPose("face-zoom", faceTarget + new Vector3(0f, 0f, faceZoomDistance), faceTarget, 20f),
                     new CameraPose(
@@ -104,6 +106,17 @@ namespace BodyRig.ReferenceRenderer
                         faceTarget,
                         24f),
                 };
+                if (leftEye != null && rightEye != null)
+                {
+                    var eyeTarget = (leftEye.position + rightEye.position) * 0.5f;
+                    var eyeSpan = Mathf.Max(Vector3.Distance(leftEye.position, rightEye.position), height * 0.025f);
+                    var eyeCloseupDistance = Mathf.Max(eyeSpan * 4.6f, height * 0.12f, 0.18f);
+                    diagnosticPoses.Add(new CameraPose(
+                        "eyes-closeup",
+                        eyeTarget + new Vector3(0f, 0f, eyeCloseupDistance),
+                        eyeTarget,
+                        20f));
+                }
 
                 var camera = Camera.main;
                 var originalPosition = camera.transform.position;
