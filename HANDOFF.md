@@ -4,49 +4,82 @@ _Last updated: 2026-09-04_
 
 ## Repository state
 
-BodyRig is in a trunk-normalization window.
+BodyRig now has a real canonical software trunk.
 
-- GitHub default branch: `main`.
-- `main` is not yet the code trunk; before this normalization it contained only the repository bootstrap/README history.
-- Proposed foundation branch: `agent/bodyrig-main-foundation-20260904`.
-- Foundation code base: `agent/donor-lbs-policy-hotfix-20260903` at `b7799d5a172e08ccf8d1759b7f988d99604abd76`.
-- Do **not** start another long branch stack from the old branch graph while the foundation PR is open.
-- Do **not** infer current authority from branch age, PR number, or the Git author name.
+- GitHub default/integration branch: `main`.
+- Foundation PR #66 landed successfully.
+- Foundation merge on `main`: `e4b032107a3bdaa8a57ba5d02462f9c32ff934f7`.
+- PR #66 exact pre-merge head `eb25334d071e345e4e9514ff606117c188badfb3` passed `ci` #1566 and `windows-log-handle-regression` #738.
+- Normal new work must branch from exact current `main` unless a documented frozen physical-evidence procedure explicitly requires another SHA.
+- Do **not** infer current authority from branch age, PR number, or Git author name.
+- PR #1 is closed and is no longer an authority pointer.
 
-After the foundation PR lands, `main` becomes the only normal integration trunk. New work should branch from exact current `main` unless a documented frozen physical-evidence exception explicitly requires another base.
+`main` is software integration authority. Historical physical evidence remains bound to the exact BodyRig revision recorded in that evidence; trunk normalization does not rewrite it.
 
-## Important recovery from the old graph
+## Old graph reconciliation already completed
 
-`agent/bodyrig-v1` is historically divergent from the current code line. Two commits on that branch looked stranded:
+The two commits that looked stranded on `agent/bodyrig-v1` were:
 
 - `7087563235db2648710b3256dd435189259d1092` — `fix: resolve remote Stash VR paths over SMB`
 - `670a179df75cbd80459d00bcaf0e612605ca405a` — `test: lock remote Stash VR share resolution`
 
-Their **content is already preserved** in the foundation code line. The foundation contains the remote `X:\\VR` → same-host `VR_X` fail-closed mapping logic in `bodyrig/stash_cli.py` and `tests/test_stash_remote_vr_share.py`. Do not cherry-pick those historical commits merely to reproduce commit ancestry.
+Their surviving content is already present on `main`, including the fail-closed remote `X:\\VR` → same-host `VR_X` mapping and `tests/test_stash_remote_vr_share.py`. They were deliberately not cherry-picked merely to duplicate ancestry.
 
-## Active development lines to reconcile after foundation landing
+The following old stacked integration PRs have been verified with `ahead_by=0` against current `main` and closed as `LANDED`:
 
-These are the currently relevant open lines, not independent trunks:
+- PR #40 — fitted SMPL-X final body topology.
+- PR #41 — anatomy-aware canonical SMPL-X appearance path.
+- PR #51 — explicit high-fidelity component gates.
+- PR #53 — observed embodiment / Motor State v2 lineage.
 
-- PR #54 / `agent/person-studio-photoreal-20260902` — source-grounded photoreal Person Studio continuation.
-- PR #65 / `agent/person-studio-hair-deformation-review-20260904` — exact physical hair deformation review authority, stacked on #54; draft/unmerged.
-- PR #60 / `agent/recovery-throughput-v3-20260903` — recovery throughput v3 performance candidate; requires real A/B evidence before authority.
-- PR #61 / `agent/person-studio-diagnostics-20260903` — diagnostics-only Person Studio improvements.
-- PR #62 / `agent/bodyrig-ui-late-fit-resume` — explicit late-fit resume from retained reconstruction.
-- PR #63 / `agent/gate-a-appearance-resume-20260903` — Gate A anatomy-aware appearance/resume fix.
-- PR #64 / `agent/bodyrig-post-clone-continuation` — post-clone continuation checkpoint, stacked on #62.
+PR #1 has been closed as `SUPERSEDED` for repository/software authority. Its historical exact-SHA evidence remains historical evidence only.
 
-Older physical/fidelity PRs remain evidence/history until each is explicitly classified as landed, superseded, or still required. Do not bulk-close them without a commit/PR pointer proving where their surviving content went.
+## Active development lines
+
+These are active deltas, not independent trunks:
+
+- PR #54 / `agent/person-studio-photoreal-20260902` — source-grounded photoreal Person Studio continuation; retargeted directly to `main`.
+- PR #65 / `agent/person-studio-hair-deformation-review-20260904` — exact physical hair deformation review authority; remains correctly stacked on #54 and is draft/unmerged.
+- PR #60 / `agent/recovery-throughput-v3-20260903` — recovery throughput v3 performance candidate; retargeted directly to `main`; requires real A/B evidence before authority.
+- PR #61 / `agent/person-studio-diagnostics-20260903` — diagnostics-only Person Studio improvements; retargeted directly to `main`.
+- PR #62 / `agent/bodyrig-ui-late-fit-resume` — explicit late-fit resume from retained reconstruction; retargeted directly to `main`.
+- PR #63 / `agent/gate-a-appearance-resume-20260903` — Gate A anatomy-aware appearance/resume fix; retargeted directly to `main`.
+- PR #64 / `agent/bodyrig-post-clone-continuation` — post-clone continuation checkpoint; remains correctly stacked on #62.
+
+Known real deltas after trunk normalization:
+
+- #54: 108 commits over the foundation lineage before branch reconciliation.
+- #60: 13 commits.
+- #61: 4 commits.
+- #62: 12 commits.
+- #63: 20 commits.
+- #64: 3 commits over #62 in its intended stack.
+- #65: 8 commits over #54 in its intended stack.
+
+The branch heads retain their historical exact-head CI/evidence identity. Do not force-rebase them merely to make the graph pretty; reconcile deliberately and preserve physical evidence semantics.
+
+## Old PRs that still contain unique content
+
+Do not close these merely because they are old. Current compare against `main` still shows unique commits/content:
+
+- PR #49 — 39 unique commits: physical A/B evidence/handoff/review toolchain.
+- PR #43 — 4 unique commits: reconstruction-authority binding in fidelity checkpoints.
+- PR #42 — 4 unique commits: interrupted-fit recovery ladder hardening.
+- PR #39 — 14 unique commits: topology diagnostics and bounded repair.
+- PR #21 — 2 unique commits: profiled fidelity-to-renderer-ready operator path.
+- PR #19 — 2 unique commits: cumulative renderer-bundle Gate A rebind helper.
+
+Each must be explicitly classified as `ACTIVE`, `FROZEN EVIDENCE`, `SUPERSEDED`, or deliberately ported before closure.
 
 ## Authority rules
 
 1. **Software trunk authority**
-   - After foundation landing: exact clean `main` SHA.
-   - Before foundation landing: use the exact SHA named by the specific active/frozen workflow; do not treat PR #1's moving branch head as a universal pointer.
+   - Exact clean current `main` SHA.
+   - A feature/fix PR is an integration candidate, not global software authority merely because its CI is green.
 
 2. **Physical evidence authority**
    - Existing physical evidence remains bound to the exact revision recorded in that evidence.
-   - Rebasing or landing code does not retroactively rewrite physical evidence authority.
+   - Rebasing, retargeting, closing a PR, or landing code does not retroactively rewrite physical evidence authority.
    - New physical runs require an exact clean checkout and the current documented operator path.
 
 3. **High-fidelity / production authority**
@@ -68,16 +101,17 @@ The remaining product gate is still physical, not a unit-test problem:
 6. Quest-class acceptance on the exact accepted runtime/package;
 7. final release gate.
 
-Hair deformation review is implemented as review authority only; hair materialization/promotion is not yet part of the foundation. Eye authority is still blocked by explicit iris identity/appearance authority and remaining face-secondary work.
+Hair deformation review is implemented as review authority only. Hair materialization/promotion is not yet landed. The safe promotion design must reconstruct and verify the exact hair-only intermediate rather than copy the combined hair+eye review VRM. Eye authority is still blocked by explicit iris identity/appearance authority and remaining face-secondary work.
 
-## Normalization sequence
+## Normalization sequence from here
 
-1. Land the foundation PR to `main` through CI/review.
-2. Make `main` the documented integration authority and remove the PR #1 authority-pointer pattern from operator docs.
-3. Reconcile active PRs against `main`, preserving only their real deltas.
-4. Compare recovery-throughput v2/v3 unique content before closing old performance candidates.
-5. Classify old PRs explicitly as `LANDED`, `SUPERSEDED`, `FROZEN EVIDENCE`, or `ACTIVE` with a pointer.
-6. Resume new feature work only after the active branch graph is shallow and understandable.
+1. Remove the obsolete PR #1 authority-pointer wording from operator documentation.
+2. Reconcile active PRs against `main` while preserving only their real deltas and exact evidence semantics.
+3. Compare recovery-throughput v2/v3 unique content before closing old performance candidates.
+4. Classify the remaining old unique-content PRs explicitly.
+5. Resume new feature work once the active graph is shallow and understandable.
+
+Coordination issue: #67 `BodyRig trunk normalization and PR reconciliation`.
 
 ## Handoff discipline
 
