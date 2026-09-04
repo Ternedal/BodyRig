@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .high_fidelity_anatomy_promotion import promotion_status as anatomy_promotion_status
 from .high_fidelity_component_review import review_status as component_review_status
 from .high_fidelity_preview_jobs import HighFidelityPreviewError, manager
 
@@ -44,6 +45,11 @@ def get_high_fidelity_component_review(job_id: str) -> dict:
     if status.get("state") == "unavailable":
         raise HTTPException(status_code=404, detail=str(status.get("reason") or "component review unavailable"))
     return status
+
+
+@router.get("/api/v1/high-fidelity-preview-jobs/{job_id}/anatomy-promotion")
+def get_high_fidelity_anatomy_promotion(job_id: str) -> dict:
+    return anatomy_promotion_status(job_id)
 
 
 @router.get("/api/v1/people/{person_id}/body/high-fidelity-preview")
