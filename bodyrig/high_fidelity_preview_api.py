@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .high_fidelity_anatomy_promotion import promotion_status as anatomy_promotion_status
 from .high_fidelity_component_review import review_status as component_review_status
 from .high_fidelity_hair_deformation_review import review_status as hair_deformation_review_status
+from .high_fidelity_hair_promotion import promotion_status as hair_promotion_status
 from .high_fidelity_preview_jobs import HighFidelityPreviewError, manager
 
 router = APIRouter()
@@ -56,6 +57,11 @@ def get_high_fidelity_anatomy_promotion(job_id: str) -> dict:
 @router.get("/api/v1/high-fidelity-preview-jobs/{job_id}/hair-deformation-review")
 def get_high_fidelity_hair_deformation_review(job_id: str) -> dict:
     return hair_deformation_review_status(job_id)
+
+
+@router.get("/api/v1/high-fidelity-preview-jobs/{job_id}/hair-promotion")
+def get_high_fidelity_hair_promotion(job_id: str) -> dict:
+    return hair_promotion_status(job_id)
 
 
 @router.get("/api/v1/people/{person_id}/body/high-fidelity-preview")
