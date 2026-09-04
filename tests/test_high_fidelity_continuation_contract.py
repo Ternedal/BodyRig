@@ -25,7 +25,8 @@ def test_person_studio_loads_unified_continuation_as_isolated_extension() -> Non
 
     assert 'import("/ui/high_fidelity_continuation.js")' in gallery
     assert "/continuation-status" in ui
-    assert "HIGH-FIDELITY COMPONENTS COMPLETE · PRODUCTION LOCKED" in ui
+    assert "HIGH-FIDELITY PACKAGE COMPLETE · HUMAN REVIEW REQUIRED · PRODUCTION LOCKED" in ui
+    assert "SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED" in ui
     assert "production_ready=false" in ui
     assert "Windows acceptance" in ui
     assert "Quest acceptance" in ui
@@ -68,7 +69,7 @@ def test_eye_only_rebuild_command_contains_every_canonical_authority_input() -> 
         assert token in source
 
 
-def test_unified_status_never_claims_production_authority() -> None:
+def test_component_status_never_claims_production_authority() -> None:
     source = (ROOT / "bodyrig" / "high_fidelity_continuation_status.py").read_text(encoding="utf-8")
 
     assert '"production_ready": False' in source
@@ -76,3 +77,16 @@ def test_unified_status_never_claims_production_authority() -> None:
     assert '"physical_windows_acceptance_required": True' in source
     assert '"quest_acceptance_required": True' in source
     assert '"final_release_required": True' in source
+
+
+def test_release_readiness_adds_package_bound_human_review_without_production_activation() -> None:
+    source = (ROOT / "bodyrig" / "high_fidelity_release_readiness.py").read_text(encoding="utf-8")
+
+    assert 'FINAL_REVIEW_GATE = "high_fidelity_human_review"' in source
+    assert "record-high-fidelity-human-review.ps1" in source
+    assert "-PackagePath" in source
+    assert '"component_package_complete"' in source
+    assert '"high_fidelity_human_review_complete"' in source
+    assert '"software_ready_for_physical_acceptance"' in source
+    assert '"production_ready"] = False' in source
+    assert '"production_activation"] = False' in source
