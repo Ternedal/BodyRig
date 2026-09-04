@@ -4,16 +4,13 @@ import argparse
 import hashlib
 import json
 import os
-import tempfile
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
-from .source_hair_body_binding import (
-    SourceHairBodyBindingError,
-    build_binding,
-)
+from .source_hair_body_binding import SourceHairBodyBindingError, build_binding
 
 FORMAT = "bodyrig-source-hair-review-runtime"
 VERSION = 1
@@ -22,6 +19,7 @@ BRIDGE_VERSION = 1
 METADATA_FORMAT = "bodyrig-source-hair-review-runtime-metadata"
 METADATA_VERSION = 1
 SHA256_LENGTH = 64
+REVISION_LENGTH = 40
 
 
 class SourceHairReviewRuntimeError(ValueError):
@@ -40,21 +38,22 @@ def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _sha(value: Any, *, label: str) -> str:
+def _hex(value: Any, *, length: int, label: str) -> str:
     if (
         not isinstance(value, str)
-        or len(value) != SHA256_LENGTH
+        or len(value) != length
         or any(ch not in "0123456789abcdef" for ch in value)
     ):
         raise SourceHairReviewRuntimeError(f"{label} is invalid")
     return value
 
 
+def _sha(value: Any, *, label: str) -> str:
+    return _hex(value, length=SHA256_LENGTH, label=label)
+
+
 def _revision(value: Any) -> str:
-    revision = _sha(value, label="BodyRig revision")
-    if revision == "0" * 40:
-        raise SourceHairReviewRuntimeError("BodyRig revision is invalid")
-    return revision
+    return _hex(value, length=REVISION_LENGTH, label="BodyRig revision")
 
 
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
@@ -70,43 +69,28 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _write_create_only(path: Path, raw: bytes) -> None:
+    path = path.expanduser().resolve()
+    if path.exists():
+        raise SourceHairReviewRuntimeError(f"output already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError as exc:
+        raise SourceHairReviewRuntimeError(f"output already exists: {path}") from exc
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def _write_json_create_only(path: Path, value: Mapping[str, Any]) -> None:
-    path = path.expanduser().resolve()
-    if path.exists():
-        raise SourceHairReviewRuntimeError(f"output already exists: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = (json.dumps(dict(value), indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError as exc:
-        raise SourceHairReviewRuntimeError(f"output already exists: {path}") from exc
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(encoded)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def _write_bytes_create_only(path: Path, value: bytes) -> None:
-    path = path.expanduser().resolve()
-    if path.exists():
-        raise SourceHairReviewRuntimeError(f"output already exists: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError as exc:
-        raise SourceHairReviewRuntimeError(f"output already exists: {path}") from exc
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(value)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+    raw = (json.dumps(dict(value), indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+    _write_create_only(path, raw)
 
 
 def _extract_avatar(package: Path) -> bytes:
@@ -117,12 +101,7 @@ def _extract_avatar(package: Path) -> bytes:
         raise SourceHairReviewRuntimeError(f"body package avatar.vrm is unavailable: {exc}") from exc
 
 
-def prepare(
-    *,
-    package_path: str | Path,
-    candidate_dir: str | Path,
-    output_dir: str | Path,
-) -> dict[str, Any]:
+def prepare(*, package_path: str | Path, candidate_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
     package = Path(package_path).expanduser().resolve()
     candidate = Path(candidate_dir).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
@@ -138,7 +117,6 @@ def prepare(
     prepare_path = output / "source-hair-review-prepare.json"
     if any(path.exists() for path in (binding_path, avatar_path, prepare_path)):
         raise SourceHairReviewRuntimeError("hair review staging output is create-only")
-
     try:
         binding = build_binding(package, candidate)
     except SourceHairBodyBindingError as exc:
@@ -148,7 +126,7 @@ def prepare(
     if binding.get("avatarVrmSha256") != avatar_sha:
         raise SourceHairReviewRuntimeError("fresh source hair/body binding does not match extracted avatar bytes")
 
-    _write_bytes_create_only(avatar_path, avatar)
+    _write_create_only(avatar_path, avatar)
     _write_json_create_only(binding_path, binding)
     result = {
         "format": "bodyrig-source-hair-review-prepare",
@@ -177,10 +155,8 @@ def _bridge_result(path: Path) -> dict[str, Any]:
         "physicalSilhouetteReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "productionActivation",
     }
-    if set(value) != required:
-        raise SourceHairReviewRuntimeError("source hair review bridge result fields do not match v1")
-    if value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
-        raise SourceHairReviewRuntimeError("source hair review bridge format/version mismatch")
+    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+        raise SourceHairReviewRuntimeError("source hair review bridge result fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "sourceHairBodyBindingSha256", "reviewVrmSha256"):
         _sha(value.get(field), label=f"bridge {field}")
     if value.get("targetModelFamily") not in {"female", "male", "neutral"}:
@@ -191,10 +167,7 @@ def _bridge_result(path: Path) -> dict[str, Any]:
             raise SourceHairReviewRuntimeError(f"source hair review bridge {field} is invalid")
     if value["skinIndex"] != 0 or value["hairVertexCount"] < 3 or value["hairFaceCount"] < 1:
         raise SourceHairReviewRuntimeError("source hair review bridge mesh/skin contract is invalid")
-    for field in (
-        "fitMax", "fitRms", "nearestDonorDistanceP95", "nearestDonorDistanceMax",
-        "bodyprintMaxJointDelta",
-    ):
+    for field in ("fitMax", "fitRms", "nearestDonorDistanceP95", "nearestDonorDistanceMax", "bodyprintMaxJointDelta"):
         item = value.get(field)
         if isinstance(item, bool) or not isinstance(item, (int, float)) or not 0.0 <= float(item) < float("inf"):
             raise SourceHairReviewRuntimeError(f"source hair review bridge {field} is invalid")
@@ -215,8 +188,6 @@ def _runtime_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
     extras = document.get("extras")
     bodyrig = extras.get("bodyrig") if isinstance(extras, dict) else None
     value = bodyrig.get("hairReviewRuntime") if isinstance(bodyrig, dict) else None
-    if not isinstance(value, dict):
-        raise SourceHairReviewRuntimeError("review VRM lacks source hair runtime metadata")
     required = {
         "format", "version", "baseAvatarVrmSha256", "sourceHairBodyBindingSha256",
         "hairCandidateReceiptSha256", "hairObjSha256", "hairTextureSha256",
@@ -224,7 +195,7 @@ def _runtime_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
         "physicalSilhouetteReviewRequired", "comparisonOnly", "humanReviewRequired",
         "productionActivation",
     }
-    if set(value) != required:
+    if not isinstance(value, dict) or set(value) != required:
         raise SourceHairReviewRuntimeError("review VRM runtime metadata fields do not match v1")
     if value.get("format") != METADATA_FORMAT or value.get("version") != METADATA_VERSION:
         raise SourceHairReviewRuntimeError("review VRM runtime metadata format/version mismatch")
@@ -295,9 +266,7 @@ def finalize(
         "hairTextureSha256": fresh_binding["hairTextureSha256"],
         "targetModelFamily": fresh_binding["sourceGeometryAuthority"]["bodyModelGender"],
         "skinIndex": 0,
-        "bodyprintGeometryReplayApplied": bool(
-            fresh_binding["sourceGeometryAuthority"]["bodyprintGeometryAdjustment"]["applied"]
-        ),
+        "bodyprintGeometryReplayApplied": bool(fresh_binding["sourceGeometryAuthority"]["bodyprintGeometryAdjustment"]["applied"]),
         "physicalSilhouetteReviewRequired": True,
         "comparisonOnly": True,
         "humanReviewRequired": True,
@@ -364,11 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "prepare":
-            result = prepare(
-                package_path=args.package,
-                candidate_dir=args.candidate_dir,
-                output_dir=args.output_dir,
-            )
+            result = prepare(package_path=args.package, candidate_dir=args.candidate_dir, output_dir=args.output_dir)
         else:
             result = finalize(
                 package_path=args.package,
@@ -380,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, separators=(",", ":"), allow_nan=False))
         return 0
     except (SourceHairReviewRuntimeError, OSError) as exc:
-        print(f"BodyRig source hair review runtime: FAIL: {exc}", file=os.sys.stderr)
+        print(f"BodyRig source hair review runtime: FAIL: {exc}", file=sys.stderr)
         return 1
 
 
