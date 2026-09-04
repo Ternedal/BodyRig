@@ -2,22 +2,30 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
+from .bridges.bodyprint_shape_adjust import (
+    FIELD_LIMITS,
+    GEOMETRY_FIELDS,
+    BodyprintAdjustmentError,
+    validate_adjustment_payload,
+)
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
 from .sith_reconstruction_authority import (
     AUTHORITY_FILENAME,
-    AUTHORITY_FORMAT,
-    AUTHORITY_VERSION,
     SMPLX_FIT_PROFILE,
     SMPLX_GENDERS,
+    SithReconstructionAuthorityError,
+    validate_reconstruction_authority,
 )
 
 FORMAT = "bodyrig-sith-body-geometry-authority"
-VERSION = 1
+VERSION = 2
 SHA256_LENGTH = 64
+BODYPRINT_REPLAY_METHOD = "bodyrig-bodyprint-shape-adjust-v1"
 
 
 class SithBodyGeometryAuthorityError(ValueError):
@@ -64,33 +72,123 @@ def _safe_leaf(value: Any, *, label: str) -> str:
     return name
 
 
-def _reconstruction_authority(stage: Path, *, reconstruction_sha256: str) -> tuple[dict[str, Any], Path]:
-    path = stage / AUTHORITY_FILENAME
-    if not path.is_file():
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority is missing")
-    value = _load_json(path, label="SiTH reconstruction model-family authority")
-    required = {
-        "format",
-        "version",
-        "body_model_gender",
-        "smplx_fit_profile",
-        "reconstruction_sha256",
+def _bodyprint_geometry_adjustment(
+    adjustment: Mapping[str, Any] | None,
+    *,
+    evidence_sha256: str | None,
+) -> dict[str, Any]:
+    if adjustment is None:
+        if evidence_sha256 is not None:
+            raise SithBodyGeometryAuthorityError(
+                "BodyPrint adjustment evidence SHA is present without an adjustment payload"
+            )
+        return {
+            "method": BODYPRINT_REPLAY_METHOD,
+            "applied": False,
+            "evidenceSha256": None,
+            "changes": [],
+        }
+
+    if evidence_sha256 is None:
+        raise SithBodyGeometryAuthorityError(
+            "BodyPrint adjustment payload is missing its exact evidence SHA"
+        )
+    evidence_sha = _expected_sha256(
+        evidence_sha256,
+        field="bodyprint adjustment evidence SHA-256",
+    )
+    try:
+        validated = validate_adjustment_payload(dict(adjustment))
+    except BodyprintAdjustmentError as exc:
+        raise SithBodyGeometryAuthorityError(
+            f"BodyPrint adjustment payload is invalid: {exc}"
+        ) from exc
+
+    # Only numeric geometry deltas are embedded. Feedback hashes and free-text
+    # reasons stay outside the portable avatar while the exact evidence SHA keeps
+    # this replay authority bound to the reviewed source receipt.
+    geometry_changes = [
+        {"field": str(item["field"]), "delta": float(item["delta"])}
+        for item in validated["changes"]
+        if item["field"] in GEOMETRY_FIELDS
+    ]
+    return {
+        "method": BODYPRINT_REPLAY_METHOD,
+        "applied": bool(geometry_changes),
+        "evidenceSha256": evidence_sha,
+        "changes": geometry_changes,
     }
-    if set(value) != required:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority fields do not match v1")
-    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority format/version mismatch")
-    gender = str(value.get("body_model_gender") or "").strip().lower()
-    if gender not in SMPLX_GENDERS:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction body-model gender is invalid")
-    if value.get("smplx_fit_profile") != SMPLX_FIT_PROFILE:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction SMPL-X fit profile mismatch")
-    if value.get("reconstruction_sha256") != reconstruction_sha256:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority does not bind current reconstruction")
-    return value, path
 
 
-def _source_authority(workspace: str | Path) -> dict[str, Any]:
+def _validate_bodyprint_geometry_adjustment(value: Any) -> dict[str, Any]:
+    required = {"method", "applied", "evidenceSha256", "changes"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise SithBodyGeometryAuthorityError(
+            "BodyPrint geometry replay authority fields do not match v1"
+        )
+    if value.get("method") != BODYPRINT_REPLAY_METHOD:
+        raise SithBodyGeometryAuthorityError("BodyPrint geometry replay method is invalid")
+    if not isinstance(value.get("applied"), bool):
+        raise SithBodyGeometryAuthorityError("BodyPrint geometry replay applied flag is invalid")
+    evidence_sha = value.get("evidenceSha256")
+    if evidence_sha is not None:
+        evidence_sha = _expected_sha256(
+            evidence_sha,
+            field="bodyprint adjustment evidence SHA-256",
+        )
+    changes = value.get("changes")
+    if not isinstance(changes, list):
+        raise SithBodyGeometryAuthorityError("BodyPrint geometry replay changes are invalid")
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(changes):
+        if not isinstance(item, dict) or set(item) != {"field", "delta"}:
+            raise SithBodyGeometryAuthorityError(
+                f"BodyPrint geometry replay changes[{index}] fields are invalid"
+            )
+        field = item.get("field")
+        if not isinstance(field, str) or field not in GEOMETRY_FIELDS or field in seen:
+            raise SithBodyGeometryAuthorityError(
+                f"BodyPrint geometry replay changes[{index}].field is invalid or duplicated"
+            )
+        seen.add(field)
+        delta = item.get("delta")
+        if isinstance(delta, bool) or not isinstance(delta, (int, float)):
+            raise SithBodyGeometryAuthorityError(
+                f"BodyPrint geometry replay changes[{index}].delta is invalid"
+            )
+        delta = float(delta)
+        if (
+            not math.isfinite(delta)
+            or delta == 0.0
+            or abs(delta) > FIELD_LIMITS[field] + 1e-12
+        ):
+            raise SithBodyGeometryAuthorityError(
+                f"BodyPrint geometry replay changes[{index}].delta exceeds the bounded v1 limit"
+            )
+        normalized.append({"field": field, "delta": delta})
+    if bool(normalized) is not value["applied"]:
+        raise SithBodyGeometryAuthorityError(
+            "BodyPrint geometry replay applied flag does not match its changes"
+        )
+    if evidence_sha is None and normalized:
+        raise SithBodyGeometryAuthorityError(
+            "BodyPrint geometry replay changes are missing exact adjustment evidence authority"
+        )
+    return {
+        "method": BODYPRINT_REPLAY_METHOD,
+        "applied": bool(normalized),
+        "evidenceSha256": evidence_sha,
+        "changes": normalized,
+    }
+
+
+def _source_authority(
+    workspace: str | Path,
+    *,
+    bodyprint_adjustment: Mapping[str, Any] | None = None,
+    bodyprint_adjustment_evidence_sha256: str | None = None,
+) -> dict[str, Any]:
     root = Path(workspace).expanduser().resolve()
     stage = root / "sith-input-v1"
     reconstruction_path = stage / "reconstruction.json"
@@ -103,11 +201,25 @@ def _source_authority(workspace: str | Path) -> dict[str, Any]:
     if not isinstance(details, dict) or details.get("grid_size") != 300 or details.get("save_uv") is not True:
         raise SithBodyGeometryAuthorityError("SiTH reconstruction is not the pinned UV profile")
 
-    reconstruction_sha = _sha256(reconstruction_path)
-    model_authority, model_authority_path = _reconstruction_authority(
-        stage,
-        reconstruction_sha256=reconstruction_sha,
-    )
+    reconstruction_authority_path = stage / AUTHORITY_FILENAME
+    if not reconstruction_authority_path.is_file():
+        raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority is missing")
+    try:
+        reconstruction_authority = validate_reconstruction_authority(root)
+    except SithReconstructionAuthorityError as exc:
+        raise SithBodyGeometryAuthorityError(
+            f"SiTH reconstruction model-family authority is invalid: {exc}"
+        ) from exc
+    body_model_gender = reconstruction_authority.get("body_model_gender")
+    if body_model_gender not in SMPLX_GENDERS:
+        raise SithBodyGeometryAuthorityError("SiTH reconstruction body-model gender is invalid")
+    if reconstruction_authority.get("smplx_fit_profile") != SMPLX_FIT_PROFILE:
+        raise SithBodyGeometryAuthorityError("SiTH reconstruction SMPL-X fit profile is invalid")
+    if reconstruction_authority.get("reconstruction_sha256") != _sha256(reconstruction_path):
+        raise SithBodyGeometryAuthorityError(
+            "SiTH reconstruction model-family authority is bound to different reconstruction bytes"
+        )
+
     texture_name = _safe_leaf(details.get("mesh_texture_name"), label="SiTH source texture")
     files = {
         "fittedDonorObjSha256": (
@@ -140,28 +252,43 @@ def _source_authority(workspace: str | Path) -> dict[str, Any]:
     return {
         "format": FORMAT,
         "version": VERSION,
-        "method": "exact-sith-reconstruction-bytes-v1",
-        "reconstructionSha256": reconstruction_sha,
-        "reconstructionAuthoritySha256": _sha256(model_authority_path),
-        "bodyModelGender": model_authority["body_model_gender"],
-        "smplxFitProfile": model_authority["smplx_fit_profile"],
+        "method": "exact-sith-reconstruction-bytes-v2",
+        "reconstructionSha256": _sha256(reconstruction_path),
+        "reconstructionAuthoritySha256": _sha256(reconstruction_authority_path),
+        "bodyModelGender": body_model_gender,
+        "smplxFitProfile": SMPLX_FIT_PROFILE,
         **{field: expected for field, (_path, expected) in files.items()},
         "sourceTextureName": texture_name,
+        "bodyprintGeometryAdjustment": _bodyprint_geometry_adjustment(
+            bodyprint_adjustment,
+            evidence_sha256=bodyprint_adjustment_evidence_sha256,
+        ),
         "exactByteBinding": True,
         "hairCandidateBindingEligible": True,
         "productionActivation": False,
     }
 
 
-def bind_sith_body_geometry_authority(avatar_vrm: bytes, workspace: str | Path) -> bytes:
-    """Bind exact donor/source bytes into the canonical built-in SiTH body VRM.
+def bind_sith_body_geometry_authority(
+    avatar_vrm: bytes,
+    workspace: str | Path,
+    *,
+    bodyprint_adjustment: Mapping[str, Any] | None = None,
+    bodyprint_adjustment_evidence_sha256: str | None = None,
+) -> bytes:
+    """Bind exact donor/source/model-family/shape-replay authority into a SiTH body VRM.
 
     Hair/eye component candidates can later prove that they were derived from the
-    exact reconstruction/donor bytes that produced this body revision. This
-    metadata is evidence only and never grants component or production authority.
+    exact reconstruction/donor bytes that produced this body revision and replay
+    the same bounded BodyPrint rest-pose geometry adjustment. This metadata is
+    evidence only and never grants component or production authority.
     """
 
-    authority = _source_authority(workspace)
+    authority = _source_authority(
+        workspace,
+        bodyprint_adjustment=bodyprint_adjustment,
+        bodyprint_adjustment_evidence_sha256=bodyprint_adjustment_evidence_sha256,
+    )
     try:
         document, binary = _read_glb(avatar_vrm)
     except PbrMaterialError as exc:
@@ -206,23 +333,26 @@ def read_sith_body_geometry_authority(avatar_vrm: bytes) -> dict[str, Any]:
         "format", "version", "method", "reconstructionSha256", "reconstructionAuthoritySha256",
         "bodyModelGender", "smplxFitProfile", "fittedDonorObjSha256", "fitParamsSha256",
         "sourceMeshSha256", "sourceMaterialSha256", "sourceTextureSha256", "sourceTextureName",
-        "exactByteBinding", "hairCandidateBindingEligible", "productionActivation",
+        "bodyprintGeometryAdjustment", "exactByteBinding", "hairCandidateBindingEligible",
+        "productionActivation",
     }
     if set(authority) != required or authority.get("format") != FORMAT or authority.get("version") != VERSION:
-        raise SithBodyGeometryAuthorityError("SiTH source geometry authority fields do not match v1")
+        raise SithBodyGeometryAuthorityError("SiTH source geometry authority fields do not match v2")
     for field in (
         "reconstructionSha256", "reconstructionAuthoritySha256", "fittedDonorObjSha256", "fitParamsSha256",
         "sourceMeshSha256", "sourceMaterialSha256", "sourceTextureSha256",
     ):
         _expected_sha256(authority.get(field), field=field)
-    gender = str(authority.get("bodyModelGender") or "").strip().lower()
-    if gender not in SMPLX_GENDERS:
+    _safe_leaf(authority.get("sourceTextureName"), label="SiTH source texture")
+    if authority.get("bodyModelGender") not in SMPLX_GENDERS:
         raise SithBodyGeometryAuthorityError("SiTH source geometry body-model gender is invalid")
     if authority.get("smplxFitProfile") != SMPLX_FIT_PROFILE:
-        raise SithBodyGeometryAuthorityError("SiTH source geometry SMPL-X fit profile mismatch")
-    _safe_leaf(authority.get("sourceTextureName"), label="SiTH source texture")
+        raise SithBodyGeometryAuthorityError("SiTH source geometry fit profile is invalid")
+    replay = _validate_bodyprint_geometry_adjustment(authority.get("bodyprintGeometryAdjustment"))
+    if replay != authority["bodyprintGeometryAdjustment"]:
+        raise SithBodyGeometryAuthorityError("BodyPrint geometry replay authority is not canonical")
     if (
-        authority.get("method") != "exact-sith-reconstruction-bytes-v1"
+        authority.get("method") != "exact-sith-reconstruction-bytes-v2"
         or authority.get("exactByteBinding") is not True
         or authority.get("hairCandidateBindingEligible") is not True
         or authority.get("productionActivation") is not False
