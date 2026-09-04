@@ -145,4 +145,7 @@ def test_human_input_next_actions_stay_explicit() -> None:
     assert "<LEFT_CX>" in iris["command"]
     assert "<RIGHT_RADIUS>" in iris["command"]
     assert face["operator_input_required"] is True
-    assert "EXPLICIT_REVIEW_FLAGS" in face["command"]
+    assert "<QUALITY_NOTE>" in face["command"]
+    assert "-NeutralFacePreserved" in face["command"]
+    assert "-MouthOpenPoseReviewed" in face["command"]
+    assert "-EyelashesNoObviousEyeSurfaceClipping" in face["command"]
