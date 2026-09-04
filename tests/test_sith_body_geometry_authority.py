@@ -125,8 +125,8 @@ def test_bind_is_create_only_at_metadata_boundary(monkeypatch, tmp_path: Path) -
 def test_builtin_external_fitter_binds_geometry_before_package_and_retention() -> None:
     text = (Path(__file__).resolve().parents[1] / "bodyrig" / "external_fitter_cli.py").read_text(encoding="utf-8")
     bind = text.index("avatar_vrm = bind_sith_body_geometry_authority(")
-    package = text.index("build_package(")
-    retained = text.index("publish_retained_anatomy_source(")
+    package = text.index("build_package(", bind)
+    retained = text.index("publish_retained_anatomy_source(", package)
     assert bind < package < retained
     assert "avatar_vrm=avatar_vrm" in text
     assert "SithBodyGeometryAuthorityError" in text
