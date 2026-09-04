@@ -118,6 +118,18 @@ def test_candidate_rejects_source_eye_bytes_changed_after_extraction(tmp_path: P
         )
 
 
+def test_candidate_rejects_annotation_receipt_tamper_even_when_png_bytes_are_unchanged(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    _build(source, out)
+    receipt_path = out / "iris-isolation-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["left"]["annotation"]["cx"] += 1
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(SourceIrisIsolationError, match="deterministic source isolation"):
+        read_candidate(out, source_eye_appearance_dir=source)
+
+
 def test_human_review_is_the_only_step_that_grants_iris_isolation_authority(tmp_path: Path) -> None:
     source = _source(tmp_path)
     out = tmp_path / "iris"
