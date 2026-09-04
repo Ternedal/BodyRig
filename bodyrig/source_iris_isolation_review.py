@@ -66,6 +66,10 @@ def write_review(
         candidate = read_candidate(candidate_dir, source_eye_appearance_dir=source_eye_appearance_dir)
     except SourceIrisIsolationError as exc:
         raise SourceIrisIsolationReviewError(f"iris isolation candidate authority failed: {exc}") from exc
+    if candidate.get("bodyrigRevision") != revision:
+        raise SourceIrisIsolationReviewError(
+            f"iris isolation review checkout revision mismatch: candidate={candidate.get('bodyrigRevision') or 'missing'}, review={revision}"
+        )
     normalized = dict(checklist)
     if set(normalized) != CHECKLIST_FIELDS:
         raise SourceIrisIsolationReviewError("iris isolation review checklist fields are not canonical")
@@ -155,6 +159,8 @@ def read_review(*, candidate_dir: str | Path, source_eye_appearance_dir: str | P
     revision = str(value.get("bodyrigRevision") or "")
     if not REVISION_RE.fullmatch(revision):
         raise SourceIrisIsolationReviewError("iris isolation review BodyRig revision is invalid")
+    if candidate.get("bodyrigRevision") != revision:
+        raise SourceIrisIsolationReviewError("iris isolation review revision no longer matches candidate revision")
     exact = {
         "candidateSha256": candidate_sha,
         "sourceEyeAppearanceReceiptSha256": candidate["sourceEyeAppearanceReceiptSha256"],
