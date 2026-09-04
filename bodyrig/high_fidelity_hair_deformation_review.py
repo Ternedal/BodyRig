@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from typing import Any, Mapping
 from .high_fidelity_component_review import (
     HighFidelityComponentReviewError,
     read_review as read_component_review,
+    review_path as component_review_path,
 )
 from .high_fidelity_preview_jobs import ROOT_DIRNAME, HighFidelityPreviewError, manager as preview_jobs
 from .storage import ui_jobs_dir
@@ -77,8 +79,6 @@ def _revision(value: Any) -> str:
 
 
 def _sha256(path: Path) -> str:
-    import hashlib
-
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
@@ -129,10 +129,8 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityHairDeformationReviewError("component visual review unexpectedly pre-authorized hair promotion")
 
     root = _preview_root(job_id)
-    preview_dir = _need_file(root, root / "job.json", label="Preview job authority").parent
-    # The job JSON stores the canonical output path; use the validated public preview only
-    # to identify the job and then constrain evidence to this job root.
-    raw_job = _read_json(preview_dir / "job.json", label="Preview job authority")
+    job_path = _need_file(root, root / "job.json", label="Preview job authority")
+    raw_job = _read_json(job_path, label="Preview job authority")
     output = Path(str(raw_job.get("preview_output") or "")).expanduser().resolve()
     try:
         output.relative_to(root)
@@ -200,19 +198,17 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
             raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is outside canonical thresholds")
         metrics[field] = number
 
-    component_review_path = next(
-        (path for path in (ui_jobs_dir() / ".high-fidelity-component-reviews").glob(f"{job_id}.*.json") if path.is_file()),
-        None,
+    exact_component_review_path = component_review_path(
+        job_id,
+        review_vrm_sha256=str(component_review["review_vrm_sha256"]),
     )
-    if component_review_path is None:
-        raise HighFidelityHairDeformationReviewError("component visual-review receipt file is missing")
-    if _sha256(component_review_path) != _sha256(component_review_path):
-        raise HighFidelityHairDeformationReviewError("component visual-review receipt hash is unstable")
+    if not exact_component_review_path.is_file():
+        raise HighFidelityHairDeformationReviewError("canonical component visual-review receipt file is missing")
 
     return {
         "preview": preview,
         "component_review": component_review,
-        "component_review_sha256": _sha256(component_review_path),
+        "component_review_sha256": _sha256(exact_component_review_path),
         "comparison_authority_sha256": _sha256(comparison_path),
         "hair_deformation_probe_sha256": probe_sha,
         "machine_metrics": metrics,
@@ -328,7 +324,13 @@ def review_status(preview_job_id: str) -> dict[str, Any]:
     try:
         authority = _machine_authority(preview_job_id)
     except HighFidelityHairDeformationReviewError as exc:
-        return {"state": "blocked", "passed": False, "reason": str(exc), "hair_promotion_eligible": False, "production_activation": False}
+        return {
+            "state": "blocked",
+            "passed": False,
+            "reason": str(exc),
+            "hair_promotion_eligible": False,
+            "production_activation": False,
+        }
     path = review_path(preview_job_id, hair_probe_sha256=authority["hair_deformation_probe_sha256"])
     if not path.is_file():
         return {
@@ -342,7 +344,13 @@ def review_status(preview_job_id: str) -> dict[str, Any]:
     try:
         value = read_review(preview_job_id)
     except HighFidelityHairDeformationReviewError as exc:
-        return {"state": "invalid", "passed": False, "reason": str(exc), "hair_promotion_eligible": False, "production_activation": False}
+        return {
+            "state": "invalid",
+            "passed": False,
+            "reason": str(exc),
+            "hair_promotion_eligible": False,
+            "production_activation": False,
+        }
     return {
         "state": "pass",
         "passed": True,
