@@ -37,7 +37,7 @@ def test_refinement_reuses_sith_workspace_instead_of_calling_clone_pipeline() ->
 
 def test_direct_refit_rendering_is_explicitly_comparison_only() -> None:
     source = text("run-fidelity-windows-render-probe.ps1")
-    assert "Pass exactly one of -AcceptanceDir or -PackagePath" in source
+    assert "Pass exactly one of -AcceptanceDir, -PackagePath or -ReviewRuntimeDir" in source
     assert "bodyrig.materialize_cli" in source
     assert 'comparisonAuthority = "validated-package-comparison-only"' in source
     assert "physical_acceptance_authority = $usingAcceptance" in source
