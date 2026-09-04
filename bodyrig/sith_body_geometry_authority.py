@@ -204,15 +204,22 @@ def _source_authority(
     reconstruction_authority_path = stage / AUTHORITY_FILENAME
     if not reconstruction_authority_path.is_file():
         raise SithBodyGeometryAuthorityError("SiTH reconstruction model-family authority is missing")
+    raw_reconstruction_authority = _load_json(
+        reconstruction_authority_path,
+        label="SiTH reconstruction model-family authority",
+    )
+    body_model_gender = raw_reconstruction_authority.get("body_model_gender")
+    if body_model_gender not in SMPLX_GENDERS:
+        raise SithBodyGeometryAuthorityError("SiTH reconstruction body-model gender is invalid")
     try:
-        reconstruction_authority = validate_reconstruction_authority(root)
+        reconstruction_authority = validate_reconstruction_authority(
+            root,
+            expected_body_model_gender=body_model_gender,
+        )
     except SithReconstructionAuthorityError as exc:
         raise SithBodyGeometryAuthorityError(
             f"SiTH reconstruction model-family authority is invalid: {exc}"
         ) from exc
-    body_model_gender = reconstruction_authority.get("body_model_gender")
-    if body_model_gender not in SMPLX_GENDERS:
-        raise SithBodyGeometryAuthorityError("SiTH reconstruction body-model gender is invalid")
     if reconstruction_authority.get("smplx_fit_profile") != SMPLX_FIT_PROFILE:
         raise SithBodyGeometryAuthorityError("SiTH reconstruction SMPL-X fit profile is invalid")
     if reconstruction_authority.get("reconstruction_sha256") != _sha256(reconstruction_path):
