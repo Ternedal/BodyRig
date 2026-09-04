@@ -13,7 +13,7 @@ def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _workspace(tmp_path: Path) -> Path:
+def _workspace(tmp_path: Path, *, gender: str = "female") -> Path:
     workspace = tmp_path / "workspace"
     stage = workspace / "sith-input-v1"
     smplx = stage / "smplx"
@@ -46,7 +46,16 @@ def _workspace(tmp_path: Path) -> Path:
             "mesh_texture_sha256": _sha(texture),
         },
     }
-    (stage / "reconstruction.json").write_text(json.dumps(reconstruction), encoding="utf-8")
+    reconstruction_path = stage / "reconstruction.json"
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+    model_authority = {
+        "format": authority.AUTHORITY_FORMAT,
+        "version": authority.AUTHORITY_VERSION,
+        "body_model_gender": gender,
+        "smplx_fit_profile": authority.SMPLX_FIT_PROFILE,
+        "reconstruction_sha256": _sha(reconstruction_path.read_bytes()),
+    }
+    (stage / authority.AUTHORITY_FILENAME).write_text(json.dumps(model_authority), encoding="utf-8")
     return workspace
 
 
@@ -67,7 +76,7 @@ def _document() -> dict:
 
 
 def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tmp_path: Path) -> None:
-    workspace = _workspace(tmp_path)
+    workspace = _workspace(tmp_path, gender="female")
     document = _document()
     captured: dict = {}
     monkeypatch.setattr(authority, "_read_glb", lambda _raw: (document, b""))
@@ -85,6 +94,11 @@ def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tm
     receipt = captured["extras"]["bodyrig"]["sourceGeometryAuthority"]
     assert receipt["format"] == authority.FORMAT
     assert receipt["method"] == "exact-sith-reconstruction-bytes-v1"
+    assert receipt["bodyModelGender"] == "female"
+    assert receipt["smplxFitProfile"] == authority.SMPLX_FIT_PROFILE
+    assert receipt["reconstructionAuthoritySha256"] == _sha(
+        (workspace / "sith-input-v1" / authority.AUTHORITY_FILENAME).read_bytes()
+    )
     assert receipt["exactByteBinding"] is True
     assert receipt["hairCandidateBindingEligible"] is True
     assert receipt["productionActivation"] is False
@@ -99,6 +113,23 @@ def test_bind_fails_closed_when_reconstruction_artifact_changes(monkeypatch, tmp
     monkeypatch.setattr(authority, "validate_vrm1", lambda _raw: None)
 
     with pytest.raises(authority.SithBodyGeometryAuthorityError, match="byte hash mismatch: sourceMeshSha256"):
+        authority.bind_sith_body_geometry_authority(b"input-vrm", workspace)
+
+
+def test_bind_rejects_missing_or_wrong_model_family_authority(monkeypatch, tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    authority_path = workspace / "sith-input-v1" / authority.AUTHORITY_FILENAME
+    authority_path.unlink()
+    monkeypatch.setattr(authority, "_read_glb", lambda _raw: (_document(), b""))
+    with pytest.raises(authority.SithBodyGeometryAuthorityError, match="model-family authority is missing"):
+        authority.bind_sith_body_geometry_authority(b"input-vrm", workspace)
+
+    workspace = _workspace(tmp_path / "second")
+    authority_path = workspace / "sith-input-v1" / authority.AUTHORITY_FILENAME
+    value = json.loads(authority_path.read_text(encoding="utf-8"))
+    value["body_model_gender"] = "unknown"
+    authority_path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(authority.SithBodyGeometryAuthorityError, match="body-model gender is invalid"):
         authority.bind_sith_body_geometry_authority(b"input-vrm", workspace)
 
 
