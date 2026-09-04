@@ -15,11 +15,6 @@
     return value.startsWith("body-r") ? value : "";
   }
 
-  function shortSha(value) {
-    const text = String(value || "");
-    return text ? `${text.slice(0, 16)}…` : "—";
-  }
-
   async function apiJson(url) {
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
@@ -86,7 +81,7 @@
     n.components.textContent = "";
     n.gates.replaceChildren();
     n.next.replaceChildren();
-    n.production.textContent = "High-fidelity component status og production authority er separate gates.";
+    n.production.textContent = "High-fidelity package, human review, fysisk acceptance og production authority er separate gates.";
   }
 
   function stateLabel(state) {
@@ -96,12 +91,23 @@
   function render(status) {
     const n = nodes();
     if (!n.summary) return;
-    const complete = status.high_fidelity_complete === true;
-    n.badge.textContent = complete ? "HF COMPLETE" : (status.state === "blocked" ? "Blokeret" : "I gang");
-    n.badge.classList.toggle("muted", !complete);
-    n.summary.textContent = complete
-      ? "Alle high-fidelity component gates er komplette på den eksakte auditerede package."
-      : `Næste gate: ${status.next_gate?.gate || "ukendt"}`;
+    const packageComplete = status.component_package_complete === true || status.high_fidelity_complete === true;
+    const humanReviewComplete = status.high_fidelity_human_review_complete === true;
+    const softwareReady = status.software_ready_for_physical_acceptance === true;
+
+    if (softwareReady) {
+      n.badge.textContent = "SOFTWARE READY";
+      n.badge.classList.remove("muted");
+      n.summary.textContent = "High-fidelity package + package-bound human review er komplette. Næste authority er real Windows acceptance.";
+    } else if (packageComplete) {
+      n.badge.textContent = "HF PACKAGE COMPLETE";
+      n.badge.classList.add("muted");
+      n.summary.textContent = `Component-package er komplet; næste gate: ${status.next_gate?.gate || "package-bound human review"}.`;
+    } else {
+      n.badge.textContent = status.state === "blocked" ? "Blokeret" : "I gang";
+      n.badge.classList.add("muted");
+      n.summary.textContent = `Næste gate: ${status.next_gate?.gate || "ukendt"}`;
+    }
 
     const packagePath = String(status.current_package_path || "—");
     n.packageNode.textContent = `Package authority: ${packagePath}\nSHA-256: ${status.current_package_sha256 || "—"}`;
@@ -123,7 +129,7 @@
     }
 
     n.next.replaceChildren();
-    if (!complete && status.next_gate) {
+    if (status.next_gate) {
       const title = document.createElement("div");
       title.className = "card-label";
       title.textContent = `Næste gate · ${status.next_gate.gate}`;
@@ -150,14 +156,18 @@
       }
       const note = document.createElement("p");
       note.className = "fine-print";
-      note.textContent = status.next_gate.operator_input_required === true
-        ? "Denne gate kræver eksplicit menneskelig/operator-input. BodyRig udfylder aldrig review eller iris-annotationer selv."
-        : "Kommandoen er en software-gate; den giver ikke i sig selv fysisk eller production authority.";
+      note.textContent = status.next_gate.reason || (
+        status.next_gate.operator_input_required === true
+          ? "Denne gate kræver eksplicit menneskelig/operator-input. BodyRig udfylder aldrig review eller iris-annotationer selv."
+          : "Kommandoen er en software-gate; den giver ikke i sig selv fysisk eller production authority."
+      );
       n.next.appendChild(note);
     }
 
-    if (complete) {
-      n.production.textContent = "HIGH-FIDELITY COMPONENTS COMPLETE · PRODUCTION LOCKED. Package-bound high-fidelity human review, real Windows acceptance, Quest acceptance og final release gate er stadig påkrævet. production_ready=false.";
+    if (softwareReady) {
+      n.production.textContent = "SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED. Package-bound human review er PASS; real Windows acceptance, Quest acceptance og final release gate mangler stadig. production_ready=false.";
+    } else if (packageComplete && !humanReviewComplete) {
+      n.production.textContent = "HIGH-FIDELITY PACKAGE COMPLETE · HUMAN REVIEW REQUIRED · PRODUCTION LOCKED. Component completion alene er ikke fysisk acceptance. production_ready=false.";
     } else {
       n.production.textContent = "PRODUCTION LOCKED. production_ready=false gennem hele continuation-flowet; CI og component promotion kan ikke erstatte human/Windows/Quest/final release authority.";
     }
