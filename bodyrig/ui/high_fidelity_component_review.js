@@ -90,18 +90,35 @@
     }
   }
 
-  function renderPass(job, status) {
+  function renderPass(job, status, promotion) {
     const { summary, badge, command, detail } = nodes();
     if (summary) summary.textContent = `${job.body_revision} · visual component review ${status.reviewed_utc || "PASS"}.`;
     if (badge) {
-      badge.textContent = "Visual review PASS";
+      badge.textContent = promotion?.state === "pass" ? "Anatomy promoted" : "Visual review PASS";
       badge.classList.remove("muted");
     }
     if (command) {
       command.textContent = "";
       command.hidden = true;
+      if (promotion?.state === "required") {
+        command.hidden = false;
+        command.textContent = `& ".\\promote-high-fidelity-anatomy.ps1" -PreviewJobId "${job.job_id}"`;
+      }
     }
-    if (detail) detail.textContent = "Exact preview-evidence er reviewet. body_anatomy er promotion-eligible; hair er kun visual-pass og mangler runtime deformation review; eyes er kun visual-pass og mangler iris authority. Dette er ikke final high-fidelity human review og production_activation=false.";
+    if (!detail) return;
+    if (promotion?.state === "pass") {
+      detail.textContent = "Exact reviewed anatomy er materialiseret i en ny hash-bundet candidate package med body_anatomy=complete. Baseline-pakken er urørt; hair kræver stadig runtime deformation authority, eyes kræver stadig iris authority, og production_activation=false.";
+    } else if (promotion?.state === "required") {
+      detail.textContent = "Exact preview-evidence er reviewet. body_anatomy er nu promotion-eligible; kør den viste clean-checkout kommando for at skabe en NY candidate package. Hair/eyes forbliver låst og ændres ikke af anatomy promotion.";
+    } else if (promotion?.state === "invalid") {
+      detail.textContent = `Anatomy promotion authority er ugyldig og fail-closed: ${promotion.reason || "ukendt mismatch"}. Ingen package må behandles som promoted.`;
+      if (badge) {
+        badge.textContent = "Promotion ugyldig";
+        badge.classList.add("muted");
+      }
+    } else {
+      detail.textContent = "Exact preview-evidence er reviewet, men anatomy promotion er stadig blokeret. Hair er kun visual-pass og mangler runtime deformation review; eyes er kun visual-pass og mangler iris authority.";
+    }
   }
 
   async function refresh() {
@@ -116,8 +133,11 @@
       if (preview.status !== "succeeded") return reset(`${revision} · high-fidelity preview er ikke færdigt endnu.`);
       const status = await request(`/api/v1/high-fidelity-preview-jobs/${encodeURIComponent(preview.job_id)}/component-review`);
       if (currentSerial !== serial || personId !== currentPersonId() || revision !== currentBodyRevision()) return;
-      if (status.state === "pass" && status.passed === true) renderPass(preview, status);
-      else if (status.state === "required") renderRequired(preview, status);
+      if (status.state === "pass" && status.passed === true) {
+        const promotion = await request(`/api/v1/high-fidelity-preview-jobs/${encodeURIComponent(preview.job_id)}/anatomy-promotion`);
+        if (currentSerial !== serial || personId !== currentPersonId() || revision !== currentBodyRevision()) return;
+        renderPass(preview, status, promotion);
+      } else if (status.state === "required") renderRequired(preview, status);
       else reset(`${revision} · component review authority er ikke tilgængelig.`, "Review ugyldigt");
     } catch (error) {
       if (currentSerial !== serial) return;
