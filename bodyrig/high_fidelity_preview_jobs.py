@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,7 @@ VIEW_NAMES = (
 )
 CANONICAL_VIEWS = VIEW_NAMES[:4]
 ROOT_DIRNAME = ".high-fidelity-previews"
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class HighFidelityPreviewError(RuntimeError):
@@ -144,10 +146,11 @@ def _body_job_authority(person_id: str, body_job_id: str) -> tuple[dict[str, Any
         raise HighFidelityPreviewError("high-fidelity preview requires a succeeded physical body-build job")
     if str(body_job.get("person_id") or "") != person_id:
         raise HighFidelityPreviewError("body-build job belongs to a different person")
+
     body_revision = str(body_job.get("body_revision") or "")
     canonical_body_id = str(body_job.get("canonical_body_id") or "")
     bodyrig_revision = str(body_job.get("bodyrig_revision") or "").lower()
-    if not body_revision or not canonical_body_id or len(bodyrig_revision) != 40:
+    if not body_revision or not canonical_body_id or not SHA_RE.fullmatch(bodyrig_revision):
         raise HighFidelityPreviewError("body-build job lacks canonical revision/identity authority")
 
     try:
@@ -195,8 +198,8 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     expected_revision = str(job.get("bodyrig_revision") or "").lower()
     target_family = str(job.get("target_family") or "")
     canonical_body_id = str(job.get("canonical_body_id") or "")
-    if target_family not in TARGET_FAMILIES:
-        raise HighFidelityPreviewError("persisted high-fidelity target family is invalid")
+    if target_family not in TARGET_FAMILIES or not SHA_RE.fullmatch(expected_revision):
+        raise HighFidelityPreviewError("persisted high-fidelity target/revision authority is invalid")
 
     anatomy_dir = _need_dir(root, str(job.get("anatomy_run_root") or ""), label="Anatomy run root")
     summary_path = _need_file(root, anatomy_dir / "subject-anatomy-physical-gate.json", label="Anatomy gate summary")
@@ -517,8 +520,6 @@ class HighFidelityPreviewManager:
                 str(job["target_family"]),
                 "-RunRoot",
                 str(job["anatomy_run_root"]),
-                "-BodyId",
-                str(job["canonical_body_id"]),
                 "-Name",
                 str(job["display_name"]),
                 "-BodyRigPython",
@@ -588,15 +589,16 @@ class HighFidelityPreviewManager:
 
             with self._lock:
                 current = _read_job(_job_path(job_id))
-                current["status"] = "succeeded"
-                current["progress"] = 100
-                current["stage"] = "review-ready"
-                current["message"] = "Seks exact-hash high-fidelity review-billeder er klar i Person Studio."
-                current["completed_utc"] = _now()
-                current["pid"] = None
-                current["error"] = None
-                _write_job(current)
-                _validate_completed(current)
+                candidate = dict(current)
+                candidate["status"] = "succeeded"
+                candidate["progress"] = 100
+                candidate["stage"] = "review-ready"
+                candidate["message"] = "Seks exact-hash high-fidelity review-billeder er klar i Person Studio."
+                candidate["completed_utc"] = _now()
+                candidate["pid"] = None
+                candidate["error"] = None
+                _validate_completed(candidate)
+                _write_job(candidate)
         except Exception as exc:
             with self._lock:
                 try:
@@ -638,17 +640,20 @@ class HighFidelityPreviewManager:
     def image_path(self, job_id: str, view: str) -> Path:
         if view not in VIEW_NAMES:
             raise HighFidelityPreviewError("unknown high-fidelity preview view")
-        job = _read_job(_job_path(job_id))
+        path = _job_path(job_id)
+        if not path.is_file():
+            raise HighFidelityPreviewError("high-fidelity preview job not found")
+        job = _read_job(path)
         proof = _validate_completed(job)
         expected = next((item["sha256"] for item in proof["views"] if item["view"] == view), None)
         if not expected:
             raise HighFidelityPreviewError("high-fidelity preview view is not in validated evidence")
         root = _job_root(job_id).resolve()
         preview_dir = _need_dir(root, str(job.get("preview_output") or ""), label="Hair+eye preview output")
-        path = _need_file(root, preview_dir / "snapshots" / f"{view}.png", label=f"High-fidelity preview {view}")
-        if _sha256(path) != expected:
+        image = _need_file(root, preview_dir / "snapshots" / f"{view}.png", label=f"High-fidelity preview {view}")
+        if _sha256(image) != expected:
             raise HighFidelityPreviewError("high-fidelity preview image bytes changed after validation")
-        return path
+        return image
 
 
 manager = HighFidelityPreviewManager()
