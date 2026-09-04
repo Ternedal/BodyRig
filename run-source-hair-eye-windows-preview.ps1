@@ -137,18 +137,22 @@ try {
     foreach ($view in $views) {
         Need-File -Path (Join-Path $OutputDir ("snapshots\" + $view + ".png")) -Label "Hair+eye preview $view" | Out-Null
     }
+    $faceZoomPath = Need-File -Path (Join-Path $OutputDir "snapshots\face-zoom.png") -Label "Hair+eye preview face zoom diagnostic"
+    $eyesCloseupPath = Need-File -Path (Join-Path $OutputDir "snapshots\eyes-closeup.png") -Label "Hair+eye preview eye closeup diagnostic"
     Assert-CleanHead -RepoRoot $repoRoot -Expected $head | Out-Null
 
     Write-Host ""
     Write-Host "BodyRig source hair + eye Windows preview: READY"
-    Write-Host "Hair:       RENDERED"
+    Write-Host "Hair:        RENDERED"
     Write-Host "Eye surface: RENDERED"
-    Write-Host "Cornea:     RENDERED"
-    Write-Host "Front:      $(Join-Path $OutputDir 'snapshots\front-full.png')"
-    Write-Host "3/4:        $(Join-Path $OutputDir 'snapshots\three-quarter-full.png')"
-    Write-Host "Side:       $(Join-Path $OutputDir 'snapshots\side-full.png')"
-    Write-Host "Face:       $(Join-Path $OutputDir 'snapshots\face-front.png')"
-    Write-Host "Authority:  REVIEW ONLY; physical acceptance FALSE; production FALSE"
+    Write-Host "Cornea:      RENDERED"
+    Write-Host "Front:       $(Join-Path $OutputDir 'snapshots\front-full.png')"
+    Write-Host "3/4:         $(Join-Path $OutputDir 'snapshots\three-quarter-full.png')"
+    Write-Host "Side:        $(Join-Path $OutputDir 'snapshots\side-full.png')"
+    Write-Host "Face:        $(Join-Path $OutputDir 'snapshots\face-front.png')"
+    Write-Host "Face zoom:   $faceZoomPath"
+    Write-Host "Eyes close:  $eyesCloseupPath"
+    Write-Host "Authority:   REVIEW ONLY; physical acceptance FALSE; production FALSE"
     exit 0
 } finally {
     $env:PYTHONPATH = $priorPythonPath
