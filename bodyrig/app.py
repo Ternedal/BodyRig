@@ -33,6 +33,7 @@ from .person_audition import (
     verify_audition,
     write_audition,
 )
+from .person_body_review import PersonBodyReviewError, read_review, review_image_path
 from .person_profiles import (
     PersonProfileError,
     activate_person_revision,
@@ -44,6 +45,7 @@ from .person_profiles import (
     list_profiles,
     load_profile,
 )
+from .person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
 from .runtime import BodyRuntime
 from .stash_source import StashClient, StashConfig, StashSourceError
 from .storage import body_library as _body_library
@@ -426,6 +428,18 @@ def create_voice_revision(person_id: str, request: VoiceRevisionRequest) -> dict
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/people/{person_id}/voice/build-from-source")
+def start_source_voice_build(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+    language: str = Query(default="da", min_length=2, max_length=32),
+) -> dict:
+    try:
+        return ui_jobs.start_voice_build(person_id, body_revision=body_revision, language=language)
+    except (UiJobError, PersonProfileError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/people/{person_id}/voice/preview")
 def voice_preview(person_id: str, revision: str | None = None):
     try:
@@ -691,6 +705,22 @@ def get_ui_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/jobs/{job_id}/speaker")
+def choose_ui_voice_speaker(job_id: str, anchor: str = Query(min_length=3, max_length=64)) -> dict:
+    try:
+        return ui_jobs.choose_voice_speaker(job_id, anchor)
+    except UiJobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/jobs/{job_id}/reference")
+def choose_ui_voice_reference(job_id: str, choice: int = Query(ge=1, le=4)) -> dict:
+    try:
+        return ui_jobs.choose_voice_reference(job_id, choice)
+    except UiJobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/jobs/{job_id}/cancel")
 def cancel_ui_job(job_id: str) -> dict:
     try:
@@ -713,6 +743,78 @@ def body_preview(person_id: str, revision: str | None = None):
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise HTTPException(status_code=422, detail=f"Body preview is invalid: {exc}") from exc
     return Response(content=payload, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/people/{person_id}/body/review")
+def body_review(person_id: str, revision: str | None = None) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        review = read_review(person_library(), profile, body_revision=str(item["revision_id"]))
+    except PersonBodyReviewError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "person_id": person_id,
+        "body_revision": item["revision_id"],
+        "body_id": review["body_id"],
+        "package_sha256": review["package_sha256"],
+        "bodyrig_revision": review["bodyrig_revision"],
+        "semantics": review["semantics"],
+        "views": [
+            {
+                "view": view["view"],
+                "sha256": view["sha256"],
+                "width": view["width"],
+                "height": view["height"],
+                "url": f"/api/v1/people/{person_id}/body/review/{view['view']}?revision={item['revision_id']}",
+            }
+            for view in review["views"]
+        ],
+    }
+
+
+@app.get("/api/v1/people/{person_id}/body/release-status")
+def body_release_status(person_id: str, revision: str | None = None) -> dict:
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        return inspect_candidate_release_status(
+            ui_jobs.list(person_id=person_id),
+            person_id=person_id,
+            body_revision=str(item["revision_id"]),
+            body_id=str(item["body_id"]),
+            package_sha256=str(item["package_sha256"]),
+        )
+    except PersonReleaseStatusError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/people/{person_id}/body/review/{view}")
+def body_review_image(person_id: str, view: str, revision: str | None = None):
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    item = _revision(profile, "body", revision)
+    _body_bytes_match(item)
+    try:
+        path = review_image_path(
+            person_library(),
+            profile,
+            body_revision=str(item["revision_id"]),
+            view=view,
+        )
+    except PersonBodyReviewError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/v1/people/{person_id}/body/avatar")
@@ -778,7 +880,7 @@ def apply_speech_timing(timing: SpeechTiming) -> dict:
         return runtime.apply_speech(timing).__dict__
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
+    
 
 @app.get("/api/v1/runtime/state")
 def runtime_state() -> dict:
@@ -791,6 +893,30 @@ def motor_state() -> dict:
         return runtime.motor_state()
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v2/runtime/motor-state")
+def motor_state_v2() -> dict:
+    try:
+        return runtime.motor_state_v2()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# Direct registration is deliberate: if these handlers cannot be imported completely, app startup fails closed.
+from .ui_body_resume import body_resume as _body_resume_endpoint
+from .ui_body_resume import body_resume_status as _body_resume_status_endpoint
+
+app.add_api_route(
+    "/api/v1/jobs/{job_id}/resume-status",
+    _body_resume_status_endpoint,
+    methods=["GET"],
+)
+app.add_api_route(
+    "/api/v1/jobs/{job_id}/resume",
+    _body_resume_endpoint,
+    methods=["POST"],
+)
 
 
 def run() -> None:

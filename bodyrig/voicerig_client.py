@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import http.client
 import json
+import mimetypes
+import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .execution_provenance import ExecutionProvenanceError, record_runtime
@@ -12,6 +18,8 @@ from .execution_provenance import ExecutionProvenanceError, record_runtime
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_VOICE_PACKAGE_BYTES = 160 * 1024 * 1024
 MAX_AUDIO_BYTES = 64 * 1024 * 1024
+MAX_SOURCE_FILES = 20
+_JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 class VoiceRigClientError(RuntimeError):
@@ -29,6 +37,13 @@ def _package_name(value: str) -> tuple[str, str]:
     if not package or len(package) > 255 or "/" in package or "\\" in package or package in {".", ".."} or not package.lower().endswith(".mrvoice"):
         raise VoiceRigClientError("Invalid VoiceRig package name")
     return package, urllib.parse.quote(package, safe="")
+
+
+def _job_id(value: str) -> str:
+    clean = str(value or "").strip().lower()
+    if not _JOB_ID_RE.fullmatch(clean):
+        raise VoiceRigClientError("Invalid VoiceRig job id")
+    return clean
 
 
 @dataclass(frozen=True)
@@ -54,14 +69,27 @@ class VoiceRigClient:
     def __init__(self, config: VoiceRigConfig | None = None) -> None:
         self.config = config or VoiceRigConfig()
 
-    def _request(self, path: str, *, method: str = "GET", payload: dict[str, Any] | None = None, limit: int = MAX_JSON_BYTES) -> tuple[bytes, dict[str, str]]:
+    def _request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        payload: dict[str, Any] | None = None,
+        form: dict[str, Any] | None = None,
+        limit: int = MAX_JSON_BYTES,
+    ) -> tuple[bytes, dict[str, str]]:
         if not path.startswith("/"):
             raise VoiceRigClientError("VoiceRig request path must be absolute")
+        if payload is not None and form is not None:
+            raise VoiceRigClientError("VoiceRig request cannot use JSON and form payload together")
         data = None
         headers = {"Accept": "application/json, audio/wav, application/octet-stream", "User-Agent": "BodyRig/0.1 VoiceRigBridge"}
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
+        elif form is not None:
+            data = urllib.parse.urlencode(form).encode("ascii")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
         request = urllib.request.Request(self.config.base_url + path, data=data, method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
@@ -96,6 +124,15 @@ class VoiceRigClient:
         if not isinstance(value, dict):
             raise VoiceRigClientError(f"VoiceRig {label} returned a non-object")
         return value
+
+    @staticmethod
+    def _job_from_response(raw: bytes, label: str) -> dict[str, Any]:
+        value = VoiceRigClient._json(raw, label)
+        job = value.get("job")
+        if value.get("ok") is not True or not isinstance(job, dict):
+            raise VoiceRigClientError(f"VoiceRig {label} returned an invalid job response")
+        _job_id(str(job.get("id") or job.get("job_id") or ""))
+        return job
 
     def health(self) -> dict[str, Any]:
         raw, _ = self._request("/api/health")
@@ -154,8 +191,6 @@ class VoiceRigClient:
     def synthesize(self, package: str, text: str) -> bytes:
         if not text.strip() or len(text) > 4000:
             raise VoiceRigClientError("Voice preview text must be 1..4000 characters")
-        # Synthesis is execution evidence, not just artifact retrieval. Verify and
-        # record the exact VoiceRig runtime identity/version immediately before TTS.
         self.health()
         package, _ = _package_name(package)
         raw, headers = self._request(
@@ -168,3 +203,118 @@ class VoiceRigClient:
         if "audio/wav" not in content_type or not raw.startswith(b"RIFF"):
             raise VoiceRigClientError("VoiceRig synthesis did not return WAV audio")
         return raw
+
+    def start_voice_job(
+        self,
+        *,
+        name: str,
+        language: str,
+        files: list[str | os.PathLike[str]],
+        accent: str = "",
+    ) -> dict[str, Any]:
+        clean_name = str(name or "").strip()
+        clean_language = str(language or "").strip()
+        if not clean_name or len(clean_name) > 160:
+            raise VoiceRigClientError("VoiceRig build name is invalid")
+        if not clean_language or len(clean_language) > 32:
+            raise VoiceRigClientError("VoiceRig build language is invalid")
+        paths = [Path(value).expanduser().resolve() for value in files]
+        if not 1 <= len(paths) <= MAX_SOURCE_FILES:
+            raise VoiceRigClientError(f"VoiceRig source build requires 1..{MAX_SOURCE_FILES} files")
+        for path in paths:
+            if not path.is_file():
+                raise VoiceRigClientError(f"VoiceRig source file is not readable: {path.name}")
+
+        boundary = f"bodyrig-{uuid.uuid4().hex}"
+        boundary_bytes = boundary.encode("ascii")
+
+        def field_part(key: str, value: str) -> bytes:
+            return (
+                b"--" + boundary_bytes + b"\r\n"
+                + f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode("ascii")
+                + value.encode("utf-8") + b"\r\n"
+            )
+
+        parts = [
+            field_part("name", clean_name),
+            field_part("language", clean_language),
+            field_part("accent", str(accent or "").strip()),
+            field_part("install_in_modelrig", "false"),
+        ]
+        file_headers: list[bytes] = []
+        content_length = sum(len(part) for part in parts)
+        for index, path in enumerate(paths, start=1):
+            suffix = path.suffix.lower()
+            upload_name = f"source-{index:02d}{suffix}"
+            content_type = mimetypes.guess_type(upload_name)[0] or "application/octet-stream"
+            header = (
+                b"--" + boundary_bytes + b"\r\n"
+                + f'Content-Disposition: form-data; name="files"; filename="{upload_name}"\r\n'.encode("ascii")
+                + f"Content-Type: {content_type}\r\n\r\n".encode("ascii")
+            )
+            file_headers.append(header)
+            content_length += len(header) + path.stat().st_size + 2
+        closing = b"--" + boundary_bytes + b"--\r\n"
+        content_length += len(closing)
+
+        parsed = urllib.parse.urlsplit(self.config.base_url)
+        base_path = parsed.path.rstrip("/")
+        target = f"{base_path}/api/jobs/voices" or "/api/jobs/voices"
+        connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        connection = connection_class(parsed.hostname, port, timeout=max(self.config.timeout_seconds, 300))
+        try:
+            connection.putrequest("POST", target)
+            connection.putheader("Accept", "application/json")
+            connection.putheader("User-Agent", "BodyRig/0.1 VoiceRigBridge")
+            connection.putheader("Content-Type", f"multipart/form-data; boundary={boundary}")
+            connection.putheader("Content-Length", str(content_length))
+            connection.endheaders()
+            for part in parts:
+                connection.send(part)
+            for path, header in zip(paths, file_headers, strict=True):
+                connection.send(header)
+                with path.open("rb") as handle:
+                    while chunk := handle.read(1024 * 1024):
+                        connection.send(chunk)
+                connection.send(b"\r\n")
+            connection.send(closing)
+            response = connection.getresponse()
+            raw = response.read(MAX_JSON_BYTES + 1)
+            if len(raw) > MAX_JSON_BYTES:
+                raise VoiceRigClientError("VoiceRig voice build response exceeds BodyRig size limit")
+            if response.status < 200 or response.status >= 300:
+                detail = raw.decode("utf-8", errors="replace")[:1000]
+                raise VoiceRigClientError(f"VoiceRig HTTP {response.status}: {detail or response.reason}")
+            return self._job_from_response(raw, "voice build")
+        except VoiceRigClientError:
+            raise
+        except (http.client.HTTPException, TimeoutError, OSError) as exc:
+            raise VoiceRigClientError(f"Could not upload source media to VoiceRig: {exc}") from exc
+        finally:
+            connection.close()
+
+    def voice_job(self, job_id: str) -> dict[str, Any]:
+        clean = _job_id(job_id)
+        raw, _ = self._request(f"/api/jobs/{clean}")
+        return self._job_from_response(raw, "job status")
+
+    def choose_voice_job_speaker(self, job_id: str, anchor: str) -> dict[str, Any]:
+        clean = _job_id(job_id)
+        value = str(anchor or "").strip()
+        if not value or len(value) > 64 or ":" not in value:
+            raise VoiceRigClientError("Invalid VoiceRig speaker anchor")
+        raw, _ = self._request(f"/api/jobs/{clean}/speaker", method="POST", form={"anchor": value})
+        return self._job_from_response(raw, "speaker selection")
+
+    def choose_voice_job_reference(self, job_id: str, choice: int) -> dict[str, Any]:
+        clean = _job_id(job_id)
+        if isinstance(choice, bool) or not 1 <= int(choice) <= 4:
+            raise VoiceRigClientError("Invalid VoiceRig reference choice")
+        raw, _ = self._request(f"/api/jobs/{clean}/reference", method="POST", form={"choice": int(choice)})
+        return self._job_from_response(raw, "reference selection")
+
+    def cancel_voice_job(self, job_id: str) -> dict[str, Any]:
+        clean = _job_id(job_id)
+        raw, _ = self._request(f"/api/jobs/{clean}/cancel", method="POST", form={})
+        return self._job_from_response(raw, "job cancel")

@@ -114,7 +114,9 @@ if (-not [string]::IsNullOrWhiteSpace([string]$profile.hair_color)) {
 if (-not [string]::IsNullOrWhiteSpace([string]$profile.eye_color)) {
     Write-Host "Appearance metadata: eyes=$([string]$profile.eye_color)"
 }
-Write-Host "Source-shell fidelity repair: enabled by built-in gender-aware fitter"
+Write-Host "Geometry authority: fitted SMPL-X donor topology + direct LBS"
+Write-Host "Appearance authority: SiTH source texture/UV transfer + bounded PBR/base-color refinement"
+Write-Host "Private workspace retention: $(if ($KeepPrivateWorkspace) { 'ENABLED (reconstruction can be reused for cheap refits)' } else { 'disabled' })"
 Write-Host ""
 
 $forward = @{}

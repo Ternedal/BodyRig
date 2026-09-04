@@ -7,7 +7,7 @@ from time import time
 from typing import Any, Mapping
 
 from .models import BodyCue, SpeechTiming
-from .motor import resolve_motor_state
+from .motor import resolve_motor_state, resolve_motor_state_v2
 
 
 @dataclass
@@ -57,17 +57,35 @@ class BodyRuntime:
                 self._state.utterance_id = None
             return self.snapshot()
 
+    def _motor_inputs(self) -> tuple[str, dict[str, Any], BodyCue, SpeechTiming | None]:
+        if self._state.active_body_id is None or self._bodyprint is None:
+            raise ValueError("no active body with BodyPrint")
+        if self._state.cue is None:
+            raise ValueError("no active BodyCue")
+        cue = BodyCue.model_validate(self._state.cue)
+        speech = SpeechTiming.model_validate(self._state.speech) if self._state.speech is not None else None
+        return self._state.active_body_id, self._bodyprint, cue, speech
+
     def motor_state(self) -> dict[str, Any]:
+        """Return the backwards-compatible BodyRig Motor State v1 contract."""
+
         with self._lock:
-            if self._state.active_body_id is None or self._bodyprint is None:
-                raise ValueError("no active body with BodyPrint")
-            if self._state.cue is None:
-                raise ValueError("no active BodyCue")
-            cue = BodyCue.model_validate(self._state.cue)
-            speech = SpeechTiming.model_validate(self._state.speech) if self._state.speech is not None else None
+            body_id, bodyprint, cue, speech = self._motor_inputs()
             return resolve_motor_state(
-                body_id=self._state.active_body_id,
-                bodyprint=self._bodyprint,
+                body_id=body_id,
+                bodyprint=bodyprint,
+                cue=cue,
+                speech=speech,
+            )
+
+    def motor_state_v2(self) -> dict[str, Any]:
+        """Return Motor State v2 with observed embodiment provenance."""
+
+        with self._lock:
+            body_id, bodyprint, cue, speech = self._motor_inputs()
+            return resolve_motor_state_v2(
+                body_id=body_id,
+                bodyprint=bodyprint,
                 cue=cue,
                 speech=speech,
             )

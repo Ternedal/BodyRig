@@ -4,13 +4,17 @@ using UnityEngine;
 namespace BodyRig.ReferenceRenderer
 {
     /// <summary>
-    /// Reference-only renderer for BodyRig Motor State v1.
+    /// Reference-only renderer for BodyRig Motor State v1 and v2.
     ///
-    /// It consumes already-personalized amplitudes from BodyRig. It does not
-    /// reinterpret ModelRig BodyCue semantics or read BodyPrint itself.
+    /// It consumes already-personalized performed amplitudes from BodyRig. It
+    /// does not reinterpret ModelRig BodyCue semantics, read BodyPrint itself,
+    /// or multiply v2 observed embodiment evidence into performed values a
+    /// second time.
     /// </summary>
     public sealed class BodyRigMotorDriver : MonoBehaviour
     {
+        private const string ObservedEmbodimentSource = "modelrig-bodyprint-v1";
+
         [Serializable]
         private sealed class MotionState
         {
@@ -42,6 +46,32 @@ namespace BodyRig.ReferenceRenderer
         }
 
         [Serializable]
+        private sealed class ObservedEmbodimentState
+        {
+            public float energy;
+            public float gesture_frequency;
+            public float gesture_amplitude;
+            public float head_motion;
+            public float turn_speed;
+            public float walk_cadence_spm;
+            public float blink_rate_per_min;
+            public float gaze_strength;
+            public float head_tilt;
+            public float speech_motion;
+            public float idle_strength;
+            public float gaze_smoothing;
+            public float gesture_intensity;
+            public float breathing_strength;
+        }
+
+        [Serializable]
+        private sealed class EmbodimentState
+        {
+            public string source;
+            public ObservedEmbodimentState observed;
+        }
+
+        [Serializable]
         private sealed class MotorState
         {
             public string type;
@@ -52,6 +82,7 @@ namespace BodyRig.ReferenceRenderer
             public GestureState gesture;
             public GazeState gaze;
             public SpeechState speech;
+            public EmbodimentState embodiment;
         }
 
         [SerializeField] private BodyRigAvatarLoader avatarLoader;
@@ -79,13 +110,25 @@ namespace BodyRig.ReferenceRenderer
             }
 
             var next = JsonUtility.FromJson<MotorState>(json);
-            if (next == null || next.type != "bodyrig-motor-state" || next.version != 1)
+            if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2))
             {
                 throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
             }
             if (string.IsNullOrWhiteSpace(next.body_id) || string.IsNullOrWhiteSpace(next.utterance_id) || next.motion == null)
             {
                 throw new ArgumentException("Incomplete BodyRig Motor State", nameof(json));
+            }
+            if (next.version == 1 && next.embodiment != null)
+            {
+                throw new ArgumentException("Motor State v1 may not carry v2 embodiment evidence", nameof(json));
+            }
+            if (next.version == 2 && next.embodiment != null)
+            {
+                if (next.embodiment.source != ObservedEmbodimentSource || next.embodiment.observed == null)
+                {
+                    throw new ArgumentException("Unsupported BodyRig embodiment evidence", nameof(json));
+                }
+                ValidateObservedEmbodiment(next.embodiment.observed);
             }
 
             Validate01(next.motion.energy, "motion.energy");
@@ -106,11 +149,34 @@ namespace BodyRig.ReferenceRenderer
             _state = next;
         }
 
+        private static void ValidateObservedEmbodiment(ObservedEmbodimentState observed)
+        {
+            Validate01(observed.energy, "embodiment.observed.energy");
+            Validate01(observed.gesture_frequency, "embodiment.observed.gesture_frequency");
+            Validate01(observed.gesture_amplitude, "embodiment.observed.gesture_amplitude");
+            Validate01(observed.head_motion, "embodiment.observed.head_motion");
+            Validate01(observed.turn_speed, "embodiment.observed.turn_speed");
+            ValidateRange(observed.walk_cadence_spm, 0.0f, 300.0f, "embodiment.observed.walk_cadence_spm");
+            ValidateRange(observed.blink_rate_per_min, 0.0f, 120.0f, "embodiment.observed.blink_rate_per_min");
+            Validate01(observed.gaze_strength, "embodiment.observed.gaze_strength");
+            Validate01(observed.head_tilt, "embodiment.observed.head_tilt");
+            Validate01(observed.speech_motion, "embodiment.observed.speech_motion");
+            Validate01(observed.idle_strength, "embodiment.observed.idle_strength");
+            Validate01(observed.gaze_smoothing, "embodiment.observed.gaze_smoothing");
+            Validate01(observed.gesture_intensity, "embodiment.observed.gesture_intensity");
+            Validate01(observed.breathing_strength, "embodiment.observed.breathing_strength");
+        }
+
         private static void Validate01(float value, string field)
         {
-            if (float.IsNaN(value) || float.IsInfinity(value) || value < 0.0f || value > 1.0f)
+            ValidateRange(value, 0.0f, 1.0f, field);
+        }
+
+        private static void ValidateRange(float value, float minimum, float maximum, string field)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value < minimum || value > maximum)
             {
-                throw new ArgumentOutOfRangeException(field, "BodyRig normalized motor value must be in 0..1");
+                throw new ArgumentOutOfRangeException(field, $"BodyRig motor value must be in {minimum}..{maximum}");
             }
         }
 
@@ -125,6 +191,9 @@ namespace BodyRig.ReferenceRenderer
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
 
+            // The performed fields below are already resolved against BodyPrint
+            // by BodyRig. v2 embodiment is evidence/provenance for consumers; it
+            // is deliberately not multiplied into these values again here.
             var targetGesture = _state.gesture != null && _state.gesture.id == "small_shrug"
                 ? _state.gesture.amplitude
                 : 0.0f;

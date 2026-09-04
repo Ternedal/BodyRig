@@ -48,6 +48,40 @@ def _fingerprint(canonical: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _require_source_alignment_snapshot(
+    profile: Mapping[str, Any],
+    *,
+    body_revision: str,
+    voice_revision: str,
+    personality_revision: str,
+) -> None:
+    if profile.get("source") is None:
+        return
+    snapshot = profile.get("_source_alignment")
+    if not isinstance(snapshot, Mapping) or snapshot.get("required") is not True:
+        raise PersonAssemblyError("source-backed person has no authoritative source-alignment snapshot")
+    components = snapshot.get("components")
+    if not isinstance(components, Mapping):
+        raise PersonAssemblyError("source-backed person has invalid source-alignment snapshot")
+    selected = {
+        "body": body_revision,
+        "voice": voice_revision,
+        "personality": personality_revision,
+    }
+    blockers: list[str] = []
+    for kind, revision_id in selected.items():
+        by_revision = components.get(kind)
+        status = by_revision.get(revision_id) if isinstance(by_revision, Mapping) else None
+        if isinstance(status, Mapping) and status.get("aligned") is True:
+            continue
+        reason = "source alignment evidence is unavailable"
+        if isinstance(status, Mapping) and status.get("reason"):
+            reason = str(status["reason"])
+        blockers.append(f"{kind} {revision_id}: {reason}")
+    if blockers:
+        raise PersonAssemblyError("source alignment failed before assembly: " + "; ".join(blockers))
+
+
 def build_assembly(
     profile: Mapping[str, Any],
     *,
@@ -62,6 +96,12 @@ def build_assembly(
     body = _find(profile, "body", body_revision)
     voice = _find(profile, "voice", voice_revision)
     personality = _find(profile, "personality", personality_revision)
+    _require_source_alignment_snapshot(
+        profile,
+        body_revision=body_revision,
+        voice_revision=voice_revision,
+        personality_revision=personality_revision,
+    )
 
     canonical = {
         "format": FORMAT,

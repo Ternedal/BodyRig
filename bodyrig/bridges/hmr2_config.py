@@ -15,7 +15,8 @@ ADAPTER_REVISION = (
 
 
 def bridge_script_path() -> Path:
-    # Route production recovery through the crash-resilient checkpoint layer.
-    # The checkpoint bridge delegates all authority/pinning checks to the
-    # original hmr2_4dhumans_bridge implementation.
-    return Path(__file__).with_name("hmr2_checkpoint_bridge.py")
+    # Route production recovery through the crash-resilient checkpoint layer
+    # plus its content-addressed cross-job raw PHALP cache. Both wrappers still
+    # delegate dependency pinning, CUDA setup and canonicalization to the pinned
+    # hmr2_4dhumans_bridge authority.
+    return Path(__file__).with_name("hmr2_resume_bridge.py")

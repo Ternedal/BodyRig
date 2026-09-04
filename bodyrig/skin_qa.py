@@ -23,6 +23,10 @@ SUSPICIOUS_WEIGHT = 0.10
 SEVERE_WEIGHT = 0.35
 STRONG_REGION_MARGIN_RATIO = 1.35
 STRONG_REGION_MARGIN_SCALE = 0.02
+LEGACY_RIG_TRANSFER = "nearest-smplx-vertex-lbs-inverse"
+DONOR_RIG_TRANSFER = "smplx-donor-topology-direct-lbs-v1"
+DONOR_GEOMETRY_AUTHORITY = "smplx-fitted-donor-topology-v1"
+DONOR_APPEARANCE_TRANSFER = "sith-source-nearest-textured-vertex-uv-v1"
 
 
 class SkinQaError(ValueError):
@@ -262,6 +266,53 @@ def _forbidden(region: str) -> set[str]:
     return _shared_forbidden_regions(region)
 
 
+def _validate_transfer_authority(bodyrig: dict[str, Any]) -> tuple[str, float, float]:
+    transfer = bodyrig.get("rigTransfer")
+    if not isinstance(transfer, dict):
+        raise SkinQaError("skin QA: rig transfer metadata is missing")
+    method = transfer.get("method")
+    if method not in {LEGACY_RIG_TRANSFER, DONOR_RIG_TRANSFER}:
+        raise SkinQaError("skin QA: unsupported rig transfer method")
+    nearest_p95 = transfer.get("nearestDistanceP95")
+    nearest_max = transfer.get("nearestDistanceMax")
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0
+        for value in (nearest_p95, nearest_max)
+    ):
+        raise SkinQaError("skin QA: rig transfer distance evidence is invalid")
+
+    if method == DONOR_RIG_TRANSFER:
+        if float(nearest_p95) != 0.0 or float(nearest_max) != 0.0:
+            raise SkinQaError("skin QA: direct donor LBS must not claim nearest-transfer distance")
+        geometry = bodyrig.get("geometryAuthority")
+        if geometry != {
+            "method": DONOR_GEOMETRY_AUTHORITY,
+            "sourceMeshGeometryUsed": False,
+            "stableTopology": True,
+        }:
+            raise SkinQaError("skin QA: donor geometry authority metadata is invalid")
+        appearance = bodyrig.get("appearanceTransfer")
+        if not isinstance(appearance, dict) or appearance.get("method") != DONOR_APPEARANCE_TRANSFER:
+            raise SkinQaError("skin QA: donor appearance transfer metadata is invalid")
+        if appearance.get("sourceTextureBytesPreserved") is not True or appearance.get("geometryModified") is not False:
+            raise SkinQaError("skin QA: donor appearance/geometry boundary is invalid")
+        for field in ("sourceSurfaceDistanceP95", "sourceSurfaceDistanceMax", "multiUvSourceVertexRatio"):
+            value = appearance.get(field)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+            ):
+                raise SkinQaError(f"skin QA: donor appearance {field} evidence is invalid")
+        if float(appearance["multiUvSourceVertexRatio"]) > 1.0:
+            raise SkinQaError("skin QA: donor appearance multi-UV ratio is invalid")
+    return str(method), float(nearest_p95), float(nearest_max)
+
+
 def analyze_vrm_skin(
     avatar: bytes,
     *,
@@ -280,15 +331,9 @@ def analyze_vrm_skin(
     if not isinstance(bodyrig, dict) or bodyrig.get("placeholder") is not False or bodyrig.get("sourceDerivedVisualIdentity") is not True:
         raise SkinQaError("skin QA: avatar is not source-derived high fidelity")
     fitter = bodyrig.get("fitter")
-    transfer = bodyrig.get("rigTransfer")
     if fitter != {"adapter": "sith-smplx-vrm", "revision": "1"}:
         raise SkinQaError("skin QA: avatar was not produced by sith-smplx-vrm v1")
-    if not isinstance(transfer, dict) or transfer.get("method") != "nearest-smplx-vertex-lbs-inverse":
-        raise SkinQaError("skin QA: unsupported rig transfer method")
-    nearest_p95 = transfer.get("nearestDistanceP95")
-    nearest_max = transfer.get("nearestDistanceMax")
-    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) < 0 for value in (nearest_p95, nearest_max)):
-        raise SkinQaError("skin QA: rig transfer distance evidence is invalid")
+    transfer_method, nearest_p95, nearest_max = _validate_transfer_authority(bodyrig)
 
     meshes = document.get("meshes")
     skins = document.get("skins")
@@ -462,7 +507,7 @@ def analyze_vrm_skin(
         "body_id": body_id,
         "fitter": {"adapter": "sith-smplx-vrm", "revision": "1"},
         "rig_transfer": {
-            "method": "nearest-smplx-vertex-lbs-inverse",
+            "method": transfer_method,
             "nearest_distance_p95": round(float(nearest_p95), 6),
             "nearest_distance_max": round(float(nearest_max), 6),
         },

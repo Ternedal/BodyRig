@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.parse
 from typing import Any, Mapping, Sequence
 
 from .stash_source import (
@@ -21,6 +23,7 @@ from .stash_source import (
 _HEALTH_PROBE_TERM = "__bodyrig_auth_capability_probe__"
 _DECODE_GATE = "ffmpeg-one-frame-v1"
 _PATH_MAP_ENV = "BODYRIG_STASH_PATH_MAP"
+_REMOTE_VR_ROOT_RE = re.compile(r"^([A-Za-z]):\\VR(?:\\|$)", re.IGNORECASE)
 
 
 def _config(args: argparse.Namespace) -> StashConfig:
@@ -97,11 +100,40 @@ def _remap_source_path(raw_path: str, rules: Sequence[tuple[str, str]]) -> str:
     return raw_path
 
 
-def _remap_scene_paths(scenes: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    rules = _path_map_rules()
-    if not rules:
-        return [dict(scene) for scene in scenes]
+def _auto_remote_vr_path(raw_path: str, *, stash_url: str) -> str:
+    """Map a remote Stash server's X:\\VR paths to its VR_X SMB share.
 
+    This is deliberately narrow: only Windows X:\\VR roots are considered, the
+    SMB host must be the configured Stash host, and the candidate UNC path must
+    already be readable. Explicit BODYRIG_STASH_PATH_MAP rules always win.
+    """
+    if os.name != "nt":
+        return raw_path
+    normalized = raw_path.replace("/", "\\")
+    match = _REMOTE_VR_ROOT_RE.match(normalized)
+    if not match:
+        return raw_path
+    try:
+        host = urllib.parse.urlsplit(stash_url).hostname or ""
+    except ValueError:
+        return raw_path
+    if not host:
+        return raw_path
+    drive = match.group(1).upper()
+    source_root = f"{drive}:\\VR"
+    remainder = normalized[len(source_root) :].lstrip("\\")
+    parts = [part for part in remainder.split("\\") if part]
+    unc_root = f"\\\\{host}\\VR_{drive}"
+    candidate = os.path.join(unc_root, *parts)
+    return candidate if os.path.isfile(candidate) else raw_path
+
+
+def _remap_scene_paths(
+    scenes: Sequence[Mapping[str, Any]],
+    *,
+    stash_url: str | None = None,
+) -> list[dict[str, Any]]:
+    rules = _path_map_rules()
     mapped_scenes: list[dict[str, Any]] = []
     for scene in scenes:
         mapped_scene = dict(scene)
@@ -113,7 +145,10 @@ def _remap_scene_paths(scenes: Sequence[Mapping[str, Any]]) -> list[dict[str, An
             mapped_file = dict(item)
             raw_path = str(item.get("path") or "")
             if raw_path:
-                mapped_file["path"] = _remap_source_path(raw_path, rules)
+                mapped_path = _remap_source_path(raw_path, rules) if rules else raw_path
+                if mapped_path == raw_path and stash_url:
+                    mapped_path = _auto_remote_vr_path(raw_path, stash_url=stash_url)
+                mapped_file["path"] = mapped_path
             mapped_files.append(mapped_file)
         mapped_scene["files"] = mapped_files
         mapped_scenes.append(mapped_scene)
@@ -162,7 +197,6 @@ def _filter_decodable_sources(
         except (FileNotFoundError, PermissionError, OSError) as exc:
             raise StashSourceError("FFmpeg source decode probe could not start") from exc
         except subprocess.TimeoutExpired:
-            # A hung/problematic media file is not suitable for the first physical run.
             continue
         if completed.returncode == 0:
             decodable.append(candidate)
@@ -217,9 +251,6 @@ def main(argv: list[str] | None = None) -> int:
         client = StashClient(_config(args))
         if args.command == "health":
             version = client.version()
-            # Prove the same read capability used by the next operator step. The
-            # deliberately unlikely term keeps the probe metadata-only and its
-            # result is discarded; success itself is the capability evidence.
             client.search_performers(_HEALTH_PROBE_TERM, limit=1)
             print(
                 json.dumps(
@@ -235,7 +266,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "probe":
             performer = client.performer(args.performer_id)
-            scenes = _remap_scene_paths(client.scenes_for_performer(args.performer_id, limit=args.scene_limit))
+            scenes = _remap_scene_paths(
+                client.scenes_for_performer(args.performer_id, limit=args.scene_limit),
+                stash_url=client.config.url,
+            )
             ranked = rank_sources(
                 scenes,
                 performer_id=args.performer_id,
@@ -278,7 +312,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         performer = client.performer(args.performer_id)
-        scenes = _remap_scene_paths(client.scenes_for_performer(args.performer_id, limit=args.scene_limit))
+        scenes = _remap_scene_paths(
+            client.scenes_for_performer(args.performer_id, limit=args.scene_limit),
+            stash_url=client.config.url,
+        )
         selected = rank_sources(
             scenes,
             performer_id=args.performer_id,

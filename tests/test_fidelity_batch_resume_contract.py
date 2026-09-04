@@ -22,6 +22,12 @@ def test_runner_exposes_explicit_resume_and_exact_checkpoint_validation() -> Non
     assert "policyJson" in text
 
 
+def test_checkpoint_binds_reconstruction_authority_sidecar() -> None:
+    text = source()
+    assert "reconstruction.json" in text
+    assert "reconstruction-authority.json" in text
+
+
 def test_resume_uses_active_compute_time_not_downtime_for_budget() -> None:
     text = source()
     assert "Get-ActiveElapsedSeconds" in text

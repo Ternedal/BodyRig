@@ -448,15 +448,13 @@ print(json.dumps({
     Write-Host "Visual identity profile: $identityPath"
     Write-Host "Source evidence: $sourceEvidencePath"
 } finally {
-    if (-not $KeepPrivateWorkspace -and (Test-Path -LiteralPath $PrivateWorkspace -PathType Container)) {
+    if ($success -and -not $KeepPrivateWorkspace -and (Test-Path -LiteralPath $PrivateWorkspace -PathType Container)) {
         Remove-Item -LiteralPath $PrivateWorkspace -Recurse -Force -ErrorAction SilentlyContinue
-        if ($success) {
-            Write-Host "Private identity workspace deleted after successful package build."
-        } else {
-            Write-Host "Private identity workspace deleted after failed build."
-        }
+        Write-Host "Private identity workspace deleted after successful package build."
     } elseif ($KeepPrivateWorkspace -and (Test-Path -LiteralPath $PrivateWorkspace -PathType Container)) {
         Write-Host "Private identity workspace retained by explicit request: $PrivateWorkspace"
+    } elseif (-not $success -and (Test-Path -LiteralPath $PrivateWorkspace -PathType Container)) {
+        Write-Host "Private identity workspace retained after failed build for recovery: $PrivateWorkspace"
     }
 }
 
