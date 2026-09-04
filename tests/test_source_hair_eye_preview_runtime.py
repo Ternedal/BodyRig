@@ -14,6 +14,7 @@ import bodyrig.source_hair_eye_preview_runtime as preview
 ROOT = Path(__file__).resolve().parents[1]
 PREVIEW_WRAPPER = ROOT / "run-source-hair-eye-windows-preview.ps1"
 FIDELITY_WRAPPER = ROOT / "run-fidelity-windows-render-probe.ps1"
+FIDELITY_CAPTURE = ROOT / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigFidelitySnapshotCapture.cs"
 
 
 def _sha(raw: bytes) -> str:
@@ -166,7 +167,7 @@ def test_materialize_rejects_incomplete_or_activating_source_runtime(
     assert not (tmp_path / "preview-runtime").exists()
 
 
-def test_windows_preview_operator_requires_exact_hair_eye_avatar_and_four_views() -> None:
+def test_windows_preview_operator_requires_exact_hair_eye_avatar_and_review_images() -> None:
     wrapper = PREVIEW_WRAPPER.read_text(encoding="utf-8")
 
     for marker in (
@@ -180,11 +181,28 @@ def test_windows_preview_operator_requires_exact_hair_eye_avatar_and_four_views(
         'physicalAcceptanceAuthority -ne $false',
         'productionActivation -ne $false',
         "front-full,three-quarter-full,side-full,face-front",
+        "face-zoom.png",
+        "eyes-closeup.png",
         "source-hair-eye-review-runtime",
         "review_avatar_sha256",
         "BodyRig source hair + eye Windows preview: READY",
     ):
         assert marker in wrapper
+
+
+def test_fidelity_capture_adds_eye_bone_targeted_closeup_without_changing_v1_manifest() -> None:
+    source = FIDELITY_CAPTURE.read_text(encoding="utf-8")
+
+    assert 'new CameraPose("front-full"' in source
+    assert 'new CameraPose("three-quarter-full"' in source
+    assert 'new CameraPose("side-full"' in source
+    assert 'new CameraPose("face-front"' in source
+    assert "HumanBodyBones.LeftEye" in source
+    assert "HumanBodyBones.RightEye" in source
+    assert "Vector3.Distance(leftEye.position, rightEye.position)" in source
+    assert '"eyes-closeup"' in source
+    assert "diagnosticPoses.Add" in source
+    assert "snapshots = entries.ToArray()" in source
 
 
 def test_fidelity_renderer_preview_mode_binds_probe_to_exact_review_vrm() -> None:
