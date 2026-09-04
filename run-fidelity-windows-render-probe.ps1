@@ -84,6 +84,7 @@ $attempt = Join-Path $parent (".bodyrig-fidelity-render-" + [Guid]::NewGuid().To
 New-Item -ItemType Directory -Path $attempt | Out-Null
 $probePath = Join-Path $attempt "machine-probe.json"
 $deformationPath = Join-Path $attempt "deformation-probe.json"
+$hairDeformationPath = Join-Path $attempt "hair-deformation-probe.json"
 $snapshotDir = Join-Path $attempt "snapshots"
 $runtimeManifest = ""
 $acceptedRevision = $currentHead
@@ -222,6 +223,9 @@ try {
         "--bodyrig-renderer-version", $rendererVersion,
         "--bodyrig-quit-after-probe"
     )
+    if ($usingReviewRuntime) {
+        $args += @("--bodyrig-hair-deformation-output", $hairDeformationPath)
+    }
     $exitCode = Invoke-NativeProcessWait -FilePath $playerExe -ArgumentList $args
     if ($exitCode -ne 0) { throw "Fidelity reference player exited with code $exitCode" }
 
@@ -243,6 +247,40 @@ try {
     }
     if ([string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or [string]$deformation.build_guid -ne [string]$probe.build_guid -or $deformation.complete -ne $true) {
         throw "Fidelity deformation probe is not complete and build-bound to the machine probe."
+    }
+
+    $hairDeformation = $null
+    $hairDeformationSha = ""
+    if ($usingReviewRuntime) {
+        $hairDeformation = Read-Json $hairDeformationPath "Source hair deformation probe"
+        $hairDeformationSha = (Get-FileHash -LiteralPath $hairDeformationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ([string]$hairDeformation.format -ne "bodyrig-hair-deformation-probe" -or [int]$hairDeformation.version -ne 1 -or
+            [string]$hairDeformation.platform -ne "windows-unity-univrm" -or
+            [string]$hairDeformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or
+            [string]$hairDeformation.build_guid -ne [string]$probe.build_guid -or
+            (Need-Sha256 ([string]$hairDeformation.package_sha256) "hair.package_sha256") -ne $reviewPackageSha -or
+            (Need-Sha256 ([string]$hairDeformation.runtime_manifest_sha256) "hair.runtime_manifest_sha256") -ne $expectedRuntimeSha -or
+            (Need-Sha256 ([string]$hairDeformation.avatar_sha256) "hair.avatar_sha256") -ne $reviewAvatarSha -or
+            (Need-Sha256 ([string]$hairDeformation.bodyprint_sha256) "hair.bodyprint_sha256") -ne $reviewBodyprintSha -or
+            [string]$hairDeformation.sequence_revision -ne "source-hair-head-turn-v1" -or
+            [string]$hairDeformation.hair_node -ne "BodyRigSourceHairReview" -or
+            [string]$hairDeformation.hair_mesh -ne "BodyRigSourceHairReviewMesh" -or
+            [int]$hairDeformation.hair_bone_count -lt 1 -or [int]$hairDeformation.vertex_count -lt 3 -or
+            $hairDeformation.skinned_mesh_renderer_found -ne $true -or
+            $hairDeformation.head_bone_resolved -ne $true -or $hairDeformation.head_bone_bound -ne $true -or
+            $hairDeformation.vertex_motion_observed -ne $true -or $hairDeformation.restored_neutral -ne $true -or
+            $hairDeformation.complete -ne $true -or $hairDeformation.human_review_required -ne $true -or
+            $hairDeformation.comparison_only -ne $true -or $hairDeformation.hair_component_authority -ne $false -or
+            $hairDeformation.production_activation -ne $false) {
+            throw "Source hair deformation probe is incomplete, stale or crossed the review-only authority boundary."
+        }
+        if ([double]$hairDeformation.observed_head_turn_degrees -lt 18.2 -or
+            [double]$hairDeformation.vertex_motion_rms_m -lt 0.00025 -or
+            [double]$hairDeformation.vertex_motion_max_m -lt 0.001 -or
+            [double]$hairDeformation.restoration_rms_m -gt 0.00025 -or
+            [double]$hairDeformation.restoration_max_m -gt 0.001) {
+            throw "Source hair deformation metrics do not satisfy the canonical machine-evidence thresholds."
+        }
     }
 
     if ([string]$manifest.format -ne "bodyrig-fidelity-render-set" -or [int]$manifest.version -ne 1 -or [string]$manifest.semantics -ne "visual-fidelity-not-identity-verification") {
@@ -284,6 +322,9 @@ try {
         $comparison.source_hair_runtime_applied = $true
         $comparison.source_eye_surface_applied = $true
         $comparison.corneal_material_status = "runtime-applied"
+        $comparison.hair_deformation_probe_sha256 = Need-Sha256 $hairDeformationSha "hair deformation probe SHA"
+        $comparison.hair_deformation_machine_pass = $true
+        $comparison.hair_deformation_human_review_required = $true
     }
     $comparison | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $attempt "comparison-authority.json") -Encoding UTF8
 
@@ -301,6 +342,7 @@ Write-Host "Output:     $OutputDir"
 Write-Host "Authority:  $comparisonAuthority; comparison-only; no renderer/human/release acceptance was written"
 if ($usingReviewRuntime) {
     Write-Host "Avatar:     source hair + source-baked eyes + runtime cornea"
+    Write-Host "Hair move:  MACHINE PASS; human deformation review still required"
     Write-Host "Snapshots:  front-full / three-quarter-full / side-full / face-front"
 }
 exit 0
