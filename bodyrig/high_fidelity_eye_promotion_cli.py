@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from .high_fidelity_eye_promotion import HighFidelityEyePromotionError, read_promotion, write_promotion
+from .high_fidelity_eye_promotion_atomic import HighFidelityEyePromotionError, read_promotion, write_promotion
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:
