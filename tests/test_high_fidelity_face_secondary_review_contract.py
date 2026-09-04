@@ -13,8 +13,10 @@ def test_review_cli_and_operator_require_all_face_secondary_checks() -> None:
     assert callable(review_cli_main)
     cli = (REPO / "bodyrig" / "high_fidelity_face_secondary_review_cli.py").read_text(encoding="utf-8")
     wrapper = (REPO / "record-high-fidelity-face-secondary-review.ps1").read_text(encoding="utf-8")
-    for field in CHECKLIST_FIELDS:
-        assert "--" + field.replace("_", "-") in cli
+    assert "for field in CHECKLIST_FIELDS" in cli
+    assert 'field.replace("_", "-")' in cli
+    assert "checklist = {field: bool(getattr(args, field)) for field in CHECKLIST_FIELDS}" in cli
+    assert len(CHECKLIST_FIELDS) == 10
     for token in (
         "UpperTeethVisibleAndPlausible",
         "LowerTeethVisibleAndJawBound",
