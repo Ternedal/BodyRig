@@ -7,6 +7,10 @@ from pathlib import Path
 import pytest
 
 import bodyrig.sith_body_geometry_authority as authority
+from bodyrig.sith_reconstruction_authority import (
+    AUTHORITY_FORMAT as RECONSTRUCTION_AUTHORITY_FORMAT,
+    AUTHORITY_VERSION as RECONSTRUCTION_AUTHORITY_VERSION,
+)
 
 
 def _sha(raw: bytes) -> str:
@@ -49,8 +53,8 @@ def _workspace(tmp_path: Path, *, gender: str = "female") -> Path:
     reconstruction_path = stage / "reconstruction.json"
     reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
     model_authority = {
-        "format": authority.AUTHORITY_FORMAT,
-        "version": authority.AUTHORITY_VERSION,
+        "format": RECONSTRUCTION_AUTHORITY_FORMAT,
+        "version": RECONSTRUCTION_AUTHORITY_VERSION,
         "body_model_gender": gender,
         "smplx_fit_profile": authority.SMPLX_FIT_PROFILE,
         "reconstruction_sha256": _sha(reconstruction_path.read_bytes()),
