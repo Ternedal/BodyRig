@@ -29,7 +29,9 @@ def test_windows_operator_is_atomic_and_uses_exact_renderer_path() -> None:
 
 def test_reference_renderer_exposes_open_mouth_diagnostic_without_changing_v1_manifest() -> None:
     source = (REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigFidelitySnapshotCapture.cs").read_text(encoding="utf-8")
-    assert 'new CameraPose("mouth-open"' in source
+    assert "CaptureFaceSecondaryMouthOpen" in source
+    assert '"mouth-open"' in source
+    assert "jaw.localRotation = originalJawRotation" in source
     assert 'new CameraPose("front-full"' in source
     assert 'new CameraPose("three-quarter-full"' in source
     assert 'new CameraPose("side-full"' in source
