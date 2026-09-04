@@ -18,6 +18,36 @@
     return `${secs} sek`;
   }
 
+  function stripAnsi(value) {
+    return String(value || "").replace(/\x1B(?:[@-_][0-?]*[ -/]*[@-~]|\[[0-?]*[ -/]*[@-~])/g, "");
+  }
+
+  function concreteFailure(job) {
+    const tail = stripAnsi(job?.diagnostic_tail || "");
+    let candidate = "";
+    for (const rawLine of tail.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      const failIndex = line.lastIndexOf("FAIL:");
+      if (failIndex >= 0) candidate = line.slice(failIndex + 5).trim();
+    }
+    if (!candidate) return "";
+    candidate = candidate.replace(/\s*\|\s*staging retained:.*$/i, "").trim();
+    return candidate.slice(0, 1600);
+  }
+
+  function replacePersistedError(job, summary) {
+    if (!summary || !FAILURE.has(job?.status)) return;
+    const detail = document.getElementById("bodyJobDetail");
+    if (!detail) return;
+    const lines = String(detail.textContent || "").split("\n");
+    const index = lines.findIndex((line) => line.startsWith("Fejl:"));
+    const value = `Fejl: ${summary}`;
+    if (index >= 0) lines[index] = value;
+    else lines.push(value);
+    detail.textContent = lines.join("\n");
+  }
+
   function displayPhase(job) {
     // Backend v1 groups recovery, identity capture and SiTH fitting under one
     // evidence phase. Do not pretend that observation evidence means SiTH has
@@ -70,23 +100,27 @@
 
     const elapsed = formatDuration(job.elapsed_seconds);
     const phase = displayPhase(job);
+    const failure = concreteFailure(job);
     if (job.status === "succeeded") {
       text.textContent = `Færdig · 100% · samlet køretid ${elapsed}`;
     } else if (ACTIVE.has(job.status)) {
       const estimate = job.progress_kind === "pipeline-phase-estimate-v1" ? "faseestimat" : "progress";
       text.textContent = `${phase} · ca. ${Math.round(progress)}% ${estimate} · kørt ${elapsed}. Procenten følger pipeline-evidence, ikke en opdigtet ETA.`;
+    } else if (failure) {
+      text.textContent = `Stoppet efter ${elapsed} · ${failure}`;
     } else {
       text.textContent = `${phase} · stoppet efter ${elapsed}`;
     }
 
     const tail = String(job.diagnostic_tail || "").trim();
     if (FAILURE.has(job.status) && tail) {
-      diagnostic.textContent = tail;
+      diagnostic.textContent = stripAnsi(tail);
       diagnostic.classList.remove("hidden");
     } else {
       diagnostic.textContent = "";
       diagnostic.classList.add("hidden");
     }
+    replacePersistedError(job, failure);
   }
 
   async function refresh() {
