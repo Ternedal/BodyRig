@@ -31,6 +31,10 @@ from .retained_anatomy_source import (
     RetainedAnatomySourceError,
     publish_retained_anatomy_source,
 )
+from .sith_body_geometry_authority import (
+    SithBodyGeometryAuthorityError,
+    bind_sith_body_geometry_authority,
+)
 from .subject_anatomy_provenance import (
     SubjectAnatomyProvenanceError,
     provenance_stage as subject_anatomy_provenance_stage,
@@ -201,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
             revision=config["revision"],
             timeout_seconds=config["timeout_seconds"],
         )
+        avatar_vrm = fitted.fit.avatar_vrm
+        if config["adapter"] == BUILTIN_SITH_ADAPTER:
+            avatar_vrm = bind_sith_body_geometry_authority(
+                avatar_vrm,
+                args.identity_workspace,
+            )
 
         pipeline = [
             {
@@ -249,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             output,
             body_id=package_body_id,
             name=args.name,
-            avatar_vrm=fitted.fit.avatar_vrm,
+            avatar_vrm=avatar_vrm,
             bodyprint=effective_bodyprint,
             provenance=provenance,
             thumbnail_png=fitted.fit.thumbnail_png,
@@ -268,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         BodyprintAdjustmentEvidenceError,
         SubjectAnatomyProvenanceError,
         RetainedAnatomySourceError,
+        SithBodyGeometryAuthorityError,
         ExternalFitterConfigError,
         ExternalFitterError,
         MRBodyError,
