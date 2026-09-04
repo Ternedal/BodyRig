@@ -143,14 +143,14 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     return failed, outer, workspace
 
 
-def _build_recovered_package(outer: Path) -> Path:
+def _build_recovered_package(outer: Path, *, name: str = "Fixture Person") -> Path:
     portable = load_portable_identity(outer / "clone" / "bodyrig-portable-identity.json")
-    fitted = ProceduralAvatarFitter().fit(BODYPRINT, name="Fixture Person")
+    fitted = ProceduralAvatarFitter().fit(BODYPRINT, name=name)
     package = outer / "clone" / "fixture-person.mrbody"
     build_package(
         package,
         body_id=portable["body_id"],
-        name="Fixture Person",
+        name=name,
         avatar_vrm=fitted.avatar_vrm,
         bodyprint=BODYPRINT,
         provenance={
@@ -184,9 +184,64 @@ def test_interrupted_clone_plan_binds_completed_reconstruction_without_rerun(tmp
     assert plan["performer_id"] == "42"
     assert plan["body_alias"] == "fixture-person"
     assert plan["display_name"] == "Fixture Person"
+    assert plan["recovery_mode"] == "resume-fit-only"
     assert plan["expensive_reconstruction_rerun"] is False
     assert plan["package_already_complete"] is False
     assert len(plan["authority"]["reconstruction_sha256"]) == 64
+
+
+def test_complete_package_is_adopted_without_reconstruction_or_fitter_rerun(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    package = _build_recovered_package(outer)
+    (workspace / "sith-input-v1" / "reconstruction.json").unlink()
+
+    plan = build_recovery_plan(
+        failed_session_path=failed,
+        stash_clone_output=outer,
+        identity_workspace=workspace,
+        current_revision=REVISION,
+    )
+    assert plan["recovery_mode"] == "adopt-complete-package"
+    assert plan["package_already_complete"] is True
+    assert len(plan["package_sha256"]) == 64
+    assert plan["authority"]["reconstruction_sha256"] is None
+
+    verified = verify_recovered_package(plan, package)
+    assert verified["recovery_mode"] == "adopt-complete-package"
+    assert verified["adopted_complete_package"] is True
+    assert verified["fitter_rerun"] is False
+    assert verified["reconstruction_sha256"] is None
+    assert verified["package_sha256"] == plan["package_sha256"]
+
+
+def test_complete_package_change_after_plan_is_rejected(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    package = _build_recovered_package(outer)
+    plan = build_recovery_plan(
+        failed_session_path=failed,
+        stash_clone_output=outer,
+        identity_workspace=workspace,
+        current_revision=REVISION,
+    )
+    assert plan["recovery_mode"] == "adopt-complete-package"
+
+    package.unlink()
+    replacement = _build_recovered_package(outer, name="Fixture Person Replacement")
+    with pytest.raises(InterruptedFitRecoveryError, match="package changed after recovery planning"):
+        verify_recovered_package(plan, replacement)
+
+
+def test_invalid_existing_package_fails_closed_instead_of_falling_back_to_fit(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    package = outer / "clone" / "fixture-person.mrbody"
+    package.write_bytes(b"not-a-valid-package")
+    with pytest.raises(InterruptedFitRecoveryError, match="existing interrupted package is invalid"):
+        build_recovery_plan(
+            failed_session_path=failed,
+            stash_clone_output=outer,
+            identity_workspace=workspace,
+            current_revision=REVISION,
+        )
 
 
 def test_recovered_package_verifies_only_while_reconstruction_authority_is_unchanged(tmp_path: Path) -> None:
@@ -199,6 +254,8 @@ def test_recovered_package_verifies_only_while_reconstruction_authority_is_uncha
     )
     package = _build_recovered_package(outer)
     verified = verify_recovered_package(plan, package)
+    assert verified["recovery_mode"] == "resume-fit-only"
+    assert verified["fitter_rerun"] is True
     assert len(verified["package_sha256"]) == 64
     assert verified["reconstruction_sha256"] == plan["authority"]["reconstruction_sha256"]
     assert verified["expensive_reconstruction_rerun"] is False
@@ -220,10 +277,10 @@ def test_recovery_refuses_session_from_another_revision(tmp_path: Path) -> None:
         )
 
 
-def test_recovery_refuses_missing_reconstruction_authority(tmp_path: Path) -> None:
+def test_recovery_refuses_when_package_and_reconstruction_are_both_missing(tmp_path: Path) -> None:
     failed, outer, workspace = _fixture(tmp_path)
     (workspace / "sith-input-v1" / "reconstruction.json").unlink()
-    with pytest.raises(InterruptedFitRecoveryError, match="no completed SiTH reconstruction authority"):
+    with pytest.raises(InterruptedFitRecoveryError, match="neither a complete verified package nor completed SiTH reconstruction"):
         build_recovery_plan(
             failed_session_path=failed,
             stash_clone_output=outer,

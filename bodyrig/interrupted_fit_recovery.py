@@ -20,6 +20,9 @@ FORMAT = "bodyrig-interrupted-fit-recovery-plan"
 VERSION = 1
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+ADOPT_COMPLETE_PACKAGE = "adopt-complete-package"
+RESUME_FIT_ONLY = "resume-fit-only"
+RECOVERY_MODES = {ADOPT_COMPLETE_PACKAGE, RESUME_FIT_ONLY}
 
 
 class InterruptedFitRecoveryError(ValueError):
@@ -49,6 +52,26 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise InterruptedFitRecoveryError(f"{label} must be a JSON object")
     return value
+
+
+def _validate_authority_hashes(authority: Mapping[str, Any]) -> None:
+    required = (
+        "failed_session_sha256",
+        "recovery_proof_sha256",
+        "visual_identity_sha256",
+        "portable_identity_sha256",
+        "fitter_config_sha256",
+        "source_manifest_sha256",
+    )
+    for key in required:
+        value = authority.get(key)
+        if not isinstance(value, str) or not SHA_RE.fullmatch(value):
+            raise InterruptedFitRecoveryError(f"recovery authority {key} is not a valid SHA-256")
+    reconstruction = authority.get("reconstruction_sha256")
+    if reconstruction is not None and (
+        not isinstance(reconstruction, str) or not SHA_RE.fullmatch(reconstruction)
+    ):
+        raise InterruptedFitRecoveryError("recovery authority reconstruction_sha256 is not a valid SHA-256")
 
 
 def build_recovery_plan(
@@ -86,10 +109,6 @@ def build_recovery_plan(
     if not workspace.is_dir():
         raise InterruptedFitRecoveryError(f"private identity workspace not found: {workspace}")
     reconstruction = workspace / "sith-input-v1" / "reconstruction.json"
-    if not reconstruction.is_file():
-        raise InterruptedFitRecoveryError(
-            "private identity workspace has no completed SiTH reconstruction authority; expensive fit cannot be safely resumed"
-        )
 
     proof_path = clone / "bodyrig-recovery-proof.json"
     identity_path = clone / "bodyrig-visual-identity.json"
@@ -136,7 +155,7 @@ def build_recovery_plan(
         raise InterruptedFitRecoveryError("Stash source manifest display name is invalid")
 
     package_complete = package.is_file()
-    package_sha = None
+    package_sha: str | None = None
     if package_complete:
         try:
             validated = validate_package(package)
@@ -145,7 +164,15 @@ def build_recovery_plan(
         if validated.manifest["id"] != portable["body_id"]:
             raise InterruptedFitRecoveryError("existing interrupted package canonical body identity mismatch")
         package_sha = _sha256(package)
+        recovery_mode = ADOPT_COMPLETE_PACKAGE
+    elif reconstruction.is_file():
+        recovery_mode = RESUME_FIT_ONLY
+    else:
+        raise InterruptedFitRecoveryError(
+            "interrupted clone has neither a complete verified package nor completed SiTH reconstruction authority"
+        )
 
+    reconstruction_sha = _sha256(reconstruction) if reconstruction.is_file() else None
     authority = {
         "failed_session_sha256": _sha256(failed_path),
         "recovery_proof_sha256": _sha256(proof_path),
@@ -153,10 +180,9 @@ def build_recovery_plan(
         "portable_identity_sha256": _sha256(portable_identity_path),
         "fitter_config_sha256": _sha256(fitter_config),
         "source_manifest_sha256": _sha256(source_manifest),
-        "reconstruction_sha256": _sha256(reconstruction),
+        "reconstruction_sha256": reconstruction_sha,
     }
-    if any(not SHA_RE.fullmatch(value) for value in authority.values()):
-        raise InterruptedFitRecoveryError("recovery authority produced an invalid SHA-256")
+    _validate_authority_hashes(authority)
 
     return {
         "format": FORMAT,
@@ -166,10 +192,12 @@ def build_recovery_plan(
         "body_alias": failed["body_id"],
         "display_name": display_name,
         "failed_session_id": failed["session_id"],
+        "recovery_mode": recovery_mode,
         "package_already_complete": package_complete,
         "package_sha256": package_sha,
         "authority": authority,
         "paths": {
+            "failed_session": str(failed_path),
             "clone_output": str(outer),
             "clone_dir": str(clone),
             "proof": str(proof_path),
@@ -193,13 +221,34 @@ def verify_recovered_package(plan: Mapping[str, Any], package_path: str | os.Pat
     paths = plan.get("paths")
     if not isinstance(authority, Mapping) or not isinstance(paths, Mapping):
         raise InterruptedFitRecoveryError("interrupted fit recovery plan is incomplete")
+    _validate_authority_hashes(authority)
 
-    reconstruction = Path(str(paths.get("reconstruction", ""))).expanduser().resolve()
-    expected_reconstruction = str(authority.get("reconstruction_sha256", ""))
-    if _sha256(reconstruction) != expected_reconstruction:
-        raise InterruptedFitRecoveryError(
-            "SiTH reconstruction authority changed during recovery; refusing no-reconstruction-rerun claim"
-        )
+    mode = plan.get("recovery_mode")
+    if mode not in RECOVERY_MODES:
+        raise InterruptedFitRecoveryError("interrupted fit recovery plan has an unsupported recovery mode")
+
+    path_bindings = {
+        "failed_session_sha256": "failed_session",
+        "recovery_proof_sha256": "proof",
+        "visual_identity_sha256": "visual_identity",
+        "portable_identity_sha256": "portable_identity",
+        "fitter_config_sha256": "fitter_config",
+        "source_manifest_sha256": "source_manifest",
+    }
+    for hash_key, path_key in path_bindings.items():
+        artifact = Path(str(paths.get(path_key, ""))).expanduser().resolve()
+        if _sha256(artifact) != authority[hash_key]:
+            raise InterruptedFitRecoveryError(f"recovery authority changed during recovery: {path_key}")
+
+    expected_reconstruction = authority.get("reconstruction_sha256")
+    if mode == RESUME_FIT_ONLY:
+        if not isinstance(expected_reconstruction, str):
+            raise InterruptedFitRecoveryError("fit-only recovery plan is missing reconstruction authority")
+        reconstruction = Path(str(paths.get("reconstruction", ""))).expanduser().resolve()
+        if _sha256(reconstruction) != expected_reconstruction:
+            raise InterruptedFitRecoveryError(
+                "SiTH reconstruction authority changed during recovery; refusing no-reconstruction-rerun claim"
+            )
 
     proof_path = Path(str(paths.get("proof", ""))).expanduser().resolve()
     identity_path = Path(str(paths.get("visual_identity", ""))).expanduser().resolve()
@@ -219,17 +268,34 @@ def verify_recovered_package(plan: Mapping[str, Any], package_path: str | os.Pat
         raise InterruptedFitRecoveryError(str(exc)) from exc
 
     package = Path(package_path).expanduser().resolve()
+    expected_package = Path(str(paths.get("package", ""))).expanduser().resolve()
+    if package != expected_package:
+        raise InterruptedFitRecoveryError("recovered package path differs from recovery plan authority")
     try:
         validated = validate_package(package)
     except ValueError as exc:
         raise InterruptedFitRecoveryError(f"recovered package failed strict validation: {exc}") from exc
     if validated.manifest["id"] != portable["body_id"]:
         raise InterruptedFitRecoveryError("recovered package canonical body identity mismatch")
+
+    package_sha = _sha256(package)
+    if mode == ADOPT_COMPLETE_PACKAGE:
+        expected_package_sha = plan.get("package_sha256")
+        if not isinstance(expected_package_sha, str) or not SHA_RE.fullmatch(expected_package_sha):
+            raise InterruptedFitRecoveryError("complete-package recovery plan is missing package SHA-256 authority")
+        if package_sha != expected_package_sha:
+            raise InterruptedFitRecoveryError(
+                "complete interrupted package changed after recovery planning; refusing adoption"
+            )
+
     return {
-        "package_sha256": _sha256(package),
+        "recovery_mode": mode,
+        "package_sha256": package_sha,
         "reconstruction_sha256": expected_reconstruction,
         "canonical_body_id": validated.manifest["id"],
         "expensive_reconstruction_rerun": False,
+        "fitter_rerun": mode == RESUME_FIT_ONLY,
+        "adopted_complete_package": mode == ADOPT_COMPLETE_PACKAGE,
     }
 
 

@@ -109,8 +109,12 @@ $planRaw = @(& $BodyRigPython -m bodyrig.interrupted_fit_recovery plan `
 if ($LASTEXITCODE -ne 0 -or $planRaw.Count -ne 1) { throw "Interrupted fit recovery plan failed." }
 try { $plan = ([string]$planRaw[0]) | ConvertFrom-Json }
 catch { throw "Interrupted fit recovery plan returned unreadable JSON." }
-if ($plan.package_already_complete -eq $true) {
-    throw "Interrupted clone already contains a complete package. This recovery path only resumes an interrupted fitter; refusing to overwrite existing package bytes."
+$recoveryMode = [string]$plan.recovery_mode
+if ($recoveryMode -notin @("adopt-complete-package", "resume-fit-only")) {
+    throw "Interrupted fit recovery plan selected an unsupported recovery mode: $recoveryMode"
+}
+if (($recoveryMode -eq "adopt-complete-package") -ne ($plan.package_already_complete -eq $true)) {
+    throw "Interrupted fit recovery plan package/mode binding is inconsistent."
 }
 
 $planPath = Join-Path ([System.IO.Path]::GetTempPath()) ("bodyrig-interrupted-fit-plan-" + [Guid]::NewGuid().ToString("N") + ".json")
@@ -155,7 +159,7 @@ try {
         "-StashUrl", $StashUrl
     )
     & $readinessScript @readinessArgs
-    if ($LASTEXITCODE -ne 0) { throw "Live rig readiness failed; interrupted fit was not resumed." }
+    if ($LASTEXITCODE -ne 0) { throw "Live rig readiness failed; interrupted recovery was not continued." }
     $readinessHash = (Get-FileHash -LiteralPath $readinessReport -Algorithm SHA256).Hash.ToLowerInvariant()
     Invoke-Checked -Executable $BodyRigPython -Arguments @(
         "-m", "bodyrig.physical_session", "readiness-pass",
@@ -165,29 +169,42 @@ try {
     $recoveryStage = "clone"
 
     $packagePath = [string]$plan.paths.package
-    Write-Host "BodyRig interrupted SiTH fit recovery"
+    Write-Host "BodyRig interrupted SiTH recovery"
     Write-Host "Failed session:     $([string]$plan.failed_session_id)"
     Write-Host "Recovered session:  $sessionId"
-    Write-Host "Reconstruction SHA: $([string]$plan.authority.reconstruction_sha256)"
-    Write-Host "Resume mode:         same completed SiTH reconstruction; no recovery/OpenPose/SMPL-X/diffusion reconstruction rerun"
+    Write-Host "Recovery mode:       $recoveryMode"
+    if ($recoveryMode -eq "resume-fit-only") {
+        Write-Host "Reconstruction SHA: $([string]$plan.authority.reconstruction_sha256)"
+        Write-Host "Resume mode:         same completed SiTH reconstruction; no recovery/OpenPose/SMPL-X/diffusion reconstruction rerun"
+    } else {
+        Write-Host "Package authority:   $([string]$plan.package_sha256)"
+        Write-Host "Resume mode:         adopt already-complete verified package; no fitter or reconstruction rerun"
+    }
     Write-Host ""
 
-    Invoke-Checked -Executable $BodyRigPython -Arguments @(
-        "-m", "bodyrig.external_fitter_cli",
-        [string]$plan.paths.proof,
-        "--identity-profile", [string]$plan.paths.visual_identity,
-        "--identity-workspace", [string]$plan.paths.identity_workspace,
-        "--config", [string]$plan.paths.fitter_config,
-        "--body-id", [string]$plan.body_alias,
-        "--portable-identity", [string]$plan.paths.portable_identity,
-        "--name", [string]$plan.display_name,
-        "--out", $packagePath
-    ) -Step "Resume interrupted SiTH fitter"
+    if ($recoveryMode -eq "resume-fit-only") {
+        Invoke-Checked -Executable $BodyRigPython -Arguments @(
+            "-m", "bodyrig.external_fitter_cli",
+            [string]$plan.paths.proof,
+            "--identity-profile", [string]$plan.paths.visual_identity,
+            "--identity-workspace", [string]$plan.paths.identity_workspace,
+            "--config", [string]$plan.paths.fitter_config,
+            "--body-id", [string]$plan.body_alias,
+            "--portable-identity", [string]$plan.paths.portable_identity,
+            "--name", [string]$plan.display_name,
+            "--out", $packagePath
+        ) -Step "Resume interrupted SiTH fitter"
+    } elseif ($recoveryMode -eq "adopt-complete-package") {
+        $packagePath = Need-File -Path $packagePath -Label "Completed interrupted package"
+    }
 
     $verifyRaw = @(& $BodyRigPython -m bodyrig.interrupted_fit_recovery verify --plan $planPath --package $packagePath)
-    if ($LASTEXITCODE -ne 0 -or $verifyRaw.Count -ne 1) { throw "Recovered package/reconstruction verification failed." }
+    if ($LASTEXITCODE -ne 0 -or $verifyRaw.Count -ne 1) { throw "Recovered package authority verification failed." }
     try { $verified = ([string]$verifyRaw[0]) | ConvertFrom-Json }
-    catch { throw "Recovered fit verifier returned unreadable JSON." }
+    catch { throw "Recovered package verifier returned unreadable JSON." }
+    if ([string]$verified.recovery_mode -ne $recoveryMode) {
+        throw "Recovered package verifier changed the selected recovery mode."
+    }
 
     $cloneDir = [string]$plan.paths.clone_dir
     foreach ($name in @(
@@ -210,6 +227,8 @@ try {
 
     $failedSessionSha = (Get-FileHash -LiteralPath $FailedSessionReport -Algorithm SHA256).Hash.ToLowerInvariant()
     $recoveredSessionSha = (Get-FileHash -LiteralPath $RecoveredSessionReport -Algorithm SHA256).Hash.ToLowerInvariant()
+    $verifiedReconstructionSha = [string]$verified.reconstruction_sha256
+    $receiptReconstructionSha = if ([string]::IsNullOrWhiteSpace($verifiedReconstructionSha)) { $null } else { $verifiedReconstructionSha }
     if ([string]::IsNullOrWhiteSpace($RecoveryReceipt)) { $RecoveryReceipt = Join-Path $CloneOutput "interrupted-fit-recovery.json" }
     $RecoveryReceipt = [IO.Path]::GetFullPath($RecoveryReceipt)
     $receipt = [ordered]@{
@@ -218,20 +237,23 @@ try {
         bodyrig_revision = $head
         performer_id = [string]$plan.performer_id
         body_alias = [string]$plan.body_alias
+        recovery_mode = $recoveryMode
         failed_session_id = [string]$plan.failed_session_id
         failed_session_sha256 = $failedSessionSha
         recovered_session_id = [string]$passed.session_id
         recovered_session_sha256 = $recoveredSessionSha
         package_sha256 = [string]$verified.package_sha256
         canonical_body_id = [string]$verified.canonical_body_id
-        reconstruction_authority_sha256 = [string]$verified.reconstruction_sha256
+        reconstruction_authority_sha256 = $receiptReconstructionSha
         recovery_proof_sha256 = [string]$plan.authority.recovery_proof_sha256
         visual_identity_sha256 = [string]$plan.authority.visual_identity_sha256
         portable_identity_sha256 = [string]$plan.authority.portable_identity_sha256
         fitter_config_sha256 = [string]$plan.authority.fitter_config_sha256
         source_manifest_sha256 = [string]$plan.authority.source_manifest_sha256
         expensive_reconstruction_rerun = $false
-        resumed_fit_only = $true
+        fitter_rerun = ($recoveryMode -eq "resume-fit-only")
+        resumed_fit_only = ($recoveryMode -eq "resume-fit-only")
+        adopted_complete_package = ($recoveryMode -eq "adopt-complete-package")
         human_visual_authority_required = $true
         production_activation = $false
     }
@@ -240,16 +262,23 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($GateAOutputDir)) {
         $gateA = Need-File -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
         & $gateA -SessionReport $RecoveredSessionReport -BodyRigPython $BodyRigPython -OutputDir $GateAOutputDir
-        if ($LASTEXITCODE -ne 0) { throw "Recovered fit succeeded but Gate A failed operationally." }
+        if ($LASTEXITCODE -ne 0) { throw "Recovered package succeeded but Gate A failed operationally." }
     }
 
     Write-Host ""
-    Write-Host "BodyRig interrupted physical fit recovery: PASS"
+    Write-Host "BodyRig interrupted physical recovery: PASS"
     Write-Host "Package:          $packagePath"
     Write-Host "Package SHA:      $([string]$verified.package_sha256)"
     Write-Host "Recovered session:$RecoveredSessionReport"
     Write-Host "Recovery receipt: $RecoveryReceipt"
-    Write-Host "Reconstruction:   reused unchanged"
+    if ($recoveryMode -eq "resume-fit-only") {
+        Write-Host "Reconstruction:   reused unchanged"
+        Write-Host "Fitter:           resumed only"
+    } else {
+        Write-Host "Package:          adopted unchanged from plan authority"
+        Write-Host "Fitter:           not rerun"
+        Write-Host "Reconstruction:   not rerun or required for adoption"
+    }
     if ([string]::IsNullOrWhiteSpace($GateAOutputDir)) {
         Write-Host "NEXT: run Gate A against the recovered physical session; no visual/release acceptance was created here."
     } else {
