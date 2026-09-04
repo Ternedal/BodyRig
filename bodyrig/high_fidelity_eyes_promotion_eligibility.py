@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -18,6 +17,7 @@ from .storage import ui_jobs_dir
 FORMAT = "bodyrig-high-fidelity-eyes-promotion-eligibility"
 VERSION = 1
 POLICY_REVISION = "bodyrig-high-fidelity-eyes-promotion-eligibility-v1"
+BASE_RUNTIME_RECEIPT = "source-hair-eye-review-runtime.json"
 JOB_RE = re.compile(r"^hfpreview-[0-9a-f]{32}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -55,6 +55,16 @@ def _job(value: Any) -> str:
     if not JOB_RE.fullmatch(clean):
         raise HighFidelityEyesPromotionEligibilityError("high-fidelity preview job id is not canonical")
     return clean
+
+
+def _read_json(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HighFidelityEyesPromotionEligibilityError(f"{label} is unreadable JSON") from exc
+    if not isinstance(value, dict):
+        raise HighFidelityEyesPromotionEligibilityError(f"{label} must be a JSON object")
+    return value
 
 
 def eligibility_path(preview_job_id: str, *, review_vrm_sha256: str, iris_review_sha256: str) -> Path:
@@ -120,6 +130,23 @@ def _authorities(
         )
     if str(reviewed.get("targetModelFamily") or "") != str(component.get("target_family") or ""):
         raise HighFidelityEyesPromotionEligibilityError("iris runtime target family differs from component visual review")
+
+    base_receipt_path = Path(base_runtime_dir).expanduser().resolve() / BASE_RUNTIME_RECEIPT
+    if not base_receipt_path.is_file():
+        raise HighFidelityEyesPromotionEligibilityError("base hair+eye runtime receipt is missing")
+    if _sha256(base_receipt_path) != _sha(reviewed.get("baseRuntimeReceiptSha256"), label="reviewed runtime base receipt SHA"):
+        raise HighFidelityEyesPromotionEligibilityError("reviewed iris runtime no longer binds the supplied base runtime receipt")
+    base_receipt = _read_json(base_receipt_path, label="base hair+eye runtime receipt")
+    if str(base_receipt.get("bodyId") or "") != str(component.get("canonical_body_id") or ""):
+        raise HighFidelityEyesPromotionEligibilityError("base eye runtime canonical body differs from component visual review")
+    if _sha(base_receipt.get("packageSha256"), label="base runtime package SHA") != _sha(
+        component.get("candidate_package_sha256"), label="component candidate package SHA"
+    ):
+        raise HighFidelityEyesPromotionEligibilityError("base eye runtime package differs from component visual-review candidate package")
+    if str(base_receipt.get("targetModelFamily") or "") != str(component.get("target_family") or ""):
+        raise HighFidelityEyesPromotionEligibilityError("base eye runtime target family differs from component visual review")
+    if _sha(base_receipt.get("reviewVrmSha256"), label="base runtime review VRM SHA") != review_vrm_sha:
+        raise HighFidelityEyesPromotionEligibilityError("base runtime receipt review VRM differs from component visual review")
     return component, component_path, reviewed, reviewed_receipt_path
 
 
@@ -183,13 +210,17 @@ def write_eligibility(
             handle.write(raw)
     except FileExistsError as exc:
         raise HighFidelityEyesPromotionEligibilityError(f"refusing to overwrite existing eyes promotion eligibility receipt: {path}") from exc
-    verified = read_eligibility(
-        preview_job_id,
-        base_runtime_dir=base_runtime_dir,
-        iris_candidate_dir=iris_candidate_dir,
-        source_eye_appearance_dir=source_eye_appearance_dir,
-        reviewed_runtime_dir=reviewed_runtime_dir,
-    )
+    try:
+        verified = read_eligibility(
+            preview_job_id,
+            base_runtime_dir=base_runtime_dir,
+            iris_candidate_dir=iris_candidate_dir,
+            source_eye_appearance_dir=source_eye_appearance_dir,
+            reviewed_runtime_dir=reviewed_runtime_dir,
+        )
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     return {**verified, "eligibilityPath": str(path)}
 
 
