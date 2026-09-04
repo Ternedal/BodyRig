@@ -146,8 +146,11 @@ def _required_artifact_keys(
     if full_rebuilds_completed < 1:
         raise FidelityCheckpointError("resumable checkpoint requires at least one completed full rebuild")
     required.add(_work_key(f"rebuild-{full_rebuilds_completed:02d}/physical-session.json"))
-    reconstruction = Path(current_identity_workspace) / "sith-input-v1" / "reconstruction.json"
+    reconstruction_root = Path(current_identity_workspace) / "sith-input-v1"
+    reconstruction = reconstruction_root / "reconstruction.json"
+    reconstruction_authority = reconstruction_root / "reconstruction-authority.json"
     required.add(_private_key(str(reconstruction)))
+    required.add(_private_key(str(reconstruction_authority)))
 
     for record in candidate_records:
         required.add(_work_key(record["package_path"]))
