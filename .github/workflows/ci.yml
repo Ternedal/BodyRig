@@ -1,0 +1,158 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact checkout authority
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || { echo "checkout mismatch: $actual != $EXPECTED_SHA" >&2; exit 1; }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install --disable-pip-version-check -e ".[test]"
+      - name: Verify wheel carries exact renderer contract
+        shell: bash
+        run: |
+          wheel_dir="$RUNNER_TEMP/bodyrig-wheel"
+          target_dir="$RUNNER_TEMP/bodyrig-wheel-site"
+          mkdir -p "$wheel_dir" "$target_dir"
+          python -m pip wheel --disable-pip-version-check --no-deps --wheel-dir "$wheel_dir" .
+          python - "$wheel_dir" <<'PY'
+          import pathlib
+          import sys
+          import zipfile
+
+          wheel_dir = pathlib.Path(sys.argv[1])
+          wheels = sorted(wheel_dir.glob("bodyrig-*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected one BodyRig wheel, found {len(wheels)}")
+          member = "reference-renderer/renderer-contract.json"
+          source = pathlib.Path(member).read_bytes()
+          with zipfile.ZipFile(wheels[0], "r") as archive:
+              names = archive.namelist()
+              if names.count(member) != 1:
+                  raise SystemExit(f"wheel must contain exactly one {member}")
+              packaged = archive.read(member)
+          if packaged != source:
+              raise SystemExit("packaged renderer contract bytes differ from repository authority")
+          print(f"Wheel contract: PASS | {wheels[0].name} | {member}")
+          PY
+          python -m pip install --disable-pip-version-check --no-deps --target "$target_dir" "$wheel_dir"/bodyrig-*.whl
+          (
+            cd "$RUNNER_TEMP"
+            PYTHONNOUSERSITE=1 PYTHONPATH="$target_dir" python - "$target_dir" <<'PY'
+          import pathlib
+          import sys
+
+          import bodyrig
+          from bodyrig.acceptance_status_cli import _auto_operator_root
+          from bodyrig.reference_acceptance_policy import _load_contract
+
+          target = pathlib.Path(sys.argv[1]).resolve()
+          module = pathlib.Path(bodyrig.__file__).resolve()
+          if target not in module.parents:
+              raise SystemExit(f"wheel smoke test imported BodyRig from wrong location: {module}")
+          contract = _load_contract()
+          if contract is None or contract.get("format") != "bodyrig-reference-renderer-contract":
+              raise SystemExit("installed wheel could not load canonical renderer contract")
+          if _auto_operator_root() is not None:
+              raise SystemExit("installed wheel must not masquerade as a BodyRig operator Git checkout")
+          print(f"Installed wheel status boundary: PASS | {module}")
+          PY
+          )
+          test -z "$(git status --porcelain)" || { echo "wheel verification dirtied checkout" >&2; git status --short; exit 1; }
+      - name: Compile
+        run: python -m compileall -q bodyrig tests
+      - name: Validate JSON contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("contracts").glob("*.json")):
+              json.loads(path.read_text(encoding="utf-8"))
+              print(path)
+          PY
+      - name: Parse PowerShell operator scripts
+        shell: pwsh
+        run: |
+          $scripts = @(
+            Get-ChildItem -LiteralPath . -Filter "*.ps1" -File
+            Get-ChildItem -LiteralPath ./tests -Filter "*.ps1" -File
+            Get-ChildItem -LiteralPath ./reference-renderer -Filter "*.ps1" -File
+          ) | Sort-Object FullName
+          if ($scripts.Count -eq 0) {
+            Write-Error "No PowerShell operator/test scripts found."
+            exit 1
+          }
+          $failed = $false
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $script.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $failed = $true
+              foreach ($parseError in $errors) {
+                Write-Error "$($script.Name): $($parseError.Message)"
+              }
+            } else {
+              Write-Host "Parsed: $($script.FullName)"
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: Test Python
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m pytest -q
+      - name: Test observation segment tamper gate
+        if: matrix.python == '3.11'
+        shell: pwsh
+        run: ./tests/test-clone-source-override.ps1
+      - name: Test managed physical gate wrapper
+        if: matrix.python == '3.11'
+        shell: pwsh
+        run: ./tests/test-run-physical-gate.ps1
+
+  acceptance-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact checkout authority
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $actual = (& git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:EXPECTED_SHA.ToLowerInvariant()) {
+            throw "checkout mismatch: $actual != $env:EXPECTED_SHA"
+          }
+      - name: Test final acceptance gate on production OS
+        shell: pwsh
+        run: ./tests/test-complete-acceptance.ps1

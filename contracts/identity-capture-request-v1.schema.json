@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/identity-capture-request-v1.schema.json",
+  "title": "BodyRig Identity Capture Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "adapter", "revision", "source_count", "subject_track_id", "observed_frames"],
+  "properties": {
+    "format": {"const": "bodyrig-identity-capture-request"},
+    "version": {"const": 1},
+    "adapter": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "source_count": {"type": "integer", "minimum": 1, "maximum": 10},
+    "subject_track_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "observed_frames": {"type": "integer", "minimum": 2}
+  }
+}

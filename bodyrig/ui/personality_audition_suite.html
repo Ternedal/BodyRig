@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BodyRig · Personality Audition Suite</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <style>
+    .suite-shell{max-width:1240px;margin:0 auto;padding:28px}.suite-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.suite-grid{display:grid;grid-template-columns:minmax(300px,.75fr) minmax(430px,1.25fr);gap:18px}.select-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full-select{width:100%}.action-row{display:flex;gap:10px;flex-wrap:wrap}.probe{margin-top:12px}.probe-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.probe-purpose{font-size:.9rem}.probe-prompt,.probe-reply{white-space:pre-wrap}.probe audio{width:100%;margin-top:10px}.hash{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem;word-break:break-all}.status-line{min-height:24px}.sticky{position:sticky;top:18px}@media(max-width:900px){.suite-grid{grid-template-columns:1fr}.sticky{position:static}.select-grid{grid-template-columns:1fr}.suite-head{flex-direction:column}}
+  </style>
+</head>
+<body>
+<main class="suite-shell">
+  <header class="suite-head">
+    <div>
+      <div class="eyebrow">MODELRIG PERSON STUDIO</div>
+      <h1>Personality Audition Suite</h1>
+      <p class="muted-text">Kør seks faste scenarier mod samme exact body + voice + personality assembly og samme ModelRig-model. Resultatet er review-evidence — aldrig activation-authority.</p>
+    </div>
+    <div class="action-row">
+      <a class="secondary" href="/">← Person Studio</a>
+      <a class="secondary" href="/ui/personality_guided.html">Guided Personality</a>
+      <span id="healthBadge" class="badge muted">…</span>
+    </div>
+  </header>
+
+  <div class="suite-grid">
+    <section class="card sticky">
+      <div class="card-label">1 · Exact assembly</div>
+      <label for="personSelect">Person</label>
+      <select id="personSelect" class="full-select"><option value="">Henter personer…</option></select>
+
+      <div class="select-grid">
+        <div><label for="bodyRevision">Body</label><select id="bodyRevision" class="full-select"></select></div>
+        <div><label for="voiceRevision">Voice</label><select id="voiceRevision" class="full-select"></select></div>
+      </div>
+      <label for="personalityRevision">Personality</label>
+      <select id="personalityRevision" class="full-select"></select>
+      <label for="modelSelect">ModelRig-model</label>
+      <select id="modelSelect" class="full-select"><option value="">Henter modeller…</option></select>
+
+      <div class="divider"></div>
+      <div class="card-label">2 · Kør suiten</div>
+      <p class="fine-print">Alle seks probes køres sekventielt. Hver enkelt audition går gennem den eksisterende ModelRig → VoiceRig execution-kæde og får sin egen immutable receipt + WAV.</p>
+      <div class="action-row">
+        <button id="runButton" class="primary" type="button">Kør 6 scenarier</button>
+        <button id="sealButton" class="secondary" type="button" disabled>Forsegl suite-evidence</button>
+      </div>
+      <div id="status" class="status-line muted-text"></div>
+
+      <div class="divider"></div>
+      <div class="card-label">Evidence</div>
+      <div id="fingerprint" class="hash muted-text">Assembly: —</div>
+      <div id="reviewEvidence" class="hash muted-text">Suite review: —</div>
+      <p class="fine-print">Forsegling beviser hvilke seks executions der blev kørt mod hvilken assembly/model. Den siger ikke, at et menneske har godkendt resultaterne, og den kan ikke aktivere en Person Revision.</p>
+    </section>
+
+    <section>
+      <article class="card">
+        <div class="card-row"><div><div class="card-label">Scenarier</div><p class="muted-text">Se svarene og afspil VoiceRig-outputtet. Grounding-proberne tester også mod opdigtede minder/oplevelser.</p></div><span id="suiteBadge" class="badge muted">Ikke kørt</span></div>
+      </article>
+      <div id="probes"></div>
+    </section>
+  </div>
+</main>
+<div id="toast" class="toast hidden"></div>
+<script>
+(() => {
+  const state={people:[],person:null,suite:null,results:{},assemblyFingerprint:null,runKey:null,review:null};
+  const $=id=>document.getElementById(id);
+  function toast(message,error=false){const el=$("toast");el.textContent=message;el.classList.toggle("error",error);el.classList.remove("hidden");clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.add("hidden"),4200);}
+  async function api(path,options={}){const headers={...(options.headers||{})};if(options.body!==undefined)headers["Content-Type"]="application/json";const response=await fetch(path,{...options,headers});const type=response.headers.get("content-type")||"";const payload=type.includes("json")?await response.json():await response.text();if(!response.ok)throw new Error(payload.detail||payload||`HTTP ${response.status}`);return payload;}
+  function escapeHtml(value){return String(value??"").replace(/[&<>'"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));}
+  function selected(){return {body_revision:$("bodyRevision").value,voice_revision:$("voiceRevision").value,personality_revision:$("personalityRevision").value};}
+  function currentKey(){return JSON.stringify({person:state.person?.person_id||"",...selected(),model:$("modelSelect").value});}
+  function invalidate(){state.results={};state.assemblyFingerprint=null;state.runKey=null;state.review=null;$("sealButton").disabled=true;$("suiteBadge").textContent="Ikke kørt";$("suiteBadge").classList.add("muted");$("fingerprint").textContent="Assembly: —";$("reviewEvidence").textContent="Suite review: —";renderEmpty();}
+  function option(value,label){const o=document.createElement("option");o.value=value;o.textContent=label;return o;}
+  function latest(items){return items?.length?items[items.length-1].revision_id:"";}
+  function activeSelection(profile){const id=profile.active_person_revision;if(!id)return null;return (profile.person_revisions||[]).find(x=>x.revision_id===id)||null;}
+  function fillSelect(el,items,labeler){el.innerHTML="";for(const item of items||[])el.appendChild(option(item.revision_id,labeler(item)));if(!items?.length)el.appendChild(option("","Ingen kandidater"));}
+
+  async function loadPeople(){const data=await api("/api/v1/people");state.people=data.people||[];const el=$("personSelect");el.innerHTML='<option value="">Vælg person</option>';for(const p of state.people)el.appendChild(option(p.person_id,p.display_name));const wanted=new URLSearchParams(location.search).get("person_id");const first=state.people.find(p=>p.person_id===wanted)||state.people[0];if(first){el.value=first.person_id;await selectPerson(first.person_id);}else{$("status").textContent="Opret først en person i Person Studio.";}}
+  async function selectPerson(personId){if(!personId){state.person=null;invalidate();return;}state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);fillSelect($("bodyRevision"),state.person.body_revisions,x=>`${x.revision_id} · ${x.body_id}`);fillSelect($("voiceRevision"),state.person.voice_revisions,x=>`${x.revision_id} · ${x.voice_id}`);fillSelect($("personalityRevision"),state.person.personality_revisions,x=>`${x.revision_id} · ${x.default_language}`);const active=activeSelection(state.person);$("bodyRevision").value=active?.body_revision||latest(state.person.body_revisions);$("voiceRevision").value=active?.voice_revision||latest(state.person.voice_revisions);$("personalityRevision").value=active?.personality_revision||latest(state.person.personality_revisions);invalidate();}
+  async function loadModels(){const data=await api("/api/v1/modelrig/models");const models=data.models||[];const el=$("modelSelect");el.innerHTML='<option value="">Vælg model</option>';for(const item of models){const name=typeof item==="string"?item:(item.name||item.model||"");if(name)el.appendChild(option(name,name));}if(models.length===1)el.selectedIndex=1;}
+  function personality(){return (state.person?.personality_revisions||[]).find(x=>x.revision_id===$("personalityRevision").value)||null;}
+  async function loadSuite(){const p=personality();if(!p)throw new Error("Vælg en personality-kandidat.");state.suite=await api(`/api/v1/personality/audition-suite?language=${encodeURIComponent(p.default_language)}`);return state.suite;}
+  function renderEmpty(){const target=$("probes");target.innerHTML="";const probes=state.suite?.probes||[];if(!probes.length){target.innerHTML='<article class="card probe muted-text">Suiten vises her, når du starter en kørsel.</article>';return;}for(const probe of probes){const card=document.createElement("article");card.className="card probe";card.id=`probe-${probe.id}`;card.innerHTML=`<div class="probe-head"><div><div class="card-label">${escapeHtml(probe.id)}</div><div class="probe-purpose muted-text">${escapeHtml(probe.purpose)}</div></div><span class="badge muted">Afventer</span></div><p class="probe-prompt"><strong>Prompt:</strong> ${escapeHtml(probe.prompt)}</p><div class="probe-reply muted-text">Intet svar endnu.</div>`;target.appendChild(card);}}
+  function renderResult(probe,result,index,total){const card=$(`probe-${probe.id}`);const badge=card.querySelector(".badge");badge.textContent=`${index}/${total} · kørt`;badge.classList.remove("muted");card.querySelector(".probe-reply").innerHTML=`<strong>ModelRig:</strong> ${escapeHtml(result.reply)}`;const audio=document.createElement("audio");audio.controls=true;audio.preload="none";audio.src=result.audio_url;audio.addEventListener("ended",()=>{badge.textContent=`${index}/${total} · hørt`;});card.appendChild(audio);}
+
+  async function runSuite(){if(!state.person)return toast("Vælg en person først.",true);const sel=selected();if(!sel.body_revision||!sel.voice_revision||!sel.personality_revision)return toast("Vælg body, voice og personality.",true);const model=$("modelSelect").value;if(!model)return toast("Vælg en ModelRig-model.",true);$("runButton").disabled=true;$("sealButton").disabled=true;$("status").textContent="Henter suite-definition…";try{await loadSuite();state.results={};state.assemblyFingerprint=null;state.review=null;state.runKey=currentKey();renderEmpty();const probes=state.suite.probes;for(let i=0;i<probes.length;i++){if(state.runKey!==currentKey())throw new Error("Valget ændrede sig under kørsel — suiten er annulleret.");const probe=probes[i];$("status").textContent=`Kører ${i+1}/${probes.length}: ${probe.id}…`;const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/auditions`,{method:"POST",body:JSON.stringify({...sel,model,prompt:probe.prompt})});if(state.runKey!==currentKey())throw new Error("Valget ændrede sig mens en audition kørte — resultatet kasseres fra suiten.");if(state.assemblyFingerprint&&state.assemblyFingerprint!==result.assembly_fingerprint)throw new Error("Assembly fingerprint ændrede sig under suiten.");state.assemblyFingerprint=result.assembly_fingerprint;state.results[probe.id]=result;renderResult(probe,result,i+1,probes.length);}$("fingerprint").textContent=`Assembly: ${state.assemblyFingerprint}`;$("suiteBadge").textContent="6/6 kørt";$("suiteBadge").classList.remove("muted");$("sealButton").disabled=false;$("status").textContent="Alle seks executions er kørt. Lyt til resultaterne; du kan nu forsegle execution-evidencen.";}catch(error){$("status").textContent="Suite afbrudt.";state.runKey=null;state.assemblyFingerprint=null;$("sealButton").disabled=true;toast(error.message,true);}finally{$("runButton").disabled=false;}}
+  async function seal(){if(!state.person||!state.suite||!state.assemblyFingerprint||state.runKey!==currentKey())return toast("Kør suiten igen på det aktuelle valg før forsegling.",true);const ids={};for(const probe of state.suite.probes){const result=state.results[probe.id];if(!result)return toast("Alle seks probes skal være kørt.",true);ids[probe.id]=result.audition_id;}const p=personality();$("sealButton").disabled=true;$("status").textContent="Genverificerer seks receipts og forsegler suite-evidence…";try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/audition-suite/reviews`,{method:"POST",body:JSON.stringify({...selected(),assembly_fingerprint:state.assemblyFingerprint,model:$("modelSelect").value,default_language:p.default_language,audition_ids:ids})});state.review=result;$("reviewEvidence").textContent=`Suite review: ${result.review.review_id} · sha256 ${result.review_sha256}`;$("status").textContent="Suite-evidence forseglet. Human review er stadig påkrævet; aktiv Person er uændret.";toast("Suite-evidence er forseglet — ingen aktivering er foretaget.");}catch(error){$("sealButton").disabled=false;$("status").textContent="";toast(error.message,true);}}
+
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value));for(const id of ["bodyRevision","voiceRevision","personalityRevision","modelSelect"])$(id).addEventListener("change",invalidate);$("runButton").addEventListener("click",runSuite);$("sealButton").addEventListener("click",seal);
+  api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
+  Promise.all([loadPeople(),loadModels()]).catch(error=>toast(error.message,true));renderEmpty();
+})();
+</script>
+</body>
+</html>

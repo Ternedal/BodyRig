@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-release-acceptance-v1.schema.json",
+  "title": "BodyRig Release Acceptance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format","version","completed_at","bodyrig_revision","automated_acceptance","renderer_acceptance","release_gate_pass","production_activation"],
+  "$defs": {
+    "rendererEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bodyrig_revision","report_sha256","probe_report_sha256","deformation_report_sha256","deformation_sequence_revision","deformation_observed_at",
+        "runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+        "machine_probe","result","renderer_name","renderer_version","unity_platform","unity_version","build_guid","device_model","graphics_device",
+        "quality_review_revision","quality_review_pass","quality_note","observed_at","attested_at"
+      ],
+      "properties": {
+        "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
+        "report_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "probe_report_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "deformation_report_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "deformation_sequence_revision": {"const":"humanoid-muscle-sweep-v1"},
+        "deformation_observed_at": {"type":"string","minLength":1,"maxLength":80},
+        "runtime_manifest_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "avatar_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "bodyprint_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "machine_probe": {"const":true},
+        "result": {"const":"pass"},
+        "renderer_name": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "renderer_version": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "unity_platform": {"type":"string","minLength":1,"maxLength":80,"pattern":".*\\S.*"},
+        "unity_version": {"type":"string","minLength":1,"maxLength":80,"pattern":".*\\S.*"},
+        "build_guid": {"type":"string","minLength":1,"maxLength":160,"pattern":".*\\S.*"},
+        "device_model": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
+        "graphics_device": {"type":"string","minLength":1,"maxLength":240,"pattern":".*\\S.*"},
+        "quality_review_revision": {"const":"bodyrig-human-quality-v1"},
+        "quality_review_pass": {"const":true},
+        "quality_note": {"type":"string","minLength":1,"maxLength":2000,"pattern":".*\\S.*"},
+        "observed_at": {"type":"string","minLength":1,"maxLength":80},
+        "attested_at": {"type":"string","minLength":1,"maxLength":80}
+      }
+    }
+  },
+  "properties": {
+    "format": {"const":"bodyrig-release-acceptance"},
+    "version": {"const":1},
+    "completed_at": {"type":"string","minLength":1,"maxLength":80},
+    "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
+    "automated_acceptance": {
+      "type":"object","additionalProperties":false,
+      "required":["report_sha256","package_sha256","body_id","automated_pass","physical_clone_mode","physical_clone_session_sha256","physical_clone_readiness_sha256","skin_qa_report_sha256","skin_qa_assessment","skin_qa_manual_review_required"],
+      "properties": {
+        "report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "package_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "body_id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+        "automated_pass":{"const":true},
+        "physical_clone_mode":{"const":"stash-sith-high-fidelity"},
+        "physical_clone_session_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "physical_clone_readiness_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_assessment":{"enum":["low-risk","review","high-risk"]},
+        "skin_qa_manual_review_required":{"const":true}
+      }
+    },
+    "renderer_acceptance": {
+      "type":"object","additionalProperties":false,"required":["windows_unity_univrm","android_quest_class"],
+      "properties":{"windows_unity_univrm":{"$ref":"#/$defs/rendererEvidence"},"android_quest_class":{"$ref":"#/$defs/rendererEvidence"}}
+    },
+    "release_gate_pass":{"const":true},
+    "production_activation":{"const":true}
+  }
+}

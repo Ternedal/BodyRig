@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/rig-readiness-v1.schema.json",
+  "title": "BodyRig live rig readiness report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "session_id",
+    "bodyrig_revision",
+    "observed_utc",
+    "rig_setup_report",
+    "rig_setup_sha256",
+    "checks",
+    "environment",
+    "ready"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-rig-readiness"},
+    "version": {"const": 1},
+    "session_id": {"type": "string", "format": "uuid"},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "observed_utc": {"type": "string", "format": "date-time", "maxLength": 80},
+    "rig_setup_report": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "rig_setup_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "master_setup",
+        "recovery",
+        "sith_openpose",
+        "openpose_binary",
+        "openpose_models",
+        "diffusion_model",
+        "stash",
+        "stash_performer_read"
+      ],
+      "properties": {
+        "master_setup": {"const": true},
+        "recovery": {"const": true},
+        "sith_openpose": {"const": true},
+        "openpose_binary": {"const": true},
+        "openpose_models": {"const": true},
+        "diffusion_model": {"const": true},
+        "stash": {"const": true},
+        "stash_performer_read": {"const": true}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stash_version",
+        "openpose_sha256",
+        "openpose_byte_count",
+        "openpose_models_sha256",
+        "openpose_models_file_count",
+        "openpose_models_byte_count",
+        "diffusion_model_sha256",
+        "diffusion_model_file_count",
+        "diffusion_model_byte_count"
+      ],
+      "properties": {
+        "stash_version": {"type": "string", "minLength": 1, "maxLength": 160},
+        "openpose_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "openpose_byte_count": {"type": "integer", "minimum": 1},
+        "openpose_models_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "openpose_models_file_count": {"type": "integer", "minimum": 1},
+        "openpose_models_byte_count": {"type": "integer", "minimum": 1},
+        "diffusion_model_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "diffusion_model_file_count": {"type": "integer", "minimum": 1},
+        "diffusion_model_byte_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "ready": {"const": true}
+  }
+}

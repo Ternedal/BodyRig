@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/avatar-fit-result-v1.schema.json",
+  "title": "BodyRig Avatar Fit Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "adapter",
+    "revision",
+    "visual_identity",
+    "avatar_sha256",
+    "thumbnail_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-avatar-fit-result"},
+    "version": {"const": 1},
+    "adapter": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "visual_identity": {"const": "source-derived"},
+    "avatar_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "thumbnail_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

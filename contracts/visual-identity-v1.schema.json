@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/visual-identity-v1.schema.json",
+  "title": "BodyRig Visual Identity Profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "adapter",
+    "revision",
+    "source_count",
+    "subject_track_id",
+    "capture",
+    "coverage",
+    "quality",
+    "privacy"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-visual-identity"},
+    "version": {"const": 1},
+    "adapter": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": ".*\\S.*"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": ".*\\S.*"},
+    "source_count": {"type": "integer", "minimum": 1, "maximum": 10},
+    "subject_track_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,160}$"},
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_frames", "face_frames", "full_body_frames", "side_body_frames", "rear_body_frames"],
+      "properties": {
+        "observed_frames": {"type": "integer", "minimum": 1, "maximum": 10000000},
+        "face_frames": {"type": "integer", "minimum": 0},
+        "full_body_frames": {"type": "integer", "minimum": 0},
+        "side_body_frames": {"type": "integer", "minimum": 0},
+        "rear_body_frames": {"type": "integer", "minimum": 0}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["face", "hair_or_scalp", "skin", "clothing", "full_body", "back"],
+      "properties": {
+        "face": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "hair_or_scalp": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "skin": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "clothing": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "full_body": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "back": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sharpness", "lighting", "visibility"],
+      "properties": {
+        "sharpness": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "lighting": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "visibility": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains_source_media", "contains_biometric_template"],
+      "properties": {
+        "contains_source_media": {"const": false},
+        "contains_biometric_template": {"const": false}
+      }
+    }
+  }
+}

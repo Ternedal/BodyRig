@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/sith-preflight-v1.schema.json",
+  "title": "BodyRig SiTH Preflight v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["format", "version", "repository", "expected_revision", "distribution", "environment", "ok", "errors"],
+  "properties": {
+    "format": {"const": "bodyrig-sith-preflight"},
+    "version": {"const": 1},
+    "repository": {"const": "SiTH-Diffusion/SiTH"},
+    "expected_revision": {"const": "6401549120a4a6246b5cb4a10d8c3e1b2d9e8c7d"},
+    "distribution": {"type": "string", "minLength": 1, "maxLength": 160},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "tracked_clean": {"type": "boolean"},
+    "environment": {"type": "object"},
+    "ok": {"type": "boolean"},
+    "errors": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1, "maxLength": 4000}
+    }
+  }
+}

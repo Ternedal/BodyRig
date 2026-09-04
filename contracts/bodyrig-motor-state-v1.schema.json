@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-motor-state-v1.schema.json",
+  "title": "BodyRig Motor State v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "version", "body_id", "utterance_id", "motion"],
+  "properties": {
+    "type": {"const": "bodyrig-motor-state"},
+    "version": {"const": 1},
+    "body_id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9æøå_-]+$"},
+    "utterance_id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9._:-]+$"},
+    "motion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["energy", "head_motion"],
+      "properties": {
+        "energy": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "head_motion": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "expression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["emotion", "intensity"],
+      "properties": {
+        "emotion": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9_-]+$"},
+        "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "gesture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "amplitude"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9_-]+$"},
+        "amplitude": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "gaze": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "strength"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1, "maxLength": 127},
+        "strength": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "posture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "intensity"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9_-]+$"},
+        "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "duration_ms": {"type": "integer", "minimum": 0, "maximum": 120000},
+    "speech": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "elapsed_ms"],
+      "properties": {
+        "state": {"enum": ["start", "update", "stop"]},
+        "elapsed_ms": {"type": "integer", "minimum": 0, "maximum": 3600000},
+        "viseme": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9._-]+$"},
+        "amplitude": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://modelrig.local/contracts/bodyrig/rig-setup-v1.schema.json",
+  "title": "BodyRig full rig setup report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "recovery", "high_fidelity"],
+  "properties": {
+    "format": {"const": "bodyrig-rig-setup"},
+    "version": {"const": 1},
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment_summary", "environment_summary_sha256", "preflight", "preflight_sha256", "external_python", "four_d_humans_repo", "phalp_repo"],
+      "properties": {
+        "environment_summary": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "environment_summary_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "preflight": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "preflight_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "external_python": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "four_d_humans_repo": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "phalp_repo": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "high_fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setup_report", "setup_report_sha256"],
+      "properties": {
+        "setup_report": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "setup_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

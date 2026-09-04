@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BodyRig · Guided Personality</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <style>
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="guided-shell">
+    <header class="guided-head">
+      <div>
+        <div class="eyebrow">MODELRIG PERSON STUDIO</div>
+        <h1>Guided Personality</h1>
+        <p class="muted-text">Byg en reproducerbar personality-kandidat. Kommunikation author'es eksplicit; observerbare mannerisms kan groundes i en konkret BodyPrint.</p>
+      </div>
+      <div class="action-row"><a class="secondary" href="/">← Person Studio</a><span id="healthBadge" class="badge muted">…</span></div>
+    </header>
+
+    <div class="guided-grid">
+      <section class="card">
+        <div class="card-label">1 · Vælg person og grounding</div>
+        <label for="personSelect">Person</label>
+        <select id="personSelect" class="full-select"><option value="">Henter personer…</option></select>
+        <label for="bodyRevision">Body-grounding</label>
+        <select id="bodyRevision" class="full-select"><option value="">Ingen — neutrale mannerisms</option></select>
+        <p id="bodyHint" class="fine-print">Vælg en body revision for at hente observerbar energi, gestik, hovedbevægelse, gaze og speech-motion fra den validerede .mrbody.</p>
+
+        <div class="divider"></div>
+        <div class="card-label">2 · Kommunikationsadfærd</div>
+        <div id="sliders"></div>
+
+        <div class="field-row">
+          <div><label for="language">Standardsprog</label><input id="language" value="da" maxlength="16"></div>
+          <div><label for="feedback">Revisionsnote</label><input id="feedback" maxlength="8000" placeholder="Fx guided blueprint v1"></div>
+        </div>
+
+        <label for="authoredNotes">Authored notes</label>
+        <textarea id="authoredNotes" rows="4" maxlength="16000" placeholder="Fx tør og underspillet; undgå serviceagtig formulering."></textarea>
+
+        <div class="divider"></div>
+        <div class="card-row"><div><div class="card-label">3 · Direkte style exemplars</div><div class="fine-print">Kun replikker du selv author'er direkte her.</div></div><button id="addExample" class="secondary" type="button">+ eksempel</button></div>
+        <div id="examples"></div>
+
+        <div class="divider"></div>
+        <div class="card-row"><div><div class="card-label">4 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="evidence-grid">
+          <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
+          <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
+        </div>
+        <div id="evidenceStatus" class="fine-print">Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig.</div>
+
+        <div class="divider"></div>
+        <div class="action-row">
+          <button id="previewButton" class="secondary" type="button">Byg preview</button>
+          <button id="saveButton" class="primary" type="button" disabled>Gem som personality-kandidat</button>
+        </div>
+        <div id="status" class="status-line muted-text"></div>
+        <p class="fine-print">Gem opretter kun en ny <code>personality-rXXXX</code>. Den aktive person ændres aldrig her; kandidaten skal fortsat gennem ModelRig + VoiceRig audition og human compatibility review.</p>
+      </section>
+
+      <section>
+        <article class="card">
+          <div class="card-row"><div class="card-label">Blueprint</div><span id="blueprintBadge" class="badge muted">Ikke bygget</span></div>
+          <div id="grounding" class="grounding-summary muted-text">Ingen preview endnu.</div>
+        </article>
+        <article class="card space-top">
+          <div class="card-label">Kompilerede instructions</div>
+          <pre id="instructions" class="proposal preview-box">Byg et preview for at se den præcise ModelRig personality-kandidat.</pre>
+        </article>
+        <article class="card space-top">
+          <div class="card-label">Style notes / provenance</div>
+          <pre id="styleNotes" class="proposal preview-box">—</pre>
+        </article>
+        <article class="card space-top">
+          <div class="card-label">Audition suite</div>
+          <div id="auditionSuite" class="revision-list"><div class="muted-text">Byg preview først.</div></div>
+        </article>
+      </section>
+    </div>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+<script>
+(() => {
+  const dimensions = [
+    ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
+    ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
+  ];
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null };
+  const $ = id => document.getElementById(id);
+
+  function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
+  async function api(path, options={}){ const headers={...(options.headers||{})}; if(options.body!==undefined) headers["Content-Type"]="application/json"; const response=await fetch(path,{...options,headers}); const payload=await response.json(); if(!response.ok) throw new Error(payload.detail||`HTTP ${response.status}`); return payload; }
+  function escapeHtml(value){ return String(value??"").replace(/[&<>'"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch])); }
+
+  function buildSliders(){
+    const target=$("sliders");
+    for(const [id,label] of dimensions){
+      const row=document.createElement("div"); row.className="slider-row";
+      row.innerHTML=`<label for="${id}">${label}</label><input id="${id}" type="range" min="0" max="1" step="0.05" value="0.5"><span id="${id}Value" class="slider-value">0.50</span>`;
+      target.appendChild(row);
+      $(id).addEventListener("input",()=>{ $(`${id}Value`).textContent=Number($(id).value).toFixed(2); invalidate(); });
+    }
+  }
+
+  function addExample(value=""){
+    if($("examples").children.length>=12) return toast("Der kan højst være 12 style exemplars i alt.",true);
+    const row=document.createElement("div"); row.className="example-row";
+    row.innerHTML=`<input maxlength="1000" placeholder="En typisk replik eller formulering" value="${escapeHtml(value)}"><button class="secondary" type="button">×</button>`;
+    row.querySelector("input").addEventListener("input",invalidate);
+    row.querySelector("button").addEventListener("click",()=>{row.remove();invalidate();});
+    $("examples").appendChild(row);
+  }
+
+  function payload(){
+    const communication={}; for(const [id] of dimensions) communication[id]=Number($(id).value);
+    const style_exemplars=[...$("examples").querySelectorAll("input")].map(el=>el.value.trim()).filter(Boolean);
+    return {
+      default_language: $("language").value.trim()||"da",
+      communication,
+      authored_notes: $("authoredNotes").value.trim(),
+      style_exemplars,
+      style_report: state.styleReport,
+      style_approval: state.styleApproval,
+      body_revision: $("bodyRevision").value||null
+    };
+  }
+  function key(){ return JSON.stringify(payload()); }
+  function invalidate(){ state.preview=null; state.requestKey=null; $("saveButton").disabled=true; $("blueprintBadge").textContent="Preview forældet"; $("blueprintBadge").classList.add("muted"); }
+
+  function renderEvidenceStatus(){
+    if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig."; return; }
+    if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — vælg både candidate report og approval receipt før preview."; return; }
+    const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
+    $("evidenceStatus").textContent=`Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
+  }
+  async function readEvidence(kind, file){
+    if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
+    try{ const value=JSON.parse(await file.text()); state[kind]=value; renderEvidenceStatus(); invalidate(); }
+    catch(error){ state[kind]=null; renderEvidenceStatus(); invalidate(); toast(`Ugyldig JSON evidence: ${error.message}`,true); }
+  }
+  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+
+  async function loadPeople(){
+    const data=await api("/api/v1/people"); state.people=data.people||[]; const select=$("personSelect"); select.innerHTML='<option value="">Vælg person</option>';
+    for(const p of state.people){ const o=document.createElement("option");o.value=p.person_id;o.textContent=p.display_name;select.appendChild(o); }
+    const requested=new URLSearchParams(location.search).get("person_id"); const first=state.people.find(p=>p.person_id===requested)||state.people[0];
+    if(first){ select.value=first.person_id; await selectPerson(first.person_id); }
+    else $("status").textContent="Opret først en person i Person Studio.";
+  }
+  async function selectPerson(personId){
+    if(!personId){state.person=null;return;}
+    state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
+    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);} invalidate();
+  }
+
+  function renderPreview(result){
+    state.preview=result; state.requestKey=key(); $("saveButton").disabled=false; $("blueprintBadge").textContent=result.blueprint_sha256.slice(0,12)+"…"; $("blueprintBadge").classList.remove("muted");
+    const g=result.blueprint.grounding; const e=result.blueprint.embodiment; const style=result.style_evidence;
+    $("grounding").innerHTML=`Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
+    $("instructions").textContent=result.candidate.instructions; $("styleNotes").textContent=result.candidate.style_notes;
+    const target=$("auditionSuite"); target.innerHTML=""; for(const probe of result.audition_suite.probes){const row=document.createElement("div");row.className="revision-item";row.innerHTML=`<div class="revision-id">${escapeHtml(probe.id)}</div><div class="revision-feedback">${escapeHtml(probe.prompt)}</div>`;target.appendChild(row);}
+  }
+  async function preview(){
+    if(!state.person) return toast("Vælg en person først.",true); $("status").textContent="Bygger og verifierer deterministisk blueprint…";
+    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(payload())});renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";}catch(error){invalidate();$("status").textContent="";toast(error.message,true);}
+  }
+  async function save(){
+    if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
+    const request={...payload(),feedback:$("feedback").value.trim()}; $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
+    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)}); state.person=result.profile; $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;}
+    catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
+  }
+
+  buildSliders(); addExample(); renderEvidenceStatus();
+  $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
+  $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
+  loadPeople().catch(error=>toast(error.message,true));
+})();
+</script>
+</body>
+</html>

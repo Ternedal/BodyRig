@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bodyrig"
+version = "0.1.0"
+description = "Local-first body cloning and embodiment service for ModelRig"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Ternedal" }]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.8",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "httpx>=0.27", "httpx2>=2.12.0"]
+
+[project.scripts]
+bodyrig = "bodyrig.guided_app:run"
+bodyrig-recover = "bodyrig.recover_cli:main"
+bodyrig-recovery-preflight = "bodyrig.preflight_cli:main"
+bodyrig-capture-identity = "bodyrig.identity_capture_cli:main"
+bodyrig-identity-capture-preflight = "bodyrig.identity_capture_preflight:main"
+bodyrig-fit-avatar = "bodyrig.avatar_cli:main"
+bodyrig-fit-avatar-external = "bodyrig.external_fitter_cli:main"
+bodyrig-wsl-adapter-bridge = "bodyrig.wsl_adapter_bridge:main"
+bodyrig-sith-preflight = "bodyrig.sith_preflight:main"
+bodyrig-sith-stage-input = "bodyrig.sith_input:main"
+bodyrig-sith-prepare = "bodyrig.sith_prepare:main"
+bodyrig-sith-reconstruct = "bodyrig.sith_reconstruct:main"
+bodyrig-sith-model-digest = "bodyrig.sith_model:main"
+bodyrig-sith-status = "bodyrig.sith_status:main"
+bodyrig-sith-setup-report = "bodyrig.sith_setup:main"
+bodyrig-rig-setup-report = "bodyrig.rig_setup:main"
+bodyrig-sith-fitter = "bodyrig.sith_fitter_orchestrator:main"
+bodyrig-stash-sources = "bodyrig.stash_cli:main"
+bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
+bodyrig-select-observations = "bodyrig.observation_cli:main"
+bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
+bodyrig-materialize = "bodyrig.materialize_cli:main"
+bodyrig-acceptance-status = "bodyrig.acceptance_status_cli:main"
+bodyrig-personality-blueprint = "bodyrig.personality_blueprint_cli:main"
+bodyrig-personality-exemplars = "bodyrig.personality_exemplars_cli:main"
+bodyrig-personality-approve-exemplars = "bodyrig.personality_exemplar_approval_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bodyrig"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"reference-renderer/renderer-contract.json" = "reference-renderer/renderer-contract.json"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

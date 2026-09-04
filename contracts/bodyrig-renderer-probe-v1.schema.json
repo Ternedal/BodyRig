@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-renderer-probe-v1.schema.json",
+  "title": "BodyRig Renderer Probe v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format","version","observed_at","bodyrig_revision","platform","unity_platform","unity_version","build_guid","device_model","graphics_device",
+    "body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+    "vrm10_loaded","humanoid_valid","required_bones_valid","active_renderer"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-renderer-probe"},
+    "version": {"const": 1},
+    "observed_at": {"type": "string", "minLength": 1, "maxLength": 64},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "platform": {"enum": ["windows-unity-univrm", "android-quest-class"]},
+    "unity_platform": {"type": "string", "minLength": 1, "maxLength": 80},
+    "unity_version": {"type": "string", "minLength": 1, "maxLength": 80},
+    "build_guid": {"type": "string", "minLength": 1, "maxLength": 160},
+    "device_model": {"type": "string", "minLength": 1, "maxLength": 240},
+    "graphics_device": {"type": "string", "minLength": 1, "maxLength": 240},
+    "body_id": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[a-z0-9æøå_-]+$"},
+    "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "runtime_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "avatar_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "bodyprint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "vrm10_loaded": {"const": true},
+    "humanoid_valid": {"const": true},
+    "required_bones_valid": {"const": true},
+    "active_renderer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "version": {"type": "string", "minLength": 1, "maxLength": 160}
+      }
+    }
+  }
+}

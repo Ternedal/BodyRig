@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_first_physical_run_documents_stash_discovery_and_canonical_clone() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    required = (
+        '.\\stash-sources.ps1 health',
+        '.\\stash-sources.ps1 search "<performer name>" -Limit 10',
+        '.\\stash-sources.ps1 probe -PerformerId "123"',
+        '.\\clone-body-from-stash-ready.ps1',
+        '-PerformerId "123"',
+        '-BodyId "performer-123"',
+        'bodyid-<24 lowercase hex>',
+        '.\\physical-acceptance-status.ps1',
+        '.\\accept-physical-clone.ps1',
+        '-ConfirmQualityChecklist',
+        'production_activation=true',
+    )
+    for marker in required:
+        assert marker in text
+
+
+def test_first_physical_run_requires_sith_v4_before_source_or_session_work() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+
+    assert "`bodyrig-sith-setup` v4" in text
+    assert "v1/v2/v3 SiTH setup evidence is not valid authority" in text
+    assert "rerun `setup-rig-windows.ps1`" in text
+    assert "checkpoints/recon_model.pth" in text
+    assert "checkpoints/save_smplerx.pth" in text
+    assert "point-of-use" in text
+    assert "before** it spends time on Unity/Quest toolchain" in text
+    assert "Do not edit or re-hash an old report by hand" in text
+    assert text.index("Require current rig / SiTH setup authority") < text.index("Configure local Stash transport")
+
+
+def test_first_physical_run_requires_fresh_stash_token_health_before_clone() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    assert '$env:STASH_API_KEY = "<fresh local Stash API key>"' in text
+    assert 'fresh Stash token works before search or clone' in text
+    assert 'Do not continue to performer search or clone unless it succeeds with the fresh token.' in text
+    assert '`performer_read=true`' in text
+    assert 'the fresh Stash token passed the checkout-bound `health` gate with `ok=true` and `performer_read=true`' in text
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 search')
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 probe')
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\clone-body-from-stash-ready.ps1')
+
+
+def test_first_physical_run_probes_exact_performer_with_one_frame_decode_without_leaking_paths_or_writing_evidence() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    assert '.\\stash-sources.ps1 probe -PerformerId "123"' in text
+    assert 'ffmpeg-one-frame-v1' in text
+    assert 'decode exactly one video frame' in text
+    assert 'rankable local-source count' in text
+    assert 'usable_source_count' in text
+    assert 'does **not** print local source paths' in text
+    assert 'does **not** write a source manifest' in text
+    assert 'repeats this same exact selected-performer/source-decode gate automatically' in text
+    assert 'normal production source selection reused the same resolved FFmpeg authority' in text
+    assert text.index('.\\stash-sources.ps1 search') < text.index('.\\stash-sources.ps1 probe')
+    assert text.index('.\\stash-sources.ps1 probe') < text.index('.\\clone-body-from-stash-ready.ps1')
+
+
+def test_first_physical_run_keeps_stash_credentials_out_of_command_arguments() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    assert '$env:STASH_API_KEY = "<fresh local Stash API key>"' in text
+    assert '--api-key ' not in text
+    assert '-ApiKey ' not in text
+
+
+def test_first_physical_run_does_not_require_console_script_path() -> None:
+    text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
+    assert 'Do not rely on `bodyrig-stash-sources` being present on the shell `PATH`.' in text
+
+
+def test_windows_setup_next_steps_require_authenticated_stash_discovery() -> None:
+    text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
+    assert 'configure a fresh local Stash API token' in text
+    assert '.\\stash-sources.ps1 health' in text
+    assert '.\\stash-sources.ps1 search' in text
+    assert 'docs\\FIRST_PHYSICAL_RUN.md' in text
+    assert text.index('.\\stash-sources.ps1 health') < text.index('.\\stash-sources.ps1 search')

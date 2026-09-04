@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/personality-exemplar-approval-v1.schema.json",
+  "title": "BodyRig Personality Exemplar Approval v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "candidate_report_sha256",
+    "selected_candidate_indexes",
+    "approved_exemplars",
+    "operator_review",
+    "personality_authority",
+    "content_semantics"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-personality-exemplar-approval"},
+    "version": {"const": 1},
+    "candidate_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_candidate_indexes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "approved_exemplars": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 1000}
+    },
+    "operator_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["speaker_identity_confirmed", "style_use_approved"],
+      "properties": {
+        "speaker_identity_confirmed": {"const": true},
+        "style_use_approved": {"const": true}
+      }
+    },
+    "personality_authority": {"const": false},
+    "content_semantics": {"const": "style-only-not-biography-or-memory"}
+  }
+}
