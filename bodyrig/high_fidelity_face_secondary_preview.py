@@ -4,12 +4,11 @@ import hashlib
 import json
 import os
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .high_fidelity_face_secondary_runtime import (
-    RECEIPT_NAME as RUNTIME_RECEIPT_NAME,
-    REVIEW_VRM_NAME,
     HighFidelityFaceSecondaryRuntimeError,
     read_runtime,
 )
@@ -17,8 +16,13 @@ from .package import MRBodyError, validate_package
 
 FORMAT = "bodyrig-high-fidelity-face-secondary-preview-preparation"
 VERSION = 1
+PREVIEW_FORMAT = "bodyrig-high-fidelity-face-secondary-preview-authority"
+PREVIEW_VERSION = 1
 COMPARISON_PACKAGE_NAME = "face-secondary-review-comparison.mrbody"
 PREPARATION_NAME = "face-secondary-preview-preparation.json"
+PREVIEW_NAME = "face-secondary-preview-authority.json"
+CANONICAL_VIEWS = ("front-full", "three-quarter-full", "side-full", "face-front")
+DIAGNOSTIC_VIEWS = ("face-zoom", "eyes-closeup", "mouth-open")
 
 
 class HighFidelityFaceSecondaryPreviewError(RuntimeError):
@@ -35,6 +39,30 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _sha(value: Any, *, label: str) -> str:
+    clean = str(value or "").strip().lower()
+    if len(clean) != 64 or any(ch not in "0123456789abcdef" for ch in clean):
+        raise HighFidelityFaceSecondaryPreviewError(f"{label} is not a canonical SHA-256")
+    return clean
+
+
+def _revision(value: Any, *, label: str = "BodyRig revision") -> str:
+    clean = str(value or "").strip().lower()
+    if len(clean) != 40 or any(ch not in "0123456789abcdef" for ch in clean):
+        raise HighFidelityFaceSecondaryPreviewError(f"{label} is not a canonical Git SHA")
+    return clean
+
+
+def _read_json(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HighFidelityFaceSecondaryPreviewError(f"{label} is unreadable JSON") from exc
+    if not isinstance(value, dict):
+        raise HighFidelityFaceSecondaryPreviewError(f"{label} must be a JSON object")
+    return value
 
 
 def _write_package(source: Path, destination: Path, *, avatar_vrm: bytes) -> None:
@@ -71,8 +99,7 @@ def prepare(package_path: str | Path, runtime_dir: str | Path, output_dir: str |
     root = Path(output_dir).expanduser().resolve()
     if root.exists():
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation is create-only")
-    if not isinstance(bodyrig_revision, str) or len(bodyrig_revision) != 40 or any(ch not in "0123456789abcdef" for ch in bodyrig_revision):
-        raise HighFidelityFaceSecondaryPreviewError("BodyRig revision is not canonical")
+    bodyrig_revision = _revision(bodyrig_revision)
     if not source.is_file():
         raise HighFidelityFaceSecondaryPreviewError("source promoted package is missing")
     try:
@@ -142,14 +169,125 @@ def read_preparation(output_dir: str | Path) -> dict[str, Any]:
     comparison = root / COMPARISON_PACKAGE_NAME
     if not preparation.is_file() or not comparison.is_file():
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation evidence is missing")
-    try:
-        value = json.loads(preparation.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation is unreadable") from exc
-    if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION:
+    value = _read_json(preparation, label="face-secondary preview preparation")
+    if value.get("format") != FORMAT or value.get("version") != VERSION:
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation format/version mismatch")
+    _revision(value.get("bodyrigRevision"))
+    for field in ("sourcePackageSha256", "sourceRuntimeReceiptSha256", "sourceReviewVrmSha256", "comparisonPackageSha256"):
+        _sha(value.get(field), label=field)
     if value.get("comparisonPackageName") != COMPARISON_PACKAGE_NAME or value.get("comparisonPackageSha256") != _sha256_file(comparison):
         raise HighFidelityFaceSecondaryPreviewError("face-secondary comparison package changed")
-    if value.get("comparisonOnly") is not True or value.get("physicalAcceptanceAuthority") is not False or value.get("packagePromotionAuthority") is not False or value.get("productionActivation") is not False:
+    if value.get("comparisonOnly") is not True or value.get("physicalAcceptanceAuthority") is not False or value.get("humanReviewRequired") is not True or value.get("packagePromotionAuthority") is not False or value.get("productionActivation") is not False:
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation crossed authority boundary")
     return {**value, "comparisonPackagePath": str(comparison), "preparationPath": str(preparation)}
+
+
+def _render_evidence(preparation_dir: Path, runtime_dir: Path, render_dir: Path) -> dict[str, Any]:
+    prep = read_preparation(preparation_dir)
+    try:
+        runtime = read_runtime(runtime_dir)
+    except HighFidelityFaceSecondaryRuntimeError as exc:
+        raise HighFidelityFaceSecondaryPreviewError(str(exc)) from exc
+    receipt_path = Path(runtime["receiptPath"]).resolve()
+    vrm_path = Path(runtime["reviewVrmPath"]).resolve()
+    if prep["sourceRuntimeReceiptSha256"] != _sha256_file(receipt_path) or prep["sourceReviewVrmSha256"] != _sha256_file(vrm_path):
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary runtime bytes changed after preview preparation")
+    if runtime.get("sourcePackageSha256") != prep["sourcePackageSha256"] or runtime.get("canonicalBodyId") != prep["canonicalBodyId"] or runtime.get("bodyrigRevision") != prep["bodyrigRevision"]:
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary runtime no longer matches preview preparation")
+
+    comparison_authority_path = render_dir / "comparison-authority.json"
+    manifest_path = render_dir / "snapshots" / "fidelity-render-set.json"
+    if not comparison_authority_path.is_file() or not manifest_path.is_file():
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary Windows render evidence is incomplete")
+    comparison = _read_json(comparison_authority_path, label="face-secondary renderer comparison authority")
+    if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or comparison.get("version") != 1 or comparison.get("authority") != "validated-package-comparison-only":
+        raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority is not canonical package-comparison evidence")
+    if comparison.get("bodyrig_revision") != prep["bodyrigRevision"] or comparison.get("package_sha256") != prep["comparisonPackageSha256"]:
+        raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority targets different revision/package bytes")
+    if comparison.get("physical_acceptance_authority") is not False or comparison.get("comparison_only") is not True or comparison.get("production_activation") is not False:
+        raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority crossed the review-only boundary")
+
+    manifest = _read_json(manifest_path, label="face-secondary renderer snapshot manifest")
+    if manifest.get("format") != "bodyrig-fidelity-render-set" or manifest.get("version") != 1 or manifest.get("semantics") != "visual-fidelity-not-identity-verification":
+        raise HighFidelityFaceSecondaryPreviewError("renderer snapshot manifest format/semantics mismatch")
+    if manifest.get("body_id") != prep["canonicalBodyId"] or manifest.get("package_sha256") != prep["comparisonPackageSha256"]:
+        raise HighFidelityFaceSecondaryPreviewError("renderer snapshot manifest targets different body/package bytes")
+    snapshots = manifest.get("snapshots")
+    if not isinstance(snapshots, list) or [item.get("view") for item in snapshots if isinstance(item, dict)] != list(CANONICAL_VIEWS):
+        raise HighFidelityFaceSecondaryPreviewError("renderer canonical snapshot sequence is not v1")
+    canonical: dict[str, str] = {}
+    for item in snapshots:
+        if not isinstance(item, dict) or item.get("file") != f"{item.get('view')}.png" or item.get("width") != 1024 or item.get("height") != 1024:
+            raise HighFidelityFaceSecondaryPreviewError("renderer canonical snapshot metadata is invalid")
+        path = render_dir / "snapshots" / str(item["file"])
+        if not path.is_file():
+            raise HighFidelityFaceSecondaryPreviewError(f"renderer canonical snapshot is missing: {item.get('view')}")
+        actual = _sha256_file(path)
+        if _sha(item.get("sha256"), label=f"{item.get('view')} SHA-256") != actual:
+            raise HighFidelityFaceSecondaryPreviewError(f"renderer canonical snapshot changed: {item.get('view')}")
+        canonical[str(item["view"])] = actual
+
+    diagnostics: dict[str, str] = {}
+    for view in DIAGNOSTIC_VIEWS:
+        path = render_dir / "snapshots" / f"{view}.png"
+        if not path.is_file():
+            raise HighFidelityFaceSecondaryPreviewError(f"required face-secondary diagnostic view is missing: {view}")
+        diagnostics[view] = _sha256_file(path)
+
+    return {
+        "format": PREVIEW_FORMAT,
+        "version": PREVIEW_VERSION,
+        "bodyrigRevision": prep["bodyrigRevision"],
+        "canonicalBodyId": prep["canonicalBodyId"],
+        "sourcePackageSha256": prep["sourcePackageSha256"],
+        "sourceRuntimeReceiptSha256": prep["sourceRuntimeReceiptSha256"],
+        "sourceReviewVrmSha256": prep["sourceReviewVrmSha256"],
+        "comparisonPackageSha256": prep["comparisonPackageSha256"],
+        "comparisonAuthoritySha256": _sha256_file(comparison_authority_path),
+        "renderManifestSha256": _sha256_file(manifest_path),
+        "canonicalViewSha256": canonical,
+        "diagnosticViewSha256": diagnostics,
+        "requiredHumanReview": ["eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes"],
+        "mouthOpenPoseRendered": True,
+        "comparisonOnly": True,
+        "physicalAcceptanceAuthority": False,
+        "humanReviewRequired": True,
+        "faceSecondaryComponentAuthority": False,
+        "packagePromotionAuthority": False,
+        "productionActivation": False,
+    }
+
+
+def finalize_preview(preparation_dir: str | Path, runtime_dir: str | Path, render_dir: str | Path) -> dict[str, Any]:
+    prep_root = Path(preparation_dir).expanduser().resolve()
+    evidence = _render_evidence(prep_root, Path(runtime_dir).expanduser().resolve(), Path(render_dir).expanduser().resolve())
+    path = prep_root / PREVIEW_NAME
+    if path.exists():
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority is create-only")
+    receipt = {
+        **evidence,
+        "finalizedUtc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+    }
+    try:
+        with path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    except FileExistsError as exc:
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority is create-only") from exc
+    return {**receipt, "previewAuthorityPath": str(path)}
+
+
+def read_preview(preparation_dir: str | Path, runtime_dir: str | Path, render_dir: str | Path) -> dict[str, Any]:
+    prep_root = Path(preparation_dir).expanduser().resolve()
+    path = prep_root / PREVIEW_NAME
+    if not path.is_file():
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority is missing")
+    value = _read_json(path, label="face-secondary preview authority")
+    expected = _render_evidence(prep_root, Path(runtime_dir).expanduser().resolve(), Path(render_dir).expanduser().resolve())
+    if set(value) != set(expected) | {"finalizedUtc"}:
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority fields are not canonical")
+    for field, expected_value in expected.items():
+        if value.get(field) != expected_value:
+            raise HighFidelityFaceSecondaryPreviewError(f"face-secondary preview authority is stale: {field}")
+    if not str(value.get("finalizedUtc") or "").strip():
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority lacks finalization time")
+    return {**value, "previewAuthorityPath": str(path)}
