@@ -194,3 +194,9 @@
   ensureCard();
   void refresh(true);
 })();
+
+// High-fidelity hair/eye review is an isolated extension. A load failure must not
+// break the baseline package-bound four-view gallery above.
+void import("/ui/high_fidelity_preview.js").catch((error) => {
+  console.error("BodyRig high-fidelity preview UI could not be loaded", error);
+});
