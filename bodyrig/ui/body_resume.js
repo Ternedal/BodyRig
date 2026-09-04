@@ -1,7 +1,10 @@
 (() => {
   const FINAL_FAILURE = new Set(["failed", "interrupted"]);
+  const ADOPT = "adopt-complete-package";
+  const FIT_ONLY = "resume-fit-only";
   let timer = null;
   let currentSourceJobId = "";
+  let currentRecoveryMode = "";
 
   function personId() {
     return (document.getElementById("personId")?.textContent || "").trim();
@@ -30,21 +33,29 @@
     wrap.id = "bodyResumeControls";
     wrap.className = "space-top";
     wrap.innerHTML = `
-      <button id="bodyResumeButton" class="secondary full" type="button" hidden>Genoptag fra bevaret reconstruction</button>
+      <button id="bodyResumeButton" class="secondary full" type="button" hidden>Genoptag recovery</button>
       <div id="bodyResumeStatus" class="fine-print"></div>`;
     card.appendChild(wrap);
     document.getElementById("bodyResumeButton")?.addEventListener("click", () => void startResume());
     return wrap;
   }
 
-  function setState({ visible = false, disabled = false, text = "", sourceJobId = "" } = {}) {
+  function labelForMode(mode) {
+    if (mode === ADOPT) return "Adoptér allerede færdig package";
+    if (mode === FIT_ONLY) return "Genoptag fitter fra bevaret reconstruction";
+    return "Genoptag recovery";
+  }
+
+  function setState({ visible = false, disabled = false, text = "", sourceJobId = "", recoveryMode = "" } = {}) {
     ensureControls();
     const button = document.getElementById("bodyResumeButton");
     const status = document.getElementById("bodyResumeStatus");
     currentSourceJobId = sourceJobId;
+    currentRecoveryMode = recoveryMode;
     if (button) {
       button.hidden = !visible;
       button.disabled = disabled;
+      button.textContent = labelForMode(recoveryMode);
     }
     if (status) status.textContent = text;
   }
@@ -68,21 +79,26 @@
   async function startResume() {
     const id = personId();
     const sourceJobId = currentSourceJobId;
-    if (!id || !sourceJobId) return;
+    const recoveryMode = currentRecoveryMode;
+    if (!id || !sourceJobId || ![ADOPT, FIT_ONLY].includes(recoveryMode)) return;
+    const preparing = recoveryMode === ADOPT
+      ? "Revaliderer session, package og source authority før adoption …"
+      : "Revaliderer session, reconstruction og source authority før fit-only recovery …";
     setState({
       visible: true,
       disabled: true,
       sourceJobId,
-      text: "Revaliderer session, reconstruction og source authority før genoptagelse …",
+      recoveryMode,
+      text: preparing,
     });
     try {
       const job = await apiJson(`/api/v1/jobs/${encodeURIComponent(sourceJobId)}/resume`, { method: "POST" });
+      if (job.resume_mode !== recoveryMode) throw new Error("backend returned a different recovery mode");
       reconnectAutoWorkflow(id, sourceJobId, job.job_id);
-      setState({
-        visible: false,
-        sourceJobId: "",
-        text: `Resume-job ${job.job_id} er startet. PHALP/4D-Humans reconstruction genkøres ikke.`,
-      });
+      const started = recoveryMode === ADOPT
+        ? `Recovery-job ${job.job_id} er startet. Den færdige package adopteres kun efter frisk readiness/session; fitter og reconstruction genkøres ikke.`
+        : `Recovery-job ${job.job_id} er startet. Kun fitteren må genkøres; PHALP/4D-Humans reconstruction genkøres ikke.`;
+      setState({ visible: false, sourceJobId: "", recoveryMode: "", text: started });
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), 1000);
     } catch (error) {
@@ -90,7 +106,8 @@
         visible: true,
         disabled: false,
         sourceJobId,
-        text: `Genoptagelse blev afvist fail-closed: ${error.message}`,
+        recoveryMode,
+        text: `Recovery blev afvist fail-closed: ${error.message}`,
       });
     }
   }
@@ -116,23 +133,40 @@
       }
 
       const status = await apiJson(`/api/v1/jobs/${encodeURIComponent(latest.job_id)}/resume-status`);
-      if (status.available === true) {
+      if (status.available === true && status.recovery_mode === ADOPT) {
         setState({
           visible: true,
           disabled: false,
           sourceJobId: latest.job_id,
-          text: "Bevaret SiTH reconstruction er hash-verificeret. Genoptagelse kører kun den afbrudte fitter og fortsætter derefter Gate A/fidelity.",
+          recoveryMode: ADOPT,
+          text: `Færdig package ${String(status.package_sha256 || "").slice(0, 16)}… er hash-verificeret. Adoption genkører hverken fitter eller reconstruction; frisk session, Gate A og fidelity-review kræves stadig.`,
+        });
+      } else if (status.available === true && status.recovery_mode === FIT_ONLY) {
+        setState({
+          visible: true,
+          disabled: false,
+          sourceJobId: latest.job_id,
+          recoveryMode: FIT_ONLY,
+          text: "Bevaret SiTH reconstruction er hash-verificeret. Recovery kører kun den afbrudte fitter og fortsætter derefter Gate A/fidelity.",
+        });
+      } else if (status.available === true) {
+        setState({
+          visible: false,
+          sourceJobId: "",
+          recoveryMode: "",
+          text: "Recovery-planen returnerede en ukendt mode og er skjult fail-closed.",
         });
       } else {
         setState({
           visible: false,
           sourceJobId: "",
-          text: status.reason ? `Late-fit resume ikke tilgængelig: ${status.reason}` : "",
+          recoveryMode: "",
+          text: status.reason ? `Recovery ikke tilgængelig: ${status.reason}` : "",
         });
       }
       timer = setTimeout(() => void refresh(), 10000);
     } catch (error) {
-      setState({ visible: false, text: `Kunne ikke kontrollere late-fit resume: ${error.message}` });
+      setState({ visible: false, text: `Kunne ikke kontrollere recovery: ${error.message}` });
       timer = setTimeout(() => void refresh(), 10000);
     }
   }
