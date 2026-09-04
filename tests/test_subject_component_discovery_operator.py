@@ -77,3 +77,27 @@ def test_subject_component_discovery_keeps_incomplete_eye_truth_explicit() -> No
     assert 'iris_identity_isolated = $false' in source
     assert 'Iris identity:  REVIEW-PENDING (not isolated)' in source
     assert 'Human review:   REQUIRED' in source
+
+
+def test_subject_component_discovery_builds_visible_hair_eye_runtime_after_candidates() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    hair_call = source.index('Invoke-Checked -Script $hairScript')
+    eye_call = source.index('Invoke-Checked -Script $eyeScript')
+    appearance_call = source.index('Invoke-Checked -Script $eyeAppearanceScript')
+    runtime_call = source.index('Invoke-Checked -Script $runtimeScript')
+
+    assert hair_call < eye_call < appearance_call < runtime_call
+    assert '$runtimeScript = Need-File -Path (Join-Path $repoRoot "build-source-hair-eye-review-runtime.ps1")' in source
+    assert '$runtimeArgs.PackagePath = $packagePath' in source
+    assert '$runtimeArgs.HairCandidateDir = $hairDir' in source
+    assert '$runtimeArgs.EyeGeometryDir = $eyesDir' in source
+    assert '$runtimeArgs.EyeAppearanceDir = $eyeAppearanceDir' in source
+    assert '$runtimeArgs.CandidateWorkspace = $candidateWorkspace' in source
+    assert 'source-hair-eye-review.vrm' in source
+    assert '[string]$runtime.runtimeIntegrationStatus -ne "hair-and-eyes-review-artifact-ready"' in source
+    assert '$runtime.sourceHairRuntimeApplied -ne $true' in source
+    assert '$runtime.sourceEyeSurfaceApplied -ne $true' in source
+    assert '[string]$runtime.cornealMaterialStatus -ne "runtime-applied"' in source
+    assert 'review_vrm_sha256 = (Sha256 $runtimeVrmPath)' in source
+    assert 'VISIBLE REVIEW RUNTIME READY' in source
