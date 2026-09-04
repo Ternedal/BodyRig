@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from .sith_reconstruct import SithReconstructError, validate_fit_params
+from .sith_reconstruction_authority import (
+    AUTHORITY_FILENAME,
+    AUTHORITY_FORMAT,
+    AUTHORITY_VERSION,
+    SMPLX_FIT_PROFILE,
+    SMPLX_GENDERS,
+)
 
 FORMAT = "bodyrig-retained-anatomy-source"
 VERSION = 1
@@ -105,15 +112,43 @@ def _write_json_create_only(path: Path, value: dict[str, Any]) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _model_family_authority(stage: Path, *, reconstruction_sha256: str) -> tuple[dict[str, Any], Path]:
+    path = stage / AUTHORITY_FILENAME
+    if not path.is_file():
+        raise RetainedAnatomySourceError("SiTH reconstruction model-family authority is missing")
+    value = _load_json(path, label="SiTH reconstruction model-family authority")
+    required = {
+        "format",
+        "version",
+        "body_model_gender",
+        "smplx_fit_profile",
+        "reconstruction_sha256",
+    }
+    if set(value) != required:
+        raise RetainedAnatomySourceError("SiTH reconstruction model-family authority fields do not match v1")
+    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:
+        raise RetainedAnatomySourceError("SiTH reconstruction model-family authority format/version mismatch")
+    gender = str(value.get("body_model_gender") or "").strip().lower()
+    if gender not in SMPLX_GENDERS:
+        raise RetainedAnatomySourceError("SiTH reconstruction body-model gender is invalid")
+    if value.get("smplx_fit_profile") != SMPLX_FIT_PROFILE:
+        raise RetainedAnatomySourceError("SiTH reconstruction SMPL-X fit profile mismatch")
+    if value.get("reconstruction_sha256") != reconstruction_sha256:
+        raise RetainedAnatomySourceError("SiTH reconstruction model-family authority does not bind current reconstruction")
+    return value, path
+
+
 def publish_retained_anatomy_source(
     source_workspace: str | Path,
     output_workspace: str | Path,
 ) -> dict[str, Any]:
-    """Publish the minimal SiTH/SMPL-X subset needed by the later anatomy gate.
+    """Publish the minimal SiTH/SMPL-X subset needed by later component gates.
 
     The successful clone may delete the full private identity workspace after this
     returns. Raw observations, prepared-input frames/keypoints and the hallucinated
-    back view are intentionally not copied into this retained workspace.
+    back view are intentionally not copied. The tiny model-family receipt is kept
+    because exact female/male/neutral SMPL-X authority is required to reproduce
+    later inverse-LBS component review geometry without guessing.
     """
 
     source_workspace = Path(source_workspace).expanduser().resolve()
@@ -152,6 +187,11 @@ def publish_retained_anatomy_source(
     if reconstruction["format"] != RECON_FORMAT or reconstruction["version"] != RECON_VERSION:
         raise RetainedAnatomySourceError("SiTH reconstruction evidence format/version mismatch")
 
+    reconstruction_sha = _sha256(reconstruction_path)
+    model_authority, model_authority_path = _model_family_authority(
+        stage,
+        reconstruction_sha256=reconstruction_sha,
+    )
     details = reconstruction["reconstruction"]
     if not isinstance(details, dict):
         raise RetainedAnatomySourceError("SiTH reconstruction detail block is missing")
@@ -161,6 +201,7 @@ def publish_retained_anatomy_source(
     texture_name = _safe_leaf(details.get("mesh_texture_name"), label="SiTH reconstruction texture reference")
     relative_sources = {
         "sith-input-v1/reconstruction.json": reconstruction_path,
+        f"sith-input-v1/{AUTHORITY_FILENAME}": model_authority_path,
         "sith-input-v1/smplx/000_smplx.obj": stage / "smplx" / "000_smplx.obj",
         "sith-input-v1/smplx/000_fit.json": stage / "smplx" / "000_fit.json",
         "sith-input-v1/meshes/000_reco.obj": stage / "meshes" / "000_reco.obj",
@@ -168,7 +209,8 @@ def publish_retained_anatomy_source(
         f"sith-input-v1/meshes/{texture_name}": stage / "meshes" / texture_name,
     }
     expected_hashes = {
-        "sith-input-v1/reconstruction.json": _sha256(reconstruction_path),
+        "sith-input-v1/reconstruction.json": reconstruction_sha,
+        f"sith-input-v1/{AUTHORITY_FILENAME}": _sha256(model_authority_path),
         "sith-input-v1/smplx/000_smplx.obj": _expected_sha256(
             details.get("smplx_obj_sha256"), field="smplx_obj_sha256"
         ),
@@ -240,6 +282,9 @@ def publish_retained_anatomy_source(
             "format": FORMAT,
             "version": VERSION,
             "source_reconstruction_sha256": expected_hashes["sith-input-v1/reconstruction.json"],
+            "reconstruction_authority_sha256": expected_hashes[f"sith-input-v1/{AUTHORITY_FILENAME}"],
+            "body_model_gender": model_authority["body_model_gender"],
+            "smplx_fit_profile": model_authority["smplx_fit_profile"],
             "files": dict(sorted(expected_hashes.items())),
             "raw_observation_media_retained": False,
             "prepared_input_retained": False,
@@ -271,6 +316,10 @@ def publish_retained_anatomy_source(
             raise RetainedAnatomySourceError(
                 "private reconstruction evidence changed after retained anatomy publication"
             )
+        if _sha256(model_authority_path) != expected_hashes[f"sith-input-v1/{AUTHORITY_FILENAME}"]:
+            raise RetainedAnatomySourceError(
+                "private reconstruction model-family authority changed after retained anatomy publication"
+            )
         return receipt
     except Exception:
         if created:
@@ -280,7 +329,7 @@ def publish_retained_anatomy_source(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Publish only the reconstruction bytes required by the later BodyRig subject-anatomy gate."
+        description="Publish only the reconstruction bytes required by later BodyRig component gates."
     )
     parser.add_argument("--source-workspace", required=True)
     parser.add_argument("--out", required=True)
@@ -297,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace": str(Path(args.out).expanduser().resolve()),
                 "receipt": str(Path(args.out).expanduser().resolve() / RECEIPT_FILENAME),
                 "reconstruction_sha256": receipt["source_reconstruction_sha256"],
+                "body_model_gender": receipt["body_model_gender"],
                 "production_activation": False,
             },
             separators=(",", ":"),
