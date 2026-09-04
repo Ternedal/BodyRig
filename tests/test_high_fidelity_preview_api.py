@@ -29,28 +29,13 @@ def test_start_request_requires_exact_body_job_id_and_explicit_target_family() -
 
 
 def test_main_app_exposes_preview_start_status_and_image_routes() -> None:
-    routes = {
-        (route.path, frozenset(route.methods or set()))
-        for route in app.routes
-        if hasattr(route, "path") and hasattr(route, "methods")
-    }
+    paths = app.openapi()["paths"]
 
-    assert (
-        "/api/v1/people/{person_id}/body/high-fidelity-preview",
-        frozenset({"POST"}),
-    ) in routes
-    assert (
-        "/api/v1/people/{person_id}/body/high-fidelity-preview",
-        frozenset({"GET"}),
-    ) in routes
-    assert (
-        "/api/v1/high-fidelity-preview-jobs/{job_id}",
-        frozenset({"GET"}),
-    ) in routes
-    assert (
-        "/api/v1/high-fidelity-preview-jobs/{job_id}/image/{view}",
-        frozenset({"GET"}),
-    ) in routes
+    preview = paths["/api/v1/people/{person_id}/body/high-fidelity-preview"]
+    assert "post" in preview
+    assert "get" in preview
+    assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}"]
+    assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}/image/{view}"]
 
 
 def test_latest_success_adds_only_hash_bound_image_urls(monkeypatch: pytest.MonkeyPatch) -> None:
