@@ -1,24 +1,26 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
-import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-from .appearance_boundary import provenance_stage as appearance_boundary_stage
+from .appearance_boundary import appearance_boundary_stage
 from .bodyprint_adjustment import (
     BodyprintAdjustmentEvidenceError,
-    _write_create_only,
     adjustment_evidence_sha256,
     apply_adjustment_to_bodyprint,
-    bind_request_to_proof,
     load_adjustment_evidence,
 )
-from .external_fitter import ExternalFitterError, run_external_fitter
-from .identity import VisualIdentityError, bind_visual_identity_to_proof
+from .external_fitter import (
+    ExternalFitterConfigError,
+    ExternalFitterError,
+    run_external_fitter,
+    validate_external_fitter_config,
+)
 from .package import MRBodyError, build_package
 from .portable_identity import (
     PortableIdentityError,
@@ -37,86 +39,42 @@ from .sith_body_geometry_authority import (
 )
 from .subject_anatomy_provenance import (
     SubjectAnatomyProvenanceError,
-    provenance_stage as subject_anatomy_provenance_stage,
+    subject_anatomy_provenance_stage,
 )
+from .visual_identity import VisualIdentityError, bind_visual_identity_to_proof
 
-CONFIG_FORMAT = "bodyrig-external-fitter-config"
-CONFIG_VERSION = 1
-ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
-ADJUSTMENT_REQUEST_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
-BOUND_ADJUSTMENT_FILENAME = "bodyrig-bodyprint-adjustment.json"
 BUILTIN_SITH_ADAPTER = "sith-smplx-vrm"
 RETAINED_ANATOMY_DIRNAME = "retained-anatomy-source"
 
 
-class ExternalFitterConfigError(ValueError):
-    pass
-
-
-def validate_external_fitter_config(value: Any) -> dict[str, Any]:
-    required = {
-        "format",
-        "version",
-        "adapter",
-        "revision",
-        "command",
-        "capabilities",
-        "timeout_seconds",
-    }
-    if not isinstance(value, dict) or set(value) != required:
-        raise ExternalFitterConfigError("external fitter config fields must match v1 exactly")
-    if value["format"] != CONFIG_FORMAT or value["version"] != CONFIG_VERSION:
-        raise ExternalFitterConfigError("unsupported external fitter config format/version")
-
-    adapter = value["adapter"]
-    if not isinstance(adapter, str) or not ADAPTER_RE.fullmatch(adapter):
-        raise ExternalFitterConfigError("external fitter config adapter is invalid")
-    revision = value["revision"]
-    if not isinstance(revision, str) or not revision.strip() or len(revision) > 160:
-        raise ExternalFitterConfigError("external fitter config revision is invalid")
-
-    command = value["command"]
-    if (
-        not isinstance(command, list)
-        or not 1 <= len(command) <= 32
-        or any(not isinstance(item, str) or not item or len(item) > 2000 for item in command)
-    ):
-        raise ExternalFitterConfigError("external fitter config command must be 1..32 non-empty argv strings")
-
-    capabilities = value["capabilities"]
-    capability_fields = {"visual_identity", "textures", "hair", "clothing"}
-    if not isinstance(capabilities, dict) or set(capabilities) != capability_fields:
-        raise ExternalFitterConfigError("external fitter capability fields must match v1 exactly")
-    if any(type(capabilities[field]) is not bool for field in capability_fields):
-        raise ExternalFitterConfigError("external fitter capabilities must be booleans")
-    if capabilities["visual_identity"] is not True:
-        raise ExternalFitterConfigError("external fitter must explicitly support visual_identity")
-    if capabilities["clothing"] is not False:
-        raise ExternalFitterConfigError(
-            "external fitter clothing capability must be false; garments/outfits are external to the portable BodyRig body identity"
-        )
-
-    timeout = value["timeout_seconds"]
-    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 86_400:
-        raise ExternalFitterConfigError("external fitter timeout_seconds must be in 1..86400")
-    return value
+def _write_create_only(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        raise ValueError(f"evidence path already exists: {path}")
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def _resolve_adjustment_path(args: argparse.Namespace) -> str:
-    explicit = str(args.bodyprint_adjustment or "").strip()
-    request_path = os.environ.get(ADJUSTMENT_REQUEST_ENV, "").strip()
-    if explicit and request_path:
-        raise BodyprintAdjustmentEvidenceError(
-            f"pass --bodyprint-adjustment or {ADJUSTMENT_REQUEST_ENV}, never both"
-        )
-    if explicit:
-        return explicit
-    if not request_path:
-        return ""
+    value = str(args.bodyprint_adjustment or "").strip()
+    return value
 
-    request = read_canonical_json(request_path, label="BodyPrint adjustment request")
-    evidence = bind_request_to_proof(request, proof_path=args.proof)
-    evidence_path = Path(args.proof).expanduser().resolve().parent / BOUND_ADJUSTMENT_FILENAME
+
+def _bodyprint_evidence_path(output: Path) -> Path:
+    return output.with_suffix(output.suffix + ".bodyprint-adjustment.json")
+
+
+def _persist_adjustment_evidence(output: Path, evidence: dict) -> str:
+    evidence_path = _bodyprint_evidence_path(output)
     _write_create_only(evidence_path, evidence)
     return str(evidence_path)
 
@@ -210,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
             avatar_vrm = bind_sith_body_geometry_authority(
                 avatar_vrm,
                 args.identity_workspace,
+                bodyprint_adjustment=adjustment_request,
+                bodyprint_adjustment_evidence_sha256=adjustment_hash,
             )
 
         pipeline = [
