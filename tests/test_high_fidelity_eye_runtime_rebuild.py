@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +21,7 @@ def _fingerprint_authority(tmp_path: Path, *, package_sha: str, body_id: str, fi
         "candidatePackageSha256": package_sha,
         "canonicalBodyId": body_id,
         "fingerprintSha256": fingerprint_sha,
-        "reviewVrmSha256": "r" * 64,
+        "reviewVrmSha256": "4" * 64,
         "fingerprint": {
             "eyeMetadata": {
                 "eyeComponentReceiptSha256": "1" * 64,
@@ -120,11 +119,11 @@ def test_finalize_rebuild_rejects_fingerprint_mismatch_without_receipt(tmp_path:
     staging.mkdir()
     (staging / rebuild.REVIEW_VRM_NAME).write_bytes(b"rebuilt-eye-vrm")
     (staging / rebuild.BRIDGE_RESULT_NAME).write_text("{}\n", encoding="utf-8")
-    source_fp, fp_path = _fingerprint_authority(tmp_path, package_sha="p" * 64, body_id="body-1", fingerprint_sha="a" * 64)
+    source_fp, fp_path = _fingerprint_authority(tmp_path, package_sha="5" * 64, body_id="body-1", fingerprint_sha="a" * 64)
     preparation = {
         "bodyrigRevision": "b" * 40,
         "canonicalBodyId": "body-1",
-        "candidatePackageSha256": "p" * 64,
+        "candidatePackageSha256": "5" * 64,
         "baseAvatarVrmSha256": "c" * 64,
     }
     bridge = {"reviewVrmSha256": _sha((staging / rebuild.REVIEW_VRM_NAME).read_bytes())}
