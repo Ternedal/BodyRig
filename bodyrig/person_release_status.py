@@ -193,8 +193,11 @@ def _strict_platform_attestation(acceptance_dir: Path, *, prefix: str, platform:
     for field, expected in exact_matches.items():
         if not str(expected or "").strip() or str(attestation.get(field) or "") != str(expected):
             raise PersonReleaseStatusError(f"{prefix} renderer attestation no longer matches machine probe field {field}")
-    if not str(attestation.get("quality_note") or "").strip():
+    quality_note = str(attestation.get("quality_note") or "").strip()
+    if not quality_note:
         raise PersonReleaseStatusError(f"{prefix} renderer attestation has no operator quality note")
+    if re.fullmatch(r"<[^>]+>", quality_note):
+        raise PersonReleaseStatusError(f"{prefix} renderer attestation quality note is still a generated placeholder")
 
 
 def _stages(gate: str, state: str) -> dict[str, str]:
