@@ -60,6 +60,12 @@ function Assert-MinimumPhysicalHandoffRevision {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 Assert-MinimumPhysicalHandoffRevision -RepoRoot $repoRoot -CurrentHead $head -MinimumRevision $minimumPhysicalHandoffRevision
+$statusScript = Join-Path $repoRoot "high-fidelity-physical-status.ps1"
+if (-not (Test-Path -LiteralPath $statusScript -PathType Leaf)) {
+    throw "Canonical high-fidelity status script is missing; refusing to create fresh Gate A: $statusScript"
+}
+$statusScript = (Resolve-Path -LiteralPath $statusScript).Path
+$statusCommand = "pwsh -NoProfile -File `"$statusScript`" -PreviewJobId '$PreviewJobId'"
 
 $pythonCandidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (Test-Path -LiteralPath $pythonCandidate -PathType Leaf) {
@@ -143,13 +149,6 @@ try {
 } finally {
     $env:PYTHONPATH = $previousPythonPath
 }
-
-$statusScript = Join-Path $repoRoot "high-fidelity-physical-status.ps1"
-if (-not (Test-Path -LiteralPath $statusScript -PathType Leaf)) {
-    throw "Canonical high-fidelity status script is missing after Gate A creation: $statusScript"
-}
-$statusScript = (Resolve-Path -LiteralPath $statusScript).Path
-$statusCommand = "pwsh -NoProfile -File `"$statusScript`" -PreviewJobId '$PreviewJobId'"
 
 Write-Host "BodyRig high-fidelity physical handoff: PASS"
 Write-Host "Preview:      $PreviewJobId"
