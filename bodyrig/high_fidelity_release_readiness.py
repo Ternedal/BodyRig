@@ -13,10 +13,8 @@ from .high_fidelity_human_review import (
     HighFidelityHumanReviewError,
     review_status as high_fidelity_human_review_status,
 )
-from .high_fidelity_physical_acceptance import (
-    HighFidelityPhysicalAcceptanceError,
-    physical_acceptance_status,
-)
+from .high_fidelity_physical_acceptance import HighFidelityPhysicalAcceptanceError
+from .high_fidelity_physical_acceptance_audit import audited_physical_acceptance_status
 
 FORMAT = "bodyrig-high-fidelity-release-readiness"
 VERSION = 1
@@ -294,7 +292,7 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
         result["high_fidelity_human_review_required"] = False
         result["software_ready_for_physical_acceptance"] = True
         try:
-            physical = physical_acceptance_status(
+            physical = audited_physical_acceptance_status(
                 preview_job_id,
                 package_path=package,
                 package_sha256=expected_sha,
