@@ -75,6 +75,8 @@ Windows and Quest core probes independently require current HEAD == exact Gate A
 
 Quest adb authority is fail-closed in both the reference wrapper and core Quest probe: neither defaults to PATH `adb`; both derive the permitted `adb.exe` from `reference-renderer/renderer-contract.json` → pinned Unity editor → AndroidPlayer SDK; an explicit `-AdbExe` must resolve to that exact executable. The core Quest probe now also directs successful runs to `record-reference-renderer-acceptance.ps1`, never the low-level attestation writer.
 
+Renderer human-note authority is also fail-closed at both write and final-read boundaries: `record-renderer-acceptance.ps1` rejects a trimmed pure `<...>` placeholder before evidence creation, and `complete-acceptance.ps1` independently rejects placeholder quality notes before any release with `production_activation=true` can be written. Direct low-level attestation therefore cannot manufacture human PASS by leaving a generated note unchanged.
+
 ## Checkout / runtime authority
 
 Before Gate A, preflight/status/direct Gate-A preparation require a clean checkout containing minimum-safe handoff revision:
@@ -118,7 +120,7 @@ Never hand-edit evidence JSON, delete create-only acceptance output to retry, us
 
 Current authority code head before this documentation commit:
 
-- `69e028dcbd23527df0a3d9700458c9ccd7dc6ead`: `ci` #1747 **SUCCESS**, `windows-log-handle-regression` #919 **SUCCESS**.
+- `7b16b7b21b289a415c7dcff279bab5f7621099dd`: `ci` #1751 **SUCCESS**, `windows-log-handle-regression` #923 **SUCCESS**.
   - Python 3.11: SUCCESS.
   - Python 3.12: SUCCESS.
   - PowerShell parsing/contracts: SUCCESS.
@@ -127,6 +129,7 @@ Current authority code head before this documentation commit:
 
 Relevant earlier green heads:
 
+- canonical Quest operator handoff `69e028dcbd23527df0a3d9700458c9ccd7dc6ead`: `ci` #1747 / log #919 SUCCESS;
 - Quest adb authority `3d010727687356e69a8104290cfa6f109a689fc8`: `ci` #1743 / log #915 SUCCESS;
 - Gate-A frozen-review authority `3aa388b10dbf2a4776163c032a75f52d87fa5c52`: `ci` #1739 / log #911 SUCCESS;
 - recovery/operator hardening `f8d9731a333670f2b76f8c4f53c4211d8dcc85d9`: `ci` #1728 / log #900 SUCCESS;
