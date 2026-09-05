@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
-from .hands_feet_nails_authority import (
-    HandsFeetNailsAuthorityError,
-    validate_authority_structure,
+from .hands_feet_nails_release_authority import (
+    HandsFeetNailsReleaseAuthorityError,
+    validate_release_authority_structure,
 )
 
 FORMAT = "bodyrig-digital-twin-status"
@@ -102,27 +102,29 @@ def _hands_nails_gate(
         return {
             "ready": False,
             "state": "missing",
-            "blockers": ["hands/feet/nails authority is not implemented/recorded"],
+            "blockers": ["hands/feet/nails finalized authority is not implemented/recorded"],
         }
     try:
-        value = validate_authority_structure(
+        value = validate_release_authority_structure(
             authority,
             assembly_receipt=assembly_receipt,
             body_release_status=body_release_status,
         )
-    except HandsFeetNailsAuthorityError as exc:
+    except HandsFeetNailsReleaseAuthorityError as exc:
         return {
             "ready": False,
             "state": "blocked",
-            "blockers": [f"hands/feet/nails authority is invalid: {exc}"],
+            "blockers": [f"hands/feet/nails finalized authority is invalid: {exc}"],
         }
     return {
         "ready": True,
         "state": "complete",
         "blockers": [],
+        "release_id": str(value["release_id"]),
         "review_id": str(value["review_id"]),
         "source_capture_id": str(value["source_capture_id"]),
         "body_package_sha256": str(value["body_package_sha256"]),
+        "bodyrig_revision": str(value["bodyrig_revision"]),
     }
 
 
