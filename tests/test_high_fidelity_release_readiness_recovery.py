@@ -31,6 +31,10 @@ def _base(package: Path) -> dict:
     }
 
 
+def _invalid_review(_package: Path) -> dict:
+    raise readiness.HighFidelityHumanReviewError("human review quality note is still a generated placeholder")
+
+
 def test_invalid_review_routes_to_preserving_recovery_gate(monkeypatch, tmp_path: Path) -> None:
     package = tmp_path / "promoted.mrbody"
     package.write_bytes(b"exact-package")
@@ -40,11 +44,7 @@ def test_invalid_review_routes_to_preserving_recovery_gate(monkeypatch, tmp_path
     archive_path = tmp_path / f"invalid-review.invalid-{receipt_sha}.json"
 
     monkeypatch.setattr(readiness, "inspect_continuation", lambda _job: _base(package))
-
-    def invalid(_package: Path) -> dict:
-        raise readiness.HighFidelityHumanReviewError("human review quality note is still a generated placeholder")
-
-    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", invalid)
+    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", _invalid_review)
     monkeypatch.setattr(
         readiness,
         "invalid_review_recovery_status",
@@ -78,11 +78,7 @@ def test_invalid_review_without_safe_recovery_remains_blocked(monkeypatch, tmp_p
     package = tmp_path / "promoted.mrbody"
     package.write_bytes(b"exact-package")
     monkeypatch.setattr(readiness, "inspect_continuation", lambda _job: _base(package))
-
-    def invalid(_package: Path) -> dict:
-        raise readiness.HighFidelityHumanReviewError("review is invalid")
-
-    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", invalid)
+    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", _invalid_review)
     monkeypatch.setattr(
         readiness,
         "invalid_review_recovery_status",
@@ -92,5 +88,59 @@ def test_invalid_review_without_safe_recovery_remains_blocked(monkeypatch, tmp_p
     result = readiness.inspect_release_readiness(JOB_ID)
 
     assert result["state"] == "blocked"
+    assert result["next_gate"] is None
+    assert result["production_activation"] is False
+
+
+def test_recovery_gate_is_not_exposed_if_package_changes_during_recovery_inspection(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "promoted.mrbody"
+    package.write_bytes(b"exact-package")
+    base = _base(package)
+    original_sha = base["current_package_sha256"]
+    monkeypatch.setattr(readiness, "inspect_continuation", lambda _job: base)
+    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", _invalid_review)
+
+    def recovery(_package: Path) -> dict:
+        package.write_bytes(b"changed-during-recovery-inspection")
+        return {
+            "available": True,
+            "reason": "invalid review",
+            "package_sha256": original_sha,
+            "review_path": str(tmp_path / "invalid.json"),
+            "receipt_sha256": "b" * 64,
+            "archive_path": str(tmp_path / "invalid.archive.json"),
+        }
+
+    monkeypatch.setattr(readiness, "invalid_review_recovery_status", recovery)
+    result = readiness.inspect_release_readiness(JOB_ID)
+
+    assert result["state"] == "blocked"
+    assert result["component_package_complete"] is False
+    assert result["next_gate"] is None
+    assert result["production_activation"] is False
+
+
+def test_recovery_gate_is_not_exposed_for_different_package_sha(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "promoted.mrbody"
+    package.write_bytes(b"exact-package")
+    monkeypatch.setattr(readiness, "inspect_continuation", lambda _job: _base(package))
+    monkeypatch.setattr(readiness, "high_fidelity_human_review_status", _invalid_review)
+    monkeypatch.setattr(
+        readiness,
+        "invalid_review_recovery_status",
+        lambda _package: {
+            "available": True,
+            "reason": "invalid review",
+            "package_sha256": "c" * 64,
+            "review_path": str(tmp_path / "invalid.json"),
+            "receipt_sha256": "d" * 64,
+            "archive_path": str(tmp_path / "invalid.archive.json"),
+        },
+    )
+
+    result = readiness.inspect_release_readiness(JOB_ID)
+
+    assert result["state"] == "blocked"
+    assert result["component_package_complete"] is False
     assert result["next_gate"] is None
     assert result["production_activation"] is False
