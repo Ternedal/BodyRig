@@ -31,6 +31,16 @@ def test_operator_runbook_uses_preflight_status_loop_and_reference_wrappers() ->
     assert "Do not call the low-level renderer/core acceptance scripts directly" in runbook
 
 
+def test_operator_runbook_starts_new_physical_sessions_from_main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    runbook = (root / "HIGH-FIDELITY-PHYSICAL-RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "git switch main" in runbook
+    assert "git pull --ff-only origin main" in runbook
+    assert "agent/high-fidelity-integration-20260904" not in runbook
+    assert "merged historical integration lineage" in runbook
+
+
 def test_preview_listing_wrapper_is_read_only_checkout_bound_discovery() -> None:
     root = Path(__file__).resolve().parents[1]
     source = (root / "list-high-fidelity-previews.ps1").read_text(encoding="utf-8")
