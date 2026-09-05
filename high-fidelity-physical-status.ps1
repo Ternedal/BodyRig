@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^hfpreview-[0-9a-f]{32}$')][string]$PreviewJobId,
-    [ValidatePattern('^[A-Za-z0-9._:-]+$')][string]$Serial = "",
+    [string]$Serial = "",
     [switch]$Json
 )
 
