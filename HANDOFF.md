@@ -1,117 +1,111 @@
 # BodyRig handoff
 
-_Last updated: 2026-09-04_
+_Last updated: 2026-09-05_
 
-## Repository state
+## Canonical repository authority
 
-BodyRig now has a real canonical software trunk.
+BodyRig now has one canonical software trunk: `main`.
 
-- GitHub default/integration branch: `main`.
-- Foundation PR #66 landed successfully.
-- Foundation merge on `main`: `e4b032107a3bdaa8a57ba5d02462f9c32ff934f7`.
-- PR #66 exact pre-merge head `eb25334d071e345e4e9514ff606117c188badfb3` passed `ci` #1566 and `windows-log-handle-regression` #738.
-- Normal new work must branch from exact current `main` unless a documented frozen physical-evidence procedure explicitly requires another SHA.
-- Do **not** infer current authority from branch age, PR number, or Git author name.
-- PR #1 is closed and is no longer an authority pointer.
+- PR #54 (`Person Studio: source-grounded photoreal person workflow`) is merged and closed.
+- PR #83 (`High fidelity: integrate hair + eyes + face-secondary completion chain`) was merged into the #54 lineage before #54 landed.
+- #54 landed on `main` as merge commit `442978a0efca258a892e7d74af3ca0eac9532229`.
+- Exact pre-merge integrated head `5eda72ff68fd52ab928904eaa6e26c1d25f2628a` passed `ci` #1771 and `windows-log-handle-regression` #943.
+- The #54 merge commit has zero file delta from that exact green pre-merge head, so the landed tree is byte-for-byte the validated integrated tree.
 
-`main` is software integration authority. Historical physical evidence remains bound to the exact BodyRig revision recorded in that evidence; trunk normalization does not rewrite it.
+Normal new work starts from exact current `main`. Feature branches and old PR heads are historical development/evidence lineage, not current operator software authority merely because they once had green CI.
 
-## Old graph reconciliation already completed
+Historical physical evidence is different: it remains bound to the exact BodyRig revision, package and runtime recorded in that evidence. Landing, closing, retargeting or rebasing code never rewrites historical physical authority.
 
-The two commits that looked stranded on `agent/bodyrig-v1` were:
+## Integrated high-fidelity software chain
 
-- `7087563235db2648710b3256dd435189259d1092` — `fix: resolve remote Stash VR paths over SMB`
-- `670a179df75cbd80459d00bcaf0e612605ca405a` — `test: lock remote Stash VR share resolution`
+The trunk now contains the complete software continuation:
 
-Their surviving content is already present on `main`, including the fail-closed remote `X:\\VR` → same-host `VR_X` mapping and `tests/test_stash_remote_vr_share.py`. They were deliberately not cherry-picked merely to duplicate ancestry.
+Stash/SiTH source → retained reconstruction/anatomy → anatomy promotion → source hair review/deformation/promotion → eye/iris isolation, review, fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → exact final promoted `.mrbody` → package-bound high-fidelity human review → fresh promoted-package Gate A → canonical reference-wrapped Windows acceptance → canonical reference-wrapped Quest acceptance → canonical final release.
 
-The following old stacked integration PRs have been verified with `ahead_by=0` against current `main` and closed as `LANDED`:
+Important authority boundaries remain intact:
 
-- PR #40 — fitted SMPL-X final body topology.
-- PR #41 — anatomy-aware canonical SMPL-X appearance path.
-- PR #51 — explicit high-fidelity component gates.
-- PR #53 — observed embodiment / Motor State v2 lineage.
+- component preview/review is not physical PASS;
+- promotion does not mutate the baseline source package in place;
+- review-only combined runtimes cannot silently grant component completion;
+- invalid create-only high-fidelity human-review receipts use the preserving recovery path only before fresh Gate A;
+- fresh Gate A copies and freezes exact package-bound review authority and freezes the exact BodyRig revision for the rest of the physical chain;
+- Windows/Quest status exposes canonical reference wrappers, not raw low-level acceptance commands;
+- Quest adb authority comes from the pinned Unity Android SDK, never an arbitrary PATH adb;
+- generated `<...>` human quality-note placeholders fail closed;
+- `production_activation=true` can arise only from canonical final release after real operator-supplied physical/human acceptance.
 
-PR #1 has been closed as `SUPERSEDED` for repository/software authority. Its historical exact-SHA evidence remains historical evidence only.
+## Canonical operator entry point
 
-## Active development lines
+Before a fresh promoted-package Gate A exists:
 
-These are active deltas, not independent trunks:
+```powershell
+cd <YOUR-BODYRIG-CHECKOUT>
+git status --short
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git status --short
+git rev-parse HEAD
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
+pwsh -NoProfile -File .\list-high-fidelity-previews.ps1 -SucceededOnly
+```
 
-- PR #54 / `agent/person-studio-photoreal-20260902` — source-grounded photoreal Person Studio continuation; retargeted directly to `main`.
-- PR #65 / `agent/person-studio-hair-deformation-review-20260904` — exact physical hair deformation review authority; remains correctly stacked on #54 and is draft/unmerged.
-- PR #60 / `agent/recovery-throughput-v3-20260903` — recovery throughput v3 performance candidate; retargeted directly to `main`; requires real A/B evidence before authority.
-- PR #61 / `agent/person-studio-diagnostics-20260903` — diagnostics-only Person Studio improvements; retargeted directly to `main`.
-- PR #62 / `agent/bodyrig-ui-late-fit-resume` — explicit late-fit resume from retained reconstruction; retargeted directly to `main`.
-- PR #63 / `agent/gate-a-appearance-resume-20260903` — Gate A anatomy-aware appearance/resume fix; retargeted directly to `main`.
-- PR #64 / `agent/bodyrig-post-clone-continuation` — post-clone continuation checkpoint; remains correctly stacked on #62.
+Both `git status --short` calls must be empty and preflight must PASS.
 
-Known real deltas after trunk normalization:
+Then select the intended persisted preview and use status as the sole source of the next canonical operator action:
 
-- #54: 108 commits over the foundation lineage before branch reconciliation.
-- #60: 13 commits.
-- #61: 4 commits.
-- #62: 12 commits.
-- #63: 20 commits.
-- #64: 3 commits over #62 in its intended stack.
-- #65: 8 commits over #54 in its intended stack.
+```powershell
+$preview = 'hfpreview-0123456789abcdef0123456789abcdef'
+pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
+```
 
-The branch heads retain their historical exact-head CI/evidence identity. Do not force-rebase them merely to make the graph pretty; reconcile deliberately and preserve physical evidence semantics.
+Run exactly one printed next command, perform any genuinely required human/physical review, then rerun status.
 
-## Old PRs that still contain unique content
+Once `prepare-high-fidelity-physical-acceptance.ps1` creates fresh Gate A, **freeze the checkout**. Do not pull, switch branch, edit tracked files or otherwise change the repo until that acceptance chain completes or is deliberately abandoned.
 
-Do not close these merely because they are old. Current compare against `main` still shows unique commits/content:
+The full procedure is in `HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`.
 
-- PR #49 — 39 unique commits: physical A/B evidence/handoff/review toolchain.
-- PR #43 — 4 unique commits: reconstruction-authority binding in fidelity checkpoints.
-- PR #42 — 4 unique commits: interrupted-fit recovery ladder hardening.
-- PR #39 — 14 unique commits: topology diagnostics and bounded repair.
-- PR #21 — 2 unique commits: profiled fidelity-to-renderer-ready operator path.
-- PR #19 — 2 unique commits: cumulative renderer-bundle Gate A rebind helper.
+## Remaining real work
 
-Each must be explicitly classified as `ACTIVE`, `FROZEN EVIDENCE`, `SUPERSEDED`, or deliberately ported before closure.
+There is currently no known software-only blocker in the integrated high-fidelity acceptance chain. The remaining authority is deliberately real/manual:
 
-## Authority rules
+1. run preflight on the actual BodyRig Windows/WSL rig;
+2. select the intended succeeded persisted `hfpreview-...`;
+3. if and only if status offers high-fidelity human-review recovery, preserve/archive the invalid receipt through the exact printed recovery command;
+4. perform the final package-bound human review if status requires it;
+5. create a fresh promoted-package Gate A;
+6. run the real reference-wrapped Windows renderer/deformation probe and perform the actual human attestation;
+7. run the real reference-wrapped Quest probe on Quest-class hardware and perform the headset attestation;
+8. run canonical final release;
+9. require final audited status with `production_ready=true` and `production_activation=true`.
 
-1. **Software trunk authority**
-   - Exact clean current `main` SHA.
-   - A feature/fix PR is an integration candidate, not global software authority merely because its CI is green.
+CI, screenshots and software-generated evidence cannot substitute for those physical/human steps.
 
-2. **Physical evidence authority**
-   - Existing physical evidence remains bound to the exact revision recorded in that evidence.
-   - Rebasing, retargeting, closing a PR, or landing code does not retroactively rewrite physical evidence authority.
-   - New physical runs require an exact clean checkout and the current documented operator path.
+## Open PR / historical branch discipline
 
-3. **High-fidelity / production authority**
-   - CI can validate software/trust contracts but cannot substitute for real CUDA/SiTH execution, human visual review, Windows deformation review, Quest review, or final release gates.
-   - `production_activation=true` may only arise from the canonical final release path.
+A number of older stacked component, recovery and performance PRs may still be open administratively even though the integrated high-fidelity line has landed. Do not infer that they are required operator branches.
 
-4. **SiTH setup**
-   - New canonical physical runs require strict nested `bodyrig-sith-setup` v4 evidence. Older v1/v2/v3 setup evidence is not sufficient for a new run.
+Before closing or porting an old PR, compare its exact head against current `main` and classify it deliberately as one of:
 
-## Current physical/product blockers
+- `LANDED` — its effective content is already in trunk;
+- `SUPERSEDED` — a later implementation replaced it;
+- `FROZEN EVIDENCE` — branch identity must remain available for historical physical evidence;
+- `ACTIVE CANDIDATE` — it still contains a deliberate unlanded delta requiring its own validation.
 
-The remaining product gate is still physical, not a unit-test problem:
+Performance candidates such as recovery-throughput changes still require their own real A/B evidence before they can become production authority; speed alone or historical green CI is not enough.
 
-1. real Stash-bound subject with decodable local source;
-2. source-derived reconstruction/retained anatomy on the target rig;
-3. valid high-fidelity `.mrbody` / component continuation;
-4. explicit component review and promotion boundaries;
-5. Windows render/deformation acceptance;
-6. Quest-class acceptance on the exact accepted runtime/package;
-7. final release gate.
+## Non-negotiable evidence rules
 
-Hair deformation review is implemented as review authority only. Hair materialization/promotion is not yet landed. The safe promotion design must reconstruct and verify the exact hair-only intermediate rather than copy the combined hair+eye review VRM. Eye authority is still blocked by explicit iris identity/appearance authority and remaining face-secondary work.
+Never:
 
-## Normalization sequence from here
-
-1. Remove the obsolete PR #1 authority-pointer wording from operator documentation.
-2. Reconcile active PRs against `main` while preserving only their real deltas and exact evidence semantics.
-3. Compare recovery-throughput v2/v3 unique content before closing old performance candidates.
-4. Classify the remaining old unique-content PRs explicitly.
-5. Resume new feature work once the active graph is shallow and understandable.
-
-Coordination issue: #67 `BodyRig trunk normalization and PR reconciliation`.
+- rebind historical Gate A/package/runtime evidence to new bytes;
+- rerun expensive retained reconstruction merely to manufacture authority;
+- use `accept-reconciled-physical-clone.ps1` as a shortcut for the high-fidelity release chain;
+- hand-edit evidence JSON;
+- manually delete create-only acceptance/review evidence to retry;
+- substitute PATH adb for the pinned Unity Android SDK adb;
+- bypass the status-generated reference wrappers;
+- synthesize or infer human/physical PASS.
 
 ## Handoff discipline
 
@@ -123,6 +117,6 @@ Every meaningful BodyRig PR should state:
 - authority/activation boundary;
 - automated validation performed;
 - physical validation still required;
-- whether it supersedes or stacks on another PR.
+- whether it supersedes, stacks on, or is already represented by another integration line.
 
-Update this file when the canonical trunk, active integration head, physical authority, or next hard blocker changes.
+Update this file whenever canonical trunk authority, the physical operator path, or the next hard blocker changes.
