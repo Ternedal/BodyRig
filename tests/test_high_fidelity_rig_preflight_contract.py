@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import bodyrig.high_fidelity_release_readiness_cli as cli
+
 
 def test_rig_preflight_checks_pinned_renderer_toolchain_without_writing_evidence() -> None:
     root = Path(__file__).resolve().parents[1]
@@ -17,6 +19,10 @@ def test_rig_preflight_checks_pinned_renderer_toolchain_without_writing_evidence
     assert "adb devices" in source
     assert "bodyrig.__file__" in source
     assert "git -C $repoRoot status --porcelain" in source
+    assert cli.MINIMUM_PHYSICAL_HANDOFF_REVISION in source
+    assert "git -C $RepoRoot cat-file -e $anchorSpec" in source
+    assert "git -C $RepoRoot merge-base --is-ancestor $MinimumRevision $CurrentHead" in source
+    assert "Handoff floor:" in source
     assert "No acceptance evidence was created or modified" in source
     assert "prepare-high-fidelity-physical-acceptance.ps1" in source
     for wrapper in (
@@ -35,6 +41,17 @@ def test_rig_preflight_checks_pinned_renderer_toolchain_without_writing_evidence
         assert core in source
     assert "Set-Content" not in source
     assert "Out-File" not in source
+
+
+def test_rig_preflight_checks_minimum_handoff_revision_before_python_and_renderer_checks() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "high-fidelity-rig-preflight.ps1").read_text(encoding="utf-8")
+
+    ancestry = source.index("Assert-MinimumPhysicalHandoffRevision -RepoRoot $repoRoot")
+    python_lookup = source.index("Get-Command python")
+    renderer_check = source.index("check-reference-renderer-ready.ps1")
+
+    assert ancestry < python_lookup < renderer_check
 
 
 def test_rig_preflight_delegates_renderer_manifest_and_project_pin_validation_to_canonical_checker() -> None:
