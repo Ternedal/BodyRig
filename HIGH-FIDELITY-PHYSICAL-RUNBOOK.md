@@ -21,6 +21,15 @@ pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 
 Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
 
+Preflight also requires the complete canonical reference-wrapper chain to be present:
+
+- `run-reference-windows-renderer-probe.ps1`;
+- `record-reference-renderer-acceptance.ps1`;
+- `run-reference-quest-renderer-probe.ps1`;
+- `complete-reference-acceptance.ps1`.
+
+The lower-level `run-windows-renderer-probe.ps1`, `record-renderer-acceptance.ps1`, `run-quest-renderer-probe.ps1` and `complete-acceptance.ps1` remain implementation dependencies. Do not call them directly in the high-fidelity physical session unless you are deliberately diagnosing the low-level implementation outside canonical release authority.
+
 A Quest does not have to be connected for this first preflight. If you want to prove the headset/ADB path before starting the acceptance chain, connect the Quest and run:
 
 ```powershell
@@ -56,9 +65,11 @@ The listing is read-only. It does not reconcile, rerun or mutate preview jobs.
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
 ```
 
-Run this again **after every successful command below**. It validates the current promoted package, package-bound review, transitive handoff authority, fresh Gate A/QA/runtime hashes, source Gate A lineage, physical evidence and the clean operator checkout before it exposes an executable next command.
+Run this again **after every successful command below**. It validates the current promoted package, package-bound review, transitive handoff authority, fresh Gate A/QA/runtime hashes, source Gate A lineage, canonical reference-renderer policy, physical evidence and the clean operator checkout before it exposes an executable next command.
 
-If you selected an explicit Quest serial, carry it on the status command. It is ignored for non-Quest actions and inserted only when the Quest probe is the next gate:
+The status layer receives raw physical state from the low-level state machine, but it never exposes those low-level physical commands directly. It rewrites physical progression onto the same canonical reference wrappers used by BodyRig V1 and blocks if `reference_acceptance_policy` rejects legacy layout or renderer-contract drift.
+
+If you selected an explicit Quest serial, carry it on the status command. It is ignored for non-Quest actions and inserted only when the Quest reference probe is the next gate:
 
 ```powershell
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Serial $questSerial
@@ -94,7 +105,13 @@ The command creates a new acceptance directory atomically from the exact promote
 
 ### `physical_windows_acceptance` — machine probe
 
-Run the exact command printed by status. The renderer build itself independently fails closed if the Unity project version, renderer application id, deformation-sequence contract or UniVRM package pin drifts before Unity is started. It then builds with the pinned reference-renderer contract and starts the canonical WindowsPlayer machine + six-pose deformation probe, persisting the exact evidence pair.
+The printed command must route through:
+
+```powershell
+.\run-reference-windows-renderer-probe.ps1 -AcceptanceDir '<acceptance-dir>'
+```
+
+The reference wrapper stages the low-level Windows probe into a non-canonical temporary directory, revalidates the pair against `renderer-contract.json`, then atomically commits the canonical `windows-evidence/` directory. The renderer build itself independently fails closed if the Unity project version, renderer application id, deformation-sequence contract or UniVRM package pin drifts before Unity is started.
 
 After it completes, run the status command again before doing anything else.
 
@@ -110,7 +127,7 @@ Before executing the attestation command, physically inspect the complete Window
 - no cross-limb leakage is visible;
 - skin QA was considered.
 
-The operator status tool reads the exact renderer name/version from the committed Windows probe and inserts `-ConfirmQualityChecklist` into the generated attestation command. Replace only the quality-note placeholder with a real observation. Do not attest PASS if any item is uncertain or failed.
+The printed command must route through `record-reference-renderer-acceptance.ps1`. That wrapper revalidates the canonical evidence pair and renderer contract, supplies the exact contracted renderer identity to the core recorder, and requires `-ConfirmQualityChecklist`. Replace only the quality-note placeholder with a real observation. Do not attest PASS if any item is uncertain or failed.
 
 Then rerun status.
 
@@ -130,21 +147,27 @@ pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected -
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Serial $questSerial
 ```
 
-Run the exact Quest command printed by status. The status layer injects the `adb.exe` from the pinned Unity Android SDK automatically, and adds `-Serial` when you supplied one. Do **not** replace it with an arbitrary PATH adb or manually rewrite the generated command.
+The printed command must route through `run-reference-quest-renderer-probe.ps1`. The status layer injects the `adb.exe` from the pinned Unity Android SDK automatically and adds `-Serial` when you supplied one. Do **not** replace it with an arbitrary PATH adb or manually rewrite the generated command.
 
-The exact same accepted runtime is then put through the canonical Quest-class/Android probe. Evidence must come from an actual Quest/Oculus-class device; the canonical validator checks platform/device identity and exact package/runtime/revision lineage.
+The reference wrapper lets the low-level Quest probe stage into a unique non-canonical directory, revalidates the pair against the renderer contract and only then commits `quest-evidence/`. Evidence must come from an actual Quest/Oculus-class device and remain bound to the exact package/runtime/revision.
 
 Then rerun status.
 
 ### `physical_quest_acceptance` — human attestation
 
-Review the complete six-pose sequence **in the headset** against the same quality checklist used on Windows. The status tool fills the renderer identity and required checklist switch from exact probe evidence. Replace only the headset quality-note placeholder with what you actually observed.
+Review the complete six-pose sequence **in the headset** against the same quality checklist used on Windows. The printed command again routes through `record-reference-renderer-acceptance.ps1`, which revalidates the Quest evidence pair and exact renderer contract before the core human attestation is written. Replace only the headset quality-note placeholder with what you actually observed.
 
 Then rerun status.
 
 ### `final_release`
 
-Only after both physical attestations validate will status expose `complete-acceptance.ps1`. Run exactly that generated command, then rerun status once more.
+Only after both reference-wrapped physical attestations validate will status expose:
+
+```powershell
+.\complete-reference-acceptance.ps1 -AcceptanceDir '<acceptance-dir>'
+```
+
+The reference release wrapper revalidates renderer contract, evidence layout and structured human quality review before delegating to core `complete-acceptance.ps1`. Run exactly the generated command, then rerun status once more.
 
 ## 4. Definition of done
 
@@ -161,7 +184,7 @@ production_ready=true
 production_activation=true
 ```
 
-Those flags are valid only because the exact promoted package and handoff chain have passed package-bound human review, fresh Gate A, Windows physical acceptance, Quest physical acceptance and canonical final release.
+Those flags are valid only because the exact promoted package and handoff chain have passed package-bound human review, fresh Gate A, canonical reference-policy Windows physical acceptance, canonical reference-policy Quest physical acceptance and canonical final release.
 
 ## 5. Things not to do during this run
 
@@ -172,6 +195,7 @@ Those flags are valid only because the exact promoted package and handoff chain 
 - Do not manually delete a create-only acceptance directory to make a command rerunnable.
 - Do not pull/switch/edit the repo after fresh Gate A creation.
 - Do not substitute a PATH `adb` for the pinned Unity Android SDK adb in the Quest evidence path.
+- Do not call the low-level renderer/core acceptance scripts directly when the status tool has supplied a reference-wrapper command.
 - Do not treat CI, screenshots or component review as Windows/Quest PASS.
 - Do not execute an attestation command until the physical visual review was actually performed.
 
