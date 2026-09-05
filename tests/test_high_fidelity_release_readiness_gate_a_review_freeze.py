@@ -117,11 +117,16 @@ def test_invalid_frozen_gate_a_review_blocks_without_source_review_recovery(
     assert result["next_gate"] is None
     assert all(gate["id"] != "high_fidelity_human_review_recovery" for gate in result["gates"])
     review_gate = next(gate for gate in result["gates"] if gate["id"] == "high_fidelity_human_review")
-    assert review_gate["state"] == "pass"
+    assert review_gate["state"] == "invalid"
+    assert review_gate["evidence"]["frozen_by_gate_a"] is True
+    assert "recovery is disabled after Gate A" in review_gate["reason"]
     physical_gate = result["gates"][-1]
     assert physical_gate["id"] == "physical_gate_a"
     assert physical_gate["state"] == "invalid"
     assert "frozen final human-review hash changed" in physical_gate["reason"]
+    assert result["high_fidelity_human_review_complete"] is False
+    assert result["high_fidelity_human_review_required"] is False
+    assert result["software_ready_for_physical_acceptance"] is False
     assert result["production_ready"] is False
     assert result["production_activation"] is False
 
