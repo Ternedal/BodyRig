@@ -67,7 +67,7 @@ def _review_command(package_path: Path) -> str:
     quoted = "'" + str(package_path).replace("'", "''") + "'"
     return (
         ".\\record-high-fidelity-human-review.ps1 "
-        f"-PackagePath {quoted} -ConfirmQualityChecklist -QualityNote <QUALITY_NOTE>"
+        f"-PackagePath {quoted} -ConfirmQualityChecklist -QualityNote '<QUALITY_NOTE>'"
     )
 
 
