@@ -74,14 +74,8 @@ $androidPlayer = Join-Path (Split-Path -Parent $unityExe) "Data\PlaybackEngines\
 if (-not (Test-Path -LiteralPath $androidPlayer -PathType Container)) {
     throw "Unity $unityVersion Android Build Support is missing: $androidPlayer"
 }
-
-$adbCommand = Get-Command adb -ErrorAction SilentlyContinue
-if ($null -ne $adbCommand) {
-    $adbExe = $adbCommand.Source
-} else {
-    $adbCandidate = Join-Path $androidPlayer "SDK\platform-tools\adb.exe"
-    $adbExe = Need-File $adbCandidate "adb (PATH or pinned Unity Android SDK)"
-}
+$adbCandidate = Join-Path $androidPlayer "SDK\platform-tools\adb.exe"
+$adbExe = Need-File $adbCandidate "Pinned Unity Android adb"
 
 foreach ($relative in @(
     "check-reference-renderer-ready.ps1",
@@ -129,7 +123,7 @@ Write-Host "Python:         $versionText | $pythonExe"
 Write-Host "Unity:          $unityVersion | $unityExe"
 Write-Host "UniVRM:         $univrmVersion"
 Write-Host "Android module: $androidPlayer"
-Write-Host "adb:            $adbExe"
+Write-Host "adb:            $adbExe (pinned Unity SDK)"
 if ($quest.Count -eq 0) {
     Write-Host "Quest adb:      not currently connected (allowed unless -RequireQuestConnected was requested)"
 } else {
