@@ -99,6 +99,8 @@ $adbExe = Need-File $adbCandidate "Pinned Unity Android adb"
 
 foreach ($relative in @(
     "check-reference-renderer-ready.ps1",
+    "record-high-fidelity-human-review.ps1",
+    "archive-invalid-high-fidelity-human-review.ps1",
     "prepare-high-fidelity-physical-acceptance.ps1",
     "high-fidelity-physical-status.ps1",
     "run-reference-windows-renderer-probe.ps1",
