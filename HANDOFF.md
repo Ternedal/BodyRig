@@ -29,88 +29,44 @@ Fresh promoted-package Gate A:
 
 ## Final-release compatibility
 
-`bodyrig.high_fidelity_release_gate` re-proves final release invariants on the **final promoted bytes** rather than copying historical PASS booleans. It requires:
-
-- unchanged body identity and BodyPrint;
-- unchanged source count;
-- source-derived shape and motion authority;
-- recovery provenance matching the revalidated source Gate A;
-- preserved visual-identity provenance;
-- exact `sith-smplx-vrm` revision `1` fitting provenance;
-- final promoted VRM 1.0 validation.
+`bodyrig.high_fidelity_release_gate` re-proves final release invariants on the **final promoted bytes** rather than copying historical PASS booleans. It requires unchanged body identity/BodyPrint/source count, source-derived shape/motion authority, recovery and visual-identity provenance, exact `sith-smplx-vrm` revision `1` fitting provenance and final promoted VRM 1.0 validation.
 
 Fresh Gate A then materializes the canonical recovery/package/runtime fields and checks expected by the core release gate.
 
 ## Reference-renderer authority
 
-A command-contract audit found that high-fidelity's custom operator CLI was exposing the raw low-level physical commands instead of the canonical BodyRig V1 reference-policy wrappers. That bypass is fixed.
+A command-contract audit found that high-fidelity's custom operator CLI was exposing raw low-level physical commands instead of the canonical BodyRig V1 reference-policy wrappers. That bypass is fixed.
 
-Canonical high-fidelity physical progression now uses:
+Canonical high-fidelity physical progression uses:
 
 1. `run-reference-windows-renderer-probe.ps1`;
 2. `record-reference-renderer-acceptance.ps1`;
 3. `run-reference-quest-renderer-probe.ps1`;
 4. `complete-reference-acceptance.ps1`.
 
-The inner scripts remain implementation dependencies only:
-
-- `run-windows-renderer-probe.ps1`;
-- `record-renderer-acceptance.ps1`;
-- `run-quest-renderer-probe.ps1`;
-- `complete-acceptance.ps1`.
+The inner `run-windows-renderer-probe.ps1`, `record-renderer-acceptance.ps1`, `run-quest-renderer-probe.ps1` and `complete-acceptance.ps1` remain implementation dependencies only.
 
 The reference wrappers stage evidence outside the canonical directory, validate it against `reference-renderer/renderer-contract.json`, and only then commit canonical evidence or delegate to the core recorder/release gate.
 
-`bodyrig.reference_acceptance_policy` is enforced inside the high-fidelity audited physical-status path, not merely at the CLI edge. Legacy root evidence or renderer-contract drift therefore fails closed before Windows, Quest or release progression is exposed.
+`bodyrig.reference_acceptance_policy` is enforced inside the high-fidelity audited physical-status path. Legacy root evidence or renderer-contract drift fails closed before Windows, Quest or release progression is exposed.
 
 Canonical V1 intentionally leaves already-complete historical releases readable. Fresh high-fidelity is stricter: `reference_policy_violation(...)` is re-run on every high-fidelity status read **including after an activating release**. A manually core-completed/legacy/non-reference release therefore cannot later surface as high-fidelity `PRODUCTION READY`.
 
 ## Transitive audit
 
-`bodyrig.high_fidelity_physical_acceptance_audit` revalidates on every status read:
-
-- canonical reference-renderer policy and dedicated evidence layout;
-- exact promoted package bytes;
-- exact package-bound final human review;
-- source physical session/readiness lineage;
-- fresh skin/topology QA hashes;
-- fresh runtime-manifest hash;
-- handoff receipt ↔ Gate A extension hashes;
-- preview/body/source Gate A identity and revision;
-- release-compatible Gate A fields;
-- promoted BodyPrint/provenance/fitting/VRM lineage.
+`bodyrig.high_fidelity_physical_acceptance_audit` revalidates canonical reference policy, promoted package bytes, package-bound human review, source physical lineage, fresh QA/runtime hashes, handoff/Gate A bindings, source Gate A authority and final promoted BodyPrint/provenance/fitting/VRM lineage on every status read.
 
 Any drift returns an invalid `physical-gate-a`, removes the next command and forces `production_activation=false`, including after an apparently complete release.
 
 ## Rig tooling
 
-`high-fidelity-rig-preflight.ps1` now:
-
-- requires Windows + PowerShell 7+;
-- requires a clean exact Git checkout;
-- proves BodyRig Python 3.11+ imports from that checkout;
-- delegates renderer readiness to `check-reference-renderer-ready.ps1`;
-- cross-validates renderer contract, Unity `ProjectVersion.txt`, UniVRM/package pins and Unity Android SDK/NDK/OpenJDK;
-- requires the full canonical reference-wrapper chain and its core dependencies;
-- uses only the pinned Unity Android SDK `adb.exe`, never arbitrary PATH adb;
-- optionally requires a real Quest/Oculus device and explicit serial;
-- creates no acceptance evidence.
+`high-fidelity-rig-preflight.ps1` requires Windows + PowerShell 7+, clean exact checkout, checkout-bound BodyRig Python 3.11+, canonical renderer readiness, the complete reference-wrapper chain, pinned Unity/UniVRM/package/toolchain authority and only the pinned Unity Android SDK `adb.exe`. It optionally binds a real Quest/Oculus serial and writes no acceptance evidence.
 
 `reference-renderer/build-reference-renderer.ps1` independently fails closed before Unity launch on project-version, application-id, deformation-sequence or UniVRM pin drift.
 
-`high-fidelity-physical-status.ps1` is the single recommended next-action source. It:
-
-- revalidates high-fidelity + reference policy;
-- enforces clean checkout and exact Gate A revision after Gate A exists;
-- converts raw physical state into canonical reference-wrapper commands;
-- absolutizes the wrapper path;
-- injects pinned Unity SDK adb into the Quest reference command;
-- carries optional Quest serial;
-- never asks the operator to invent renderer identity.
+`high-fidelity-physical-status.ps1` is the single recommended next-action source. It revalidates high-fidelity + reference policy, enforces checkout/revision authority, converts raw physical state into canonical reference-wrapper commands, injects pinned Unity SDK adb into the Quest reference command and carries optional Quest serial.
 
 ## Rig entry
-
-Before fresh Gate A:
 
 ```powershell
 cd <YOUR-BODYRIG-CHECKOUT>
@@ -121,13 +77,6 @@ git pull --ff-only origin agent/high-fidelity-integration-20260904
 git status --short
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 pwsh -NoProfile -File .\list-high-fidelity-previews.ps1 -SucceededOnly
-```
-
-Both `git status --short` outputs must be empty and preflight must PASS.
-
-Then:
-
-```powershell
 $preview = 'hfpreview-0123456789abcdef0123456789abcdef'
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
 ```
@@ -144,26 +93,15 @@ pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
 
 Once fresh Gate A is created, **freeze the checkout**: no pull, branch switch or tracked-file edit until the exact acceptance chain is complete or deliberately abandoned.
 
-Do not hand-edit evidence JSON, delete create-only acceptance output to retry, use `accept-reconciled-physical-clone.ps1` for this path, substitute PATH adb, bypass a printed reference wrapper with its inner core script, or treat CI/screenshots as physical PASS.
+Do not hand-edit evidence JSON, delete create-only acceptance output to retry, use `accept-reconciled-physical-clone.ps1`, substitute PATH adb, bypass a printed reference wrapper with its inner core script, or treat CI/screenshots as physical PASS.
 
 ## Verification
 
-Reference-wrapper/policy integration was green on exact head `90bf045bf8bed1cc3fda8b867ad7d15eed578212`:
-
-- `ci` #1680: **SUCCESS**;
-- `windows-log-handle-regression` #852: **SUCCESS**.
-
-Strict post-release reference-policy revalidation was added and validated on exact code head `ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7`:
-
-- `ci` #1685: **SUCCESS**;
-- `windows-log-handle-regression` #857: **SUCCESS**.
-
-Final exact #83 head before this verification-note commit was `a9f75749737a560aa9c97ccd7ec7421ee4cc2644` and completed:
-
-- `ci` #1686: **SUCCESS** — Python 3.11, Python 3.12, managed physical wrapper and Windows final-acceptance job;
-- `windows-log-handle-regression` #858: **SUCCESS**.
-
-Earlier final-release compatibility was independently green on PR #87 exact head `3c61f235e5a31ec2be6c52737565376ed5f94ad0` (`ci` #1653 and log regression #825).
+- Reference-wrapper/policy integration: exact head `90bf045bf8bed1cc3fda8b867ad7d15eed578212`, `ci` #1680 **SUCCESS**, log regression #852 **SUCCESS**.
+- Strict post-release reference-policy code: exact head `ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7`, `ci` #1685 **SUCCESS**, log regression #857 **SUCCESS**.
+- Documentation-complete head `a9f75749737a560aa9c97ccd7ec7421ee4cc2644`: `ci` #1686 **SUCCESS**, log regression #858 **SUCCESS**.
+- Verification-note head `19454b9212766fdf26f3fde5d9cf2c6d8c088246`: `ci` #1687 **SUCCESS**, log regression #859 **SUCCESS**.
+- Earlier final-release compatibility: PR #87 head `3c61f235e5a31ec2be6c52737565376ed5f94ad0`, `ci` #1653 **SUCCESS**, log regression #825 **SUCCESS**.
 
 Automated CI is **not** target-device evidence. No actual final package human PASS, WindowsPlayer physical PASS, Quest physical PASS or production activation was produced here.
 
