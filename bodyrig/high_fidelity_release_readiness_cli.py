@@ -10,6 +10,8 @@ from typing import Any
 from .high_fidelity_release_readiness import HighFidelityReleaseReadinessError, inspect_release_readiness
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+QUEST_SERIAL = re.compile(r"^[A-Za-z0-9._:-]+$")
+UNITY_VERSION = re.compile(r"^6000\.3\.\d+f\d+$")
 
 
 class HighFidelityReleaseReadinessCliError(RuntimeError):
@@ -110,6 +112,49 @@ def _normalize_attestation_command(result: dict[str, Any], command: str) -> str:
     return command
 
 
+def _quest_adb(root: Path) -> Path:
+    contract_path = root / "reference-renderer" / "renderer-contract.json"
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HighFidelityReleaseReadinessCliError(f"reference renderer contract is unreadable: {contract_path}") from exc
+    if not isinstance(contract, dict) or contract.get("format") != "bodyrig-reference-renderer-contract" or contract.get("version") != 1:
+        raise HighFidelityReleaseReadinessCliError("reference renderer contract format/version is non-canonical")
+    unity_version = str(contract.get("unity_editor_version") or "").strip()
+    if not UNITY_VERSION.fullmatch(unity_version):
+        raise HighFidelityReleaseReadinessCliError("reference renderer contract has an invalid Unity editor version")
+    candidate = (
+        Path(r"C:\Program Files\Unity\Hub\Editor")
+        / unity_version
+        / "Editor"
+        / "Data"
+        / "PlaybackEngines"
+        / "AndroidPlayer"
+        / "SDK"
+        / "platform-tools"
+        / "adb.exe"
+    )
+    if not candidate.is_file():
+        raise HighFidelityReleaseReadinessCliError(
+            f"pinned Unity Android adb is unavailable: {candidate}; run high-fidelity-rig-preflight.ps1"
+        )
+    return candidate.resolve()
+
+
+def _normalize_quest_command(command: str, root: Path, quest_serial: str | None) -> str:
+    if "run-quest-renderer-probe.ps1" not in command:
+        return command
+    if "-AdbExe" not in command:
+        command += f" -AdbExe {_ps_literal(str(_quest_adb(root)))}"
+    serial = str(quest_serial or "").strip()
+    if serial:
+        if not QUEST_SERIAL.fullmatch(serial):
+            raise HighFidelityReleaseReadinessCliError("Quest serial contains unsupported characters")
+        if "-Serial" not in command:
+            command += f" -Serial {_ps_literal(serial)}"
+    return command
+
+
 def _absolutize_command(command: str, root: Path) -> str:
     if not command.startswith(".\\"):
         return command
@@ -122,8 +167,16 @@ def _absolutize_command(command: str, root: Path) -> str:
     return f'& "{target}"{suffix}'
 
 
-def _operator_command(result: dict[str, Any], command: str, root: Path) -> str:
-    return _absolutize_command(_normalize_attestation_command(result, command), root)
+def _operator_command(
+    result: dict[str, Any],
+    command: str,
+    root: Path,
+    *,
+    quest_serial: str | None = None,
+) -> str:
+    normalized = _normalize_attestation_command(result, command)
+    normalized = _normalize_quest_command(normalized, root, quest_serial)
+    return _absolutize_command(normalized, root)
 
 
 def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, revision: str | None = None) -> dict[str, Any]:
@@ -142,7 +195,12 @@ def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, re
     return value
 
 
-def bind_operator_checkout(result: dict[str, Any], operator_root: Path) -> dict[str, Any]:
+def bind_operator_checkout(
+    result: dict[str, Any],
+    operator_root: Path,
+    *,
+    quest_serial: str | None = None,
+) -> dict[str, Any]:
     root = operator_root.expanduser().resolve()
     if not root.is_dir() or not (root / ".git").exists():
         raise HighFidelityReleaseReadinessCliError(f"operator root is not a BodyRig Git checkout: {root}")
@@ -170,7 +228,12 @@ def bind_operator_checkout(result: dict[str, Any], operator_root: Path) -> dict[
         next_value = dict(next_gate)
         command = str(next_value.get("command") or "").strip()
         if command:
-            next_value["command"] = _operator_command(result, command, root)
+            next_value["command"] = _operator_command(
+                result,
+                command,
+                root,
+                quest_serial=quest_serial,
+            )
         value["next_gate"] = next_value
     value["operator_checkout"] = {
         "root": str(root),
@@ -186,6 +249,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Read-only high-fidelity release/readiness status for rig operators")
     parser.add_argument("--preview-job-id", required=True)
     parser.add_argument("--operator-root", type=Path)
+    parser.add_argument("--quest-serial")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -230,7 +294,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = inspect_release_readiness(args.preview_job_id)
         if args.operator_root is not None:
-            result = bind_operator_checkout(result, args.operator_root)
+            result = bind_operator_checkout(
+                result,
+                args.operator_root,
+                quest_serial=args.quest_serial,
+            )
     except (OSError, ValueError, HighFidelityReleaseReadinessError, HighFidelityReleaseReadinessCliError) as exc:
         if args.json:
             print(json.dumps({"state": "error", "error": str(exc)}, ensure_ascii=False, sort_keys=True))
