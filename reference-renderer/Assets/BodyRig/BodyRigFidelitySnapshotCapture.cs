@@ -11,6 +11,9 @@ namespace BodyRig.ReferenceRenderer
     {
         private const string Format = "bodyrig-fidelity-render-set";
         private const int Version = 1;
+        private const string FaceSecondaryNodeName = "BodyRigFaceSecondaryReview";
+        private const string JawNodeName = "smplx_jaw";
+        private const float FaceSecondaryJawOpenDegrees = 18f;
 
         [Serializable]
         private sealed class SnapshotEntry
@@ -78,6 +81,8 @@ namespace BodyRig.ReferenceRenderer
 
                 var animator = loader.Active.GetComponentInChildren<Animator>(true);
                 var head = animator != null ? animator.GetBoneTransform(HumanBodyBones.Head) : null;
+                var leftEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftEye) : null;
+                var rightEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightEye) : null;
                 var faceTarget = head != null ? head.position : center + Vector3.up * height * 0.38f;
                 var faceDistance = Mathf.Max(height * 0.24f, 0.30f);
                 var faceZoomDistance = Mathf.Max(height * 0.19f, 0.24f);
@@ -95,7 +100,7 @@ namespace BodyRig.ReferenceRenderer
                 // Human-review diagnostics are intentionally outside the v1
                 // fidelity manifest. They add inspection detail without changing
                 // machine-evaluator authority or acceptance semantics.
-                var diagnosticPoses = new[]
+                var diagnosticPoses = new List<CameraPose>
                 {
                     new CameraPose("face-zoom", faceTarget + new Vector3(0f, 0f, faceZoomDistance), faceTarget, 20f),
                     new CameraPose(
@@ -104,6 +109,17 @@ namespace BodyRig.ReferenceRenderer
                         faceTarget,
                         24f),
                 };
+                if (leftEye != null && rightEye != null)
+                {
+                    var eyeTarget = (leftEye.position + rightEye.position) * 0.5f;
+                    var eyeSpan = Mathf.Max(Vector3.Distance(leftEye.position, rightEye.position), height * 0.025f);
+                    var eyeCloseupDistance = Mathf.Max(eyeSpan * 4.6f, height * 0.12f, 0.18f);
+                    diagnosticPoses.Add(new CameraPose(
+                        "eyes-closeup",
+                        eyeTarget + new Vector3(0f, 0f, eyeCloseupDistance),
+                        eyeTarget,
+                        20f));
+                }
 
                 var camera = Camera.main;
                 var originalPosition = camera.transform.position;
@@ -131,6 +147,8 @@ namespace BodyRig.ReferenceRenderer
                         var bytes = CapturePose(camera, pose);
                         WriteSnapshot(root, pose.Name, bytes);
                     }
+
+                    CaptureFaceSecondaryMouthOpen(loader.Active, camera, root, faceTarget, height);
                 }
                 finally
                 {
@@ -155,6 +173,56 @@ namespace BodyRig.ReferenceRenderer
                 try { Directory.Delete(root, true); } catch { }
                 throw;
             }
+        }
+
+        private static void CaptureFaceSecondaryMouthOpen(
+            GameObject active,
+            Camera camera,
+            string root,
+            Vector3 fallbackFaceTarget,
+            float height)
+        {
+            if (FindNamedTransform(active.transform, FaceSecondaryNodeName) == null) return;
+            var jaw = FindNamedTransform(active.transform, JawNodeName);
+            if (jaw == null)
+                throw new InvalidOperationException("Face-secondary review runtime requires canonical smplx_jaw transform.");
+
+            var originalJawRotation = jaw.localRotation;
+            try
+            {
+                // The v1 diagnostic is deliberately deterministic and non-authoritative:
+                // a fixed local jaw flexion exposes the jaw-bound mouth/lower-teeth
+                // review geometry. Human review, not this pose, decides acceptance.
+                jaw.localRotation = originalJawRotation * Quaternion.Euler(FaceSecondaryJawOpenDegrees, 0f, 0f);
+                var target = Vector3.Lerp(fallbackFaceTarget, jaw.position, 0.70f);
+                var distance = Mathf.Max(height * 0.145f, 0.20f);
+                var pose = new CameraPose(
+                    "mouth-open",
+                    target + new Vector3(0f, -height * 0.005f, distance),
+                    target,
+                    16f);
+                var bytes = CapturePose(camera, pose);
+                WriteSnapshot(root, pose.Name, bytes);
+            }
+            finally
+            {
+                jaw.localRotation = originalJawRotation;
+            }
+        }
+
+        private static Transform FindNamedTransform(Transform root, string name)
+        {
+            if (root == null) return null;
+            var all = root.GetComponentsInChildren<Transform>(true);
+            Transform match = null;
+            foreach (var item in all)
+            {
+                if (!string.Equals(item.name, name, StringComparison.Ordinal)) continue;
+                if (match != null)
+                    throw new InvalidOperationException("Loaded avatar contains ambiguous transform: " + name);
+                match = item;
+            }
+            return match;
         }
 
         private static byte[] CapturePose(Camera camera, CameraPose pose)

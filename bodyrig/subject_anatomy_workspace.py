@@ -7,6 +7,11 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from .sith_reconstruction_authority import (
+    AUTHORITY_FILENAME as RECONSTRUCTION_AUTHORITY_FILENAME,
+    SithReconstructionAuthorityError,
+    write_reconstruction_authority,
+)
 from .subject_anatomy_provenance import (
     SubjectAnatomyProvenanceError,
     load_subject_anatomy_refit,
@@ -115,58 +120,82 @@ def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspa
     if source_hashes_before["texture"] != str(details.get("mesh_texture_sha256", "")).lower():
         raise SubjectAnatomyWorkspaceError("retained source texture does not match reconstruction evidence")
 
-    candidate_stage = output_workspace / "sith-input-v1"
-    candidate_smplx_dir = candidate_stage / "smplx"
-    candidate_mesh_dir = candidate_stage / "meshes"
-    candidate_smplx_dir.mkdir(parents=True, exist_ok=False)
-    candidate_mesh_dir.mkdir(parents=True, exist_ok=False)
+    source_hashes_after: dict[str, str]
+    created = False
+    try:
+        candidate_stage = output_workspace / "sith-input-v1"
+        candidate_smplx_dir = candidate_stage / "smplx"
+        candidate_mesh_dir = candidate_stage / "meshes"
+        candidate_smplx_dir.mkdir(parents=True, exist_ok=False)
+        created = True
+        candidate_mesh_dir.mkdir(parents=True, exist_ok=False)
 
-    _copy(derived_smplx, candidate_smplx_dir / "000_smplx.obj")
-    _copy(derived_fit, candidate_smplx_dir / "000_fit.json")
-    _copy(source_mesh, candidate_mesh_dir / "000_reco.obj")
-    _copy(source_mtl, candidate_mesh_dir / "000.mtl")
-    _copy(source_texture, candidate_mesh_dir / texture_name)
+        _copy(derived_smplx, candidate_smplx_dir / "000_smplx.obj")
+        _copy(derived_fit, candidate_smplx_dir / "000_fit.json")
+        _copy(source_mesh, candidate_mesh_dir / "000_reco.obj")
+        _copy(source_mtl, candidate_mesh_dir / "000.mtl")
+        _copy(source_texture, candidate_mesh_dir / texture_name)
 
-    candidate_reconstruction = json.loads(json.dumps(parent_reconstruction))
-    candidate_details = candidate_reconstruction["reconstruction"]
-    candidate_details["smplx_obj_sha256"] = evidence["derivedSmplxObjSha256"]
-    candidate_details["fit_params_sha256"] = evidence["derivedFitParamsSha256"]
-    candidate_reconstruction_path = candidate_stage / "reconstruction.json"
-    candidate_reconstruction_path.write_text(
-        json.dumps(candidate_reconstruction, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+        candidate_reconstruction = json.loads(json.dumps(parent_reconstruction))
+        candidate_details = candidate_reconstruction["reconstruction"]
+        candidate_details["smplx_obj_sha256"] = evidence["derivedSmplxObjSha256"]
+        candidate_details["fit_params_sha256"] = evidence["derivedFitParamsSha256"]
+        candidate_reconstruction_path = candidate_stage / "reconstruction.json"
+        candidate_reconstruction_path.write_text(
+            json.dumps(candidate_reconstruction, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
 
-    source_hashes_after = {
-        "mesh": sha256_path(source_mesh),
-        "mtl": sha256_path(source_mtl),
-        "texture": sha256_path(source_texture),
-    }
-    if source_hashes_after != source_hashes_before or sha256_path(parent_reconstruction_path) != parent_sha:
-        raise SubjectAnatomyWorkspaceError("retained reconstruction/source bytes changed while staging candidate workspace")
+        try:
+            reconstruction_authority = write_reconstruction_authority(
+                output_workspace,
+                body_model_gender=evidence["targetModelFamily"],
+            )
+        except SithReconstructionAuthorityError as exc:
+            raise SubjectAnatomyWorkspaceError(
+                f"candidate reconstruction model-family authority failed: {exc}"
+            ) from exc
+        reconstruction_authority_path = candidate_stage / RECONSTRUCTION_AUTHORITY_FILENAME
+        if reconstruction_authority.get("reconstruction_sha256") != sha256_path(candidate_reconstruction_path):
+            raise SubjectAnatomyWorkspaceError(
+                "candidate reconstruction authority does not bind candidate reconstruction bytes"
+            )
 
-    receipt = {
-        "format": FORMAT,
-        "version": VERSION,
-        "parentReconstructionSha256": parent_sha,
-        "candidateReconstructionSha256": sha256_path(candidate_reconstruction_path),
-        "subjectAnatomyRefitSha256": sha256_path(refit_evidence_path),
-        "targetModelFamily": evidence["targetModelFamily"],
-        "derivedSmplxObjSha256": evidence["derivedSmplxObjSha256"],
-        "derivedFitParamsSha256": evidence["derivedFitParamsSha256"],
-        "retainedSourceMeshSha256": source_hashes_before["mesh"],
-        "retainedSourceMaterialSha256": source_hashes_before["mtl"],
-        "retainedSourceTextureSha256": source_hashes_before["texture"],
-        "retainedSourceAppearanceBytesPreserved": True,
-        "retainedReconstructionModified": False,
-        "reconstructionRerun": False,
-        "comparisonOnly": True,
-        "humanReviewRequired": True,
-        "productionReady": False,
-    }
-    receipt_path = output_workspace / "subject-anatomy-workspace.json"
-    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
-    return receipt
+        source_hashes_after = {
+            "mesh": sha256_path(source_mesh),
+            "mtl": sha256_path(source_mtl),
+            "texture": sha256_path(source_texture),
+        }
+        if source_hashes_after != source_hashes_before or sha256_path(parent_reconstruction_path) != parent_sha:
+            raise SubjectAnatomyWorkspaceError("retained reconstruction/source bytes changed while staging candidate workspace")
+
+        receipt = {
+            "format": FORMAT,
+            "version": VERSION,
+            "parentReconstructionSha256": parent_sha,
+            "candidateReconstructionSha256": sha256_path(candidate_reconstruction_path),
+            "candidateReconstructionAuthoritySha256": sha256_path(reconstruction_authority_path),
+            "subjectAnatomyRefitSha256": sha256_path(refit_evidence_path),
+            "targetModelFamily": evidence["targetModelFamily"],
+            "derivedSmplxObjSha256": evidence["derivedSmplxObjSha256"],
+            "derivedFitParamsSha256": evidence["derivedFitParamsSha256"],
+            "retainedSourceMeshSha256": source_hashes_before["mesh"],
+            "retainedSourceMaterialSha256": source_hashes_before["mtl"],
+            "retainedSourceTextureSha256": source_hashes_before["texture"],
+            "retainedSourceAppearanceBytesPreserved": True,
+            "retainedReconstructionModified": False,
+            "reconstructionRerun": False,
+            "comparisonOnly": True,
+            "humanReviewRequired": True,
+            "productionReady": False,
+        }
+        receipt_path = output_workspace / "subject-anatomy-workspace.json"
+        receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+        return receipt
+    except Exception:
+        if created:
+            shutil.rmtree(output_workspace, ignore_errors=True)
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

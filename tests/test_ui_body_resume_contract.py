@@ -218,12 +218,14 @@ def test_resume_api_routes_are_registered_once() -> None:
     resume_status_routes = [
         route
         for route in app.routes
-        if route.path == "/api/v1/jobs/{job_id}/resume-status" and "GET" in getattr(route, "methods", set())
+        if getattr(route, "path", None) == "/api/v1/jobs/{job_id}/resume-status"
+        and "GET" in getattr(route, "methods", set())
     ]
     resume_routes = [
         route
         for route in app.routes
-        if route.path == "/api/v1/jobs/{job_id}/resume" and "POST" in getattr(route, "methods", set())
+        if getattr(route, "path", None) == "/api/v1/jobs/{job_id}/resume"
+        and "POST" in getattr(route, "methods", set())
     ]
     assert len(resume_status_routes) == 1
     assert len(resume_routes) == 1

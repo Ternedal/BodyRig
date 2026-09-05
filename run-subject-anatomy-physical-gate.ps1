@@ -42,6 +42,52 @@ function Write-Summary {
     param([Parameter(Mandatory = $true)]$Value,[Parameter(Mandatory = $true)][string]$Path)
     $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
+function Assert-CheckoutAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [string]$ExpectedHead = ""
+    )
+    $headLines = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) {
+        throw "Could not bind subject anatomy physical gate to BodyRig Git HEAD."
+    }
+    $currentHead = ([string]$headLines[0]).Trim().ToLowerInvariant()
+    if ($currentHead -notmatch '^[0-9a-f]{40}$') {
+        throw "BodyRig Git HEAD is not canonical for the subject anatomy physical gate."
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedHead) -and $currentHead -ne $ExpectedHead) {
+        throw "BodyRig checkout revision changed during subject anatomy physical gate; expected $ExpectedHead, got $currentHead."
+    }
+    $dirty = @(& git -C $RepoRoot status --porcelain 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig Git status." }
+    if ($dirty.Count -gt 0) {
+        throw "BodyRig checkout became dirty during subject anatomy physical gate."
+    }
+    return $currentHead
+}
+function Assert-TerminalCheckoutAuthority {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][string]$RunRoot,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+    try {
+        [void](Assert-CheckoutAuthority -RepoRoot $RepoRoot -ExpectedHead $ExpectedHead)
+    }
+    catch {
+        $authorityError = $_.Exception.Message
+        try {
+            if (Test-Path -LiteralPath $RunRoot) {
+                Remove-Item -LiteralPath $RunRoot -Recurse -Force
+            }
+        }
+        catch {
+            throw "$authorityError $Phase checkout authority failed; cleanup also failed: $($_.Exception.Message)"
+        }
+        throw "$authorityError $Phase checkout authority failed; removed non-authoritative subject anatomy run root: $RunRoot"
+    }
+}
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig subject anatomy physical gate is Windows/WSL-only."
@@ -49,16 +95,16 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) { throw "Could not resolve BodyRig HEAD." }
-$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
-if ($head -notmatch '^[0-9a-f]{40}$') { throw "BodyRig HEAD is invalid." }
-$dirty = @(& git -C $repoRoot status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) { throw "Subject anatomy physical gate requires an exact clean BodyRig checkout." }
+$head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 
 $BaselineCloneOutput = Need-Directory -Path $BaselineCloneOutput -Label "Baseline clone output"
 $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained identity workspace"
 $RunRoot = [IO.Path]::GetFullPath($RunRoot)
+$repoBoundary = $repoRoot + [IO.Path]::DirectorySeparatorChar
+if ([string]::Equals($RunRoot, $repoRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+    $RunRoot.StartsWith($repoBoundary, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Subject anatomy physical run root must be outside the BodyRig Git checkout so generated evidence cannot dirty its own authority."
+}
 if (Test-Path -LiteralPath $RunRoot) { throw "Subject anatomy physical run root already exists: $RunRoot" }
 New-Item -ItemType Directory -Path $RunRoot | Out-Null
 
@@ -107,6 +153,7 @@ $refitArgs.TargetFamily = $TargetFamily
 $refitArgs.OutputDir = $refitDir
 $refitCode = Invoke-GateScript -Script $refitScript -Arguments $refitArgs -Label "Subject anatomy refit" -AllowedExitCodes @(0, 2)
 if ($refitCode -eq 2) {
+    Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Pre-regression-summary"
     Write-Summary -Path $summaryPath -Value ([ordered]@{
         format = "bodyrig-subject-anatomy-physical-gate"
         version = 1
@@ -123,6 +170,7 @@ if ($refitCode -eq 2) {
         human_review_required = $true
         production_activation = $false
     })
+    Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Post-regression-summary"
     Write-Host "BodyRig subject anatomy physical gate: REFIT REGRESSED; evidence preserved"
     exit 2
 }
@@ -133,6 +181,7 @@ $candidateArgs.CandidateDonorObj = $candidateObj
 $candidateArgs.OutputFile = $candidateEvidence
 $candidateCode = Invoke-GateScript -Script $candidateAuditScript -Arguments $candidateArgs -Label "Candidate anatomy audit" -AllowedExitCodes @(0, 2)
 if ($candidateCode -eq 2) {
+    Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Pre-mismatch-summary"
     Write-Summary -Path $summaryPath -Value ([ordered]@{
         format = "bodyrig-subject-anatomy-physical-gate"
         version = 1
@@ -150,6 +199,7 @@ if ($candidateCode -eq 2) {
         human_review_required = $true
         production_activation = $false
     })
+    Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Post-mismatch-summary"
     Write-Host "BodyRig subject anatomy physical gate: CANDIDATE GROSS MISMATCH; no appearance package built"
     exit 2
 }
@@ -197,6 +247,7 @@ catch { throw "Retained anatomy evidence became unreadable." }
 try { $candidate = Get-Content -LiteralPath $candidateEvidence -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Candidate anatomy evidence became unreadable." }
 
+Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Pre-success-summary"
 $summary = [ordered]@{
     format = "bodyrig-subject-anatomy-physical-gate"
     version = 1
@@ -225,6 +276,7 @@ $summary = [ordered]@{
     production_activation = $false
 }
 Write-Summary -Path $summaryPath -Value $summary
+Assert-TerminalCheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head -RunRoot $RunRoot -Phase "Post-success-summary"
 
 Write-Host ""
 Write-Host "BodyRig subject anatomy physical gate: MACHINE PASS"

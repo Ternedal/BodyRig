@@ -5,6 +5,7 @@
   const BODY_EXPECTED_SECONDS = 45 * 60;
   const BODY_UPPER_SECONDS = 120 * 60;
   let timer = null;
+  let lastPersonId = "";
 
   async function request(path, options = {}) {
     const headers = { Accept: "application/json", ...(options.headers || {}) };
@@ -21,6 +22,14 @@
 
   function personId() {
     return ($("personId")?.textContent || "").trim();
+  }
+
+  async function refreshRegisteredBody(personIdValue, bodyRevision) {
+    const label = $("bodyRevisionLabel");
+    if (label && bodyRevision) label.textContent = bodyRevision;
+    if (typeof loadPeople === "function") {
+      await loadPeople(personIdValue);
+    }
   }
 
   function workflowKey(id) {
@@ -311,6 +320,7 @@
         workflow.body_revision = bodyJob.body_revision;
         workflow.state = "components";
         saveWorkflow(workflow);
+        await refreshRegisteredBody(id, workflow.body_revision);
       }
 
       workflow = await ensurePersonality(workflow);
@@ -351,8 +361,15 @@
   window.addEventListener("DOMContentLoaded", () => {
     ensureUi();
     const idNode = $("personId");
+    lastPersonId = personId();
     if (idNode) {
-      new MutationObserver(() => schedule(0)).observe(idNode, { childList: true, characterData: true, subtree: true });
+      new MutationObserver(() => {
+        const current = personId();
+        if (current !== lastPersonId) {
+          lastPersonId = current;
+          schedule(0);
+        }
+      }).observe(idNode, { childList: true, characterData: true, subtree: true });
     }
     void tick();
   }, { once: true });

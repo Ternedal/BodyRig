@@ -17,11 +17,14 @@ def test_canonical_manifest_views_remain_v1_and_exact() -> None:
     assert 'entries.Add(new SnapshotEntry' in source
 
 
-def test_face_zoom_diagnostics_are_written_outside_manifest_entries() -> None:
+def test_face_and_eye_diagnostics_are_written_outside_manifest_entries() -> None:
     source = SOURCE.read_text(encoding="utf-8")
-    assert 'var diagnosticPoses = new[]' in source
+    assert 'var diagnosticPoses = new List<CameraPose>' in source
     assert 'new CameraPose("face-zoom"' in source
     assert '"face-three-quarter"' in source
+    assert '"eyes-closeup"' in source
+    assert 'HumanBodyBones.LeftEye' in source
+    assert 'HumanBodyBones.RightEye' in source
     assert 'foreach (var pose in diagnosticPoses)' in source
     diagnostic_loop = source.split('foreach (var pose in diagnosticPoses)', 1)[1].split('}', 2)[0]
     assert 'WriteSnapshot(root, pose.Name, bytes);' in diagnostic_loop

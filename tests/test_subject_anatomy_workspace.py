@@ -6,6 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from bodyrig.sith_reconstruction_authority import (
+    AUTHORITY_FILENAME,
+    SMPLX_FIT_PROFILE,
+    validate_reconstruction_authority,
+)
 from bodyrig.subject_anatomy_workspace import SubjectAnatomyWorkspaceError, stage_workspace
 
 
@@ -94,13 +99,23 @@ def test_stage_subject_anatomy_workspace_changes_only_smplx_authority(tmp_path) 
     receipt = stage_workspace(retained_workspace=retained, refit_dir=refit, output_workspace=output)
 
     candidate_stage = output / "sith-input-v1"
-    candidate_reconstruction = json.loads((candidate_stage / "reconstruction.json").read_text(encoding="utf-8"))
+    candidate_reconstruction_path = candidate_stage / "reconstruction.json"
+    candidate_reconstruction = json.loads(candidate_reconstruction_path.read_text(encoding="utf-8"))
     assert candidate_reconstruction["reconstruction"]["smplx_obj_sha256"] == _sha(refit / "subject_smplx.obj")
     assert candidate_reconstruction["reconstruction"]["fit_params_sha256"] == _sha(refit / "subject_fit.json")
     assert _sha(candidate_stage / "meshes" / "000_reco.obj") == _sha(retained / "sith-input-v1" / "meshes" / "000_reco.obj")
     assert _sha(candidate_stage / "meshes" / "000.mtl") == _sha(retained / "sith-input-v1" / "meshes" / "000.mtl")
     assert _sha(candidate_stage / "meshes" / "material0.png") == _sha(retained / "sith-input-v1" / "meshes" / "material0.png")
     assert _sha(parent_reconstruction) == parent_sha_before
+
+    model_authority = validate_reconstruction_authority(
+        output,
+        expected_body_model_gender="female",
+    )
+    assert model_authority["smplx_fit_profile"] == SMPLX_FIT_PROFILE
+    assert model_authority["reconstruction_sha256"] == _sha(candidate_reconstruction_path)
+    assert receipt["candidateReconstructionAuthoritySha256"] == _sha(candidate_stage / AUTHORITY_FILENAME)
+    assert receipt["targetModelFamily"] == "female"
     assert receipt["retainedSourceAppearanceBytesPreserved"] is True
     assert receipt["reconstructionRerun"] is False
     assert receipt["productionReady"] is False
@@ -116,3 +131,16 @@ def test_stage_subject_anatomy_workspace_rejects_unbound_derived_obj(tmp_path) -
             refit_dir=refit,
             output_workspace=tmp_path / "candidate",
         )
+
+
+def test_stage_workspace_failure_removes_only_new_partial_destination(monkeypatch, tmp_path) -> None:
+    retained, refit = _fixture(tmp_path)
+    output = tmp_path / "candidate"
+
+    def fail_authority(*_args, **_kwargs):
+        raise RuntimeError("synthetic authority failure")
+
+    monkeypatch.setattr("bodyrig.subject_anatomy_workspace.write_reconstruction_authority", fail_authority)
+    with pytest.raises(RuntimeError, match="synthetic authority failure"):
+        stage_workspace(retained_workspace=retained, refit_dir=refit, output_workspace=output)
+    assert not output.exists()

@@ -70,6 +70,61 @@ if ($summary.candidate_gross_anatomy_pass -ne $true -or
     throw "Subject anatomy physical gate is not a valid comparison-only machine PASS."
 }
 
+$packagePath = Need-File -Path ([string]$summary.package) -Label "Subject anatomy candidate package"
+$expectedPackageDir = [IO.Path]::GetFullPath((Join-Path $AnatomyRunRoot "candidate-package"))
+$packageDir = [IO.Path]::GetFullPath((Split-Path -Parent $packagePath))
+if (-not [string]::Equals($packageDir, $expectedPackageDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Subject anatomy gate package is outside its canonical candidate-package directory."
+}
+$packageSha = Sha256 $packagePath
+if ([string]$summary.package_sha256 -ne $packageSha) {
+    throw "Subject anatomy gate summary no longer binds the exact candidate package bytes."
+}
+$packageResultPath = Need-File -Path (Join-Path $packageDir "subject-anatomy-candidate-result.json") -Label "Subject anatomy candidate result"
+$packageResult = Read-Json -Path $packageResultPath -Label "Subject anatomy candidate result"
+if ([string]$packageResult.format -ne "bodyrig-subject-anatomy-candidate-result" -or
+    [int]$packageResult.version -ne 1 -or
+    [string]$packageResult.bodyrig_revision -ne $head -or
+    [string]$packageResult.package_sha256 -ne $packageSha -or
+    [string]$packageResult.canonical_body_id -ne [string]$summary.canonical_body_id -or
+    $packageResult.comparison_only -ne $true -or
+    $packageResult.human_review_required -ne $true -or
+    $packageResult.production_activation -ne $false) {
+    throw "Subject anatomy candidate result does not bind the exact gate package/authority boundary."
+}
+
+$candidateWorkspace = Need-Directory -Path (Join-Path $packageDir "candidate-workspace") -Label "Subject anatomy candidate workspace"
+if ([string]::Equals($candidateWorkspace, $IdentityWorkspace, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Subject component discovery must not fall back to the parent retained identity workspace."
+}
+$workspaceReceiptPath = Need-File -Path (Join-Path $candidateWorkspace "subject-anatomy-workspace.json") -Label "Subject anatomy candidate workspace receipt"
+$candidateReconstructionPath = Need-File -Path (Join-Path $candidateWorkspace "sith-input-v1\reconstruction.json") -Label "Candidate reconstruction evidence"
+$candidateReconstructionAuthorityPath = Need-File -Path (Join-Path $candidateWorkspace "sith-input-v1\reconstruction-authority.json") -Label "Candidate reconstruction authority"
+$workspaceReceipt = Read-Json -Path $workspaceReceiptPath -Label "Subject anatomy candidate workspace receipt"
+$candidateReconstructionAuthority = Read-Json -Path $candidateReconstructionAuthorityPath -Label "Candidate reconstruction authority"
+$candidateReconstructionSha = Sha256 $candidateReconstructionPath
+$candidateReconstructionAuthoritySha = Sha256 $candidateReconstructionAuthorityPath
+if ([string]$workspaceReceipt.format -ne "bodyrig-subject-anatomy-workspace" -or
+    [int]$workspaceReceipt.version -ne 1 -or
+    [string]$workspaceReceipt.candidateReconstructionSha256 -ne $candidateReconstructionSha -or
+    [string]$workspaceReceipt.candidateReconstructionAuthoritySha256 -ne $candidateReconstructionAuthoritySha -or
+    [string]$workspaceReceipt.targetModelFamily -ne $targetFamily -or
+    [string]$packageResult.candidate_reconstruction_sha256 -ne $candidateReconstructionSha -or
+    $workspaceReceipt.retainedSourceAppearanceBytesPreserved -ne $true -or
+    $workspaceReceipt.reconstructionRerun -ne $false -or
+    $workspaceReceipt.comparisonOnly -ne $true -or
+    $workspaceReceipt.humanReviewRequired -ne $true -or
+    $workspaceReceipt.productionReady -ne $false) {
+    throw "Subject anatomy candidate workspace does not bind the exact gate reconstruction authority."
+}
+if ([string]$candidateReconstructionAuthority.format -ne "bodyrig-sith-reconstruction-authority" -or
+    [int]$candidateReconstructionAuthority.version -ne 1 -or
+    [string]$candidateReconstructionAuthority.body_model_gender -ne $targetFamily -or
+    [string]$candidateReconstructionAuthority.smplx_fit_profile -ne "gender-aware-final-params-canonical-obj-v1" -or
+    [string]$candidateReconstructionAuthority.reconstruction_sha256 -ne $candidateReconstructionSha) {
+    throw "Candidate reconstruction authority does not authorize the exact anatomy candidate workspace."
+}
+
 $refitEvidencePath = Need-File -Path ([string]$summary.subject_refit_evidence) -Label "Subject anatomy refit evidence"
 $candidateAuditPath = Need-File -Path ([string]$summary.candidate_anatomy_evidence) -Label "Candidate anatomy audit evidence"
 $donorObj = Need-File -Path (Join-Path $AnatomyRunRoot "subject-refit\subject_smplx.obj") -Label "Exact subject donor OBJ"
@@ -101,11 +156,13 @@ New-Item -ItemType Directory -Path $OutputRoot | Out-Null
 $hairDir = Join-Path $OutputRoot "hair"
 $eyesDir = Join-Path $OutputRoot "eyes"
 $eyeAppearanceDir = Join-Path $OutputRoot "eye-appearance"
+$runtimeDir = Join-Path $OutputRoot "runtime"
 $receiptPath = Join-Path $OutputRoot "subject-component-discovery.json"
 
 $hairScript = Need-File -Path (Join-Path $repoRoot "extract-retained-hair.ps1") -Label "Source hair discovery operator"
 $eyeScript = Need-File -Path (Join-Path $repoRoot "extract-eye-components.ps1") -Label "Eye component discovery operator"
 $eyeAppearanceScript = Need-File -Path (Join-Path $repoRoot "extract-eye-appearance.ps1") -Label "Eye appearance discovery operator"
+$runtimeScript = Need-File -Path (Join-Path $repoRoot "build-source-hair-eye-review-runtime.ps1") -Label "Combined hair+eye runtime operator"
 $common = @{
     Distribution = $Distribution
     InstallRoot = $InstallRoot
@@ -116,12 +173,13 @@ Write-Host "BodyRig subject component discovery"
 Write-Host "Revision:       $head"
 Write-Host "Target family:  $targetFamily"
 Write-Host "Donor SHA:      $donorSha"
+Write-Host "Candidate reco: $candidateReconstructionSha"
 Write-Host "Anatomy gate:   MACHINE PASS"
 Write-Host "Production:     FALSE"
 Write-Host ""
 
 $hairArgs = $common.Clone()
-$hairArgs.IdentityWorkspace = $IdentityWorkspace
+$hairArgs.IdentityWorkspace = $candidateWorkspace
 $hairArgs.DonorObj = $donorObj
 $hairArgs.OutputDir = $hairDir
 Invoke-Checked -Script $hairScript -Arguments $hairArgs -Label "Source-derived hair discovery"
@@ -133,7 +191,7 @@ $eyeArgs.OutputDir = $eyesDir
 Invoke-Checked -Script $eyeScript -Arguments $eyeArgs -Label "Explicit eye geometry discovery"
 
 $eyeAppearanceArgs = $common.Clone()
-$eyeAppearanceArgs.IdentityWorkspace = $IdentityWorkspace
+$eyeAppearanceArgs.IdentityWorkspace = $candidateWorkspace
 $eyeAppearanceArgs.DonorObj = $donorObj
 $eyeAppearanceArgs.TargetFamily = $targetFamily
 $eyeAppearanceArgs.OutputDir = $eyeAppearanceDir
@@ -148,6 +206,7 @@ $eyeAppearance = Read-Json -Path $eyeAppearanceEvidencePath -Label "Eye appearan
 
 if ([string]$hair.format -ne "bodyrig-source-hair-candidate" -or [int]$hair.version -ne 1 -or
     [string]$hair.donorObjSha256 -ne $donorSha -or
+    [string]$hair.sourceReconstructionSha256 -ne $candidateReconstructionSha -or
     $hair.sourceDerived -ne $true -or $hair.generativeGeometry -ne $false -or
     $hair.bodyTopologyModified -ne $false -or $hair.comparisonOnly -ne $true -or
     $hair.humanReviewRequired -ne $true -or $hair.productionReady -ne $false) {
@@ -164,6 +223,7 @@ if ([string]$eyes.format -ne "bodyrig-eye-component-candidate" -or [int]$eyes.ve
 }
 if ([string]$eyeAppearance.format -ne "bodyrig-eye-appearance-candidate" -or [int]$eyeAppearance.version -ne 1 -or
     [string]$eyeAppearance.donorObjSha256 -ne $donorSha -or
+    [string]$eyeAppearance.sourceReconstructionSha256 -ne $candidateReconstructionSha -or
     [string]$eyeAppearance.targetModelFamily -ne $targetFamily -or
     $eyeAppearance.sourceDerivedEyeSurfaceAppearance -ne $true -or
     $eyeAppearance.irisIdentityIsolated -ne $false -or
@@ -178,6 +238,34 @@ if ([string]$eyeAppearance.format -ne "bodyrig-eye-appearance-candidate" -or [in
     throw "Eye appearance evidence is not bound to the exact subject donor/authority boundary."
 }
 
+$runtimeArgs = $common.Clone()
+$runtimeArgs.PackagePath = $packagePath
+$runtimeArgs.HairCandidateDir = $hairDir
+$runtimeArgs.EyeGeometryDir = $eyesDir
+$runtimeArgs.EyeAppearanceDir = $eyeAppearanceDir
+$runtimeArgs.CandidateWorkspace = $candidateWorkspace
+$runtimeArgs.OutputDir = $runtimeDir
+Invoke-Checked -Script $runtimeScript -Arguments $runtimeArgs -Label "Combined visible hair+eye review runtime"
+
+$runtimeReceiptPath = Need-File -Path (Join-Path $runtimeDir "source-hair-eye-review-runtime.json") -Label "Combined hair+eye runtime receipt"
+$runtimeVrmPath = Need-File -Path (Join-Path $runtimeDir "source-hair-eye-review.vrm") -Label "Combined hair+eye review VRM"
+$runtime = Read-Json -Path $runtimeReceiptPath -Label "Combined hair+eye runtime receipt"
+if ([string]$runtime.format -ne "bodyrig-source-hair-eye-review-runtime" -or [int]$runtime.version -ne 1 -or
+    [string]$runtime.bodyrigRevision -ne $head -or
+    [string]$runtime.packageSha256 -ne $packageSha -or
+    [string]$runtime.reviewVrmSha256 -ne (Sha256 $runtimeVrmPath) -or
+    [string]$runtime.runtimeIntegrationStatus -ne "hair-and-eyes-review-artifact-ready" -or
+    $runtime.sourceHairRuntimeApplied -ne $true -or
+    $runtime.sourceEyeSurfaceApplied -ne $true -or
+    [string]$runtime.cornealMaterialStatus -ne "runtime-applied" -or
+    $runtime.physicalSilhouetteReviewRequired -ne $true -or
+    $runtime.physicalFaceCloseupReviewRequired -ne $true -or
+    $runtime.comparisonOnly -ne $true -or $runtime.humanReviewRequired -ne $true -or
+    $runtime.hairComponentAuthority -ne $false -or $runtime.eyeComponentAuthority -ne $false -or
+    $runtime.productionActivation -ne $false) {
+    throw "Combined hair+eye runtime does not bind the exact component discovery authority."
+}
+
 $result = [ordered]@{
     format = "bodyrig-subject-component-discovery"
     version = 1
@@ -186,6 +274,10 @@ $result = [ordered]@{
     donor_obj = $donorObj
     donor_obj_sha256 = $donorSha
     anatomy_gate_summary_sha256 = (Sha256 $summaryPath)
+    candidate_package_sha256 = $packageSha
+    candidate_workspace = $candidateWorkspace
+    candidate_reconstruction_sha256 = $candidateReconstructionSha
+    candidate_reconstruction_authority_sha256 = $candidateReconstructionAuthoritySha
     subject_refit_evidence_sha256 = (Sha256 $refitEvidencePath)
     candidate_anatomy_evidence_sha256 = (Sha256 $candidateAuditPath)
     hair = [ordered]@{
@@ -209,9 +301,23 @@ $result = [ordered]@{
         source_derived_iris_appearance = $false
         iris_identity_isolated = $false
         iris_appearance_status = [string]$eyeAppearance.irisAppearanceStatus
-        corneal_material_status = [string]$eyeAppearance.cornealMaterialStatus
+        corneal_material_status = [string]$runtime.cornealMaterialStatus
         eyelash_status = [string]$eyeAppearance.eyelashStatus
         human_review_required = $true
+    }
+    runtime = [ordered]@{
+        status = "review-artifact-ready"
+        review_vrm = $runtimeVrmPath
+        review_vrm_sha256 = (Sha256 $runtimeVrmPath)
+        evidence = $runtimeReceiptPath
+        evidence_sha256 = (Sha256 $runtimeReceiptPath)
+        source_hair_runtime_applied = $true
+        source_eye_surface_applied = $true
+        corneal_material_status = [string]$runtime.cornealMaterialStatus
+        physical_silhouette_review_required = $true
+        physical_face_closeup_review_required = $true
+        human_review_required = $true
+        production_activation = $false
     }
     body_topology_modified = $false
     reconstruction_rerun = $false
@@ -224,12 +330,14 @@ $result = [ordered]@{
 $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $receiptPath -Encoding UTF8
 
 Write-Host ""
-Write-Host "BodyRig subject component discovery: CANDIDATES READY"
+Write-Host "BodyRig subject component discovery: VISIBLE REVIEW RUNTIME READY"
 Write-Host "Hair faces:     $([int]$hair.selectedFaceCount)"
 Write-Host "Eye faces L/R:  $([int]$eyes.leftEyeFaceCount) / $([int]$eyes.rightEyeFaceCount)"
-Write-Host "Eye surface:    SOURCE-DERIVED REVIEW CANDIDATE"
+Write-Host "Hair runtime:   APPLIED"
+Write-Host "Eye surface:    SOURCE-BAKED RUNTIME APPLIED"
+Write-Host "Cornea:         RUNTIME APPLIED"
+Write-Host "Review VRM:     $runtimeVrmPath"
 Write-Host "Iris identity:  REVIEW-PENDING (not isolated)"
-Write-Host "Cornea:         $([string]$eyeAppearance.cornealMaterialStatus)"
 Write-Host "Eyelashes:      $([string]$eyeAppearance.eyelashStatus)"
 Write-Host "Human review:   REQUIRED"
 Write-Host "High fidelity:  FALSE"

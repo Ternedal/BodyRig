@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from bodyrig import ui_jobs
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
 from bodyrig.person_source_alignment import file_sha256, read_binding, write_binding
+from bodyrig.voicerig_client import VoiceRigUploadCancelled
 
 
 class FakeVoiceRig:
@@ -18,10 +21,19 @@ class FakeVoiceRig:
     def health(self) -> dict:
         return {"ok": True, "service": "voicerig", "version": "test"}
 
-    def start_voice_job(self, *, name: str, language: str, files: list[Path], accent: str = "") -> dict:
+    def start_voice_job(
+        self,
+        *,
+        name: str,
+        language: str,
+        files: list[Path],
+        accent: str = "",
+        cancel_event: threading.Event | None = None,
+    ) -> dict:
         assert name == "Source Fixture"
         assert language == "da"
         assert accent == ""
+        assert cancel_event is not None
         self.uploaded = list(files)
         return {
             "id": self.remote_id,
@@ -52,6 +64,30 @@ class FakeVoiceRig:
     def package_bytes(self, package: str) -> bytes:
         assert package == "source-fixture.mrvoice"
         return self.package
+
+
+class BlockingUploadVoiceRig(FakeVoiceRig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+
+    def start_voice_job(
+        self,
+        *,
+        name: str,
+        language: str,
+        files: list[Path],
+        accent: str = "",
+        cancel_event: threading.Event | None = None,
+    ) -> dict:
+        assert name == "Source Fixture"
+        assert language == "da"
+        assert accent == ""
+        assert cancel_event is not None
+        self.uploaded = list(files)
+        self.entered.set()
+        assert cancel_event.wait(2), "test did not receive cancellation event"
+        raise VoiceRigUploadCancelled("canceled before VoiceRig job creation")
 
 
 def _source_profile(root: Path) -> tuple[dict, Path, Path]:
@@ -158,3 +194,35 @@ def test_source_voice_job_fails_if_source_changes_after_upload(tmp_path: Path, m
     assert "bytes no longer match" in finished["error"]
     updated = load_profile(tmp_path, profile["person_id"])
     assert updated["voice_revisions"] == []
+
+
+def test_source_voice_job_can_cancel_before_remote_job_exists(tmp_path: Path, monkeypatch) -> None:
+    profile, _, _ = _source_profile(tmp_path)
+    fake = BlockingUploadVoiceRig()
+    manager = _manager(tmp_path, monkeypatch, fake)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            manager.start_voice_build,
+            profile["person_id"],
+            body_revision="body-r0001",
+            language="da",
+        )
+        assert fake.entered.wait(1)
+        open_jobs = manager.list(person_id=profile["person_id"])
+        assert len(open_jobs) == 1
+        job_id = open_jobs[0]["job_id"]
+        assert open_jobs[0]["voicerig_job_id"] is None
+
+        cancelling = manager.cancel(job_id)
+        assert cancelling["status"] == "cancelling"
+        assert cancelling["voicerig_job_id"] is None
+
+        finished = future.result(timeout=2)
+
+    assert finished["status"] == "canceled"
+    assert finished["stage"] == "canceled"
+    assert finished["voicerig_job_id"] is None
+    assert finished["error"] is None
+    assert manager.get(job_id)["status"] == "canceled"
+    assert load_profile(tmp_path, profile["person_id"])["voice_revisions"] == []

@@ -94,6 +94,8 @@
         </div>
         <span id="bodyFidelityReviewBadge" class="badge muted">Ukendt</span>
       </div>
+      <div id="bodyFidelityReviewNext" class="body-release-next fine-print"></div>
+      <pre id="bodyFidelityReviewCommand" class="proposal body-release-command hidden"></pre>
       <p class="fine-print">Read-only status. En aktiv Person Revision betyder kun, at body + voice + personality er valgt som den aktive samlede Person; det er ikke production authority. Production kræver tre uafhængige led: komplette high-fidelity component receipts, et eksplicit package-/component-state-bundet high-fidelity human review og den fysiske Windows + Quest final release authority.</p>`;
     const gallery = document.getElementById("bodyReviewGalleryCard");
     if (gallery) gallery.insertAdjacentElement("afterend", card);
@@ -120,6 +122,8 @@
       faceComponents: document.getElementById("bodyFaceFidelityComponents"),
       fidelityReviewSummary: document.getElementById("bodyFidelityReviewSummary"),
       fidelityReviewBadge: document.getElementById("bodyFidelityReviewBadge"),
+      fidelityReviewNext: document.getElementById("bodyFidelityReviewNext"),
+      fidelityReviewCommand: document.getElementById("bodyFidelityReviewCommand"),
     };
   }
 
@@ -158,11 +162,14 @@
     }
   }
 
-  function renderHumanFidelityReview(review) {
-    const { fidelityReviewSummary, fidelityReviewBadge } = nodes();
-    if (!fidelityReviewSummary || !fidelityReviewBadge) return;
+  function renderHumanFidelityReview(review, bodyId) {
+    const { fidelityReviewSummary, fidelityReviewBadge, fidelityReviewNext, fidelityReviewCommand } = nodes();
+    if (!fidelityReviewSummary || !fidelityReviewBadge || !fidelityReviewNext || !fidelityReviewCommand) return;
     const value = review && typeof review === "object" ? review : {};
     const state = typeof value.state === "string" ? value.state : "unavailable";
+    fidelityReviewNext.textContent = "";
+    fidelityReviewCommand.textContent = "";
+    fidelityReviewCommand.classList.add("hidden");
     if (state === "pass" && value.passed === true) {
       fidelityReviewBadge.textContent = "Review PASS";
       fidelityReviewBadge.classList.remove("muted");
@@ -173,15 +180,24 @@
     fidelityReviewBadge.classList.add("muted");
     if (state === "required") {
       fidelityReviewBadge.textContent = "Review kræves";
+      const safeBodyId = typeof bodyId === "string" && /^[A-Za-z0-9._-]{3,160}$/.test(bodyId);
+      if (safeBodyId) {
+        fidelityReviewNext.textContent = "Kør den canonicale wrapper fra den rene BodyRig operator-checkout efter den fysiske multiview + face-closeup review. Wrapperen beviser Windows, PowerShell 7+ og clean Git authority igen ved execution.";
+        fidelityReviewCommand.textContent = `& ".\\record-high-fidelity-human-review.ps1" -BodyId "${bodyId}" -ConfirmQualityChecklist -QualityNote "<din fysiske high-fidelity review>"`;
+        fidelityReviewCommand.classList.remove("hidden");
+      } else {
+        fidelityReviewNext.textContent = "Review-kommando tilbageholdt: body-id er ikke canonical.";
+      }
     } else if (state === "blocked") {
       fidelityReviewBadge.textContent = "Review blokeret";
+      fidelityReviewNext.textContent = "High-fidelity component gates skal være komplette, før et human review kan få authority.";
     } else {
       fidelityReviewBadge.textContent = "Review mangler";
     }
     fidelityReviewSummary.textContent = value.reason || "High-fidelity human review authority er ikke tilgængelig.";
   }
 
-  function renderFidelity(fidelity) {
+  function renderFidelity(fidelity, bodyId) {
     const { fidelitySummary, fidelityBadge, fidelityComponents, faceSummary, faceComponents } = nodes();
     if (!fidelitySummary || !fidelityBadge || !fidelityComponents || !faceSummary || !faceComponents) return;
     if (!fidelity || typeof fidelity !== "object" || fidelity.state === "unavailable") {
@@ -191,7 +207,7 @@
       faceSummary.textContent = "Nested face-secondary authority er ikke tilgængelig.";
       renderComponentSet(fidelityComponents, {}, FIDELITY_LABELS);
       renderComponentSet(faceComponents, {}, FACE_LABELS);
-      renderHumanFidelityReview(fidelity?.human_review);
+      renderHumanFidelityReview(fidelity?.human_review, bodyId);
       return;
     }
 
@@ -211,7 +227,7 @@
       ? `Ansigtsdetaljer komplette · semantic vertex-map authority: ${semantic}.`
       : `Ansigtsdetaljer blokeret: ${faceBlockers.length ? faceBlockers.map((key) => FACE_LABELS[key] || key).join(", ") : "ukendt"} · semantic vertex-map authority: ${semantic}.`;
     renderComponentSet(faceComponents, face.components, FACE_LABELS);
-    renderHumanFidelityReview(fidelity.human_review);
+    renderHumanFidelityReview(fidelity.human_review, bodyId);
   }
 
   function reset(message) {
@@ -227,7 +243,7 @@
       command.classList.add("hidden");
     }
     renderStages({ gate_a: "unknown", windows: "unknown", quest: "unknown", release: "unknown" });
-    renderFidelity(null);
+    renderFidelity(null, "");
   }
 
   async function apiJson(url) {
@@ -247,7 +263,7 @@
     const { summary, badge, next, command } = nodes();
     if (!summary || !badge || !next || !command) return;
     renderStages(value.stages);
-    renderFidelity(value.fidelity);
+    renderFidelity(value.fidelity, value.body_id);
     const physicalProduction = value.production_activation === true && value.state === "complete" && value.gate === "release";
     const fidelityReady = value.fidelity?.high_fidelity_ready === true;
     const fidelityReviewReady = value.fidelity?.human_review?.passed === true;

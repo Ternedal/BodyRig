@@ -85,6 +85,9 @@ $initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 if (-not $ConfirmQualityChecklist) { throw "Reference renderer attestation requires explicit -ConfirmQualityChecklist after the full physical quality review." }
 if ([string]::IsNullOrWhiteSpace($QualityNote)) { throw "QualityNote must contain the operator's physical review." }
 $QualityNote = $QualityNote.Trim()
+if ($QualityNote -match '^<[^>]+>$') {
+    throw "QualityNote is still a generated placeholder. Replace it with the operator's actual physical review before attesting PASS."
+}
 
 $contractFile = Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
 $contract = $contractFile.Value

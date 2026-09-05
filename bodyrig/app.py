@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .body_feedback import propose_bodyprint_changes
+from .high_fidelity_preview_api import router as high_fidelity_preview_router
 from .modelrig_client import ModelRigClient, ModelRigClientError, ModelRigConfig
 from .models import BodyCue, SpeechTiming
 from .package import MRBodyError, install_package, validate_package
@@ -57,6 +58,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8775
 runtime = BodyRuntime()
 app = FastAPI(title="BodyRig", version=__version__)
+app.include_router(high_fidelity_preview_router)
 UI_DIR = Path(__file__).resolve().parent / "ui"
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
 _APPROVAL_LOCK = threading.Lock()

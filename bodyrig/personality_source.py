@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
+import threading
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,6 +23,17 @@ class SourcePersonalityError(ValueError):
 _TRANSCRIPT_SUFFIXES = {".srt", ".vtt", ".txt"}
 _MAX_TRANSCRIPTS = 20
 _MAX_EXEMPLARS = 12
+
+
+@dataclass
+class _InFlightBuild:
+    done: threading.Event = field(default_factory=threading.Event)
+    result: dict[str, Any] | None = None
+    error: BaseException | None = None
+
+
+_INFLIGHT_GUARD = threading.Lock()
+_INFLIGHT: dict[tuple[str, str, str, str], _InFlightBuild] = {}
 
 
 def _canonical_bytes(value: Mapping[str, Any]) -> bytes:
@@ -54,7 +68,50 @@ def _persist_create_only(path: Path, value: Mapping[str, Any]) -> Path:
     return path
 
 
-def _sidecar_transcripts(media: Path) -> list[Path]:
+def _directory_transcript_files(
+    directory: Path,
+    cache: dict[str, tuple[tuple[str, Path], ...]],
+) -> tuple[tuple[str, Path], ...]:
+    """Scan one media directory at most once per source-personality build.
+
+    Stash source sets commonly contain several clips from the same directory. A
+    repeated Path.iterdir()+Path.is_file() pass can become very expensive on a
+    large/network-backed media share. os.scandir keeps directory-entry metadata
+    with the enumeration and the per-build cache preserves the exact discovery
+    semantics without rescanning the same directory for every source clip.
+    """
+    key = os.path.normcase(str(directory))
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    found: list[tuple[str, Path]] = []
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_file():
+                        continue
+                except OSError:
+                    continue
+                name = entry.name
+                if Path(name).suffix.casefold() not in _TRANSCRIPT_SUFFIXES:
+                    continue
+                found.append((name.casefold(), Path(entry.path).resolve()))
+    except OSError:
+        result: tuple[tuple[str, Path], ...] = ()
+    else:
+        found.sort(key=lambda item: item[0])
+        result = tuple(found)
+    cache[key] = result
+    return result
+
+
+def _sidecar_transcripts(
+    media: Path,
+    *,
+    directory_cache: dict[str, tuple[tuple[str, Path], ...]] | None = None,
+) -> list[Path]:
     """Return caption/transcript sidecars belonging to one exact media file.
 
     Stash captions live beside the scene and commonly use scene.en.srt / scene.vtt.
@@ -62,24 +119,16 @@ def _sidecar_transcripts(media: Path) -> list[Path]:
     the full media filename. Prefix matching is intentionally narrow so a scene
     called ``foo`` cannot accidentally consume ``foobar.en.srt``.
     """
-    try:
-        entries = list(media.parent.iterdir())
-    except OSError:
-        return []
+    cache = directory_cache if directory_cache is not None else {}
+    entries = _directory_transcript_files(media.parent, cache)
     stem_prefix = media.stem.casefold() + "."
     full_prefix = media.name.casefold() + "."
-    exact = {
-        (media.stem + suffix).casefold()
-        for suffix in _TRANSCRIPT_SUFFIXES
-    }
-    result: list[Path] = []
-    for item in entries:
-        if not item.is_file() or item.suffix.casefold() not in _TRANSCRIPT_SUFFIXES:
-            continue
-        name = item.name.casefold()
-        if name not in exact and not name.startswith(stem_prefix) and not name.startswith(full_prefix):
-            continue
-        result.append(item.resolve())
+    exact = {(media.stem + suffix).casefold() for suffix in _TRANSCRIPT_SUFFIXES}
+    result = [
+        path
+        for name, path in entries
+        if name in exact or name.startswith(stem_prefix) or name.startswith(full_prefix)
+    ]
     result.sort(key=lambda path: path.name.casefold())
     return result
 
@@ -87,10 +136,11 @@ def _sidecar_transcripts(media: Path) -> list[Path]:
 def _discover_transcripts(source_files: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     seen: set[str] = set()
+    directory_cache: dict[str, tuple[tuple[str, Path], ...]] = {}
     for source in source_files:
         media = Path(str(source.get("path") or "")).expanduser().resolve()
         scene_id = str(source.get("scene_id") or "")
-        for transcript in _sidecar_transcripts(media):
+        for transcript in _sidecar_transcripts(media, directory_cache=directory_cache):
             key = os.path.normcase(str(transcript))
             if key in seen:
                 continue
@@ -131,7 +181,7 @@ def _instructions(exemplars: list[str]) -> str:
     return "\n".join(lines)
 
 
-def build_source_personality(
+def _build_source_personality(
     root: str | os.PathLike[str],
     person_id: str,
     *,
@@ -201,6 +251,10 @@ def build_source_personality(
     )
     feedback = f"Automatic source-derived personality from {body_revision}"
 
+    # Reload immediately before the create decision. Sequential retries still
+    # revalidate source bytes, but must reuse an identical revision created by a
+    # prior request rather than trusting the profile snapshot from before hashing.
+    profile = load_profile(root, person_id)
     existing = next(
         (
             item
@@ -259,3 +313,59 @@ def build_source_personality(
         "source_binding": binding,
         "profile": profile,
     }
+
+
+def build_source_personality(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_revision: str,
+    default_language: str = "en",
+) -> dict[str, Any]:
+    """Build once for identical concurrent requests, while keeping later retries strict.
+
+    FastAPI executes this synchronous endpoint in a threadpool. Person Studio
+    rerenders or a manual retry can therefore submit identical requests at the
+    same time. Coalescing only an *in-flight* identical request prevents duplicate
+    full-media SHA scans and duplicate revisions. Once the leader finishes, the
+    entry is removed, so a later call performs the full fail-closed source-byte
+    revalidation again.
+    """
+    root_key = os.path.normcase(str(Path(root).expanduser().resolve()))
+    key = (root_key, str(person_id), str(body_revision), str(default_language))
+    with _INFLIGHT_GUARD:
+        flight = _INFLIGHT.get(key)
+        if flight is None:
+            flight = _InFlightBuild()
+            _INFLIGHT[key] = flight
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        flight.done.wait()
+        if flight.error is not None:
+            if isinstance(flight.error, SourcePersonalityError):
+                raise SourcePersonalityError(str(flight.error)) from flight.error
+            raise RuntimeError("concurrent source personality build failed") from flight.error
+        if flight.result is None:
+            raise RuntimeError("concurrent source personality build completed without a result")
+        return copy.deepcopy(flight.result)
+
+    try:
+        result = _build_source_personality(
+            root,
+            person_id,
+            body_revision=body_revision,
+            default_language=default_language,
+        )
+        flight.result = copy.deepcopy(result)
+        return result
+    except BaseException as exc:
+        flight.error = exc
+        raise
+    finally:
+        flight.done.set()
+        with _INFLIGHT_GUARD:
+            if _INFLIGHT.get(key) is flight:
+                del _INFLIGHT[key]

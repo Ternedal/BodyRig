@@ -26,7 +26,12 @@ from .person_source_alignment import (
 )
 from .person_voice_source import PersonVoiceSourceError, source_files_for_body
 from .storage import body_library, person_library, ui_jobs_dir
-from .voicerig_client import VoiceRigClient, VoiceRigClientError, VoiceRigConfig
+from .voicerig_client import (
+    VoiceRigClient,
+    VoiceRigClientError,
+    VoiceRigConfig,
+    VoiceRigUploadCancelled,
+)
 
 FORMAT = "bodyrig-ui-job"
 VERSION = 1
@@ -327,6 +332,7 @@ class UiJobManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._processes: dict[str, subprocess.Popen[str]] = {}
+        self._voice_cancel_events: dict[str, threading.Event] = {}
         self._reconcile_interrupted()
 
     def _reconcile_interrupted(self) -> None:
@@ -469,6 +475,8 @@ class UiJobManager:
             if active:
                 raise UiJobError("Another BodyRig UI build is already open for this person")
             job_id = f"job-{uuid.uuid4().hex}"
+            cancel_event = threading.Event()
+            self._voice_cancel_events[job_id] = cancel_event
             job = {
                 "format": FORMAT,
                 "version": VERSION,
@@ -486,8 +494,8 @@ class UiJobManager:
                 "source_files": source_files,
                 "voicerig_job_id": None,
                 "progress": 0,
-                "stage": "uploading",
-                "message": "Verifierede Stash-kilder uploades til VoiceRig…",
+                "stage": "audio_extract_upload",
+                "message": "Udtrækker kun lyd lokalt og sender audio til VoiceRig…",
                 "speaker_choices": None,
                 "reference_choices": None,
                 "voice_revision": None,
@@ -505,23 +513,47 @@ class UiJobManager:
                 name=profile["display_name"],
                 language=clean_language,
                 files=[Path(item["path"]) for item in evidence["source_files"]],
+                cancel_event=cancel_event,
             )
+            remote_id = str(remote["id"])
+            if cancel_event.is_set():
+                remote = client.cancel_voice_job(remote_id)
             with self._lock:
                 current = _read_job(_job_path(job_id))
-                current["voicerig_job_id"] = str(remote["id"])
+                current["voicerig_job_id"] = remote_id
                 self._apply_remote_voice_state(current, remote)
+                _write_job(current)
+                return current
+        except VoiceRigUploadCancelled:
+            with self._lock:
+                current = _read_job(_job_path(job_id))
+                current["status"] = "canceled"
+                current["completed_utc"] = _now()
+                current["stage"] = "canceled"
+                current["message"] = "Lokal audio-ekstraktion/transport blev annulleret før VoiceRig-joboprettelse."
+                current["error"] = None
                 _write_job(current)
                 return current
         except (VoiceRigClientError, OSError, ValueError) as exc:
             with self._lock:
                 current = _read_job(_job_path(job_id))
-                current["status"] = "failed"
-                current["completed_utc"] = _now()
-                current["stage"] = "failed"
-                current["message"] = "Source-derived VoiceRig build could not be started."
-                current["error"] = str(exc)[:4000]
+                if cancel_event.is_set():
+                    current["status"] = "canceled"
+                    current["completed_utc"] = _now()
+                    current["stage"] = "canceled"
+                    current["message"] = "Lokal audio-ekstraktion/transport blev annulleret før VoiceRig-joboprettelse."
+                    current["error"] = None
+                else:
+                    current["status"] = "failed"
+                    current["completed_utc"] = _now()
+                    current["stage"] = "failed"
+                    current["message"] = "Source-derived VoiceRig build could not be started."
+                    current["error"] = str(exc)[:4000]
                 _write_job(current)
                 return current
+        finally:
+            with self._lock:
+                self._voice_cancel_events.pop(job_id, None)
 
     @staticmethod
     def _apply_remote_voice_state(job: dict[str, Any], remote: dict[str, Any]) -> None:
@@ -898,7 +930,21 @@ class UiJobManager:
         if job.get("kind") == "voice-build":
             remote_id = str(job.get("voicerig_job_id") or "")
             if not remote_id:
-                raise UiJobError("Voice build has no recoverable VoiceRig job id")
+                with self._lock:
+                    cancel_event = self._voice_cancel_events.get(job_id)
+                    current = _read_job(_job_path(job_id))
+                    if cancel_event is not None:
+                        cancel_event.set()
+                        if current.get("status") not in _FINAL:
+                            current["status"] = "cancelling"
+                            current["stage"] = "cancelling"
+                            current["message"] = "Annullerer lokal audio-ekstraktion/transport før VoiceRig-joboprettelse…"
+                            current["error"] = None
+                            _write_job(current)
+                        return current
+                    if current.get("status") == "cancelling":
+                        return current
+                raise UiJobError("Voice build transport is no longer active and has no recoverable VoiceRig job id")
             try:
                 remote = _voicerig_client().cancel_voice_job(remote_id)
             except VoiceRigClientError as exc:

@@ -194,3 +194,21 @@
   ensureCard();
   void refresh(true);
 })();
+
+// High-fidelity review layers are isolated extensions. A load failure must not
+// break the baseline package-bound four-view gallery above.
+void import("/ui/high_fidelity_preview.js").catch((error) => {
+  console.error("BodyRig high-fidelity preview UI could not be loaded", error);
+});
+void import("/ui/high_fidelity_component_review.js").catch((error) => {
+  console.error("BodyRig high-fidelity component-review UI could not be loaded", error);
+});
+void import("/ui/high_fidelity_hair_deformation_review.js").catch((error) => {
+  console.error("BodyRig high-fidelity hair-deformation-review UI could not be loaded", error);
+});
+void import("/ui/high_fidelity_hair_promotion.js").catch((error) => {
+  console.error("BodyRig high-fidelity hair-promotion UI could not be loaded", error);
+});
+void import("/ui/high_fidelity_continuation.js").catch((error) => {
+  console.error("BodyRig unified high-fidelity continuation UI could not be loaded", error);
+});
