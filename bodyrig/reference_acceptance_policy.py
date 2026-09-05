@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,11 @@ def _quality_review_mismatch(attestation: dict[str, Any], prefix: str) -> str | 
     for field in QUALITY_REVIEW_BOOLEAN_FIELDS:
         if review.get(field) is not True:
             return f"{prefix} human attestation quality_review did not explicitly pass {field}."
+    quality_note = str(attestation.get("quality_note") or "").strip()
+    if not quality_note:
+        return f"{prefix} human attestation quality note is missing."
+    if re.fullmatch(r"<[^>]+>", quality_note):
+        return f"{prefix} human attestation quality note is still a generated placeholder."
     return None
 
 
