@@ -6,65 +6,105 @@ Updated: 2026-09-05.
 
 - Canonical software trunk remains `main`; last verified trunk SHA is
   `438201ddf8131e3de646b5057006463b64eadc86` (PR #72).
-- This checkout continues the existing draft PR #83 on
-  `agent/high-fidelity-integration-20260904`. It is an integration candidate,
-  not replacement trunk authority.
+- This checkout continues draft PR #83 on
+  `agent/high-fidelity-integration-20260904`. It is the single high-fidelity
+  integration candidate, not replacement trunk authority.
 - PR #83 is stacked on PR #54, exact base
   `a33372de359a24b3daffae4649a06008d00179bd`, because its Person Studio flow
   depends on the unmerged anatomy/hair/eyes/face-secondary component chain.
-  No additional sibling branch was created.
-- The starting integration head for this continuation was
-  `da73358ceebd784042139a0edfb634e755f6df7f`, with CI #1624 and Windows
-  log-handle regression #796 successful. Current head and its CI results are
-  recorded on PR #83; do not reuse this starting SHA as current authority.
+- Temporary validation PR #84 was tested on exact head
+  `fc307565d6dc15797d28eae27581aaf9b7a1ab59` and folded into #83 as merge
+  commit `b7ecc2749fcd10a5b311cc7cc787eaa32ea54798`. PR #84 is not a parallel
+  integration authority.
 - Historical physical evidence keeps its recorded exact revision. Nothing in
-  this continuation rebases, rewrites or replaces existing physical evidence.
+  this continuation rebases, rewrites or relabels historical physical PASS.
 
-## Completed in this continuation
+## Software-complete continuation
 
-- Final component status verifies the promoted package SHA before and after
-  audit and checks the audit's own package SHA. A missing/replaced package
-  cannot remain component-complete.
-- Release readiness verifies the same package bytes before and after final
-  human-review validation. A passing review records the package SHA in status
-  and clears the outstanding human-review flag; physical/production gates stay
-  required.
-- Corrupt component reviews return a blocked status. Contradictory `state` and
-  `passed` values cannot advance the flow. Existing runtime output with missing
-  nested evidence is invalid, rather than an invitation to rerun a create-only
-  operator into the same directory.
-- Blocked stages expose their reason and suppress runnable next commands.
-  Component/hair review templates name their real confirmation switches and
-  still require the operator's assessment. PowerShell path values use literal
-  quoting, including apostrophes, dollar signs and backticks.
-- Person Studio resumes polling after an empty preview response, immediately
-  clears the previous person's readiness on selection changes, ignores stale
-  responses, and shows blocked review status ahead of package-complete badges.
-  API labels and error messages are inserted as text rather than HTML.
+The final component-complete promoted `.mrbody` now has a concrete, fail-closed
+handoff into the existing canonical physical acceptance state machine.
+
+- The promoted package SHA is verified before and after component audit and
+  final package-bound human review.
+- `prepare-high-fidelity-physical-acceptance.ps1` creates a **fresh Gate A** for
+  the exact promoted package. It does not repoint old package/runtime authority
+  at new bytes and does not rerun retained reconstruction merely to manufacture
+  authority.
+- Only the original hash-bound physical clone session and rig-readiness receipt
+  are reused, and only as source-lineage evidence after their original Gate A is
+  revalidated and body identity matches the final promoted package.
+- Skin QA and mesh-topology QA are recomputed for the promoted package, runtime
+  is freshly materialized, and the final package-bound high-fidelity human
+  review is copied and revalidated against the accepted package copy.
+- The new physical-acceptance directory is create-only and committed atomically
+  from staging. Its fresh `bodyrig-acceptance.json` is validated by the existing
+  canonical acceptance validator before it becomes visible.
+- The handoff intentionally stops at the canonical Windows renderer probe with
+  `production_activation=false`.
+
+## Canonical downstream gates
+
+After fresh Gate A, release readiness and Person Studio delegate to the existing
+`bodyrig.acceptance_status` state machine rather than inventing a second physical
+acceptance stack:
+
+1. `physical_gate_a` — prepare the promoted package for physical acceptance.
+2. `physical_windows_acceptance` — Windows renderer probe and human attestation.
+3. `physical_quest_acceptance` — Quest probe and human attestation.
+4. `final_release` — canonical final release for the exact accepted package.
+
+`production_ready=true` and `production_activation=true` may surface **only**
+when the canonical acceptance state is complete at gate `release`. Software
+completion, component review, final human review, fresh Gate A, Windows-only PASS
+or Quest-only PASS cannot activate production.
+
+## Person Studio behaviour
+
+- Software-ready status shows the actual next downstream gate and command.
+- Blocked evidence stays fail-closed and cannot expose a runnable rerun command
+  into an invalid existing create-only output.
+- Selection changes clear stale status and delayed responses from a previous
+  person are ignored.
+- `PRODUCTION READY` is shown only when both canonical `production_ready` and
+  `production_activation` are true after final release.
 
 ## Verification
 
-- Full local Python 3.12 suite: **1267 passed, 1 skipped**.
-- The skip is the native PowerShell quoting test: local `pwsh` is unavailable;
-  the canonical CI Python jobs provide PowerShell and execute that test.
-- Node UI behaviour suite: **4 passed**, included in the Python suite through
-  its subprocess runner. Uses Node built-ins; no new application dependency.
-- Exact updated-head CI results belong in PR #83 after push.
-- No target-rig CUDA/SiTH, real human visual review, WindowsPlayer or Quest
-  physical acceptance was performed in this environment.
+- Temporary PR #84 exact head `fc307565d6dc15797d28eae27581aaf9b7a1ab59`:
+  - `ci` run #1641: **SUCCESS** (Python 3.11, Python 3.12 and Windows acceptance job).
+  - `windows-log-handle-regression` run #813: **SUCCESS**.
+- The physical-handoff test suite covers fresh QA/runtime/Gate A materialization,
+  atomic create-only commit, package/review staleness, canonical Windows/Quest/
+  release state mapping and the rule that only canonical final release activates
+  production.
+- No target-rig CUDA/SiTH execution, actual final human visual review, WindowsPlayer
+  physical acceptance or Quest physical acceptance was performed here. Automated
+  CI is not target-device evidence.
 
-## Next concrete work
+## Next concrete operator work
 
-The unified continuation reaches a component-complete package and validates its
-package-bound final human review. The next action still stops at
-`physical_windows_acceptance` with no runnable command. Complete the explicit
-handoff of that exact promoted package into the canonical physical acceptance
-flow, then expose the validated Windows / Quest / final-release next step in
-Person Studio. Do not point an old clone/package acceptance receipt at newly
-promoted bytes, infer physical PASS from component review, or rerun retained
-reconstruction merely to create new authority.
+For an exact final high-fidelity preview whose final package-bound human review
+has passed:
 
-Keep PR #83 draft until the remaining operator/UI and final release-readiness
-contract are complete. `production_ready=false` and `production_activation=false`
-remain mandatory throughout this continuation. Human source-identity review,
-real Windows/Quest acceptance and canonical final release remain separate gates.
+```powershell
+.\prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId '<preview-job-id>'
+```
+
+The command must leave the new acceptance state at the canonical Windows probe.
+Then run the existing canonical Windows probe + human attestation, Quest probe +
+human attestation, and final-release commands surfaced by the acceptance state
+machine / Person Studio.
+
+Do **not** mark those hardware/human gates PASS without their real evidence.
+Until canonical final release is complete for the exact promoted package,
+`production_ready=false` and `production_activation=false` remain mandatory.
+
+## Remaining software hardening
+
+The main software handoff gap is closed. A useful follow-up hardening is stronger
+transitive status-read validation of the handoff receipt, Gate A extension,
+fresh QA/runtime hashes and source Gate A lineage. This is defense-in-depth; it
+must not weaken or bypass the canonical physical state machine.
+
+Keep PR #83 draft until the integration candidate's updated head is green and
+physical/operator acceptance is ready to be executed on the actual rig.
