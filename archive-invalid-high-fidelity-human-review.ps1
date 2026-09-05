@@ -1,4 +1,5 @@
 param(
+    [Parameter(Mandatory = $true)][string]$PreviewJobId,
     [Parameter(Mandatory = $true)][string]$PackagePath
 )
 
@@ -10,6 +11,9 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 }
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required for the canonical BodyRig high-fidelity human review recovery path."
+}
+if ($PreviewJobId -notmatch '^hfpreview-[0-9a-f]{32}$') {
+    throw "PreviewJobId is not canonical."
 }
 if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
     throw "High-fidelity package not found: $PackagePath"
@@ -72,9 +76,20 @@ try {
         throw "BodyRig Python imports bodyrig from a different checkout/package: $actualModule"
     }
 
+    $gateStateLines = @(& $pythonExe -c "import sys; from bodyrig.high_fidelity_physical_acceptance import physical_acceptance_dir; p=physical_acceptance_dir(sys.argv[1]); print('exists' if p.exists() else 'absent')" $PreviewJobId 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $gateStateLines.Count -ne 1) {
+        throw "Could not verify whether fresh Gate A already exists for $PreviewJobId."
+    }
+    if (([string]$gateStateLines[0]).Trim() -eq "exists") {
+        throw "Human-review recovery is disabled after fresh Gate A exists. Use high-fidelity-physical-status.ps1 to audit the frozen acceptance authority instead."
+    }
+    if (([string]$gateStateLines[0]).Trim() -ne "absent") {
+        throw "Fresh Gate A state check returned a non-canonical result."
+    }
+
     Push-Location $repoRoot
     try {
-        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_recovery_cli --package $PackagePath)
+        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_recovery_cli --preview-job-id $PreviewJobId --package $PackagePath)
         if ($LASTEXITCODE -ne 0) {
             throw "High-fidelity human review recovery CLI failed with exit code $LASTEXITCODE."
         }
@@ -111,6 +126,7 @@ try {
 }
 
 Write-Host "BodyRig high-fidelity human review recovery: PASS"
+Write-Host "Preview:       $PreviewJobId"
 Write-Host "Revision:      $initialHead"
 Write-Host "Python:        $pythonExe"
 Write-Host "Package SHA:   $([string]$result.package_sha256)"
