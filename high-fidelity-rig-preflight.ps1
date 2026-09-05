@@ -13,9 +13,28 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required."
 }
 
+$minimumPhysicalHandoffRevision = "ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7"
+
 function Need-File([string]$Path, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Assert-MinimumPhysicalHandoffRevision {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$CurrentHead,
+        [Parameter(Mandatory = $true)][string]$MinimumRevision
+    )
+    $anchorSpec = $MinimumRevision + "^{commit}"
+    & git -C $RepoRoot cat-file -e $anchorSpec 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig checkout does not contain minimum safe high-fidelity physical handoff revision $MinimumRevision. Update the integration checkout before physical acceptance."
+    }
+    & git -C $RepoRoot merge-base --is-ancestor $MinimumRevision $CurrentHead
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig checkout revision $CurrentHead predates minimum safe high-fidelity physical handoff revision $MinimumRevision. Update the integration checkout before physical acceptance."
+    }
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
@@ -26,6 +45,7 @@ if ($head -notmatch '^[0-9a-f]{40}$') { throw "Current BodyRig Git revision is n
 $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig checkout cleanliness." }
 if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; clean/shelve local changes before physical acceptance." }
+Assert-MinimumPhysicalHandoffRevision -RepoRoot $repoRoot -CurrentHead $head -MinimumRevision $minimumPhysicalHandoffRevision
 
 $pythonCandidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (Test-Path -LiteralPath $pythonCandidate -PathType Leaf) {
@@ -122,6 +142,7 @@ if ($RequireQuestConnected) {
 
 Write-Host "BodyRig high-fidelity rig preflight: PASS"
 Write-Host "Revision:       $head (clean)"
+Write-Host "Handoff floor:  $minimumPhysicalHandoffRevision (ancestor)"
 Write-Host "PowerShell:     $($PSVersionTable.PSVersion)"
 Write-Host "Python:         $versionText | $pythonExe"
 Write-Host "Unity:          $unityVersion | $unityExe"
