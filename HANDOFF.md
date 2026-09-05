@@ -128,7 +128,7 @@ Current authority code head before this documentation commit:
 
 Relevant earlier green heads:
 
-- Gate-A frozen-review authority `3aa388b10dbf2a477616076bbcabe8711ebafee`: superseded by the exact verified `3aa388b10dbf2a4776163c032a75f52d87fa5c52`, `ci` #1739 / log #911 SUCCESS;
+- Gate-A frozen-review authority `3aa388b10dbf2a4776163c032a75f52d87fa5c52`: `ci` #1739 / log #911 SUCCESS;
 - recovery/operator hardening `f8d9731a333670f2b76f8c4f53c4211d8dcc85d9`: `ci` #1728 / log #900 SUCCESS;
 - package-review placeholder/runtime hardening `ed23055c4b0ad2b4602262d8969e2a3296bbdd42`: `ci` #1714 / log #886 SUCCESS;
 - renderer-attestation placeholder rejection `307fb7767d42c71123306731539f344b44984aaf`: `ci` #1711 / log #883 SUCCESS;
