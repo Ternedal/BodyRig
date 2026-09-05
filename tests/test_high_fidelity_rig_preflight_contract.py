@@ -19,9 +19,20 @@ def test_rig_preflight_checks_pinned_renderer_toolchain_without_writing_evidence
     assert "git -C $repoRoot status --porcelain" in source
     assert "No acceptance evidence was created or modified" in source
     assert "prepare-high-fidelity-physical-acceptance.ps1" in source
-    assert "run-windows-renderer-probe.ps1" in source
-    assert "run-quest-renderer-probe.ps1" in source
-    assert "complete-acceptance.ps1" in source
+    for wrapper in (
+        "run-reference-windows-renderer-probe.ps1",
+        "record-reference-renderer-acceptance.ps1",
+        "run-reference-quest-renderer-probe.ps1",
+        "complete-reference-acceptance.ps1",
+    ):
+        assert wrapper in source
+    for core in (
+        "run-windows-renderer-probe.ps1",
+        "record-renderer-acceptance.ps1",
+        "run-quest-renderer-probe.ps1",
+        "complete-acceptance.ps1",
+    ):
+        assert core in source
     assert "Set-Content" not in source
     assert "Out-File" not in source
 
