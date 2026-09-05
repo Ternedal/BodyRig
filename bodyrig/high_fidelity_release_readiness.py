@@ -303,21 +303,6 @@ def _frozen_gate_a_review_status(
     except (OSError, HighFidelityReleaseReadinessError) as exc:
         return _blocked(result, str(exc), package_invalid=True)
 
-    result["gates"] = [
-        *list(base.get("gates") or []),
-        _final_review_gate(
-            "pass",
-            reason="Package-bound human review is frozen and revalidated through fresh Gate A authority.",
-            evidence={
-                "package_sha256": expected_sha,
-                "frozen_by_gate_a": True,
-                "acceptance_dir": str(acceptance),
-            },
-        ),
-    ]
-    result["high_fidelity_human_review_complete"] = True
-    result["high_fidelity_human_review_required"] = False
-    result["software_ready_for_physical_acceptance"] = True
     try:
         physical = physical_acceptance_status(
             preview_job_id,
@@ -333,6 +318,40 @@ def _frozen_gate_a_review_status(
             "acceptance_dir": str(acceptance),
             "production_activation": False,
         }
+
+    evidence = {
+        "package_sha256": expected_sha,
+        "frozen_by_gate_a": True,
+        "acceptance_dir": str(acceptance),
+    }
+    if str(physical.get("state") or "invalid") == "invalid":
+        result["gates"] = [
+            *list(base.get("gates") or []),
+            _final_review_gate(
+                "invalid",
+                reason=(
+                    "Package-bound human review is frozen by fresh Gate A, but the transitive Gate A authority "
+                    "is invalid. Source-side human-review recovery is disabled after Gate A."
+                ),
+                evidence=evidence,
+            ),
+        ]
+        result["high_fidelity_human_review_complete"] = False
+        result["high_fidelity_human_review_required"] = False
+        result["software_ready_for_physical_acceptance"] = False
+        return _apply_physical_status(result, physical=physical)
+
+    result["gates"] = [
+        *list(base.get("gates") or []),
+        _final_review_gate(
+            "pass",
+            reason="Package-bound human review is frozen and revalidated through fresh Gate A authority.",
+            evidence=evidence,
+        ),
+    ]
+    result["high_fidelity_human_review_complete"] = True
+    result["high_fidelity_human_review_required"] = False
+    result["software_ready_for_physical_acceptance"] = True
     return _apply_physical_status(result, physical=physical)
 
 
