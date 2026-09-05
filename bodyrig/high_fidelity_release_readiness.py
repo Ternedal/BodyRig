@@ -316,6 +316,16 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
         except (OSError, HighFidelityHumanReviewError) as recovery_exc:
             return _blocked(result, f"{exc}; human-review recovery inspection failed: {recovery_exc}")
         if recovery.get("available") is True:
+            try:
+                _require_package_bytes(package, expected_sha)
+            except (OSError, HighFidelityReleaseReadinessError) as package_exc:
+                return _blocked(result, str(package_exc), package_invalid=True)
+            if str(recovery.get("package_sha256") or "") != expected_sha:
+                return _blocked(
+                    result,
+                    "human-review recovery inspected package bytes that do not match continuation authority",
+                    package_invalid=True,
+                )
             return _review_recovery_required(result, package, recovery)
         return _blocked(result, str(exc))
     try:
