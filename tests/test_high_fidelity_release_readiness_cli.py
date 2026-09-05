@@ -8,6 +8,7 @@ import bodyrig.high_fidelity_release_readiness_cli as cli
 
 REVISION = "c" * 40
 OTHER_REVISION = "d" * 40
+PREVIEW_ID = "hfpreview-" + "a" * 32
 
 
 def _root(tmp_path: Path) -> Path:
@@ -18,6 +19,7 @@ def _root(tmp_path: Path) -> Path:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{}\n" if path.suffix == ".json" else "exit 0\n", encoding="utf-8")
+    (root / "prepare-high-fidelity-physical-acceptance.ps1").write_text("exit 0\n", encoding="utf-8")
     return root
 
 
@@ -40,6 +42,22 @@ def _status(*, accepted_revision: str | None = None, acceptance: Path | None = N
             "command": '.\\run-windows-renderer-probe.ps1 -AcceptanceDir "C:\\hf"',
             "operator_input_required": True,
             "reason": "run exact Windows probe",
+        },
+        "production_ready": False,
+        "production_activation": False,
+    }
+
+
+def _pre_gate_status() -> dict:
+    return {
+        "state": "physical-gate-a-required",
+        "gates": [],
+        "physical_acceptance_dir": None,
+        "next_gate": {
+            "gate": "physical_gate_a",
+            "command": f".\\prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId '{PREVIEW_ID}'",
+            "operator_input_required": True,
+            "reason": "fresh promoted-package Gate A required",
         },
         "production_ready": False,
         "production_activation": False,
@@ -184,6 +202,7 @@ def test_gate_a_revision_mismatch_blocks_and_removes_next_command(monkeypatch, t
     assert result["production_ready"] is False
     assert result["production_activation"] is False
     assert result["operator_checkout"]["authorized"] is False
+    assert result["operator_checkout"]["clean"] is True
     assert REVISION in result["operator_checkout"]["reason"]
 
 
@@ -197,6 +216,51 @@ def test_dirty_checkout_blocks_even_before_gate_a(monkeypatch, tmp_path: Path) -
     assert result["next_gate"] is None
     assert result["operator_checkout"]["clean"] is False
     assert result["operator_checkout"]["authorized"] is False
+
+
+def test_pre_gate_a_stale_clean_checkout_fails_minimum_handoff_revision(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    monkeypatch.setattr(cli, "_has_minimum_handoff_revision", lambda _root, _revision: False)
+
+    result = cli.bind_operator_checkout(_pre_gate_status(), root)
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"] is None
+    assert result["operator_checkout"]["clean"] is True
+    assert result["operator_checkout"]["authorized"] is False
+    assert cli.MINIMUM_PHYSICAL_HANDOFF_REVISION in result["operator_checkout"]["reason"]
+
+
+def test_pre_gate_a_safe_descendant_authorizes_handoff_command(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    monkeypatch.setattr(cli, "_has_minimum_handoff_revision", lambda _root, _revision: True)
+
+    result = cli.bind_operator_checkout(_pre_gate_status(), root)
+
+    assert result["state"] == "physical-gate-a-required"
+    assert result["operator_checkout"]["authorized"] is True
+    assert result["operator_checkout"]["accepted_revision"] is None
+    assert result["operator_checkout"]["minimum_handoff_revision"] == cli.MINIMUM_PHYSICAL_HANDOFF_REVISION
+    command = result["next_gate"]["command"]
+    assert str((root / "prepare-high-fidelity-physical-acceptance.ps1").resolve()) in command
+    assert PREVIEW_ID in command
+
+
+def test_post_gate_a_exact_revision_does_not_use_minimum_anchor(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+
+    def should_not_run(_root: Path, _revision: str) -> bool:
+        raise AssertionError("minimum handoff ancestry must not replace exact post-Gate-A revision authority")
+
+    monkeypatch.setattr(cli, "_has_minimum_handoff_revision", should_not_run)
+    result = cli.bind_operator_checkout(_status(accepted_revision=REVISION), root)
+
+    assert result["operator_checkout"]["authorized"] is True
+    assert result["operator_checkout"]["accepted_revision"] == REVISION
+    assert result["operator_checkout"]["minimum_handoff_revision"] is None
 
 
 def test_missing_reference_operator_script_fails_closed(monkeypatch, tmp_path: Path) -> None:
