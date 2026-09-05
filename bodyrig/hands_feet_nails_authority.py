@@ -509,6 +509,8 @@ def read_authority(
         )
     except HandsFeetNailsSourceCaptureError as exc:
         raise HandsFeetNailsAuthorityError(f"source capture authority failed during readback: {exc}") from exc
+    if str(source.get("source_manifest_sha256") or "").lower() != str(value["source_manifest_sha256"]).lower():
+        raise HandsFeetNailsAuthorityError("reviewed source manifest lineage no longer matches the canonical source capture")
     canonical_source_manifest = capture_dir(
         root_path,
         assembly["person_id"],
