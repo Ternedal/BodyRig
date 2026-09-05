@@ -144,6 +144,13 @@ try {
     $env:PYTHONPATH = $previousPythonPath
 }
 
+$statusScript = Join-Path $repoRoot "high-fidelity-physical-status.ps1"
+if (-not (Test-Path -LiteralPath $statusScript -PathType Leaf)) {
+    throw "Canonical high-fidelity status script is missing after Gate A creation: $statusScript"
+}
+$statusScript = (Resolve-Path -LiteralPath $statusScript).Path
+$statusCommand = "pwsh -NoProfile -File `"$statusScript`" -PreviewJobId '$PreviewJobId'"
+
 Write-Host "BodyRig high-fidelity physical handoff: PASS"
 Write-Host "Preview:      $PreviewJobId"
 Write-Host "Revision:     $head"
@@ -153,8 +160,7 @@ Write-Host "Package SHA:  $([string]$result.package_sha256)"
 Write-Host "Acceptance:   $createdAcceptance"
 Write-Host "Next gate:    WindowsPlayer machine + deformation probe"
 Write-Host "Production:   FALSE"
-if (-not [string]::IsNullOrWhiteSpace([string]$result.next_command)) {
-    Write-Host "Next command:"
-    Write-Host ([string]$result.next_command)
-}
+Write-Host "Next action:  re-read canonical high-fidelity status; do not run the raw core probe command from the low-level handoff result."
+Write-Host "Next command:"
+Write-Host $statusCommand
 exit 0
