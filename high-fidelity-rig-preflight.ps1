@@ -54,6 +54,9 @@ try {
     $env:PYTHONPATH = $previousPythonPath
 }
 
+$rendererReadinessScript = Need-File (Join-Path $repoRoot "check-reference-renderer-ready.ps1") "Canonical reference renderer readiness checker"
+& $rendererReadinessScript
+
 $contractPath = Need-File (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
 try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Reference renderer contract is invalid JSON: $contractPath" }
@@ -81,6 +84,7 @@ if ($null -ne $adbCommand) {
 }
 
 foreach ($relative in @(
+    "check-reference-renderer-ready.ps1",
     "prepare-high-fidelity-physical-acceptance.ps1",
     "high-fidelity-physical-status.ps1",
     "run-windows-renderer-probe.ps1",
