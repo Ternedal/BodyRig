@@ -21,7 +21,7 @@ from .high_fidelity_physical_acceptance import (
     read_human_review,
 )
 from .high_fidelity_release_gate import HighFidelityReleaseGateError, validate_promoted_release_lineage
-from .reference_acceptance_policy import apply_reference_policy
+from .reference_acceptance_policy import reference_policy_violation
 
 
 class HighFidelityPhysicalAcceptanceAuditError(RuntimeError):
@@ -62,12 +62,11 @@ def audited_physical_acceptance_status(
     package_path: str | Path,
     package_sha256: str,
 ) -> dict[str, Any]:
-    """Return canonical physical status only after transitive high-fidelity authority validation.
+    """Return physical state only after fresh high-fidelity authority revalidation.
 
-    The existing physical acceptance state machine remains the sole Windows/Quest/release
-    authority. This layer only fails closed if the high-fidelity handoff receipt, fresh
-    Gate A extensions, fresh QA/runtime evidence, canonical reference-renderer policy,
-    release invariants, or source-lineage bindings drift.
+    Generic acceptance status remains the Windows/Quest/release state machine. This
+    stricter layer additionally revalidates the fresh high-fidelity handoff, release
+    lineage and reference-renderer policy on every read, including after release.
     """
 
     try:
@@ -85,11 +84,15 @@ def audited_physical_acceptance_status(
 
     acceptance = physical_acceptance_dir(preview_job_id)
     try:
-        policy_status = apply_reference_policy(inspect_acceptance_dir(acceptance))
+        # Re-open through the generic validator first so reference policy is never
+        # evaluated against a structurally invalid physical state.
+        inspect_acceptance_dir(acceptance)
     except (OSError, AcceptanceStatusError) as exc:
-        return _invalid(base, f"canonical reference-policy inspection failed: {exc}")
-    if policy_status.state == "blocked":
-        return _invalid(base, f"{policy_status.gate}: {policy_status.message}")
+        return _invalid(base, f"canonical physical-state inspection failed: {exc}")
+    violation = reference_policy_violation(acceptance)
+    if violation is not None:
+        gate, message = violation
+        return _invalid(base, f"{gate}: {message}")
 
     try:
         expected_package = _sha(package_sha256, "continuation package SHA")
