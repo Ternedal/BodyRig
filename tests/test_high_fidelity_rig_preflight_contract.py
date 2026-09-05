@@ -12,6 +12,8 @@ def test_rig_preflight_checks_pinned_renderer_toolchain_without_writing_evidence
     assert "unity_editor_version" in source
     assert "Android Build Support" in source
     assert "SDK\\platform-tools\\adb.exe" in source
+    assert 'Need-File $adbCandidate "Pinned Unity Android adb"' in source
+    assert "Get-Command adb" not in source
     assert "adb devices" in source
     assert "bodyrig.__file__" in source
     assert "git -C $repoRoot status --porcelain" in source
