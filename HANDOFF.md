@@ -13,9 +13,12 @@ Updated: 2026-09-05.
 - PR #83 is stacked on PR #54, exact base
   `a33372de359a24b3daffae4649a06008d00179bd`, because the integrated Person
   Studio path depends on the unmerged anatomy/hair/eyes/face-secondary chain.
-- Temporary validation PRs #84, #85 and #86 were used only to obtain exact-head
-  CI before folding their changes into #83. They are not parallel integration
-  authorities.
+- Temporary validation PRs #84, #85, #86 and #87 were used only to obtain
+  exact-head CI before folding their changes into #83. They are not parallel
+  integration authorities.
+- PR #87 was validated on exact head
+  `3c61f235e5a31ec2be6c52737565376ed5f94ad0` before fold-back: `ci` #1653
+  and `windows-log-handle-regression` #825 both completed SUCCESS.
 - Historical physical evidence keeps its recorded exact revision. Nothing in
   this continuation rebases, rewrites or relabels historical physical PASS.
 
@@ -42,6 +45,43 @@ handoff into the existing canonical physical acceptance state machine.
 - Fresh Gate A intentionally stops at the canonical Windows renderer probe with
   `production_activation=false`.
 
+## Final-release compatibility is re-proved on promoted bytes
+
+The fresh high-fidelity Gate A is now compatible with the existing canonical
+`complete-acceptance.ps1` contract without copying release PASS flags from the
+historical Gate A.
+
+`bodyrig.high_fidelity_release_gate` re-proves the final promoted package against
+the already-revalidated physical source Gate A before fresh Gate A is written:
+
+- canonical body identity is unchanged;
+- BodyPrint is semantically unchanged from the physical source package;
+- source count is unchanged;
+- source-derived shape and motion fields are still present;
+- `body-recovery` provenance still matches the source recovery authority;
+- the exact `visual-identity-capture` provenance is preserved;
+- `avatar-fitting` is still exactly `sith-smplx-vrm` revision `1`;
+- the final promoted avatar independently validates as VRM 1.0;
+- source recovery/preflight facts are inherited only from a source Gate A that
+  has itself passed canonical revalidation.
+
+Only after those checks pass does fresh Gate A materialize the canonical release
+fields used by `complete-acceptance.ps1`, including:
+
+- `bodyrig_checkout_clean`;
+- `preflight_ok`;
+- `recovery_adapter_pinned`;
+- `observed_frames_ge_2`;
+- source-derived shape/motion checks;
+- BodyPrint/source-count/recovery-provenance checks;
+- fitting and VRM 1.0 checks;
+- `runtime_materialized_from_package`;
+- canonical `recovery` and package release metadata.
+
+The handoff receipt and Gate A extension also bind the source/final BodyPrint
+lineage hashes and record `releaseLineageReproved=true`. A mismatch fails closed
+before Windows evidence can start.
+
 ## Transitive authority hardening
 
 Release-readiness no longer trusts only a valid-looking downstream Gate A.
@@ -57,7 +97,9 @@ status machine and revalidates the complete high-fidelity handoff authority on
 - Gate A's high-fidelity extension and exact handoff-receipt SHA;
 - persisted source body-job / preview identity;
 - source Gate A revision, package hash and exact Gate A bytes;
-- source physical session/readiness bytes.
+- source physical session/readiness bytes;
+- the final-release-compatible Gate A field set;
+- a fresh re-run of promoted-package BodyPrint/provenance/fitting/VRM lineage.
 
 Any drift fails closed back to an invalid `physical-gate-a`, removes a runnable
 next command and forces `production_activation=false`. This also means a later
@@ -69,7 +111,8 @@ invent PASS.
 ## Canonical downstream gates
 
 1. `high_fidelity_human_review` — explicit review of the exact final package.
-2. `physical_gate_a` — fresh QA/runtime/Gate A for that exact package.
+2. `physical_gate_a` — fresh QA/runtime/release-lineage proof/Gate A for that
+   exact package.
 3. `physical_windows_acceptance` — built WindowsPlayer machine/deformation
    evidence plus explicit human visual attestation.
 4. `physical_quest_acceptance` — the same exact runtime on Quest-class hardware
@@ -101,7 +144,7 @@ for the physical session:
     mutate old jobs merely by listing them.
 - `high-fidelity-physical-status.ps1 -PreviewJobId <id>`
   - is the single recommended source for the next operator action;
-  - revalidates package/review/handoff/physical state;
+  - revalidates package/review/handoff/physical/release-lineage state;
   - requires a clean checkout;
   - once fresh Gate A exists, requires the checkout to remain on that exact
     accepted revision;
@@ -167,19 +210,27 @@ component screenshots as physical PASS.
 The folded software has automated coverage for:
 
 - atomic fresh Gate A creation and package/review staleness;
+- final-release canonical field/check alignment;
+- final promoted BodyPrint/source-count/recovery/visual/fitting/VRM re-proof;
+- rejection of BodyPrint, visual-provenance and fitter drift;
 - canonical Windows/Quest/release state mapping;
 - production activation only after canonical final release;
 - transitive receipt ↔ Gate A ↔ QA/runtime ↔ source-lineage tamper detection;
+- release-lineage revalidation on subsequent status reads;
 - post-release tamper revocation;
 - clean/matching operator checkout enforcement;
 - renderer-attestation command completion from exact probe identity;
 - read-only preview discovery;
 - runbook/preflight safety contracts and PowerShell parsing.
 
-Exact current-head CI belongs on PR #83 after this handoff commit. Automated CI
-is **not** target-device evidence. No actual final human visual review,
-WindowsPlayer physical acceptance or Quest physical acceptance was performed in
-this environment.
+PR #87 exact head `3c61f235e5a31ec2be6c52737565376ed5f94ad0`
+was green in `ci` #1653 (Python 3.11, Python 3.12 and Windows acceptance) and
+`windows-log-handle-regression` #825 before fold-back. The final #83 head must
+also be green before the rig session is treated as software-ready.
+
+Automated CI is **not** target-device evidence. No actual final human visual
+review, WindowsPlayer physical acceptance or Quest physical acceptance was
+performed in this environment.
 
 ## Remaining real work
 
@@ -189,7 +240,7 @@ authority is deliberately physical/manual:
 1. run rig preflight and identify the intended persisted high-fidelity preview;
 2. complete final package-bound high-fidelity human review if status still
    requires it;
-3. create fresh promoted-package Gate A;
+3. create fresh promoted-package Gate A (including final-release lineage re-proof);
 4. run real WindowsPlayer probe and human attestation;
 5. run real Quest probe and headset attestation;
 6. complete canonical final release;
