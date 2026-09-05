@@ -49,6 +49,8 @@ def _assembly() -> dict:
 
 def _body_release() -> dict:
     return {
+        "format": "bodyrig-person-release-status",
+        "version": 1,
         "person_id": PERSON_ID,
         "body_revision": BODY_REVISION,
         "body_id": BODY_ID,
