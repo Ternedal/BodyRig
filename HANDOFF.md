@@ -118,34 +118,14 @@ Never hand-edit evidence JSON, delete create-only acceptance output to retry, us
 
 ## Verification
 
-Current strict provenance code head:
+Strict provenance code head:
 
 - `50ad00dee8bc90d18f248e53b2aa4ee1ac3e3032`: `ci` #1759 **SUCCESS**, `windows-log-handle-regression` #931 **SUCCESS**.
-  - Python 3.11: SUCCESS.
-  - Python 3.12: SUCCESS.
-  - PowerShell parsing/contracts: SUCCESS.
-  - managed physical wrapper: SUCCESS.
-  - Windows final-acceptance job: SUCCESS.
 
 Current branch head:
 
-- `740265947b8940dd3551d090eb7939c5e4b52ccb`: `ci` #1761 **SUCCESS**, `windows-log-handle-regression` #933 **SUCCESS**.
-  - This head is HANDOFF-only over the same strict provenance code authority.
-
-Relevant earlier green heads:
-
-- strict renderer human-note readback `e611741eac29a30b28a42e7a07fd179f619466ce`: `ci` #1754 / log #926 SUCCESS;
-- renderer human-note write/final-read hardening `7b16b7b21b289a415c7dcff279bab5f7621099dd`: `ci` #1751 / log #923 SUCCESS;
-- canonical Quest operator handoff `69e028dcbd23527df0a3d9700458c9ccd7dc6ead`: `ci` #1747 / log #919 SUCCESS;
-- Quest adb authority `3d010727687356e69a8104290cfa6f109a689fc8`: `ci` #1743 / log #915 SUCCESS;
-- Gate-A frozen-review authority `3aa388b10dbf2a4776163c032a75f52d87fa5c52`: `ci` #1739 / log #911 SUCCESS;
-- recovery/operator hardening `f8d9731a333670f2b76f8c4f53c4211d8dcc85d9`: `ci` #1728 / log #900 SUCCESS;
-- package-review placeholder/runtime hardening `ed23055c4b0ad2b4602262d8969e2a3296bbdd42`: `ci` #1714 / log #886 SUCCESS;
-- renderer-attestation placeholder rejection `307fb7767d42c71123306731539f344b44984aaf`: `ci` #1711 / log #883 SUCCESS;
-- canonical post-Gate-A status routing `0a4e99cc7ecd7475936a7d34d8c61955b0ca5f61`: `ci` #1709 / log #881 SUCCESS;
-- Gate-A Python parity `d9eb8d54cafa4596613c6c3b1a06ea35ed5d2ff1`: `ci` #1706 / log #878 SUCCESS;
-- pre-Gate-A ancestry floor `440bef06fb9bb6efca8b0daf8b6eb025cb381031`: `ci` #1704 / log #876 SUCCESS;
-- strict post-release reference policy `ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7`: `ci` #1685 / log #857 SUCCESS.
+- `e0eba1c46e9fdbe7976b0eae99882939780a1535`: `ci` #1762 **SUCCESS**, `windows-log-handle-regression` #934 **SUCCESS**.
+- This head is HANDOFF-only over the same strict provenance code authority.
 
 Automated CI is **not** target-device evidence. No final package human PASS, WindowsPlayer physical PASS, Quest physical PASS or production activation was produced by CI.
 
