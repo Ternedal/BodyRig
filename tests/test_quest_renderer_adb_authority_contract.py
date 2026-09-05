@@ -44,3 +44,9 @@ def test_reference_wrapper_validates_adb_before_inner_probe() -> None:
     assert authority < rejection < inner_call
     assert "AdbExe = $AdbExe" in text
     assert "Get-Command $AdbExe" not in text
+
+
+def test_core_quest_probe_hands_off_only_to_reference_attestation() -> None:
+    text = _text(CORE)
+    assert "record-reference-renderer-acceptance.ps1" in text
+    assert "with record-renderer-acceptance.ps1" not in text
