@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,6 +197,28 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
 
     monkeypatch.setattr(physical, "human_review_path", review_path)
     monkeypatch.setattr(physical, "read_human_review", lambda *_args, **_kwargs: review)
+    release_checks = {name: True for name in physical.CANONICAL_RELEASE_CHECKS}
+    monkeypatch.setattr(
+        physical,
+        "validate_promoted_release_lineage",
+        lambda *_args, **_kwargs: {
+            "source_count": 1,
+            "recovery": {
+                "adapter": "recoverer",
+                "revision": "recovery-v1",
+                "track_id": "track-1",
+                "observed_frames": 2,
+            },
+            "vrm_spec_version": "1.0",
+            "bodyprint_sha256": "e" * 64,
+            "source_package_sha256": "d" * 64,
+            "source_bodyprint_sha256": "e" * 64,
+            "recovery_provenance": {"stage": "body-recovery", "adapter": "recoverer", "revision": "recovery-v1"},
+            "visual_identity_provenance": {"stage": "visual-identity-capture", "adapter": "identity", "revision": "identity-v1"},
+            "avatar_fitting_provenance": {"stage": "avatar-fitting", "adapter": "sith-smplx-vrm", "revision": "1"},
+            "checks": release_checks,
+        },
+    )
     monkeypatch.setattr(
         physical,
         "_fresh_qa",
@@ -247,6 +270,17 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
     assert (final / "runtime" / "runtime-manifest.json").is_file()
     assert (final / physical.RECEIPT_NAME).is_file()
     assert (final / "bodyrig-acceptance.json").is_file()
+    gate_report = json.loads((final / "bodyrig-acceptance.json").read_text(encoding="utf-8"))
+    handoff = json.loads((final / physical.RECEIPT_NAME).read_text(encoding="utf-8"))
+    assert all(gate_report["checks"][name] is True for name in physical.CANONICAL_RELEASE_CHECKS)
+    assert gate_report["recovery"]["observed_frames"] == 2
+    assert gate_report["package"]["vrm_spec_version"] == "1.0"
+    assert gate_report["package"]["bodyprint_matches_proof"] is True
+    assert gate_report["package"]["source_count_matches"] is True
+    assert gate_report["package"]["recovery_provenance_matches"] is True
+    assert gate_report["package"]["avatar_fitting_provenance_present"] is True
+    assert handoff["releaseLineageReproved"] is True
+    assert handoff["sourceBodyprintSha256"] == handoff["promotedBodyprintSha256"]
     assert result["next_gate"] == "windows-probe"
     assert "run-windows-renderer-probe.ps1" in result["next_command"]
     assert result["package_sha256"] == package_sha
@@ -265,11 +299,14 @@ def test_operator_wrapper_is_clean_checkout_bound_and_non_activating() -> None:
     assert 'if ([string]$result.next_gate -ne "windows-probe")' in wrapper
     assert "$result.production_activation -ne $false" in wrapper
 
+    assert "validate_promoted_release_lineage" in source
+    assert "_assert_release_compatible_gate_report" in source
     assert "skin, topology = _fresh_qa(accepted)" in source
     assert "analyze_skin(package)" in source
     assert "analyze_topology(package)" in source
     assert "materialize_runtime(accepted, runtime_dir)" in source
     assert '"sourceGateASha256"' in source
     assert '"highFidelityHumanReviewSha256"' in source
+    assert '"releaseLineageReproved": True' in source
     assert '"physicalAcceptanceAuthority": False' in source
     assert '"productionActivation": False' in source
