@@ -15,6 +15,7 @@ def _root(tmp_path: Path) -> Path:
     root.mkdir()
     (root / ".git").mkdir()
     (root / "run-windows-renderer-probe.ps1").write_text("exit 0\n", encoding="utf-8")
+    (root / "run-quest-renderer-probe.ps1").write_text("exit 0\n", encoding="utf-8")
     (root / "record-renderer-acceptance.ps1").write_text("exit 0\n", encoding="utf-8")
     return root
 
@@ -85,6 +86,42 @@ def test_attestation_command_gets_required_checklist_and_exact_renderer_identity
     assert "-RendererVersion '1.2.3+build.9'" in command
     assert "<exact version>" not in command
     assert str((root / "record-renderer-acceptance.ps1").resolve()) in command
+
+
+def test_quest_probe_command_uses_pinned_adb_and_optional_serial(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    monkeypatch.setattr(cli, "_quest_adb", lambda _root: Path(r"C:\PinnedUnity\adb.exe"))
+    status = _status(accepted_revision=REVISION)
+    status["state"] = "physical-quest-acceptance-required"
+    status["next_gate"] = {
+        "gate": "physical_quest_acceptance",
+        "command": '.\\run-quest-renderer-probe.ps1 -AcceptanceDir "C:\\hf"',
+        "operator_input_required": True,
+        "reason": "run exact Quest probe",
+    }
+
+    result = cli.bind_operator_checkout(status, root, quest_serial="1WMHH123456789")
+    command = result["next_gate"]["command"]
+
+    assert str((root / "run-quest-renderer-probe.ps1").resolve()) in command
+    assert "-AdbExe 'C:\\PinnedUnity\\adb.exe'" in command
+    assert "-Serial '1WMHH123456789'" in command
+
+
+def test_invalid_quest_serial_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    monkeypatch.setattr(cli, "_quest_adb", lambda _root: Path(r"C:\PinnedUnity\adb.exe"))
+    status = _status(accepted_revision=REVISION)
+    status["next_gate"]["command"] = '.\\run-quest-renderer-probe.ps1 -AcceptanceDir "C:\\hf"'
+
+    try:
+        cli.bind_operator_checkout(status, root, quest_serial="bad serial")
+    except cli.HighFidelityReleaseReadinessCliError as exc:
+        assert "serial" in str(exc).lower()
+    else:
+        raise AssertionError("invalid Quest serial must fail closed")
 
 
 def test_gate_a_revision_mismatch_blocks_and_removes_next_command(monkeypatch, tmp_path: Path) -> None:
