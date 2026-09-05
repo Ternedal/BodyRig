@@ -42,4 +42,6 @@ def test_wardrobe_manifest_is_diagnostic_not_machine_authority() -> None:
     text = SOURCE.read_text(encoding="utf-8")
     assert "WardrobeManifest" in text
     assert "wardrobeEntries.Count == 4" in text
-    assert "human-review-only evidence" in text
+    assert 'private const string WardrobeSemantics = "human-review-diagnostic-not-physical-pass";' in text
+    assert 'Path.Combine(root, "wardrobe-render-set.json")' in text
+    assert 'Path.Combine(root, "fidelity-render-set.json")' in text
