@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .acceptance_status import AcceptanceStatusError, _validate_gate_a
+from .acceptance_status import AcceptanceStatusError, _validate_gate_a, inspect_acceptance_dir
 from .high_fidelity_human_review import HighFidelityHumanReviewError
 from .high_fidelity_physical_acceptance import (
     FORMAT,
@@ -21,6 +21,7 @@ from .high_fidelity_physical_acceptance import (
     read_human_review,
 )
 from .high_fidelity_release_gate import HighFidelityReleaseGateError, validate_promoted_release_lineage
+from .reference_acceptance_policy import apply_reference_policy
 
 
 class HighFidelityPhysicalAcceptanceAuditError(RuntimeError):
@@ -65,8 +66,8 @@ def audited_physical_acceptance_status(
 
     The existing physical acceptance state machine remains the sole Windows/Quest/release
     authority. This layer only fails closed if the high-fidelity handoff receipt, fresh
-    Gate A extensions, fresh QA/runtime evidence, release invariants, or source-lineage
-    bindings drift.
+    Gate A extensions, fresh QA/runtime evidence, canonical reference-renderer policy,
+    release invariants, or source-lineage bindings drift.
     """
 
     try:
@@ -83,6 +84,13 @@ def audited_physical_acceptance_status(
         return base
 
     acceptance = physical_acceptance_dir(preview_job_id)
+    try:
+        policy_status = apply_reference_policy(inspect_acceptance_dir(acceptance))
+    except (OSError, AcceptanceStatusError) as exc:
+        return _invalid(base, f"canonical reference-policy inspection failed: {exc}")
+    if policy_status.state == "blocked":
+        return _invalid(base, f"{policy_status.gate}: {policy_status.message}")
+
     try:
         expected_package = _sha(package_sha256, "continuation package SHA")
         receipt_path = acceptance / RECEIPT_NAME
