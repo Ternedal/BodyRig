@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from .digital_twin_composition import DigitalTwinCompositionError, validate_composition_structure
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
     validate_release_authority_structure as validate_hands_nails_release_authority,
@@ -70,29 +71,6 @@ def _assembly_gate(receipt: Mapping[str, Any]) -> dict[str, Any]:
         "voice_revision": voice_revision,
         "personality_revision": personality_revision,
         "audition_id": audition_id,
-    }
-
-
-def _bool_gate(authority: Mapping[str, Any] | None, *, label: str, fields: tuple[str, ...]) -> dict[str, Any]:
-    if authority is None:
-        return {
-            "ready": False,
-            "state": "missing",
-            "blockers": [f"{label} authority is not implemented/recorded"],
-        }
-    value = _mapping(authority, label)
-    blockers: list[str] = []
-    if value.get("state") != "complete":
-        blockers.append(f"{label} state is not complete")
-    for field in fields:
-        if value.get(field) is not True:
-            blockers.append(f"{label} did not pass {field}")
-    if value.get("production_activation") is not False:
-        blockers.append(f"{label} component authority must remain non-activating before final digital-twin release")
-    return {
-        "ready": not blockers,
-        "state": "complete" if not blockers else "blocked",
-        "blockers": blockers,
     }
 
 
@@ -170,6 +148,56 @@ def _wardrobe_gate(
     }
 
 
+def _composition_gate(
+    authority: Mapping[str, Any] | None,
+    *,
+    assembly_receipt: Mapping[str, Any],
+    body_release_status: Mapping[str, Any],
+    hands_authority: Mapping[str, Any] | None,
+    wardrobe_authority: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if authority is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["Person Revision composition/embodiment authority is not implemented/recorded"],
+        }
+    if not isinstance(hands_authority, Mapping) or not isinstance(wardrobe_authority, Mapping):
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": ["Person Revision composition requires finalized M2 and M3 authorities"],
+        }
+    try:
+        value = validate_composition_structure(
+            authority,
+            assembly_receipt=assembly_receipt,
+            body_release_status=body_release_status,
+            hands_authority=hands_authority,
+            wardrobe_authority=wardrobe_authority,
+        )
+    except DigitalTwinCompositionError as exc:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": [f"Person Revision composition authority is invalid: {exc}"],
+        }
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "composition_id": str(value["composition_id"]),
+        "bodyrig_revision": str(value["bodyrig_revision"]),
+        "hands_release_id": str(value["hands_release_id"]),
+        "wardrobe_release_id": str(value["wardrobe_release_id"]),
+        "audition_id": str(value["audition_id"]),
+        "motion_authority": True,
+        "expression_authority": True,
+        "voice_timing_authority": True,
+        "presentation_authority": True,
+    }
+
+
 def inspect_digital_twin_status(
     *,
     assembly_receipt: Mapping[str, Any],
@@ -178,10 +206,10 @@ def inspect_digital_twin_status(
     wardrobe_authority: Mapping[str, Any] | None = None,
     embodiment_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compose current Person/body authority into the stricter full-digital-twin product gate.
+    """Compose exact Person authorities into the stricter full-digital-twin product gate.
 
-    This is intentionally fail-closed. The existing body release may be production-ready,
-    but that alone is never sufficient to call the Person a full digital twin.
+    ``embodiment_authority`` keeps its historical API name, but M4 now requires a
+    canonical ``bodyrig-digital-twin-composition-authority`` rather than loose booleans.
     """
 
     assembly = _assembly_gate(_mapping(assembly_receipt, "Person assembly receipt"))
@@ -204,14 +232,12 @@ def inspect_digital_twin_status(
         assembly_receipt=assembly_receipt,
         body_release_status=body_release_status,
     )
-    embodiment = _bool_gate(
+    embodiment = _composition_gate(
         embodiment_authority,
-        label="embodiment",
-        fields=(
-            "motion_authority",
-            "expression_authority",
-            "voice_timing_authority",
-        ),
+        assembly_receipt=assembly_receipt,
+        body_release_status=body_release_status,
+        hands_authority=hands_nails_authority,
+        wardrobe_authority=wardrobe_authority,
     )
 
     gates = {
@@ -253,7 +279,7 @@ def inspect_digital_twin_status(
         "blockers": blockers,
         "next_gate": next_gate,
         "message": (
-            "All subsystem authorities are complete; a separate canonical digital-twin final release is still required."
+            "All subsystem and M4 Person-composition authorities are complete; M5/M6 digital-twin acceptance/release remain required."
             if release_eligible
             else "Avatar/body authority is not sufficient for a full digital twin; missing twin authorities remain blocked."
         ),
