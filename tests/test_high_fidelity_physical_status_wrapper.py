@@ -9,7 +9,7 @@ def test_high_fidelity_physical_status_wrapper_is_checkout_bound_and_read_only()
     assert '"--preview-job-id", $PreviewJobId' in source
     assert '"--operator-root", $repoRoot' in source
     assert '"--quest-serial", $Serial' in source
-    assert "ValidatePattern('^[A-Za-z0-9._:-]+$')" in source
+    assert "if (-not [string]::IsNullOrWhiteSpace($Serial))" in source
     assert "bodyrig.__file__" in source
     assert "PowerShell 7+" in source
     assert "Python 3.11+" in source
