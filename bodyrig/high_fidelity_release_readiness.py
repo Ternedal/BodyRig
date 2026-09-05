@@ -74,9 +74,13 @@ def _review_command(package_path: Path) -> str:
     )
 
 
-def _review_recovery_command(package_path: Path) -> str:
-    quoted = "'" + str(package_path).replace("'", "''") + "'"
-    return f".\\archive-invalid-high-fidelity-human-review.ps1 -PackagePath {quoted}"
+def _review_recovery_command(preview_job_id: str, package_path: Path) -> str:
+    quoted_preview = "'" + str(preview_job_id).replace("'", "''") + "'"
+    quoted_package = "'" + str(package_path).replace("'", "''") + "'"
+    return (
+        ".\\archive-invalid-high-fidelity-human-review.ps1 "
+        f"-PreviewJobId {quoted_preview} -PackagePath {quoted_package}"
+    )
 
 
 def _require_package_bytes(package: Path, expected_sha: str) -> None:
@@ -102,6 +106,7 @@ def _blocked(result: dict[str, Any], reason: str, *, package_invalid: bool = Fal
 
 def _review_recovery_required(
     result: dict[str, Any],
+    preview_job_id: str,
     package: Path,
     recovery: dict[str, Any],
 ) -> dict[str, Any]:
@@ -121,7 +126,7 @@ def _review_recovery_required(
     result["state"] = "human-review-recovery-required"
     result["next_gate"] = {
         "gate": FINAL_REVIEW_RECOVERY_GATE,
-        "command": _review_recovery_command(package),
+        "command": _review_recovery_command(preview_job_id, package),
         "operator_input_required": True,
         "reason": (
             "Preserve the invalid create-only human-review receipt under its content-addressed archive name, "
@@ -429,7 +434,7 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
                     "human-review recovery inspected package bytes that do not match continuation authority",
                     package_invalid=True,
                 )
-            return _review_recovery_required(result, package, recovery)
+            return _review_recovery_required(result, preview_job_id, package, recovery)
         return _blocked(result, str(exc))
     try:
         _require_package_bytes(package, expected_sha)
