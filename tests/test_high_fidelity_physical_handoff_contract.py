@@ -24,8 +24,9 @@ def test_fresh_gate_a_reuses_only_physical_origin_and_regenerates_package_author
 
     assert 'source_session = source_dir / "bodyrig-physical-clone-session.json"' in source
     assert 'source_readiness = source_dir / "bodyrig-rig-readiness.json"' in source
-    assert "analyze_skin(accepted)" in source
-    assert "analyze_topology(accepted)" in source
+    assert "skin, topology = _fresh_qa(accepted)" in source
+    assert "analyze_skin(package)" in source
+    assert "analyze_topology(package)" in source
     assert "materialize_runtime(accepted, runtime_dir)" in source
     assert 'status.gate != "windows-probe"' in source
     assert '"physicalAcceptanceAuthority": False' in source
