@@ -19,15 +19,20 @@ git rev-parse HEAD
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 ```
 
-Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout, PowerShell/Python authority, pinned Unity/UniVRM contract, Unity Android Build Support, `adb` availability and all canonical operator scripts. A Quest does not have to be connected for this first preflight.
+Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
 
-If you want to prove the headset/ADB path before starting the acceptance chain, connect the Quest and run:
+A Quest does not have to be connected for this first preflight. If you want to prove the headset/ADB path before starting the acceptance chain, connect the Quest and run:
 
 ```powershell
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
 ```
 
-If several adb devices are online, pass the intended headset serial with `-Serial '<serial>'`.
+If several adb devices are online, select the intended headset explicitly and keep its serial for the later status command:
+
+```powershell
+$questSerial = '<serial>'
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected -Serial $questSerial
+```
 
 **Freeze rule:** once `prepare-high-fidelity-physical-acceptance.ps1` has created the fresh Gate A, do not pull, switch branches, edit tracked files, or otherwise change the BodyRig checkout until that acceptance chain is complete or deliberately abandoned. Windows, Quest and final release evidence are exact-revision bound.
 
@@ -52,6 +57,12 @@ pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
 ```
 
 Run this again **after every successful command below**. It validates the current promoted package, package-bound review, transitive handoff authority, fresh Gate A/QA/runtime hashes, source Gate A lineage, physical evidence and the clean operator checkout before it exposes an executable next command.
+
+If you selected an explicit Quest serial, carry it on the status command. It is ignored for non-Quest actions and inserted only when the Quest probe is the next gate:
+
+```powershell
+pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Serial $questSerial
+```
 
 For machine-readable troubleshooting:
 
@@ -83,7 +94,7 @@ The command creates a new acceptance directory atomically from the exact promote
 
 ### `physical_windows_acceptance` — machine probe
 
-Run the exact command printed by status. It builds with the pinned reference-renderer contract and starts the canonical WindowsPlayer machine + six-pose deformation probe, then persists the exact evidence pair.
+Run the exact command printed by status. The renderer build itself independently fails closed if the Unity project version, renderer application id, deformation-sequence contract or UniVRM package pin drifts before Unity is started. It then builds with the pinned reference-renderer contract and starts the canonical WindowsPlayer machine + six-pose deformation probe, persisting the exact evidence pair.
 
 After it completes, run the status command again before doing anything else.
 
@@ -105,15 +116,23 @@ Then rerun status.
 
 ### `physical_quest_acceptance` — machine probe
 
-Before the Quest step, connect the headset and rerun:
+Before the Quest step, connect the headset and rerun the preflight. With one headset/device:
 
 ```powershell
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
 ```
 
-Then put the exact same accepted runtime through the canonical Quest-class/Android probe using the command printed by status. The evidence must come from an actual Quest/Oculus-class device; the canonical validator checks the platform/device identity and exact package/runtime/revision lineage.
+With several adb devices, keep the intended Quest serial explicit:
 
-If `adb` is not globally on PATH but the preflight reports the copy inside the pinned Unity Android SDK, pass that exact path to the generated Quest command with `-AdbExe '<reported adb path>'`.
+```powershell
+$questSerial = '<serial>'
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected -Serial $questSerial
+pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Serial $questSerial
+```
+
+Run the exact Quest command printed by status. The status layer injects the `adb.exe` from the pinned Unity Android SDK automatically, and adds `-Serial` when you supplied one. Do **not** replace it with an arbitrary PATH adb or manually rewrite the generated command.
+
+The exact same accepted runtime is then put through the canonical Quest-class/Android probe. Evidence must come from an actual Quest/Oculus-class device; the canonical validator checks platform/device identity and exact package/runtime/revision lineage.
 
 Then rerun status.
 
@@ -152,6 +171,7 @@ Those flags are valid only because the exact promoted package and handoff chain 
 - Do not edit JSON evidence by hand.
 - Do not manually delete a create-only acceptance directory to make a command rerunnable.
 - Do not pull/switch/edit the repo after fresh Gate A creation.
+- Do not substitute a PATH `adb` for the pinned Unity Android SDK adb in the Quest evidence path.
 - Do not treat CI, screenshots or component review as Windows/Quest PASS.
 - Do not execute an attestation command until the physical visual review was actually performed.
 
