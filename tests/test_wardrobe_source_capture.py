@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import struct
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -75,7 +74,10 @@ def test_prepare_and_readback_bind_four_real_source_views_and_inventory(tmp_path
     assert receipt["human_review_required"] is True
     assert receipt["production_activation"] is False
     assert receipt["footwear_present"] is True
-    assert tuple(receipt["views"]) == wardrobe.REQUIRED_VIEWS
+    assert set(receipt["views"]) == set(wardrobe.REQUIRED_VIEWS)
+    for view in wardrobe.REQUIRED_VIEWS:
+        assert receipt["views"][view]["scene_id"] == _views()[view]["scene_id"]
+        assert receipt["views"][view]["image_sha256"]
     assert [item["slot"] for item in receipt["garments"]] == ["footwear", "lower", "upper"]
     assert all(item["garment_id"].startswith("garment-") for item in receipt["garments"])
 
