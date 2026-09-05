@@ -61,11 +61,16 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 Assert-MinimumPhysicalHandoffRevision -RepoRoot $repoRoot -CurrentHead $head -MinimumRevision $minimumPhysicalHandoffRevision
 
-$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
-if ($null -eq $pythonCommand) {
-    throw "Python 3.11+ executable 'python' was not found. Run this from the validated BodyRig operator environment."
+$pythonCandidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
+if (Test-Path -LiteralPath $pythonCandidate -PathType Leaf) {
+    $pythonExe = (Resolve-Path -LiteralPath $pythonCandidate).Path
+} else {
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -eq $pythonCommand) {
+        throw "BodyRig Python was not found. Activate the validated BodyRig environment or create .venv first."
+    }
+    $pythonExe = $pythonCommand.Source
 }
-$pythonExe = $pythonCommand.Source
 $versionText = (& $pythonExe -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
 if ($LASTEXITCODE -ne 0 -or $versionText -notmatch '^(\d+)\.(\d+)$') {
     throw "Could not verify Python runtime for high-fidelity physical handoff."
@@ -76,21 +81,22 @@ if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 11)) {
     throw "BodyRig high-fidelity physical handoff requires Python 3.11+; detected $versionText."
 }
 
-$expectedModule = (Resolve-Path (Join-Path $repoRoot "bodyrig\__init__.py")).Path
-$moduleLines = @(& $pythonExe -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())" 2>&1)
-if ($LASTEXITCODE -ne 0 -or $moduleLines.Count -ne 1) {
-    throw "BodyRig Python could not prove imported module authority."
-}
-$actualModule = [System.IO.Path]::GetFullPath(([string]$moduleLines[0]).Trim())
-if (-not [string]::Equals($actualModule, $expectedModule, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "BodyRig Python imports bodyrig from a different checkout/package: $actualModule"
-}
-
 $previousPythonPath = $env:PYTHONPATH
 $result = $null
 $createdAcceptance = ""
 try {
     $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $repoRoot } else { "$repoRoot;$previousPythonPath" }
+
+    $expectedModule = (Resolve-Path (Join-Path $repoRoot "bodyrig\__init__.py")).Path
+    $moduleLines = @(& $pythonExe -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())" 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $moduleLines.Count -ne 1) {
+        throw "BodyRig Python could not prove imported module authority."
+    }
+    $actualModule = [System.IO.Path]::GetFullPath(([string]$moduleLines[0]).Trim())
+    if (-not [string]::Equals($actualModule, $expectedModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "BodyRig Python imports bodyrig from a different checkout/package: $actualModule"
+    }
+
     Push-Location $repoRoot
     try {
         $output = @(& $pythonExe -m bodyrig.high_fidelity_physical_acceptance `
@@ -141,6 +147,7 @@ try {
 Write-Host "BodyRig high-fidelity physical handoff: PASS"
 Write-Host "Preview:      $PreviewJobId"
 Write-Host "Revision:     $head"
+Write-Host "Python:       $pythonExe"
 Write-Host "Body:         $([string]$result.body_id)"
 Write-Host "Package SHA:  $([string]$result.package_sha256)"
 Write-Host "Acceptance:   $createdAcceptance"
