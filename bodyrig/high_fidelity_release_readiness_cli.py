@@ -7,7 +7,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .acceptance_status import AcceptanceStatusError, inspect_acceptance_dir
+from .acceptance_status_cli import CANONICAL_OPERATOR_FILES
 from .high_fidelity_release_readiness import HighFidelityReleaseReadinessError, inspect_release_readiness
+from .reference_acceptance_policy import apply_reference_policy
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 QUEST_SERIAL = re.compile(r"^[A-Za-z0-9._:-]+$")
@@ -58,57 +61,36 @@ def _ps_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _attestation_probe(result: dict[str, Any], command: str) -> dict[str, Any]:
-    acceptance_value = str(result.get("physical_acceptance_dir") or "").strip()
-    if not acceptance_value:
-        raise HighFidelityReleaseReadinessCliError("renderer attestation command has no canonical physical acceptance directory")
-    acceptance = Path(acceptance_value).expanduser().resolve()
-    if '-Platform "windows-unity-univrm"' in command:
-        prefix = "windows"
-    elif '-Platform "android-quest-class"' in command:
-        prefix = "quest"
-    else:
-        raise HighFidelityReleaseReadinessCliError("renderer attestation command has no canonical platform")
-    dedicated = acceptance / f"{prefix}-evidence" / f"{prefix}-probe.json"
-    legacy = acceptance / f"{prefix}-probe.json"
-    probe_path = dedicated if dedicated.is_file() else legacy
-    if not probe_path.is_file():
-        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe is missing: {probe_path}")
-    try:
-        value = json.loads(probe_path.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe is unreadable: {probe_path}") from exc
-    if not isinstance(value, dict):
-        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe must be a JSON object: {probe_path}")
-    return value
+def _acceptance_dir(result: dict[str, Any]) -> Path | None:
+    value = str(result.get("physical_acceptance_dir") or "").strip()
+    return Path(value).expanduser().resolve() if value else None
 
 
-def _normalize_attestation_command(result: dict[str, Any], command: str) -> str:
-    if "record-renderer-acceptance.ps1" not in command:
+def _canonicalize_physical_command(result: dict[str, Any], command: str) -> str:
+    acceptance = _acceptance_dir(result)
+    if acceptance is None:
         return command
-    if "-ConfirmQualityChecklist" not in command:
-        if " -Pass " not in command:
-            raise HighFidelityReleaseReadinessCliError("renderer attestation command lacks explicit -Pass authority")
-        command = command.replace(" -Pass ", " -Pass -ConfirmQualityChecklist ", 1)
+    acceptance_arg = _ps_literal(str(acceptance))
 
-    probe = _attestation_probe(result, command)
-    renderer = probe.get("active_renderer")
-    if not isinstance(renderer, dict):
-        raise HighFidelityReleaseReadinessCliError("renderer probe lacks active_renderer authority")
-    name = str(renderer.get("name") or "").strip()
-    version = str(renderer.get("version") or "").strip()
-    if not name or not version:
-        raise HighFidelityReleaseReadinessCliError("renderer probe lacks exact active renderer name/version")
-
-    command, name_count = re.subn(r'-RendererName\s+"[^"]*"', f"-RendererName {_ps_literal(name)}", command, count=1)
-    command, version_count = re.subn(
-        r'-RendererVersion\s+"[^"]*"',
-        f"-RendererVersion {_ps_literal(version)}",
-        command,
-        count=1,
-    )
-    if name_count != 1 or version_count != 1:
-        raise HighFidelityReleaseReadinessCliError("renderer attestation command lacks replaceable name/version fields")
+    if command.startswith(".\\run-windows-renderer-probe.ps1"):
+        return f".\\run-reference-windows-renderer-probe.ps1 -AcceptanceDir {acceptance_arg}"
+    if command.startswith(".\\run-quest-renderer-probe.ps1"):
+        return f".\\run-reference-quest-renderer-probe.ps1 -AcceptanceDir {acceptance_arg}"
+    if command.startswith(".\\record-renderer-acceptance.ps1"):
+        if '-Platform "windows-unity-univrm"' in command:
+            platform = "windows-unity-univrm"
+            note = "<your physical review>"
+        elif '-Platform "android-quest-class"' in command:
+            platform = "android-quest-class"
+            note = "<your physical headset review>"
+        else:
+            raise HighFidelityReleaseReadinessCliError("renderer attestation command has no canonical platform")
+        return (
+            f".\\record-reference-renderer-acceptance.ps1 -AcceptanceDir {acceptance_arg} "
+            f'-Platform "{platform}" -ConfirmQualityChecklist -QualityNote "{note}"'
+        )
+    if command.startswith(".\\complete-acceptance.ps1"):
+        return f".\\complete-reference-acceptance.ps1 -AcceptanceDir {acceptance_arg}"
     return command
 
 
@@ -142,7 +124,7 @@ def _quest_adb(root: Path) -> Path:
 
 
 def _normalize_quest_command(command: str, root: Path, quest_serial: str | None) -> str:
-    if "run-quest-renderer-probe.ps1" not in command:
+    if "run-reference-quest-renderer-probe.ps1" not in command:
         return command
     if "-AdbExe" not in command:
         command += f" -AdbExe {_ps_literal(str(_quest_adb(root)))}"
@@ -174,9 +156,34 @@ def _operator_command(
     *,
     quest_serial: str | None = None,
 ) -> str:
-    normalized = _normalize_attestation_command(result, command)
+    normalized = _canonicalize_physical_command(result, command)
     normalized = _normalize_quest_command(normalized, root, quest_serial)
     return _absolutize_command(normalized, root)
+
+
+def _blocked_result(result: dict[str, Any], reason: str) -> dict[str, Any]:
+    value = dict(result)
+    value["state"] = "blocked"
+    value["next_gate"] = None
+    value["production_ready"] = False
+    value["production_activation"] = False
+    value["reference_policy"] = {"authorized": False, "reason": reason}
+    return value
+
+
+def _apply_reference_policy_guard(result: dict[str, Any]) -> dict[str, Any]:
+    acceptance = _acceptance_dir(result)
+    if acceptance is None or not acceptance.is_dir():
+        return result
+    try:
+        status = apply_reference_policy(inspect_acceptance_dir(acceptance))
+    except AcceptanceStatusError as exc:
+        return _blocked_result(result, f"canonical reference-policy inspection failed: {exc}")
+    if status.state == "blocked":
+        return _blocked_result(result, f"{status.gate}: {status.message}")
+    value = dict(result)
+    value["reference_policy"] = {"authorized": True, "gate": status.gate, "state": status.state}
+    return value
 
 
 def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, revision: str | None = None) -> dict[str, Any]:
@@ -204,6 +211,16 @@ def bind_operator_checkout(
     root = operator_root.expanduser().resolve()
     if not root.is_dir() or not (root / ".git").exists():
         raise HighFidelityReleaseReadinessCliError(f"operator root is not a BodyRig Git checkout: {root}")
+    missing = tuple(name for name in CANONICAL_OPERATOR_FILES if not (root / name).is_file())
+    if missing:
+        raise HighFidelityReleaseReadinessCliError(
+            "operator checkout is missing canonical reference dependencies: " + ", ".join(missing)
+        )
+
+    result = _apply_reference_policy_guard(result)
+    if result.get("state") == "blocked":
+        return result
+
     revision, clean = _git_state(root)
     if not clean:
         return _blocked_for_checkout(
@@ -266,6 +283,9 @@ def _print_human(result: dict[str, Any]) -> None:
     checkout = result.get("operator_checkout")
     if isinstance(checkout, dict):
         print(f"Checkout: {checkout.get('revision') or 'unknown'} | clean={bool(checkout.get('clean'))} | authorized={bool(checkout.get('authorized'))}")
+    policy = result.get("reference_policy")
+    if isinstance(policy, dict) and policy.get("authorized") is False:
+        print(f"Reference policy: BLOCKED | {policy.get('reason') or 'unknown reason'}")
     next_gate = result.get("next_gate")
     if isinstance(next_gate, dict):
         print(f"Next gate: {next_gate.get('gate') or 'unknown'}")
