@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from .hands_feet_nails_authority import (
+    HandsFeetNailsAuthorityError,
+    validate_authority_structure,
+)
+
 FORMAT = "bodyrig-digital-twin-status"
 VERSION = 1
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -57,6 +62,7 @@ def _assembly_gate(receipt: Mapping[str, Any]) -> dict[str, Any]:
         "ready": True,
         "assembly_fingerprint": assembly_fingerprint,
         "body_revision": body_revision,
+        "body_id": body_id,
         "voice_revision": voice_revision,
         "personality_revision": personality_revision,
         "audition_id": audition_id,
@@ -86,6 +92,40 @@ def _bool_gate(authority: Mapping[str, Any] | None, *, label: str, fields: tuple
     }
 
 
+def _hands_nails_gate(
+    authority: Mapping[str, Any] | None,
+    *,
+    assembly_receipt: Mapping[str, Any],
+    body_release_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    if authority is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["hands/feet/nails authority is not implemented/recorded"],
+        }
+    try:
+        value = validate_authority_structure(
+            authority,
+            assembly_receipt=assembly_receipt,
+            body_release_status=body_release_status,
+        )
+    except HandsFeetNailsAuthorityError as exc:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": [f"hands/feet/nails authority is invalid: {exc}"],
+        }
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "review_id": str(value["review_id"]),
+        "source_capture_id": str(value["source_capture_id"]),
+        "body_package_sha256": str(value["body_package_sha256"]),
+    }
+
+
 def inspect_digital_twin_status(
     *,
     assembly_receipt: Mapping[str, Any],
@@ -110,17 +150,10 @@ def inspect_digital_twin_status(
     if body.get("production_activation") is not True:
         body_blockers.append("body release is not physically activated")
 
-    hands_nails = _bool_gate(
+    hands_nails = _hands_nails_gate(
         hands_nails_authority,
-        label="hands/feet/nails",
-        fields=(
-            "source_grounded",
-            "hand_geometry_review_passed",
-            "foot_geometry_review_passed",
-            "skin_detail_review_passed",
-            "fingernails_review_passed",
-            "toenails_review_passed",
-        ),
+        assembly_receipt=assembly_receipt,
+        body_release_status=body_release_status,
     )
     wardrobe = _bool_gate(
         wardrobe_authority,
