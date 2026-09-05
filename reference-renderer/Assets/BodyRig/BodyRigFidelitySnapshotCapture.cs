@@ -13,6 +13,8 @@ namespace BodyRig.ReferenceRenderer
         private const int Version = 1;
         private const string HandsFeetNailsFormat = "bodyrig-hands-feet-nails-render-set";
         private const string HandsFeetNailsSemantics = "human-review-diagnostic-not-physical-pass";
+        private const string WardrobeFormat = "bodyrig-wardrobe-render-set";
+        private const string WardrobeSemantics = "human-review-diagnostic-not-physical-pass";
         private const string FaceSecondaryNodeName = "BodyRigFaceSecondaryReview";
         private const string JawNodeName = "smplx_jaw";
         private const float FaceSecondaryJawOpenDegrees = 18f;
@@ -46,6 +48,17 @@ namespace BodyRig.ReferenceRenderer
             public string body_id;
             public string package_sha256;
             public string semantics = HandsFeetNailsSemantics;
+            public SnapshotEntry[] snapshots;
+        }
+
+        [Serializable]
+        private sealed class WardrobeManifest
+        {
+            public string format = WardrobeFormat;
+            public int version = Version;
+            public string body_id;
+            public string package_sha256;
+            public string semantics = WardrobeSemantics;
             public SnapshotEntry[] snapshots;
         }
 
@@ -140,9 +153,8 @@ namespace BodyRig.ReferenceRenderer
                         20f));
                 }
 
-                // The full-digital-twin hand/foot views are a separate v1 review
-                // manifest. They are deliberately not added to fidelity-render-set.json,
-                // so historical machine-evaluator evidence stays byte/semantic compatible.
+                // Full-digital-twin hand/foot diagnostics remain in their own
+                // human-review manifest and do not alter machine-evaluator authority.
                 var detailPoses = new List<CameraPose>();
                 if (leftHand != null && rightHand != null && leftFoot != null && rightFoot != null)
                 {
@@ -172,12 +184,24 @@ namespace BodyRig.ReferenceRenderer
                         18f));
                 }
 
+                // Wardrobe/presentation views expose the complete source outer
+                // surface from all four sides. This is human-review-only evidence;
+                // the existing fidelity manifest remains unchanged.
+                var wardrobePoses = new[]
+                {
+                    new CameraPose("wardrobe_front", bodyTarget + new Vector3(0f, 0f, radius), bodyTarget, 34f),
+                    new CameraPose("wardrobe_left", bodyTarget + new Vector3(-radius, 0f, 0f), bodyTarget, 34f),
+                    new CameraPose("wardrobe_right", bodyTarget + new Vector3(radius, 0f, 0f), bodyTarget, 34f),
+                    new CameraPose("wardrobe_back", bodyTarget + new Vector3(0f, 0f, -radius), bodyTarget, 34f),
+                };
+
                 var camera = Camera.main;
                 var originalPosition = camera.transform.position;
                 var originalRotation = camera.transform.rotation;
                 var originalFov = camera.fieldOfView;
                 var entries = new List<SnapshotEntry>();
                 var detailEntries = new List<SnapshotEntry>();
+                var wardrobeEntries = new List<SnapshotEntry>();
                 try
                 {
                     foreach (var pose in canonicalPoses)
@@ -205,6 +229,20 @@ namespace BodyRig.ReferenceRenderer
                         var bytes = CapturePose(camera, pose);
                         var filename = WriteSnapshot(root, pose.Name, bytes);
                         detailEntries.Add(new SnapshotEntry
+                        {
+                            view = pose.Name,
+                            file = filename,
+                            sha256 = Sha256(bytes),
+                            width = 1024,
+                            height = 1024,
+                        });
+                    }
+
+                    foreach (var pose in wardrobePoses)
+                    {
+                        var bytes = CapturePose(camera, pose);
+                        var filename = WriteSnapshot(root, pose.Name, bytes);
+                        wardrobeEntries.Add(new SnapshotEntry
                         {
                             view = pose.Name,
                             file = filename,
@@ -245,6 +283,16 @@ namespace BodyRig.ReferenceRenderer
                     var detailJson = JsonUtility.ToJson(detailManifest, true) + "\n";
                     File.WriteAllText(detailManifestPath, detailJson, new UTF8Encoding(false));
                 }
+
+                var wardrobeManifest = new WardrobeManifest
+                {
+                    body_id = loader.ActiveBodyId,
+                    package_sha256 = loader.ActivePackageSha256,
+                    snapshots = wardrobeEntries.ToArray(),
+                };
+                var wardrobeManifestPath = Path.Combine(root, "wardrobe-render-set.json");
+                var wardrobeJson = JsonUtility.ToJson(wardrobeManifest, true) + "\n";
+                File.WriteAllText(wardrobeManifestPath, wardrobeJson, new UTF8Encoding(false));
 
                 return manifestPath;
             }
