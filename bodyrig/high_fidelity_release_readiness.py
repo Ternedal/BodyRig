@@ -11,6 +11,7 @@ from .high_fidelity_continuation_status import (
 )
 from .high_fidelity_human_review import (
     HighFidelityHumanReviewError,
+    invalid_review_recovery_status,
     review_status as high_fidelity_human_review_status,
 )
 from .high_fidelity_physical_acceptance import HighFidelityPhysicalAcceptanceError
@@ -23,6 +24,7 @@ physical_acceptance_status = audited_physical_acceptance_status
 FORMAT = "bodyrig-high-fidelity-release-readiness"
 VERSION = 1
 FINAL_REVIEW_GATE = "high_fidelity_human_review"
+FINAL_REVIEW_RECOVERY_GATE = "high_fidelity_human_review_recovery"
 PHYSICAL_GATE_A = "physical_gate_a"
 WINDOWS_GATE = "physical_windows_acceptance"
 QUEST_GATE = "physical_quest_acceptance"
@@ -69,6 +71,11 @@ def _review_command(package_path: Path) -> str:
     )
 
 
+def _review_recovery_command(package_path: Path) -> str:
+    quoted = "'" + str(package_path).replace("'", "''") + "'"
+    return f".\\archive-invalid-high-fidelity-human-review.ps1 -PackagePath {quoted}"
+
+
 def _require_package_bytes(package: Path, expected_sha: str) -> None:
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
         raise HighFidelityReleaseReadinessError("promoted package SHA is missing or not canonical")
@@ -87,6 +94,37 @@ def _blocked(result: dict[str, Any], reason: str, *, package_invalid: bool = Fal
         result["high_fidelity_complete"] = False
         result["components"] = {}
         result["final_audit"] = None
+    return result
+
+
+def _review_recovery_required(
+    result: dict[str, Any],
+    package: Path,
+    recovery: dict[str, Any],
+) -> dict[str, Any]:
+    reason = str(recovery.get("reason") or "current high-fidelity human-review receipt is invalid")
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _final_review_gate(
+            "invalid",
+            reason=reason,
+            evidence={
+                "review_path": recovery.get("review_path"),
+                "receipt_sha256": recovery.get("receipt_sha256"),
+                "archive_path": recovery.get("archive_path"),
+            },
+        ),
+    ]
+    result["state"] = "human-review-recovery-required"
+    result["next_gate"] = {
+        "gate": FINAL_REVIEW_RECOVERY_GATE,
+        "command": _review_recovery_command(package),
+        "operator_input_required": True,
+        "reason": (
+            "Preserve the invalid create-only human-review receipt under its content-addressed archive name, "
+            "then rerun status and perform a new explicit review of the exact package."
+        ),
+    }
     return result
 
 
@@ -273,6 +311,12 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
     try:
         review = high_fidelity_human_review_status(package)
     except (OSError, HighFidelityHumanReviewError) as exc:
+        try:
+            recovery = invalid_review_recovery_status(package)
+        except (OSError, HighFidelityHumanReviewError) as recovery_exc:
+            return _blocked(result, f"{exc}; human-review recovery inspection failed: {recovery_exc}")
+        if recovery.get("available") is True:
+            return _review_recovery_required(result, package, recovery)
         return _blocked(result, str(exc))
     try:
         _require_package_bytes(package, expected_sha)
