@@ -94,9 +94,14 @@
     const packageComplete = status.component_package_complete === true || status.high_fidelity_complete === true;
     const humanReviewComplete = status.high_fidelity_human_review_complete === true;
     const softwareReady = status.software_ready_for_physical_acceptance === true;
+    const productionReady = status.production_ready === true && status.production_activation === true;
     const blocked = status.state === "blocked";
 
-    if (blocked) {
+    if (productionReady) {
+      n.badge.textContent = "PRODUCTION READY";
+      n.badge.classList.remove("muted");
+      n.summary.textContent = "Canonical final release er PASS for den eksakte promoted package efter high-fidelity review, Windows og Quest acceptance.";
+    } else if (blocked) {
       n.badge.textContent = "Blokeret";
       n.badge.classList.add("muted");
       const failure = (status.gates || []).find((gate) => gate.state === "invalid" || gate.state === "blocked");
@@ -104,7 +109,7 @@
     } else if (softwareReady) {
       n.badge.textContent = "SOFTWARE READY";
       n.badge.classList.remove("muted");
-      n.summary.textContent = "High-fidelity package + package-bound human review er komplette. Næste authority er real Windows acceptance.";
+      n.summary.textContent = `High-fidelity package + package-bound human review er komplette. Næste authority: ${status.next_gate?.gate || "physical acceptance"}.`;
     } else if (packageComplete) {
       n.badge.textContent = "HF PACKAGE COMPLETE";
       n.badge.classList.add("muted");
@@ -145,7 +150,7 @@
     }
 
     n.next.replaceChildren();
-    if (status.next_gate && !blocked) {
+    if (status.next_gate && !blocked && !productionReady) {
       const title = document.createElement("div");
       title.className = "card-label";
       title.textContent = `Næste gate · ${status.next_gate.gate}`;
@@ -180,10 +185,12 @@
       n.next.appendChild(note);
     }
 
-    if (blocked) {
+    if (productionReady) {
+      n.production.textContent = "PRODUCTION READY · CANONICAL FINAL RELEASE PASS. Den eksakte promoted package er bundet til high-fidelity human review, Windows- og Quest-acceptance samt final release authority.";
+    } else if (blocked) {
       n.production.textContent = "Forløbet er blokeret, indtil det gemte testmateriale kan valideres. Produktionsaktivering er fortsat låst.";
     } else if (softwareReady) {
-      n.production.textContent = "SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED. Package-bound human review er PASS; real Windows acceptance, Quest acceptance og final release gate mangler stadig. production_ready=false.";
+      n.production.textContent = `SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED. Næste gate er ${status.next_gate?.gate || "physical acceptance"}; production_ready=false indtil canonical final release PASS.`;
     } else if (packageComplete && !humanReviewComplete) {
       n.production.textContent = "HIGH-FIDELITY PACKAGE COMPLETE · HUMAN REVIEW REQUIRED · PRODUCTION LOCKED. Component completion alene er ikke fysisk acceptance. production_ready=false.";
     } else {
@@ -232,8 +239,6 @@
       if (error.status === 404) reset("Ingen high-fidelity continuation endnu.", "Ikke startet");
       else reset(`Continuation-status kunne ikke valideres: ${error.message}`, "Statusfejl");
     } finally {
-      // Also poll when no preview job exists yet; it can be created in another card.
-      // A superseded request must never replace the current selection's timer.
       if (current === serial) timer = setTimeout(() => void refresh(true), nextPollMs);
     }
   }
