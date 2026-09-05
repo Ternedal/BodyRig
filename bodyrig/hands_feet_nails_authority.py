@@ -28,6 +28,10 @@ PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 PERSON_REVISION_RE = re.compile(r"^person-r[0-9]{4}$")
 BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
 BODY_ID_RE = re.compile(r"^body-[0-9a-f]{32}$")
+VOICE_REVISION_RE = re.compile(r"^voice-r[0-9]{4}$")
+VOICE_ID_RE = re.compile(r"^voice-[0-9a-f]{32}$")
+PERSONALITY_REVISION_RE = re.compile(r"^personality-r[0-9]{4}$")
+AUDITION_ID_RE = re.compile(r"^audition-[0-9a-f]{32}$")
 BODYRIG_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 REVIEW_ID_RE = re.compile(r"^hfnreview-[0-9a-f]{32}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -131,15 +135,37 @@ def _assembly_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
     person_revision = str(receipt.get("person_revision") or "").strip().lower()
     assembly_fingerprint = _sha(receipt.get("assembly_fingerprint"), "assembly fingerprint")
     body = receipt.get("body")
-    if not isinstance(body, Mapping):
-        raise HandsFeetNailsAuthorityError("Person assembly body binding is missing")
+    voice = receipt.get("voice")
+    personality = receipt.get("personality")
+    audition = receipt.get("audition")
+    if not isinstance(body, Mapping) or not isinstance(voice, Mapping) or not isinstance(personality, Mapping) or not isinstance(audition, Mapping):
+        raise HandsFeetNailsAuthorityError("Person assembly is missing body/voice/personality/audition bindings")
+
     body_revision = str(body.get("revision_id") or "").strip().lower()
     body_id = str(body.get("body_id") or "").strip().lower()
+    voice_revision = str(voice.get("revision_id") or "").strip().lower()
+    voice_id = str(voice.get("voice_id") or "").strip().lower()
+    voice_package = str(voice.get("voice_package") or "").strip()
+    personality_revision = str(personality.get("revision_id") or "").strip().lower()
+    default_language = str(personality.get("default_language") or "").strip()
+    audition_id = str(audition.get("audition_id") or "").strip().lower()
+
     if not PERSON_RE.fullmatch(person_id) or not PERSON_REVISION_RE.fullmatch(person_revision):
         raise HandsFeetNailsAuthorityError("Person assembly identity is not canonical")
     if not BODY_REVISION_RE.fullmatch(body_revision) or not BODY_ID_RE.fullmatch(body_id):
         raise HandsFeetNailsAuthorityError("Person assembly body identity is not canonical")
+    if not VOICE_REVISION_RE.fullmatch(voice_revision) or not VOICE_ID_RE.fullmatch(voice_id) or not voice_package:
+        raise HandsFeetNailsAuthorityError("Person assembly VoiceRig identity is not canonical")
+    if not PERSONALITY_REVISION_RE.fullmatch(personality_revision) or not default_language:
+        raise HandsFeetNailsAuthorityError("Person assembly personality identity is not canonical")
+    if not AUDITION_ID_RE.fullmatch(audition_id):
+        raise HandsFeetNailsAuthorityError("Person assembly audition identity is not canonical")
+
     _sha(body.get("package_sha256"), "registered assembly body package SHA-256")
+    _sha(voice.get("package_sha256"), "VoiceRig package SHA-256")
+    _sha(personality.get("instructions_sha256"), "personality instructions SHA-256")
+    _sha(personality.get("style_notes_sha256"), "personality style-notes SHA-256")
+    _sha(audition.get("receipt_sha256"), "audition receipt SHA-256")
     return {
         "person_id": person_id,
         "person_revision": person_revision,
@@ -152,6 +178,8 @@ def _assembly_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
 def _release_identity(status: Mapping[str, Any], assembly: Mapping[str, str]) -> dict[str, str]:
     if not isinstance(status, Mapping):
         raise HandsFeetNailsAuthorityError("body release status is missing")
+    if status.get("format") != "bodyrig-person-release-status" or status.get("version") != 1:
+        raise HandsFeetNailsAuthorityError("hands/feet/nails authority requires canonical Person body-release status v1")
     person_id = str(status.get("person_id") or "").strip().lower()
     body_revision = str(status.get("body_revision") or "").strip().lower()
     body_id = str(status.get("body_id") or "").strip().lower()
