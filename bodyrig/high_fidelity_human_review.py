@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -34,6 +35,7 @@ TOP_FIELDS = {
     "human_review_complete",
     "production_activation",
 }
+_PLACEHOLDER_NOTE = re.compile(r"^<[^>]+>$")
 
 
 class HighFidelityHumanReviewError(RuntimeError):
@@ -60,6 +62,17 @@ def _sha256_file(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _quality_note(value: Any) -> str:
+    note = str(value or "").strip()
+    if not note:
+        raise HighFidelityHumanReviewError("high-fidelity human review requires a non-empty quality note")
+    if _PLACEHOLDER_NOTE.fullmatch(note):
+        raise HighFidelityHumanReviewError(
+            "high-fidelity human review quality note is still a generated placeholder; record the operator's actual review"
+        )
+    return note
 
 
 def _component_state(audit: Mapping[str, Any]) -> dict[str, Any]:
@@ -129,9 +142,7 @@ def write_review(
     for field in CHECKLIST_FIELDS:
         if normalized.get(field) is not True:
             raise HighFidelityHumanReviewError(f"high-fidelity human review did not explicitly pass {field}")
-    note = str(quality_note or "").strip()
-    if not note:
-        raise HighFidelityHumanReviewError("high-fidelity human review requires a non-empty quality note")
+    note = _quality_note(quality_note)
 
     receipt = {
         "format": FORMAT,
@@ -187,8 +198,7 @@ def read_review(package_path: str | Path) -> dict[str, Any]:
     for field in CHECKLIST_FIELDS:
         if checklist.get(field) is not True:
             raise HighFidelityHumanReviewError(f"high-fidelity human review did not explicitly pass {field}")
-    if not str(value.get("quality_note") or "").strip():
-        raise HighFidelityHumanReviewError("high-fidelity human review quality note is empty")
+    _quality_note(value.get("quality_note"))
     if value.get("human_review_complete") is not True:
         raise HighFidelityHumanReviewError("high-fidelity human review is not complete")
     if value.get("production_activation") is not False:
