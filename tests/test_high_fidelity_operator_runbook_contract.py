@@ -1,10 +1,12 @@
 from pathlib import Path
 
 
-def test_operator_runbook_uses_status_loop_and_freezes_checkout_after_gate_a() -> None:
+def test_operator_runbook_uses_preflight_status_loop_and_freezes_checkout_after_gate_a() -> None:
     root = Path(__file__).resolve().parents[1]
     runbook = (root / "HIGH-FIDELITY-PHYSICAL-RUNBOOK.md").read_text(encoding="utf-8")
 
+    assert "high-fidelity-rig-preflight.ps1" in runbook
+    assert "-RequireQuestConnected" in runbook
     assert "list-high-fidelity-previews.ps1 -SucceededOnly" in runbook
     assert "high-fidelity-physical-status.ps1 -PreviewJobId $preview" in runbook
     assert "prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId $preview" in runbook
