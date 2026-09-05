@@ -58,3 +58,14 @@ def test_reference_attestation_derives_identity_pinned_unity_univrm_and_quality_
     assert "QualityNote" in source
     assert "Resolve-EvidencePair" in source
     assert '"$Prefix-evidence"' in source
+
+
+def test_reference_attestation_rejects_generated_quality_note_placeholder_before_core_write() -> None:
+    source = (REPO / "record-reference-renderer-acceptance.ps1").read_text(encoding="utf-8")
+
+    guard = source.index("$QualityNote -match '^<[^>]+>$'")
+    core_write = source.index("& $recordScript @args")
+
+    assert "QualityNote is still a generated placeholder" in source
+    assert "actual physical review" in source
+    assert guard < core_write
