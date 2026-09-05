@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import bodyrig.high_fidelity_physical_acceptance_audit as audit
+
+
+JOB_ID = "hfpreview-" + "a" * 32
+BODY_ID = "bodyid-" + "1" * 24
+BODY_JOB_ID = "job-" + "2" * 32
+REVISION = "c" * 40
+SOURCE_REVISION = "b" * 40
+SOURCE_PACKAGE_SHA = "d" * 64
+
+
+def _hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: str = "windows-probe", production: bool = False):
+    package = tmp_path / "promoted.mrbody"
+    package.write_bytes(b"exact-promoted-package")
+    package_sha = _hash(package)
+
+    acceptance = tmp_path / "physical-acceptance"
+    acceptance.mkdir()
+    accepted = acceptance / f"{BODY_ID}.mrbody"
+    accepted.write_bytes(package.read_bytes())
+
+    review = acceptance / "review.json"
+    review.write_text("{}\n", encoding="utf-8")
+    session = acceptance / "bodyrig-physical-clone-session.json"
+    readiness = acceptance / "bodyrig-rig-readiness.json"
+    skin = acceptance / "bodyrig-skin-qa.json"
+    topology = acceptance / "bodyrig-mesh-topology-qa.json"
+    runtime = acceptance / "runtime" / "runtime-manifest.json"
+    session.write_bytes(b"source-session")
+    readiness.write_bytes(b"source-readiness")
+    skin.write_bytes(b"fresh-skin")
+    topology.write_bytes(b"fresh-topology")
+    runtime.parent.mkdir()
+    runtime.write_bytes(b"fresh-runtime")
+
+    source = tmp_path / "source-gate-a"
+    source.mkdir()
+    source_session = source / "bodyrig-physical-clone-session.json"
+    source_readiness = source / "bodyrig-rig-readiness.json"
+    source_gate_path = source / "bodyrig-acceptance.json"
+    source_session.write_bytes(session.read_bytes())
+    source_readiness.write_bytes(readiness.read_bytes())
+    source_gate_path.write_bytes(b"source-gate-a-authority")
+    source_gate_sha = _hash(source_gate_path)
+
+    receipt = {
+        "format": audit.FORMAT,
+        "version": audit.VERSION,
+        "previewJobId": JOB_ID,
+        "bodyJobId": BODY_JOB_ID,
+        "canonicalBodyId": BODY_ID,
+        "bodyrigRevision": REVISION,
+        "sourceGateABodyRigRevision": SOURCE_REVISION,
+        "sourceGateASha256": source_gate_sha,
+        "sourcePackageSha256": SOURCE_PACKAGE_SHA,
+        "sourcePhysicalSessionSha256": _hash(session),
+        "sourceReadinessSha256": _hash(readiness),
+        "promotedPackageSha256": package_sha,
+        "highFidelityHumanReviewSha256": _hash(review),
+        "skinQaSha256": _hash(skin),
+        "meshTopologyQaSha256": _hash(topology),
+        "runtimeManifestSha256": _hash(runtime),
+        "physicalAcceptanceAuthority": False,
+        "productionActivation": False,
+    }
+    receipt_path = acceptance / audit.RECEIPT_NAME
+    _write(receipt_path, receipt)
+
+    gate = {
+        "physical_clone": {
+            "session_sha256": _hash(session),
+            "readiness_sha256": _hash(readiness),
+        },
+        "skin_qa": {"report_sha256": _hash(skin)},
+        "mesh_topology_qa": {"report_sha256": _hash(topology)},
+        "runtime": {"manifest_sha256": _hash(runtime)},
+        "high_fidelity_handoff": {
+            "receipt_sha256": _hash(receipt_path),
+            "source_gate_a_sha256": source_gate_sha,
+            "package_sha256": package_sha,
+            "human_review_sha256": _hash(review),
+            "preview_job_id": JOB_ID,
+            "body_job_id": BODY_JOB_ID,
+        },
+    }
+    gate_path = acceptance / "bodyrig-acceptance.json"
+    _write(gate_path, gate)
+
+    base = {
+        "state": state,
+        "gate": gate_name,
+        "acceptance_dir": str(acceptance),
+        "body_id": BODY_ID,
+        "bodyrig_revision": REVISION,
+        "message": "canonical physical status",
+        "next_command": None if state == "complete" else ".\\next.ps1",
+        "production_activation": production,
+    }
+    monkeypatch.setattr(audit, "physical_acceptance_status", lambda *_args, **_kwargs: dict(base))
+    monkeypatch.setattr(audit, "physical_acceptance_dir", lambda _job: acceptance)
+    monkeypatch.setattr(audit, "human_review_path", lambda *_args, **_kwargs: review)
+    monkeypatch.setattr(audit, "read_human_review", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        audit,
+        "_validate_gate_a",
+        lambda _path: SimpleNamespace(
+            package_hash=package_sha,
+            body_id=BODY_ID,
+            revision=REVISION,
+            runtime_hash=_hash(runtime),
+        ),
+    )
+    monkeypatch.setattr(
+        audit,
+        "_source_gate",
+        lambda _job: (
+            {"canonical_body_id": BODY_ID},
+            {"job_id": BODY_JOB_ID},
+            source,
+            SimpleNamespace(
+                path=source_gate_path,
+                body_id=BODY_ID,
+                revision=SOURCE_REVISION,
+                package_hash=SOURCE_PACKAGE_SHA,
+            ),
+            {
+                "physical_clone": {
+                    "session_sha256": _hash(source_session),
+                    "readiness_sha256": _hash(source_readiness),
+                }
+            },
+        ),
+    )
+    return SimpleNamespace(
+        package=package,
+        package_sha=package_sha,
+        acceptance=acceptance,
+        receipt=receipt_path,
+        gate=gate_path,
+        runtime=runtime,
+        source_gate=source_gate_path,
+        base=base,
+    )
+
+
+def _status(fixture):
+    return audit.audited_physical_acceptance_status(
+        JOB_ID,
+        package_path=fixture.package,
+        package_sha256=fixture.package_sha,
+    )
+
+
+def test_valid_transitive_authority_preserves_canonical_state(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    result = _status(fixture)
+    assert result == fixture.base
+
+
+def test_runtime_tamper_fails_closed_before_windows_state_is_exposed(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    fixture.runtime.write_bytes(b"tampered-runtime")
+    result = _status(fixture)
+    assert result["state"] == "invalid"
+    assert result["gate"] == "physical-gate-a"
+    assert result["next_command"] is None
+    assert result["production_activation"] is False
+    assert "runtime" in result["message"].lower()
+
+
+def test_gate_a_extension_must_bind_exact_handoff_receipt(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    gate = json.loads(fixture.gate.read_text(encoding="utf-8"))
+    gate["high_fidelity_handoff"]["receipt_sha256"] = "0" * 64
+    _write(fixture.gate, gate)
+    result = _status(fixture)
+    assert result["state"] == "invalid"
+    assert result["production_activation"] is False
+    assert "receipt" in result["message"].lower()
+
+
+def test_source_gate_lineage_is_revalidated_on_every_status_read(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    fixture.source_gate.write_bytes(b"mutated-source-gate-a")
+    result = _status(fixture)
+    assert result["state"] == "invalid"
+    assert result["production_activation"] is False
+    assert "source gate a" in result["message"].lower()
+
+
+def test_tamper_revokes_even_apparently_complete_release(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path, state="complete", gate_name="release", production=True)
+    fixture.runtime.write_bytes(b"tampered-after-release")
+    result = _status(fixture)
+    assert result["state"] == "invalid"
+    assert result["gate"] == "physical-gate-a"
+    assert result["production_activation"] is False
+
+
+def test_missing_gate_a_required_state_is_not_reinterpreted(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "promoted.mrbody"
+    package.write_bytes(b"exact-promoted-package")
+    package_sha = _hash(package)
+    required = {
+        "state": "required",
+        "gate": "physical-gate-a",
+        "acceptance_dir": str(tmp_path / "physical-acceptance"),
+        "message": "fresh Gate A required",
+        "next_command": ".\\prepare-high-fidelity-physical-acceptance.ps1",
+        "production_activation": False,
+    }
+    monkeypatch.setattr(audit, "physical_acceptance_status", lambda *_args, **_kwargs: dict(required))
+    result = audit.audited_physical_acceptance_status(
+        JOB_ID,
+        package_path=package,
+        package_sha256=package_sha,
+    )
+    assert result == required
