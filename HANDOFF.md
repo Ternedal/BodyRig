@@ -6,105 +6,195 @@ Updated: 2026-09-05.
 
 - Canonical software trunk remains `main`; last verified trunk SHA is
   `438201ddf8131e3de646b5057006463b64eadc86` (PR #72).
-- This checkout continues draft PR #83 on
-  `agent/high-fidelity-integration-20260904`. It is the single high-fidelity
-  integration candidate, not replacement trunk authority.
+- Draft PR #83 on `agent/high-fidelity-integration-20260904` is the single
+  high-fidelity integration candidate. It is **not** replacement trunk
+  authority and must remain draft until the physical/release policy is
+  deliberately completed.
 - PR #83 is stacked on PR #54, exact base
-  `a33372de359a24b3daffae4649a06008d00179bd`, because its Person Studio flow
-  depends on the unmerged anatomy/hair/eyes/face-secondary component chain.
-- Temporary validation PR #84 was tested on exact head
-  `fc307565d6dc15797d28eae27581aaf9b7a1ab59` and folded into #83 as merge
-  commit `b7ecc2749fcd10a5b311cc7cc787eaa32ea54798`. PR #84 is not a parallel
-  integration authority.
+  `a33372de359a24b3daffae4649a06008d00179bd`, because the integrated Person
+  Studio path depends on the unmerged anatomy/hair/eyes/face-secondary chain.
+- Temporary validation PRs #84, #85 and #86 were used only to obtain exact-head
+  CI before folding their changes into #83. They are not parallel integration
+  authorities.
 - Historical physical evidence keeps its recorded exact revision. Nothing in
   this continuation rebases, rewrites or relabels historical physical PASS.
 
-## Software-complete continuation
+## Software-complete promoted-package handoff
 
 The final component-complete promoted `.mrbody` now has a concrete, fail-closed
 handoff into the existing canonical physical acceptance state machine.
 
-- The promoted package SHA is verified before and after component audit and
-  final package-bound human review.
+- The promoted package SHA is verified around component audit and final
+  package-bound high-fidelity human review.
 - `prepare-high-fidelity-physical-acceptance.ps1` creates a **fresh Gate A** for
-  the exact promoted package. It does not repoint old package/runtime authority
-  at new bytes and does not rerun retained reconstruction merely to manufacture
+  the exact promoted package. It never points old package/runtime authority at
+  promoted bytes and does not rerun retained reconstruction merely to create
   authority.
 - Only the original hash-bound physical clone session and rig-readiness receipt
-  are reused, and only as source-lineage evidence after their original Gate A is
-  revalidated and body identity matches the final promoted package.
-- Skin QA and mesh-topology QA are recomputed for the promoted package, runtime
-  is freshly materialized, and the final package-bound high-fidelity human
-  review is copied and revalidated against the accepted package copy.
-- The new physical-acceptance directory is create-only and committed atomically
-  from staging. Its fresh `bodyrig-acceptance.json` is validated by the existing
-  canonical acceptance validator before it becomes visible.
-- The handoff intentionally stops at the canonical Windows renderer probe with
+  are reused, and only as source-lineage evidence after the original Gate A is
+  revalidated and body identity matches the final package.
+- Skin QA and mesh-topology QA are recomputed, runtime is freshly materialized,
+  and the final package-bound human-review receipt is copied and revalidated
+  against the accepted package copy.
+- The new physical-acceptance directory is create-only and atomically committed
+  from staging. Its fresh `bodyrig-acceptance.json` must validate through the
+  existing canonical acceptance validator before becoming visible.
+- Fresh Gate A intentionally stops at the canonical Windows renderer probe with
   `production_activation=false`.
+
+## Transitive authority hardening
+
+Release-readiness no longer trusts only a valid-looking downstream Gate A.
+`bodyrig.high_fidelity_physical_acceptance_audit` wraps the existing physical
+status machine and revalidates the complete high-fidelity handoff authority on
+**every status read** before Windows, Quest or release state is exposed:
+
+- exact promoted package copy;
+- exact package-bound high-fidelity human-review receipt;
+- copied physical session/readiness lineage;
+- fresh skin QA and mesh-topology QA hashes;
+- fresh runtime-manifest hash;
+- Gate A's high-fidelity extension and exact handoff-receipt SHA;
+- persisted source body-job / preview identity;
+- source Gate A revision, package hash and exact Gate A bytes;
+- source physical session/readiness bytes.
+
+Any drift fails closed back to an invalid `physical-gate-a`, removes a runnable
+next command and forces `production_activation=false`. This also means a later
+tamper can no longer remain surfaced as production-ready merely because a final
+release receipt exists. The underlying Windows → Quest → release authority is
+still `bodyrig.acceptance_status`; the audit layer can revoke visibility, never
+invent PASS.
 
 ## Canonical downstream gates
 
-After fresh Gate A, release readiness and Person Studio delegate to the existing
-`bodyrig.acceptance_status` state machine rather than inventing a second physical
-acceptance stack:
-
-1. `physical_gate_a` — prepare the promoted package for physical acceptance.
-2. `physical_windows_acceptance` — Windows renderer probe and human attestation.
-3. `physical_quest_acceptance` — Quest probe and human attestation.
-4. `final_release` — canonical final release for the exact accepted package.
+1. `high_fidelity_human_review` — explicit review of the exact final package.
+2. `physical_gate_a` — fresh QA/runtime/Gate A for that exact package.
+3. `physical_windows_acceptance` — built WindowsPlayer machine/deformation
+   evidence plus explicit human visual attestation.
+4. `physical_quest_acceptance` — the same exact runtime on Quest-class hardware
+   plus explicit headset attestation.
+5. `final_release` — canonical release receipt for the complete exact evidence
+   chain.
 
 `production_ready=true` and `production_activation=true` may surface **only**
-when the canonical acceptance state is complete at gate `release`. Software
-completion, component review, final human review, fresh Gate A, Windows-only PASS
-or Quest-only PASS cannot activate production.
+when the canonical state is complete at `release` and the transitive handoff
+audit still validates.
 
-## Person Studio behaviour
+## Rig operator tooling now included
 
-- Software-ready status shows the actual next downstream gate and command.
-- Blocked evidence stays fail-closed and cannot expose a runnable rerun command
-  into an invalid existing create-only output.
-- Selection changes clear stale status and delayed responses from a previous
-  person are ignored.
-- `PRODUCTION READY` is shown only when both canonical `production_ready` and
-  `production_activation` are true after final release.
+The integration branch contains a deliberately read-only/operator-safe front end
+for the physical session:
 
-## Verification
+- `high-fidelity-rig-preflight.ps1`
+  - requires Windows and PowerShell 7+;
+  - proves a clean exact Git checkout and checkout-bound BodyRig Python 3.11+;
+  - verifies the pinned reference-renderer contract;
+  - verifies Unity `6000.3.13f1`, UniVRM `0.131.2`, Unity Android Build Support
+    and `adb` availability;
+  - optionally requires an actual Quest/Oculus adb device with
+    `-RequireQuestConnected`;
+  - creates/modifies **no acceptance evidence**.
+- `list-high-fidelity-previews.ps1 -SucceededOnly`
+  - read-only discovery of persisted `hfpreview-...` jobs, newest first;
+  - does not import the preview manager and therefore does not reconcile or
+    mutate old jobs merely by listing them.
+- `high-fidelity-physical-status.ps1 -PreviewJobId <id>`
+  - is the single recommended source for the next operator action;
+  - revalidates package/review/handoff/physical state;
+  - requires a clean checkout;
+  - once fresh Gate A exists, requires the checkout to remain on that exact
+    accepted revision;
+  - absolutizes the next operator script path;
+  - for Windows/Quest human attestation, inserts the mandatory
+    `-ConfirmQualityChecklist` and reads the exact renderer name/version from
+    the committed machine probe instead of asking the operator to guess it.
+- `HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`
+  - documents the complete one-gate-at-a-time physical session and the checkout
+    freeze rule after fresh Gate A.
 
-- Temporary PR #84 exact head `fc307565d6dc15797d28eae27581aaf9b7a1ab59`:
-  - `ci` run #1641: **SUCCESS** (Python 3.11, Python 3.12 and Windows acceptance job).
-  - `windows-log-handle-regression` run #813: **SUCCESS**.
-- The physical-handoff test suite covers fresh QA/runtime/Gate A materialization,
-  atomic create-only commit, package/review staleness, canonical Windows/Quest/
-  release state mapping and the rule that only canonical final release activates
-  production.
-- No target-rig CUDA/SiTH execution, actual final human visual review, WindowsPlayer
-  physical acceptance or Quest physical acceptance was performed here. Automated
-  CI is not target-device evidence.
+## Afternoon entry point
 
-## Next concrete operator work
-
-For an exact final high-fidelity preview whose final package-bound human review
-has passed:
+Before fresh Gate A exists, synchronize #83 and make sure the checkout is clean:
 
 ```powershell
-.\prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId '<preview-job-id>'
+cd <YOUR-BODYRIG-CHECKOUT>
+git status --short
+git fetch origin
+git switch agent/high-fidelity-integration-20260904
+git pull --ff-only origin agent/high-fidelity-integration-20260904
+git status --short
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
+pwsh -NoProfile -File .\list-high-fidelity-previews.ps1 -SucceededOnly
 ```
 
-The command must leave the new acceptance state at the canonical Windows probe.
-Then run the existing canonical Windows probe + human attestation, Quest probe +
-human attestation, and final-release commands surfaced by the acceptance state
-machine / Person Studio.
+Both `git status --short` outputs must be empty and the preflight must report
+PASS. Then choose the intended persisted job and ask the status tool for exactly
+one next action:
 
-Do **not** mark those hardware/human gates PASS without their real evidence.
-Until canonical final release is complete for the exact promoted package,
-`production_ready=false` and `production_activation=false` remain mandatory.
+```powershell
+$preview = 'hfpreview-0123456789abcdef0123456789abcdef'
+pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
+```
 
-## Remaining software hardening
+Run the printed next command, perform any explicitly required human review, and
+then rerun the same status command. Repeat until it either fails closed or reports
+`PRODUCTION READY`.
 
-The main software handoff gap is closed. A useful follow-up hardening is stronger
-transitive status-read validation of the handoff receipt, Gate A extension,
-fresh QA/runtime hashes and source Gate A lineage. This is defense-in-depth; it
-must not weaken or bypass the canonical physical state machine.
+Before the Quest gate, connect the headset and run:
 
-Keep PR #83 draft until the integration candidate's updated head is green and
-physical/operator acceptance is ready to be executed on the actual rig.
+```powershell
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
+```
+
+If several adb devices are online, use `-Serial '<serial>'` for the intended
+Quest. The complete safety/detail procedure is in
+`HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`.
+
+## Checkout freeze after fresh Gate A
+
+Once `prepare-high-fidelity-physical-acceptance.ps1` succeeds, **do not pull,
+switch branch, edit tracked files or otherwise change the BodyRig checkout**
+until that exact acceptance chain is complete or deliberately abandoned.
+Windows, Quest and final-release evidence are bound to the Gate A revision.
+
+Do not hand-edit evidence JSON, delete a create-only acceptance directory just
+to retry, use `accept-reconciled-physical-clone.ps1` for this flow, or treat CI /
+component screenshots as physical PASS.
+
+## Verification boundary
+
+The folded software has automated coverage for:
+
+- atomic fresh Gate A creation and package/review staleness;
+- canonical Windows/Quest/release state mapping;
+- production activation only after canonical final release;
+- transitive receipt ↔ Gate A ↔ QA/runtime ↔ source-lineage tamper detection;
+- post-release tamper revocation;
+- clean/matching operator checkout enforcement;
+- renderer-attestation command completion from exact probe identity;
+- read-only preview discovery;
+- runbook/preflight safety contracts and PowerShell parsing.
+
+Exact current-head CI belongs on PR #83 after this handoff commit. Automated CI
+is **not** target-device evidence. No actual final human visual review,
+WindowsPlayer physical acceptance or Quest physical acceptance was performed in
+this environment.
+
+## Remaining real work
+
+There is no known software-only acceptance gap left in this path. The remaining
+authority is deliberately physical/manual:
+
+1. run rig preflight and identify the intended persisted high-fidelity preview;
+2. complete final package-bound high-fidelity human review if status still
+   requires it;
+3. create fresh promoted-package Gate A;
+4. run real WindowsPlayer probe and human attestation;
+5. run real Quest probe and headset attestation;
+6. complete canonical final release;
+7. require the final status to report both `production_ready=true` and
+   `production_activation=true`.
+
+Keep PR #83 draft. Do not merge it to `main` merely because software CI is green;
+the remaining physical/human evidence must stay honest and exact-input bound.
