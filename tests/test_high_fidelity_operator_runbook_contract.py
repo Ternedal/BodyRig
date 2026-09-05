@@ -6,12 +6,17 @@ def test_operator_runbook_uses_preflight_status_loop_and_freezes_checkout_after_
     runbook = (root / "HIGH-FIDELITY-PHYSICAL-RUNBOOK.md").read_text(encoding="utf-8")
 
     assert "high-fidelity-rig-preflight.ps1" in runbook
+    assert "check-reference-renderer-ready.ps1" in runbook
+    assert "pinned Unity-SDK `adb.exe`" in runbook
     assert "-RequireQuestConnected" in runbook
+    assert "-Serial $questSerial" in runbook
     assert "list-high-fidelity-previews.ps1 -SucceededOnly" in runbook
     assert "high-fidelity-physical-status.ps1 -PreviewJobId $preview" in runbook
     assert "prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId $preview" in runbook
     assert "physical_windows_acceptance" in runbook
     assert "physical_quest_acceptance" in runbook
+    assert "status layer injects the `adb.exe` from the pinned Unity Android SDK automatically" in runbook
+    assert "manually rewrite the generated command" in runbook
     assert "final_release" in runbook
     assert "production_ready=true" in runbook
     assert "production_activation=true" in runbook
