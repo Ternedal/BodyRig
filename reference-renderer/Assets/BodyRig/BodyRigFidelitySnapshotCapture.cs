@@ -11,6 +11,8 @@ namespace BodyRig.ReferenceRenderer
     {
         private const string Format = "bodyrig-fidelity-render-set";
         private const int Version = 1;
+        private const string HandsFeetNailsFormat = "bodyrig-hands-feet-nails-render-set";
+        private const string HandsFeetNailsSemantics = "human-review-diagnostic-not-physical-pass";
         private const string FaceSecondaryNodeName = "BodyRigFaceSecondaryReview";
         private const string JawNodeName = "smplx_jaw";
         private const float FaceSecondaryJawOpenDegrees = 18f;
@@ -33,6 +35,17 @@ namespace BodyRig.ReferenceRenderer
             public string body_id;
             public string package_sha256;
             public string semantics = "visual-fidelity-not-identity-verification";
+            public SnapshotEntry[] snapshots;
+        }
+
+        [Serializable]
+        private sealed class HandsFeetNailsManifest
+        {
+            public string format = HandsFeetNailsFormat;
+            public int version = Version;
+            public string body_id;
+            public string package_sha256;
+            public string semantics = HandsFeetNailsSemantics;
             public SnapshotEntry[] snapshots;
         }
 
@@ -83,6 +96,12 @@ namespace BodyRig.ReferenceRenderer
                 var head = animator != null ? animator.GetBoneTransform(HumanBodyBones.Head) : null;
                 var leftEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftEye) : null;
                 var rightEye = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightEye) : null;
+                var leftHand = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftHand) : null;
+                var rightHand = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightHand) : null;
+                var leftFoot = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftFoot) : null;
+                var rightFoot = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightFoot) : null;
+                var leftToes = animator != null ? animator.GetBoneTransform(HumanBodyBones.LeftToes) : null;
+                var rightToes = animator != null ? animator.GetBoneTransform(HumanBodyBones.RightToes) : null;
                 var faceTarget = head != null ? head.position : center + Vector3.up * height * 0.38f;
                 var faceDistance = Mathf.Max(height * 0.24f, 0.30f);
                 var faceZoomDistance = Mathf.Max(height * 0.19f, 0.24f);
@@ -121,11 +140,44 @@ namespace BodyRig.ReferenceRenderer
                         20f));
                 }
 
+                // The full-digital-twin hand/foot views are a separate v1 review
+                // manifest. They are deliberately not added to fidelity-render-set.json,
+                // so historical machine-evaluator evidence stays byte/semantic compatible.
+                var detailPoses = new List<CameraPose>();
+                if (leftHand != null && rightHand != null && leftFoot != null && rightFoot != null)
+                {
+                    var handDistance = Mathf.Max(height * 0.145f, 0.22f);
+                    var footDistance = Mathf.Max(height * 0.17f, 0.24f);
+                    var leftFootTarget = leftToes != null ? Vector3.Lerp(leftFoot.position, leftToes.position, 0.58f) : leftFoot.position;
+                    var rightFootTarget = rightToes != null ? Vector3.Lerp(rightFoot.position, rightToes.position, 0.58f) : rightFoot.position;
+                    detailPoses.Add(new CameraPose(
+                        "left_hand",
+                        leftHand.position + new Vector3(0f, height * 0.012f, handDistance),
+                        leftHand.position,
+                        18f));
+                    detailPoses.Add(new CameraPose(
+                        "right_hand",
+                        rightHand.position + new Vector3(0f, height * 0.012f, handDistance),
+                        rightHand.position,
+                        18f));
+                    detailPoses.Add(new CameraPose(
+                        "left_foot",
+                        leftFootTarget + new Vector3(0f, height * 0.025f, footDistance),
+                        leftFootTarget,
+                        18f));
+                    detailPoses.Add(new CameraPose(
+                        "right_foot",
+                        rightFootTarget + new Vector3(0f, height * 0.025f, footDistance),
+                        rightFootTarget,
+                        18f));
+                }
+
                 var camera = Camera.main;
                 var originalPosition = camera.transform.position;
                 var originalRotation = camera.transform.rotation;
                 var originalFov = camera.fieldOfView;
                 var entries = new List<SnapshotEntry>();
+                var detailEntries = new List<SnapshotEntry>();
                 try
                 {
                     foreach (var pose in canonicalPoses)
@@ -148,6 +200,20 @@ namespace BodyRig.ReferenceRenderer
                         WriteSnapshot(root, pose.Name, bytes);
                     }
 
+                    foreach (var pose in detailPoses)
+                    {
+                        var bytes = CapturePose(camera, pose);
+                        var filename = WriteSnapshot(root, pose.Name, bytes);
+                        detailEntries.Add(new SnapshotEntry
+                        {
+                            view = pose.Name,
+                            file = filename,
+                            sha256 = Sha256(bytes),
+                            width = 1024,
+                            height = 1024,
+                        });
+                    }
+
                     CaptureFaceSecondaryMouthOpen(loader.Active, camera, root, faceTarget, height);
                 }
                 finally
@@ -166,6 +232,20 @@ namespace BodyRig.ReferenceRenderer
                 var manifestPath = Path.Combine(root, "fidelity-render-set.json");
                 var json = JsonUtility.ToJson(manifest, true) + "\n";
                 File.WriteAllText(manifestPath, json, new UTF8Encoding(false));
+
+                if (detailEntries.Count == 4)
+                {
+                    var detailManifest = new HandsFeetNailsManifest
+                    {
+                        body_id = loader.ActiveBodyId,
+                        package_sha256 = loader.ActivePackageSha256,
+                        snapshots = detailEntries.ToArray(),
+                    };
+                    var detailManifestPath = Path.Combine(root, "hands-feet-nails-render-set.json");
+                    var detailJson = JsonUtility.ToJson(detailManifest, true) + "\n";
+                    File.WriteAllText(detailManifestPath, detailJson, new UTF8Encoding(false));
+                }
+
                 return manifestPath;
             }
             catch
