@@ -222,5 +222,5 @@ Write-Host "Evidence directory:   $evidenceDir"
 Write-Host "Machine evidence:     $ProbeOutput"
 Write-Host "Deformation evidence: $DeformationOutput"
 Write-Host "The app remains on the headset cycling the same sequence for human visual inspection."
-Write-Host "Human visual attestation is still required with record-renderer-acceptance.ps1."
+Write-Host "Human visual attestation is still required with record-reference-renderer-acceptance.ps1."
 exit 0
