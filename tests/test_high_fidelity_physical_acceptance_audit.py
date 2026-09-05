@@ -144,6 +144,12 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
     }
     monkeypatch.setattr(audit, "physical_acceptance_status", lambda *_args, **_kwargs: dict(base))
     monkeypatch.setattr(audit, "physical_acceptance_dir", lambda _job: acceptance)
+    monkeypatch.setattr(
+        audit,
+        "inspect_acceptance_dir",
+        lambda _path: SimpleNamespace(state=state, gate=gate_name, message="canonical physical status"),
+    )
+    monkeypatch.setattr(audit, "apply_reference_policy", lambda status: status)
     monkeypatch.setattr(audit, "human_review_path", lambda *_args, **_kwargs: review)
     monkeypatch.setattr(audit, "read_human_review", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
@@ -220,6 +226,28 @@ def test_valid_transitive_authority_preserves_canonical_state(monkeypatch, tmp_p
     fixture = _fixture(monkeypatch, tmp_path)
     result = _status(fixture)
     assert result == fixture.base
+
+
+def test_reference_policy_block_fails_closed_before_physical_state_is_exposed(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        audit,
+        "apply_reference_policy",
+        lambda _status: SimpleNamespace(
+            state="blocked",
+            gate="reference-contract",
+            message="renderer evidence drifted from renderer-contract.json",
+        ),
+    )
+
+    result = _status(fixture)
+
+    assert result["state"] == "invalid"
+    assert result["gate"] == "physical-gate-a"
+    assert result["next_command"] is None
+    assert result["production_activation"] is False
+    assert "reference-contract" in result["message"]
+    assert "renderer-contract" in result["message"]
 
 
 def test_runtime_tamper_fails_closed_before_windows_state_is_exposed(monkeypatch, tmp_path: Path) -> None:
