@@ -693,7 +693,9 @@ def inspect_candidate_release_status(
     expected_sha = _sha(package_sha256, "registered body package_sha256")
     try:
         preview = high_fidelity_preview_manager.latest_for_revision(person_id, body_revision)
-    except HighFidelityPreviewError:
+    except HighFidelityPreviewError as exc:
+        if str(exc) != "no high-fidelity preview exists for this body revision":
+            raise PersonReleaseStatusError(f"high-fidelity preview authority is invalid: {exc}") from exc
         return _legacy_inspect_candidate_release_status(
             jobs,
             person_id=person_id,
