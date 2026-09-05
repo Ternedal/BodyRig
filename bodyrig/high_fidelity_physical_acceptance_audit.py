@@ -21,7 +21,7 @@ from .high_fidelity_physical_acceptance import (
     read_human_review,
 )
 from .high_fidelity_release_gate import HighFidelityReleaseGateError, validate_promoted_release_lineage
-from .reference_acceptance_policy import reference_policy_violation
+from .reference_acceptance_policy import apply_reference_policy, reference_policy_violation
 
 
 class HighFidelityPhysicalAcceptanceAuditError(RuntimeError):
@@ -84,11 +84,16 @@ def audited_physical_acceptance_status(
 
     acceptance = physical_acceptance_dir(preview_job_id)
     try:
-        # Re-open through the generic validator first so reference policy is never
-        # evaluated against a structurally invalid physical state.
-        inspect_acceptance_dir(acceptance)
+        generic_status = inspect_acceptance_dir(acceptance)
+        policy_status = apply_reference_policy(generic_status)
     except (OSError, AcceptanceStatusError) as exc:
-        return _invalid(base, f"canonical physical-state inspection failed: {exc}")
+        return _invalid(base, f"canonical reference-policy inspection failed: {exc}")
+    if policy_status.state == "blocked":
+        return _invalid(base, f"{policy_status.gate}: {policy_status.message}")
+
+    # Canonical V1 deliberately exempts already-complete historical releases from
+    # retroactive reference-policy blocking. This continuation is a fresh chain, so
+    # high-fidelity revalidates the same directory policy even after release.
     violation = reference_policy_violation(acceptance)
     if violation is not None:
         gate, message = violation
