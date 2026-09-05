@@ -71,6 +71,7 @@ def test_invalid_review_routes_to_preserving_recovery_gate(monkeypatch, tmp_path
     assert result["gates"][-1]["evidence"]["receipt_sha256"] == receipt_sha
     assert result["next_gate"]["gate"] == "high_fidelity_human_review_recovery"
     assert "archive-invalid-high-fidelity-human-review.ps1" in result["next_gate"]["command"]
+    assert f"-PreviewJobId '{JOB_ID}'" in result["next_gate"]["command"]
     assert f"-PackagePath '{package.resolve()}'" in result["next_gate"]["command"]
 
 
