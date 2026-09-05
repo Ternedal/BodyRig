@@ -48,6 +48,19 @@ def test_prepare_wrapper_matches_status_python_selection_and_checkout_import_aut
     assert venv < path_fallback < pythonpath < module_authority < physical_cli
 
 
+def test_prepare_wrapper_validates_and_returns_to_status_loop_instead_of_exposing_raw_probe() -> None:
+    source = (ROOT / "prepare-high-fidelity-physical-acceptance.ps1").read_text(encoding="utf-8")
+
+    status_dependency = source.index('$statusScript = Join-Path $repoRoot "high-fidelity-physical-status.ps1"')
+    physical_cli = source.index("-m bodyrig.high_fidelity_physical_acceptance")
+    assert status_dependency < physical_cli
+    assert "refusing to create fresh Gate A" in source
+    assert "pwsh -NoProfile -File" in source
+    assert "re-read canonical high-fidelity status" in source
+    assert "$result.next_command" not in source
+    assert "run-windows-renderer-probe.ps1" not in source
+
+
 def test_minimum_revision_is_canonical_git_sha() -> None:
     value = cli.MINIMUM_PHYSICAL_HANDOFF_REVISION
     assert len(value) == 40
