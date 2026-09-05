@@ -75,7 +75,7 @@ Windows and Quest core probes independently require current HEAD == exact Gate A
 
 Quest adb authority is fail-closed in both the reference wrapper and core Quest probe: neither defaults to PATH `adb`; both derive the permitted `adb.exe` from `reference-renderer/renderer-contract.json` → pinned Unity editor → AndroidPlayer SDK; an explicit `-AdbExe` must resolve to that exact executable. The core Quest probe now also directs successful runs to `record-reference-renderer-acceptance.ps1`, never the low-level attestation writer.
 
-Renderer human-note authority is fail-closed at write, final-write and strict readback boundaries: `record-renderer-acceptance.ps1` rejects a trimmed pure `<...>` placeholder before evidence creation; `complete-acceptance.ps1` independently rejects placeholder quality notes before any release with `production_activation=true` can be written; and the strict `reference_policy_violation()` readback rejects missing or placeholder human notes even after an activating release artifact exists. High-fidelity audited status calls that strict helper after the historical generic policy, so a stale low-level placeholder release cannot surface as `production-ready`. The generic V1 `complete` compatibility exemption remains unchanged for historical readability.
+Renderer human-note authority is fail-closed at write, final-write and strict readback boundaries: `record-renderer-acceptance.ps1` rejects a trimmed pure `<...>` placeholder before evidence creation; `complete-acceptance.ps1` independently rejects placeholder quality notes before any release with `production_activation=true` can be written; and the strict `reference_policy_violation()` readback rejects missing or placeholder human notes even after an activating release artifact exists. Strict high-fidelity readback now also requires each human renderer attestation to retain explicit `attestation="operator-supplied"` provenance. The generic V1 policy keeps its historical compatibility/error behavior, while high-fidelity audited status calls the strict helper before and after release, so stale/synthetic renderer PASS evidence cannot surface as `production-ready`.
 
 ## Checkout / runtime authority
 
@@ -120,7 +120,7 @@ Never hand-edit evidence JSON, delete create-only acceptance output to retry, us
 
 Current authority code head before this documentation commit:
 
-- `e611741eac29a30b28a42e7a07fd179f619466ce`: `ci` #1754 **SUCCESS**, `windows-log-handle-regression` #926 **SUCCESS**.
+- `50ad00dee8bc90d18f248e53b2aa4ee1ac3e3032`: `ci` #1759 **SUCCESS**, `windows-log-handle-regression` #931 **SUCCESS**.
   - Python 3.11: SUCCESS.
   - Python 3.12: SUCCESS.
   - PowerShell parsing/contracts: SUCCESS.
@@ -129,6 +129,7 @@ Current authority code head before this documentation commit:
 
 Relevant earlier green heads:
 
+- strict renderer human-note readback `e611741eac29a30b28a42e7a07fd179f619466ce`: `ci` #1754 / log #926 SUCCESS;
 - renderer human-note write/final-read hardening `7b16b7b21b289a415c7dcff279bab5f7621099dd`: `ci` #1751 / log #923 SUCCESS;
 - canonical Quest operator handoff `69e028dcbd23527df0a3d9700458c9ccd7dc6ead`: `ci` #1747 / log #919 SUCCESS;
 - Quest adb authority `3d010727687356e69a8104290cfa6f109a689fc8`: `ci` #1743 / log #915 SUCCESS;
