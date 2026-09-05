@@ -162,37 +162,21 @@ namespace BodyRig.ReferenceRenderer
                     var footDistance = Mathf.Max(height * 0.17f, 0.24f);
                     var leftFootTarget = leftToes != null ? Vector3.Lerp(leftFoot.position, leftToes.position, 0.58f) : leftFoot.position;
                     var rightFootTarget = rightToes != null ? Vector3.Lerp(rightFoot.position, rightToes.position, 0.58f) : rightFoot.position;
-                    detailPoses.Add(new CameraPose(
-                        "left_hand",
-                        leftHand.position + new Vector3(0f, height * 0.012f, handDistance),
-                        leftHand.position,
-                        18f));
-                    detailPoses.Add(new CameraPose(
-                        "right_hand",
-                        rightHand.position + new Vector3(0f, height * 0.012f, handDistance),
-                        rightHand.position,
-                        18f));
-                    detailPoses.Add(new CameraPose(
-                        "left_foot",
-                        leftFootTarget + new Vector3(0f, height * 0.025f, footDistance),
-                        leftFootTarget,
-                        18f));
-                    detailPoses.Add(new CameraPose(
-                        "right_foot",
-                        rightFootTarget + new Vector3(0f, height * 0.025f, footDistance),
-                        rightFootTarget,
-                        18f));
+                    detailPoses.Add(new CameraPose("left_hand", leftHand.position + new Vector3(0f, height * 0.012f, handDistance), leftHand.position, 18f));
+                    detailPoses.Add(new CameraPose("right_hand", rightHand.position + new Vector3(0f, height * 0.012f, handDistance), rightHand.position, 18f));
+                    detailPoses.Add(new CameraPose("left_foot", leftFootTarget + new Vector3(0f, height * 0.025f, footDistance), leftFootTarget, 18f));
+                    detailPoses.Add(new CameraPose("right_foot", rightFootTarget + new Vector3(0f, height * 0.025f, footDistance), rightFootTarget, 18f));
                 }
 
                 // Wardrobe/presentation views expose the complete source outer
-                // surface from all four sides. This is human-review-only evidence;
-                // the existing fidelity manifest remains unchanged.
+                // surface from all four sides. IDs intentionally match the source
+                // capture contract so source-vs-render comparison is unambiguous.
                 var wardrobePoses = new[]
                 {
-                    new CameraPose("wardrobe_front", bodyTarget + new Vector3(0f, 0f, radius), bodyTarget, 34f),
-                    new CameraPose("wardrobe_left", bodyTarget + new Vector3(-radius, 0f, 0f), bodyTarget, 34f),
-                    new CameraPose("wardrobe_right", bodyTarget + new Vector3(radius, 0f, 0f), bodyTarget, 34f),
-                    new CameraPose("wardrobe_back", bodyTarget + new Vector3(0f, 0f, -radius), bodyTarget, 34f),
+                    new CameraPose("front", bodyTarget + new Vector3(0f, 0f, radius), bodyTarget, 34f),
+                    new CameraPose("left_side", bodyTarget + new Vector3(-radius, 0f, 0f), bodyTarget, 34f),
+                    new CameraPose("right_side", bodyTarget + new Vector3(radius, 0f, 0f), bodyTarget, 34f),
+                    new CameraPose("back", bodyTarget + new Vector3(0f, 0f, -radius), bodyTarget, 34f),
                 };
 
                 var camera = Camera.main;
@@ -208,14 +192,7 @@ namespace BodyRig.ReferenceRenderer
                     {
                         var bytes = CapturePose(camera, pose);
                         var filename = WriteSnapshot(root, pose.Name, bytes);
-                        entries.Add(new SnapshotEntry
-                        {
-                            view = pose.Name,
-                            file = filename,
-                            sha256 = Sha256(bytes),
-                            width = 1024,
-                            height = 1024,
-                        });
+                        entries.Add(new SnapshotEntry { view = pose.Name, file = filename, sha256 = Sha256(bytes), width = 1024, height = 1024 });
                     }
 
                     foreach (var pose in diagnosticPoses)
@@ -228,28 +205,14 @@ namespace BodyRig.ReferenceRenderer
                     {
                         var bytes = CapturePose(camera, pose);
                         var filename = WriteSnapshot(root, pose.Name, bytes);
-                        detailEntries.Add(new SnapshotEntry
-                        {
-                            view = pose.Name,
-                            file = filename,
-                            sha256 = Sha256(bytes),
-                            width = 1024,
-                            height = 1024,
-                        });
+                        detailEntries.Add(new SnapshotEntry { view = pose.Name, file = filename, sha256 = Sha256(bytes), width = 1024, height = 1024 });
                     }
 
                     foreach (var pose in wardrobePoses)
                     {
                         var bytes = CapturePose(camera, pose);
                         var filename = WriteSnapshot(root, pose.Name, bytes);
-                        wardrobeEntries.Add(new SnapshotEntry
-                        {
-                            view = pose.Name,
-                            file = filename,
-                            sha256 = Sha256(bytes),
-                            width = 1024,
-                            height = 1024,
-                        });
+                        wardrobeEntries.Add(new SnapshotEntry { view = pose.Name, file = filename, sha256 = Sha256(bytes), width = 1024, height = 1024 });
                     }
 
                     CaptureFaceSecondaryMouthOpen(loader.Active, camera, root, faceTarget, height);
@@ -268,8 +231,7 @@ namespace BodyRig.ReferenceRenderer
                     snapshots = entries.ToArray(),
                 };
                 var manifestPath = Path.Combine(root, "fidelity-render-set.json");
-                var json = JsonUtility.ToJson(manifest, true) + "\n";
-                File.WriteAllText(manifestPath, json, new UTF8Encoding(false));
+                File.WriteAllText(manifestPath, JsonUtility.ToJson(manifest, true) + "\n", new UTF8Encoding(false));
 
                 if (detailEntries.Count == 4)
                 {
@@ -279,20 +241,19 @@ namespace BodyRig.ReferenceRenderer
                         package_sha256 = loader.ActivePackageSha256,
                         snapshots = detailEntries.ToArray(),
                     };
-                    var detailManifestPath = Path.Combine(root, "hands-feet-nails-render-set.json");
-                    var detailJson = JsonUtility.ToJson(detailManifest, true) + "\n";
-                    File.WriteAllText(detailManifestPath, detailJson, new UTF8Encoding(false));
+                    File.WriteAllText(Path.Combine(root, "hands-feet-nails-render-set.json"), JsonUtility.ToJson(detailManifest, true) + "\n", new UTF8Encoding(false));
                 }
 
-                var wardrobeManifest = new WardrobeManifest
+                if (wardrobeEntries.Count == 4)
                 {
-                    body_id = loader.ActiveBodyId,
-                    package_sha256 = loader.ActivePackageSha256,
-                    snapshots = wardrobeEntries.ToArray(),
-                };
-                var wardrobeManifestPath = Path.Combine(root, "wardrobe-render-set.json");
-                var wardrobeJson = JsonUtility.ToJson(wardrobeManifest, true) + "\n";
-                File.WriteAllText(wardrobeManifestPath, wardrobeJson, new UTF8Encoding(false));
+                    var wardrobeManifest = new WardrobeManifest
+                    {
+                        body_id = loader.ActiveBodyId,
+                        package_sha256 = loader.ActivePackageSha256,
+                        snapshots = wardrobeEntries.ToArray(),
+                    };
+                    File.WriteAllText(Path.Combine(root, "wardrobe-render-set.json"), JsonUtility.ToJson(wardrobeManifest, true) + "\n", new UTF8Encoding(false));
+                }
 
                 return manifestPath;
             }
@@ -303,34 +264,19 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
-        private static void CaptureFaceSecondaryMouthOpen(
-            GameObject active,
-            Camera camera,
-            string root,
-            Vector3 fallbackFaceTarget,
-            float height)
+        private static void CaptureFaceSecondaryMouthOpen(GameObject active, Camera camera, string root, Vector3 fallbackFaceTarget, float height)
         {
             if (FindNamedTransform(active.transform, FaceSecondaryNodeName) == null) return;
             var jaw = FindNamedTransform(active.transform, JawNodeName);
-            if (jaw == null)
-                throw new InvalidOperationException("Face-secondary review runtime requires canonical smplx_jaw transform.");
-
+            if (jaw == null) throw new InvalidOperationException("Face-secondary review runtime requires canonical smplx_jaw transform.");
             var originalJawRotation = jaw.localRotation;
             try
             {
-                // The v1 diagnostic is deliberately deterministic and non-authoritative:
-                // a fixed local jaw flexion exposes the jaw-bound mouth/lower-teeth
-                // review geometry. Human review, not this pose, decides acceptance.
                 jaw.localRotation = originalJawRotation * Quaternion.Euler(FaceSecondaryJawOpenDegrees, 0f, 0f);
                 var target = Vector3.Lerp(fallbackFaceTarget, jaw.position, 0.70f);
                 var distance = Mathf.Max(height * 0.145f, 0.20f);
-                var pose = new CameraPose(
-                    "mouth-open",
-                    target + new Vector3(0f, -height * 0.005f, distance),
-                    target,
-                    16f);
-                var bytes = CapturePose(camera, pose);
-                WriteSnapshot(root, pose.Name, bytes);
+                var pose = new CameraPose("mouth-open", target + new Vector3(0f, -height * 0.005f, distance), target, 16f);
+                WriteSnapshot(root, pose.Name, CapturePose(camera, pose));
             }
             finally
             {
@@ -346,8 +292,7 @@ namespace BodyRig.ReferenceRenderer
             foreach (var item in all)
             {
                 if (!string.Equals(item.name, name, StringComparison.Ordinal)) continue;
-                if (match != null)
-                    throw new InvalidOperationException("Loaded avatar contains ambiguous transform: " + name);
+                if (match != null) throw new InvalidOperationException("Loaded avatar contains ambiguous transform: " + name);
                 match = item;
             }
             return match;
