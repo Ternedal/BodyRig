@@ -4,7 +4,7 @@ Updated: 2026-09-05.
 
 This is the operator path from a persisted high-fidelity continuation to canonical production release. It deliberately does **not** manufacture human or hardware evidence. Run exactly one gate at a time and re-read status after every gate.
 
-## 0. Synchronize the operator checkout before starting
+## 0. Synchronize and preflight the operator checkout
 
 Do this **before** a fresh promoted-package Gate A exists:
 
@@ -16,9 +16,18 @@ git switch agent/high-fidelity-integration-20260904
 git pull --ff-only origin agent/high-fidelity-integration-20260904
 git status --short
 git rev-parse HEAD
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 ```
 
-Both `git status --short` calls must be empty.
+Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout, PowerShell/Python authority, pinned Unity/UniVRM contract, Unity Android Build Support, `adb` availability and all canonical operator scripts. A Quest does not have to be connected for this first preflight.
+
+If you want to prove the headset/ADB path before starting the acceptance chain, connect the Quest and run:
+
+```powershell
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
+```
+
+If several adb devices are online, pass the intended headset serial with `-Serial '<serial>'`.
 
 **Freeze rule:** once `prepare-high-fidelity-physical-acceptance.ps1` has created the fresh Gate A, do not pull, switch branches, edit tracked files, or otherwise change the BodyRig checkout until that acceptance chain is complete or deliberately abandoned. Windows, Quest and final release evidence are exact-revision bound.
 
@@ -74,7 +83,7 @@ The command creates a new acceptance directory atomically from the exact promote
 
 ### `physical_windows_acceptance` — machine probe
 
-Run the exact command printed by status. It starts the canonical built WindowsPlayer machine + six-pose deformation probe and persists the exact evidence pair.
+Run the exact command printed by status. It builds with the pinned reference-renderer contract and starts the canonical WindowsPlayer machine + six-pose deformation probe, then persists the exact evidence pair.
 
 After it completes, run the status command again before doing anything else.
 
@@ -96,7 +105,15 @@ Then rerun status.
 
 ### `physical_quest_acceptance` — machine probe
 
-Put the exact same accepted runtime through the canonical Quest-class/Android probe using the command printed by status. The evidence must come from an actual Quest/Oculus-class device; the canonical validator checks the platform/device identity and exact package/runtime/revision lineage.
+Before the Quest step, connect the headset and rerun:
+
+```powershell
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
+```
+
+Then put the exact same accepted runtime through the canonical Quest-class/Android probe using the command printed by status. The evidence must come from an actual Quest/Oculus-class device; the canonical validator checks the platform/device identity and exact package/runtime/revision lineage.
+
+If `adb` is not globally on PATH but the preflight reports the copy inside the pinned Unity Android SDK, pass that exact path to the generated Quest command with `-AdbExe '<reported adb path>'`.
 
 Then rerun status.
 
