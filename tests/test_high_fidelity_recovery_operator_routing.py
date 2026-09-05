@@ -6,6 +6,7 @@ import bodyrig.high_fidelity_release_readiness_cli as cli
 
 
 REVISION = "f" * 40
+JOB_ID = "hfpreview-" + "e" * 32
 
 
 def _root(tmp_path: Path) -> Path:
@@ -31,7 +32,10 @@ def test_recovery_command_is_checkout_bound_and_absolutized_before_gate_a(monkey
         "gates": [],
         "next_gate": {
             "gate": "high_fidelity_human_review_recovery",
-            "command": f".\\archive-invalid-high-fidelity-human-review.ps1 -PackagePath '{package.resolve()}'",
+            "command": (
+                ".\\archive-invalid-high-fidelity-human-review.ps1 "
+                f"-PreviewJobId '{JOB_ID}' -PackagePath '{package.resolve()}'"
+            ),
             "operator_input_required": True,
             "reason": "preserve invalid review",
         },
@@ -47,6 +51,7 @@ def test_recovery_command_is_checkout_bound_and_absolutized_before_gate_a(monkey
     command = bound["next_gate"]["command"]
     assert command.startswith('& "')
     assert str((root / "archive-invalid-high-fidelity-human-review.ps1").resolve()) in command
+    assert f"-PreviewJobId '{JOB_ID}'" in command
     assert f"-PackagePath '{package.resolve()}'" in command
 
 
@@ -59,7 +64,10 @@ def test_recovery_command_is_blocked_on_stale_pre_gate_a_checkout(monkeypatch, t
         "gates": [],
         "next_gate": {
             "gate": "high_fidelity_human_review_recovery",
-            "command": ".\\archive-invalid-high-fidelity-human-review.ps1 -PackagePath 'C:\\hf\\promoted.mrbody'",
+            "command": (
+                ".\\archive-invalid-high-fidelity-human-review.ps1 "
+                f"-PreviewJobId '{JOB_ID}' -PackagePath 'C:\\hf\\promoted.mrbody'"
+            ),
             "operator_input_required": True,
             "reason": "preserve invalid review",
         },
