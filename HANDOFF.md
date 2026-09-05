@@ -153,14 +153,17 @@ Reference-wrapper/policy integration was green on exact head `90bf045bf8bed1cc3f
 - `ci` #1680: **SUCCESS**;
 - `windows-log-handle-regression` #852: **SUCCESS**.
 
-Strict post-release reference-policy revalidation was then added and validated on exact code head `ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7`:
+Strict post-release reference-policy revalidation was added and validated on exact code head `ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7`:
 
-- `ci` #1685: **SUCCESS** — Python 3.11, Python 3.12, managed physical wrapper and Windows final-acceptance job;
+- `ci` #1685: **SUCCESS**;
 - `windows-log-handle-regression` #857: **SUCCESS**.
 
-Earlier final-release compatibility was independently green on PR #87 exact head `3c61f235e5a31ec2be6c52737565376ed5f94ad0` (`ci` #1653 and log regression #825).
+Final exact #83 head before this verification-note commit was `a9f75749737a560aa9c97ccd7ec7421ee4cc2644` and completed:
 
-This HANDOFF refresh is documentation-only after `ed3bb6cd...`; the final #83 head must still receive exact-head CI before the branch is called software-ready for the rig.
+- `ci` #1686: **SUCCESS** — Python 3.11, Python 3.12, managed physical wrapper and Windows final-acceptance job;
+- `windows-log-handle-regression` #858: **SUCCESS**.
+
+Earlier final-release compatibility was independently green on PR #87 exact head `3c61f235e5a31ec2be6c52737565376ed5f94ad0` (`ci` #1653 and log regression #825).
 
 Automated CI is **not** target-device evidence. No actual final package human PASS, WindowsPlayer physical PASS, Quest physical PASS or production activation was produced here.
 
