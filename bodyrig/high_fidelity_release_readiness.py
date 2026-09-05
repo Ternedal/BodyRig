@@ -13,25 +13,50 @@ from .high_fidelity_human_review import (
     HighFidelityHumanReviewError,
     review_status as high_fidelity_human_review_status,
 )
+from .high_fidelity_physical_acceptance import (
+    HighFidelityPhysicalAcceptanceError,
+    physical_acceptance_status,
+)
 
 FORMAT = "bodyrig-high-fidelity-release-readiness"
 VERSION = 1
 FINAL_REVIEW_GATE = "high_fidelity_human_review"
+PHYSICAL_GATE_A = "physical_gate_a"
+WINDOWS_GATE = "physical_windows_acceptance"
+QUEST_GATE = "physical_quest_acceptance"
+FINAL_RELEASE_GATE = "final_release"
 
 
 class HighFidelityReleaseReadinessError(RuntimeError):
     pass
 
 
-def _final_review_gate(state: str, *, reason: str = "", evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+def _gate(
+    gate_id: str,
+    label: str,
+    state: str,
+    *,
+    reason: str = "",
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
-        "id": FINAL_REVIEW_GATE,
-        "label": "Package-bound high-fidelity human review",
+        "id": gate_id,
+        "label": label,
         "state": state,
         "passed": state == "pass",
         "reason": reason,
         "evidence": evidence or {},
     }
+
+
+def _final_review_gate(state: str, *, reason: str = "", evidence: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _gate(
+        FINAL_REVIEW_GATE,
+        "Package-bound high-fidelity human review",
+        state,
+        reason=reason,
+        evidence=evidence,
+    )
 
 
 def _review_command(package_path: Path) -> str:
@@ -60,6 +85,158 @@ def _blocked(result: dict[str, Any], reason: str, *, package_invalid: bool = Fal
         result["high_fidelity_complete"] = False
         result["components"] = {}
         result["final_audit"] = None
+    return result
+
+
+def _physical_required(
+    result: dict[str, Any],
+    *,
+    gate_id: str,
+    label: str,
+    reason: str,
+    command: str | None,
+    state: str,
+) -> dict[str, Any]:
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _gate(gate_id, label, "required", reason=reason),
+    ]
+    result["state"] = state
+    result["next_gate"] = {
+        "gate": gate_id,
+        "command": command,
+        "operator_input_required": True,
+        "reason": reason,
+    }
+    return result
+
+
+def _apply_physical_status(
+    result: dict[str, Any],
+    *,
+    physical: dict[str, Any],
+) -> dict[str, Any]:
+    state = str(physical.get("state") or "invalid")
+    physical_gate = str(physical.get("gate") or "")
+    reason = str(physical.get("message") or "")
+    command = physical.get("next_command")
+    acceptance_dir = str(physical.get("acceptance_dir") or "")
+    result["physical_acceptance_dir"] = acceptance_dir or None
+
+    if state == "invalid":
+        result["gates"] = [
+            *list(result.get("gates") or []),
+            _gate(PHYSICAL_GATE_A, "Fresh promoted-package Gate A", "invalid", reason=reason),
+        ]
+        result["state"] = "blocked"
+        result["next_gate"] = None
+        return result
+
+    if physical_gate == "physical-gate-a":
+        return _physical_required(
+            result,
+            gate_id=PHYSICAL_GATE_A,
+            label="Fresh promoted-package Gate A",
+            reason=reason,
+            command=str(command) if command else None,
+            state="physical-gate-a-required",
+        )
+
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _gate(
+            PHYSICAL_GATE_A,
+            "Fresh promoted-package Gate A",
+            "pass",
+            reason="Fresh QA/runtime authority exists for the exact final promoted package.",
+            evidence={
+                "acceptance_dir": acceptance_dir,
+                "bodyrig_revision": physical.get("bodyrig_revision"),
+            },
+        ),
+    ]
+
+    if physical_gate in {"windows-probe", "windows-attestation"}:
+        return _physical_required(
+            result,
+            gate_id=WINDOWS_GATE,
+            label="WindowsPlayer physical acceptance",
+            reason=reason,
+            command=str(command) if command else None,
+            state="physical-windows-acceptance-required",
+        )
+
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _gate(
+            WINDOWS_GATE,
+            "WindowsPlayer physical acceptance",
+            "pass",
+            reason="Exact promoted runtime has passed Windows machine/deformation + human review.",
+        ),
+    ]
+    result["physical_windows_acceptance_required"] = False
+
+    if physical_gate in {"quest-probe", "quest-attestation"}:
+        return _physical_required(
+            result,
+            gate_id=QUEST_GATE,
+            label="Quest-class physical acceptance",
+            reason=reason,
+            command=str(command) if command else None,
+            state="physical-quest-acceptance-required",
+        )
+
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _gate(
+            QUEST_GATE,
+            "Quest-class physical acceptance",
+            "pass",
+            reason="The same exact promoted runtime has passed Quest machine/deformation + human review.",
+        ),
+    ]
+    result["quest_acceptance_required"] = False
+
+    if physical_gate == "release" and state != "complete":
+        return _physical_required(
+            result,
+            gate_id=FINAL_RELEASE_GATE,
+            label="Canonical final release",
+            reason=reason,
+            command=str(command) if command else None,
+            state="final-release-required",
+        )
+
+    if physical_gate == "release" and state == "complete" and physical.get("production_activation") is True:
+        result["gates"] = [
+            *list(result.get("gates") or []),
+            _gate(
+                FINAL_RELEASE_GATE,
+                "Canonical final release",
+                "pass",
+                reason=reason,
+                evidence={"acceptance_dir": acceptance_dir},
+            ),
+        ]
+        result["final_release_required"] = False
+        result["state"] = "production-ready"
+        result["next_gate"] = None
+        result["production_ready"] = True
+        result["production_activation"] = True
+        return result
+
+    result["gates"] = [
+        *list(result.get("gates") or []),
+        _gate(
+            FINAL_RELEASE_GATE,
+            "Canonical final release",
+            "invalid",
+            reason=f"Unsupported physical acceptance state: {state}/{physical_gate}",
+        ),
+    ]
+    result["state"] = "blocked"
+    result["next_gate"] = None
     return result
 
 
@@ -116,22 +293,30 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
         result["high_fidelity_human_review_complete"] = True
         result["high_fidelity_human_review_required"] = False
         result["software_ready_for_physical_acceptance"] = True
-        result["state"] = "software-ready-for-physical-acceptance"
-        result["next_gate"] = {
-            "gate": "physical_windows_acceptance",
-            "command": None,
-            "operator_input_required": True,
-            "reason": (
-                "High-fidelity package and package-bound human review are complete. "
-                "Real Windows acceptance remains required before Quest acceptance and final release."
-            ),
-        }
-        return result
+        try:
+            physical = physical_acceptance_status(
+                preview_job_id,
+                package_path=package,
+                package_sha256=expected_sha,
+            )
+        except (OSError, HighFidelityPhysicalAcceptanceError) as exc:
+            physical = {
+                "state": "invalid",
+                "gate": "physical-gate-a",
+                "message": str(exc),
+                "next_command": None,
+                "acceptance_dir": None,
+                "production_activation": False,
+            }
+        return _apply_physical_status(result, physical=physical)
 
     if review_state == "required":
         result["gates"] = [
             *list(base.get("gates") or []),
-            _final_review_gate("required", reason=str(review.get("reason") or "explicit package-bound high-fidelity human review is required")),
+            _final_review_gate(
+                "required",
+                reason=str(review.get("reason") or "explicit package-bound high-fidelity human review is required"),
+            ),
         ]
         result["state"] = "human-review-required"
         result["next_gate"] = {
@@ -147,7 +332,10 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
 
     result["gates"] = [
         *list(base.get("gates") or []),
-        _final_review_gate("invalid" if review_state == "unavailable" else "blocked", reason=str(review.get("reason") or "high-fidelity human review is not valid")),
+        _final_review_gate(
+            "invalid" if review_state == "unavailable" else "blocked",
+            reason=str(review.get("reason") or "high-fidelity human review is not valid"),
+        ),
     ]
     result["state"] = "blocked"
     result["next_gate"] = None
