@@ -26,6 +26,11 @@ from .high_fidelity_human_review import (
 )
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .high_fidelity_preview_jobs import HighFidelityPreviewError, manager as preview_manager
+from .high_fidelity_release_gate import (
+    CANONICAL_RELEASE_CHECKS,
+    HighFidelityReleaseGateError,
+    validate_promoted_release_lineage,
+)
 from .materialize import materialize_runtime
 from .mesh_topology_qa import analyze_package as analyze_topology
 from .package import MRBodyError, validate_package
@@ -178,6 +183,37 @@ def _fresh_qa(package: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     return skin, topology
 
 
+def _assert_release_compatible_gate_report(report: dict[str, Any]) -> None:
+    checks = report.get("checks")
+    if not isinstance(checks, dict):
+        raise HighFidelityPhysicalAcceptanceError("fresh Gate A lacks canonical release checks")
+    missing = [name for name in CANONICAL_RELEASE_CHECKS if checks.get(name) is not True]
+    if missing:
+        raise HighFidelityPhysicalAcceptanceError(
+            "fresh Gate A is not final-release compatible; missing canonical checks: " + ", ".join(missing)
+        )
+    recovery = report.get("recovery")
+    package = report.get("package")
+    runtime = report.get("runtime")
+    physical = report.get("physical_clone")
+    if not all(isinstance(value, dict) for value in (recovery, package, runtime, physical)):
+        raise HighFidelityPhysicalAcceptanceError("fresh Gate A lacks canonical release structure")
+    if (
+        report.get("bodyrig_checkout_clean") is not True
+        or recovery.get("observed_frames", 0) < 2
+        or package.get("vrm_spec_version") != "1.0"
+        or package.get("placeholder_avatar") is not False
+        or package.get("bodyprint_matches_proof") is not True
+        or package.get("source_count_matches") is not True
+        or package.get("recovery_provenance_matches") is not True
+        or package.get("avatar_fitting_provenance_present") is not True
+        or runtime.get("manifest") != "runtime/runtime-manifest.json"
+        or runtime.get("materialized_from_package") is not True
+        or physical.get("mode") != "stash-sith-high-fidelity"
+    ):
+        raise HighFidelityPhysicalAcceptanceError("fresh Gate A failed canonical final-release structural compatibility")
+
+
 def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -> dict[str, Any]:
     revision = _revision(bodyrig_revision)
     package, package_sha, audit, review = _ready_package(preview_job_id)
@@ -215,6 +251,16 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
         _copy(source_session, staging / "bodyrig-physical-clone-session.json", "physical session")
         _copy(source_readiness, staging / "bodyrig-rig-readiness.json", "rig readiness")
 
+        try:
+            release_lineage = validate_promoted_release_lineage(
+                accepted,
+                source_dir=source_dir,
+                source_gate=source_gate,
+                source_report=source_report,
+            )
+        except HighFidelityReleaseGateError as exc:
+            raise HighFidelityPhysicalAcceptanceError(f"promoted package final-release lineage failed: {exc}") from exc
+
         skin, topology = _fresh_qa(accepted)
         skin_path = staging / "bodyrig-skin-qa.json"
         topology_path = staging / "bodyrig-mesh-topology-qa.json"
@@ -246,11 +292,14 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
             "sourcePackageSha256": source_gate.package_hash,
             "sourcePhysicalSessionSha256": session_sha,
             "sourceReadinessSha256": readiness_sha,
+            "sourceBodyprintSha256": release_lineage["source_bodyprint_sha256"],
+            "promotedBodyprintSha256": release_lineage["bodyprint_sha256"],
             "promotedPackageSha256": package_sha,
             "highFidelityHumanReviewSha256": review_sha,
             "skinQaSha256": _hash(skin_path),
             "meshTopologyQaSha256": _hash(topology_path),
             "runtimeManifestSha256": runtime_sha,
+            "releaseLineageReproved": True,
             "physicalAcceptanceAuthority": False,
             "productionActivation": False,
         }
@@ -258,13 +307,25 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
         _write(handoff_path, handoff)
 
         validated = validate_package(accepted)
+        canonical_checks = dict(release_lineage["checks"])
+        canonical_checks.update(
+            {
+                "source_gate_a_validated": True,
+                "promoted_package_exact": True,
+                "high_fidelity_components_complete": True,
+                "package_bound_human_review_complete": True,
+                "fresh_skin_qa": True,
+                "fresh_mesh_topology_qa": True,
+                "runtime_materialized_from_promoted_package": True,
+            }
+        )
         gate_report = {
             "format": "bodyrig-rig-acceptance",
             "version": 1,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "bodyrig_revision": revision,
             "bodyrig_checkout_clean": True,
-            "source_count": source_report.get("source_count"),
+            "source_count": release_lineage["source_count"],
             "physical_clone": {
                 "session_sha256": session_sha,
                 "readiness_sha256": readiness_sha,
@@ -282,11 +343,17 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
                 "automated_assessment": str(topology["automated_assessment"]),
                 "manual_review_required": True,
             },
+            "recovery": dict(release_lineage["recovery"]),
             "package": {
                 "package_sha256": package_sha,
                 "body_id": body_id,
                 "body_name": str(validated.manifest["name"]),
                 "payload_names": list(validated.payload_names),
+                "bodyprint_matches_proof": True,
+                "source_count_matches": True,
+                "recovery_provenance_matches": True,
+                "avatar_fitting_provenance_present": True,
+                "vrm_spec_version": release_lineage["vrm_spec_version"],
                 "placeholder_avatar": False,
             },
             "runtime": {
@@ -297,24 +364,20 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
             "high_fidelity_handoff": {
                 "receipt_sha256": _hash(handoff_path),
                 "source_gate_a_sha256": source_gate_sha,
+                "source_bodyprint_sha256": release_lineage["source_bodyprint_sha256"],
+                "promoted_bodyprint_sha256": release_lineage["bodyprint_sha256"],
+                "release_lineage_reproved": True,
                 "package_sha256": package_sha,
                 "human_review_sha256": review_sha,
                 "preview_job_id": preview_job_id,
                 "body_job_id": str(body_job["job_id"]),
             },
-            "checks": {
-                "source_gate_a_validated": True,
-                "promoted_package_exact": True,
-                "high_fidelity_components_complete": True,
-                "package_bound_human_review_complete": True,
-                "fresh_skin_qa": True,
-                "fresh_mesh_topology_qa": True,
-                "runtime_materialized_from_promoted_package": True,
-            },
+            "checks": canonical_checks,
             "automated_pass": True,
             "physical_renderer_acceptance": "pending",
             "production_activation": False,
         }
+        _assert_release_compatible_gate_report(gate_report)
         gate_path = staging / "bodyrig-acceptance.json"
         _write(gate_path, gate_report)
         try:
