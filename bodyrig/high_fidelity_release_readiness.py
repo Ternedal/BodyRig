@@ -13,10 +13,12 @@ from .high_fidelity_human_review import (
     HighFidelityHumanReviewError,
     review_status as high_fidelity_human_review_status,
 )
-from .high_fidelity_physical_acceptance import (
-    HighFidelityPhysicalAcceptanceError,
-    physical_acceptance_status,
-)
+from .high_fidelity_physical_acceptance import HighFidelityPhysicalAcceptanceError
+from .high_fidelity_physical_acceptance_audit import audited_physical_acceptance_status
+
+# Preserve the established integration seam for tests/callers while routing the
+# default implementation through the transitive authority audit.
+physical_acceptance_status = audited_physical_acceptance_status
 
 FORMAT = "bodyrig-high-fidelity-release-readiness"
 VERSION = 1
