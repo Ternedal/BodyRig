@@ -905,6 +905,22 @@ def motor_state_v2() -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+# Direct registration is deliberate: if these handlers cannot be imported completely, app startup fails closed.
+from .ui_body_resume import body_resume as _body_resume_endpoint
+from .ui_body_resume import body_resume_status as _body_resume_status_endpoint
+
+app.add_api_route(
+    "/api/v1/jobs/{job_id}/resume-status",
+    _body_resume_status_endpoint,
+    methods=["GET"],
+)
+app.add_api_route(
+    "/api/v1/jobs/{job_id}/resume",
+    _body_resume_endpoint,
+    methods=["POST"],
+)
+
+
 def run() -> None:
     import uvicorn
 

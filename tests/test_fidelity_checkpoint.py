@@ -71,6 +71,10 @@ def fixture(tmp_path: Path, *, stage: str = "post-candidate", sequence: int = 1)
 
     private = tmp_path / "private-identity"
     reconstruction = write(private / "sith-input-v1" / "reconstruction.json", b'{"authority":"fixture"}\n')
+    reconstruction_authority = write(
+        private / "sith-input-v1" / "reconstruction-authority.json",
+        b'{"format":"bodyrig-sith-reconstruction-authority","version":1}\n',
+    )
 
     base_artifacts = [
         artifact(work, reference_manifest),
@@ -82,6 +86,7 @@ def fixture(tmp_path: Path, *, stage: str = "post-candidate", sequence: int = 1)
         artifact(work, fitter_config),
         artifact(work, session),
         artifact(work, reconstruction, scope="private"),
+        artifact(work, reconstruction_authority, scope="private"),
     ]
 
     latest = None
@@ -202,6 +207,29 @@ def test_checkpoint_refuses_one_byte_private_reconstruction_mutation(tmp_path: P
     reconstruction.write_bytes(reconstruction.read_bytes() + b" ")
     with pytest.raises(FidelityCheckpointError, match="artifact hash mismatch"):
         verify_checkpoint_artifacts(checkpoint, work_root=work)
+
+
+def test_checkpoint_refuses_one_byte_private_reconstruction_authority_mutation(tmp_path: Path) -> None:
+    work, _, raw = fixture(tmp_path)
+    checkpoint = validate_checkpoint(raw)
+    authority = (
+        Path(checkpoint["state"]["current_identity_workspace"])
+        / "sith-input-v1"
+        / "reconstruction-authority.json"
+    )
+    authority.write_bytes(authority.read_bytes() + b" ")
+    with pytest.raises(FidelityCheckpointError, match="artifact hash mismatch"):
+        verify_checkpoint_artifacts(checkpoint, work_root=work)
+
+
+def test_checkpoint_refuses_unhashed_private_reconstruction_authority(tmp_path: Path) -> None:
+    _, _, raw = fixture(tmp_path)
+    tampered = copy.deepcopy(raw)
+    tampered["artifacts"] = [
+        item for item in tampered["artifacts"] if not item["path"].endswith("reconstruction-authority.json")
+    ]
+    with pytest.raises(FidelityCheckpointError, match="unhashed artifacts"):
+        validate_checkpoint(tampered)
 
 
 def test_checkpoint_refuses_state_path_not_covered_by_hashes(tmp_path: Path) -> None:
