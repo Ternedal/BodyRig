@@ -75,7 +75,7 @@ Windows and Quest core probes independently require current HEAD == exact Gate A
 
 Quest adb authority is fail-closed in both the reference wrapper and core Quest probe: neither defaults to PATH `adb`; both derive the permitted `adb.exe` from `reference-renderer/renderer-contract.json` → pinned Unity editor → AndroidPlayer SDK; an explicit `-AdbExe` must resolve to that exact executable. The core Quest probe now also directs successful runs to `record-reference-renderer-acceptance.ps1`, never the low-level attestation writer.
 
-Renderer human-note authority is fail-closed at write, final-write and strict readback boundaries: `record-renderer-acceptance.ps1` rejects a trimmed pure `<...>` placeholder before evidence creation; `complete-acceptance.ps1` independently rejects placeholder quality notes before any release with `production_activation=true` can be written; and the strict `reference_policy_violation()` readback rejects missing or placeholder human notes even after an activating release artifact exists. Strict high-fidelity readback now also requires each human renderer attestation to retain explicit `attestation="operator-supplied"` provenance. The generic V1 policy keeps its historical compatibility/error behavior, while high-fidelity audited status calls the strict helper before and after release, so stale/synthetic renderer PASS evidence cannot surface as `production-ready`.
+Renderer human-note authority is fail-closed at write, final-write and strict readback boundaries: `record-renderer-acceptance.ps1` rejects a trimmed pure `<...>` placeholder before evidence creation; `complete-acceptance.ps1` independently rejects placeholder quality notes before any release with `production_activation=true` can be written; and the strict `reference_policy_violation()` readback rejects missing or placeholder human notes even after an activating release artifact exists. Strict high-fidelity readback also requires explicit `attestation="operator-supplied"` provenance. Generic V1 reference-policy behavior remains compatible, while high-fidelity audited status calls the strict helper before and after release. `person_release_status` retains its own hard provenance error contract, so stale/synthetic renderer PASS evidence cannot surface as trusted human authority.
 
 ## Checkout / runtime authority
 
@@ -126,6 +126,10 @@ Current authority code head before this documentation commit:
   - PowerShell parsing/contracts: SUCCESS.
   - managed physical wrapper: SUCCESS.
   - Windows final-acceptance job: SUCCESS.
+
+Final documentation head:
+
+- `00bd6e2c1c53bd29bd018d18f39e549a2973c8c5`: `ci` #1760 **SUCCESS**, `windows-log-handle-regression` #932 **SUCCESS**.
 
 Relevant earlier green heads:
 
