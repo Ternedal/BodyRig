@@ -73,6 +73,8 @@ def _load_contract() -> dict[str, Any] | None:
 
 
 def _quality_review_mismatch(attestation: dict[str, Any], prefix: str) -> str | None:
+    if attestation.get("attestation") != "operator-supplied":
+        return f"{prefix} human attestation provenance is not operator-supplied."
     review = attestation.get("quality_review")
     if not isinstance(review, dict):
         return f"{prefix} human attestation is missing structured quality_review."
