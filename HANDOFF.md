@@ -73,7 +73,7 @@ Inner probe/attestation/release scripts remain implementation dependencies. Refe
 
 Windows and Quest core probes independently require current HEAD == exact Gate A revision plus a clean checkout before evidence can be committed. Canonical final release binds all physical evidence to that same revision/package/runtime.
 
-Quest adb authority is fail-closed in both layers: `run-reference-quest-renderer-probe.ps1` and the inner `run-quest-renderer-probe.ps1` derive the only permitted `adb.exe` from `reference-renderer/renderer-contract.json` → pinned Unity editor → AndroidPlayer SDK. `AdbExe` has no PATH default; an explicitly supplied adb must resolve to the exact same pinned executable or the probe refuses to run. Direct invocation of the low-level Quest probe therefore cannot substitute an arbitrary PATH adb.
+Quest adb authority is fail-closed in both the reference wrapper and core Quest probe: neither defaults to PATH `adb`; both derive the permitted `adb.exe` from `reference-renderer/renderer-contract.json` → pinned Unity editor → AndroidPlayer SDK; an explicit `-AdbExe` must resolve to that exact executable. The core Quest probe now also directs successful runs to `record-reference-renderer-acceptance.ps1`, never the low-level attestation writer.
 
 ## Checkout / runtime authority
 
@@ -83,7 +83,7 @@ Before Gate A, preflight/status/direct Gate-A preparation require a clean checko
 
 as an ancestor. After Gate A, the minimum floor no longer substitutes for authority: exact Gate A revision freeze is mandatory.
 
-Preflight, package review, review recovery, status and Gate-A preparation use checkout-bound Python. Preflight validates canonical reference tooling, Unity/UniVRM pins and the pinned Unity Android SDK `adb.exe`; optional Quest serial is carried into the canonical Quest command. The Quest reference/core writers now independently enforce that same adb authority at execution time.
+Preflight, package review, review recovery, status and Gate-A preparation use checkout-bound Python. Preflight validates canonical reference tooling, Unity/UniVRM pins and only the pinned Unity Android SDK `adb.exe`; optional Quest serial is carried into the canonical Quest command.
 
 ## Transitive audit
 
@@ -118,16 +118,16 @@ Never hand-edit evidence JSON, delete create-only acceptance output to retry, us
 
 Current authority code head before this documentation commit:
 
-- `3d010727687356e69a8104290cfa6f109a689fc8`: `ci` #1743 **SUCCESS**, `windows-log-handle-regression` #915 **SUCCESS**.
+- `69e028dcbd23527df0a3d9700458c9ccd7dc6ead`: `ci` #1747 **SUCCESS**, `windows-log-handle-regression` #919 **SUCCESS**.
   - Python 3.11: SUCCESS.
   - Python 3.12: SUCCESS.
   - PowerShell parsing/contracts: SUCCESS.
-  - Quest adb authority regression contract: SUCCESS.
   - managed physical wrapper: SUCCESS.
   - Windows final-acceptance job: SUCCESS.
 
 Relevant earlier green heads:
 
+- Quest adb authority `3d010727687356e69a8104290cfa6f109a689fc8`: `ci` #1743 / log #915 SUCCESS;
 - Gate-A frozen-review authority `3aa388b10dbf2a4776163c032a75f52d87fa5c52`: `ci` #1739 / log #911 SUCCESS;
 - recovery/operator hardening `f8d9731a333670f2b76f8c4f53c4211d8dcc85d9`: `ci` #1728 / log #900 SUCCESS;
 - package-review placeholder/runtime hardening `ed23055c4b0ad2b4602262d8969e2a3296bbdd42`: `ci` #1714 / log #886 SUCCESS;
