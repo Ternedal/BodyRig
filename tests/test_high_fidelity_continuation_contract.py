@@ -27,11 +27,13 @@ def test_person_studio_loads_unified_continuation_as_isolated_extension() -> Non
     assert "/continuation-status" in ui
     assert "HIGH-FIDELITY PACKAGE COMPLETE · HUMAN REVIEW REQUIRED · PRODUCTION LOCKED" in ui
     assert "SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED" in ui
+    assert "PRODUCTION READY · CANONICAL FINAL RELEASE PASS" in ui
     assert "production_ready=false" in ui
-    assert "Windows acceptance" in ui
-    assert "Quest acceptance" in ui
+    assert "physical acceptance" in ui
+    assert "Quest-acceptance" in ui
     assert "final release" in ui
     assert "operator_input_required" in ui
+    assert 'status.production_ready === true && status.production_activation === true' in ui
 
 
 def test_continuation_adapter_revalidates_hair_package_instead_of_using_anatomy_candidate() -> None:
@@ -79,14 +81,19 @@ def test_component_status_never_claims_production_authority() -> None:
     assert '"final_release_required": True' in source
 
 
-def test_release_readiness_adds_package_bound_human_review_without_production_activation() -> None:
+def test_release_readiness_adds_human_and_canonical_physical_release_gates() -> None:
     source = (ROOT / "bodyrig" / "high_fidelity_release_readiness.py").read_text(encoding="utf-8")
 
     assert 'FINAL_REVIEW_GATE = "high_fidelity_human_review"' in source
+    assert 'PHYSICAL_GATE_A = "physical_gate_a"' in source
+    assert 'WINDOWS_GATE = "physical_windows_acceptance"' in source
+    assert 'QUEST_GATE = "physical_quest_acceptance"' in source
+    assert 'FINAL_RELEASE_GATE = "final_release"' in source
     assert "record-high-fidelity-human-review.ps1" in source
-    assert "-PackagePath" in source
+    assert "physical_acceptance_status" in source
     assert '"component_package_complete"' in source
     assert '"high_fidelity_human_review_complete"' in source
     assert '"software_ready_for_physical_acceptance"' in source
-    assert '"production_ready"] = False' in source
-    assert '"production_activation"] = False' in source
+    assert 'result["production_ready"] = True' in source
+    assert 'result["production_activation"] = True' in source
+    assert 'physical.get("production_activation") is True' in source
