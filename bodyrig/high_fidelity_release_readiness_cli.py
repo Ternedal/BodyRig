@@ -15,6 +15,7 @@ from .reference_acceptance_policy import apply_reference_policy
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 QUEST_SERIAL = re.compile(r"^[A-Za-z0-9._:-]+$")
 UNITY_VERSION = re.compile(r"^6000\.3\.\d+f\d+$")
+MINIMUM_PHYSICAL_HANDOFF_REVISION = "ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7"
 
 
 class HighFidelityReleaseReadinessCliError(RuntimeError):
@@ -43,6 +44,37 @@ def _git_state(root: Path) -> tuple[str, bool]:
     if dirty.returncode != 0:
         raise HighFidelityReleaseReadinessCliError(f"could not inspect operator checkout cleanliness: {root}")
     return revision, not bool(dirty.stdout.strip())
+
+
+def _has_minimum_handoff_revision(root: Path, revision: str) -> bool:
+    try:
+        anchor = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "-e", f"{MINIMUM_PHYSICAL_HANDOFF_REVISION}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if anchor.returncode != 0:
+            return False
+        ancestry = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "merge-base",
+                "--is-ancestor",
+                MINIMUM_PHYSICAL_HANDOFF_REVISION,
+                revision,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise HighFidelityReleaseReadinessCliError(
+            "Git executable is unavailable for minimum physical-handoff revision validation"
+        ) from exc
+    return ancestry.returncode == 0
 
 
 def _accepted_revision(result: dict[str, Any]) -> str | None:
@@ -186,7 +218,14 @@ def _apply_reference_policy_guard(result: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, revision: str | None = None) -> dict[str, Any]:
+def _blocked_for_checkout(
+    result: dict[str, Any],
+    reason: str,
+    *,
+    root: Path,
+    revision: str | None = None,
+    clean: bool = False,
+) -> dict[str, Any]:
     value = dict(result)
     value["state"] = "blocked"
     value["next_gate"] = None
@@ -195,7 +234,7 @@ def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, re
     value["operator_checkout"] = {
         "root": str(root),
         "revision": revision,
-        "clean": False,
+        "clean": clean,
         "authorized": False,
         "reason": reason,
     }
@@ -231,12 +270,26 @@ def bind_operator_checkout(
         )
 
     expected = _accepted_revision(result)
-    if expected is not None and revision != expected:
+    if expected is None:
+        if not _has_minimum_handoff_revision(root, revision):
+            return _blocked_for_checkout(
+                result,
+                (
+                    f"operator checkout revision {revision} does not contain minimum safe high-fidelity physical "
+                    f"handoff revision {MINIMUM_PHYSICAL_HANDOFF_REVISION}; update the integration checkout before "
+                    "creating fresh Gate A."
+                ),
+                root=root,
+                revision=revision,
+                clean=True,
+            )
+    elif revision != expected:
         return _blocked_for_checkout(
             result,
             f"operator checkout revision {revision} does not match fresh Gate A revision {expected}",
             root=root,
             revision=revision,
+            clean=True,
         )
 
     value = dict(result)
@@ -258,6 +311,7 @@ def bind_operator_checkout(
         "clean": True,
         "authorized": True,
         "accepted_revision": expected,
+        "minimum_handoff_revision": MINIMUM_PHYSICAL_HANDOFF_REVISION if expected is None else None,
     }
     return value
 
