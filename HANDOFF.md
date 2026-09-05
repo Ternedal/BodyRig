@@ -47,7 +47,7 @@ handoff into the existing canonical physical acceptance state machine.
 
 ## Final-release compatibility is re-proved on promoted bytes
 
-The fresh high-fidelity Gate A is now compatible with the existing canonical
+The fresh high-fidelity Gate A is compatible with the existing canonical
 `complete-acceptance.ps1` contract without copying release PASS flags from the
 historical Gate A.
 
@@ -132,11 +132,13 @@ for the physical session:
 - `high-fidelity-rig-preflight.ps1`
   - requires Windows and PowerShell 7+;
   - proves a clean exact Git checkout and checkout-bound BodyRig Python 3.11+;
-  - verifies the pinned reference-renderer contract;
-  - verifies Unity `6000.3.13f1`, UniVRM `0.131.2`, Unity Android Build Support
-    and `adb` availability;
+  - delegates renderer authority to `check-reference-renderer-ready.ps1`;
+  - cross-validates renderer contract, Unity `ProjectVersion.txt`, canonical
+    package pins, UniVRM revision and Unity Android SDK/NDK/OpenJDK;
+  - uses the **pinned Unity Android SDK `adb.exe`** for device discovery rather
+    than an arbitrary PATH adb;
   - optionally requires an actual Quest/Oculus adb device with
-    `-RequireQuestConnected`;
+    `-RequireQuestConnected` and can bind an explicit `-Serial`;
   - creates/modifies **no acceptance evidence**.
 - `list-high-fidelity-previews.ps1 -SucceededOnly`
   - read-only discovery of persisted `hfpreview-...` jobs, newest first;
@@ -151,12 +153,19 @@ for the physical session:
   - absolutizes the next operator script path;
   - for Windows/Quest human attestation, inserts the mandatory
     `-ConfirmQualityChecklist` and reads the exact renderer name/version from
-    the committed machine probe instead of asking the operator to guess it.
+    the committed machine probe instead of asking the operator to guess it;
+  - for the Quest machine gate, injects the pinned Unity Android SDK `adb.exe`
+    automatically and carries an optional `-Serial` through to the generated
+    command.
+- `reference-renderer/build-reference-renderer.ps1`
+  - independently fails closed before Unity launch if ProjectVersion,
+    application id, deformation-sequence contract or UniVRM package authority
+    drifts, so bypassing preflight cannot silently build a different renderer.
 - `HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`
-  - documents the complete one-gate-at-a-time physical session and the checkout
-    freeze rule after fresh Gate A.
+  - documents the complete one-gate-at-a-time physical session, pinned adb /
+    serial flow and checkout freeze rule after fresh Gate A.
 
-## Afternoon entry point
+## Rig entry point
 
 Before fresh Gate A exists, synchronize #83 and make sure the checkout is clean:
 
@@ -190,9 +199,16 @@ Before the Quest gate, connect the headset and run:
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected
 ```
 
-If several adb devices are online, use `-Serial '<serial>'` for the intended
-Quest. The complete safety/detail procedure is in
-`HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`.
+If several adb devices are online, bind the intended Quest to both preflight and
+status so the generated Quest command remains fully deterministic:
+
+```powershell
+$questSerial = '<serial>'
+pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1 -RequireQuestConnected -Serial $questSerial
+pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Serial $questSerial
+```
+
+The complete safety/detail procedure is in `HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`.
 
 ## Checkout freeze after fresh Gate A
 
@@ -202,8 +218,9 @@ until that exact acceptance chain is complete or deliberately abandoned.
 Windows, Quest and final-release evidence are bound to the Gate A revision.
 
 Do not hand-edit evidence JSON, delete a create-only acceptance directory just
-to retry, use `accept-reconciled-physical-clone.ps1` for this flow, or treat CI /
-component screenshots as physical PASS.
+to retry, use `accept-reconciled-physical-clone.ps1` for this flow, substitute a
+PATH adb for the pinned Unity Android SDK adb, or treat CI/component screenshots
+as physical PASS.
 
 ## Verification boundary
 
@@ -220,13 +237,22 @@ The folded software has automated coverage for:
 - post-release tamper revocation;
 - clean/matching operator checkout enforcement;
 - renderer-attestation command completion from exact probe identity;
+- canonical renderer readiness delegation and project/package pin validation;
+- pinned Unity adb + optional Quest serial command generation;
+- direct renderer-build project/contract drift rejection;
 - read-only preview discovery;
 - runbook/preflight safety contracts and PowerShell parsing.
 
+Current exact #83 head before this documentation-only handoff refresh was
+`9de2db640fb1030a24b567d7e67389e4955f8786` and completed:
+
+- `ci` #1671: **SUCCESS** — Python 3.11, Python 3.12, managed physical wrapper
+  and Windows final-acceptance job.
+- `windows-log-handle-regression` #843: **SUCCESS**.
+
 PR #87 exact head `3c61f235e5a31ec2be6c52737565376ed5f94ad0`
-was green in `ci` #1653 (Python 3.11, Python 3.12 and Windows acceptance) and
-`windows-log-handle-regression` #825 before fold-back. The final #83 head must
-also be green before the rig session is treated as software-ready.
+was independently green in `ci` #1653 and `windows-log-handle-regression` #825
+before fold-back.
 
 Automated CI is **not** target-device evidence. No actual final human visual
 review, WindowsPlayer physical acceptance or Quest physical acceptance was
