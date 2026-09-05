@@ -5,7 +5,11 @@ from typing import Any, Mapping
 
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
-    validate_release_authority_structure,
+    validate_release_authority_structure as validate_hands_nails_release_authority,
+)
+from .wardrobe_release_authority import (
+    WardrobeReleaseAuthorityError,
+    validate_release_authority_structure as validate_wardrobe_release_authority,
 )
 
 FORMAT = "bodyrig-digital-twin-status"
@@ -105,7 +109,7 @@ def _hands_nails_gate(
             "blockers": ["hands/feet/nails finalized authority is not implemented/recorded"],
         }
     try:
-        value = validate_release_authority_structure(
+        value = validate_hands_nails_release_authority(
             authority,
             assembly_receipt=assembly_receipt,
             body_release_status=body_release_status,
@@ -123,6 +127,44 @@ def _hands_nails_gate(
         "release_id": str(value["release_id"]),
         "review_id": str(value["review_id"]),
         "source_capture_id": str(value["source_capture_id"]),
+        "body_package_sha256": str(value["body_package_sha256"]),
+        "bodyrig_revision": str(value["bodyrig_revision"]),
+    }
+
+
+def _wardrobe_gate(
+    authority: Mapping[str, Any] | None,
+    *,
+    assembly_receipt: Mapping[str, Any],
+    body_release_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    if authority is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["wardrobe/clothing finalized authority is not implemented/recorded"],
+        }
+    try:
+        value = validate_wardrobe_release_authority(
+            authority,
+            assembly_receipt=assembly_receipt,
+            body_release_status=body_release_status,
+        )
+    except WardrobeReleaseAuthorityError as exc:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": [f"wardrobe/clothing finalized authority is invalid: {exc}"],
+        }
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "release_id": str(value["release_id"]),
+        "review_id": str(value["review_id"]),
+        "source_capture_id": str(value["source_capture_id"]),
+        "garment_count": int(value["garment_count"]),
+        "footwear_present": bool(value["footwear_present"]),
         "body_package_sha256": str(value["body_package_sha256"]),
         "bodyrig_revision": str(value["bodyrig_revision"]),
     }
@@ -157,17 +199,10 @@ def inspect_digital_twin_status(
         assembly_receipt=assembly_receipt,
         body_release_status=body_release_status,
     )
-    wardrobe = _bool_gate(
+    wardrobe = _wardrobe_gate(
         wardrobe_authority,
-        label="wardrobe/clothing",
-        fields=(
-            "source_grounded",
-            "garment_geometry_review_passed",
-            "material_review_passed",
-            "layering_review_passed",
-            "attachment_review_passed",
-            "deformation_review_passed",
-        ),
+        assembly_receipt=assembly_receipt,
+        body_release_status=body_release_status,
     )
     embodiment = _bool_gate(
         embodiment_authority,
