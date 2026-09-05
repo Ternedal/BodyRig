@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import bodyrig.high_fidelity_physical_acceptance_audit as audit
+from bodyrig.high_fidelity_release_gate import CANONICAL_RELEASE_CHECKS
 
 
 JOB_ID = "hfpreview-" + "a" * 32
@@ -14,6 +15,7 @@ BODY_JOB_ID = "job-" + "2" * 32
 REVISION = "c" * 40
 SOURCE_REVISION = "b" * 40
 SOURCE_PACKAGE_SHA = "d" * 64
+BODYPRINT_SHA = "e" * 64
 
 
 def _hash(path: Path) -> str:
@@ -71,11 +73,14 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
         "sourcePackageSha256": SOURCE_PACKAGE_SHA,
         "sourcePhysicalSessionSha256": _hash(session),
         "sourceReadinessSha256": _hash(readiness),
+        "sourceBodyprintSha256": BODYPRINT_SHA,
+        "promotedBodyprintSha256": BODYPRINT_SHA,
         "promotedPackageSha256": package_sha,
         "highFidelityHumanReviewSha256": _hash(review),
         "skinQaSha256": _hash(skin),
         "meshTopologyQaSha256": _hash(topology),
         "runtimeManifestSha256": _hash(runtime),
+        "releaseLineageReproved": True,
         "physicalAcceptanceAuthority": False,
         "productionActivation": False,
     }
@@ -83,21 +88,46 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
     _write(receipt_path, receipt)
 
     gate = {
+        "bodyrig_checkout_clean": True,
+        "source_count": 3,
         "physical_clone": {
             "session_sha256": _hash(session),
             "readiness_sha256": _hash(readiness),
+            "mode": "stash-sith-high-fidelity",
         },
         "skin_qa": {"report_sha256": _hash(skin)},
         "mesh_topology_qa": {"report_sha256": _hash(topology)},
-        "runtime": {"manifest_sha256": _hash(runtime)},
+        "recovery": {
+            "adapter": "recoverer",
+            "revision": "recovery-v1",
+            "track_id": "track-1",
+            "observed_frames": 4,
+        },
+        "package": {
+            "vrm_spec_version": "1.0",
+            "placeholder_avatar": False,
+            "bodyprint_matches_proof": True,
+            "source_count_matches": True,
+            "recovery_provenance_matches": True,
+            "avatar_fitting_provenance_present": True,
+        },
+        "runtime": {
+            "manifest": "runtime/runtime-manifest.json",
+            "manifest_sha256": _hash(runtime),
+            "materialized_from_package": True,
+        },
         "high_fidelity_handoff": {
             "receipt_sha256": _hash(receipt_path),
             "source_gate_a_sha256": source_gate_sha,
+            "source_bodyprint_sha256": BODYPRINT_SHA,
+            "promoted_bodyprint_sha256": BODYPRINT_SHA,
+            "release_lineage_reproved": True,
             "package_sha256": package_sha,
             "human_review_sha256": _hash(review),
             "preview_job_id": JOB_ID,
             "body_job_id": BODY_JOB_ID,
         },
+        "checks": {name: True for name in CANONICAL_RELEASE_CHECKS},
     }
     gate_path = acceptance / "bodyrig-acceptance.json"
     _write(gate_path, gate)
@@ -126,6 +156,19 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
             runtime_hash=_hash(runtime),
         ),
     )
+    source_report = {
+        "source_count": 3,
+        "physical_clone": {
+            "session_sha256": _hash(source_session),
+            "readiness_sha256": _hash(source_readiness),
+        },
+    }
+    source_gate = SimpleNamespace(
+        path=source_gate_path,
+        body_id=BODY_ID,
+        revision=SOURCE_REVISION,
+        package_hash=SOURCE_PACKAGE_SHA,
+    )
     monkeypatch.setattr(
         audit,
         "_source_gate",
@@ -133,19 +176,25 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
             {"canonical_body_id": BODY_ID},
             {"job_id": BODY_JOB_ID},
             source,
-            SimpleNamespace(
-                path=source_gate_path,
-                body_id=BODY_ID,
-                revision=SOURCE_REVISION,
-                package_hash=SOURCE_PACKAGE_SHA,
-            ),
-            {
-                "physical_clone": {
-                    "session_sha256": _hash(source_session),
-                    "readiness_sha256": _hash(source_readiness),
-                }
-            },
+            source_gate,
+            source_report,
         ),
+    )
+    monkeypatch.setattr(
+        audit,
+        "validate_promoted_release_lineage",
+        lambda *_args, **_kwargs: {
+            "source_count": 3,
+            "recovery": {
+                "adapter": "recoverer",
+                "revision": "recovery-v1",
+                "track_id": "track-1",
+                "observed_frames": 4,
+            },
+            "vrm_spec_version": "1.0",
+            "source_bodyprint_sha256": BODYPRINT_SHA,
+            "bodyprint_sha256": BODYPRINT_SHA,
+        },
     )
     return SimpleNamespace(
         package=package,
@@ -202,6 +251,18 @@ def test_source_gate_lineage_is_revalidated_on_every_status_read(monkeypatch, tm
     assert result["state"] == "invalid"
     assert result["production_activation"] is False
     assert "source gate a" in result["message"].lower()
+
+
+def test_release_check_tamper_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    gate = json.loads(fixture.gate.read_text(encoding="utf-8"))
+    gate["checks"]["bodyprint_matches_package"] = False
+    _write(fixture.gate, gate)
+    result = _status(fixture)
+    assert result["state"] == "invalid"
+    assert result["gate"] == "physical-gate-a"
+    assert result["production_activation"] is False
+    assert "release" in result["message"].lower() or "bodyprint" in result["message"].lower()
 
 
 def test_tamper_revokes_even_apparently_complete_release(monkeypatch, tmp_path: Path) -> None:
