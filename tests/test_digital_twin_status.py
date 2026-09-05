@@ -1,5 +1,15 @@
 from bodyrig.digital_twin_status import DigitalTwinStatusError, inspect_digital_twin_status
-from bodyrig.hands_feet_nails_authority import CHECKLIST_FIELDS, FORMAT as HFN_FORMAT, POLICY_REVISION as HFN_POLICY, _review_id
+from bodyrig.hands_feet_nails_authority import (
+    CHECKLIST_FIELDS,
+    FORMAT as REVIEW_FORMAT,
+    POLICY_REVISION as REVIEW_POLICY,
+    _review_id,
+)
+from bodyrig.hands_feet_nails_release_authority import (
+    FORMAT as HFN_FORMAT,
+    POLICY_REVISION as HFN_POLICY,
+    _release_id,
+)
 
 
 SHA_A = "a" * 64
@@ -60,7 +70,7 @@ def _body_release() -> dict:
     }
 
 
-def _hands_nails() -> dict:
+def _review_identity() -> tuple[str, str, str]:
     source_capture_sha = "2" * 64
     render_manifest_sha = "3" * 64
     review_id = _review_id(
@@ -72,11 +82,72 @@ def _hands_nails() -> dict:
         source_capture_sha256=source_capture_sha,
         render_manifest_sha256=render_manifest_sha,
     )
+    return review_id, source_capture_sha, render_manifest_sha
+
+
+def _hands_nails() -> dict:
+    review_id, source_capture_sha, render_manifest_sha = _review_identity()
+    review_authority_sha = "d" * 64
+    render_authority_sha = "e" * 64
+    comparison_authority_sha = "f" * 64
+    release_id = _release_id(
+        review_id=review_id,
+        review_authority_sha256=review_authority_sha,
+        render_authority_sha256=render_authority_sha,
+        comparison_authority_sha256=comparison_authority_sha,
+        body_package_sha256=SHA_G,
+        bodyrig_revision=BODYRIG_REVISION,
+    )
     checklist = {field: True for field in CHECKLIST_FIELDS}
     return {
         "format": HFN_FORMAT,
         "version": 1,
         "policy_revision": HFN_POLICY,
+        "release_id": release_id,
+        "review_id": review_id,
+        "person_id": PERSON_ID,
+        "person_revision": PERSON_REVISION,
+        "assembly_fingerprint": SHA_A,
+        "body_revision": BODY_REVISION,
+        "body_id": BODY_ID,
+        "body_package_sha256": SHA_G,
+        "bodyrig_revision": BODYRIG_REVISION,
+        "review_authority_sha256": review_authority_sha,
+        "source_capture_id": "hfncap-0123456789abcdef0123456789abcdef",
+        "source_capture_sha256": source_capture_sha,
+        "source_manifest_sha256": "4" * 64,
+        "source_region_sha256": {
+            "left_hand": "5" * 64,
+            "right_hand": "6" * 64,
+            "left_foot": "7" * 64,
+            "right_foot": "8" * 64,
+        },
+        "render_authority_sha256": render_authority_sha,
+        "comparison_authority_sha256": comparison_authority_sha,
+        "runtime_manifest_sha256": "9" * 64,
+        "render_manifest_sha256": render_manifest_sha,
+        "render_region_sha256": {
+            "left_hand": "a" * 64,
+            "right_hand": "b" * 64,
+            "left_foot": "c" * 64,
+            "right_foot": "0" * 64,
+        },
+        "finalized_utc": "2026-09-05T18:00:00Z",
+        "state": "complete",
+        "source_grounded": True,
+        "operator_supplied": True,
+        **checklist,
+        "production_activation": False,
+    }
+
+
+def _raw_review() -> dict:
+    review_id, source_capture_sha, render_manifest_sha = _review_identity()
+    checklist = {field: True for field in CHECKLIST_FIELDS}
+    return {
+        "format": REVIEW_FORMAT,
+        "version": 1,
+        "policy_revision": REVIEW_POLICY,
         "review_id": review_id,
         "person_id": PERSON_ID,
         "person_revision": PERSON_REVISION,
@@ -96,14 +167,14 @@ def _hands_nails() -> dict:
         },
         "render_manifest_sha256": render_manifest_sha,
         "render_region_sha256": {
-            "left_hand": "9" * 64,
-            "right_hand": "a" * 64,
-            "left_foot": "b" * 64,
-            "right_foot": "c" * 64,
+            "left_hand": "a" * 64,
+            "right_hand": "b" * 64,
+            "left_foot": "c" * 64,
+            "right_foot": "0" * 64,
         },
         "reviewed_utc": "2026-09-05T18:00:00Z",
         "checklist": checklist,
-        "quality_note": "Hands, feet, fingers, toes and nail surfaces match the reviewed source closeups.",
+        "quality_note": "Real source-vs-render review.",
         "state": "complete",
         "source_grounded": True,
         "operator_supplied": True,
@@ -152,10 +223,11 @@ def test_body_release_alone_is_not_a_full_digital_twin() -> None:
 
 
 def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
+    hands = _hands_nails()
     status = inspect_digital_twin_status(
         assembly_receipt=_assembly(),
         body_release_status=_body_release(),
-        hands_nails_authority=_hands_nails(),
+        hands_nails_authority=hands,
         wardrobe_authority=_wardrobe(),
         embodiment_authority=_embodiment(),
     )
@@ -166,13 +238,13 @@ def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
     assert status["production_activation"] is False
     assert status["final_release_implemented"] is False
     assert status["next_gate"] == "digital_twin_final_release"
+    assert status["gates"]["hands_feet_nails"]["release_id"] == hands["release_id"]
     assert status["gates"]["hands_feet_nails"]["body_package_sha256"] == SHA_G
 
 
 def test_nails_cannot_be_incidental_texture_only() -> None:
     hands = _hands_nails()
     hands["fingernails_review_passed"] = False
-    hands["checklist"]["fingernails_review_passed"] = False
 
     status = inspect_digital_twin_status(
         assembly_receipt=_assembly(),
@@ -184,7 +256,7 @@ def test_nails_cannot_be_incidental_texture_only() -> None:
 
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "hands_feet_nails"
-    assert any("review checklist is not fully passed" in blocker for blocker in status["blockers"])
+    assert any("did not pass fingernails_review_passed" in blocker for blocker in status["blockers"])
 
 
 def test_hands_authority_is_bound_to_exact_promoted_body_package() -> None:
@@ -202,6 +274,18 @@ def test_hands_authority_is_bound_to_exact_promoted_body_package() -> None:
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "hands_feet_nails"
     assert any("body_package_sha256" in blocker for blocker in status["blockers"])
+
+
+def test_raw_human_review_is_not_finalized_m2_authority() -> None:
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        hands_nails_authority=_raw_review(),
+    )
+
+    assert status["digital_twin_release_eligible"] is False
+    assert status["gates"]["hands_feet_nails"]["state"] == "blocked"
+    assert any("finalized authority" in blocker for blocker in status["blockers"])
 
 
 def test_legacy_boolean_hands_dict_is_not_m2_authority() -> None:
