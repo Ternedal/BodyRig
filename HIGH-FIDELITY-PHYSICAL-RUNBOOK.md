@@ -21,8 +21,10 @@ pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 
 Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
 
-Preflight also requires the complete canonical reference-wrapper chain to be present:
+Preflight also requires the complete human-review/recovery and canonical reference-wrapper chain to be present:
 
+- `record-high-fidelity-human-review.ps1`;
+- `archive-invalid-high-fidelity-human-review.ps1`;
 - `run-reference-windows-renderer-probe.ps1`;
 - `record-reference-renderer-acceptance.ps1`;
 - `run-reference-quest-renderer-probe.ps1`;
@@ -81,15 +83,29 @@ For machine-readable troubleshooting:
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview -Json
 ```
 
-If the status is `BLOCKED`, stop. Do not delete/recreate evidence or skip the gate. Preserve the output and logs for diagnosis.
+If status is `BLOCKED` with no recovery command, stop. Do not delete/recreate evidence or skip the gate. Preserve the output and logs for diagnosis.
 
 ## 3. Possible next gates
+
+### `high_fidelity_human_review_recovery`
+
+This gate appears only when the exact promoted package is still high-fidelity-ready but an existing create-only human-review sidecar is present and the current canonical `read_review()` rejects it (for example because it is stale, tampered or still contains a generated placeholder).
+
+Do **not** delete or edit that sidecar. Run only the exact recovery command printed by status. It will route through:
+
+```powershell
+.\archive-invalid-high-fidelity-human-review.ps1 -PackagePath '<exact-promoted-package>'
+```
+
+Recovery first re-proves the current package audit, proves that the current receipt is invalid, hashes the exact invalid receipt bytes, and preserves them under a content-addressed `.invalid-<receipt-sha256>.json` archive. A valid receipt cannot be archived by this path, conflicting archive bytes fail closed, package bytes are not changed, and `production_activation` remains false.
+
+After recovery completes, rerun status. The expected next state is ordinary `high_fidelity_human_review` for the same exact package bytes. Recovery is not a human PASS and does not create or infer review authority.
 
 ### `high_fidelity_human_review`
 
 Review the exact promoted package evidence in Person Studio. The review must cover source identity, anatomy, skin, hair, eyes/iris, face-secondary, full-body multiview and face close-up. Then use the exact command printed by the status tool and replace only the quality-note placeholder with what you actually reviewed.
 
-This gate is package-bound and non-activating.
+This gate is package-bound and non-activating. A generated `<...>` quality-note placeholder is rejected by both the PowerShell wrapper and the canonical Python review writer/reader.
 
 ### `physical_gate_a`
 
@@ -167,7 +183,7 @@ Only after both reference-wrapped physical attestations validate will status exp
 .\complete-reference-acceptance.ps1 -AcceptanceDir '<acceptance-dir>'
 ```
 
-The reference release wrapper revalidates renderer contract, evidence layout and structured human quality review before delegating to core `complete-acceptance.ps1`. Run exactly the generated command, then rerun status once more.
+The reference release wrapper revalidates renderer contract, evidence layout and structured human quality review before delegating to core `complete-acceptance.ps1`. The core final gate independently requires current HEAD to equal the exact Gate A revision and all physical evidence to bind to the same revision/package/runtime. Run exactly the generated command, then rerun status once more.
 
 ## 4. Definition of done
 
@@ -192,6 +208,7 @@ Those flags are valid only because the exact promoted package and handoff chain 
 - Do not point an old Gate A/package/runtime receipt at promoted bytes.
 - Do not use `accept-reconciled-physical-clone.ps1` for this flow.
 - Do not edit JSON evidence by hand.
+- Do not manually delete or overwrite a high-fidelity human-review sidecar; use the status-exposed content-preserving recovery gate only when it is offered.
 - Do not manually delete a create-only acceptance directory to make a command rerunnable.
 - Do not pull/switch/edit the repo after fresh Gate A creation.
 - Do not substitute a PATH `adb` for the pinned Unity Android SDK adb in the Quest evidence path.
