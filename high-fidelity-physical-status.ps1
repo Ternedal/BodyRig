@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^hfpreview-[0-9a-f]{32}$')][string]$PreviewJobId,
+    [ValidatePattern('^[A-Za-z0-9._:-]+$')][string]$Serial = "",
     [switch]$Json
 )
 
@@ -50,6 +51,9 @@ try {
         "--preview-job-id", $PreviewJobId,
         "--operator-root", $repoRoot
     )
+    if (-not [string]::IsNullOrWhiteSpace($Serial)) {
+        $argsList += @("--quest-serial", $Serial)
+    }
     if ($Json) { $argsList += "--json" }
 
     Push-Location $repoRoot
