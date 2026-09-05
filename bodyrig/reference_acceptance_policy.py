@@ -73,8 +73,6 @@ def _load_contract() -> dict[str, Any] | None:
 
 
 def _quality_review_mismatch(attestation: dict[str, Any], prefix: str) -> str | None:
-    if attestation.get("attestation") != "operator-supplied":
-        return f"{prefix} human attestation provenance is not operator-supplied."
     review = attestation.get("quality_review")
     if not isinstance(review, dict):
         return f"{prefix} human attestation is missing structured quality_review."
@@ -85,6 +83,8 @@ def _quality_review_mismatch(attestation: dict[str, Any], prefix: str) -> str | 
     for field in QUALITY_REVIEW_BOOLEAN_FIELDS:
         if review.get(field) is not True:
             return f"{prefix} human attestation quality_review did not explicitly pass {field}."
+    if attestation.get("attestation") != "operator-supplied":
+        return f"{prefix} human attestation provenance is not operator-supplied."
     quality_note = str(attestation.get("quality_note") or "").strip()
     if not quality_note:
         return f"{prefix} human attestation quality note is missing."
