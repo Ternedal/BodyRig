@@ -7,7 +7,6 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "../bodyrig/ui/high_fidelity_continuation.js"), "utf8");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-// The card already exists: any subsequent HTML parsing would render API data as markup.
 class Element {
   constructor() {
     this.children = [];
@@ -131,4 +130,49 @@ test("an active preview is polled faster until its continuation becomes availabl
   await ui.poll();
   assert.equal([...ui.timers.values()][0].delay, 5000);
   assert.match(ui.text("Next"), /eyes_promotion/);
+});
+
+test("software-ready status surfaces the actual physical next gate and command", async () => {
+  const ui = studio(preview, {
+    ...required,
+    state: "physical-quest-acceptance-required",
+    component_package_complete: true,
+    high_fidelity_human_review_complete: true,
+    software_ready_for_physical_acceptance: true,
+    next_gate: {
+      gate: "physical_quest_acceptance",
+      command: ".\\run-quest-renderer-probe.ps1 -AcceptanceDir 'C:/hf/physical'",
+      reason: "Windows PASS; Quest required",
+    },
+  });
+  await flush();
+  assert.equal(ui.text("Badge"), "SOFTWARE READY");
+  assert.match(ui.text("Summary"), /physical_quest_acceptance/);
+  assert.match(ui.text("Next"), /run-quest-renderer-probe\.ps1/);
+  assert.match(ui.text("Production"), /physical_quest_acceptance/);
+  assert.match(ui.text("Production"), /production_ready=false/);
+});
+
+test("only canonical final release production status is rendered as production ready", async () => {
+  const ui = studio(preview, {
+    ...required,
+    state: "production-ready",
+    component_package_complete: true,
+    high_fidelity_human_review_complete: true,
+    software_ready_for_physical_acceptance: true,
+    production_ready: true,
+    production_activation: true,
+    next_gate: null,
+    gates: [
+      { id: "physical_windows_acceptance", label: "Windows", state: "pass" },
+      { id: "physical_quest_acceptance", label: "Quest", state: "pass" },
+      { id: "final_release", label: "Final release", state: "pass" },
+    ],
+  });
+  await flush();
+  assert.equal(ui.text("Badge"), "PRODUCTION READY");
+  assert.match(ui.text("Summary"), /Canonical final release/);
+  assert.equal(ui.text("Next"), "");
+  assert.match(ui.text("Production"), /PRODUCTION READY/);
+  assert.match(ui.text("Production"), /FINAL RELEASE PASS/);
 });
