@@ -52,6 +52,64 @@ def _accepted_revision(result: dict[str, Any]) -> str | None:
     return None
 
 
+def _ps_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _attestation_probe(result: dict[str, Any], command: str) -> dict[str, Any]:
+    acceptance_value = str(result.get("physical_acceptance_dir") or "").strip()
+    if not acceptance_value:
+        raise HighFidelityReleaseReadinessCliError("renderer attestation command has no canonical physical acceptance directory")
+    acceptance = Path(acceptance_value).expanduser().resolve()
+    if '-Platform "windows-unity-univrm"' in command:
+        prefix = "windows"
+    elif '-Platform "android-quest-class"' in command:
+        prefix = "quest"
+    else:
+        raise HighFidelityReleaseReadinessCliError("renderer attestation command has no canonical platform")
+    dedicated = acceptance / f"{prefix}-evidence" / f"{prefix}-probe.json"
+    legacy = acceptance / f"{prefix}-probe.json"
+    probe_path = dedicated if dedicated.is_file() else legacy
+    if not probe_path.is_file():
+        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe is missing: {probe_path}")
+    try:
+        value = json.loads(probe_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe is unreadable: {probe_path}") from exc
+    if not isinstance(value, dict):
+        raise HighFidelityReleaseReadinessCliError(f"renderer attestation probe must be a JSON object: {probe_path}")
+    return value
+
+
+def _normalize_attestation_command(result: dict[str, Any], command: str) -> str:
+    if "record-renderer-acceptance.ps1" not in command:
+        return command
+    if "-ConfirmQualityChecklist" not in command:
+        if " -Pass " not in command:
+            raise HighFidelityReleaseReadinessCliError("renderer attestation command lacks explicit -Pass authority")
+        command = command.replace(" -Pass ", " -Pass -ConfirmQualityChecklist ", 1)
+
+    probe = _attestation_probe(result, command)
+    renderer = probe.get("active_renderer")
+    if not isinstance(renderer, dict):
+        raise HighFidelityReleaseReadinessCliError("renderer probe lacks active_renderer authority")
+    name = str(renderer.get("name") or "").strip()
+    version = str(renderer.get("version") or "").strip()
+    if not name or not version:
+        raise HighFidelityReleaseReadinessCliError("renderer probe lacks exact active renderer name/version")
+
+    command, name_count = re.subn(r'-RendererName\s+"[^"]*"', f"-RendererName {_ps_literal(name)}", command, count=1)
+    command, version_count = re.subn(
+        r'-RendererVersion\s+"[^"]*"',
+        f"-RendererVersion {_ps_literal(version)}",
+        command,
+        count=1,
+    )
+    if name_count != 1 or version_count != 1:
+        raise HighFidelityReleaseReadinessCliError("renderer attestation command lacks replaceable name/version fields")
+    return command
+
+
 def _absolutize_command(command: str, root: Path) -> str:
     if not command.startswith(".\\"):
         return command
@@ -62,6 +120,10 @@ def _absolutize_command(command: str, root: Path) -> str:
         raise HighFidelityReleaseReadinessCliError(f"next operator script is missing from checkout: {target}")
     suffix = "" if len(parts) == 1 else " " + parts[1]
     return f'& "{target}"{suffix}'
+
+
+def _operator_command(result: dict[str, Any], command: str, root: Path) -> str:
+    return _absolutize_command(_normalize_attestation_command(result, command), root)
 
 
 def _blocked_for_checkout(result: dict[str, Any], reason: str, *, root: Path, revision: str | None = None) -> dict[str, Any]:
@@ -108,7 +170,7 @@ def bind_operator_checkout(result: dict[str, Any], operator_root: Path) -> dict[
         next_value = dict(next_gate)
         command = str(next_value.get("command") or "").strip()
         if command:
-            next_value["command"] = _absolutize_command(command, root)
+            next_value["command"] = _operator_command(result, command, root)
         value["next_gate"] = next_value
     value["operator_checkout"] = {
         "root": str(root),
