@@ -29,9 +29,11 @@ def test_physical_20260902_single_vertex_value_reaches_aggregate_skin_qa() -> No
 
 
 def test_downstream_skin_qa_remains_the_aggregate_risk_gate() -> None:
-    source = (
-        Path(__file__).resolve().parents[1] / "bodyrig" / "skin_qa.py"
-    ).read_text(encoding="utf-8")
-    assert "severe_ratio > 0.002" in source
-    assert "p95_forbidden > 0.15" in source
-    assert "max_forbidden > 0.75" in source
+    root = Path(__file__).resolve().parents[1] / "bodyrig"
+    aggregate_source = (root / "skin_qa_legacy.py").read_text(encoding="utf-8")
+    canonical_source = (root / "skin_qa.py").read_text(encoding="utf-8")
+    assert "severe_ratio > 0.002" in aggregate_source
+    assert "p95_forbidden > 0.15" in aggregate_source
+    assert "max_forbidden > 0.75" in aggregate_source
+    assert "legacy.analyze_vrm_skin" in canonical_source
+    assert "legacy.analyze_package" in canonical_source
