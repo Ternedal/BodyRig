@@ -118,7 +118,7 @@ Never hand-edit evidence JSON, delete create-only acceptance output to retry, us
 
 ## Verification
 
-Current authority code head before this documentation commit:
+Current strict provenance code head:
 
 - `50ad00dee8bc90d18f248e53b2aa4ee1ac3e3032`: `ci` #1759 **SUCCESS**, `windows-log-handle-regression` #931 **SUCCESS**.
   - Python 3.11: SUCCESS.
@@ -127,9 +127,10 @@ Current authority code head before this documentation commit:
   - managed physical wrapper: SUCCESS.
   - Windows final-acceptance job: SUCCESS.
 
-Final documentation head:
+Current branch head:
 
-- `00bd6e2c1c53bd29bd018d18f39e549a2973c8c5`: `ci` #1760 **SUCCESS**, `windows-log-handle-regression` #932 **SUCCESS**.
+- `740265947b8940dd3551d090eb7939c5e4b52ccb`: `ci` #1761 **SUCCESS**, `windows-log-handle-regression` #933 **SUCCESS**.
+  - This head is HANDOFF-only over the same strict provenance code authority.
 
 Relevant earlier green heads:
 
