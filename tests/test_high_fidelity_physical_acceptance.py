@@ -156,8 +156,9 @@ def test_operator_wrapper_is_clean_checkout_bound_and_non_activating() -> None:
     assert 'if ([string]$result.next_gate -ne "windows-probe")' in wrapper
     assert "$result.production_activation -ne $false" in wrapper
 
-    assert "analyze_skin(accepted)" in source
-    assert "analyze_topology(accepted)" in source
+    assert "skin, topology = _fresh_qa(accepted)" in source
+    assert "analyze_skin(package)" in source
+    assert "analyze_topology(package)" in source
     assert "materialize_runtime(accepted, runtime_dir)" in source
     assert '"sourceGateASha256"' in source
     assert '"highFidelityHumanReviewSha256"' in source
