@@ -121,6 +121,15 @@ if ($expectedUniVrmVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Reference rende
 $expectedUniVrmRevision = ([string]$contract.univrm_revision).Trim().ToLowerInvariant()
 if ($expectedUniVrmRevision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
 if ([string]$contract.renderer_version -notmatch [regex]::Escape("univrm-$expectedUniVrmVersion")) { throw "Renderer version does not identify the contracted UniVRM version." }
+if ([string]$contract.application_id -ne "dk.ternedal.bodyrig.reference") { throw "Reference renderer contract contains an unsupported application id." }
+if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract contains an unsupported deformation sequence revision." }
+
+$projectVersionPath = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
+if (-not (Test-Path -LiteralPath $projectVersionPath -PathType Leaf)) { throw "Reference renderer ProjectVersion.txt not found: $projectVersionPath" }
+$projectVersionText = Get-Content -LiteralPath $projectVersionPath -Raw -Encoding UTF8
+if ($projectVersionText -notmatch [regex]::Escape("m_EditorVersion: $expectedUnityVersion")) {
+    throw "Reference renderer project version does not match renderer-contract Unity version $expectedUnityVersion."
+}
 
 $manifestPath = Join-Path $projectRoot "Packages\manifest.json"
 $manifest = Read-JsonFile -Path $manifestPath -Label "Unity package manifest"

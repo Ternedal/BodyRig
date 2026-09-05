@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
     [string]$UnityExe = "",
-    [string]$AdbExe = "adb",
+    [string]$AdbExe = "",
     [string]$Serial = "",
     [string]$ProbeOutput = "",
     [string]$DeformationOutput = "",
@@ -57,6 +57,28 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Acceptance directory not found: $AcceptanceDir" }
 
+$contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
+if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) { throw "Reference renderer contract not found: $contractPath" }
+try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "Reference renderer contract is not valid JSON: $contractPath" }
+if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+if ([string]$contract.unity_editor_version -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an unsupported Unity editor version." }
+if ([string]$contract.application_id -ne $ApplicationId) { throw "Reference renderer contract has an unsupported Quest application id." }
+if ([string]$contract.renderer_name -ne $RendererName -or [string]$contract.renderer_version -ne $RendererVersion) { throw "Quest renderer identity does not match reference-renderer/renderer-contract.json." }
+if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract has an unsupported deformation sequence." }
+
+$pinnedAdb = Join-Path "C:\Program Files\Unity\Hub\Editor\$([string]$contract.unity_editor_version)\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools" "adb.exe"
+if (-not (Test-Path -LiteralPath $pinnedAdb -PathType Leaf)) { throw "Pinned Unity Android adb not found: $pinnedAdb" }
+$pinnedAdb = (Resolve-Path -LiteralPath $pinnedAdb).Path
+if (-not [string]::IsNullOrWhiteSpace($AdbExe)) {
+    if (-not (Test-Path -LiteralPath $AdbExe -PathType Leaf)) { throw "Requested adb executable not found: $AdbExe" }
+    $requestedAdb = (Resolve-Path -LiteralPath $AdbExe).Path
+    if (-not [string]::Equals($requestedAdb, $pinnedAdb, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Quest physical renderer evidence requires the pinned Unity Android SDK adb.exe; refusing alternate adb: $requestedAdb"
+    }
+}
+$pinnedAdb = [System.IO.Path]::GetFullPath($pinnedAdb)
+
 $acceptancePath = Join-Path $AcceptanceDir "bodyrig-acceptance.json"
 $runtimeDir = Join-Path $AcceptanceDir "runtime"
 $runtimeManifest = Join-Path $runtimeDir "runtime-manifest.json"
@@ -110,9 +132,7 @@ $stagedDeformation = Join-Path $attemptDir ([IO.Path]::GetFileName($DeformationO
 $committed = $false
 
 try {
-    $adbCommand = Get-Command $AdbExe -ErrorAction SilentlyContinue
-    if ($null -eq $adbCommand) { throw "adb not found: $AdbExe" }
-    $script:AdbExe = $adbCommand.Source
+    $script:AdbExe = $pinnedAdb
     $script:Serial = $Serial
 
     if ([string]::IsNullOrWhiteSpace($Serial)) {
@@ -146,6 +166,7 @@ try {
 
     Write-Host "BodyRig Quest renderer Gate B physical probe"
     Write-Host "Revision:     $acceptedRevision"
+    Write-Host "ADB authority: $($script:AdbExe)"
     Write-Host "ADB device:   $($script:Serial) | $model"
     Write-Host "Runtime:      $runtimeDir"
     Write-Host "Staging:      $attemptDir"
@@ -201,5 +222,5 @@ Write-Host "Evidence directory:   $evidenceDir"
 Write-Host "Machine evidence:     $ProbeOutput"
 Write-Host "Deformation evidence: $DeformationOutput"
 Write-Host "The app remains on the headset cycling the same sequence for human visual inspection."
-Write-Host "Human visual attestation is still required with record-renderer-acceptance.ps1."
+Write-Host "Human visual attestation is still required with record-reference-renderer-acceptance.ps1."
 exit 0

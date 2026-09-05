@@ -353,6 +353,31 @@ def _platform_stage(acceptance_dir: Path, *, platform: str, prefix: str, attesta
     return "complete", paths
 
 
+def _renderer_attestation_command(
+    *,
+    gate: GateAInfo,
+    acceptance_dir: Path,
+    paths: PlatformPaths,
+    platform: str,
+    quality_note: str,
+) -> str:
+    probe = _read_json(paths.probe, "Renderer machine probe")
+    renderer = probe.get("active_renderer")
+    if not isinstance(renderer, dict):
+        raise AcceptanceStatusError("Renderer machine probe has no active_renderer authority.")
+    renderer_name = str(renderer.get("name") or "").strip()
+    renderer_version = str(renderer.get("version") or "").strip()
+    if not renderer_name or not renderer_version:
+        raise AcceptanceStatusError("Renderer machine probe lacks exact renderer name/version.")
+    return (
+        ".\\record-renderer-acceptance.ps1 "
+        f"-AcceptanceReport {_quote(gate.path)} -RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
+        f"-ProbeReport {_quote(paths.probe)} -DeformationReport {_quote(paths.deformation)} "
+        f'-Platform "{platform}" -Pass -ConfirmQualityChecklist -RendererName "{renderer_name}" '
+        f'-RendererVersion "{renderer_version}" -QualityNote "{quality_note}"'
+    )
+
+
 def _validate_release_quality_review(attestation: dict[str, Any], label: str) -> None:
     review = attestation.get("quality_review")
     if not isinstance(review, dict):
@@ -534,11 +559,13 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
         return AcceptanceStatus(
             "human-review", "windows-attestation", str(acceptance_dir), gate.body_id, gate.revision,
             "Windows machine/deformation evidence is coherent. Human visual review and attestation are still required.",
-            ".\\record-renderer-acceptance.ps1 "
-            f"-AcceptanceReport {_quote(gate.path)} -RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
-            f"-ProbeReport {_quote(windows.probe)} -DeformationReport {_quote(windows.deformation)} "
-            '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
-            '-RendererVersion "<exact version>" -QualityNote "<your physical review>"',
+            _renderer_attestation_command(
+                gate=gate,
+                acceptance_dir=acceptance_dir,
+                paths=windows,
+                platform="windows-unity-univrm",
+                quality_note="<your physical review>",
+            ),
         )
 
     quest_stage, quest = _platform_stage(
@@ -555,11 +582,13 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
         return AcceptanceStatus(
             "human-review", "quest-attestation", str(acceptance_dir), gate.body_id, gate.revision,
             "Quest machine/deformation evidence is coherent. Human headset review and attestation are still required.",
-            ".\\record-renderer-acceptance.ps1 "
-            f"-AcceptanceReport {_quote(gate.path)} -RuntimeManifest {_quote(acceptance_dir / 'runtime' / 'runtime-manifest.json')} "
-            f"-ProbeReport {_quote(quest.probe)} -DeformationReport {_quote(quest.deformation)} "
-            '-Platform "android-quest-class" -Pass -RendererName "BodyRig Reference Renderer" '
-            '-RendererVersion "<exact version>" -QualityNote "<your physical headset review>"',
+            _renderer_attestation_command(
+                gate=gate,
+                acceptance_dir=acceptance_dir,
+                paths=quest,
+                platform="android-quest-class",
+                quality_note="<your physical headset review>",
+            ),
         )
 
     release_path = acceptance_dir / "bodyrig-release-acceptance.json"

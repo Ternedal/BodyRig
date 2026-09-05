@@ -28,7 +28,7 @@ def test_start_request_requires_exact_body_job_id_and_explicit_target_family() -
         )
 
 
-def test_main_app_exposes_preview_start_status_and_image_routes() -> None:
+def test_main_app_exposes_preview_and_review_authority_routes() -> None:
     paths = app.openapi()["paths"]
 
     preview = paths["/api/v1/people/{person_id}/body/high-fidelity-preview"]
@@ -36,6 +36,9 @@ def test_main_app_exposes_preview_start_status_and_image_routes() -> None:
     assert "get" in preview
     assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}"]
     assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}/image/{view}"]
+    assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}/component-review"]
+    assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}/anatomy-promotion"]
+    assert "get" in paths["/api/v1/high-fidelity-preview-jobs/{job_id}/hair-deformation-review"]
 
 
 def test_latest_success_adds_only_hash_bound_image_urls(monkeypatch: pytest.MonkeyPatch) -> None:

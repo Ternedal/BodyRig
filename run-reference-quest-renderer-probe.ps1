@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
     [string]$UnityExe = "",
-    [string]$AdbExe = "adb",
+    [string]$AdbExe = "",
     [string]$Serial = ""
 )
 
@@ -39,8 +39,21 @@ foreach ($field in @("renderer_name","renderer_version","unity_editor_version","
     if ([string]::IsNullOrWhiteSpace([string]$contract.$field)) { throw "Reference renderer contract is missing '$field'." }
 }
 if ([string]$contract.univrm_revision -notmatch '^[0-9a-f]{40}$') { throw "Reference renderer contract contains an invalid UniVRM revision." }
+if ([string]$contract.unity_editor_version -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an unsupported Unity editor version." }
 if ([string]$contract.application_id -ne "dk.ternedal.bodyrig.reference") { throw "Reference renderer contract has an unsupported Quest application id." }
 if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract has an unsupported deformation sequence." }
+
+$pinnedAdb = Join-Path "C:\Program Files\Unity\Hub\Editor\$([string]$contract.unity_editor_version)\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools" "adb.exe"
+if (-not (Test-Path -LiteralPath $pinnedAdb -PathType Leaf)) { throw "Pinned Unity Android adb not found: $pinnedAdb" }
+$pinnedAdb = (Resolve-Path -LiteralPath $pinnedAdb).Path
+if (-not [string]::IsNullOrWhiteSpace($AdbExe)) {
+    if (-not (Test-Path -LiteralPath $AdbExe -PathType Leaf)) { throw "Requested adb executable not found: $AdbExe" }
+    $requestedAdb = (Resolve-Path -LiteralPath $AdbExe).Path
+    if (-not [string]::Equals($requestedAdb, $pinnedAdb, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Quest physical acceptance requires the pinned Unity Android SDK adb.exe; refusing alternate adb: $requestedAdb"
+    }
+}
+$AdbExe = $pinnedAdb
 
 $canonicalDir = Join-Path $AcceptanceDir "quest-evidence"
 if (Test-Path -LiteralPath $canonicalDir) { throw "Quest canonical evidence directory already exists; refusing cross-attempt reuse: $canonicalDir" }
@@ -81,6 +94,7 @@ try {
 }
 
 Write-Host "BodyRig contract-bound Quest evidence: PASS | Unity $($contract.unity_editor_version) | UniVRM $($contract.univrm_revision)"
+Write-Host "ADB authority: $AdbExe"
 Write-Host "Evidence directory: $canonicalDir"
 Write-Host "Human visual attestation is still required with record-reference-renderer-acceptance.ps1."
 exit 0
