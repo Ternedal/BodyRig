@@ -12,6 +12,8 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required for the canonical high-fidelity physical handoff."
 }
 
+$minimumPhysicalHandoffRevision = "ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7"
+
 function Assert-CheckoutAuthority {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -38,8 +40,26 @@ function Assert-CheckoutAuthority {
     return $head
 }
 
+function Assert-MinimumPhysicalHandoffRevision {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$CurrentHead,
+        [Parameter(Mandatory = $true)][string]$MinimumRevision
+    )
+    $anchorSpec = $MinimumRevision + "^{commit}"
+    & git -C $RepoRoot cat-file -e $anchorSpec 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig checkout does not contain minimum safe high-fidelity physical handoff revision $MinimumRevision. Update the integration checkout before creating fresh Gate A."
+    }
+    & git -C $RepoRoot merge-base --is-ancestor $MinimumRevision $CurrentHead
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig checkout revision $CurrentHead predates minimum safe high-fidelity physical handoff revision $MinimumRevision. Update the integration checkout before creating fresh Gate A."
+    }
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = Assert-CheckoutAuthority -RepoRoot $repoRoot
+Assert-MinimumPhysicalHandoffRevision -RepoRoot $repoRoot -CurrentHead $head -MinimumRevision $minimumPhysicalHandoffRevision
 
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if ($null -eq $pythonCommand) {
