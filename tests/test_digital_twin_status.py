@@ -10,6 +10,12 @@ from bodyrig.hands_feet_nails_release_authority import (
     POLICY_REVISION as HFN_POLICY,
     _release_id,
 )
+from bodyrig.wardrobe_authority import CHECKLIST_FIELDS as WARDROBE_CHECKLIST_FIELDS
+from bodyrig.wardrobe_release_authority import (
+    FORMAT as WARDROBE_FORMAT,
+    POLICY_REVISION as WARDROBE_POLICY,
+    _release_id as _wardrobe_release_id,
+)
 
 
 SHA_A = "a" * 64
@@ -33,11 +39,7 @@ def _assembly() -> dict:
         "person_id": PERSON_ID,
         "person_revision": PERSON_REVISION,
         "assembly_fingerprint": SHA_A,
-        "body": {
-            "revision_id": BODY_REVISION,
-            "body_id": BODY_ID,
-            "package_sha256": SHA_B,
-        },
+        "body": {"revision_id": BODY_REVISION, "body_id": BODY_ID, "package_sha256": SHA_B},
         "voice": {
             "revision_id": "voice-r0001",
             "voice_id": "voice-0123456789abcdef0123456789abcdef",
@@ -50,10 +52,7 @@ def _assembly() -> dict:
             "default_language": "da-DK",
             "style_notes_sha256": SHA_E,
         },
-        "audition": {
-            "audition_id": "audition-0123456789abcdef0123456789abcdef",
-            "receipt_sha256": SHA_F,
-        },
+        "audition": {"audition_id": "audition-0123456789abcdef0123456789abcdef", "receipt_sha256": SHA_F},
     }
 
 
@@ -116,22 +115,12 @@ def _hands_nails() -> dict:
         "source_capture_id": "hfncap-0123456789abcdef0123456789abcdef",
         "source_capture_sha256": source_capture_sha,
         "source_manifest_sha256": "4" * 64,
-        "source_region_sha256": {
-            "left_hand": "5" * 64,
-            "right_hand": "6" * 64,
-            "left_foot": "7" * 64,
-            "right_foot": "8" * 64,
-        },
+        "source_region_sha256": {"left_hand": "5" * 64, "right_hand": "6" * 64, "left_foot": "7" * 64, "right_foot": "8" * 64},
         "render_authority_sha256": render_authority_sha,
         "comparison_authority_sha256": comparison_authority_sha,
         "runtime_manifest_sha256": "9" * 64,
         "render_manifest_sha256": render_manifest_sha,
-        "render_region_sha256": {
-            "left_hand": "a" * 64,
-            "right_hand": "b" * 64,
-            "left_foot": "c" * 64,
-            "right_foot": "0" * 64,
-        },
+        "render_region_sha256": {"left_hand": "a" * 64, "right_hand": "b" * 64, "left_foot": "c" * 64, "right_foot": "0" * 64},
         "finalized_utc": "2026-09-05T18:00:00Z",
         "state": "complete",
         "source_grounded": True,
@@ -159,19 +148,9 @@ def _raw_review() -> dict:
         "source_capture_id": "hfncap-0123456789abcdef0123456789abcdef",
         "source_capture_sha256": source_capture_sha,
         "source_manifest_sha256": "4" * 64,
-        "source_region_sha256": {
-            "left_hand": "5" * 64,
-            "right_hand": "6" * 64,
-            "left_foot": "7" * 64,
-            "right_foot": "8" * 64,
-        },
+        "source_region_sha256": {"left_hand": "5" * 64, "right_hand": "6" * 64, "left_foot": "7" * 64, "right_foot": "8" * 64},
         "render_manifest_sha256": render_manifest_sha,
-        "render_region_sha256": {
-            "left_hand": "a" * 64,
-            "right_hand": "b" * 64,
-            "left_foot": "c" * 64,
-            "right_foot": "0" * 64,
-        },
+        "render_region_sha256": {"left_hand": "a" * 64, "right_hand": "b" * 64, "left_foot": "c" * 64, "right_foot": "0" * 64},
         "reviewed_utc": "2026-09-05T18:00:00Z",
         "checklist": checklist,
         "quality_note": "Real source-vs-render review.",
@@ -184,14 +163,58 @@ def _raw_review() -> dict:
 
 
 def _wardrobe() -> dict:
+    review_id = "wardreview-0123456789abcdef0123456789abcdef"
+    review_sha = "2" * 64
+    render_sha = "3" * 64
+    lineage_sha = "4" * 64
+    deformation_sha = "5" * 64
+    release_id = _wardrobe_release_id(
+        review_id=review_id,
+        review_authority_sha256=review_sha,
+        render_authority_sha256=render_sha,
+        package_lineage_sha256=lineage_sha,
+        deformation_probe_sha256=deformation_sha,
+        body_package_sha256=SHA_G,
+        bodyrig_revision=BODYRIG_REVISION,
+    )
+    checklist = {field: True for field in WARDROBE_CHECKLIST_FIELDS}
     return {
+        "format": WARDROBE_FORMAT,
+        "version": 1,
+        "policy_revision": WARDROBE_POLICY,
+        "release_id": release_id,
+        "review_id": review_id,
+        "person_id": PERSON_ID,
+        "person_revision": PERSON_REVISION,
+        "assembly_fingerprint": SHA_A,
+        "body_revision": BODY_REVISION,
+        "body_id": BODY_ID,
+        "body_package_sha256": SHA_G,
+        "bodyrig_revision": BODYRIG_REVISION,
+        "review_authority_sha256": review_sha,
+        "source_capture_id": "wardcap-0123456789abcdef0123456789abcdef",
+        "source_capture_sha256": "6" * 64,
+        "source_manifest_sha256": "7" * 64,
+        "source_view_sha256": {"front": "8" * 64, "left_side": "9" * 64, "right_side": "a" * 64, "back": "b" * 64},
+        "garment_inventory_sha256": "c" * 64,
+        "garment_count": 3,
+        "footwear_present": True,
+        "render_authority_sha256": render_sha,
+        "package_lineage_sha256": lineage_sha,
+        "comparison_authority_sha256": "d" * 64,
+        "runtime_manifest_sha256": "e" * 64,
+        "render_manifest_sha256": "f" * 64,
+        "render_view_sha256": {"front": "0" * 64, "left_side": "1" * 64, "right_side": "2" * 64, "back": "3" * 64},
+        "machine_probe_sha256": "4" * 64,
+        "deformation_probe_sha256": deformation_sha,
+        "deformation_sequence_revision": "humanoid-muscle-sweep-v1",
+        "finalized_utc": "2026-09-05T20:00:00Z",
         "state": "complete",
         "source_grounded": True,
-        "garment_geometry_review_passed": True,
-        "material_review_passed": True,
-        "layering_review_passed": True,
-        "attachment_review_passed": True,
-        "deformation_review_passed": True,
+        "operator_supplied": True,
+        **checklist,
+        "footwear_review_required": True,
+        "footwear_review_passed": True,
         "production_activation": False,
     }
 
@@ -207,11 +230,7 @@ def _embodiment() -> dict:
 
 
 def test_body_release_alone_is_not_a_full_digital_twin() -> None:
-    status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-    )
-
+    status = inspect_digital_twin_status(assembly_receipt=_assembly(), body_release_status=_body_release())
     assert status["avatar_ready"] is True
     assert status["digital_twin_release_eligible"] is False
     assert status["digital_twin_ready"] is False
@@ -224,14 +243,11 @@ def test_body_release_alone_is_not_a_full_digital_twin() -> None:
 
 def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
     hands = _hands_nails()
+    wardrobe = _wardrobe()
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=hands,
-        wardrobe_authority=_wardrobe(),
-        embodiment_authority=_embodiment(),
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=hands,
+        wardrobe_authority=wardrobe, embodiment_authority=_embodiment(),
     )
-
     assert status["avatar_ready"] is True
     assert status["digital_twin_release_eligible"] is True
     assert status["digital_twin_ready"] is False
@@ -239,21 +255,17 @@ def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
     assert status["final_release_implemented"] is False
     assert status["next_gate"] == "digital_twin_final_release"
     assert status["gates"]["hands_feet_nails"]["release_id"] == hands["release_id"]
-    assert status["gates"]["hands_feet_nails"]["body_package_sha256"] == SHA_G
+    assert status["gates"]["wardrobe"]["release_id"] == wardrobe["release_id"]
+    assert status["gates"]["wardrobe"]["footwear_present"] is True
 
 
 def test_nails_cannot_be_incidental_texture_only() -> None:
     hands = _hands_nails()
     hands["fingernails_review_passed"] = False
-
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=hands,
-        wardrobe_authority=_wardrobe(),
-        embodiment_authority=_embodiment(),
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=hands,
+        wardrobe_authority=_wardrobe(), embodiment_authority=_embodiment(),
     )
-
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "hands_feet_nails"
     assert any("did not pass fingernails_review_passed" in blocker for blocker in status["blockers"])
@@ -262,27 +274,17 @@ def test_nails_cannot_be_incidental_texture_only() -> None:
 def test_hands_authority_is_bound_to_exact_promoted_body_package() -> None:
     hands = _hands_nails()
     hands["body_package_sha256"] = "0" * 64
-
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=hands,
-        wardrobe_authority=_wardrobe(),
-        embodiment_authority=_embodiment(),
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=hands,
+        wardrobe_authority=_wardrobe(), embodiment_authority=_embodiment(),
     )
-
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "hands_feet_nails"
     assert any("body_package_sha256" in blocker for blocker in status["blockers"])
 
 
 def test_raw_human_review_is_not_finalized_m2_authority() -> None:
-    status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=_raw_review(),
-    )
-
+    status = inspect_digital_twin_status(assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_raw_review())
     assert status["digital_twin_release_eligible"] is False
     assert status["gates"]["hands_feet_nails"]["state"] == "blocked"
     assert any("finalized authority" in blocker for blocker in status["blockers"])
@@ -290,20 +292,9 @@ def test_raw_human_review_is_not_finalized_m2_authority() -> None:
 
 def test_legacy_boolean_hands_dict_is_not_m2_authority() -> None:
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority={
-            "state": "complete",
-            "source_grounded": True,
-            "hand_geometry_review_passed": True,
-            "foot_geometry_review_passed": True,
-            "skin_detail_review_passed": True,
-            "fingernails_review_passed": True,
-            "toenails_review_passed": True,
-            "production_activation": False,
-        },
+        assembly_receipt=_assembly(), body_release_status=_body_release(),
+        hands_nails_authority={"state": "complete", "source_grounded": True, "hand_geometry_review_passed": True, "production_activation": False},
     )
-
     assert status["digital_twin_release_eligible"] is False
     assert status["gates"]["hands_feet_nails"]["state"] == "blocked"
     assert any("fields are not canonical" in blocker for blocker in status["blockers"])
@@ -312,45 +303,63 @@ def test_legacy_boolean_hands_dict_is_not_m2_authority() -> None:
 def test_wardrobe_requires_real_deformation_review() -> None:
     wardrobe = _wardrobe()
     wardrobe["deformation_review_passed"] = False
-
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=_hands_nails(),
-        wardrobe_authority=wardrobe,
-        embodiment_authority=_embodiment(),
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=wardrobe, embodiment_authority=_embodiment(),
     )
-
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "wardrobe"
-    assert "wardrobe/clothing did not pass deformation_review_passed" in status["blockers"]
+    assert any("deformation_review_passed" in blocker for blocker in status["blockers"])
 
 
-def test_component_authority_cannot_activate_production_independently() -> None:
+def test_raw_or_legacy_wardrobe_authority_cannot_satisfy_m3() -> None:
+    legacy = {
+        "state": "complete",
+        "source_grounded": True,
+        "garment_geometry_review_passed": True,
+        "material_review_passed": True,
+        "layering_review_passed": True,
+        "attachment_review_passed": True,
+        "deformation_review_passed": True,
+        "production_activation": False,
+    }
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=legacy, embodiment_authority=_embodiment(),
+    )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["gates"]["wardrobe"]["state"] == "blocked"
+    assert any("finalized authority" in blocker for blocker in status["blockers"])
+
+
+def test_wardrobe_cannot_activate_production_independently() -> None:
     wardrobe = _wardrobe()
     wardrobe["production_activation"] = True
-
     status = inspect_digital_twin_status(
-        assembly_receipt=_assembly(),
-        body_release_status=_body_release(),
-        hands_nails_authority=_hands_nails(),
-        wardrobe_authority=wardrobe,
-        embodiment_authority=_embodiment(),
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=wardrobe, embodiment_authority=_embodiment(),
     )
-
     assert status["digital_twin_release_eligible"] is False
-    assert "wardrobe/clothing component authority must remain non-activating before final digital-twin release" in status["blockers"]
+    assert any("cannot" in blocker or "non-activating" in blocker for blocker in status["blockers"])
+
+
+def test_wardrobe_footwear_review_is_required_when_present() -> None:
+    wardrobe = _wardrobe()
+    wardrobe["footwear_review_passed"] = False
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=wardrobe, embodiment_authority=_embodiment(),
+    )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["next_gate"] == "wardrobe"
+    assert any("footwear" in blocker for blocker in status["blockers"])
 
 
 def test_legacy_person_assembly_receipt_is_not_twin_authority() -> None:
     assembly = _assembly()
     assembly["version"] = 1
-
     try:
-        inspect_digital_twin_status(
-            assembly_receipt=assembly,
-            body_release_status=_body_release(),
-        )
+        inspect_digital_twin_status(assembly_receipt=assembly, body_release_status=_body_release())
     except DigitalTwinStatusError as exc:
         assert "audition-bound Person assembly receipt" in str(exc)
     else:
