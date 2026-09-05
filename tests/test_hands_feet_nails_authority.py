@@ -37,14 +37,29 @@ def _assembly() -> dict:
             "body_id": BODY_ID,
             "package_sha256": "c" * 64,
         },
-        "voice": {},
-        "personality": {},
-        "audition": {},
+        "voice": {
+            "revision_id": "voice-r0001",
+            "voice_id": "voice-0123456789abcdef0123456789abcdef",
+            "voice_package": "voice-a.voice",
+            "package_sha256": "d" * 64,
+        },
+        "personality": {
+            "revision_id": "personality-r0001",
+            "instructions_sha256": "e" * 64,
+            "default_language": "da-DK",
+            "style_notes_sha256": "f" * 64,
+        },
+        "audition": {
+            "audition_id": "audition-0123456789abcdef0123456789abcdef",
+            "receipt_sha256": "1" * 64,
+        },
     }
 
 
 def _body_release(package_sha: str = PACKAGE_SHA) -> dict:
     return {
+        "format": "bodyrig-person-release-status",
+        "version": 1,
         "person_id": PERSON_ID,
         "body_revision": BODY_REVISION,
         "body_id": BODY_ID,
@@ -248,4 +263,42 @@ def test_review_rejects_generated_placeholder_note(tmp_path: Path, monkeypatch: 
             bodyrig_revision=BODYRIG_REVISION,
             checklist=_checklist(),
             quality_note="<your hand/foot review>",
+        )
+
+
+def test_review_rejects_incomplete_person_assembly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _setup_source(tmp_path, monkeypatch)
+    render = _render_manifest(tmp_path)
+    assembly = _assembly()
+    assembly["voice"] = {}
+
+    with pytest.raises(authority.HandsFeetNailsAuthorityError, match="VoiceRig identity"):
+        authority.write_authority(
+            tmp_path,
+            assembly_receipt=assembly,
+            body_release_status=_body_release(),
+            source_capture_id=source["capture_id"],
+            render_manifest_path=render,
+            bodyrig_revision=BODYRIG_REVISION,
+            checklist=_checklist(),
+            quality_note="Review passed.",
+        )
+
+
+def test_review_rejects_noncanonical_body_release_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _setup_source(tmp_path, monkeypatch)
+    render = _render_manifest(tmp_path)
+    release = _body_release()
+    release.pop("format")
+
+    with pytest.raises(authority.HandsFeetNailsAuthorityError, match="canonical Person body-release status"):
+        authority.write_authority(
+            tmp_path,
+            assembly_receipt=_assembly(),
+            body_release_status=release,
+            source_capture_id=source["capture_id"],
+            render_manifest_path=render,
+            bodyrig_revision=BODYRIG_REVISION,
+            checklist=_checklist(),
+            quality_note="Review passed.",
         )
