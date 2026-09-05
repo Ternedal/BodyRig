@@ -51,6 +51,7 @@ function Read-PackageJson([string]$PackagePath,[string]$EntryName,[string]$Label
 
 foreach ($value in @($RendererName, $RendererVersion, $QualityNote)) { if ([string]::IsNullOrWhiteSpace($value)) { throw "RendererName, RendererVersion and QualityNote must contain non-whitespace text." } }
 $RendererName = $RendererName.Trim(); $RendererVersion = $RendererVersion.Trim(); $QualityNote = $QualityNote.Trim()
+if ($QualityNote -match '^<[^>]+>$') { throw "QualityNote is still a generated placeholder. Replace it with the operator's actual physical review before attesting PASS." }
 if (-not $Pass) { throw "Renderer acceptance requires an explicit -Pass attestation." }
 if (-not $ConfirmQualityChecklist) { throw "Renderer acceptance requires explicit -ConfirmQualityChecklist after the complete physical review." }
 
