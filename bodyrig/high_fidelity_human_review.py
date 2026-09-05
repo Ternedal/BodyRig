@@ -36,6 +36,7 @@ TOP_FIELDS = {
     "production_activation",
 }
 _PLACEHOLDER_NOTE = re.compile(r"^<[^>]+>$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class HighFidelityHumanReviewError(RuntimeError):
@@ -116,6 +117,20 @@ def review_path(package_path: str | Path, *, package_sha256: str | None = None) 
     package = Path(package_path).expanduser().resolve()
     sha = str(package_sha256 or "").strip().lower() or _sha256_file(package)
     return package.with_name(f"{package.stem}.{sha}.high-fidelity-human-review.json")
+
+
+def invalid_review_archive_path(
+    package_path: str | Path,
+    *,
+    receipt_sha256: str,
+    package_sha256: str | None = None,
+) -> Path:
+    package = Path(package_path).expanduser().resolve()
+    receipt_sha = str(receipt_sha256 or "").strip().lower()
+    if not _SHA256.fullmatch(receipt_sha):
+        raise HighFidelityHumanReviewError("invalid human-review receipt SHA is not canonical")
+    canonical = review_path(package, package_sha256=package_sha256)
+    return canonical.with_name(f"{canonical.stem}.invalid-{receipt_sha}.json")
 
 
 def write_review(
@@ -204,6 +219,88 @@ def read_review(package_path: str | Path) -> dict[str, Any]:
     if value.get("production_activation") is not False:
         raise HighFidelityHumanReviewError("high-fidelity human review must remain independently non-activating")
     return value
+
+
+def invalid_review_recovery_status(package_path: str | Path) -> dict[str, Any]:
+    package = Path(package_path).expanduser().resolve()
+    if not package.is_file():
+        return {"available": False, "reason": f"Body package is missing: {package}"}
+    audit = _strict_ready_audit(package)
+    package_sha = _sha256_file(package)
+    if str(audit.get("package_sha256") or "").strip().lower() != package_sha:
+        raise HighFidelityHumanReviewError("high-fidelity audit package SHA no longer matches package bytes")
+    path = review_path(package, package_sha256=package_sha)
+    if not path.is_file():
+        return {"available": False, "reason": "No current high-fidelity human-review receipt exists."}
+    try:
+        read_review(package)
+    except HighFidelityHumanReviewError as exc:
+        raw = path.read_bytes()
+        receipt_sha = _sha256_bytes(raw)
+        archive = invalid_review_archive_path(
+            package,
+            receipt_sha256=receipt_sha,
+            package_sha256=package_sha,
+        )
+        return {
+            "available": True,
+            "reason": str(exc),
+            "package_sha256": package_sha,
+            "review_path": str(path),
+            "receipt_sha256": receipt_sha,
+            "archive_path": str(archive),
+        }
+    return {"available": False, "reason": "Current high-fidelity human-review receipt is valid."}
+
+
+def archive_invalid_review(package_path: str | Path) -> dict[str, Any]:
+    package = Path(package_path).expanduser().resolve()
+    status = invalid_review_recovery_status(package)
+    if status.get("available") is not True:
+        raise HighFidelityHumanReviewError(
+            f"refusing human-review recovery: {status.get('reason') or 'no invalid receipt is recoverable'}"
+        )
+    source = Path(str(status["review_path"])).resolve()
+    archive = Path(str(status["archive_path"])).resolve()
+    expected_receipt_sha = str(status["receipt_sha256"])
+    raw = source.read_bytes()
+    if _sha256_bytes(raw) != expected_receipt_sha:
+        raise HighFidelityHumanReviewError("human-review receipt changed before recovery archive could be created")
+
+    created_archive = False
+    if archive.exists():
+        if not archive.is_file() or _sha256_file(archive) != expected_receipt_sha:
+            raise HighFidelityHumanReviewError(f"human-review recovery archive path already exists with different bytes: {archive}")
+    else:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with archive.open("xb") as handle:
+                handle.write(raw)
+        except FileExistsError as exc:
+            raise HighFidelityHumanReviewError(f"human-review recovery archive appeared concurrently: {archive}") from exc
+        created_archive = True
+
+    try:
+        if _sha256_file(source) != expected_receipt_sha:
+            raise HighFidelityHumanReviewError("human-review receipt changed while recovery archive was being committed")
+        source.unlink()
+    except Exception:
+        if created_archive:
+            try:
+                archive.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
+    return {
+        "ok": True,
+        "package_sha256": status["package_sha256"],
+        "receipt_sha256": expected_receipt_sha,
+        "archived_review_path": str(archive),
+        "canonical_review_path": str(source),
+        "invalid_reason": status["reason"],
+        "production_activation": False,
+    }
 
 
 def review_status(package_path: str | Path) -> dict[str, Any]:
