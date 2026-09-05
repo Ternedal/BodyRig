@@ -6,8 +6,14 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .high_fidelity_anatomy_promotion import promotion_status as anatomy_promotion_status
-from .high_fidelity_component_review import review_status as component_review_status
+from .high_fidelity_anatomy_promotion import (
+    HighFidelityAnatomyPromotionError,
+    promotion_status as anatomy_promotion_status,
+)
+from .high_fidelity_component_review import (
+    HighFidelityComponentReviewError,
+    review_status as component_review_status,
+)
 from .high_fidelity_eye_promotion import HighFidelityEyePromotionError, read_promotion as read_eye_promotion
 from .high_fidelity_eye_runtime_fingerprint import HighFidelityEyeRuntimeFingerprintError, read_fingerprint
 from .high_fidelity_eye_runtime_rebuild import HighFidelityEyeRuntimeRebuildError, read_rebuild
@@ -25,7 +31,10 @@ from .high_fidelity_face_secondary_review import (
     read_review as read_face_review,
 )
 from .high_fidelity_face_secondary_runtime import HighFidelityFaceSecondaryRuntimeError, read_runtime as read_face_runtime
-from .high_fidelity_hair_deformation_review import review_status as hair_deformation_review_status
+from .high_fidelity_hair_deformation_review import (
+    HighFidelityHairDeformationReviewError,
+    review_status as hair_deformation_review_status,
+)
 from .high_fidelity_hair_promotion import (
     HighFidelityHairPromotionError,
     promotion_status as hair_promotion_status,
@@ -148,7 +157,8 @@ def _gate(name: str, state: str, *, reason: str = "", evidence: dict[str, Any] |
 
 
 def _quote(value: Any) -> str:
-    return '"' + str(value).replace('"', '`"') + '"'
+    # PowerShell double quotes expand $variables, $() and backticks in local paths.
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 def _next_action(
@@ -162,11 +172,11 @@ def _next_action(
     if gate == "preview":
         return {**common, "command": None, "operator_input_required": True, "reason": "Start the high-fidelity preview from Person Studio after selecting the exact body build and target family."}
     if gate == "component_review":
-        return {**common, "command": f'.\\record-high-fidelity-component-review.ps1 -PreviewJobId {_quote(job_id)} <EXPLICIT_REVIEW_FLAGS>', "operator_input_required": True}
+        return {**common, "command": f'.\\record-high-fidelity-component-review.ps1 -PreviewJobId {_quote(job_id)} -ConfirmVisualChecklist -QualityNote <QUALITY_NOTE>', "operator_input_required": True, "reason": "Review all six views before confirming the visual checklist; replace <QUALITY_NOTE> with your quoted assessment."}
     if gate == "anatomy_promotion":
         return {**common, "command": f'.\\promote-high-fidelity-anatomy.ps1 -PreviewJobId {_quote(job_id)}'}
     if gate == "hair_deformation_review":
-        return {**common, "command": f'.\\record-high-fidelity-hair-deformation-review.ps1 -PreviewJobId {_quote(job_id)} <EXPLICIT_PHYSICAL_REVIEW_FLAGS>', "operator_input_required": True}
+        return {**common, "command": f'.\\record-high-fidelity-hair-deformation-review.ps1 -PreviewJobId {_quote(job_id)} -ConfirmHairDeformationChecklist -QualityNote <QUALITY_NOTE>', "operator_input_required": True, "reason": "Review the physical hair deformation sequence before confirming the checklist; replace <QUALITY_NOTE> with your quoted assessment."}
     if gate == "hair_promotion":
         return {**common, "command": f'.\\promote-high-fidelity-hair.ps1 -PreviewJobId {_quote(job_id)}'}
     if gate == "iris_candidate":
@@ -277,6 +287,8 @@ def _candidate_workspace(paths: Mapping[str, Path]) -> Path:
         value = json.loads(receipt.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HighFidelityContinuationStatusError("validated component-discovery receipt is unavailable for operator continuation") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("candidate_workspace"), str) or not value["candidate_workspace"].strip():
+        raise HighFidelityContinuationStatusError("component-discovery receipt has no candidate workspace")
     candidate = Path(str(value.get("candidate_workspace") or "")).expanduser().resolve()
     root = paths["preview_root"].resolve()
     try:
@@ -290,14 +302,17 @@ def _candidate_workspace(paths: Mapping[str, Path]) -> Path:
 
 def _simple_state(value: Mapping[str, Any]) -> str:
     raw = str(value.get("state") or "blocked")
-    if value.get("passed") is True or raw == "pass":
+    if value.get("passed") is True and raw == "pass":
         return "pass"
+    if value.get("passed") is True or raw == "pass":
+        return "invalid"
     return raw if raw in {"required", "blocked", "invalid"} else "blocked"
 
 
 def _missing_or_invalid(exc: Exception, path: Path | None = None) -> str:
-    if path is not None and not path.exists():
-        return "required"
+    if path is not None:
+        # Existing output with missing nested evidence is corrupt, not a new step.
+        return "invalid" if path.exists() else "required"
     return "required" if "missing" in str(exc).lower() or "has not been" in str(exc).lower() else "invalid"
 
 
@@ -337,7 +352,12 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         ("hair_promotion", hair_promotion_status),
     )
     for name, fn in simple:
-        value = fn(job_id)
+        try:
+            value = fn(job_id)
+        except (OSError, HighFidelityComponentReviewError, HighFidelityAnatomyPromotionError,
+                HighFidelityHairDeformationReviewError, HighFidelityHairPromotionError) as exc:
+            gates.append(_gate(name, "invalid", reason=str(exc)))
+            return _result(job_id, gates, paths, current_package, current_sha, components, context)
         state = _simple_state(value)
         gates.append(_gate(name, state, reason=str(value.get("reason") or ""), evidence={k: v for k, v in value.items() if k != "reason"}))
         if state != "pass":
@@ -535,16 +555,24 @@ def _result(
     next_gate = next((name for name in GATE_ORDER if name not in passed), None)
     high_fidelity_complete = False
     audit: dict[str, Any] | None = None
-    if next_gate is None and package_path is not None and package_path.is_file():
+    if next_gate is None:
         try:
+            if package_path is None or not package_path.is_file():
+                raise HighFidelityPackageAuditError("final promoted package is missing")
+            if not SHA_RE.fullmatch(str(package_sha or "")) or _sha256(package_path) != package_sha:
+                raise HighFidelityPackageAuditError("final package bytes no longer match promotion SHA")
             audit = audit_high_fidelity_package(package_path)
-        except HighFidelityPackageAuditError as exc:
+            if audit.get("package_sha256") != package_sha or _sha256(package_path) != package_sha:
+                raise HighFidelityPackageAuditError("final package changed during its component audit")
+        except (OSError, HighFidelityPackageAuditError) as exc:
+            audit = None
+            components = {}
             gates[-1] = _gate("face_secondary_promotion", "invalid", reason=f"final package audit failed: {exc}")
             next_gate = "face_secondary_promotion"
         else:
             components = dict(audit["components"])
             high_fidelity_complete = bool(
-                audit["high_fidelity_ready"]
+                audit["high_fidelity_ready"] is True
                 and components
                 and all(value == "complete" for value in components.values())
             )
@@ -554,13 +582,17 @@ def _result(
     state = "complete" if high_fidelity_complete else (
         "blocked" if gates and gates[-1]["state"] in {"blocked", "invalid"} else "incomplete"
     )
+    action = _next_action(job_id, next_gate, paths, context) if next_gate else None
+    if action is not None and state == "blocked":
+        # Create-only operators cannot repair corrupt evidence by being rerun.
+        action = {**action, "command": None, "reason": gates[-1]["reason"]}
     return {
         "format": FORMAT,
         "version": VERSION,
         "preview_job_id": job_id,
         "state": state,
         "gates": gates,
-        "next_gate": None if high_fidelity_complete else (_next_action(job_id, next_gate, paths, context) if next_gate else None),
+        "next_gate": None if high_fidelity_complete else action,
         "current_package_path": str(package_path) if package_path is not None else None,
         "current_package_sha256": package_sha,
         "components": components,

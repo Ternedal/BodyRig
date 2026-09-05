@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -33,11 +35,32 @@ def _final_review_gate(state: str, *, reason: str = "", evidence: dict[str, Any]
 
 
 def _review_command(package_path: Path) -> str:
-    quoted = '"' + str(package_path).replace('"', '`"') + '"'
+    quoted = "'" + str(package_path).replace("'", "''") + "'"
     return (
         ".\\record-high-fidelity-human-review.ps1 "
         f"-PackagePath {quoted} -ConfirmQualityChecklist -QualityNote <QUALITY_NOTE>"
     )
+
+
+def _require_package_bytes(package: Path, expected_sha: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
+        raise HighFidelityReleaseReadinessError("promoted package SHA is missing or not canonical")
+    with package.open("rb") as handle:
+        actual_sha = hashlib.file_digest(handle, "sha256").hexdigest()
+    if actual_sha != expected_sha:
+        raise HighFidelityReleaseReadinessError("promoted package bytes no longer match continuation SHA")
+
+
+def _blocked(result: dict[str, Any], reason: str, *, package_invalid: bool = False) -> dict[str, Any]:
+    result["state"] = "blocked"
+    result["gates"] = [*list(result.get("gates") or []), _final_review_gate("invalid", reason=reason)]
+    result["next_gate"] = None
+    if package_invalid:
+        result["component_package_complete"] = False
+        result["high_fidelity_complete"] = False
+        result["components"] = {}
+        result["final_audit"] = None
+    return result
 
 
 def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
@@ -60,33 +83,22 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
 
     package_value = str(base.get("current_package_path") or "").strip()
     if not package_value:
-        result["state"] = "blocked"
-        result["gates"] = [
-            *list(base.get("gates") or []),
-            _final_review_gate("invalid", reason="component-complete continuation has no exact promoted package path"),
-        ]
-        result["next_gate"] = None
-        return result
+        return _blocked(result, "component-complete continuation has no exact promoted package path", package_invalid=True)
     package = Path(package_value).expanduser().resolve()
-    if not package.is_file():
-        result["state"] = "blocked"
-        result["gates"] = [
-            *list(base.get("gates") or []),
-            _final_review_gate("invalid", reason=f"component-complete promoted package is missing: {package}"),
-        ]
-        result["next_gate"] = None
-        return result
+    expected_sha = str(base.get("current_package_sha256") or "")
+    try:
+        _require_package_bytes(package, expected_sha)
+    except (OSError, HighFidelityReleaseReadinessError) as exc:
+        return _blocked(result, str(exc), package_invalid=True)
 
     try:
         review = high_fidelity_human_review_status(package)
-    except HighFidelityHumanReviewError as exc:
-        result["state"] = "blocked"
-        result["gates"] = [
-            *list(base.get("gates") or []),
-            _final_review_gate("invalid", reason=str(exc)),
-        ]
-        result["next_gate"] = None
-        return result
+    except (OSError, HighFidelityHumanReviewError) as exc:
+        return _blocked(result, str(exc))
+    try:
+        _require_package_bytes(package, expected_sha)
+    except (OSError, HighFidelityReleaseReadinessError) as exc:
+        return _blocked(result, str(exc), package_invalid=True)
 
     review_state = str(review.get("state") or "blocked")
     if review_state == "pass" and review.get("passed") is True:
@@ -95,12 +107,14 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
             _final_review_gate(
                 "pass",
                 evidence={
+                    "package_sha256": expected_sha,
                     "reviewed_utc": review.get("reviewed_utc"),
                     "policy_revision": review.get("policy_revision"),
                 },
             ),
         ]
         result["high_fidelity_human_review_complete"] = True
+        result["high_fidelity_human_review_required"] = False
         result["software_ready_for_physical_acceptance"] = True
         result["state"] = "software-ready-for-physical-acceptance"
         result["next_gate"] = {

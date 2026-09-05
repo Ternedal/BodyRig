@@ -94,8 +94,14 @@
     const packageComplete = status.component_package_complete === true || status.high_fidelity_complete === true;
     const humanReviewComplete = status.high_fidelity_human_review_complete === true;
     const softwareReady = status.software_ready_for_physical_acceptance === true;
+    const blocked = status.state === "blocked";
 
-    if (softwareReady) {
+    if (blocked) {
+      n.badge.textContent = "Blokeret";
+      n.badge.classList.add("muted");
+      const failure = (status.gates || []).find((gate) => gate.state === "invalid" || gate.state === "blocked");
+      n.summary.textContent = failure?.reason || "Det gemte testmateriale kunne ikke valideres.";
+    } else if (softwareReady) {
       n.badge.textContent = "SOFTWARE READY";
       n.badge.classList.remove("muted");
       n.summary.textContent = "High-fidelity package + package-bound human review er komplette. Næste authority er real Windows acceptance.";
@@ -120,16 +126,26 @@
       const row = document.createElement("div");
       row.className = "revision-item";
       const reason = String(gate.reason || "").trim();
-      row.innerHTML = `
-        <div class="revision-top">
-          <div><div class="revision-id">${gate.label || gate.id}</div><div class="revision-meta">${reason || gate.id}</div></div>
-          <span class="badge${gate.state === "pass" ? "" : " muted"}">${stateLabel(gate.state)}</span>
-        </div>`;
+      const top = document.createElement("div");
+      top.className = "revision-top";
+      const details = document.createElement("div");
+      const label = document.createElement("div");
+      label.className = "revision-id";
+      label.textContent = gate.label || gate.id;
+      const description = document.createElement("div");
+      description.className = "revision-meta";
+      description.textContent = reason || gate.id;
+      const badge = document.createElement("span");
+      badge.className = `badge${gate.state === "pass" ? "" : " muted"}`;
+      badge.textContent = stateLabel(gate.state);
+      details.append(label, description);
+      top.append(details, badge);
+      row.appendChild(top);
       n.gates.appendChild(row);
     }
 
     n.next.replaceChildren();
-    if (status.next_gate) {
+    if (status.next_gate && !blocked) {
       const title = document.createElement("div");
       title.className = "card-label";
       title.textContent = `Næste gate · ${status.next_gate.gate}`;
@@ -164,7 +180,9 @@
       n.next.appendChild(note);
     }
 
-    if (softwareReady) {
+    if (blocked) {
+      n.production.textContent = "Forløbet er blokeret, indtil det gemte testmateriale kan valideres. Produktionsaktivering er fortsat låst.";
+    } else if (softwareReady) {
       n.production.textContent = "SOFTWARE READY FOR PHYSICAL ACCEPTANCE · PRODUCTION LOCKED. Package-bound human review er PASS; real Windows acceptance, Quest acceptance og final release gate mangler stadig. production_ready=false.";
     } else if (packageComplete && !humanReviewComplete) {
       n.production.textContent = "HIGH-FIDELITY PACKAGE COMPLETE · HUMAN REVIEW REQUIRED · PRODUCTION LOCKED. Component completion alene er ikke fysisk acceptance. production_ready=false.";
@@ -182,6 +200,7 @@
       timer = setTimeout(() => void refresh(true), 5000);
       return;
     }
+    const selectionChanged = key !== lastKey;
     lastKey = key;
     const current = ++serial;
 
@@ -191,6 +210,8 @@
       return;
     }
 
+    if (selectionChanged) reset("Henter status for den valgte body-revision.", "Indlæser");
+    let nextPollMs = 5000;
     try {
       const preview = await apiJson(`/api/v1/people/${encodeURIComponent(person)}/body/high-fidelity-preview?revision=${encodeURIComponent(revision)}`);
       if (current !== serial || personId() !== person || bodyRevision() !== revision) return;
@@ -200,18 +221,20 @@
       }
       if (!FINAL_PREVIEW.has(preview.status)) {
         reset(`${preview.job_id} · ${preview.stage || preview.status || "kører"}`, "Preview kører");
-        timer = setTimeout(() => void refresh(true), 2000);
+        nextPollMs = 2000;
         return;
       }
       const status = await apiJson(`/api/v1/high-fidelity-preview-jobs/${encodeURIComponent(preview.job_id)}/continuation-status`);
       if (current !== serial || personId() !== person || bodyRevision() !== revision) return;
       render(status);
-      timer = setTimeout(() => void refresh(true), 5000);
     } catch (error) {
       if (current !== serial) return;
       if (error.status === 404) reset("Ingen high-fidelity continuation endnu.", "Ikke startet");
       else reset(`Continuation-status kunne ikke valideres: ${error.message}`, "Statusfejl");
-      timer = setTimeout(() => void refresh(true), 5000);
+    } finally {
+      // Also poll when no preview job exists yet; it can be created in another card.
+      // A superseded request must never replace the current selection's timer.
+      if (current === serial) timer = setTimeout(() => void refresh(true), nextPollMs);
     }
   }
 
