@@ -69,3 +69,24 @@ def test_reference_attestation_rejects_generated_quality_note_placeholder_before
     assert "QualityNote is still a generated placeholder" in source
     assert "actual physical review" in source
     assert guard < core_write
+
+
+def test_core_attestation_rejects_generated_quality_note_placeholder_before_evidence_write() -> None:
+    source = (REPO / "record-renderer-acceptance.ps1").read_text(encoding="utf-8")
+
+    guard = source.index("$QualityNote -match '^<[^>]+>$'")
+    evidence_write = source.index("$attestation = [ordered]@{")
+
+    assert "QualityNote is still a generated placeholder" in source
+    assert "actual physical review" in source
+    assert guard < evidence_write
+
+
+def test_final_release_rejects_placeholder_quality_note_before_activation_write() -> None:
+    source = (REPO / "complete-acceptance.ps1").read_text(encoding="utf-8")
+
+    guard = source.index("$qualityNote-match'^<[^>]+>$'")
+    activation = source.index("production_activation=$true")
+
+    assert "renderer quality note is still a generated placeholder" in source
+    assert guard < activation
