@@ -14,7 +14,10 @@ from .high_fidelity_human_review import (
     invalid_review_recovery_status,
     review_status as high_fidelity_human_review_status,
 )
-from .high_fidelity_physical_acceptance import HighFidelityPhysicalAcceptanceError
+from .high_fidelity_physical_acceptance import (
+    HighFidelityPhysicalAcceptanceError,
+    physical_acceptance_dir,
+)
 from .high_fidelity_physical_acceptance_audit import audited_physical_acceptance_status
 
 # Preserve the established integration seam for tests/callers while routing the
@@ -280,6 +283,59 @@ def _apply_physical_status(
     return result
 
 
+def _frozen_gate_a_review_status(
+    result: dict[str, Any],
+    *,
+    base: dict[str, Any],
+    preview_job_id: str,
+    package: Path,
+    expected_sha: str,
+) -> dict[str, Any] | None:
+    try:
+        acceptance = physical_acceptance_dir(preview_job_id)
+    except HighFidelityPhysicalAcceptanceError as exc:
+        return _blocked(result, str(exc))
+    if not acceptance.is_dir():
+        return None
+
+    try:
+        _require_package_bytes(package, expected_sha)
+    except (OSError, HighFidelityReleaseReadinessError) as exc:
+        return _blocked(result, str(exc), package_invalid=True)
+
+    result["gates"] = [
+        *list(base.get("gates") or []),
+        _final_review_gate(
+            "pass",
+            reason="Package-bound human review is frozen and revalidated through fresh Gate A authority.",
+            evidence={
+                "package_sha256": expected_sha,
+                "frozen_by_gate_a": True,
+                "acceptance_dir": str(acceptance),
+            },
+        ),
+    ]
+    result["high_fidelity_human_review_complete"] = True
+    result["high_fidelity_human_review_required"] = False
+    result["software_ready_for_physical_acceptance"] = True
+    try:
+        physical = physical_acceptance_status(
+            preview_job_id,
+            package_path=package,
+            package_sha256=expected_sha,
+        )
+    except (OSError, HighFidelityPhysicalAcceptanceError) as exc:
+        physical = {
+            "state": "invalid",
+            "gate": "physical-gate-a",
+            "message": str(exc),
+            "next_command": None,
+            "acceptance_dir": str(acceptance),
+            "production_activation": False,
+        }
+    return _apply_physical_status(result, physical=physical)
+
+
 def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
     try:
         base = inspect_continuation(preview_job_id)
@@ -308,14 +364,42 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
     except (OSError, HighFidelityReleaseReadinessError) as exc:
         return _blocked(result, str(exc), package_invalid=True)
 
+    frozen = _frozen_gate_a_review_status(
+        result,
+        base=base,
+        preview_job_id=preview_job_id,
+        package=package,
+        expected_sha=expected_sha,
+    )
+    if frozen is not None:
+        return frozen
+
     try:
         review = high_fidelity_human_review_status(package)
     except (OSError, HighFidelityHumanReviewError) as exc:
+        frozen = _frozen_gate_a_review_status(
+            result,
+            base=base,
+            preview_job_id=preview_job_id,
+            package=package,
+            expected_sha=expected_sha,
+        )
+        if frozen is not None:
+            return frozen
         try:
             recovery = invalid_review_recovery_status(package)
         except (OSError, HighFidelityHumanReviewError) as recovery_exc:
             return _blocked(result, f"{exc}; human-review recovery inspection failed: {recovery_exc}")
         if recovery.get("available") is True:
+            frozen = _frozen_gate_a_review_status(
+                result,
+                base=base,
+                preview_job_id=preview_job_id,
+                package=package,
+                expected_sha=expected_sha,
+            )
+            if frozen is not None:
+                return frozen
             try:
                 _require_package_bytes(package, expected_sha)
             except (OSError, HighFidelityReleaseReadinessError) as package_exc:
@@ -367,6 +451,15 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
         return _apply_physical_status(result, physical=physical)
 
     if review_state == "required":
+        frozen = _frozen_gate_a_review_status(
+            result,
+            base=base,
+            preview_job_id=preview_job_id,
+            package=package,
+            expected_sha=expected_sha,
+        )
+        if frozen is not None:
+            return frozen
         result["gates"] = [
             *list(base.get("gates") or []),
             _final_review_gate(
