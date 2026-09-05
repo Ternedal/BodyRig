@@ -4,6 +4,8 @@ Updated: 2026-09-05.
 
 This is the operator path from a persisted high-fidelity continuation to canonical production release. It deliberately does **not** manufacture human or hardware evidence. Run exactly one gate at a time and re-read status after every gate.
 
+For a **new** physical acceptance session, canonical software authority is the exact clean current `main` revision. PR #54 and PR #83 are merged historical integration lineage; their feature branches are not operator checkout authority anymore. Historical physical evidence remains bound to the exact revision recorded in that evidence.
+
 ## 0. Synchronize and preflight the operator checkout
 
 Do this **before** a fresh promoted-package Gate A exists:
@@ -12,14 +14,14 @@ Do this **before** a fresh promoted-package Gate A exists:
 cd <YOUR-BODYRIG-CHECKOUT>
 git status --short
 git fetch origin
-git switch agent/high-fidelity-integration-20260904
-git pull --ff-only origin agent/high-fidelity-integration-20260904
+git switch main
+git pull --ff-only origin main
 git status --short
 git rev-parse HEAD
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 ```
 
-Both `git status --short` calls must be empty. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
+Both `git status --short` calls must be empty. The revision printed by `git rev-parse HEAD` is the software revision that a new Gate A may bind if the later status/preparation checks still accept it. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
 
 Preflight also requires the complete human-review/recovery and canonical reference-wrapper chain to be present:
 
