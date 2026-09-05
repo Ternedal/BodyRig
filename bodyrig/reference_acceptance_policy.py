@@ -125,29 +125,18 @@ def _reference_mismatch(acceptance_dir: Path, contract: dict[str, Any]) -> str |
     return None
 
 
-def apply_reference_policy(status: AcceptanceStatus) -> AcceptanceStatus:
-    """Apply the canonical BodyRig V1 reference-renderer policy to generic status.
+def reference_policy_violation(acceptance_dir: Path) -> tuple[str, str] | None:
+    """Return a canonical reference-policy violation for an acceptance directory.
 
-    The generic status reader intentionally remains able to inspect legacy root-file
-    renderer evidence. The canonical reference-renderer path, however, only releases
-    dedicated transactional ``windows-evidence/`` and ``quest-evidence/`` bundles.
-    It also requires every physical evidence layer to match the single renderer
-    contract and every human PASS attestation to carry the complete structured
-    ``bodyrig-human-quality-v1`` review before more physical work or release is proposed.
-
-    Already-complete historical release artifacts remain readable; this policy does
-    not retroactively rewrite or invalidate an existing activating release artifact.
+    Unlike :func:`apply_reference_policy`, this helper has no historical-complete
+    compatibility exemption. Fresh higher-level acceptance flows can therefore use it
+    to revalidate reference evidence even after an activating release exists.
     """
 
-    if not status.acceptance_dir or status.state == "complete":
-        return status
-
-    acceptance_dir = Path(status.acceptance_dir)
     present = tuple(name for name in LEGACY_RENDERER_EVIDENCE if (acceptance_dir / name).is_file())
     if present:
         files = ", ".join(present)
-        return _blocked(
-            status,
+        return (
             "reference-layout",
             "Legacy root renderer evidence is readable but cannot continue through the canonical "
             "BodyRig V1 reference-renderer release policy. Start a fresh Gate A acceptance bundle "
@@ -161,21 +150,45 @@ def apply_reference_policy(status: AcceptanceStatus) -> AcceptanceStatus:
         for prefix in ("windows", "quest")
     )
     if not has_reference_evidence:
-        return status
+        return None
 
     contract = _load_contract()
     if contract is None:
-        return _blocked(
-            status,
+        return (
             "reference-contract",
             f"Canonical reference renderer contract is unavailable or invalid: {CONTRACT_PATH}",
         )
 
     mismatch = _reference_mismatch(acceptance_dir, contract)
     if mismatch:
-        return _blocked(
-            status,
+        return (
             "reference-contract",
             f"Reference renderer evidence is not canonical: {mismatch} Re-run the affected physical renderer gate from the exact accepted BodyRig revision.",
         )
-    return status
+    return None
+
+
+def apply_reference_policy(status: AcceptanceStatus) -> AcceptanceStatus:
+    """Apply the canonical BodyRig V1 reference-renderer policy to generic status.
+
+    The generic status reader intentionally remains able to inspect legacy root-file
+    renderer evidence. The canonical reference-renderer path, however, only releases
+    dedicated transactional ``windows-evidence/`` and ``quest-evidence/`` bundles.
+    It also requires every physical evidence layer to match the single renderer
+    contract and every human PASS attestation to carry the complete structured
+    ``bodyrig-human-quality-v1`` review before more physical work or release is proposed.
+
+    Already-complete historical release artifacts remain readable; this policy does
+    not retroactively rewrite or invalidate an existing activating release artifact.
+    Fresh stricter flows may call :func:`reference_policy_violation` directly when
+    they must keep revalidating policy after release.
+    """
+
+    if not status.acceptance_dir or status.state == "complete":
+        return status
+
+    violation = reference_policy_violation(Path(status.acceptance_dir))
+    if violation is None:
+        return status
+    gate, message = violation
+    return _blocked(status, gate, message)
