@@ -10,6 +10,7 @@ from .high_fidelity_physical_acceptance import (
     VERSION,
     RECEIPT_NAME,
     HighFidelityPhysicalAcceptanceError,
+    _assert_release_compatible_gate_report,
     _hash,
     _json,
     _sha,
@@ -19,6 +20,7 @@ from .high_fidelity_physical_acceptance import (
     physical_acceptance_status,
     read_human_review,
 )
+from .high_fidelity_release_gate import HighFidelityReleaseGateError, validate_promoted_release_lineage
 
 
 class HighFidelityPhysicalAcceptanceAuditError(RuntimeError):
@@ -63,7 +65,8 @@ def audited_physical_acceptance_status(
 
     The existing physical acceptance state machine remains the sole Windows/Quest/release
     authority. This layer only fails closed if the high-fidelity handoff receipt, fresh
-    Gate A extensions, fresh QA/runtime evidence, or source-lineage bindings drift.
+    Gate A extensions, fresh QA/runtime evidence, release invariants, or source-lineage
+    bindings drift.
     """
 
     try:
@@ -88,6 +91,7 @@ def audited_physical_acceptance_status(
             raise HighFidelityPhysicalAcceptanceAuditError("physical handoff receipt format/version is non-canonical")
         _need_equal(receipt.get("previewJobId"), preview_job_id, "receipt preview job")
         _need_equal(receipt.get("promotedPackageSha256"), expected_package, "receipt promoted package SHA")
+        _need_equal(receipt.get("releaseLineageReproved"), True, "receipt release-lineage proof")
         _need_equal(receipt.get("physicalAcceptanceAuthority"), False, "receipt physical authority flag")
         _need_equal(receipt.get("productionActivation"), False, "receipt production activation flag")
 
@@ -140,6 +144,7 @@ def audited_physical_acceptance_status(
         _need_equal(gate.body_id, body_id, "Gate A body id")
         _need_equal(gate.revision, receipt.get("bodyrigRevision"), "Gate A BodyRig revision")
         _need_equal(gate.runtime_hash, runtime_sha, "Gate A runtime hash")
+        _assert_release_compatible_gate_report(gate_report)
 
         physical = gate_report.get("physical_clone")
         skin = gate_report.get("skin_qa")
@@ -160,6 +165,7 @@ def audited_physical_acceptance_status(
         _need_equal(extension.get("human_review_sha256"), review_sha, "Gate A human-review hash")
         _need_equal(extension.get("preview_job_id"), preview_job_id, "Gate A preview job")
         _need_equal(extension.get("body_job_id"), body_job_id, "Gate A body job")
+        _need_equal(extension.get("release_lineage_reproved"), True, "Gate A release-lineage proof")
 
         preview, body_job, source_dir, source_gate, source_report = _source_gate(preview_job_id)
         _need_equal(str(body_job.get("job_id") or ""), body_job_id, "source body job")
@@ -176,12 +182,30 @@ def audited_physical_acceptance_status(
         _need_equal(source_physical.get("readiness_sha256"), readiness_sha, "source Gate A readiness hash")
         _need_file_hash(source_dir / "bodyrig-physical-clone-session.json", session_sha, "source physical session")
         _need_file_hash(source_dir / "bodyrig-rig-readiness.json", readiness_sha, "source physical readiness")
+
+        release_lineage = validate_promoted_release_lineage(
+            accepted,
+            source_dir=source_dir,
+            source_gate=source_gate,
+            source_report=source_report,
+        )
+        _need_equal(receipt.get("sourceBodyprintSha256"), release_lineage["source_bodyprint_sha256"], "receipt source BodyPrint")
+        _need_equal(receipt.get("promotedBodyprintSha256"), release_lineage["bodyprint_sha256"], "receipt promoted BodyPrint")
+        _need_equal(gate_report.get("source_count"), release_lineage["source_count"], "Gate A source count")
+        _need_equal(gate_report.get("recovery"), release_lineage["recovery"], "Gate A recovery authority")
+        package_section = gate_report.get("package")
+        if not isinstance(package_section, dict):
+            raise HighFidelityPhysicalAcceptanceAuditError("Gate A package release section is missing")
+        _need_equal(package_section.get("vrm_spec_version"), release_lineage["vrm_spec_version"], "Gate A VRM release version")
+        _need_equal(extension.get("source_bodyprint_sha256"), release_lineage["source_bodyprint_sha256"], "Gate A source BodyPrint")
+        _need_equal(extension.get("promoted_bodyprint_sha256"), release_lineage["bodyprint_sha256"], "Gate A promoted BodyPrint")
     except (
         OSError,
         AcceptanceStatusError,
         HighFidelityHumanReviewError,
         HighFidelityPhysicalAcceptanceError,
         HighFidelityPhysicalAcceptanceAuditError,
+        HighFidelityReleaseGateError,
         ValueError,
     ) as exc:
         return _invalid(base, str(exc))
