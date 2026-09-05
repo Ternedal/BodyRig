@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import bodyrig.high_fidelity_release_readiness_cli as cli
@@ -14,6 +15,7 @@ def _root(tmp_path: Path) -> Path:
     root.mkdir()
     (root / ".git").mkdir()
     (root / "run-windows-renderer-probe.ps1").write_text("exit 0\n", encoding="utf-8")
+    (root / "record-renderer-acceptance.ps1").write_text("exit 0\n", encoding="utf-8")
     return root
 
 
@@ -55,6 +57,34 @@ def test_clean_matching_checkout_authorizes_and_absolutizes_next_command(monkeyp
     assert command.startswith('& "')
     assert str((root / "run-windows-renderer-probe.ps1").resolve()) in command
     assert '-AcceptanceDir "C:\\hf"' in command
+
+
+def test_attestation_command_gets_required_checklist_and_exact_renderer_identity(monkeypatch, tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    acceptance = tmp_path / "physical"
+    probe = acceptance / "windows-evidence" / "windows-probe.json"
+    probe.parent.mkdir(parents=True)
+    probe.write_text(
+        json.dumps({"active_renderer": {"name": "BodyRig Reference Renderer", "version": "1.2.3+build.9"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "_git_state", lambda _root: (REVISION, True))
+    status = _status(accepted_revision=REVISION)
+    status["physical_acceptance_dir"] = str(acceptance)
+    status["next_gate"]["command"] = (
+        '.\\record-renderer-acceptance.ps1 -AcceptanceReport "C:\\hf\\bodyrig-acceptance.json" '
+        '-Platform "windows-unity-univrm" -Pass -RendererName "BodyRig Reference Renderer" '
+        '-RendererVersion "<exact version>" -QualityNote "<your physical review>"'
+    )
+
+    result = cli.bind_operator_checkout(status, root)
+    command = result["next_gate"]["command"]
+
+    assert "-Pass -ConfirmQualityChecklist" in command
+    assert "-RendererName 'BodyRig Reference Renderer'" in command
+    assert "-RendererVersion '1.2.3+build.9'" in command
+    assert "<exact version>" not in command
+    assert str((root / "record-renderer-acceptance.ps1").resolve()) in command
 
 
 def test_gate_a_revision_mismatch_blocks_and_removes_next_command(monkeypatch, tmp_path: Path) -> None:
