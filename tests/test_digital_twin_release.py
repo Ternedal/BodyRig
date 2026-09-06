@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import bodyrig.digital_twin_release as m6
+from bodyrig.digital_twin_status import _final_release_gate
 
 PERSON_ID = "person-0123456789abcdef0123456789abcdef"
 PERSON_REVISION = "person-r0001"
@@ -124,6 +125,31 @@ def test_m6_structure_is_the_only_activating_authority() -> None:
     assert validated["production_activation"] is True
     assert validated["state"] == "released"
     assert validated["release_id"].startswith("dtrelease-")
+
+
+def test_digital_twin_status_final_gate_accepts_only_canonical_m6() -> None:
+    chain = _chain()
+    authority = m6._authority_from_chain(chain)
+    gate = _final_release_gate(
+        authority,
+        composition_authority=chain["composition"],
+        platform_acceptance_status=chain["m5_status"],
+        body_release_status=_body_release(),
+    )
+    assert gate["ready"] is True
+    assert gate["state"] == "complete"
+    assert gate["release_id"] == authority["release_id"]
+
+    forged = dict(authority)
+    forged["windows_realization_sha256"] = "f" * 64
+    blocked = _final_release_gate(
+        forged,
+        composition_authority=chain["composition"],
+        platform_acceptance_status=chain["m5_status"],
+        body_release_status=_body_release(),
+    )
+    assert blocked["ready"] is False
+    assert blocked["state"] == "blocked"
 
 
 def test_m6_rejects_activation_without_complete_m5() -> None:
