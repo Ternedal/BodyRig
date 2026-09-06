@@ -12,9 +12,19 @@ import sith_smplx_vrm_fitter as base
 
 FORMAT = "bodyrig-subject-anatomy-refit"
 VERSION = 1
+METHOD_V1 = "explicit-family-smplx-betas-icp-to-retained-sith-source-v1"
+METHOD_V2 = "explicit-family-smplx-betas-icp-normal-aware-to-retained-sith-source-v2"
 TARGET_FAMILIES = ("female", "male", "neutral")
 ITERATIONS = 120
 CORRESPONDENCE_INTERVAL = 10
+# Real Lauren test-02 showed that the distance-only v1 optimizer could reduce
+# donor-to-source distance while materially worsening the normal alignment used
+# by the appearance bake. Keep the normal term modest relative to positional ICP,
+# but make normal regression part of the comparison-only acceptance contract.
+NORMAL_LOSS_WEIGHT = 0.04
+NORMAL_NONREGRESSION_TOLERANCE = 1e-4
+NORMAL_ALIGNMENT_AUTHORITY = "nearest-source-vertex-area-weighted-v1"
+MIN_NORMAL_VERTEX_COUNT = 100
 
 
 class SubjectAnatomyRefitError(ValueError):
@@ -53,6 +63,10 @@ def build_receipt(
     final_p95: float,
     final_rms: float,
     iterations: int,
+    initial_normal_mean: float | None = None,
+    initial_normal_p05: float | None = None,
+    final_normal_mean: float | None = None,
+    final_normal_p05: float | None = None,
 ) -> dict[str, Any]:
     if target_family not in TARGET_FAMILIES:
         raise SubjectAnatomyRefitError("target SMPL-X model family is invalid")
@@ -61,12 +75,42 @@ def build_receipt(
         raise SubjectAnatomyRefitError("subject anatomy refit metrics are invalid")
     if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 1:
         raise SubjectAnatomyRefitError("subject anatomy refit iteration count is invalid")
-    improved = final_rms <= initial_rms + 1e-9 and final_p95 <= initial_p95 + 1e-9
+
+    distance_improved = final_rms <= initial_rms + 1e-9 and final_p95 <= initial_p95 + 1e-9
+    normal_values = (initial_normal_mean, initial_normal_p05, final_normal_mean, final_normal_p05)
+    normal_aware = any(value is not None for value in normal_values)
+    if normal_aware and not all(value is not None for value in normal_values):
+        raise SubjectAnatomyRefitError("normal-aware anatomy receipt requires all normal alignment metrics")
+
+    method = METHOD_V1
+    improved = distance_improved
+    normal_fields: dict[str, Any] = {}
+    if normal_aware:
+        normalized = [float(value) for value in normal_values if value is not None]
+        if len(normalized) != 4 or any(not math.isfinite(value) or not -1.0 <= value <= 1.0 for value in normalized):
+            raise SubjectAnatomyRefitError("subject anatomy normal alignment metrics are invalid")
+        initial_mean, initial_p05, final_mean, final_p05 = normalized
+        normal_non_regression = (
+            final_mean + NORMAL_NONREGRESSION_TOLERANCE >= initial_mean
+            and final_p05 + NORMAL_NONREGRESSION_TOLERANCE >= initial_p05
+        )
+        method = METHOD_V2
+        improved = distance_improved and normal_non_regression
+        normal_fields = {
+            "initialNormalAlignmentMean": round(initial_mean, 9),
+            "initialNormalAlignmentP05": round(initial_p05, 9),
+            "finalNormalAlignmentMean": round(final_mean, 9),
+            "finalNormalAlignmentP05": round(final_p05, 9),
+            "normalAwareNonRegression": bool(normal_non_regression),
+            "normalAlignmentAuthority": NORMAL_ALIGNMENT_AUTHORITY,
+            "normalLossWeight": NORMAL_LOSS_WEIGHT,
+        }
+
     return {
         "format": FORMAT,
         "version": VERSION,
         "targetModelFamily": target_family,
-        "method": "explicit-family-smplx-betas-icp-to-retained-sith-source-v1",
+        "method": method,
         "initialDonorToSourceP95": round(initial_p95, 9),
         "initialDonorToSourceRms": round(initial_rms, 9),
         "finalDonorToSourceP95": round(final_p95, 9),
@@ -81,6 +125,7 @@ def build_receipt(
         "comparisonOnly": True,
         "humanReviewRequired": True,
         "productionReady": False,
+        **normal_fields,
     }
 
 
@@ -115,6 +160,76 @@ def _distance_metrics(torch: Any, posed: Any, source: Any, indices: Any) -> tupl
     if not math.isfinite(p95) or not math.isfinite(rms):
         raise SubjectAnatomyRefitError("subject anatomy distance metrics are non-finite")
     return p95, rms
+
+
+def _vertex_normals(torch: Any, vertices: Any, faces: Any) -> tuple[Any, Any]:
+    if vertices.ndim != 2 or int(vertices.shape[1]) != 3:
+        raise SubjectAnatomyRefitError("normal-aware anatomy vertices are invalid")
+    if faces.ndim != 2 or int(faces.shape[1]) != 3 or int(faces.shape[0]) < 1:
+        raise SubjectAnatomyRefitError("normal-aware anatomy faces are invalid")
+    a = vertices[faces[:, 0].long()]
+    b = vertices[faces[:, 1].long()]
+    c = vertices[faces[:, 2].long()]
+    # Unnormalized cross products preserve triangle-area weighting when they are
+    # accumulated into vertices, which is more stable on dense reconstructed
+    # source meshes than giving tiny triangles the same vote as large triangles.
+    face_area_normals = torch.cross(b - a, c - a, dim=1)
+    accumulated = torch.zeros_like(vertices)
+    for corner in range(3):
+        accumulated = accumulated.index_add(0, faces[:, corner].long(), face_area_normals)
+    lengths = torch.linalg.vector_norm(accumulated, dim=1, keepdim=True)
+    valid = lengths[:, 0] > 1e-10
+    unit = torch.where(
+        valid[:, None],
+        accumulated / torch.clamp(lengths, min=1e-10),
+        torch.zeros_like(accumulated),
+    )
+    return unit, valid
+
+
+def _normal_alignment_values(
+    torch: Any,
+    *,
+    posed: Any,
+    donor_faces: Any,
+    source_normals: Any,
+    source_normals_valid: Any,
+    indices: Any,
+) -> tuple[Any, Any]:
+    donor_normals, donor_valid = _vertex_normals(torch, posed, donor_faces)
+    target_normals = source_normals[indices]
+    target_valid = source_normals_valid[indices]
+    valid = donor_valid & target_valid
+    if int(valid.sum().item()) < MIN_NORMAL_VERTEX_COUNT:
+        raise SubjectAnatomyRefitError("too few valid vertices for normal-aware anatomy correspondence")
+    alignment = torch.sum(donor_normals * target_normals, dim=1)
+    alignment = torch.clamp(alignment, -1.0, 1.0)
+    return alignment, valid
+
+
+def _normal_metrics(
+    torch: Any,
+    *,
+    posed: Any,
+    donor_faces: Any,
+    source_normals: Any,
+    source_normals_valid: Any,
+    indices: Any,
+) -> tuple[float, float]:
+    alignment, valid = _normal_alignment_values(
+        torch,
+        posed=posed,
+        donor_faces=donor_faces,
+        source_normals=source_normals,
+        source_normals_valid=source_normals_valid,
+        indices=indices,
+    )
+    values = alignment[valid]
+    mean = float(torch.mean(values).item())
+    p05 = float(torch.quantile(values, 0.05).item())
+    if not math.isfinite(mean) or not math.isfinite(p05):
+        raise SubjectAnatomyRefitError("subject anatomy normal alignment metrics are non-finite")
+    return mean, p05
 
 
 def _write_obj(path: Path, *, vertices: Any, faces: list[list[int]]) -> None:
@@ -162,12 +277,16 @@ def refit(
     }
 
     retained_params = base._fit_params(fit_path)
-    source_positions, _texcoords, _faces = base._parse_textured_obj(source_path)
+    source_positions, _texcoords, source_faces_raw = base._parse_textured_obj(source_path)
     if len(source_positions) < 100:
         raise SubjectAnatomyRefitError("retained SiTH source mesh exposes too few vertices")
+    source_faces = [[int(corner[0]) for corner in face] for face in source_faces_raw]
+    if not source_faces or any(len(face) != 3 for face in source_faces):
+        raise SubjectAnatomyRefitError("retained SiTH source mesh is not triangular")
 
     device = torch.device("cuda")
     source = torch.tensor(np.asarray(source_positions, dtype=np.float32), dtype=torch.float32, device=device)
+    source_faces_tensor = torch.tensor(np.asarray(source_faces, dtype=np.int64), dtype=torch.long, device=device)
     try:
         model = SMPLX(
             model_path=str(model_dir),
@@ -181,6 +300,23 @@ def refit(
     except Exception as exc:
         raise SubjectAnatomyRefitError(f"failed to load licensed SMPL-X {target_family} model: {exc}") from exc
     model.eval()
+
+    faces_raw = getattr(model, "faces_tensor", None)
+    if faces_raw is not None:
+        donor_faces_tensor = faces_raw.to(device=device, dtype=torch.long)
+        faces = [[int(item) for item in row] for row in faces_raw.detach().cpu().tolist()]
+    else:
+        raw = getattr(model, "faces", None)
+        if raw is None:
+            raise SubjectAnatomyRefitError("target SMPL-X model exposes no faces")
+        values = raw.tolist() if hasattr(raw, "tolist") else list(raw)
+        faces = [[int(item) for item in row] for row in values]
+        donor_faces_tensor = torch.tensor(np.asarray(faces, dtype=np.int64), dtype=torch.long, device=device)
+    if not faces or any(len(face) != 3 for face in faces):
+        raise SubjectAnatomyRefitError("target SMPL-X topology is not triangular")
+
+    with torch.no_grad():
+        source_normals, source_normals_valid = _vertex_normals(torch, source, source_faces_tensor)
 
     def fixed(field: str, width: int) -> Any:
         return torch.tensor(retained_params[field], dtype=torch.float32, device=device).view(1, width)
@@ -206,20 +342,41 @@ def refit(
 
     with torch.no_grad():
         zero_betas = torch.zeros_like(retained_betas)
-        zero_posed = posed_for(zero_betas, base_transl, torch.tensor(base_scale, dtype=torch.float32, device=device))
+        base_scale_tensor = torch.tensor(base_scale, dtype=torch.float32, device=device)
+        zero_posed = posed_for(zero_betas, base_transl, base_scale_tensor)
         zero_indices = _nearest_source_indices(torch, query=zero_posed, reference=source)
         zero_p95, zero_rms = _distance_metrics(torch, zero_posed, source, zero_indices)
+        zero_normal_mean, zero_normal_p05 = _normal_metrics(
+            torch,
+            posed=zero_posed,
+            donor_faces=donor_faces_tensor,
+            source_normals=source_normals,
+            source_normals_valid=source_normals_valid,
+            indices=zero_indices,
+        )
 
-        retained_posed = posed_for(retained_betas, base_transl, torch.tensor(base_scale, dtype=torch.float32, device=device))
+        retained_posed = posed_for(retained_betas, base_transl, base_scale_tensor)
         retained_indices = _nearest_source_indices(torch, query=retained_posed, reference=source)
         retained_p95, retained_rms = _distance_metrics(torch, retained_posed, source, retained_indices)
+        retained_normal_mean, retained_normal_p05 = _normal_metrics(
+            torch,
+            posed=retained_posed,
+            donor_faces=donor_faces_tensor,
+            source_normals=source_normals,
+            source_normals_valid=source_normals_valid,
+            indices=retained_indices,
+        )
 
-    if retained_rms < zero_rms:
+    zero_score = zero_rms + NORMAL_LOSS_WEIGHT * (1.0 - zero_normal_mean)
+    retained_score = retained_rms + NORMAL_LOSS_WEIGHT * (1.0 - retained_normal_mean)
+    if retained_score < zero_score:
         initial_betas = retained_betas.detach().clone()
         initial_p95, initial_rms = retained_p95, retained_rms
+        initial_normal_mean, initial_normal_p05 = retained_normal_mean, retained_normal_p05
     else:
         initial_betas = zero_betas.detach().clone()
         initial_p95, initial_rms = zero_p95, zero_rms
+        initial_normal_mean, initial_normal_p05 = zero_normal_mean, zero_normal_p05
 
     betas = torch.nn.Parameter(initial_betas)
     transl_delta = torch.nn.Parameter(torch.zeros((1, 3), dtype=torch.float32, device=device))
@@ -254,10 +411,23 @@ def refit(
         target = source[correspondence]
         point_loss = F.smooth_l1_loss(posed, target, beta=0.02, reduction="none").sum(dim=1)
         data_loss = torch.sum(point_loss * body_weights) / torch.sum(body_weights)
+
+        alignment, normal_valid = _normal_alignment_values(
+            torch,
+            posed=posed,
+            donor_faces=donor_faces_tensor,
+            source_normals=source_normals,
+            source_normals_valid=source_normals_valid,
+            indices=correspondence,
+        )
+        normal_penalty = 1.0 - alignment[normal_valid]
+        normal_weights = body_weights[normal_valid]
+        normal_loss = torch.sum(normal_penalty * normal_weights) / torch.sum(normal_weights)
+
         beta_reg = 0.0002 * torch.mean(betas * betas)
         transl_reg = 0.02 * torch.mean(transl_delta * transl_delta)
         scale_reg = 0.02 * log_scale_delta * log_scale_delta
-        loss = data_loss + beta_reg + transl_reg + scale_reg
+        loss = data_loss + NORMAL_LOSS_WEIGHT * normal_loss + beta_reg + transl_reg + scale_reg
         if not bool(torch.isfinite(loss).item()):
             raise SubjectAnatomyRefitError("subject anatomy optimization became non-finite")
         loss.backward()
@@ -273,6 +443,14 @@ def refit(
         final_posed = posed_for(betas, final_transl_tensor, final_scale_tensor)
         final_indices = _nearest_source_indices(torch, query=final_posed, reference=source)
         final_p95, final_rms = _distance_metrics(torch, final_posed, source, final_indices)
+        final_normal_mean, final_normal_p05 = _normal_metrics(
+            torch,
+            posed=final_posed,
+            donor_faces=donor_faces_tensor,
+            source_normals=source_normals,
+            source_normals_valid=source_normals_valid,
+            indices=final_indices,
+        )
         final_vertices = final_posed.detach().cpu().numpy()
         final_betas = [float(value) for value in betas.detach().cpu().reshape(-1).tolist()]
         final_transl = [float(value) for value in final_transl_tensor.detach().cpu().reshape(-1).tolist()]
@@ -291,21 +469,15 @@ def refit(
         final_p95=final_p95,
         final_rms=final_rms,
         iterations=ITERATIONS,
+        initial_normal_mean=initial_normal_mean,
+        initial_normal_p05=initial_normal_p05,
+        final_normal_mean=final_normal_mean,
+        final_normal_p05=final_normal_p05,
     )
     receipt.update(retained_hashes)
     receipt["derivedScale"] = round(final_scale, 9)
     receipt["derivedBetas"] = [round(value, 9) for value in final_betas]
     receipt["derivedTransl"] = [round(value, 9) for value in final_transl]
-
-    faces_raw = getattr(model, "faces_tensor", None)
-    if faces_raw is not None:
-        faces = [[int(item) for item in row] for row in faces_raw.detach().cpu().tolist()]
-    else:
-        raw = getattr(model, "faces", None)
-        if raw is None:
-            raise SubjectAnatomyRefitError("target SMPL-X model exposes no faces")
-        values = raw.tolist() if hasattr(raw, "tolist") else list(raw)
-        faces = [[int(item) for item in row] for row in values]
 
     output_dir.mkdir(parents=True, exist_ok=False)
     derived_obj = output_dir / "subject_smplx.obj"
@@ -336,10 +508,15 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "BodyRig subject anatomy refit: PASS | "
             f"family={receipt['targetModelFamily']} | "
+            f"method={receipt['method']} | "
             f"initial_p95={receipt['initialDonorToSourceP95']:.6f} | "
             f"final_p95={receipt['finalDonorToSourceP95']:.6f} | "
             f"initial_rms={receipt['initialDonorToSourceRms']:.6f} | "
             f"final_rms={receipt['finalDonorToSourceRms']:.6f} | "
+            f"initial_normal_mean={receipt.get('initialNormalAlignmentMean', 1.0):.6f} | "
+            f"final_normal_mean={receipt.get('finalNormalAlignmentMean', 1.0):.6f} | "
+            f"initial_normal_p05={receipt.get('initialNormalAlignmentP05', 1.0):.6f} | "
+            f"final_normal_p05={receipt.get('finalNormalAlignmentP05', 1.0):.6f} | "
             f"non_regression={receipt['fitDidNotRegress']}"
         )
         return 0
