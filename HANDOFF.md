@@ -1,156 +1,174 @@
 # BodyRig handoff
 
-_Last updated: 2026-09-05_
+_Last updated: 2026-09-06_
 
 ## Canonical repository authority
 
-BodyRig now has one canonical software trunk: `main`.
+BodyRig has one normal software/run authority: **exact clean current `main`**.
 
-- PR #54 (`Person Studio: source-grounded photoreal person workflow`) is merged and closed.
-- PR #83 (`High fidelity: integrate hair + eyes + face-secondary completion chain`) was merged into the #54 lineage before #54 landed.
-- #54 landed on `main` as merge commit `442978a0efca258a892e7d74af3ca0eac9532229`.
-- Exact pre-merge integrated head `5eda72ff68fd52ab928904eaa6e26c1d25f2628a` passed `ci` #1771 and `windows-log-handle-regression` #943.
-- The #54 merge commit has zero file delta from that exact green pre-merge head, so the landed tree is byte-for-byte the validated integrated tree.
-- PR #88 then bound new physical sessions to exact clean current `main`; its exact head passed `ci` #1773 and `windows-log-handle-regression` #945 before merge.
+Historical PR heads, old comments and frozen evidence branches are not current operator authority merely because they once passed CI. Existing physical evidence remains bound to the exact BodyRig revision, package/runtime bytes and receipts recorded in that evidence; later merges never rewrite historical authority.
 
-Normal new work starts from exact current `main`. Feature branches and old PR heads are historical development/evidence lineage, not current operator software authority merely because they once had green CI.
-
-Historical physical evidence is different: it remains bound to the exact BodyRig revision, package and runtime recorded in that evidence. Landing, closing, retargeting or rebasing code never rewrites historical physical authority.
+The current operator path is checkout-bound and fail-closed. A global/stale BodyRig install must not authorize a physical next command.
 
 ## Product definition: full digital twin
 
-Issue #89 is now the canonical product-completion definition. A photorealistic body/avatar is **not** the finished product.
+Issue #89 is the canonical completion definition. A photorealistic body/avatar is necessary but is **not** the finished product.
 
-BodyRig is complete only when one auditable Person Revision represents the same real person across:
+A released digital twin is one auditable Person Revision that binds the same real person across:
 
 - body proportions/anatomy and source-derived skin/appearance;
 - face identity and face-secondary detail;
-- hair;
-- eyes/iris/cornea;
-- hands, fingers, feet, toes and explicit fingernail/toenail authority;
-- source-grounded wardrobe/clothing/footwear with material, layering, attachment and deformation authority;
+- source-derived hair;
+- source-derived eyes/iris/cornea;
+- hands, fingers, feet, toes, fingernails and toenails;
+- source-grounded wardrobe/clothing/footwear, including material, layering, attachment and deformation authority;
 - VoiceRig-owned voice;
 - source-derived personality;
 - ModelRig + VoiceRig audition/review;
-- motion/expression/voice-timing embodiment.
+- Motor State v2 motion/expression/gesture/gaze/posture/speech realization;
+- exact WindowsPlayer and Quest-class realization evidence.
 
-Every identity-bearing component needs explicit provenance/review authority. Visibility inside an avatar texture does not by itself make a component complete.
+Every identity-bearing component requires explicit provenance/review authority. A component is not complete merely because it is visible in a texture or preview.
 
-## Integrated high-fidelity body/avatar software chain
+## Full digital-twin software status
 
-The trunk contains the complete high-fidelity **body/avatar** continuation:
+The **M1–M6 software chain is landed on `main`**. The remaining product blockers are real source/physical/human evidence for a concrete Person, not missing milestone architecture.
 
-Stash/SiTH source → retained reconstruction/anatomy → anatomy promotion → source hair review/deformation/promotion → eye/iris isolation, review, fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → exact final promoted `.mrbody` → package-bound high-fidelity human review → fresh promoted-package Gate A → canonical reference-wrapped Windows acceptance → canonical reference-wrapped Quest acceptance → canonical final body release.
+- **M1 — release contract/status:** fail-closed digital-twin readiness above body release and Person assembly.
+- **M2 — hands/feet/nails:** source capture, renderer evidence, explicit human review and finalized authority.
+- **M3 — wardrobe/footwear:** source-visible inventory/capture, renderer/deformation evidence, explicit human review and finalized authority.
+- **M4 — Person Revision composition:** create-only authority binding exact Person assembly/audition, M2, M3, promoted `.mrbody`, BodyPrint and deterministic Motor State v2 embodiment evidence.
+- **M5 — Windows/Quest realization:** exact-M4-bound WindowsPlayer + Quest-class realization with renderer/deformation/human-attestation lineage.
+- **M6 — canonical release:** create-only final digital-twin release; only valid M6 may set `digital_twin_ready=true` and `production_activation=true`.
 
-Important authority boundaries remain intact:
+Operator hardening is also landed:
 
-- component preview/review is not physical PASS;
-- promotion does not mutate the baseline source package in place;
-- review-only combined runtimes cannot silently grant component completion;
-- invalid create-only high-fidelity human-review receipts use the preserving recovery path only before fresh Gate A;
-- fresh Gate A copies and freezes exact package-bound review authority and freezes the exact BodyRig revision for the rest of the physical chain;
-- Windows/Quest status exposes canonical reference wrappers, not raw low-level acceptance commands;
-- Quest adb authority comes from the pinned Unity Android SDK, never an arbitrary PATH adb;
-- generated `<...>` human quality-note placeholders fail closed;
-- body `production_activation=true` can arise only from canonical body final release after real operator-supplied physical/human acceptance.
+- one checkout-bound read-only `bodyrig-status.ps1` routes physical preflight → physical acceptance → high-fidelity continuation → M4/M5/M6 status;
+- performer-bound preflight delegates to the canonical source doctor and emits the doctor-owned production clone command;
+- mixed selectors, checkout drift, invalid platform authority, body/revision mismatch, library drift and false release-complete states fail closed;
+- status tooling distinguishes missing Person evidence from missing implementation;
+- current Gate A accepts the canonical anatomy-aware appearance receipt while preserving legacy aggregate skin-QA;
+- a historical completed clone that failed only at a later Gate-A validator contract can use the explicit cross-revision rescue path without rerunning recovery/fitting, provided the original evidence still validates;
+- retained/high-fidelity Windows/WSL operators no longer assign PowerShell's read-only automatic `$HOME` variable; default SiTH root discovery remains `<WSL home>/.local/share/bodyrig/sith`.
 
-That body release is necessary for a digital twin, but it is no longer sufficient to call the Person a full digital twin.
+## Current high-fidelity body/avatar software chain
 
-## Canonical operator entry point for the body/avatar chain
+The trunk contains the full high-fidelity body/avatar continuation:
 
-Before a fresh promoted-package Gate A exists:
+`Stash/source → decode-qualified observation → retained reconstruction → subject anatomy candidate/audit → anatomy promotion → source hair review/deformation/promotion → eye/iris review/fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → promoted .mrbody → package-bound human review → fresh Gate A → Windows → Quest → final body release`.
+
+Recent anatomy work on `main` includes source/appearance diagnostics, improved texture correspondence, normal-aware subject-anatomy fitting and exact-bake bounded scoring/line search. Those machine metrics remain comparison/selection evidence; they do not manufacture a human anatomy or visual-fidelity PASS.
+
+Important boundaries:
+
+- retained reconstruction must not be rerun merely to manufacture cleaner evidence;
+- preview/review artifacts are not component authority by themselves;
+- promotion does not silently mutate baseline source evidence;
+- hair/eye/face review-only runtimes cannot grant body or component completion;
+- human visual/deformation authority remains genuinely human;
+- body/platform release is necessary but still not the full digital-twin M6 release.
+
+## Canonical operator entry point
+
+Start from exact clean current `main`:
 
 ```powershell
 cd <YOUR-BODYRIG-CHECKOUT>
-git status --short
 git fetch origin
 git switch main
 git pull --ff-only origin main
 git status --short
 git rev-parse HEAD
-pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
-pwsh -NoProfile -File .\list-high-fidelity-previews.ps1 -SucceededOnly
+.\bodyrig-status.ps1
 ```
 
-Both `git status --short` calls must be empty and preflight must PASS.
+`git status --short` must be empty.
 
-Then select the intended persisted preview and use status as the sole source of the next canonical operator action:
+After Stash health/search has identified the intended performer, use the same router for source-bound preflight:
 
 ```powershell
-$preview = 'hfpreview-0123456789abcdef0123456789abcdef'
-pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
+.\bodyrig-status.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
-Run exactly one printed next command, perform any genuinely required human/physical review, then rerun status.
+As evidence is created, continue through the same router with the relevant selector:
 
-Once `prepare-high-fidelity-physical-acceptance.ps1` creates fresh Gate A, **freeze the checkout**. Do not pull, switch branch, edit tracked files or otherwise change the repo until that acceptance chain completes or is deliberately abandoned.
+```powershell
+.\bodyrig-status.ps1 -SessionReport '<physical-session-report>'
+.\bodyrig-status.ps1 -AcceptanceDir '<physical-acceptance-dir>'
+.\bodyrig-status.ps1 -PreviewJobId '<hfpreview-id>'
+.\bodyrig-status.ps1 -CompositionAuthorityDir '<m4-authority-dir>' -AcceptanceDir '<physical-acceptance-dir>'
+```
 
-The full body/avatar procedure is in `HIGH-FIDELITY-PHYSICAL-RUNBOOK.md`.
+Follow only the checkout-authorized emitted next command. `-Serial` and `-LibraryRoot` are forwarded only where their canonical downstream status engine owns them.
+
+Once a fresh Gate A freezes a package/revision for the physical acceptance chain, do not pull, switch branches or edit tracked files until that chain is deliberately completed or abandoned.
+
+## Historical Gate-A rescue
+
+A real historical body job, `job-efcbf73d85464d68a90379cf7f9c2c50`, completed clone/recovery/fitting and produced `.mrbody`, then failed because the old Gate-A skin validator did not understand the anatomy-aware appearance receipt.
+
+The reusable validator fix and explicit historical rescue path are both landed on current `main`. If the original local job/evidence still exists, try the checkout-bound rescue **before** rerunning PHALP/SiTH:
+
+```powershell
+pwsh -NoProfile -File .\resume-body-job.ps1 -JobId 'job-efcbf73d85464d68a90379cf7f9c2c50'
+```
+
+The rescue is fail-closed: producer and validator revisions stay distinct; original session/readiness/package/proof/identity bytes are revalidated; package bytes are not rebuilt; recovery/fitter are not rerun; previous partial Gate-A/fidelity output is quarantined. Success must report `resumed_without_clone_rerun=true` and still does **not** create human/physical PASS by itself.
+
+If the original evidence is missing, drifted or otherwise invalid, do not reconstruct authority from memory; use the current canonical physical path instead.
 
 ## Remaining real work
 
-Under the full-digital-twin definition there **are** software blockers again. Issue #89 owns them.
+The open product/issues backlog is intentionally physical/human:
 
-Current missing explicit twin authorities:
+- #2 real video → source-derived BodyPrint/package on target rig;
+- #3 exact fitted package → real Windows/Quest acceptance;
+- #4 real-video visual identity/fidelity;
+- #5 real SiTH reconstruction/skinning quality;
+- #6 real Stash performer/source selection and production clone;
+- #50 one coherent Person with human-approved anatomy, skin, hair, eyes/iris/cornea and face-secondary detail;
+- #89 one complete Person Revision through M2/M3/M4/M5 and canonical M6.
 
-1. hands/feet/nails source authority, reconstruction/material detail, review and promotion;
-2. wardrobe/clothing/footwear source authority, reconstruction/materials, layering, attachment, deformation review and package representation;
-3. digital-twin status/release composition that requires exact body + voice + personality + presentation + embodiment authority for one Person Revision;
-4. end-to-end UI/operator status that distinguishes `avatar ready` from `digital twin ready`;
-5. canonical digital-twin final release authority above the existing body release.
-
-The existing Person model already versions body, VoiceRig voice and personality separately and binds them through an audition-backed assembly receipt. M1 adds a fail-closed digital-twin readiness layer above that assembly rather than weakening or replacing it.
-
-The existing physical body chain still requires real/manual execution on the target rig before the body itself can be physically released:
-
-1. run preflight on the actual BodyRig Windows/WSL rig;
-2. select the intended succeeded persisted `hfpreview-...`;
-3. perform any required package-bound human review;
-4. create a fresh promoted-package Gate A;
-5. run the real reference-wrapped Windows renderer/deformation probe and actual human attestation;
-6. run the real reference-wrapped Quest probe and headset attestation;
-7. run canonical body final release.
-
-CI, screenshots and software-generated evidence cannot substitute for those physical/human steps, and body release alone cannot substitute for missing full-digital-twin authorities.
+Do not close those issues from CI, fixtures, generated screenshots or software-only evidence.
 
 ## Open PR / historical branch discipline
 
-The remaining intentionally open historical/candidate PRs are classified explicitly:
+Classify old/open PRs deliberately:
 
-- #60 — `ACTIVE CANDIDATE`: recovery-throughput v3; requires real A/B evidence before promotion.
-- #63 — `FROZEN EVIDENCE`: retained historical Gate A resume lineage; do not reinterpret/merge it merely from CI.
+- **#60 — ACTIVE CANDIDATE:** recovery-throughput v3; requires real physical A/B before promotion.
+- **#63 — FROZEN EVIDENCE:** historical Gate-A lineage; reusable validator/rescue software is represented on current `main`, but the frozen branch remains historical evidence rather than normal merge authority.
+- **#121 — DRAFT CANDIDATE:** source-derived PBR/appearance work; it is not current production authority and must be reconciled with the newer anatomy/appearance stack plus real visual evidence before any promotion.
+- **#109 — SUPERSEDED DOCS:** its intent is incorporated by the current handoff; do not merge its old base onto modern `main`.
 
-Before closing or porting an old PR, compare its exact head against current `main` and classify it deliberately as one of:
+Use these meanings consistently:
 
-- `LANDED` — its effective content is already in trunk;
-- `SUPERSEDED` — a later implementation replaced it;
+- `LANDED` — effective content is already on trunk;
+- `SUPERSEDED` — later work replaced the branch/approach;
 - `FROZEN EVIDENCE` — branch identity must remain available for historical physical evidence;
-- `ACTIVE CANDIDATE` — it still contains a deliberate unlanded delta requiring its own validation.
+- `ACTIVE/DRAFT CANDIDATE` — deliberate unlanded delta still needs its own validation.
 
 ## Non-negotiable evidence rules
 
 Never:
 
-- rebind historical Gate A/package/runtime evidence to new bytes;
-- rerun expensive retained reconstruction merely to manufacture authority;
-- use `accept-reconciled-physical-clone.ps1` as a shortcut for the high-fidelity release chain;
-- hand-edit evidence JSON;
-- manually delete create-only acceptance/review evidence to retry;
-- substitute PATH adb for the pinned Unity Android SDK adb;
-- bypass the status-generated reference wrappers;
-- synthesize or infer human/physical PASS;
-- call a body/avatar release a full digital twin while hands/nails, wardrobe or other required Person authorities are missing.
+- synthesize or infer a human/physical PASS;
+- rebind historical Gate-A/package/runtime evidence to new bytes;
+- rerun expensive reconstruction merely to manufacture authority;
+- hand-edit evidence JSON or delete create-only evidence to force a retry;
+- bypass checkout-bound status/next-command authority;
+- substitute arbitrary PATH tools where an exact pinned runtime owns authority;
+- treat source outfit as persistent body identity;
+- call a body/avatar release, M4 composition or CI-green M5/M6 software a completed digital twin.
 
 ## Handoff discipline
 
 Every meaningful BodyRig PR should state:
 
-- exact base SHA;
-- exact head SHA after validation;
+- exact base and validated head SHA;
 - scope and non-scope;
 - authority/activation boundary;
 - automated validation performed;
-- physical validation still required;
-- whether it supersedes, stacks on, or is already represented by another integration line.
+- physical/human validation still required;
+- whether it supersedes, stacks on or is already represented by another integration line.
 
-Update this file whenever canonical trunk authority, the physical operator path, the full-digital-twin definition, or the next hard blocker changes.
+Update this file whenever current trunk authority, canonical operator routing, the physical handoff or the next hard blocker changes.
