@@ -88,7 +88,7 @@ def _hands_nails_gate(
         return {
             "ready": False,
             "state": "missing",
-            "blockers": ["hands/feet/nails finalized authority is not implemented/recorded"],
+            "blockers": ["hands/feet/nails finalized authority has not been recorded for this Person Revision"],
         }
     try:
         value = validate_hands_nails_release_authority(
@@ -124,7 +124,7 @@ def _wardrobe_gate(
         return {
             "ready": False,
             "state": "missing",
-            "blockers": ["wardrobe/clothing finalized authority is not implemented/recorded"],
+            "blockers": ["wardrobe/clothing finalized authority has not been recorded for this Person Revision"],
         }
     try:
         value = validate_wardrobe_release_authority(
@@ -164,7 +164,7 @@ def _embodiment_gate(
         return {
             "ready": False,
             "state": "missing",
-            "blockers": ["finalized M4 digital-twin composition authority is not implemented/recorded"],
+            "blockers": ["finalized M4 digital-twin composition authority has not been recorded for this Person Revision"],
         }
     if hands_nails_authority is None or wardrobe_authority is None:
         return {
@@ -203,7 +203,7 @@ def _platform_acceptance_gate(status: Mapping[str, Any] | None) -> dict[str, Any
         return {
             "ready": False,
             "state": "missing",
-            "blockers": ["M5 Windows/Quest digital-twin composition acceptance is not implemented/recorded"],
+            "blockers": ["M5 Windows/Quest digital-twin composition acceptance has not been recorded for this Person Revision"],
         }
     if status.get("format") != "bodyrig-digital-twin-platform-status" or status.get("version") != 1:
         return {
