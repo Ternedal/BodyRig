@@ -10,7 +10,11 @@ from typing import Any, Mapping
 
 FORMAT = "bodyrig-subject-anatomy-refit"
 VERSION = 1
-METHOD = "explicit-family-smplx-betas-icp-to-retained-sith-source-v1"
+METHOD_V1 = "explicit-family-smplx-betas-icp-to-retained-sith-source-v1"
+METHOD_V2 = "explicit-family-smplx-betas-icp-normal-aware-to-retained-sith-source-v2"
+METHODS = {METHOD_V1, METHOD_V2}
+NORMAL_ALIGNMENT_AUTHORITY = "nearest-source-vertex-area-weighted-v1"
+NORMAL_NONREGRESSION_TOLERANCE = 1e-4
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 MODEL_FAMILIES = {"female", "male", "neutral"}
 
@@ -48,6 +52,15 @@ def _finite_nonnegative(value: Any, *, label: str) -> float:
     return result
 
 
+def _finite_alignment(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+    result = float(value)
+    if not math.isfinite(result) or not -1.0 <= result <= 1.0:
+        raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+    return result
+
+
 def _finite_vector(value: Any, *, label: str, length: int) -> list[float]:
     if not isinstance(value, list) or len(value) != length:
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
@@ -65,7 +78,8 @@ def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regr
     family = value.get("targetModelFamily")
     if family not in MODEL_FAMILIES:
         raise SubjectAnatomyProvenanceError("subject anatomy refit model family is invalid")
-    if value.get("method") != METHOD:
+    method = value.get("method")
+    if method not in METHODS:
         raise SubjectAnatomyProvenanceError("subject anatomy refit method is invalid")
 
     initial_p95 = _finite_nonnegative(value.get("initialDonorToSourceP95"), label="initial anatomy p95")
@@ -76,10 +90,48 @@ def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regr
     if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 1:
         raise SubjectAnatomyProvenanceError("subject anatomy refit iteration count is invalid")
 
+    distance_non_regression = final_p95 <= initial_p95 + 1e-9 and final_rms <= initial_rms + 1e-9
+    method_fields: dict[str, Any] = {}
+    expected_non_regression = distance_non_regression
+    if method == METHOD_V2:
+        initial_normal_mean = _finite_alignment(
+            value.get("initialNormalAlignmentMean"), label="initial anatomy normal mean"
+        )
+        initial_normal_p05 = _finite_alignment(
+            value.get("initialNormalAlignmentP05"), label="initial anatomy normal p05"
+        )
+        final_normal_mean = _finite_alignment(
+            value.get("finalNormalAlignmentMean"), label="final anatomy normal mean"
+        )
+        final_normal_p05 = _finite_alignment(
+            value.get("finalNormalAlignmentP05"), label="final anatomy normal p05"
+        )
+        normal_non_regression = (
+            final_normal_mean + NORMAL_NONREGRESSION_TOLERANCE >= initial_normal_mean
+            and final_normal_p05 + NORMAL_NONREGRESSION_TOLERANCE >= initial_normal_p05
+        )
+        claim = value.get("normalAwareNonRegression")
+        if type(claim) is not bool or claim is not normal_non_regression:
+            raise SubjectAnatomyProvenanceError("subject anatomy normal non-regression claim is inconsistent")
+        if value.get("normalAlignmentAuthority") != NORMAL_ALIGNMENT_AUTHORITY:
+            raise SubjectAnatomyProvenanceError("subject anatomy normal alignment authority is invalid")
+        normal_loss_weight = _finite_nonnegative(value.get("normalLossWeight"), label="subject anatomy normal loss weight")
+        if normal_loss_weight <= 0.0:
+            raise SubjectAnatomyProvenanceError("subject anatomy normal loss weight is invalid")
+        expected_non_regression = distance_non_regression and normal_non_regression
+        method_fields = {
+            "initialNormalAlignmentMean": initial_normal_mean,
+            "initialNormalAlignmentP05": initial_normal_p05,
+            "finalNormalAlignmentMean": final_normal_mean,
+            "finalNormalAlignmentP05": final_normal_p05,
+            "normalAwareNonRegression": normal_non_regression,
+            "normalAlignmentAuthority": NORMAL_ALIGNMENT_AUTHORITY,
+            "normalLossWeight": normal_loss_weight,
+        }
+
     non_regression = value.get("fitDidNotRegress")
     if type(non_regression) is not bool:
         raise SubjectAnatomyProvenanceError("subject anatomy non-regression claim is invalid")
-    expected_non_regression = final_p95 <= initial_p95 + 1e-9 and final_rms <= initial_rms + 1e-9
     if non_regression is not expected_non_regression:
         raise SubjectAnatomyProvenanceError("subject anatomy non-regression claim is inconsistent")
     if require_non_regression and not non_regression:
@@ -122,7 +174,7 @@ def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regr
         "format": FORMAT,
         "version": VERSION,
         "targetModelFamily": family,
-        "method": METHOD,
+        "method": method,
         "initialDonorToSourceP95": initial_p95,
         "initialDonorToSourceRms": initial_rms,
         "finalDonorToSourceP95": final_p95,
@@ -131,6 +183,7 @@ def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regr
         "fitDidNotRegress": non_regression,
         "poseAuthority": "retained-sith-fit",
         "shapeAuthority": "derived-target-family-fit-to-retained-source",
+        **method_fields,
         **required_boundary,
         **hashes,
         "derivedScale": derived_scale,
