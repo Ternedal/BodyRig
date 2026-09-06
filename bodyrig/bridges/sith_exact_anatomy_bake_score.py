@@ -208,11 +208,15 @@ def score(
         raise ExactAnatomyBakeScoreError("exact anatomy bake scoring requires CUDA")
 
     reconstruction_path, source_mesh, source_texture, _texture_name = _retained_source_paths(retained_workspace)
-    donor_positions = np.asarray(base._parse_positions(donor), dtype=np.float32)
-    if donor_positions.ndim != 2 or donor_positions.shape[1] != 3:
+    donor_positions_np = np.asarray(base._parse_positions(donor), dtype=np.float32)
+    if donor_positions_np.ndim != 2 or donor_positions_np.shape[1] != 3:
         raise ExactAnatomyBakeScoreError("donor OBJ positions are invalid")
 
     device = torch.device("cuda")
+    donor_tensor = torch.tensor(donor_positions_np, dtype=torch.float32, device=device).contiguous()
+    if donor_tensor.ndim != 2 or int(donor_tensor.shape[1]) != 3:
+        raise ExactAnatomyBakeScoreError("donor OBJ tensor conversion is invalid")
+
     model = None
     try:
         model = SMPLX(
@@ -234,13 +238,13 @@ def score(
         donor_faces = [[int(item) for item in row] for row in values]
         if not donor_faces or any(len(face) != 3 for face in donor_faces):
             raise ExactAnatomyBakeScoreError("licensed SMPL-X face topology is invalid")
-        if max(max(face) for face in donor_faces) >= int(donor_positions.shape[0]):
+        if max(max(face) for face in donor_faces) >= int(donor_tensor.shape[0]):
             raise ExactAnatomyBakeScoreError("donor OBJ does not match licensed SMPL-X topology")
 
         _texcoords, _bound_faces, _baked_png, metrics = anatomy_bake.bake_sith_surface_to_anatomy_canonical_smplx(
             torch=torch,
             np=np,
-            donor_positions=donor_positions,
+            donor_positions=donor_tensor,
             donor_faces=donor_faces,
             sith_repo=repo,
             source_mesh_obj=source_mesh,
