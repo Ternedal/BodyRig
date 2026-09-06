@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .digital_twin_release import DigitalTwinReleaseError, release_dir, write_release
 from .storage import person_library
@@ -15,16 +16,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--composition-authority-dir", required=True)
     parser.add_argument("--acceptance-dir", required=True)
     parser.add_argument("--bodyrig-revision", required=True)
+    parser.add_argument(
+        "--library-root",
+        default=None,
+        help="Person library root that must receive the M6 authority; defaults to BodyRig's canonical person library.",
+    )
     args = parser.parse_args(argv)
+    library = Path(args.library_root).expanduser().resolve() if args.library_root else person_library()
     try:
         authority = write_release(
-            person_library(),
+            library,
             composition_authority_dir=args.composition_authority_dir,
             acceptance_dir=args.acceptance_dir,
             bodyrig_revision=args.bodyrig_revision,
         )
         directory = release_dir(
-            person_library(),
+            library,
             person_id=str(authority["person_id"]),
             person_revision=str(authority["person_revision"]),
             release_id=str(authority["release_id"]),
@@ -40,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
                 "person_id": authority["person_id"],
                 "person_revision": authority["person_revision"],
                 "authority": str(directory / "authority.json"),
+                "library_root": str(library),
                 "digital_twin_ready": True,
                 "production_activation": True,
             },
