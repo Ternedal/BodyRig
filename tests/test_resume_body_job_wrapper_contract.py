@@ -1,7 +1,17 @@
 from pathlib import Path
 
+from bodyrig.gate_a_resume import GateAResumeError, resume_gate_a
+from bodyrig.resume_body_job import ResumeBodyJobError, resume_body_job
+
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_historical_gate_a_resume_modules_import_on_current_main() -> None:
+    assert issubclass(GateAResumeError, RuntimeError)
+    assert issubclass(ResumeBodyJobError, RuntimeError)
+    assert callable(resume_gate_a)
+    assert callable(resume_body_job)
 
 
 def test_historical_gate_a_resume_wrapper_is_checkout_bound() -> None:
