@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import sys
 
@@ -9,6 +10,20 @@ from .digital_twin_operator_status import (
     inspect_operator_status,
 )
 from .storage import person_library
+
+
+def _public_result(result: dict) -> dict:
+    public = copy.deepcopy(result)
+    physical = public.get("physical_acceptance")
+    if isinstance(physical, dict):
+        physical["next_command"] = None
+    m5 = public.get("m5")
+    platforms = m5.get("platforms") if isinstance(m5, dict) else None
+    if isinstance(platforms, dict):
+        for status in platforms.values():
+            if isinstance(status, dict):
+                status["next_command"] = None
+    return public
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"BodyRig digital-twin operator status: FAIL: {exc}", file=sys.stderr)
         return 1
 
+    result = _public_result(result)
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
     return 3 if result.get("state") in {"blocked", "invalid"} else 0
 
