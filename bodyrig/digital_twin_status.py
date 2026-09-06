@@ -197,6 +197,49 @@ def _embodiment_gate(
     }
 
 
+def _platform_acceptance_gate(status: Mapping[str, Any] | None) -> dict[str, Any]:
+    if status is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["M5 Windows/Quest digital-twin composition acceptance is not implemented/recorded"],
+        }
+    if status.get("format") != "bodyrig-digital-twin-platform-status" or status.get("version") != 1:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": ["M5 platform acceptance status format/version is invalid"],
+        }
+    platforms = status.get("platforms")
+    if not isinstance(platforms, Mapping):
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": ["M5 platform acceptance lacks platform evidence"],
+        }
+    required = ("windows-unity-univrm", "android-quest-class")
+    blockers: list[str] = []
+    for platform in required:
+        value = platforms.get(platform)
+        if not isinstance(value, Mapping) or value.get("ready") is not True or value.get("state") != "complete":
+            blockers.append(f"M5 {platform} digital-twin realization is not complete")
+    if status.get("m5_ready") is not True:
+        blockers.append("M5 platform acceptance has not reached ready state")
+    if status.get("production_activation") is not False:
+        blockers.append("M5 platform acceptance must remain non-activating")
+    if status.get("digital_twin_ready") is not False:
+        blockers.append("M5 may not claim final digital-twin readiness before M6")
+    if blockers:
+        return {"ready": False, "state": "blocked", "blockers": blockers}
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "windows_realization_sha256": str(platforms["windows-unity-univrm"].get("realization_sha256") or ""),
+        "quest_realization_sha256": str(platforms["android-quest-class"].get("realization_sha256") or ""),
+    }
+
+
 def inspect_digital_twin_status(
     *,
     assembly_receipt: Mapping[str, Any],
@@ -204,12 +247,13 @@ def inspect_digital_twin_status(
     hands_nails_authority: Mapping[str, Any] | None = None,
     wardrobe_authority: Mapping[str, Any] | None = None,
     embodiment_authority: Mapping[str, Any] | None = None,
+    platform_acceptance_status: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compose current Person/body authority into the stricter full-digital-twin product gate.
 
-    This is intentionally fail-closed. The existing body release may be production-ready,
-    but that alone is never sufficient to call the Person a full digital twin. The
-    embodiment gate accepts only finalized M4 composition authority, never loose booleans.
+    This is intentionally fail-closed. Body release, M4 composition and M5 physical
+    realization are separate authorities. Only M6 may finally set digital_twin_ready
+    and production_activation true.
     """
 
     assembly = _assembly_gate(_mapping(assembly_receipt, "Person assembly receipt"))
@@ -239,6 +283,7 @@ def inspect_digital_twin_status(
         hands_nails_authority=hands_nails_authority,
         wardrobe_authority=wardrobe_authority,
     )
+    platform_acceptance = _platform_acceptance_gate(platform_acceptance_status)
 
     gates = {
         "person_assembly": {"ready": True, "state": "complete", "blockers": []},
@@ -249,6 +294,7 @@ def inspect_digital_twin_status(
         "hands_feet_nails": hands_nails,
         "wardrobe": wardrobe,
         "embodiment": embodiment,
+        "platform_acceptance": platform_acceptance,
     }
     blockers = [blocker for gate in gates.values() for blocker in gate["blockers"]]
     release_eligible = all(gate["ready"] for gate in gates.values())
@@ -261,6 +307,8 @@ def inspect_digital_twin_status(
         next_gate = "embodiment"
     elif not body_ready:
         next_gate = "body_physical_release"
+    elif not platform_acceptance["ready"]:
+        next_gate = "digital_twin_platform_acceptance"
     else:
         next_gate = "digital_twin_final_release"
 
@@ -279,7 +327,7 @@ def inspect_digital_twin_status(
         "blockers": blockers,
         "next_gate": next_gate,
         "message": (
-            "All subsystem authorities are complete; a separate canonical digital-twin final release is still required."
+            "M1-M5 authorities are complete; a separate canonical M6 digital-twin final release is still required."
             if release_eligible
             else "Avatar/body authority is not sufficient for a full digital twin; missing twin authorities remain blocked."
         ),
