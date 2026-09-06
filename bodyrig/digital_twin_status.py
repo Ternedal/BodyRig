@@ -384,7 +384,7 @@ def inspect_digital_twin_status(
         "digital_twin_release_eligible": release_eligible,
         "digital_twin_ready": digital_twin_ready,
         "production_activation": digital_twin_ready,
-        "final_release_implemented": True,
+        "final_release_implemented": final_release["ready"],
         "gates": gates,
         "blockers": blockers,
         "next_gate": next_gate,
