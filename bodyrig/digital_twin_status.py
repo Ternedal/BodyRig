@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from .embodiment_authority import EmbodimentAuthorityError, validate_authority_structure as validate_embodiment_authority
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
     validate_release_authority_structure as validate_hands_nails_release_authority,
@@ -70,29 +71,6 @@ def _assembly_gate(receipt: Mapping[str, Any]) -> dict[str, Any]:
         "voice_revision": voice_revision,
         "personality_revision": personality_revision,
         "audition_id": audition_id,
-    }
-
-
-def _bool_gate(authority: Mapping[str, Any] | None, *, label: str, fields: tuple[str, ...]) -> dict[str, Any]:
-    if authority is None:
-        return {
-            "ready": False,
-            "state": "missing",
-            "blockers": [f"{label} authority is not implemented/recorded"],
-        }
-    value = _mapping(authority, label)
-    blockers: list[str] = []
-    if value.get("state") != "complete":
-        blockers.append(f"{label} state is not complete")
-    for field in fields:
-        if value.get(field) is not True:
-            blockers.append(f"{label} did not pass {field}")
-    if value.get("production_activation") is not False:
-        blockers.append(f"{label} component authority must remain non-activating before final digital-twin release")
-    return {
-        "ready": not blockers,
-        "state": "complete" if not blockers else "blocked",
-        "blockers": blockers,
     }
 
 
@@ -170,6 +148,42 @@ def _wardrobe_gate(
     }
 
 
+def _embodiment_gate(
+    authority: Mapping[str, Any] | None,
+    *,
+    assembly_receipt: Mapping[str, Any],
+    body_release_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    if authority is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["Person embodiment finalized authority is not implemented/recorded"],
+        }
+    try:
+        value = validate_embodiment_authority(
+            authority,
+            assembly_receipt=assembly_receipt,
+            body_release_status=body_release_status,
+        )
+    except EmbodimentAuthorityError as exc:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": [f"Person embodiment finalized authority is invalid: {exc}"],
+        }
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "authority_id": str(value["authority_id"]),
+        "utterance_id": str(value["utterance_id"]),
+        "body_package_sha256": str(value["body_package_sha256"]),
+        "voice_package_sha256": str(value["voice_package_sha256"]),
+        "bodyrig_revision": str(value["bodyrig_revision"]),
+    }
+
+
 def inspect_digital_twin_status(
     *,
     assembly_receipt: Mapping[str, Any],
@@ -204,14 +218,10 @@ def inspect_digital_twin_status(
         assembly_receipt=assembly_receipt,
         body_release_status=body_release_status,
     )
-    embodiment = _bool_gate(
+    embodiment = _embodiment_gate(
         embodiment_authority,
-        label="embodiment",
-        fields=(
-            "motion_authority",
-            "expression_authority",
-            "voice_timing_authority",
-        ),
+        assembly_receipt=assembly_receipt,
+        body_release_status=body_release_status,
     )
 
     gates = {
