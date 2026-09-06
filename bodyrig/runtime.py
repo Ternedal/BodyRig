@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from .models import BodyCue, SpeechTiming
 from .motor import resolve_motor_state, resolve_motor_state_v2
+from .speech_timing_evidence import SpeechTimingEvidenceError, build_speech_timing_evidence
 
 
 @dataclass
@@ -16,6 +17,7 @@ class RuntimeState:
     utterance_id: str | None = None
     cue: dict | None = None
     speech: dict | None = None
+    speech_timing_evidence: dict | None = None
     updated_at: float = field(default_factory=time)
 
 
@@ -24,6 +26,12 @@ class BodyRuntime:
         self._lock = RLock()
         self._state = RuntimeState()
         self._bodyprint: dict[str, Any] | None = None
+        self._speech_history: list[dict[str, Any]] = []
+        self._completed_speech_evidence: dict[str, Any] | None = None
+
+    def _reset_speech_evidence(self) -> None:
+        self._speech_history = []
+        self._completed_speech_evidence = None
 
     def activate(self, body_id: str, bodyprint: Mapping[str, Any] | None = None) -> RuntimeState:
         with self._lock:
@@ -34,6 +42,7 @@ class BodyRuntime:
             self._state.utterance_id = None
             self._state.cue = None
             self._state.speech = None
+            self._reset_speech_evidence()
             self._state.updated_at = time()
             return self.snapshot()
 
@@ -44,6 +53,7 @@ class BodyRuntime:
             self._state.utterance_id = cue.utterance_id
             self._state.cue = cue.model_dump(exclude_none=True)
             self._state.speech = None
+            self._reset_speech_evidence()
             self._state.updated_at = time()
             return self.snapshot()
 
@@ -52,10 +62,32 @@ class BodyRuntime:
             if self._state.utterance_id != timing.utterance_id:
                 raise ValueError("speech timing does not match active utterance")
             self._state.speech = timing.model_dump(exclude_none=True)
-            self._state.updated_at = time()
+            self._speech_history.append(timing.model_dump(exclude_none=False))
+            self._completed_speech_evidence = None
             if timing.state == "stop":
+                # Runtime behavior remains backwards compatible even if an old
+                # caller supplied a sequence that is insufficient for M4. In
+                # that case no authority evidence is exposed; M4 fails closed.
+                try:
+                    self._completed_speech_evidence = build_speech_timing_evidence(self._speech_history)
+                except SpeechTimingEvidenceError:
+                    self._completed_speech_evidence = None
                 self._state.utterance_id = None
+            self._state.updated_at = time()
             return self.snapshot()
+
+    def speech_timing_evidence(self) -> dict[str, Any]:
+        """Return canonical evidence for the completed VoiceRig timing sequence.
+
+        The method never invents missing start/update/stop events. A legacy or
+        incomplete runtime sequence remains usable for animation, but it cannot
+        become M4 authority.
+        """
+
+        with self._lock:
+            if self._completed_speech_evidence is None:
+                raise ValueError("no complete canonical VoiceRig speech timing evidence")
+            return deepcopy(self._completed_speech_evidence)
 
     def _motor_inputs(self) -> tuple[str, dict[str, Any], BodyCue, SpeechTiming | None]:
         if self._state.active_body_id is None or self._bodyprint is None:
@@ -97,5 +129,6 @@ class BodyRuntime:
                 utterance_id=self._state.utterance_id,
                 cue=dict(self._state.cue) if self._state.cue else None,
                 speech=dict(self._state.speech) if self._state.speech else None,
+                speech_timing_evidence=deepcopy(self._completed_speech_evidence),
                 updated_at=self._state.updated_at,
             )
