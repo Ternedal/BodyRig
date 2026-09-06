@@ -16,6 +16,7 @@ def test_router_delegates_to_existing_canonical_status_wrappers() -> None:
     assert '"high-fidelity-physical-status.ps1"' in source
     assert '"digital-twin-status.ps1"' in source
     assert '"prepare-first-physical-run.ps1"' in source
+    assert '"prepare-profiled-first-physical-run.ps1"' in source
     assert "Invoke-CanonicalStatus" in source
     assert "[hashtable]$Parameters" in source
     assert "& $Script @Parameters" in source
@@ -42,7 +43,7 @@ def test_router_has_explicit_non_ambiguous_stage_selectors() -> None:
     assert "Physical preflight mode cannot be combined" in source
 
 
-def test_router_routes_performer_bound_preflight_to_canonical_doctor() -> None:
+def test_router_routes_performer_bound_preflight_to_profiled_canonical_doctor() -> None:
     source = _source()
     assert "[string]$PerformerId" in source
     assert "[string]$BodyId" in source
@@ -50,7 +51,7 @@ def test_router_routes_performer_bound_preflight_to_canonical_doctor() -> None:
     assert "$hasPerformer -xor $hasBodyId" in source
     assert "PerformerId = $PerformerId" in source
     assert "BodyId = $BodyId" in source
-    assert "Invoke-CanonicalStatus -Script $firstPhysicalRun -Parameters $parameters" in source
+    assert "Invoke-CanonicalStatus -Script $profiledFirstPhysicalRun -Parameters $parameters" in source
     assert "Physical preflight performer mode does not support -Json" in source
 
 
