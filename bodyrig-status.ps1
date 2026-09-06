@@ -36,9 +36,9 @@ $hasSerial = -not [string]::IsNullOrWhiteSpace($Serial)
 function Invoke-CanonicalStatus {
     param(
         [Parameter(Mandatory = $true)][string]$Script,
-        [Parameter(Mandatory = $true)][object[]]$Arguments
+        [Parameter(Mandatory = $true)][hashtable]$Parameters
     )
-    & $Script @Arguments
+    & $Script @Parameters
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     exit $code
@@ -51,41 +51,41 @@ if ($hasComposition) {
     if ($hasSession -or $hasPreview -or $hasSerial) {
         throw "Digital-twin mode cannot be combined with -SessionReport, -PreviewJobId or -Serial."
     }
-    $arguments = @(
-        "-CompositionAuthorityDir", $CompositionAuthorityDir,
-        "-AcceptanceDir", $AcceptanceDir
-    )
-    if ($hasLibrary) { $arguments += @("-LibraryRoot", $LibraryRoot) }
-    if ($Json) { $arguments += "-Json" }
-    Invoke-CanonicalStatus -Script $digitalTwinStatus -Arguments $arguments
+    $parameters = @{
+        CompositionAuthorityDir = $CompositionAuthorityDir
+        AcceptanceDir = $AcceptanceDir
+    }
+    if ($hasLibrary) { $parameters.LibraryRoot = $LibraryRoot }
+    if ($Json) { $parameters.Json = $true }
+    Invoke-CanonicalStatus -Script $digitalTwinStatus -Parameters $parameters
 }
 
 if ($hasPreview) {
     if ($hasSession -or $hasAcceptance -or $hasComposition -or $hasLibrary) {
         throw "High-fidelity preview mode cannot be combined with session, acceptance, composition or library arguments."
     }
-    $arguments = @("-PreviewJobId", $PreviewJobId)
-    if ($hasSerial) { $arguments += @("-Serial", $Serial) }
-    if ($Json) { $arguments += "-Json" }
-    Invoke-CanonicalStatus -Script $highFidelityStatus -Arguments $arguments
+    $parameters = @{ PreviewJobId = $PreviewJobId }
+    if ($hasSerial) { $parameters.Serial = $Serial }
+    if ($Json) { $parameters.Json = $true }
+    Invoke-CanonicalStatus -Script $highFidelityStatus -Parameters $parameters
 }
 
 if ($hasSession) {
     if ($hasAcceptance -or $hasComposition -or $hasPreview -or $hasLibrary -or $hasSerial) {
         throw "Physical session mode accepts only -SessionReport (plus -Json)."
     }
-    $arguments = @("-SessionReport", $SessionReport)
-    if ($Json) { $arguments += "-Json" }
-    Invoke-CanonicalStatus -Script $physicalStatus -Arguments $arguments
+    $parameters = @{ SessionReport = $SessionReport }
+    if ($Json) { $parameters.Json = $true }
+    Invoke-CanonicalStatus -Script $physicalStatus -Parameters $parameters
 }
 
 if ($hasAcceptance) {
     if ($hasComposition -or $hasPreview -or $hasLibrary -or $hasSerial) {
         throw "Physical acceptance mode accepts only -AcceptanceDir (plus -Json)."
     }
-    $arguments = @("-AcceptanceDir", $AcceptanceDir)
-    if ($Json) { $arguments += "-Json" }
-    Invoke-CanonicalStatus -Script $physicalStatus -Arguments $arguments
+    $parameters = @{ AcceptanceDir = $AcceptanceDir }
+    if ($Json) { $parameters.Json = $true }
+    Invoke-CanonicalStatus -Script $physicalStatus -Parameters $parameters
 }
 
 if ($hasLibrary -or $hasSerial) {
