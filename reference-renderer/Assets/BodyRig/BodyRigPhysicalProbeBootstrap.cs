@@ -67,11 +67,14 @@ namespace BodyRig.ReferenceRenderer
             var rendererName = GetArgument(RendererNameArg) ?? "BodyRig Reference Renderer";
             var rendererVersion = GetArgument(RendererVersionArg) ?? "reference-v1/univrm-0.131.2";
 
-            var digitalTwinInput = GetArgument(DigitalTwinInputArg);
-            var digitalTwinAuthority = GetArgument(DigitalTwinAuthorityArg);
-            var digitalTwinEmbodiment = GetArgument(DigitalTwinEmbodimentArg);
-            var digitalTwinMotorState = GetArgument(DigitalTwinMotorStateArg);
-            var digitalTwinOutput = GetArgument(DigitalTwinOutputArg);
+            var digitalTwinDefaultRoot = Path.Combine(defaultRoot, "digital-twin");
+            var digitalTwinDefaultInput = Path.Combine(digitalTwinDefaultRoot, "platform-input.json");
+            var hasDefaultDigitalTwinInput = File.Exists(digitalTwinDefaultInput);
+            var digitalTwinInput = GetArgument(DigitalTwinInputArg) ?? (hasDefaultDigitalTwinInput ? digitalTwinDefaultInput : null);
+            var digitalTwinAuthority = GetArgument(DigitalTwinAuthorityArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "composition-authority.json") : null);
+            var digitalTwinEmbodiment = GetArgument(DigitalTwinEmbodimentArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "embodiment-probe.json") : null);
+            var digitalTwinMotorState = GetArgument(DigitalTwinMotorStateArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "motor-state.json") : null);
+            var digitalTwinOutput = GetArgument(DigitalTwinOutputArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "realization.json") : null);
             var digitalTwinRequested =
                 !string.IsNullOrWhiteSpace(digitalTwinInput) ||
                 !string.IsNullOrWhiteSpace(digitalTwinAuthority) ||
@@ -85,7 +88,7 @@ namespace BodyRig.ReferenceRenderer
                  string.IsNullOrWhiteSpace(digitalTwinMotorState) ||
                  string.IsNullOrWhiteSpace(digitalTwinOutput)))
             {
-                throw new InvalidDataException("M5 digital-twin realization requires all five digital-twin evidence arguments");
+                throw new InvalidDataException("M5 digital-twin realization requires all five digital-twin evidence files");
             }
 
             _status = "Loading accepted BodyRig runtime...\n" + manifestPath;
