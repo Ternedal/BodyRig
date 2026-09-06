@@ -5,6 +5,8 @@ param(
     [string]$CompositionAuthorityDir = "",
     [string]$LibraryRoot = "",
     [string]$Serial = "",
+    [string]$PerformerId = "",
+    [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')][string]$BodyId = "",
     [switch]$Json
 )
 
@@ -32,6 +34,8 @@ $hasPreview = -not [string]::IsNullOrWhiteSpace($PreviewJobId)
 $hasComposition = -not [string]::IsNullOrWhiteSpace($CompositionAuthorityDir)
 $hasLibrary = -not [string]::IsNullOrWhiteSpace($LibraryRoot)
 $hasSerial = -not [string]::IsNullOrWhiteSpace($Serial)
+$hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
+$hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
 
 function Invoke-CanonicalStatus {
     param(
@@ -42,6 +46,23 @@ function Invoke-CanonicalStatus {
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 0 }
     exit $code
+}
+
+if ($hasPerformer -xor $hasBodyId) {
+    throw "Physical preflight requires -PerformerId and -BodyId together, or neither."
+}
+if ($hasPerformer -and $hasBodyId) {
+    if ($hasSession -or $hasAcceptance -or $hasPreview -or $hasComposition -or $hasLibrary -or $hasSerial) {
+        throw "Physical preflight mode cannot be combined with session, acceptance, high-fidelity, composition, library or serial arguments."
+    }
+    if ($Json) {
+        throw "Physical preflight performer mode does not support -Json because the canonical rig/source doctor has human-readable output."
+    }
+    $parameters = @{
+        PerformerId = $PerformerId
+        BodyId = $BodyId
+    }
+    Invoke-CanonicalStatus -Script $firstPhysicalRun -Parameters $parameters
 }
 
 if ($hasComposition) {
