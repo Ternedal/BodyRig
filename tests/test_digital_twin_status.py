@@ -1,4 +1,9 @@
 from bodyrig.digital_twin_status import DigitalTwinStatusError, inspect_digital_twin_status
+from bodyrig.embodiment_authority import (
+    FORMAT as EMBODIMENT_FORMAT,
+    POLICY_REVISION as EMBODIMENT_POLICY,
+    _authority_id as _embodiment_authority_id,
+)
 from bodyrig.hands_feet_nails_authority import (
     CHECKLIST_FIELDS,
     FORMAT as REVIEW_FORMAT,
@@ -220,8 +225,53 @@ def _wardrobe() -> dict:
 
 
 def _embodiment() -> dict:
+    bodyprint_sha = "6" * 64
+    motor_sha = "7" * 64
+    timing_sha = "8" * 64
+    authority_id = _embodiment_authority_id(
+        assembly_fingerprint=SHA_A,
+        body_package_sha256=SHA_G,
+        bodyprint_sha256=bodyprint_sha,
+        motor_state_sha256=motor_sha,
+        speech_timing_sha256=timing_sha,
+        audition_receipt_sha256=SHA_F,
+        bodyrig_revision=BODYRIG_REVISION,
+    )
     return {
+        "format": EMBODIMENT_FORMAT,
+        "version": 1,
+        "policy_revision": EMBODIMENT_POLICY,
+        "authority_id": authority_id,
+        "person_id": PERSON_ID,
+        "person_revision": PERSON_REVISION,
+        "assembly_fingerprint": SHA_A,
+        "assembly_receipt_sha256": "9" * 64,
+        "body_revision": BODY_REVISION,
+        "body_id": BODY_ID,
+        "body_package_sha256": SHA_G,
+        "bodyprint_sha256": bodyprint_sha,
+        "voice_revision": "voice-r0001",
+        "voice_id": "voice-0123456789abcdef0123456789abcdef",
+        "voice_package_sha256": SHA_C,
+        "personality_revision": "personality-r0001",
+        "audition_id": "audition-0123456789abcdef0123456789abcdef",
+        "audition_receipt_sha256": SHA_F,
+        "audition_audio_sha256": "0" * 64,
+        "modelrig_version": "modelrig-test-1",
+        "voicerig_version": "voicerig-test-1",
+        "bodyrig_revision": BODYRIG_REVISION,
+        "utterance_id": "utt-001",
+        "motor_state_sha256": motor_sha,
+        "speech_timing_sha256": timing_sha,
+        "motor_state_version": 2,
+        "speech_event_count": 3,
+        "observed_motion_fields": ["energy", "head_motion"],
+        "observed_expression_fields": ["gaze_strength", "speech_motion"],
+        "articulation_signal_observed": True,
+        "reviewed_utc": "2026-09-06T06:30:00Z",
+        "quality_note": "Observed motion, expression and voice timing were reviewed together.",
         "state": "complete",
+        "operator_supplied": True,
         "motion_authority": True,
         "expression_authority": True,
         "voice_timing_authority": True,
@@ -244,9 +294,10 @@ def test_body_release_alone_is_not_a_full_digital_twin() -> None:
 def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
     hands = _hands_nails()
     wardrobe = _wardrobe()
+    embodiment = _embodiment()
     status = inspect_digital_twin_status(
         assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=hands,
-        wardrobe_authority=wardrobe, embodiment_authority=_embodiment(),
+        wardrobe_authority=wardrobe, embodiment_authority=embodiment,
     )
     assert status["avatar_ready"] is True
     assert status["digital_twin_release_eligible"] is True
@@ -257,6 +308,8 @@ def test_all_subsystem_authorities_only_make_twin_release_eligible() -> None:
     assert status["gates"]["hands_feet_nails"]["release_id"] == hands["release_id"]
     assert status["gates"]["wardrobe"]["release_id"] == wardrobe["release_id"]
     assert status["gates"]["wardrobe"]["footwear_present"] is True
+    assert status["gates"]["embodiment"]["authority_id"] == embodiment["authority_id"]
+    assert status["gates"]["embodiment"]["utterance_id"] == "utt-001"
 
 
 def test_nails_cannot_be_incidental_texture_only() -> None:
@@ -353,6 +406,36 @@ def test_wardrobe_footwear_review_is_required_when_present() -> None:
     assert status["digital_twin_release_eligible"] is False
     assert status["next_gate"] == "wardrobe"
     assert any("footwear" in blocker for blocker in status["blockers"])
+
+
+def test_loose_boolean_embodiment_dict_cannot_satisfy_m4() -> None:
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=_wardrobe(),
+        embodiment_authority={
+            "state": "complete",
+            "motion_authority": True,
+            "expression_authority": True,
+            "voice_timing_authority": True,
+            "production_activation": False,
+        },
+    )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["next_gate"] == "embodiment"
+    assert status["gates"]["embodiment"]["state"] == "blocked"
+    assert any("finalized authority" in blocker for blocker in status["blockers"])
+
+
+def test_embodiment_cannot_activate_production_independently() -> None:
+    embodiment = _embodiment()
+    embodiment["production_activation"] = True
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(), body_release_status=_body_release(), hands_nails_authority=_hands_nails(),
+        wardrobe_authority=_wardrobe(), embodiment_authority=embodiment,
+    )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["next_gate"] == "embodiment"
+    assert any("embodiment" in blocker.lower() for blocker in status["blockers"])
 
 
 def test_legacy_person_assembly_receipt_is_not_twin_authority() -> None:
