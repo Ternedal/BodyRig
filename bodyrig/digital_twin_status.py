@@ -7,6 +7,7 @@ from .digital_twin_composition_authority import (
     DigitalTwinCompositionAuthorityError,
     validate_composition_authority_structure,
 )
+from .digital_twin_release import DigitalTwinReleaseError, validate_release_authority_structure as validate_final_release
 from .hands_feet_nails_release_authority import (
     HandsFeetNailsReleaseAuthorityError,
     validate_release_authority_structure as validate_hands_nails_release_authority,
@@ -240,6 +241,50 @@ def _platform_acceptance_gate(status: Mapping[str, Any] | None) -> dict[str, Any
     }
 
 
+def _final_release_gate(
+    authority: Mapping[str, Any] | None,
+    *,
+    composition_authority: Mapping[str, Any] | None,
+    platform_acceptance_status: Mapping[str, Any] | None,
+    body_release_status: Mapping[str, Any],
+) -> dict[str, Any]:
+    if authority is None:
+        return {
+            "ready": False,
+            "state": "missing",
+            "blockers": ["canonical M6 full digital-twin release is not finalized/recorded"],
+        }
+    if composition_authority is None or platform_acceptance_status is None:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": ["M6 release cannot validate without exact M4 composition and M5 platform status"],
+        }
+    try:
+        value = validate_final_release(
+            authority,
+            composition_authority=composition_authority,
+            platform_acceptance_status=platform_acceptance_status,
+            body_release_status=body_release_status,
+        )
+    except DigitalTwinReleaseError as exc:
+        return {
+            "ready": False,
+            "state": "blocked",
+            "blockers": [f"canonical M6 full digital-twin release is invalid: {exc}"],
+        }
+    return {
+        "ready": True,
+        "state": "complete",
+        "blockers": [],
+        "release_id": str(value["release_id"]),
+        "body_package_sha256": str(value["body_package_sha256"]),
+        "windows_realization_sha256": str(value["windows_realization_sha256"]),
+        "quest_realization_sha256": str(value["quest_realization_sha256"]),
+        "bodyrig_revision": str(value["bodyrig_revision"]),
+    }
+
+
 def inspect_digital_twin_status(
     *,
     assembly_receipt: Mapping[str, Any],
@@ -248,12 +293,12 @@ def inspect_digital_twin_status(
     wardrobe_authority: Mapping[str, Any] | None = None,
     embodiment_authority: Mapping[str, Any] | None = None,
     platform_acceptance_status: Mapping[str, Any] | None = None,
+    final_release_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compose current Person/body authority into the stricter full-digital-twin product gate.
+    """Compose the complete BodyRig full-digital-twin release state.
 
-    This is intentionally fail-closed. Body release, M4 composition and M5 physical
-    realization are separate authorities. Only M6 may finally set digital_twin_ready
-    and production_activation true.
+    M1-M5 make the Person Revision eligible for final release. Only a valid M6
+    canonical release authority may set digital_twin_ready and production_activation.
     """
 
     assembly = _assembly_gate(_mapping(assembly_receipt, "Person assembly receipt"))
@@ -285,7 +330,7 @@ def inspect_digital_twin_status(
     )
     platform_acceptance = _platform_acceptance_gate(platform_acceptance_status)
 
-    gates = {
+    pre_release_gates = {
         "person_assembly": {"ready": True, "state": "complete", "blockers": []},
         "body": {"ready": body_ready, "state": "complete" if body_ready else "blocked", "blockers": body_blockers},
         "voice": {"ready": True, "state": "complete", "blockers": []},
@@ -296,8 +341,16 @@ def inspect_digital_twin_status(
         "embodiment": embodiment,
         "platform_acceptance": platform_acceptance,
     }
+    release_eligible = all(gate["ready"] for gate in pre_release_gates.values())
+    final_release = _final_release_gate(
+        final_release_authority,
+        composition_authority=embodiment_authority,
+        platform_acceptance_status=platform_acceptance_status,
+        body_release_status=body_release_status,
+    )
+    gates = {**pre_release_gates, "final_release": final_release}
     blockers = [blocker for gate in gates.values() for blocker in gate["blockers"]]
-    release_eligible = all(gate["ready"] for gate in gates.values())
+    digital_twin_ready = release_eligible and final_release["ready"]
 
     if not hands_nails["ready"]:
         next_gate = "hands_feet_nails"
@@ -309,8 +362,17 @@ def inspect_digital_twin_status(
         next_gate = "body_physical_release"
     elif not platform_acceptance["ready"]:
         next_gate = "digital_twin_platform_acceptance"
-    else:
+    elif not final_release["ready"]:
         next_gate = "digital_twin_final_release"
+    else:
+        next_gate = "complete"
+
+    if digital_twin_ready:
+        message = "Canonical M6 full digital-twin release is active for this exact Person Revision."
+    elif release_eligible:
+        message = "M1-M5 authorities are complete; canonical M6 digital-twin final release is required."
+    else:
+        message = "Avatar/body authority is not sufficient for a full digital twin; missing twin authorities remain blocked."
 
     return {
         "format": FORMAT,
@@ -320,15 +382,11 @@ def inspect_digital_twin_status(
         "assembly_fingerprint": assembly["assembly_fingerprint"],
         "avatar_ready": body_ready,
         "digital_twin_release_eligible": release_eligible,
-        "digital_twin_ready": False,
-        "production_activation": False,
-        "final_release_implemented": False,
+        "digital_twin_ready": digital_twin_ready,
+        "production_activation": digital_twin_ready,
+        "final_release_implemented": True,
         "gates": gates,
         "blockers": blockers,
         "next_gate": next_gate,
-        "message": (
-            "M1-M5 authorities are complete; a separate canonical M6 digital-twin final release is still required."
-            if release_eligible
-            else "Avatar/body authority is not sufficient for a full digital twin; missing twin authorities remain blocked."
-        ),
+        "message": message,
     }
