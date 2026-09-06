@@ -18,6 +18,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--composition-authority-dir", required=True)
     parser.add_argument("--acceptance-dir", required=True)
     parser.add_argument("--library-root", default=None)
+    parser.add_argument(
+        "--operator-root",
+        default=None,
+        help="BodyRig Git checkout used only to authorize an executable next command.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -25,13 +30,14 @@ def main(argv: list[str] | None = None) -> int:
             composition_authority_dir=args.composition_authority_dir,
             acceptance_dir=args.acceptance_dir,
             library_root=args.library_root or person_library(),
+            operator_root=args.operator_root,
         )
     except (DigitalTwinOperatorStatusError, OSError, ValueError) as exc:
         print(f"BodyRig digital-twin operator status: FAIL: {exc}", file=sys.stderr)
         return 1
 
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
-    return 1 if result.get("state") == "invalid" else 0
+    return 3 if result.get("state") in {"blocked", "invalid"} else 0
 
 
 if __name__ == "__main__":
