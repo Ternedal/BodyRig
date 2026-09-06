@@ -215,7 +215,7 @@ namespace BodyRig.ReferenceRenderer
                         wardrobeEntries.Add(new SnapshotEntry { view = pose.Name, file = filename, sha256 = Sha256(bytes), width = 1024, height = 1024 });
                     }
 
-                    CaptureFaceSecondaryMouthOpen(loader.Active, camera, root, faceTarget, height);
+                    CaptureFaceSecondaryMouthOpen(loader.Active.gameObject, camera, root, faceTarget, height);
                 }
                 finally
                 {
