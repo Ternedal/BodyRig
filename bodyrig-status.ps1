@@ -22,7 +22,8 @@ $physicalStatus = Join-Path $repoRoot "physical-acceptance-status.ps1"
 $highFidelityStatus = Join-Path $repoRoot "high-fidelity-physical-status.ps1"
 $digitalTwinStatus = Join-Path $repoRoot "digital-twin-status.ps1"
 $firstPhysicalRun = Join-Path $repoRoot "prepare-first-physical-run.ps1"
-foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun)) {
+$profiledFirstPhysicalRun = Join-Path $repoRoot "prepare-profiled-first-physical-run.ps1"
+foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Canonical BodyRig operator dependency is missing: $required"
     }
@@ -62,7 +63,7 @@ if ($hasPerformer -and $hasBodyId) {
         PerformerId = $PerformerId
         BodyId = $BodyId
     }
-    Invoke-CanonicalStatus -Script $firstPhysicalRun -Parameters $parameters
+    Invoke-CanonicalStatus -Script $profiledFirstPhysicalRun -Parameters $parameters
 }
 
 if ($hasComposition) {
