@@ -89,6 +89,14 @@ def test_exact_score_bridge_calls_the_same_production_anatomy_bake() -> None:
     assert "humanFidelityPass\": False" in source
 
 
+def test_exact_score_converts_numpy_donor_to_torch_before_production_bake() -> None:
+    source = (BRIDGES / "sith_exact_anatomy_bake_score.py").read_text(encoding="utf-8")
+    assert "donor_positions_np = np.asarray(" in source
+    assert "donor_tensor = torch.tensor(donor_positions_np" in source
+    assert "donor_positions=donor_tensor" in source
+    assert "donor_positions=donor_positions_np" not in source
+
+
 def test_exact_score_windows_operator_avoids_powershell_home_collision() -> None:
     source = (ROOT / "score-exact-anatomy-bake.ps1").read_text(encoding="utf-8")
     lowered = source.lower()
