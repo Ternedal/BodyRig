@@ -70,11 +70,18 @@ def _m5_command(platform: str, *, root: Path | None, composition_dir: Path, acce
     )
 
 
-def _m6_command(*, root: Path | None, composition_dir: Path, acceptance_dir: Path) -> str:
+def _m6_command(
+    *,
+    root: Path | None,
+    composition_dir: Path,
+    acceptance_dir: Path,
+    library_root: Path,
+) -> str:
     return (
         f"{_script_invocation('finalize-digital-twin-release.ps1', root)} "
         f"-CompositionAuthorityDir {_ps_quote(composition_dir)} "
-        f"-AcceptanceDir {_ps_quote(acceptance_dir)}"
+        f"-AcceptanceDir {_ps_quote(acceptance_dir)} "
+        f"-LibraryRoot {_ps_quote(library_root)}"
     )
 
 
@@ -144,6 +151,35 @@ def _bind_actionable_checkout(
             f"BodyRig operator checkout is dirty. Digital-twin physical/release commands require exact clean revision {head}.",
         )
     return state, next_gate, next_command, message
+
+
+def _physical_identity_error(physical: Any, composition: dict[str, Any], revision: str) -> str | None:
+    physical_body = str(getattr(physical, "body_id", "") or "").strip()
+    composition_body = str(composition.get("body_id") or "").strip()
+    if physical_body and physical_body != composition_body:
+        return (
+            f"Canonical physical acceptance belongs to body {physical_body}, but M4 composition binds {composition_body}."
+        )
+    physical_revision = str(getattr(physical, "bodyrig_revision", "") or "").strip().lower()
+    if physical_revision and physical_revision != revision:
+        return (
+            f"Canonical physical acceptance revision {physical_revision} does not match M4 composition revision {revision}."
+        )
+    return None
+
+
+def _unsafe_m5_platform(m5_status: dict[str, Any]) -> tuple[str, str, str] | None:
+    platforms = m5_status.get("platforms")
+    if not isinstance(platforms, dict):
+        return "unknown", "invalid", "M5 platform status is not a canonical mapping"
+    for platform in ("windows-unity-univrm", "android-quest-class"):
+        value = platforms.get(platform)
+        if not isinstance(value, dict):
+            return platform, "invalid", "M5 platform status is missing"
+        state = str(value.get("state") or "")
+        if state in {"invalid", "blocked"}:
+            return platform, state, str(value.get("message") or "M5 platform authority is not safely actionable")
+    return None
 
 
 def inspect_operator_status(
@@ -252,10 +288,18 @@ def inspect_operator_status(
     state = "complete" if twin.get("digital_twin_ready") is True else "required"
     message = str(twin.get("message") or "")
 
+    physical_identity_error = _physical_identity_error(physical, composition, revision)
+    unsafe_m5 = _unsafe_m5_platform(m5_status) if physical_complete else None
+
     if final_release_error is not None:
         state = "invalid"
         next_command = None
         message = f"Canonical M6 readback/preflight is invalid: {final_release_error}"
+    elif physical_identity_error is not None:
+        state = "invalid"
+        next_gate = "body_physical_identity"
+        next_command = None
+        message = physical_identity_error
     elif not physical_complete:
         state = "invalid" if physical.state == "blocked" else "required"
         next_gate = f"body_physical:{physical.gate}"
@@ -263,6 +307,12 @@ def inspect_operator_status(
             physical = _operator_command(physical, root)
             next_command = physical.next_command
         message = physical.message
+    elif unsafe_m5 is not None:
+        platform, platform_state, detail = unsafe_m5
+        state = "invalid" if platform_state == "invalid" else "blocked"
+        next_gate = "digital_twin_platform_acceptance"
+        next_command = None
+        message = f"M5 platform authority is {platform_state} for {platform}: {detail}"
     elif m5_status.get("m5_ready") is not True:
         m5_next = str(m5_status.get("next_gate") or "")
         platform = m5_next.split(":", 1)[1] if m5_next.startswith("m5:") else ""
@@ -289,12 +339,22 @@ def inspect_operator_status(
     elif final_release_authority is None:
         next_gate = "digital_twin_final_release"
         state = "required"
-        next_command = _m6_command(root=root, composition_dir=composition_dir, acceptance_dir=acceptance)
+        next_command = _m6_command(
+            root=root,
+            composition_dir=composition_dir,
+            acceptance_dir=acceptance,
+            library_root=library,
+        )
         message = "M1-M5 are complete for the exact lineage; canonical M6 finalization is the next required action."
-    else:
+    elif twin.get("digital_twin_ready") is True and twin.get("production_activation") is True:
         next_gate = "complete"
         state = "complete"
         next_command = None
+    else:
+        state = "invalid"
+        next_gate = str(twin.get("next_gate") or "digital_twin_final_release")
+        next_command = None
+        message = str(twin.get("message") or "Canonical M6 authority exists, but the composed digital twin is not ready.")
 
     state, next_gate, next_command, message = _bind_actionable_checkout(
         root=root,
@@ -316,6 +376,7 @@ def inspect_operator_status(
         "bodyrig_revision": revision,
         "composition_authority_id": str(composition.get("authority_id") or ""),
         "operator_root": str(root) if root is not None else None,
+        "library_root": str(library),
         "m5_ready": m5_status.get("m5_ready") is True,
         "expected_m6_release_id": expected_release_id,
         "m6_authority_path": final_release_path,

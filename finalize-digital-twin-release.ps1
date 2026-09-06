@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$CompositionAuthorityDir,
-    [Parameter(Mandatory = $true)][string]$AcceptanceDir
+    [Parameter(Mandatory = $true)][string]$AcceptanceDir,
+    [string]$LibraryRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +31,9 @@ function Resolve-BodyRigPython {
 $script:RepoRoot = (Resolve-Path $PSScriptRoot).Path
 $CompositionAuthorityDir = [System.IO.Path]::GetFullPath($CompositionAuthorityDir)
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
+if (-not [string]::IsNullOrWhiteSpace($LibraryRoot)) {
+    $LibraryRoot = [System.IO.Path]::GetFullPath($LibraryRoot)
+}
 if (-not (Test-Path -LiteralPath $CompositionAuthorityDir -PathType Container)) { throw "M4 composition authority directory not found: $CompositionAuthorityDir" }
 if (-not (Test-Path -LiteralPath $AcceptanceDir -PathType Container)) { throw "Canonical physical acceptance directory not found: $AcceptanceDir" }
 
@@ -79,10 +83,16 @@ try {
         throw "Python imported BodyRig outside the current checkout: $imported"
     }
 
-    & $python -m bodyrig.digital_twin_release_cli `
-        --composition-authority-dir $CompositionAuthorityDir `
-        --acceptance-dir $AcceptanceDir `
-        --bodyrig-revision $currentHead
+    $releaseArgs = @(
+        "-m", "bodyrig.digital_twin_release_cli",
+        "--composition-authority-dir", $CompositionAuthorityDir,
+        "--acceptance-dir", $AcceptanceDir,
+        "--bodyrig-revision", $currentHead
+    )
+    if (-not [string]::IsNullOrWhiteSpace($LibraryRoot)) {
+        $releaseArgs += @("--library-root", $LibraryRoot)
+    }
+    & $python @releaseArgs
     if ($LASTEXITCODE -ne 0) { throw "Canonical M6 digital-twin finalization failed." }
 }
 finally {
