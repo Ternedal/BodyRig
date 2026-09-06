@@ -30,12 +30,28 @@ def test_router_has_explicit_non_ambiguous_stage_selectors() -> None:
         "$hasComposition",
         "$hasLibrary",
         "$hasSerial",
+        "$hasPerformer",
+        "$hasBodyId",
     ):
         assert selector in source
     assert "-CompositionAuthorityDir requires -AcceptanceDir" in source
     assert "High-fidelity preview mode cannot be combined" in source
     assert "Physical session mode accepts only -SessionReport" in source
     assert "Physical acceptance mode accepts only -AcceptanceDir" in source
+    assert "Physical preflight requires -PerformerId and -BodyId together" in source
+    assert "Physical preflight mode cannot be combined" in source
+
+
+def test_router_routes_performer_bound_preflight_to_canonical_doctor() -> None:
+    source = _source()
+    assert "[string]$PerformerId" in source
+    assert "[string]$BodyId" in source
+    assert "^[a-z0-9æøå_-]{1,160}$" in source
+    assert "$hasPerformer -xor $hasBodyId" in source
+    assert "PerformerId = $PerformerId" in source
+    assert "BodyId = $BodyId" in source
+    assert "Invoke-CanonicalStatus -Script $firstPhysicalRun -Parameters $parameters" in source
+    assert "Physical preflight performer mode does not support -Json" in source
 
 
 def test_router_preserves_stage_specific_operator_inputs() -> None:
