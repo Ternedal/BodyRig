@@ -4,6 +4,7 @@ import pytest
 
 from bodyrig.appearance_bake_diagnostics import (
     ANATOMY_METHOD,
+    BAKE_RETRY_COSINE,
     AppearanceBakeDiagnosticsError,
     classify_appearance_transfer,
 )
@@ -16,7 +17,7 @@ def appearance(**overrides: float | str | bool) -> dict:
         "nearestSourceSurfaceDistanceP95": 0.012,
         "nearestSourceSurfaceDistanceMax": 0.041,
         "normalAlignmentMean": 0.91,
-        "normalAlignmentP05": 0.55,
+        "normalAlignmentP05": 0.82,
         "normalLowAlignmentRatio": 0.01,
         "normalRetryTexelRatio": 0.02,
         "occupiedTexelRatio": 0.667572,
@@ -29,6 +30,7 @@ def appearance(**overrides: float | str | bool) -> dict:
 def test_nominal_anatomy_bake_diagnostics_never_claim_human_pass() -> None:
     result = classify_appearance_transfer(appearance())
 
+    assert BAKE_RETRY_COSINE == 0.75
     assert result["diagnostic_risk"] == "nominal"
     assert result["reasons"] == []
     assert result["manual_review_required"] is True
@@ -36,9 +38,29 @@ def test_nominal_anatomy_bake_diagnostics_never_claim_human_pass() -> None:
     assert result["metrics"]["surface_distance_p95_body_ratio"] == 0.006
 
 
+def test_lauren_observed_correspondence_metrics_force_review() -> None:
+    result = classify_appearance_transfer(
+        appearance(
+            bodyScale=1.934992,
+            nearestSourceSurfaceDistanceP95=0.035545,
+            nearestSourceSurfaceDistanceMax=0.105715,
+            normalAlignmentMean=0.899489,
+            normalAlignmentP05=0.554357,
+            normalLowAlignmentRatio=0.04482,
+            normalRetryTexelRatio=0.060553,
+            occupiedTexelRatio=0.739595,
+            paddedTexelRatio=0.827693,
+        )
+    )
+
+    assert result["diagnostic_risk"] == "review"
+    assert result["human_fidelity_pass"] is False
+    assert any("p05" in reason or "source-surface" in reason for reason in result["reasons"])
+
+
 def test_low_normal_alignment_forces_review() -> None:
     result = classify_appearance_transfer(
-        appearance(normalAlignmentP05=0.30, normalLowAlignmentRatio=0.08)
+        appearance(normalAlignmentP05=0.55, normalLowAlignmentRatio=0.08)
     )
 
     assert result["diagnostic_risk"] == "review"

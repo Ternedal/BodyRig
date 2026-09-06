@@ -18,8 +18,12 @@ from sith_anatomy_bake_metadata import (  # noqa: E402
 )
 from sith_anatomy_texture_bake import (  # noqa: E402
     AnatomyTextureBakeError,
+    NORMAL_RETRY_COSINE,
     REGION_INDEX,
+    SURFACE_RETRY_BODY_RATIO,
     appearance_joint_region,
+    candidate_needs_retry,
+    dominant_source_face_regions,
     normal_candidate_score,
     source_face_region_memberships,
 )
@@ -125,6 +129,20 @@ def test_source_faces_keep_only_regions_exposed_by_their_vertices() -> None:
     ]
 
 
+def test_source_faces_require_two_of_three_vertices_for_runtime_region_authority() -> None:
+    regions = dominant_source_face_regions(
+        [
+            REGION_INDEX["torso"],
+            REGION_INDEX["left_arm"],
+            REGION_INDEX["left_arm"],
+            REGION_INDEX["right_leg"],
+        ],
+        [(0, 1, 2), (0, 2, 3)],
+    )
+
+    assert regions == [REGION_INDEX["left_arm"], None]
+
+
 def test_source_face_region_membership_rejects_invalid_indices() -> None:
     with pytest.raises(AnatomyTextureBakeError, match="outside range"):
         source_face_region_memberships([REGION_INDEX["torso"]], [(0, 1, 0)])
@@ -135,6 +153,18 @@ def test_normal_alignment_can_beat_a_closer_opposite_surface() -> None:
     opposite = normal_candidate_score(distance=0.005, alignment=-1.0, body_scale=2.0, offset=0.0)
 
     assert aligned < opposite
+
+
+def test_candidate_retry_triggers_before_lauren_observed_smear_quality() -> None:
+    body_scale = 1.934992
+    assert NORMAL_RETRY_COSINE > 0.554357
+    assert candidate_needs_retry(distance=0.010, alignment=0.90, body_scale=body_scale) is False
+    assert candidate_needs_retry(distance=0.010, alignment=0.554357, body_scale=body_scale) is True
+    assert candidate_needs_retry(
+        distance=body_scale * (SURFACE_RETRY_BODY_RATIO + 0.001),
+        alignment=0.95,
+        body_scale=body_scale,
+    ) is True
 
 
 def test_normal_candidate_score_rejects_nonfinite_input() -> None:
@@ -161,6 +191,7 @@ def test_anatomy_metadata_keeps_canonical_texture_authority_and_records_restrict
 
 def test_active_wrapper_routes_r8_without_executing_r7_or_legacy_projectors() -> None:
     source = (BRIDGES / "sith_smplx_vrm_fitter_gender.py").read_text(encoding="utf-8")
+    bake_source = (BRIDGES / "sith_anatomy_texture_bake.py").read_text(encoding="utf-8")
 
     assert "R8_BAKE_RESOLUTION = 1024" in source
     assert "import sith_anatomy_texture_bake as anatomy_bake" in source
@@ -173,4 +204,8 @@ def test_active_wrapper_routes_r8_without_executing_r7_or_legacy_projectors() ->
     assert 'compatibility_metrics["projection_distance_p95"] = 0.0' in source
     assert 'compatibility_metrics["projection_distance_max"] = 0.0' in source
     assert "original_build_surface_projected_donor_uvs" not in source
+    assert "torch.sum(source_face_vertex_regions == region, dim=1) >= SOURCE_FACE_DOMINANT_VERTICES" in bake_source
+    assert "NORMAL_RETRY_OFFSETS = (-0.008, -0.003, 0.003, 0.008)" in bake_source
+    assert "distance > body_scale * SURFACE_RETRY_BODY_RATIO" in bake_source
     ast.parse(source)
+    ast.parse(bake_source)
