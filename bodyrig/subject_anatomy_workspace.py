@@ -21,6 +21,19 @@ from .subject_anatomy_provenance import (
 
 FORMAT = "bodyrig-subject-anatomy-workspace"
 VERSION = 1
+IDENTITY_CAPTURE_FILES = (
+    Path("capture.json"),
+    Path("primary-rgb.png"),
+    Path("primary-rgba.png"),
+)
+PREPARED_RESUME_FILES = (
+    Path("stage.json"),
+    Path("prep.json"),
+    Path("rgba") / "000.png",
+    Path("images") / "000.png",
+    Path("images") / "000_keypoints.json",
+    Path("back_images") / "000_000.png",
+)
 
 
 class SubjectAnatomyWorkspaceError(ValueError):
@@ -57,6 +70,31 @@ def _copy(source: Path, destination: Path) -> None:
         raise SubjectAnatomyWorkspaceError(f"candidate workspace copy hash mismatch: {source.name}")
 
 
+def _closure_state(root: Path, relatives: tuple[Path, ...], *, label: str) -> bool:
+    present = [relative for relative in relatives if (root / relative).is_file()]
+    if present and len(present) != len(relatives):
+        missing = [relative.as_posix() for relative in relatives if relative not in present]
+        raise SubjectAnatomyWorkspaceError(
+            f"retained {label} is incomplete; missing: {', '.join(missing)}"
+        )
+    return len(present) == len(relatives)
+
+
+def _copy_identity_capture(retained_workspace: Path, output_workspace: Path) -> bool:
+    retained_capture = retained_workspace / "identity-capture"
+    if not retained_capture.exists():
+        return False
+    if not retained_capture.is_dir():
+        raise SubjectAnatomyWorkspaceError("retained identity-capture path is not a directory")
+    if not _closure_state(retained_capture, IDENTITY_CAPTURE_FILES, label="identity-capture closure"):
+        return False
+    candidate_capture = output_workspace / "identity-capture"
+    candidate_capture.mkdir(parents=True, exist_ok=False)
+    for relative in IDENTITY_CAPTURE_FILES:
+        _copy(retained_capture / relative, candidate_capture / relative)
+    return True
+
+
 def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspace: Path) -> dict[str, Any]:
     retained_workspace = retained_workspace.expanduser().resolve()
     refit_dir = refit_dir.expanduser().resolve()
@@ -74,6 +112,8 @@ def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspa
     derived_smplx = refit_dir / "subject_smplx.obj"
     derived_fit = refit_dir / "subject_fit.json"
 
+    if not retained_stage.is_dir():
+        raise SubjectAnatomyWorkspaceError("retained SiTH input stage is missing")
     if not parent_reconstruction_path.is_file():
         raise SubjectAnatomyWorkspaceError("retained reconstruction evidence is missing")
     try:
@@ -120,21 +160,41 @@ def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspa
     if source_hashes_before["texture"] != str(details.get("mesh_texture_sha256", "")).lower():
         raise SubjectAnatomyWorkspaceError("retained source texture does not match reconstruction evidence")
 
-    source_hashes_after: dict[str, str]
+    prepared_resume_present = _closure_state(
+        retained_stage,
+        PREPARED_RESUME_FILES,
+        label="prepared SiTH resume closure",
+    )
+    retained_capture = retained_workspace / "identity-capture"
+    capture_present = False
+    if retained_capture.exists():
+        if not retained_capture.is_dir():
+            raise SubjectAnatomyWorkspaceError("retained identity-capture path is not a directory")
+        capture_present = _closure_state(
+            retained_capture,
+            IDENTITY_CAPTURE_FILES,
+            label="identity-capture closure",
+        )
+    if prepared_resume_present != capture_present:
+        raise SubjectAnatomyWorkspaceError(
+            "retained SiTH resume closure must contain both prepared input and canonical identity capture"
+        )
+
     created = False
     try:
         candidate_stage = output_workspace / "sith-input-v1"
+        created = True
+        shutil.copytree(retained_stage, candidate_stage)
+
+        identity_capture_preserved = _copy_identity_capture(retained_workspace, output_workspace)
+
         candidate_smplx_dir = candidate_stage / "smplx"
         candidate_mesh_dir = candidate_stage / "meshes"
-        candidate_smplx_dir.mkdir(parents=True, exist_ok=False)
-        created = True
-        candidate_mesh_dir.mkdir(parents=True, exist_ok=False)
+        reconstruction_authority_path = candidate_stage / RECONSTRUCTION_AUTHORITY_FILENAME
+        reconstruction_authority_path.unlink(missing_ok=True)
 
         _copy(derived_smplx, candidate_smplx_dir / "000_smplx.obj")
         _copy(derived_fit, candidate_smplx_dir / "000_fit.json")
-        _copy(source_mesh, candidate_mesh_dir / "000_reco.obj")
-        _copy(source_mtl, candidate_mesh_dir / "000.mtl")
-        _copy(source_texture, candidate_mesh_dir / texture_name)
 
         candidate_reconstruction = json.loads(json.dumps(parent_reconstruction))
         candidate_details = candidate_reconstruction["reconstruction"]
@@ -155,19 +215,37 @@ def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspa
             raise SubjectAnatomyWorkspaceError(
                 f"candidate reconstruction model-family authority failed: {exc}"
             ) from exc
-        reconstruction_authority_path = candidate_stage / RECONSTRUCTION_AUTHORITY_FILENAME
         if reconstruction_authority.get("reconstruction_sha256") != sha256_path(candidate_reconstruction_path):
             raise SubjectAnatomyWorkspaceError(
                 "candidate reconstruction authority does not bind candidate reconstruction bytes"
             )
 
-        source_hashes_after = {
+        candidate_source_hashes = {
+            "mesh": sha256_path(candidate_mesh_dir / "000_reco.obj"),
+            "mtl": sha256_path(candidate_mesh_dir / "000.mtl"),
+            "texture": sha256_path(candidate_mesh_dir / texture_name),
+        }
+        retained_source_hashes_after = {
             "mesh": sha256_path(source_mesh),
             "mtl": sha256_path(source_mtl),
             "texture": sha256_path(source_texture),
         }
-        if source_hashes_after != source_hashes_before or sha256_path(parent_reconstruction_path) != parent_sha:
+        if candidate_source_hashes != source_hashes_before:
+            raise SubjectAnatomyWorkspaceError("candidate workspace changed retained source appearance bytes")
+        if retained_source_hashes_after != source_hashes_before or sha256_path(parent_reconstruction_path) != parent_sha:
             raise SubjectAnatomyWorkspaceError("retained reconstruction/source bytes changed while staging candidate workspace")
+
+        prepared_resume_preserved = False
+        if prepared_resume_present:
+            prepared_resume_preserved = all(
+                sha256_path(retained_stage / relative) == sha256_path(candidate_stage / relative)
+                for relative in PREPARED_RESUME_FILES
+            )
+            if not prepared_resume_preserved or not identity_capture_preserved:
+                raise SubjectAnatomyWorkspaceError("candidate workspace did not preserve the retained SiTH resume closure")
+            for relative in IDENTITY_CAPTURE_FILES:
+                if sha256_path(retained_capture / relative) != sha256_path(output_workspace / "identity-capture" / relative):
+                    raise SubjectAnatomyWorkspaceError("candidate workspace changed retained identity-capture bytes")
 
         receipt = {
             "format": FORMAT,
@@ -183,6 +261,8 @@ def stage_workspace(*, retained_workspace: Path, refit_dir: Path, output_workspa
             "retainedSourceMaterialSha256": source_hashes_before["mtl"],
             "retainedSourceTextureSha256": source_hashes_before["texture"],
             "retainedSourceAppearanceBytesPreserved": True,
+            "retainedPreparedResumeBytesPreserved": prepared_resume_preserved,
+            "retainedIdentityCaptureBytesPreserved": identity_capture_preserved,
             "retainedReconstructionModified": False,
             "reconstructionRerun": False,
             "comparisonOnly": True,
@@ -217,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         "BodyRig subject anatomy workspace: PASS | "
         f"family={receipt['targetModelFamily']} | "
         f"candidate_reconstruction={receipt['candidateReconstructionSha256']} | "
+        f"resume_closure={str(receipt['retainedPreparedResumeBytesPreserved']).lower()} | "
         "reconstruction_rerun=false | production=false"
     )
     return 0
