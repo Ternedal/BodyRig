@@ -14,13 +14,16 @@ VERSION = 1
 ANATOMY_METHOD = "canonical-smplx-anatomy-normal-bake-v2"
 
 # Diagnostic only: these thresholds do not constitute human fidelity acceptance.
-# Normal thresholds are tied to the bake's own NORMAL_RETRY_COSINE=0.50 contract;
-# distance thresholds are normalized by the fitted body's diagonal scale.
+# Correspondence-v2 retries below cosine 0.75 and when source distance exceeds
+# 1.2% of the fitted body diagonal. Diagnostics deliberately use the same normal
+# boundary and slightly looser aggregate distance limits: a package is not
+# nominal merely because bad candidates narrowly escaped the old 0.50 cutoff.
+BAKE_RETRY_COSINE = 0.75
 REVIEW_SURFACE_P95_RATIO = 0.015
 HIGH_SURFACE_P95_RATIO = 0.050
 REVIEW_SURFACE_MAX_RATIO = 0.040
 HIGH_SURFACE_MAX_RATIO = 0.120
-REVIEW_NORMAL_P05 = 0.50
+REVIEW_NORMAL_P05 = BAKE_RETRY_COSINE
 HIGH_NORMAL_P05 = 0.00
 REVIEW_LOW_ALIGNMENT_RATIO = 0.05
 HIGH_LOW_ALIGNMENT_RATIO = 0.20

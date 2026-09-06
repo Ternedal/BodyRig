@@ -22,12 +22,22 @@ REGION_NAMES = (
     "right_leg",
 )
 REGION_INDEX = {name: index for index, name in enumerate(REGION_NAMES)}
-NORMAL_RETRY_COSINE = 0.50
-NORMAL_PENALTY_SCALE = 0.020
-NORMAL_RETRY_OFFSETS = (0.003, 0.008)
+# A 0.50 cosine tolerated ~60 degree surface disagreement and let the first
+# nearest surface win without any alternate search. Real-person Windows review
+# showed broad cross-surface smearing at p05 ~= 0.55, so retry while the match is
+# still materially oblique instead of waiting until it is almost wrong-facing.
+NORMAL_RETRY_COSINE = 0.75
+NORMAL_PENALTY_SCALE = 0.035
+# Search both sides of the fitted donor surface. SiTH reconstruction can sit
+# slightly inside or outside the SMPL-X donor; outward-only probes systematically
+# miss the better correspondence in one of those two cases.
+NORMAL_RETRY_OFFSETS = (-0.008, -0.003, 0.003, 0.008)
+# Distance is normalized by the fitted body diagonal so this is scale invariant.
+SURFACE_RETRY_BODY_RATIO = 0.012
 SOURCE_VERTEX_CHUNK = 1024
 DONOR_VERTEX_TILE = 4096
 MIN_REGION_FACE_COUNT = 32
+SOURCE_FACE_DOMINANT_VERTICES = 2
 
 
 def appearance_joint_region(name: str) -> str:
@@ -63,6 +73,15 @@ def normal_candidate_score(*, distance: float, alignment: float, body_scale: flo
     return float(distance) + float(offset) + float(body_scale) * NORMAL_PENALTY_SCALE * (1.0 - cosine)
 
 
+def candidate_needs_retry(*, distance: float, alignment: float, body_scale: float) -> bool:
+    values = (distance, alignment, body_scale)
+    if not all(math.isfinite(float(value)) for value in values):
+        raise AnatomyTextureBakeError("candidate retry input is non-finite")
+    if distance < 0.0 or body_scale <= 0.0 or not -1.0 <= alignment <= 1.0:
+        raise AnatomyTextureBakeError("candidate retry input is outside range")
+    return alignment < NORMAL_RETRY_COSINE or distance > body_scale * SURFACE_RETRY_BODY_RATIO
+
+
 def source_face_region_memberships(source_vertex_regions: Sequence[int], faces: Iterable[Sequence[int]]) -> list[set[int]]:
     memberships: list[set[int]] = []
     region_count = len(REGION_NAMES)
@@ -77,6 +96,33 @@ def source_face_region_memberships(source_vertex_regions: Sequence[int], faces: 
             raise AnatomyTextureBakeError("source face region is invalid")
         memberships.append(regions)
     return memberships
+
+
+def dominant_source_face_regions(
+    source_vertex_regions: Sequence[int],
+    faces: Iterable[Sequence[int]],
+) -> list[int | None]:
+    """Return one majority anatomy region per source triangle.
+
+    A triangle is eligible only when at least two of its three vertices agree.
+    Boundary triangles with three different coarse regions are intentionally not
+    shared across all of them; that old any-vertex behavior let shoulder/torso,
+    hip/leg and neck/head boundaries contaminate broad closest-surface searches.
+    """
+
+    memberships = source_face_region_memberships(source_vertex_regions, faces)
+    face_rows = [tuple(int(value) for value in face) for face in faces]
+    if len(face_rows) != len(memberships):
+        raise AnatomyTextureBakeError("source face region membership count mismatch")
+    result: list[int | None] = []
+    for values in face_rows:
+        counts: dict[int, int] = {}
+        for vertex in values:
+            region = int(source_vertex_regions[vertex])
+            counts[region] = counts.get(region, 0) + 1
+        winner, count = max(counts.items(), key=lambda item: item[1])
+        result.append(winner if count >= SOURCE_FACE_DOMINANT_VERTICES else None)
+    return result
 
 
 def _load_donor_region_scores(
@@ -225,7 +271,10 @@ def _sample_region(
             best_distance = distance
             best_alignment = alignment
             best_score = distance + body_scale * NORMAL_PENALTY_SCALE * (1.0 - alignment)
-            retry = comparison_valid & (alignment < NORMAL_RETRY_COSINE)
+            retry = comparison_valid & (
+                (alignment < NORMAL_RETRY_COSINE)
+                | (distance > body_scale * SURFACE_RETRY_BODY_RATIO)
+            )
             retry_count += int(retry.sum().item())
 
             if bool(torch.any(retry).item()):
@@ -233,8 +282,9 @@ def _sample_region(
                 retry_points = chunk[retry_indices]
                 retry_normals = normals[retry_indices]
                 for ratio in NORMAL_RETRY_OFFSETS:
-                    offset = float(body_scale * ratio)
-                    query = retry_points + retry_normals * offset
+                    signed_offset = float(body_scale * ratio)
+                    offset_cost = abs(signed_offset)
+                    query = retry_points + retry_normals * signed_offset
                     candidate_rgb, candidate_normal, candidate_raw_distance = closest_tex(
                         source_v,
                         source_f,
@@ -259,16 +309,16 @@ def _sample_region(
                     )
                     candidate_score = (
                         candidate_distance
-                        + offset
+                        + offset_cost
                         + body_scale * NORMAL_PENALTY_SCALE * (1.0 - candidate_alignment)
                     )
                     current_score = best_score[retry_indices]
-                    improve = candidate_score < current_score
+                    improve = candidate_valid & (candidate_score < current_score)
                     if bool(torch.any(improve).item()):
                         target = retry_indices[improve]
                         best_score[target] = candidate_score[improve]
                         best_rgb[target] = candidate_rgb[improve]
-                        best_distance[target] = candidate_distance[improve] + offset
+                        best_distance[target] = candidate_distance[improve] + offset_cost
                         best_alignment[target] = candidate_alignment[improve]
 
             end = start + int(chunk.shape[0])
@@ -385,7 +435,7 @@ def bake_sith_surface_to_anatomy_canonical_smplx(
     )
     source_face_vertex_regions = source_vertex_regions[source_f.long()]
     region_face_masks = [
-        torch.any(source_face_vertex_regions == region, dim=1)
+        torch.sum(source_face_vertex_regions == region, dim=1) >= SOURCE_FACE_DOMINANT_VERTICES
         for region in range(len(REGION_NAMES))
     ]
     for region, mask in enumerate(region_face_masks):
