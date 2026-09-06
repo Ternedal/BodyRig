@@ -74,11 +74,11 @@ $WslExe = $WslExeResolved.Source
 if ([string]::IsNullOrWhiteSpace($Distribution)) { throw "WSL distribution is required." }
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
-    $home = Invoke-WslRaw -Arguments @("/usr/bin/python3", "-c", "import pathlib; print(pathlib.Path.home().as_posix())")
-    if ($home.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($home.Text)) {
-        throw "Could not resolve WSL home directory: $($home.Text)"
+    $wslHomeResult = Invoke-WslRaw -Arguments @("/usr/bin/python3", "-c", "import pathlib; print(pathlib.Path.home().as_posix())")
+    if ($wslHomeResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($wslHomeResult.Text)) {
+        throw "Could not resolve WSL home directory: $($wslHomeResult.Text)"
     }
-    $InstallRoot = "$($home.Text.Trim())/.local/share/bodyrig/sith"
+    $InstallRoot = "$($wslHomeResult.Text.Trim())/.local/share/bodyrig/sith"
 }
 if (-not $InstallRoot.StartsWith("/")) { throw "-InstallRoot must be an absolute Linux path." }
 $InstallRoot = $InstallRoot.TrimEnd("/")
