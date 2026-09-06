@@ -1,4 +1,5 @@
 using System;
+using UniVRM10;
 using UnityEngine;
 
 namespace BodyRig.ReferenceRenderer
@@ -23,6 +24,13 @@ namespace BodyRig.ReferenceRenderer
         }
 
         [Serializable]
+        private sealed class ExpressionState
+        {
+            public string emotion;
+            public float intensity;
+        }
+
+        [Serializable]
         private sealed class GestureState
         {
             public string id;
@@ -34,6 +42,13 @@ namespace BodyRig.ReferenceRenderer
         {
             public string target;
             public float strength;
+        }
+
+        [Serializable]
+        private sealed class PostureState
+        {
+            public string id;
+            public float intensity;
         }
 
         [Serializable]
@@ -79,8 +94,11 @@ namespace BodyRig.ReferenceRenderer
             public string body_id;
             public string utterance_id;
             public MotionState motion;
+            public ExpressionState expression;
             public GestureState gesture;
             public GazeState gaze;
+            public PostureState posture;
+            public int duration_ms;
             public SpeechState speech;
             public EmbodimentState embodiment;
         }
@@ -91,9 +109,15 @@ namespace BodyRig.ReferenceRenderer
 
         private Animator _boundAnimator;
         private Transform _head;
+        private Transform _spine;
         private Transform _leftShoulder;
         private Transform _rightShoulder;
+        private Transform _rightUpperArm;
+        private Transform _rightLowerArm;
         private Quaternion _headBaseRotation;
+        private Quaternion _spineBaseRotation;
+        private Quaternion _rightUpperArmBaseRotation;
+        private Quaternion _rightLowerArmBaseRotation;
         private Vector3 _leftShoulderBasePosition;
         private Vector3 _rightShoulderBasePosition;
         private MotorState _state;
@@ -101,6 +125,24 @@ namespace BodyRig.ReferenceRenderer
         private float _headMotion;
         private float _gazeStrength;
         private float _speechAmplitude;
+
+        public int LastMotorVersion => _state != null ? _state.version : 0;
+        public string LastBodyId => _state != null ? _state.body_id : null;
+        public string LastUtteranceId => _state != null ? _state.utterance_id : null;
+        public int RealizationFrameCount { get; private set; }
+        public bool MotionRealized { get; private set; }
+        public bool ExpressionRealized { get; private set; }
+        public bool GestureRealized { get; private set; }
+        public bool GazeRealized { get; private set; }
+        public bool PostureRealized { get; private set; }
+        public bool SpeechTimingRealized { get; private set; }
+        public bool SourceObservedEmbodimentBound => _state != null && _state.version == 2 && _state.embodiment != null;
+
+        public void Configure(BodyRigAvatarLoader configuredLoader, Transform configuredUserGazeTarget = null)
+        {
+            avatarLoader = configuredLoader != null ? configuredLoader : throw new ArgumentNullException(nameof(configuredLoader));
+            userGazeTarget = configuredUserGazeTarget;
+        }
 
         public void ApplyMotorJson(string json)
         {
@@ -133,20 +175,42 @@ namespace BodyRig.ReferenceRenderer
 
             Validate01(next.motion.energy, "motion.energy");
             Validate01(next.motion.head_motion, "motion.head_motion");
+            if (next.expression != null)
+            {
+                if (string.IsNullOrWhiteSpace(next.expression.emotion)) throw new ArgumentException("Expression emotion is required", nameof(json));
+                Validate01(next.expression.intensity, "expression.intensity");
+            }
             if (next.gesture != null)
             {
+                if (string.IsNullOrWhiteSpace(next.gesture.id)) throw new ArgumentException("Gesture id is required", nameof(json));
                 Validate01(next.gesture.amplitude, "gesture.amplitude");
             }
             if (next.gaze != null)
             {
+                if (string.IsNullOrWhiteSpace(next.gaze.target)) throw new ArgumentException("Gaze target is required", nameof(json));
                 Validate01(next.gaze.strength, "gaze.strength");
+            }
+            if (next.posture != null)
+            {
+                if (string.IsNullOrWhiteSpace(next.posture.id)) throw new ArgumentException("Posture id is required", nameof(json));
+                Validate01(next.posture.intensity, "posture.intensity");
             }
             if (next.speech != null)
             {
+                if (next.speech.state != "start" && next.speech.state != "update" && next.speech.state != "stop")
+                    throw new ArgumentException("Unsupported speech timing state", nameof(json));
+                if (next.speech.elapsed_ms < 0) throw new ArgumentOutOfRangeException("speech.elapsed_ms");
                 Validate01(next.speech.amplitude, "speech.amplitude");
             }
 
             _state = next;
+            RealizationFrameCount = 0;
+            MotionRealized = false;
+            ExpressionRealized = false;
+            GestureRealized = false;
+            GazeRealized = false;
+            PostureRealized = false;
+            SpeechTimingRealized = false;
         }
 
         private static void ValidateObservedEmbodiment(ObservedEmbodimentState observed)
@@ -194,9 +258,7 @@ namespace BodyRig.ReferenceRenderer
             // The performed fields below are already resolved against BodyPrint
             // by BodyRig. v2 embodiment is evidence/provenance for consumers; it
             // is deliberately not multiplied into these values again here.
-            var targetGesture = _state.gesture != null && _state.gesture.id == "small_shrug"
-                ? _state.gesture.amplitude
-                : 0.0f;
+            var targetGesture = _state.gesture != null ? _state.gesture.amplitude : 0.0f;
             var targetHead = _state.motion != null ? _state.motion.head_motion : 0.0f;
             var targetGaze = _state.gaze != null ? _state.gaze.strength : 0.0f;
             var targetSpeech = _state.speech != null ? _state.speech.amplitude : 0.0f;
@@ -206,8 +268,13 @@ namespace BodyRig.ReferenceRenderer
             _gazeStrength = Mathf.Lerp(_gazeStrength, targetGaze, blend);
             _speechAmplitude = Mathf.Lerp(_speechAmplitude, targetSpeech, blend);
 
-            ApplyShrug();
-            ApplyHeadMotionAndGaze();
+            MotionRealized = ApplyHeadMotion();
+            GestureRealized = ApplyGesture();
+            GazeRealized = ApplyGaze();
+            PostureRealized = ApplyPosture();
+            ExpressionRealized = ApplyExpression();
+            SpeechTimingRealized = ApplySpeech();
+            RealizationFrameCount++;
         }
 
         private void BindAvatarIfNeeded()
@@ -220,12 +287,16 @@ namespace BodyRig.ReferenceRenderer
 
             _boundAnimator = animator;
             _head = null;
+            _spine = null;
             _leftShoulder = null;
             _rightShoulder = null;
+            _rightUpperArm = null;
+            _rightLowerArm = null;
             _gestureAmplitude = 0.0f;
             _headMotion = 0.0f;
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
+            RealizationFrameCount = 0;
 
             if (_boundAnimator == null)
             {
@@ -233,66 +304,172 @@ namespace BodyRig.ReferenceRenderer
             }
 
             _head = _boundAnimator.GetBoneTransform(HumanBodyBones.Head);
+            _spine = _boundAnimator.GetBoneTransform(HumanBodyBones.Spine);
             _leftShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftShoulder)
                 ?? _boundAnimator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
             _rightShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.RightShoulder)
                 ?? _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            _rightUpperArm = _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            _rightLowerArm = _boundAnimator.GetBoneTransform(HumanBodyBones.RightLowerArm);
 
-            if (_head != null)
-            {
-                _headBaseRotation = _head.localRotation;
-            }
-            if (_leftShoulder != null)
-            {
-                _leftShoulderBasePosition = _leftShoulder.localPosition;
-            }
-            if (_rightShoulder != null)
-            {
-                _rightShoulderBasePosition = _rightShoulder.localPosition;
-            }
+            if (_head != null) _headBaseRotation = _head.localRotation;
+            if (_spine != null) _spineBaseRotation = _spine.localRotation;
+            if (_leftShoulder != null) _leftShoulderBasePosition = _leftShoulder.localPosition;
+            if (_rightShoulder != null) _rightShoulderBasePosition = _rightShoulder.localPosition;
+            if (_rightUpperArm != null) _rightUpperArmBaseRotation = _rightUpperArm.localRotation;
+            if (_rightLowerArm != null) _rightLowerArmBaseRotation = _rightLowerArm.localRotation;
         }
 
-        private void ApplyShrug()
+        private bool ApplyGesture()
         {
-            // Reference implementation only: a semantic small_shrug is rendered
-            // as a bounded local shoulder lift. The personal amplitude has
-            // already been resolved by BodyRig.
-            var lift = 0.025f * _gestureAmplitude;
-            if (_leftShoulder != null)
+            if (_state.gesture == null) return false;
+            RestoreGesturePose();
+            if (_state.gesture.id == "small_shrug")
             {
-                _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
+                var lift = 0.025f * _gestureAmplitude;
+                if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
+                if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
+                return _leftShoulder != null && _rightShoulder != null;
             }
-            if (_rightShoulder != null)
+            if (_state.gesture.id == "present")
             {
-                _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
+                if (_rightUpperArm == null || _rightLowerArm == null) return false;
+                _rightUpperArm.localRotation = _rightUpperArmBaseRotation * Quaternion.Euler(
+                    -18.0f * _gestureAmplitude,
+                    4.0f * _gestureAmplitude,
+                    -34.0f * _gestureAmplitude);
+                _rightLowerArm.localRotation = _rightLowerArmBaseRotation * Quaternion.Euler(
+                    0.0f,
+                    0.0f,
+                    -28.0f * _gestureAmplitude);
+                return true;
             }
+            if (_state.gesture.id == "neutral") return true;
+            return false;
         }
 
-        private void ApplyHeadMotionAndGaze()
+        private bool ApplyHeadMotion()
         {
-            if (_head == null)
-            {
-                return;
-            }
-
+            if (_head == null || _state.motion == null) return false;
             var t = Time.unscaledTime;
             var speechBoost = 1.0f + 0.35f * _speechAmplitude;
             var microYaw = Mathf.Sin(t * 1.13f) * 2.0f * _headMotion * speechBoost;
             var microPitch = Mathf.Sin(t * 1.71f + 0.7f) * 1.2f * _headMotion * speechBoost;
-            var targetRotation = _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f);
+            _head.localRotation = Quaternion.Slerp(
+                _head.localRotation,
+                _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f),
+                0.35f);
+            return true;
+        }
 
-            if (_state.gaze != null && _state.gaze.target == "user" && userGazeTarget != null && _head.parent != null)
+        private bool ApplyGaze()
+        {
+            if (_state.gaze == null) return false;
+            if (_state.gaze.target != "user") return false;
+            if (_head == null || _head.parent == null || userGazeTarget == null) return false;
+            var direction = userGazeTarget.position - _head.position;
+            if (direction.sqrMagnitude <= 0.000001f) return false;
+            var worldLook = Quaternion.LookRotation(direction.normalized, Vector3.up);
+            var localLook = Quaternion.Inverse(_head.parent.rotation) * worldLook;
+            _head.localRotation = Quaternion.Slerp(
+                _head.localRotation,
+                localLook,
+                Mathf.Clamp01(_gazeStrength * 0.65f));
+            return true;
+        }
+
+        private bool ApplyPosture()
+        {
+            if (_state.posture == null) return false;
+            if (_spine == null) return false;
+            if (_state.posture.id == "neutral")
             {
-                var direction = userGazeTarget.position - _head.position;
-                if (direction.sqrMagnitude > 0.000001f)
-                {
-                    var worldLook = Quaternion.LookRotation(direction.normalized, Vector3.up);
-                    var localLook = Quaternion.Inverse(_head.parent.rotation) * worldLook;
-                    targetRotation = Quaternion.Slerp(targetRotation, localLook, Mathf.Clamp01(_gazeStrength * 0.65f));
-                }
+                _spine.localRotation = Quaternion.Slerp(_spine.localRotation, _spineBaseRotation, 0.35f);
+                return true;
             }
+            if (_state.posture.id == "upright")
+            {
+                _spine.localRotation = Quaternion.Slerp(
+                    _spine.localRotation,
+                    _spineBaseRotation * Quaternion.Euler(-4.0f * _state.posture.intensity, 0.0f, 0.0f),
+                    0.35f);
+                return true;
+            }
+            return false;
+        }
 
-            _head.localRotation = Quaternion.Slerp(_head.localRotation, targetRotation, 0.35f);
+        private bool ApplyExpression()
+        {
+            if (_state.expression == null || avatarLoader == null || avatarLoader.Active == null) return false;
+            var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
+            if (expression == null) return false;
+            var weight = Mathf.Clamp01(_state.expression.intensity);
+            switch (_state.expression.emotion)
+            {
+                case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); return true;
+                case "happy": expression.SetWeight(ExpressionKey.Happy, weight); return true;
+                case "angry": expression.SetWeight(ExpressionKey.Angry, weight); return true;
+                case "sad": expression.SetWeight(ExpressionKey.Sad, weight); return true;
+                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, weight); return true;
+                case "surprised": expression.SetWeight(ExpressionKey.Surprised, weight); return true;
+                default: return false;
+            }
+        }
+
+        private bool ApplySpeech()
+        {
+            if (_state.speech == null || avatarLoader == null || avatarLoader.Active == null) return false;
+            if (string.IsNullOrWhiteSpace(_state.speech.viseme)) return _state.speech.state == "stop";
+            var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
+            if (expression == null) return false;
+            var weight = _state.speech.state == "stop" ? 0.0f : Mathf.Clamp01(_speechAmplitude);
+            switch (_state.speech.viseme.ToUpperInvariant())
+            {
+                case "AA": expression.SetWeight(ExpressionKey.Aa, weight); return true;
+                case "IH": expression.SetWeight(ExpressionKey.Ih, weight); return true;
+                case "OU": expression.SetWeight(ExpressionKey.Ou, weight); return true;
+                case "EE": expression.SetWeight(ExpressionKey.Ee, weight); return true;
+                case "OH": expression.SetWeight(ExpressionKey.Oh, weight); return true;
+                default: return false;
+            }
+        }
+
+        private void RestoreGesturePose()
+        {
+            if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition;
+            if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition;
+            if (_rightUpperArm != null) _rightUpperArm.localRotation = _rightUpperArmBaseRotation;
+            if (_rightLowerArm != null) _rightLowerArm.localRotation = _rightLowerArmBaseRotation;
+        }
+
+        public void RestoreNeutralPose()
+        {
+            RestoreGesturePose();
+            if (_head != null) _head.localRotation = _headBaseRotation;
+            if (_spine != null) _spine.localRotation = _spineBaseRotation;
+            if (avatarLoader != null && avatarLoader.Active != null && avatarLoader.Active.Runtime != null)
+            {
+                var expression = avatarLoader.Active.Runtime.Expression;
+                expression.SetWeight(ExpressionKey.Neutral, 0.0f);
+                expression.SetWeight(ExpressionKey.Happy, 0.0f);
+                expression.SetWeight(ExpressionKey.Angry, 0.0f);
+                expression.SetWeight(ExpressionKey.Sad, 0.0f);
+                expression.SetWeight(ExpressionKey.Relaxed, 0.0f);
+                expression.SetWeight(ExpressionKey.Surprised, 0.0f);
+                expression.SetWeight(ExpressionKey.Aa, 0.0f);
+                expression.SetWeight(ExpressionKey.Ih, 0.0f);
+                expression.SetWeight(ExpressionKey.Ou, 0.0f);
+                expression.SetWeight(ExpressionKey.Ee, 0.0f);
+                expression.SetWeight(ExpressionKey.Oh, 0.0f);
+            }
+            _state = null;
+            RealizationFrameCount = 0;
+            MotionRealized = false;
+            ExpressionRealized = false;
+            GestureRealized = false;
+            GazeRealized = false;
+            PostureRealized = false;
+            SpeechTimingRealized = false;
         }
     }
 }

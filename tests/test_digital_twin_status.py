@@ -274,6 +274,30 @@ def _composition(
     return result
 
 
+def _m5_status() -> dict:
+    return {
+        "format": "bodyrig-digital-twin-platform-status",
+        "version": 1,
+        "m5_ready": True,
+        "digital_twin_ready": False,
+        "production_activation": False,
+        "platforms": {
+            "windows-unity-univrm": {
+                "ready": True,
+                "state": "complete",
+                "realization_sha256": "2" * 64,
+            },
+            "android-quest-class": {
+                "ready": True,
+                "state": "complete",
+                "realization_sha256": "3" * 64,
+            },
+        },
+        "blockers": [],
+        "next_gate": "digital_twin_final_release",
+    }
+
+
 def test_body_release_alone_is_not_a_full_digital_twin() -> None:
     status = inspect_digital_twin_status(assembly_receipt=_assembly(), body_release_status=_body_release())
     assert status["avatar_ready"] is True
@@ -282,7 +306,7 @@ def test_body_release_alone_is_not_a_full_digital_twin() -> None:
     assert status["gates"]["embodiment"]["state"] == "missing"
 
 
-def test_finalized_m4_composition_makes_subsystems_release_eligible() -> None:
+def test_finalized_m4_composition_stops_at_m5_platform_acceptance() -> None:
     hands = _hands_nails()
     wardrobe = _wardrobe()
     status = inspect_digital_twin_status(
@@ -292,12 +316,50 @@ def test_finalized_m4_composition_makes_subsystems_release_eligible() -> None:
         wardrobe_authority=wardrobe,
         embodiment_authority=_composition(hands=hands, wardrobe=wardrobe),
     )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["digital_twin_ready"] is False
+    assert status["production_activation"] is False
+    assert status["final_release_implemented"] is False
+    assert status["next_gate"] == "digital_twin_platform_acceptance"
+    assert status["gates"]["embodiment"]["authority_id"].startswith("dtcomp-")
+    assert status["gates"]["platform_acceptance"]["state"] == "missing"
+
+
+def test_complete_m5_makes_twin_eligible_for_m6_but_does_not_activate() -> None:
+    hands = _hands_nails()
+    wardrobe = _wardrobe()
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        hands_nails_authority=hands,
+        wardrobe_authority=wardrobe,
+        embodiment_authority=_composition(hands=hands, wardrobe=wardrobe),
+        platform_acceptance_status=_m5_status(),
+    )
     assert status["digital_twin_release_eligible"] is True
     assert status["digital_twin_ready"] is False
     assert status["production_activation"] is False
     assert status["final_release_implemented"] is False
     assert status["next_gate"] == "digital_twin_final_release"
-    assert status["gates"]["embodiment"]["authority_id"].startswith("dtcomp-")
+    assert status["gates"]["platform_acceptance"]["state"] == "complete"
+
+
+def test_m5_cannot_claim_final_readiness_or_activation() -> None:
+    hands = _hands_nails()
+    wardrobe = _wardrobe()
+    bad = _m5_status()
+    bad["digital_twin_ready"] = True
+    bad["production_activation"] = True
+    status = inspect_digital_twin_status(
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        hands_nails_authority=hands,
+        wardrobe_authority=wardrobe,
+        embodiment_authority=_composition(hands=hands, wardrobe=wardrobe),
+        platform_acceptance_status=bad,
+    )
+    assert status["digital_twin_release_eligible"] is False
+    assert status["next_gate"] == "digital_twin_platform_acceptance"
 
 
 def test_legacy_loose_embodiment_booleans_are_rejected() -> None:

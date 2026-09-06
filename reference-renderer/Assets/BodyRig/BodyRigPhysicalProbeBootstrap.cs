@@ -21,6 +21,11 @@ namespace BodyRig.ReferenceRenderer
         private const string RendererVersionArg = "--bodyrig-renderer-version";
         private const string FidelitySnapshotDirArg = "--bodyrig-fidelity-snapshot-dir";
         private const string QuitAfterProbeArg = "--bodyrig-quit-after-probe";
+        private const string DigitalTwinInputArg = "--bodyrig-digital-twin-input";
+        private const string DigitalTwinAuthorityArg = "--bodyrig-digital-twin-authority";
+        private const string DigitalTwinEmbodimentArg = "--bodyrig-embodiment-probe";
+        private const string DigitalTwinMotorStateArg = "--bodyrig-motor-state";
+        private const string DigitalTwinOutputArg = "--bodyrig-digital-twin-output";
 
         private string _status = "BodyRig physical probe starting...";
         private bool _failed;
@@ -62,6 +67,30 @@ namespace BodyRig.ReferenceRenderer
             var rendererName = GetArgument(RendererNameArg) ?? "BodyRig Reference Renderer";
             var rendererVersion = GetArgument(RendererVersionArg) ?? "reference-v1/univrm-0.131.2";
 
+            var digitalTwinDefaultRoot = Path.Combine(defaultRoot, "digital-twin");
+            var digitalTwinDefaultInput = Path.Combine(digitalTwinDefaultRoot, "platform-input.json");
+            var hasDefaultDigitalTwinInput = File.Exists(digitalTwinDefaultInput);
+            var digitalTwinInput = GetArgument(DigitalTwinInputArg) ?? (hasDefaultDigitalTwinInput ? digitalTwinDefaultInput : null);
+            var digitalTwinAuthority = GetArgument(DigitalTwinAuthorityArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "composition-authority.json") : null);
+            var digitalTwinEmbodiment = GetArgument(DigitalTwinEmbodimentArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "embodiment-probe.json") : null);
+            var digitalTwinMotorState = GetArgument(DigitalTwinMotorStateArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "motor-state.json") : null);
+            var digitalTwinOutput = GetArgument(DigitalTwinOutputArg) ?? (hasDefaultDigitalTwinInput ? Path.Combine(digitalTwinDefaultRoot, "realization.json") : null);
+            var digitalTwinRequested =
+                !string.IsNullOrWhiteSpace(digitalTwinInput) ||
+                !string.IsNullOrWhiteSpace(digitalTwinAuthority) ||
+                !string.IsNullOrWhiteSpace(digitalTwinEmbodiment) ||
+                !string.IsNullOrWhiteSpace(digitalTwinMotorState) ||
+                !string.IsNullOrWhiteSpace(digitalTwinOutput);
+            if (digitalTwinRequested &&
+                (string.IsNullOrWhiteSpace(digitalTwinInput) ||
+                 string.IsNullOrWhiteSpace(digitalTwinAuthority) ||
+                 string.IsNullOrWhiteSpace(digitalTwinEmbodiment) ||
+                 string.IsNullOrWhiteSpace(digitalTwinMotorState) ||
+                 string.IsNullOrWhiteSpace(digitalTwinOutput)))
+            {
+                throw new InvalidDataException("M5 digital-twin realization requires all five digital-twin evidence files");
+            }
+
             _status = "Loading accepted BodyRig runtime...\n" + manifestPath;
             var loader = gameObject.AddComponent<BodyRigAvatarLoader>();
             var probe = gameObject.AddComponent<BodyRigRendererProbe>();
@@ -70,17 +99,38 @@ namespace BodyRig.ReferenceRenderer
             await probe.RunProbeAsync(manifestPath, probePath);
             FrameActiveAvatar(loader);
 
+            string digitalTwinReport = null;
+            if (digitalTwinRequested)
+            {
+                _status = "Renderer machine probe: PASS\nRealizing exact M4 digital-twin Motor State v2...";
+                var motorDriver = gameObject.AddComponent<BodyRigMotorDriver>();
+                motorDriver.Configure(loader, Camera.main != null ? Camera.main.transform : null);
+                var digitalTwinProbe = gameObject.AddComponent<BodyRigDigitalTwinProbe>();
+                digitalTwinProbe.Configure(loader, motorDriver, rendererName, rendererVersion);
+                digitalTwinReport = await digitalTwinProbe.RunProbeAsync(
+                    digitalTwinInput,
+                    digitalTwinAuthority,
+                    digitalTwinEmbodiment,
+                    digitalTwinMotorState,
+                    digitalTwinOutput);
+                motorDriver.RestoreNeutralPose();
+            }
+
             string fidelityManifest = null;
             if (!string.IsNullOrWhiteSpace(fidelitySnapshotDir))
             {
-                _status = "Renderer machine probe: PASS\nCapturing canonical fidelity views...";
+                _status = digitalTwinRequested
+                    ? "Digital-twin realization: PASS\nCapturing canonical fidelity views..."
+                    : "Renderer machine probe: PASS\nCapturing canonical fidelity views...";
                 var fidelity = gameObject.AddComponent<BodyRigFidelitySnapshotCapture>();
                 fidelityManifest = fidelity.Capture(loader, fidelitySnapshotDir);
             }
 
             var sweep = gameObject.AddComponent<BodyRigDeformationSweep>();
             sweep.Configure(loader);
-            _status = "Renderer machine probe: PASS\nStarting fixed deformation sweep...";
+            _status = digitalTwinRequested
+                ? "Digital-twin realization: PASS\nStarting fixed deformation sweep..."
+                : "Renderer machine probe: PASS\nStarting fixed deformation sweep...";
             await sweep.RunSweepAsync(deformationPath, UpdateSweepStatus);
 
             string hairDeformationReport = null;
@@ -94,6 +144,7 @@ namespace BodyRig.ReferenceRenderer
 
             _status = "BodyRig physical evidence: PASS\n" +
                       probe.LastProbePath + "\n" + sweep.LastReportPath +
+                      (string.IsNullOrEmpty(digitalTwinReport) ? "" : "\nDigital-twin M5: " + digitalTwinReport) +
                       (string.IsNullOrEmpty(hairDeformationReport) ? "" : "\nHair deformation: " + hairDeformationReport) +
                       (string.IsNullOrEmpty(fidelityManifest) ? "" : "\nFidelity views: " + fidelityManifest) +
                       "\nHuman visual deformation acceptance is still required.";
