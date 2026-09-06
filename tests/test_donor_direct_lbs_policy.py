@@ -5,8 +5,9 @@ from pathlib import Path
 from bodyrig import skin_qa
 
 
+ROOT = Path(__file__).resolve().parents[1]
 DONOR_SOURCE = (
-    Path(__file__).resolve().parents[1]
+    ROOT
     / "bodyrig"
     / "bridges"
     / "sith_smplx_vrm_fitter_donor.py"
@@ -29,9 +30,11 @@ def test_physical_20260902_single_vertex_value_reaches_aggregate_skin_qa() -> No
 
 
 def test_downstream_skin_qa_remains_the_aggregate_risk_gate() -> None:
-    source = (
-        Path(__file__).resolve().parents[1] / "bodyrig" / "skin_qa.py"
-    ).read_text(encoding="utf-8")
-    assert "severe_ratio > 0.002" in source
-    assert "p95_forbidden > 0.15" in source
-    assert "max_forbidden > 0.75" in source
+    wrapper_source = (ROOT / "bodyrig" / "skin_qa.py").read_text(encoding="utf-8")
+    aggregate_source = (ROOT / "bodyrig" / "skin_qa_legacy.py").read_text(encoding="utf-8")
+
+    assert "return _with_current_transfer_validator(legacy.analyze_package" in wrapper_source
+    assert "return _with_current_transfer_validator(legacy.analyze_vrm_skin" in wrapper_source
+    assert "severe_ratio > 0.002" in aggregate_source
+    assert "p95_forbidden > 0.15" in aggregate_source
+    assert "max_forbidden > 0.75" in aggregate_source
