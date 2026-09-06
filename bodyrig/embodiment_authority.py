@@ -22,6 +22,8 @@ AUTHORITY_ID_RE = re.compile(r"^embodiment-[0-9a-f]{32}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 UTTERANCE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+TOKEN_RE = re.compile(r"^[a-z0-9_-]+$")
+VISEME_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
 MOTION_FIELDS = {
     "energy", "gesture_frequency", "gesture_amplitude", "head_motion", "turn_speed", "walk_cadence_spm"
 }
@@ -42,6 +44,11 @@ EVIDENCE_FILES = {
     "motor-state.json": "motor_state_sha256",
     "speech-timing.json": "speech_timing_sha256",
     "audition-receipt.json": "audition_receipt_sha256",
+}
+AUDITION_FIELDS = {
+    "format", "version", "audition_id", "person_id", "created_utc", "assembly_fingerprint",
+    "modelrig_service", "modelrig_version", "model", "voicerig_service", "voicerig_version",
+    "prompt_sha256", "reply_sha256", "audio_sha256", "complete",
 }
 
 
@@ -85,6 +92,30 @@ def _quality_note(value: Any) -> str:
     if re.fullmatch(r"<[^>]+>", text):
         raise EmbodimentAuthorityError("embodiment quality note cannot be a generated placeholder")
     return text
+
+
+def _runtime_version(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise EmbodimentAuthorityError(f"{label} is invalid")
+    text = value.strip()
+    if not text or len(text) > 160 or any(ord(ch) < 32 for ch in text):
+        raise EmbodimentAuthorityError(f"{label} is invalid")
+    return text
+
+
+def _unit(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise EmbodimentAuthorityError(f"{label} must be a finite number in [0,1]")
+    number = float(value)
+    if not 0.0 <= number <= 1.0:
+        raise EmbodimentAuthorityError(f"{label} must be in [0,1]")
+    return number
+
+
+def _bounded_int(value: Any, label: str, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise EmbodimentAuthorityError(f"{label} is outside the canonical range")
+    return value
 
 
 def _assembly_details(receipt: Mapping[str, Any]) -> dict[str, str]:
@@ -167,7 +198,7 @@ def _audition(path: str | os.PathLike[str], *, assembly: Mapping[str, str]) -> d
     if actual_sha != assembly["audition_receipt_sha256"]:
         raise EmbodimentAuthorityError("Person audition receipt bytes no longer match assembly authority")
     value = _read_json(receipt_path, "Person audition receipt")
-    if value.get("format") != "bodyrig-person-audition" or value.get("version") != 1 or value.get("complete") is not True:
+    if set(value) != AUDITION_FIELDS or value.get("format") != "bodyrig-person-audition" or value.get("version") != 1 or value.get("complete") is not True:
         raise EmbodimentAuthorityError("Person audition receipt is not canonical complete v1 evidence")
     if str(value.get("person_id") or "").lower() != assembly["person_id"] or str(value.get("audition_id") or "").lower() != assembly["audition_id"]:
         raise EmbodimentAuthorityError("Person audition receipt belongs to a different Person/audition")
@@ -175,16 +206,17 @@ def _audition(path: str | os.PathLike[str], *, assembly: Mapping[str, str]) -> d
         raise EmbodimentAuthorityError("Person audition receipt belongs to a different assembly")
     if value.get("modelrig_service") != "modelrig-server" or value.get("voicerig_service") != "voicerig":
         raise EmbodimentAuthorityError("Person audition runtime services are not canonical")
-    modelrig_version = str(value.get("modelrig_version") or "").strip()
-    voicerig_version = str(value.get("voicerig_version") or "").strip()
-    if not modelrig_version or not voicerig_version:
-        raise EmbodimentAuthorityError("Person audition runtime provenance is incomplete")
+    for field in ("prompt_sha256", "reply_sha256", "audio_sha256"):
+        _sha(value.get(field), field)
+    model = str(value.get("model") or "").strip()
+    if not model or len(model) > 256 or any(ord(ch) < 32 for ch in model):
+        raise EmbodimentAuthorityError("Person audition model identity is invalid")
     return {
         "path": receipt_path,
         "sha256": actual_sha,
         "audio_sha256": _sha(value.get("audio_sha256"), "audition audio SHA-256"),
-        "modelrig_version": modelrig_version,
-        "voicerig_version": voicerig_version,
+        "modelrig_version": _runtime_version(value.get("modelrig_version"), "modelrig_version"),
+        "voicerig_version": _runtime_version(value.get("voicerig_version"), "voicerig_version"),
     }
 
 
@@ -202,7 +234,7 @@ def _timing(path: str | os.PathLike[str]) -> dict[str, Any]:
     if value.get("source") != "voicerig-runtime" or value.get("complete") is not True or value.get("human_review_required") is not True or value.get("production_activation") is not False:
         raise EmbodimentAuthorityError("speech timing evidence crossed the review-only VoiceRig boundary")
     events = value.get("events")
-    if not isinstance(events, list) or len(events) < 2 or len(events) > 10000:
+    if not isinstance(events, list) or not 2 <= len(events) <= 10000:
         raise EmbodimentAuthorityError("speech timing evidence requires a bounded start/update/stop timeline")
     normalized: list[dict[str, Any]] = []
     previous = -1
@@ -211,20 +243,19 @@ def _timing(path: str | os.PathLike[str]) -> dict[str, Any]:
         if not isinstance(event, Mapping) or set(event) != {"state", "elapsed_ms", "viseme", "amplitude"}:
             raise EmbodimentAuthorityError("speech timing event fields are not canonical")
         state = event.get("state")
-        elapsed = event.get("elapsed_ms")
-        if state not in {"start", "update", "stop"} or isinstance(elapsed, bool) or not isinstance(elapsed, int) or not 0 <= elapsed <= 3_600_000:
-            raise EmbodimentAuthorityError("speech timing event state/elapsed_ms is invalid")
+        if state not in {"start", "update", "stop"}:
+            raise EmbodimentAuthorityError("speech timing event state is invalid")
+        elapsed = _bounded_int(event.get("elapsed_ms"), "speech timing elapsed_ms", 0, 3_600_000)
         if elapsed < previous:
             raise EmbodimentAuthorityError("speech timing elapsed_ms must be monotonic")
         previous = elapsed
         viseme = event.get("viseme")
         amplitude = event.get("amplitude")
-        if viseme is not None and (not isinstance(viseme, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", viseme)):
+        if viseme is not None and (not isinstance(viseme, str) or not VISEME_RE.fullmatch(viseme)):
             raise EmbodimentAuthorityError("speech timing viseme is invalid")
-        if amplitude is not None and (isinstance(amplitude, bool) or not isinstance(amplitude, (int, float)) or not 0.0 <= float(amplitude) <= 1.0):
-            raise EmbodimentAuthorityError("speech timing amplitude is invalid")
-        articulation = articulation or viseme is not None or amplitude is not None
-        normalized.append({"state": state, "elapsed_ms": elapsed, "viseme": viseme, "amplitude": None if amplitude is None else float(amplitude)})
+        normalized_amplitude = None if amplitude is None else _unit(amplitude, "speech timing amplitude")
+        articulation = articulation or viseme is not None or normalized_amplitude is not None
+        normalized.append({"state": state, "elapsed_ms": elapsed, "viseme": viseme, "amplitude": normalized_amplitude})
     if normalized[0]["state"] != "start" or normalized[0]["elapsed_ms"] != 0:
         raise EmbodimentAuthorityError("speech timing must begin with start at elapsed_ms=0")
     if normalized[-1]["state"] != "stop" or normalized[-1]["elapsed_ms"] <= 0:
@@ -236,35 +267,81 @@ def _timing(path: str | os.PathLike[str]) -> dict[str, Any]:
     return {"path": timing_path, "value": value, "sha256": _sha256_file(timing_path), "utterance_id": utterance_id, "events": normalized, "articulation": True}
 
 
+def _validate_motor_optional(value: Mapping[str, Any]) -> None:
+    gesture = value.get("gesture")
+    if gesture is not None:
+        if not isinstance(gesture, Mapping) or set(gesture) != {"id", "amplitude"}:
+            raise EmbodimentAuthorityError("Motor State gesture fields are invalid")
+        gesture_id = str(gesture.get("id") or "")
+        if not 1 <= len(gesture_id) <= 80 or not TOKEN_RE.fullmatch(gesture_id):
+            raise EmbodimentAuthorityError("Motor State gesture id is invalid")
+        _unit(gesture.get("amplitude"), "Motor State gesture amplitude")
+    gaze = value.get("gaze")
+    if gaze is not None:
+        if not isinstance(gaze, Mapping) or set(gaze) != {"target", "strength"}:
+            raise EmbodimentAuthorityError("Motor State gaze fields are invalid")
+        target = gaze.get("target")
+        if not isinstance(target, str) or not 1 <= len(target) <= 127:
+            raise EmbodimentAuthorityError("Motor State gaze target is invalid")
+        _unit(gaze.get("strength"), "Motor State gaze strength")
+    posture = value.get("posture")
+    if posture is not None:
+        if not isinstance(posture, Mapping) or set(posture) != {"id", "intensity"}:
+            raise EmbodimentAuthorityError("Motor State posture fields are invalid")
+        posture_id = str(posture.get("id") or "")
+        if not 1 <= len(posture_id) <= 80 or not TOKEN_RE.fullmatch(posture_id):
+            raise EmbodimentAuthorityError("Motor State posture id is invalid")
+        _unit(posture.get("intensity"), "Motor State posture intensity")
+    if "duration_ms" in value:
+        _bounded_int(value.get("duration_ms"), "Motor State duration_ms", 0, 120_000)
+
+
 def _motor(path: str | os.PathLike[str], *, body_id: str, expected_observed: Mapping[str, float], timing: Mapping[str, Any]) -> dict[str, Any]:
     motor_path = Path(path).expanduser().resolve()
     if not motor_path.is_file():
         raise EmbodimentAuthorityError("Motor State v2 evidence is missing")
     value = _read_json(motor_path, "Motor State v2 evidence")
     allowed = {"type", "version", "body_id", "utterance_id", "motion", "expression", "gesture", "gaze", "posture", "duration_ms", "speech", "embodiment"}
-    if set(value) - allowed or value.get("type") != "bodyrig-motor-state" or value.get("version") != 2:
+    required = {"type", "version", "body_id", "utterance_id", "motion", "expression", "speech", "embodiment"}
+    if set(value) - allowed or not required <= set(value) or value.get("type") != "bodyrig-motor-state" or value.get("version") != 2:
         raise EmbodimentAuthorityError("embodiment authority requires canonical Motor State v2")
     if str(value.get("body_id") or "") != body_id or str(value.get("utterance_id") or "") != timing["utterance_id"]:
         raise EmbodimentAuthorityError("Motor State belongs to a different body/utterance")
+
     motion = value.get("motion")
     expression = value.get("expression")
     embodiment = value.get("embodiment")
     speech = value.get("speech")
     if not isinstance(motion, Mapping) or set(motion) != {"energy", "head_motion"}:
         raise EmbodimentAuthorityError("Motor State has no canonical motion realization")
+    _unit(motion.get("energy"), "Motor State motion.energy")
+    _unit(motion.get("head_motion"), "Motor State motion.head_motion")
     if not isinstance(expression, Mapping) or set(expression) != {"emotion", "intensity"}:
         raise EmbodimentAuthorityError("Motor State has no explicit expression realization")
+    emotion = str(expression.get("emotion") or "")
+    if not 1 <= len(emotion) <= 64 or not TOKEN_RE.fullmatch(emotion):
+        raise EmbodimentAuthorityError("Motor State expression emotion is invalid")
+    _unit(expression.get("intensity"), "Motor State expression intensity")
+    _validate_motor_optional(value)
+
     if not isinstance(embodiment, Mapping) or set(embodiment) != {"source", "observed"} or embodiment.get("source") != "modelrig-bodyprint-v1":
         raise EmbodimentAuthorityError("Motor State has no BodyPrint-observed embodiment receipt")
     observed = embodiment.get("observed")
     if not isinstance(observed, Mapping) or dict(observed) != dict(expected_observed):
         raise EmbodimentAuthorityError("Motor State observed embodiment differs from exact package BodyPrint")
+
     if not isinstance(speech, Mapping) or not {"state", "elapsed_ms"} <= set(speech) or set(speech) - {"state", "elapsed_ms", "viseme", "amplitude"}:
         raise EmbodimentAuthorityError("Motor State has no canonical speech realization")
-
     state = speech.get("state")
-    elapsed = speech.get("elapsed_ms")
+    if state not in {"start", "update", "stop"}:
+        raise EmbodimentAuthorityError("Motor State speech state is invalid")
+    elapsed = _bounded_int(speech.get("elapsed_ms"), "Motor State speech elapsed_ms", 0, 3_600_000)
     viseme = speech.get("viseme")
+    if viseme is not None and (not isinstance(viseme, str) or not VISEME_RE.fullmatch(viseme)):
+        raise EmbodimentAuthorityError("Motor State speech viseme is invalid")
+    if speech.get("amplitude") is not None:
+        _unit(speech.get("amplitude"), "Motor State speech amplitude")
+
     matching = [event for event in timing["events"] if event["state"] == state and event["elapsed_ms"] == elapsed and event["viseme"] == viseme]
     if len(matching) != 1:
         raise EmbodimentAuthorityError("Motor State speech state/elapsed/viseme is not uniquely present in exact VoiceRig timing evidence")
@@ -274,8 +351,8 @@ def _motor(path: str | os.PathLike[str], *, body_id: str, expected_observed: Map
         if motor_amplitude is not None:
             raise EmbodimentAuthorityError("Motor State synthesized speech amplitude absent from VoiceRig timing evidence")
     else:
-        if isinstance(motor_amplitude, bool) or not isinstance(motor_amplitude, (int, float)):
-            raise EmbodimentAuthorityError("Motor State speech amplitude is missing or invalid")
+        if motor_amplitude is None:
+            raise EmbodimentAuthorityError("Motor State speech amplitude is missing")
         speech_motion = float(expected_observed.get("speech_motion", 0.5))
         expected_amplitude = max(0.0, min(1.0, float(source_amplitude) * (0.5 + speech_motion)))
         if abs(float(motor_amplitude) - expected_amplitude) > 1e-9:
@@ -336,13 +413,21 @@ def validate_authority_structure(value: Mapping[str, Any], *, assembly_receipt: 
     if not isinstance(expression_fields, list) or not expression_fields or expression_fields != sorted(set(expression_fields)) or not set(expression_fields) <= EXPRESSION_FIELDS:
         raise EmbodimentAuthorityError("finalized embodiment observed expression fields are invalid")
     count = value.get("speech_event_count")
-    if isinstance(count, bool) or not isinstance(count, int) or count < 2 or count > 10000:
+    if isinstance(count, bool) or not isinstance(count, int) or not 2 <= count <= 10000:
         raise EmbodimentAuthorityError("finalized embodiment speech event count is invalid")
     if value.get("motor_state_version") != 2 or value.get("articulation_signal_observed") is not True:
         raise EmbodimentAuthorityError("finalized embodiment has no canonical Motor State/timing evidence")
-    for field in ("modelrig_version", "voicerig_version"):
-        if not isinstance(value.get(field), str) or not str(value[field]).strip():
-            raise EmbodimentAuthorityError(f"finalized embodiment {field} is missing")
+    _runtime_version(value.get("modelrig_version"), "finalized embodiment modelrig_version")
+    _runtime_version(value.get("voicerig_version"), "finalized embodiment voicerig_version")
+    reviewed = value.get("reviewed_utc")
+    if not isinstance(reviewed, str):
+        raise EmbodimentAuthorityError("finalized embodiment reviewed_utc is invalid")
+    try:
+        parsed = datetime.fromisoformat(reviewed.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise EmbodimentAuthorityError("finalized embodiment reviewed_utc is invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise EmbodimentAuthorityError("finalized embodiment reviewed_utc must include timezone")
     _quality_note(value.get("quality_note"))
     if value.get("state") != "complete" or value.get("operator_supplied") is not True or value.get("motion_authority") is not True or value.get("expression_authority") is not True or value.get("voice_timing_authority") is not True or value.get("production_activation") is not False:
         raise EmbodimentAuthorityError("finalized embodiment authority is not complete non-activating operator authority")
