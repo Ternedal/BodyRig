@@ -218,7 +218,7 @@ def test_reference_renderer_realizes_entire_m4_surface() -> None:
         "GazeRealized",
         "PostureRealized",
         "SpeechTimingRealized",
-        'case "present"',
+        '_state.gesture.id == "present"',
         "ExpressionKey.Aa",
     ):
         assert token in driver
