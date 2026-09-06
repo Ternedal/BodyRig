@@ -207,7 +207,7 @@ def _timing(path: str | os.PathLike[str]) -> dict[str, Any]:
     normalized: list[dict[str, Any]] = []
     previous = -1
     articulation = False
-    for index, event in enumerate(events):
+    for event in events:
         if not isinstance(event, Mapping) or set(event) != {"state", "elapsed_ms", "viseme", "amplitude"}:
             raise EmbodimentAuthorityError("speech timing event fields are not canonical")
         state = event.get("state")
@@ -261,14 +261,25 @@ def _motor(path: str | os.PathLike[str], *, body_id: str, expected_observed: Map
         raise EmbodimentAuthorityError("Motor State observed embodiment differs from exact package BodyPrint")
     if not isinstance(speech, Mapping) or not {"state", "elapsed_ms"} <= set(speech) or set(speech) - {"state", "elapsed_ms", "viseme", "amplitude"}:
         raise EmbodimentAuthorityError("Motor State has no canonical speech realization")
-    motor_event = {
-        "state": speech.get("state"),
-        "elapsed_ms": speech.get("elapsed_ms"),
-        "viseme": speech.get("viseme"),
-        "amplitude": None if speech.get("amplitude") is None else float(speech.get("amplitude")),
-    }
-    if motor_event not in timing["events"]:
-        raise EmbodimentAuthorityError("Motor State speech realization is not present in exact VoiceRig timing evidence")
+
+    state = speech.get("state")
+    elapsed = speech.get("elapsed_ms")
+    viseme = speech.get("viseme")
+    matching = [event for event in timing["events"] if event["state"] == state and event["elapsed_ms"] == elapsed and event["viseme"] == viseme]
+    if len(matching) != 1:
+        raise EmbodimentAuthorityError("Motor State speech state/elapsed/viseme is not uniquely present in exact VoiceRig timing evidence")
+    source_amplitude = matching[0]["amplitude"]
+    motor_amplitude = speech.get("amplitude")
+    if source_amplitude is None:
+        if motor_amplitude is not None:
+            raise EmbodimentAuthorityError("Motor State synthesized speech amplitude absent from VoiceRig timing evidence")
+    else:
+        if isinstance(motor_amplitude, bool) or not isinstance(motor_amplitude, (int, float)):
+            raise EmbodimentAuthorityError("Motor State speech amplitude is missing or invalid")
+        speech_motion = float(expected_observed.get("speech_motion", 0.5))
+        expected_amplitude = max(0.0, min(1.0, float(source_amplitude) * (0.5 + speech_motion)))
+        if abs(float(motor_amplitude) - expected_amplitude) > 1e-9:
+            raise EmbodimentAuthorityError("Motor State speech amplitude does not match deterministic BodyRig realization of VoiceRig timing")
     return {"path": motor_path, "value": value, "sha256": _sha256_file(motor_path)}
 
 
