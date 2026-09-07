@@ -11,9 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_build_backend_and_numeric_test_dependency_are_explicit() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    test_dependencies = project["project"]["optional-dependencies"]["test"]
 
     assert project["build-system"]["requires"] == ["hatchling==1.32.0"]
-    assert "numpy>=1.26,<2" in project["project"]["optional-dependencies"]["test"]
+    assert "numpy>=1.26,<2; python_version < '3.13'" in test_dependencies
+    assert "numpy>=2,<3; python_version >= '3.13'" in test_dependencies
 
 
 def test_platform_locks_share_exact_common_dependency_authority() -> None:
