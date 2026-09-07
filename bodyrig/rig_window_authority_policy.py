@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .acceptance_status import AcceptanceStatus
+from .automatic_run_discovery import AutomaticRunDiscoveryError, candidate_from_run, discover_run_authorities
 from .rig_window_acceptance import has_automatic_evidence, inspect_for_rig_window
 from . import rig_window_policy as policy
 
@@ -99,6 +100,46 @@ def _guarded_current_session_status(session_path: Path, repo_root: Path) -> Acce
     return status
 
 
+def _automatic_run_candidates(
+    *,
+    root: Path,
+    performer_id: str,
+    resolved_performer: str,
+    body_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Discover reusable one-command RunRoots without trusting run-authority as PASS."""
+
+    authorities, rejected = discover_run_authorities(root)
+    scoped_performer = str(performer_id or resolved_performer or "").strip()
+    candidates: list[dict[str, Any]] = []
+    rejected_out = list(rejected)
+
+    for run in authorities:
+        run_performer = str(run.get("performer_id") or "").strip()
+        run_body = str(run.get("body_id") or "").strip()
+        if scoped_performer and run_performer != scoped_performer:
+            continue
+        if performer_id and body_id and run_body != body_id:
+            continue
+        try:
+            candidate = candidate_from_run(run)
+        except AutomaticRunDiscoveryError as exc:
+            rejected_out.append({"run_root": str(run.get("run_root") or ""), "reason": str(exc)})
+            continue
+        if candidate is not None:
+            candidates.append(candidate)
+
+    if not scoped_performer:
+        performers = sorted({str(item.get("performer_id") or "") for item in candidates if item.get("performer_id")})
+        if len(performers) > 1:
+            raise policy.base.RigWindowPlanError(
+                "Reusable one-command production evidence belongs to multiple Stash performers; pass -PerformerId/-BodyId before reuse: "
+                + ", ".join(performers)
+            )
+
+    return candidates, rejected_out
+
+
 def enforce_existing_authority(
     *,
     repo_root: Path,
@@ -167,7 +208,27 @@ def _guarded_existing_candidates(
         resolved_performer=resolved_performer,
         body_id=body_id,
     )
-    return enforce_existing_authority(repo_root=repo_root, candidates=candidates, rejected=rejected)
+    run_candidates, run_rejected = _automatic_run_candidates(
+        root=root,
+        performer_id=performer_id,
+        resolved_performer=resolved_performer,
+        body_id=body_id,
+    )
+    seen_sessions = {
+        str(Path(str(item.get("session_report") or "")).expanduser().resolve(strict=False)).casefold()
+        for item in candidates
+        if str(item.get("session_report") or "").strip()
+    }
+    for candidate in run_candidates:
+        key = str(Path(str(candidate["session_report"])).expanduser().resolve(strict=False)).casefold()
+        if key not in seen_sessions:
+            candidates.append(candidate)
+            seen_sessions.add(key)
+    return enforce_existing_authority(
+        repo_root=repo_root,
+        candidates=candidates,
+        rejected=rejected + run_rejected,
+    )
 
 
 def _revision_has_resumable_automatic_tooling(repo_root: Path, revision: str) -> bool:
