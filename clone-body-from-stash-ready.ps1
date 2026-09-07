@@ -132,6 +132,18 @@ if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
 }
 $RigSetupReport = Resolve-InputFile -Path $RigSetupReport -Label "BodyRig rig setup report"
 
+foreach ($requiredProductionScript in @(
+    "check-rig-ready.ps1",
+    "clone-body-from-stash.ps1",
+    "accept-physical-clone.ps1",
+    "accept-physical-clone-core.ps1"
+)) {
+    $requiredProductionPath = Join-Path $repoRoot $requiredProductionScript
+    if (-not (Test-Path -LiteralPath $requiredProductionPath -PathType Leaf)) {
+        throw "Canonical production dependency is missing before physical session start: $requiredProductionPath"
+    }
+}
+
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 $runSuffix = [Guid]::NewGuid().ToString("N").Substring(0, 8)
 $artifactBase = [string]$env:LOCALAPPDATA

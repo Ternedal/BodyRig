@@ -72,6 +72,27 @@ def test_canonical_ready_launcher_blocks_cpu_fallback_before_session_creation():
     assert 'if ($AllowCpu) { $cloneArgs += "-AllowCpu" }' in low_level
 
 
+def test_canonical_ready_launcher_preflights_required_scripts_before_session_creation():
+    ready = (ROOT / "clone-body-from-stash-ready.ps1").read_text(encoding="utf-8")
+
+    preflight = 'foreach ($requiredProductionScript in @('
+    session_start = 'Invoke-SessionCommand -Arguments @(\n    "start",'
+    required = (
+        '"check-rig-ready.ps1"',
+        '"clone-body-from-stash.ps1"',
+        '"accept-physical-clone.ps1"',
+        '"accept-physical-clone-core.ps1"',
+    )
+
+    assert preflight in ready
+    for token in required:
+        assert token in ready
+        assert ready.index(token, ready.index(preflight)) < ready.index(session_start)
+    assert 'Canonical production dependency is missing before physical session start' in ready
+    assert ready.index(preflight) < ready.index(session_start)
+
+
+
 def test_canonical_ready_launcher_binds_rig_setup_hash_through_readiness_and_pass():
     ready = (ROOT / "clone-body-from-stash-ready.ps1").read_text(encoding="utf-8")
 
