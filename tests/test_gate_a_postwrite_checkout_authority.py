@@ -7,7 +7,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def test_gate_a_rechecks_exact_clean_checkout_before_and_after_acceptance_write() -> None:
-    source = (REPO / "accept-physical-clone.ps1").read_text(encoding="utf-8")
+    source = (REPO / "accept-physical-clone-core.ps1").read_text(encoding="utf-8")
 
     assert "function Assert-CheckoutAuthority" in source
     assert "$headLines = @(& git -C $RepoRoot rev-parse HEAD 2>&1)" in source
