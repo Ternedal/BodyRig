@@ -37,13 +37,22 @@ def test_automatic_activation_uses_checkout_bound_bodyrig_python() -> None:
 
 def test_quest_quality_recovery_reuses_committed_probe_pair_without_renderer_rebuild() -> None:
     assert "$recoverQualityOnly = $probeExists -and $deformationExists" in QUEST
-    assert '[string]$before.stage -ne "quest-quality"' in QUEST
+    assert '$expectedStage = if ($recoverQualityOnly) { "quest-quality" } else { "quest" }' in QUEST
+    assert '[string]$before.stage -ne $expectedStage' in QUEST
+    assert "Refusing to skip automatic production ordering" in QUEST
     assert "reusing committed probe/deformation; recovering quality receipt only" in QUEST
     recovery = QUEST.index("if ($recoverQualityOnly)")
     fresh = QUEST.index("} else {", recovery)
     inner = QUEST.index("& $inner @args", fresh)
     assert recovery < fresh < inner
     assert "Quest renderer rebuild: skipped" in QUEST
+
+
+def test_fresh_quest_proof_requires_windows_automatic_stage_first() -> None:
+    stage_check = QUEST.index('$expectedStage = if ($recoverQualityOnly) { "quest-quality" } else { "quest" }')
+    inner = QUEST.index("& $inner @args")
+    assert stage_check < inner
+    assert "Get-AutomaticStatus" in QUEST
 
 
 def test_quest_quality_recovery_never_commits_unvalidated_quality() -> None:
