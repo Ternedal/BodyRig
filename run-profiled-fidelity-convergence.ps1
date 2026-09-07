@@ -131,6 +131,9 @@ if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_UR
 if ([string]::IsNullOrWhiteSpace($StashUrl)) { throw "Stash URL is required via -StashUrl or STASH_URL." }
 if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) { throw "ApiKeyEnv is required." }
 
+$gateA = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
+[void](Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone-core.ps1") -Label "Gate A transactional core")
+
 $artifactBase = [string]$env:LOCALAPPDATA
 if ([string]::IsNullOrWhiteSpace($artifactBase)) { $artifactBase = [System.IO.Path]::GetTempPath() }
 if ($Resume -and [string]::IsNullOrWhiteSpace($WorkRoot)) { throw "-Resume requires an explicit existing -WorkRoot." }
@@ -157,7 +160,6 @@ $frozenBodyReference = Join-Path $referenceDir "private-body-reference-rgba.png"
 $bestPreviewDir = Join-Path $WorkRoot "best-preview"
 $checkpointDir = Join-Path $WorkRoot "checkpoints"
 $profileLauncher = Resolve-InputFile -Path (Join-Path $repoRoot "clone-body-from-stash-profiled-ready.ps1") -Label "Profiled physical clone launcher"
-$gateA = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
 $fidelityRenderer = Resolve-InputFile -Path (Join-Path $repoRoot "run-fidelity-windows-render-probe.ps1") -Label "Fidelity Windows renderer"
 $refitScript = Resolve-InputFile -Path (Join-Path $repoRoot "refit-fidelity-candidate.ps1") -Label "Fidelity reconstruction-resume refit"
 $identityRoot = Join-Path $artifactBase "BodyRig\identity-workspaces"

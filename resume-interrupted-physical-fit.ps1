@@ -76,6 +76,12 @@ $FailedSessionReport = Need-File -Path $FailedSessionReport -Label "Failed physi
 $CloneOutput = Need-Directory -Path $CloneOutput -Label "Interrupted Stash clone output"
 $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Private identity workspace"
 
+$gateA = ""
+if (-not [string]::IsNullOrWhiteSpace($GateAOutputDir)) {
+    $gateA = Need-File -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
+    [void](Need-File -Path (Join-Path $repoRoot "accept-physical-clone-core.ps1") -Label "Gate A transactional core")
+}
+
 if ([string]::IsNullOrWhiteSpace($RigSetupReport)) { $RigSetupReport = [string]$env:BODYRIG_RIG_SETUP_REPORT }
 if ([string]::IsNullOrWhiteSpace($RigSetupReport) -and -not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     $candidate = Join-Path $env:LOCALAPPDATA "BodyRig\bodyrig-rig-setup.json"
@@ -260,7 +266,6 @@ try {
     Write-CreateOnlyJson -Path $RecoveryReceipt -Value $receipt
 
     if (-not [string]::IsNullOrWhiteSpace($GateAOutputDir)) {
-        $gateA = Need-File -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
         & $gateA -SessionReport $RecoveredSessionReport -BodyRigPython $BodyRigPython -OutputDir $GateAOutputDir
         if ($LASTEXITCODE -ne 0) { throw "Recovered package succeeded but Gate A failed operationally." }
     }
