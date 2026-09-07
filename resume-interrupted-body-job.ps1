@@ -33,8 +33,12 @@ try {
 if ($health.ok -ne $true -or [string]$health.service -ne "bodyrig") {
     throw "Port 8775 did not identify a healthy BodyRig service."
 }
-if (-not [string]::IsNullOrWhiteSpace([string]$health.bodyrig_revision) -and [string]$health.bodyrig_revision -ne $head) {
-    throw "Running BodyRig service revision differs from the operator checkout: service=$([string]$health.bodyrig_revision), checkout=$head"
+$healthRevisionProperty = $health.PSObject.Properties["bodyrig_revision"]
+if ($null -ne $healthRevisionProperty) {
+    $healthRevision = [string]$healthRevisionProperty.Value
+    if (-not [string]::IsNullOrWhiteSpace($healthRevision) -and $healthRevision -ne $head) {
+        throw "Running BodyRig service revision differs from the operator checkout: service=$healthRevision, checkout=$head"
+    }
 }
 
 $statusUri = "$baseUri/api/v1/jobs/$JobId/resume-status"
