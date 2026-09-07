@@ -9,6 +9,10 @@ from typing import Any
 
 from .acceptance_status import AcceptanceStatusError, _session_status
 from .one_command_recovery import OneCommandRecoveryError, inspect_one_command_recovery
+from .one_command_recovery_advancement import (
+    OneCommandRecoveryAdvancementError,
+    inspect_completed_recovery,
+)
 from .rig_window_acceptance import inspect_for_rig_window, progress_rank
 
 
@@ -141,6 +145,52 @@ def discover_run_authorities(data_root: Path) -> tuple[list[dict[str, Any]], lis
     return rows, rejected
 
 
+def _candidate_after_completed_recovery(run: dict[str, Any], recovery: dict[str, Any], completed: dict[str, Any]) -> dict[str, Any]:
+    acceptance_dir = Path(str(completed["acceptance_dir"]))
+    gate_a = acceptance_dir / "bodyrig-acceptance.json"
+    if gate_a.is_file() and not gate_a.is_symlink():
+        try:
+            structural = inspect_for_rig_window(acceptance_dir)
+        except Exception as exc:
+            raise AutomaticRunDiscoveryError(f"recovered one-command acceptance is not reusable: {exc}") from exc
+        rank = int(structural.get("progress_rank") or 0)
+        if rank <= 0:
+            raise AutomaticRunDiscoveryError("recovered one-command acceptance has no reusable physical progress")
+        evidence_revision = str(structural.get("bodyrig_revision") or "").strip().lower()
+        if evidence_revision != str(run["revision"]):
+            raise AutomaticRunDiscoveryError("recovered one-command acceptance revision does not match run authority")
+        state = str(structural.get("state") or "ready")
+        gate = str(structural.get("gate") or "")
+    else:
+        rank = 10
+        evidence_revision = str(completed["bodyrig_revision"])
+        state = "ready"
+        gate = "gate-a"
+
+    return {
+        "kind": "physical-session",
+        "rank": rank,
+        "stamp": str(run.get("completed_at") or run.get("started_at") or ""),
+        "preferred": False,
+        "session_report": str(completed["recovered_session"]),
+        "original_failed_session_report": str(recovery["session_report"]),
+        "acceptance_dir": str(acceptance_dir.resolve(strict=False)),
+        "state": state,
+        "gate": gate,
+        "evidence_revision": evidence_revision,
+        "performer_id": str(completed["performer_id"]),
+        "body_id": str(completed["body_id"]),
+        "automatic_run_root": str(recovery["run_root"]),
+        "recovery_mode": str(completed["recovery_mode"]),
+        "clone_output": str(completed["clone_output"]),
+        "recovery_receipt": str(completed["recovery_receipt"]),
+        "expensive_reconstruction_rerun": False,
+        # Recovery has already finished. A prior fit-only rerun is historical work,
+        # not work that the next rig-window command must repeat.
+        "fitter_rerun": False,
+    }
+
+
 def candidate_from_run(run: dict[str, Any]) -> dict[str, Any] | None:
     session_path = Path(str(run["session_report"]))
     if not session_path.is_file() or session_path.is_symlink():
@@ -168,6 +218,12 @@ def candidate_from_run(run: dict[str, Any]) -> dict[str, Any] | None:
             raise AutomaticRunDiscoveryError("one-command recovery revision does not match run authority")
         if str(recovery["performer_id"]) != str(run["performer_id"]) or str(recovery["body_id"]) != str(run["body_id"]):
             raise AutomaticRunDiscoveryError("one-command recovery scope does not match run authority")
+        try:
+            completed = inspect_completed_recovery(recovery)
+        except OneCommandRecoveryAdvancementError as exc:
+            raise AutomaticRunDiscoveryError(f"completed one-command recovery is invalid: {exc}") from exc
+        if completed is not None:
+            return _candidate_after_completed_recovery(run, recovery, completed)
         return {
             "kind": "physical-session",
             "rank": int(recovery["progress_rank"]),
