@@ -1,6 +1,6 @@
 # BodyRig handoff
 
-_Last updated: 2026-09-06_
+_Last updated: 2026-09-07_
 
 ## Canonical repository authority
 
@@ -137,7 +137,8 @@ Classify old/open PRs deliberately:
 
 - **#60 — ACTIVE CANDIDATE:** recovery-throughput v3; requires real physical A/B before promotion.
 - **#63 — FROZEN EVIDENCE:** historical Gate-A lineage; reusable validator/rescue software is represented on current `main`, but the frozen branch remains historical evidence rather than normal merge authority.
-- **#121 — DRAFT CANDIDATE:** source-derived PBR/appearance work; it is not current production authority and must be reconciled with the newer anatomy/appearance stack plus real visual evidence before any promotion.
+- **#132 — DRAFT CANDIDATE:** current-main source-derived PBR v2 candidate; exact-head CI is green, but it remains non-production until fresh revision-bound real visual A/B/human review.
+- **#121 — SUPERSEDED CANDIDATE:** its exact reviewed three-file delta was ported without reinterpretation to #132; keep #121 closed rather than merging its stale lineage.
 - **#109 — SUPERSEDED DOCS:** its intent is incorporated by the current handoff; do not merge its old base onto modern `main`.
 
 Use these meanings consistently:
