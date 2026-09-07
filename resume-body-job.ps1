@@ -51,9 +51,11 @@ try {
         throw "BodyRig Python imports bodyrig from unexpected location: $actualModulePath. Expected checkout authority: $expectedModulePath"
     }
 
-    $argsList = @("-m", "bodyrig.resume_body_job", $JobId)
-    if ($AssessOnly) { $argsList += "--assess-only" }
-    & $BodyRigPython @argsList
+    if ($AssessOnly) {
+        & $BodyRigPython -m bodyrig.resume_body_job $JobId --assess-only
+    } else {
+        & $BodyRigPython -m bodyrig.resume_body_job $JobId
+    }
     $exitCode = $LASTEXITCODE
 }
 finally {
