@@ -2,7 +2,7 @@
 
 This runbook exists to maximize scarce time on the physical target rig. The rule is simple: **reuse the furthest valid evidence before spending GPU/WSL/Unity/Quest time on an earlier stage**.
 
-The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. The planner never runs the mutating command it recommends.
+The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. Interrupted-recovery assessment delegates to the already-running BodyRig service and its existing exact-authority recovery planner. The planner never runs the mutating command it recommends.
 
 ## 0. Update before creating new evidence
 
@@ -12,6 +12,8 @@ From PowerShell 7+ on the target rig, before a new physical chain is frozen:
 cd <YOUR-BODYRIG-CHECKOUT>
 .\update-windows.ps1 -NoBrowser
 ```
+
+`update-windows.ps1` also starts/verifies the checkout-bound local BodyRig service, which lets the rig-window planner inspect existing interrupted-body recovery opportunities without duplicating service-owned Stash/Person authority.
 
 After a fresh Gate A or later physical acceptance evidence has been selected for continuation, do **not** pull, switch branches or edit tracked files until that exact chain is deliberately completed or abandoned.
 
@@ -27,7 +29,9 @@ If the performer id and local BodyId alias are already known, provide them now s
 .\plan-rig-window.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
-The planner uses this strict priority order.
+If one specific historical UI job is the intended continuation, add `-PreferredJobId '<job-id>'`. This only changes candidate ordering; every candidate still has to pass its canonical validator.
+
+The planner uses this strict reuse-first priority order.
 
 ### Priority 1 — historical Gate-A rescue
 
@@ -57,11 +61,34 @@ If that physical body acceptance chain is already complete, the planner stops an
 
 If there is no usable Gate-A continuation but a completed physical clone session exists on the exact current checkout revision, continue that session into Gate A instead of starting another reconstruction.
 
-### Priority 4 — fresh profiled physical preflight
+### Priority 4 — interrupted package/reconstruction recovery
 
-Only when no reusable Gate-A rescue, Gate-A continuation or exact-current completed clone session validates may the planner fall back to fresh profiled physical preflight/reconstruction.
+For other failed/interrupted body jobs on the exact current BodyRig revision, the planner asks the existing BodyRig service recovery engine whether retained private evidence can be reused. Two canonical modes already exist:
+
+- **adopt complete package** — a complete source-bound package survived; expensive reconstruction **and fitter** do not rerun;
+- **resume fit only** — completed SiTH reconstruction survived; expensive reconstruction does not rerun, but the fitter runs again from the retained exact reconstruction authority.
+
+The planner first calls the read-only wrapper equivalent of:
+
+```powershell
+.\resume-interrupted-body-job.ps1 -JobId '<job-id>' -AssessOnly
+```
+
+Only an `available=true`, exact-current-revision plan with `expensive_reconstruction_rerun=false` can be recommended. The mutating command is then emitted, not executed automatically:
+
+```powershell
+.\resume-interrupted-body-job.ps1 -JobId '<job-id>'
+```
+
+That command delegates to BodyRig's existing `/resume-status` and `/resume` service endpoints, preserving their Person/Stash/source/workspace authority and active-job conflict checks.
+
+### Priority 5 — fresh profiled physical preflight
+
+Only when no reusable Gate-A rescue, Gate-A continuation, exact-current completed clone session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
 
 With a performer/body pair supplied, the next command routes through checkout-bound `bodyrig-status.ps1`, which delegates to the canonical profiled first-run doctor. That doctor performs rig/source readiness and emits the exact production clone command; it still creates no physical session by itself.
+
+The crash-resilient recovery bridge will also reuse source-hash/adapter/revision-bound segment checkpoints within retained observation workspaces when the canonical recovery path reaches them. Do not manually copy checkpoint files between workspaces.
 
 ## 2. Execute exactly one recommended next command
 
@@ -73,11 +100,11 @@ After the command finishes, rerun:
 .\plan-rig-window.ps1
 ```
 
-The planner should either advance to a later valid stage, report an already-complete body acceptance chain, or explain why reuse is no longer valid before permitting fresh reconstruction.
+The planner should either advance to a later valid stage, report an already-complete body acceptance chain, or explain why every reuse route is invalid before permitting fresh reconstruction.
 
 ## 3. Human/physical evidence boundary
 
-The planner and `-AssessOnly` can prove byte lineage, package validity, skin/topology structural QA, runtime materialization and checkout authority. They **cannot** create or infer:
+The planner and assessment modes can prove byte lineage, package validity, skin/topology structural QA, runtime materialization, retained reconstruction/package authority and checkout authority. They **cannot** create or infer:
 
 - human visual/fidelity PASS;
 - real Windows/Quest renderer PASS;
