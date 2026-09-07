@@ -170,13 +170,47 @@ if (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
     throw "BodyRig Windows Python runtime lock mangler: $runtimeLock"
 }
 
-& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"
-if ($LASTEXITCODE -ne 0) {
-    throw "BodyRig venv-opdatering fejlede."
+# The editable BodyRig source lives in this checkout, so a source-only Git update
+# does not require reinstalling the package. Skip pip only when both dependency
+# authority and the installed editable/launcher authority prove exact. Historical
+# revisions that predate install_authority.py deliberately keep the conservative
+# reinstall path and then rely on their own start-windows import verification.
+$installAuthorityModule = Join-Path $RepoRoot "bodyrig\install_authority.py"
+$canVerifyEditableInstall = Test-Path -LiteralPath $installAuthorityModule -PathType Leaf
+$runtimeAlreadyValid = $false
+if ($canVerifyEditableInstall) {
+    $runtimeProbe = @(& $python -m bodyrig.runtime_lock --lock $runtimeLock 2>&1)
+    $runtimeProbeExit = $LASTEXITCODE
+    $installProbe = @(& $python -m bodyrig.install_authority --repo-root $RepoRoot 2>&1)
+    $installProbeExit = $LASTEXITCODE
+    if ($runtimeProbeExit -eq 0 -and $installProbeExit -eq 0) {
+        $runtimeAlreadyValid = $true
+    }
 }
+
+if ($runtimeAlreadyValid) {
+    Write-Host "BodyRig venv: exact runtime lock + checkout-bound editable install already valid; pip install skipped."
+} else {
+    if ($canVerifyEditableInstall) {
+        Write-Host "BodyRig venv: install/lock authority requires refresh; running canonical pip install."
+    } else {
+        Write-Host "BodyRig venv: target revision predates editable-install authority probe; using conservative canonical pip install."
+    }
+    & $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig venv-opdatering fejlede."
+    }
+}
+
 & $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."
+}
+if ($canVerifyEditableInstall) {
+    & $python -m bodyrig.install_authority --repo-root $RepoRoot | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig editable install/launcher er ikke authority-bundet til det aktive checkout efter update."
+    }
 }
 
 $stashPathConfig = Join-Path $RepoRoot "configure-stash-path-map.ps1"
