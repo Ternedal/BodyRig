@@ -1,6 +1,7 @@
 param(
     [string]$ConfigPath = "",
-    [string]$PeopleDir = ""
+    [string]$PeopleDir = "",
+    [switch]$ForceRefresh
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +21,7 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
 if ([string]::IsNullOrWhiteSpace($PeopleDir)) {
     $PeopleDir = Join-Path $bodyRigRoot "people"
 }
+$evidencePath = Join-Path $bodyRigRoot "config\stash-path-map.json"
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     Write-Host "BodyRig Stash path map: ingen gemt Stash-konfiguration; springer over."
@@ -53,18 +55,8 @@ $hostName = [string]$stashUri.Host
 if ([string]::IsNullOrWhiteSpace($hostName)) {
     throw "BodyRig Stash path map: Stash URL mangler host."
 }
+$stashOrigin = $stashUri.GetLeftPart([UriPartial]::Authority).TrimEnd('/').ToLowerInvariant()
 $graphqlUrl = $stashUrl.TrimEnd('/') + "/graphql"
-
-$secure = ConvertTo-SecureString $protectedKey
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-try {
-    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-} finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-}
-if ([string]::IsNullOrWhiteSpace($apiKey)) {
-    throw "BodyRig Stash path map: API-key kunne ikke dekrypteres for denne Windows-bruger."
-}
 
 function Get-OptionalPropertyValue {
     param(
@@ -77,27 +69,14 @@ function Get-OptionalPropertyValue {
     return $property.Value
 }
 
-function Invoke-StashGraphQl {
-    param(
-        [Parameter(Mandatory = $true)][string]$Query,
-        [Parameter(Mandatory = $true)][hashtable]$Variables
-    )
-    $payload = [ordered]@{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 12 -Compress
-    $headers = @{ ApiKey = $apiKey }
-    $response = Invoke-RestMethod -Method Post -Uri $graphqlUrl -Headers $headers -ContentType "application/json" -Body $payload -TimeoutSec 30
-    $errors = @(Get-OptionalPropertyValue -Object $response -Name "errors")
-    if ($errors.Count -gt 0 -and $null -ne $errors[0]) {
-        $message = ($errors | ForEach-Object {
-            $value = Get-OptionalPropertyValue -Object $_ -Name "message"
-            if ($null -ne $value) { [string]$value }
-        }) -join "; "
-        throw "Stash GraphQL error: $message"
+function Set-BodyRigStashPathMap {
+    param([Parameter(Mandatory = $true)][object]$Mapping)
+    $mapJson = $Mapping | ConvertTo-Json -Compress
+    if ([string]::IsNullOrWhiteSpace($mapJson) -or $mapJson -eq "{}") {
+        throw "BodyRig Stash path map: tom mapping kan ikke aktiveres."
     }
-    $data = Get-OptionalPropertyValue -Object $response -Name "data"
-    if ($null -eq $data) {
-        throw "Stash GraphQL response mangler data."
-    }
-    return $data
+    $env:BODYRIG_STASH_PATH_MAP = $mapJson
+    [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
 }
 
 $performerIds = @(
@@ -121,6 +100,83 @@ $performerIds = @(
 if ($performerIds.Count -eq 0) {
     Write-Host "BodyRig Stash path map: ingen Stash-bundne personer endnu; springer over."
     return
+}
+
+# Fast path: before decrypting credentials or querying Stash, ask the checkout-bound
+# Python cache validator whether the recent persisted mapping still belongs to the
+# same Stash origin/performer scope and whether every cached SMB share is live.
+# Any uncertainty is a cache MISS and falls through to the original full discovery.
+if (-not $ForceRefresh -and (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
+    $cachePython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+    $cacheModule = Join-Path $PSScriptRoot "bodyrig\stash_path_cache.py"
+    if ((Test-Path -LiteralPath $cachePython -PathType Leaf) -and (Test-Path -LiteralPath $cacheModule -PathType Leaf)) {
+        $cacheArgs = @(
+            "-m", "bodyrig.stash_path_cache",
+            "--evidence", $evidencePath,
+            "--stash-url", $stashUrl
+        )
+        foreach ($performerId in $performerIds) {
+            $cacheArgs += @("--performer-id", [string]$performerId)
+        }
+        $cacheRaw = @(& $cachePython @cacheArgs 2>$null)
+        $cacheExit = $LASTEXITCODE
+        if ($cacheExit -eq 0 -and $cacheRaw.Count -eq 1) {
+            try {
+                $cache = ([string]$cacheRaw[0]) | ConvertFrom-Json
+                $cachedMapping = [ordered]@{}
+                foreach ($property in $cache.mapping.PSObject.Properties) {
+                    $cachedMapping[[string]$property.Name] = [string]$property.Value
+                }
+                if ($cache.ok -eq $true -and $cachedMapping.Count -gt 0) {
+                    Set-BodyRigStashPathMap -Mapping $cachedMapping
+                    Write-Host "BodyRig Stash path map: CACHE HIT ($([string]$cache.cache_mode))"
+                    foreach ($entry in $cachedMapping.GetEnumerator()) {
+                        Write-Host "  $($entry.Key) -> $($entry.Value)"
+                    }
+                    return
+                }
+            } catch {
+                # Invalid cache output is deliberately treated as a miss.
+            }
+        }
+        Write-Host "BodyRig Stash path map: cache MISS; refreshing from Stash."
+    }
+} elseif ($ForceRefresh) {
+    Write-Host "BodyRig Stash path map: forced refresh requested."
+}
+
+$secure = ConvertTo-SecureString $protectedKey
+$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+try {
+    $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+} finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+}
+if ([string]::IsNullOrWhiteSpace($apiKey)) {
+    throw "BodyRig Stash path map: API-key kunne ikke dekrypteres for denne Windows-bruger."
+}
+
+function Invoke-StashGraphQl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Query,
+        [Parameter(Mandatory = $true)][hashtable]$Variables
+    )
+    $payload = [ordered]@{ query = $Query; variables = $Variables } | ConvertTo-Json -Depth 12 -Compress
+    $headers = @{ ApiKey = $apiKey }
+    $response = Invoke-RestMethod -Method Post -Uri $graphqlUrl -Headers $headers -ContentType "application/json" -Body $payload -TimeoutSec 30
+    $errors = @(Get-OptionalPropertyValue -Object $response -Name "errors")
+    if ($errors.Count -gt 0 -and $null -ne $errors[0]) {
+        $message = ($errors | ForEach-Object {
+            $value = Get-OptionalPropertyValue -Object $_ -Name "message"
+            if ($null -ne $value) { [string]$value }
+        }) -join "; "
+        throw "Stash GraphQL error: $message"
+    }
+    $data = Get-OptionalPropertyValue -Object $response -Name "data"
+    if ($null -eq $data) {
+        throw "Stash GraphQL response mangler data."
+    }
+    return $data
 }
 
 $currentQuery = @'
@@ -242,15 +298,14 @@ if ($mapping.Count -eq 0) {
     throw "BodyRig Stash path map: kunne ikke bevise en læsbar SMB-mapping for Stash paths. Returnerede roots: $($roots -join ', '). Forventede shares på $hostName med navne som VR_E/VR_F."
 }
 
-$mapJson = $mapping | ConvertTo-Json -Compress
-$env:BODYRIG_STASH_PATH_MAP = $mapJson
-[Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
+Set-BodyRigStashPathMap -Mapping $mapping
 
-$evidencePath = Join-Path $bodyRigRoot "config\stash-path-map.json"
 $evidence = [ordered]@{
     format = "bodyrig-local-stash-path-map"
-    version = 1
+    version = 2
+    stash_origin = $stashOrigin
     stash_host = $hostName
+    performer_ids = @($performerIds)
     mapping = $mapping
     proof = $proof
     updated_utc = [DateTime]::UtcNow.ToString("o")
@@ -259,7 +314,7 @@ $temp = "$evidencePath.tmp-$([Guid]::NewGuid().ToString('N'))"
 [System.IO.File]::WriteAllText($temp, (($evidence | ConvertTo-Json -Depth 8) + "`n"), [System.Text.UTF8Encoding]::new($false))
 Move-Item -LiteralPath $temp -Destination $evidencePath -Force
 
-Write-Host "BodyRig Stash path map: READY"
+Write-Host "BodyRig Stash path map: REFRESHED"
 foreach ($item in $proof) {
     Write-Host "  $($item.source_prefix) -> $($item.share) | verified files: $($item.verified_files)/$($item.candidate_files)"
 }
