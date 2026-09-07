@@ -113,6 +113,21 @@ def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
     assert configure_index < start_index
 
 
+def test_stash_autoconfig_failure_does_not_block_service_or_reuse_planner() -> None:
+    configure_index = SCRIPT.index('Join-Path $RepoRoot "configure-stash-path-map.ps1"')
+    try_index = SCRIPT.index('    try {', configure_index)
+    invoke_index = SCRIPT.index('& $stashPathConfig', try_index)
+    catch_index = SCRIPT.index('    } catch {', invoke_index)
+    clear_index = SCRIPT.index('Remove-Item Env:BODYRIG_STASH_PATH_MAP -ErrorAction SilentlyContinue', catch_index)
+    warning_index = SCRIPT.index('BodyRig Stash path-map auto-configuration failed:', clear_index)
+    rescue_index = SCRIPT.index('Join-Path $RepoRoot "diagnose-failed-body-build.ps1"', warning_index)
+    start_index = SCRIPT.index('Join-Path $RepoRoot "start-windows.ps1"', rescue_index)
+    planner_index = SCRIPT.index('$planner = Join-Path $RepoRoot "plan-rig-window.ps1"', start_index)
+    assert configure_index < try_index < invoke_index < catch_index < clear_index < warning_index < rescue_index < start_index < planner_index
+    assert 'Update continues so existing physical evidence can still be inspected/reused' in SCRIPT
+    assert 'fresh source work remains fail-closed in canonical preflight' in SCRIPT
+
+
 def test_update_probes_latest_failed_recovery_read_only_without_blocking_launch() -> None:
     probe_index = SCRIPT.index('Join-Path $RepoRoot "diagnose-failed-body-build.ps1"')
     start_index = SCRIPT.index('Join-Path $RepoRoot "start-windows.ps1"')
