@@ -17,6 +17,27 @@ foreach ($required in @($doctor, $profiledLauncher, $pathMapConfig)) {
         throw "BodyRig profiled physical preflight dependency is missing: $required"
     }
 }
+$pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($null -eq $pwsh) {
+    throw "PowerShell 7 executable (pwsh) is required for isolated profiled physical preflight."
+}
+
+function Invoke-CanonicalDoctorProcess {
+    $doctorArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $doctor,
+        "-PerformerId", $PerformerId,
+        "-BodyId", $BodyId
+    )
+    $output = @(& $pwsh.Source @doctorArgs 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($null -eq $exitCode) { $exitCode = 1 }
+    return [pscustomobject]@{
+        Output = @($output)
+        ExitCode = [int]$exitCode
+    }
+}
 
 # Scope path-map cache/discovery to the one performer this physical window is
 # about. A cache hit is cheap; a miss discovers only this performer instead of
@@ -24,18 +45,13 @@ foreach ($required in @($doctor, $profiledLauncher, $pathMapConfig)) {
 & $pathMapConfig -PerformerId $PerformerId
 
 # Keep the existing first-run doctor as the sole readiness/source-probe authority.
-# Capture its human-readable output so only the emitted production command is
-# rewritten; no readiness result or physical evidence is synthesized here.
-$captured = @()
-$code = 0
-try {
-    $captured = @(& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1)
-    $code = $LASTEXITCODE
-    if ($null -eq $code) { $code = 0 }
-} catch {
-    $captured = @([string]$_.Exception.Message)
-    $code = 1
-}
+# Run it in an isolated pwsh process: the canonical doctor deliberately uses
+# `exit`, so child-process isolation makes both output and exit status safe to
+# inspect without letting a failed first attempt terminate this retry wrapper.
+# The child inherits the performer-scoped BODYRIG_STASH_PATH_MAP environment.
+$attempt = Invoke-CanonicalDoctorProcess
+$captured = @($attempt.Output)
+$code = [int]$attempt.ExitCode
 
 # A recently cached mapping can remain structurally/live-share valid while the
 # selected performer's Stash path layout changed. Only that narrow source-map
@@ -50,16 +66,9 @@ if ($code -ne 0) {
     if ($sourceMapRetryEligible) {
         Write-Host "BodyRig profiled preflight: selected-source probe failed; forcing one performer-scoped Stash path-map refresh before retry."
         & $pathMapConfig -PerformerId $PerformerId -ForceRefresh
-        $captured = @()
-        $code = 0
-        try {
-            $captured = @(& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1)
-            $code = $LASTEXITCODE
-            if ($null -eq $code) { $code = 0 }
-        } catch {
-            $captured = @([string]$_.Exception.Message)
-            $code = 1
-        }
+        $attempt = Invoke-CanonicalDoctorProcess
+        $captured = @($attempt.Output)
+        $code = [int]$attempt.ExitCode
     }
 }
 
