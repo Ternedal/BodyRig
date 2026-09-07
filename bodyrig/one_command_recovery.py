@@ -16,7 +16,12 @@ from .interrupted_fit_recovery import (
     VERSION as PLAN_VERSION,
     build_recovery_plan,
 )
+from .one_command_recovery_advancement import (
+    OneCommandRecoveryAdvancementError,
+    inspect_completed_recovery,
+)
 from .physical_session import validate_session
+from .rig_window_acceptance import inspect_for_rig_window
 
 RUN_FORMAT = "bodyrig-one-command-production-authority"
 RUN_VERSION = 1
@@ -228,6 +233,57 @@ def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
         raise OneCommandRecoveryError("Git executable unavailable for one-command recovery status") from exc
 
 
+def _completed_downstream_status(structural: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        completed = inspect_completed_recovery(structural)
+    except OneCommandRecoveryAdvancementError as exc:
+        raise OneCommandRecoveryError(f"completed interrupted recovery is not reusable: {exc}") from exc
+    if completed is None:
+        return None
+
+    acceptance_dir = Path(str(completed["acceptance_dir"]))
+    gate_a = acceptance_dir / "bodyrig-acceptance.json"
+    if not gate_a.is_file() or gate_a.is_symlink():
+        acceptance = str(acceptance_dir)
+        recovered_session = str(completed["recovered_session"])
+        next_command = (
+            f".\\accept-physical-clone.ps1 -SessionReport {_ps_quote(recovered_session)}; "
+            f"if ($?) {{ & .\\run-automatic-production-activation.ps1 -AcceptanceDir {_ps_quote(acceptance)} }}"
+        )
+        return {
+            **completed,
+            "state": "ready",
+            "gate": "gate-a",
+            "progress_rank": 10,
+            "message": "Interrupted fit recovery already completed; continue from the recovered physical PASS through Gate A and resumable automatic production.",
+            "next_command": next_command,
+        }
+
+    try:
+        downstream = inspect_for_rig_window(acceptance_dir)
+    except Exception as exc:
+        raise OneCommandRecoveryError(f"recovered one-command acceptance is not reusable: {exc}") from exc
+    evidence_revision = str(downstream.get("bodyrig_revision") or "").strip().lower()
+    if evidence_revision != str(completed["bodyrig_revision"]):
+        raise OneCommandRecoveryError("recovered one-command acceptance revision differs from recovery authority")
+    state = str(downstream.get("state") or "ready")
+    command = None
+    if state != "complete":
+        command = f".\\run-automatic-production-activation.ps1 -AcceptanceDir {_ps_quote(str(acceptance_dir))}"
+    return {
+        **completed,
+        "state": state,
+        "gate": str(downstream.get("gate") or "automatic-production"),
+        "progress_rank": int(downstream.get("progress_rank") or 16),
+        "message": (
+            "Recovered physical PASS and Gate A already exist; continue only the remaining automatic Windows/Quest/release stage."
+            if state != "complete"
+            else "Recovered one-command chain is already a complete automatic production PASS."
+        ),
+        "next_command": command,
+    }
+
+
 def build_live_recovery_status(session_report: str | Path, repo_root: str | Path) -> dict[str, Any] | None:
     structural = inspect_one_command_recovery(session_report)
     if structural is None:
@@ -245,6 +301,15 @@ def build_live_recovery_status(session_report: str | Path, repo_root: str | Path
     if dirty.returncode != 0 or dirty.stdout.strip():
         raise OneCommandRecoveryError("one-command recovery requires an exact clean producer checkout")
 
+    completed = _completed_downstream_status(structural)
+    if completed is not None:
+        return {
+            **structural,
+            **completed,
+            "read_only": True,
+            "policy_scope": "producer-revision-one-command-recovery",
+        }
+
     try:
         live = build_recovery_plan(
             failed_session_path=structural["session_report"],
@@ -257,17 +322,20 @@ def build_live_recovery_status(session_report: str | Path, repo_root: str | Path
     if str(live.get("recovery_mode") or "") != structural["recovery_mode"]:
         raise OneCommandRecoveryError("producer recovery mode changed since the persisted recovery plan")
 
+    acceptance_dir = str(Path(structural["clone_output"]) / "acceptance")
     command = (
         ".\\resume-interrupted-physical-fit.ps1 "
         f"-FailedSessionReport {_ps_quote(structural['session_report'])} "
         f"-CloneOutput {_ps_quote(structural['clone_output'])} "
-        f"-IdentityWorkspace {_ps_quote(structural['identity_workspace'])}"
+        f"-IdentityWorkspace {_ps_quote(structural['identity_workspace'])} "
+        f"-GateAOutputDir {_ps_quote(acceptance_dir)}; "
+        f"if ($?) {{ & .\\run-automatic-production-activation.ps1 -AcceptanceDir {_ps_quote(acceptance_dir)} }}"
     )
     mode = structural["recovery_mode"]
     if mode == ADOPT_COMPLETE_PACKAGE:
-        message = "A complete verified package survived the failed one-command clone; adopt it without reconstruction or fitter rerun."
+        message = "A complete verified package survived the failed one-command clone; adopt it, commit Gate A, then continue resumable automatic production without reconstruction or fitter rerun."
     else:
-        message = "A completed SiTH reconstruction survived the failed one-command clone; rerun only the fitter against the same reconstruction authority."
+        message = "A completed SiTH reconstruction survived the failed one-command clone; rerun only the fitter against the same reconstruction, commit Gate A, then continue resumable automatic production."
     return {
         **structural,
         "message": message,
@@ -304,8 +372,11 @@ def main(argv: list[str] | None = None) -> int:
         print(status["message"])
         print(f"Revision: {status['bodyrig_revision']}")
         print(f"Run root: {status['run_root']}")
-        print("Next command:")
-        print(status["next_command"])
+        if status.get("next_command"):
+            print("Next command:")
+            print(status["next_command"])
+        else:
+            print("Next command: none; automatic production evidence is complete.")
     return 0
 
 
