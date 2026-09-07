@@ -142,12 +142,19 @@ try {
     }
 
     [System.IO.Directory]::Move($staging, $OutputDir)
-    $published = $true
-
-    $publishedMarker = Join-Path $OutputDir "bodyrig-acceptance.json"
-    if (-not (Test-Path -LiteralPath $publishedMarker -PathType Leaf)) {
-        throw "Transactional Gate A publication completed without its canonical acceptance marker."
+    try {
+        $publishedMarker = Join-Path $OutputDir "bodyrig-acceptance.json"
+        if (-not (Test-Path -LiteralPath $publishedMarker -PathType Leaf)) {
+            throw "Transactional Gate A publication completed without its canonical acceptance marker."
+        }
+        [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+    } catch {
+        if (Test-Path -LiteralPath $OutputDir -PathType Container) {
+            Remove-Item -LiteralPath $OutputDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        throw
     }
+    $published = $true
 
     Write-Host "BodyRig transactional Gate A publication: PASS"
     Write-Host "Revision: $head"
