@@ -1,12 +1,11 @@
-# BodyRig canonical Windows Python runtime lock.
-# Validated on windows-latest / CPython 3.11 in CI on 2026-09-07.
-# Keep pyproject.toml compatibility ranges broad; this file is the exact rig/operator runtime.
+# BodyRig canonical Linux CI dependency lock.
+# Resolved from the exact-green Ubuntu 24.04 / CPython 3.11 CI environment on 2026-09-07.
+# This is CI authority only; Windows physical/operator runtime authority remains windows-python.lock.txt.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
 certifi==2026.7.22
 click==8.5.0
-colorama==0.4.6
 fastapi==0.141.1
 h11==0.16.0
 httpcore==1.0.9
@@ -31,5 +30,6 @@ truststore==0.10.4
 typing-extensions==4.16.0
 typing-inspection==0.4.4
 uvicorn==0.52.4
+uvloop==0.22.1
 watchfiles==1.2.0
 websockets==17.1
