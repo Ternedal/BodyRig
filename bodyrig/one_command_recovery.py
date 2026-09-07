@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Mapping
 
-from .interrupted_fit_recovery import ADOPT_COMPLETE_PACKAGE, FORMAT as PLAN_FORMAT, RESUME_FIT_ONLY, VERSION as PLAN_VERSION
+from .interrupted_fit_recovery import (
+    ADOPT_COMPLETE_PACKAGE,
+    FORMAT as PLAN_FORMAT,
+    RESUME_FIT_ONLY,
+    VERSION as PLAN_VERSION,
+    build_recovery_plan,
+)
 from .physical_session import validate_session
 
 RUN_FORMAT = "bodyrig-one-command-production-authority"
@@ -63,6 +72,10 @@ def _same_path(value: Any, expected: Path, label: str) -> Path:
     if actual != wanted:
         raise OneCommandRecoveryError(f"{label} path differs from one-command authority")
     return actual
+
+
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 def inspect_one_command_recovery(session_report: str | Path) -> dict[str, Any] | None:
@@ -200,3 +213,101 @@ def inspect_one_command_recovery(session_report: str | Path) -> dict[str, Any] |
         "recovery_plan": str(plan_path),
         "recovery_plan_sha256": expected_plan_hash,
     }
+
+
+def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except OSError as exc:
+        raise OneCommandRecoveryError("Git executable unavailable for one-command recovery status") from exc
+
+
+def build_live_recovery_status(session_report: str | Path, repo_root: str | Path) -> dict[str, Any] | None:
+    structural = inspect_one_command_recovery(session_report)
+    if structural is None:
+        return None
+    root = Path(repo_root).expanduser().resolve()
+    head_result = _git(root, "rev-parse", "HEAD")
+    head = head_result.stdout.strip().lower()
+    if head_result.returncode != 0 or not SHA40.fullmatch(head):
+        raise OneCommandRecoveryError("could not resolve current checkout revision")
+    if head != structural["bodyrig_revision"]:
+        raise OneCommandRecoveryError(
+            f"one-command recovery belongs to {structural['bodyrig_revision']}, not current checkout {head}"
+        )
+    dirty = _git(root, "status", "--porcelain")
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise OneCommandRecoveryError("one-command recovery requires an exact clean producer checkout")
+
+    try:
+        live = build_recovery_plan(
+            failed_session_path=structural["session_report"],
+            stash_clone_output=structural["clone_output"],
+            identity_workspace=structural["identity_workspace"],
+            current_revision=head,
+        )
+    except ValueError as exc:
+        raise OneCommandRecoveryError(f"producer recovery plan no longer validates: {exc}") from exc
+    if str(live.get("recovery_mode") or "") != structural["recovery_mode"]:
+        raise OneCommandRecoveryError("producer recovery mode changed since the persisted recovery plan")
+
+    command = (
+        ".\\resume-interrupted-physical-fit.ps1 "
+        f"-FailedSessionReport {_ps_quote(structural['session_report'])} "
+        f"-CloneOutput {_ps_quote(structural['clone_output'])} "
+        f"-IdentityWorkspace {_ps_quote(structural['identity_workspace'])}"
+    )
+    mode = structural["recovery_mode"]
+    if mode == ADOPT_COMPLETE_PACKAGE:
+        message = "A complete verified package survived the failed one-command clone; adopt it without reconstruction or fitter rerun."
+    else:
+        message = "A completed SiTH reconstruction survived the failed one-command clone; rerun only the fitter against the same reconstruction authority."
+    return {
+        **structural,
+        "message": message,
+        "next_command": command,
+        "read_only": True,
+        "policy_scope": "producer-revision-one-command-recovery",
+    }
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Read-only producer-bound one-command interrupted fit recovery status")
+    parser.add_argument("--session-report", type=Path, required=True)
+    parser.add_argument("--repo-root", type=Path, required=True)
+    parser.add_argument("--json", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        status = build_live_recovery_status(args.session_report, args.repo_root)
+    except (OneCommandRecoveryError, OSError, ValueError) as exc:
+        if args.json:
+            print(json.dumps({"state": "error", "error": str(exc)}, ensure_ascii=False, separators=(",", ":")))
+        else:
+            print(f"BodyRig one-command recovery status: ERROR | {exc}", file=sys.stderr)
+        return 2
+    if status is None:
+        return 3
+    if args.json:
+        print(json.dumps(status, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+    else:
+        print(f"BodyRig one-command recovery status: READY | {status['recovery_mode']}")
+        print(status["message"])
+        print(f"Revision: {status['bodyrig_revision']}")
+        print(f"Run root: {status['run_root']}")
+        print("Next command:")
+        print(status["next_command"])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
