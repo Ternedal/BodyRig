@@ -1,6 +1,6 @@
 param(
     [string]$Remote = "origin",
-    [string]$Branch = "agent/person-studio-photoreal-20260902",
+    [string]$Branch = "main",
     [string]$RepoRoot = "",
     [switch]$NoBrowser
 )
