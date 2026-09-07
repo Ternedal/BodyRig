@@ -64,6 +64,22 @@ try {
     }
     $dataRoot = [System.IO.Path]::GetFullPath($dataRoot)
 
+    # UI jobs follow BODYRIG_DATA_DIR, but the canonical standalone physical
+    # launcher intentionally writes default session reports under LOCALAPPDATA
+    # (or the system temp root when LOCALAPPDATA is unavailable). Search both
+    # authorities so a custom UI data root cannot hide reusable clone evidence.
+    $artifactBase = [string]$env:LOCALAPPDATA
+    if ([string]::IsNullOrWhiteSpace($artifactBase)) {
+        $artifactBase = [System.IO.Path]::GetTempPath()
+    }
+    $standaloneSessionRoot = [System.IO.Path]::GetFullPath(
+        (Join-Path $artifactBase "BodyRig\physical-clone-sessions")
+    )
+    $dataSessionRoot = [System.IO.Path]::GetFullPath(
+        (Join-Path $dataRoot "physical-clone-sessions")
+    )
+    $sessionRoots = @($standaloneSessionRoot, $dataSessionRoot) | Select-Object -Unique
+
     $rejectedResume = @()
     $rejectedInterrupted = @()
     $jobRows = @()
@@ -83,6 +99,7 @@ try {
                         job_id = [string]$job.job_id
                         status = [string]$job.status
                         error = [string]$job.error
+                        resume_source_error = [string]$job.resume_source_error
                         acceptance_dir = [string]$job.acceptance_dir
                         stamp = $(if ([string]$job.completed_utc) { [string]$job.completed_utc } else { [string]$job.created_utc })
                     }
@@ -90,7 +107,12 @@ try {
         )
         $resumeCandidates = @(
             $jobRows |
-                Where-Object { $_.status -eq "failed" -and $_.error -like "*high-fidelity Gate A failed*" } |
+                Where-Object {
+                    $_.status -eq "failed" -and (
+                        $_.error -like "*high-fidelity Gate A failed*" -or
+                        $_.resume_source_error -like "*high-fidelity Gate A failed*"
+                    )
+                } |
                 Sort-Object -Property stamp -Descending
         )
         $acceptanceCandidates = @(
@@ -215,10 +237,9 @@ try {
         }
     }
 
-    $sessionsRoot = Join-Path $dataRoot "physical-clone-sessions"
-    $sessionRows = @()
-    if (Test-Path -LiteralPath $sessionsRoot -PathType Container) {
-        $sessionRows = @(
+    $sessionRows = @(
+        foreach ($sessionsRoot in $sessionRoots) {
+            if (-not (Test-Path -LiteralPath $sessionsRoot -PathType Container)) { continue }
             Get-ChildItem -LiteralPath $sessionsRoot -Filter "*.json" -File -ErrorAction Stop |
                 Where-Object { $_.Name -notlike "*.readiness.json" } |
                 ForEach-Object {
@@ -231,10 +252,9 @@ try {
                         path = $_.FullName
                         stamp = [string]$session.completed_utc
                     }
-                } |
-                Sort-Object -Property stamp -Descending
-        )
-    }
+                }
+        }
+    ) | Sort-Object -Property stamp -Descending -Unique
 
     foreach ($sessionRow in $sessionRows) {
         $statusRaw = @(& $statusScript -SessionReport $sessionRow.path -BodyRigPython $python -Json 2>&1)
