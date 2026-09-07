@@ -14,7 +14,7 @@ FORMAT = "bodyrig-local-stash-path-map"
 VERSION = 2
 MAX_AGE = timedelta(days=7)
 LEGACY_MAX_AGE = timedelta(hours=24)
-_SOURCE_PREFIX = re.compile(r"^([A-Za-z]):\\(?:.*)?$")
+_SOURCE_PREFIX = re.compile(r"^([A-Za-z]):(?:\\.*)?$")
 _SHARE_ROOT = re.compile(r"^\\\\([^\\]+)\\VR_([A-Za-z])$", re.IGNORECASE)
 
 
