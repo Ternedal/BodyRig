@@ -22,8 +22,20 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
 if ([string]::IsNullOrWhiteSpace($PeopleDir)) {
     $PeopleDir = Join-Path $bodyRigRoot "people"
 }
-$evidencePath = Join-Path $bodyRigRoot "config\stash-path-map.json"
 $hasExplicitPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
+$globalEvidencePath = Join-Path $bodyRigRoot "config\stash-path-map.json"
+$evidencePath = $globalEvidencePath
+if ($hasExplicitPerformer) {
+    $scopeHasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $scopeBytes = [System.Text.Encoding]::UTF8.GetBytes($PerformerId.Trim())
+        $scopeDigest = $scopeHasher.ComputeHash($scopeBytes)
+    } finally {
+        $scopeHasher.Dispose()
+    }
+    $scopeHash = ([System.BitConverter]::ToString($scopeDigest)).Replace("-", "").ToLowerInvariant()
+    $evidencePath = Join-Path $bodyRigRoot "config\stash-path-map-performer-$scopeHash.json"
+}
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     Write-Host "BodyRig Stash path map: ingen gemt Stash-konfiguration; springer over."
@@ -72,18 +84,23 @@ function Get-OptionalPropertyValue {
 }
 
 function Set-BodyRigStashPathMap {
-    param([Parameter(Mandatory = $true)][object]$Mapping)
+    param(
+        [Parameter(Mandatory = $true)][object]$Mapping,
+        [switch]$PersistUser
+    )
     $mapJson = $Mapping | ConvertTo-Json -Compress
     if ([string]::IsNullOrWhiteSpace($mapJson) -or $mapJson -eq "{}") {
         throw "BodyRig Stash path map: tom mapping kan ikke aktiveres."
     }
     $env:BODYRIG_STASH_PATH_MAP = $mapJson
-    [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
+    if ($PersistUser) {
+        [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
+    }
 }
 
 if ($hasExplicitPerformer) {
     $performerIds = @($PerformerId.Trim())
-    Write-Host "BodyRig Stash path map: performer-scoped discovery/cache = $($performerIds[0])"
+    Write-Host "BodyRig Stash path map: performer-scoped discovery/cache = $($performerIds[0]) (process-local)"
 } else {
     $performerIds = @(
         Get-ChildItem -LiteralPath $PeopleDir -Filter "*.json" -File -ErrorAction SilentlyContinue |
@@ -109,46 +126,57 @@ if ($performerIds.Count -eq 0) {
     return
 }
 
-# Fast path: before decrypting credentials or querying Stash, ask the checkout-bound
-# Python cache validator whether the recent persisted mapping still belongs to the
-# same Stash origin/performer scope and whether every cached SMB share is live.
-# Any uncertainty is a cache MISS and falls through to the original full discovery.
-if (-not $ForceRefresh -and (Test-Path -LiteralPath $evidencePath -PathType Leaf)) {
+# A performer-scoped preflight may reuse either its own cache or a fresh broad
+# service cache that covers the requested performer. Scoped discovery never
+# replaces the user-wide mapping used by the general-purpose BodyRig service.
+$cacheEvidencePaths = @($evidencePath)
+if ($hasExplicitPerformer -and -not [string]::Equals($evidencePath, $globalEvidencePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $cacheEvidencePaths += $globalEvidencePath
+}
+
+if (-not $ForceRefresh) {
     $cachePython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
     $cacheModule = Join-Path $PSScriptRoot "bodyrig\stash_path_cache.py"
     if ((Test-Path -LiteralPath $cachePython -PathType Leaf) -and (Test-Path -LiteralPath $cacheModule -PathType Leaf)) {
-        $cacheArgs = @(
-            "-m", "bodyrig.stash_path_cache",
-            "--evidence", $evidencePath,
-            "--stash-url", $stashUrl
-        )
-        foreach ($performerIdItem in $performerIds) {
-            $cacheArgs += @("--performer-id", [string]$performerIdItem)
-        }
-        $cacheRaw = @(& $cachePython @cacheArgs 2>$null)
-        $cacheExit = $LASTEXITCODE
-        if ($cacheExit -eq 0 -and $cacheRaw.Count -eq 1) {
-            try {
-                $cache = ([string]$cacheRaw[0]) | ConvertFrom-Json
-                $cachedMapping = [ordered]@{}
-                foreach ($property in $cache.mapping.PSObject.Properties) {
-                    $cachedMapping[[string]$property.Name] = [string]$property.Value
-                }
-                if ($cache.ok -eq $true -and $cachedMapping.Count -gt 0) {
-                    Set-BodyRigStashPathMap -Mapping $cachedMapping
-                    Write-Host "BodyRig Stash path map: CACHE HIT ($([string]$cache.cache_mode))"
-                    foreach ($entry in $cachedMapping.GetEnumerator()) {
-                        Write-Host "  $($entry.Key) -> $($entry.Value)"
+        foreach ($cacheEvidencePath in $cacheEvidencePaths) {
+            if (-not (Test-Path -LiteralPath $cacheEvidencePath -PathType Leaf)) { continue }
+            $cacheArgs = @(
+                "-m", "bodyrig.stash_path_cache",
+                "--evidence", $cacheEvidencePath,
+                "--stash-url", $stashUrl
+            )
+            foreach ($performerIdItem in $performerIds) {
+                $cacheArgs += @("--performer-id", [string]$performerIdItem)
+            }
+            $cacheRaw = @(& $cachePython @cacheArgs 2>$null)
+            $cacheExit = $LASTEXITCODE
+            if ($cacheExit -eq 0 -and $cacheRaw.Count -eq 1) {
+                try {
+                    $cache = ([string]$cacheRaw[0]) | ConvertFrom-Json
+                    $cachedMapping = [ordered]@{}
+                    foreach ($property in $cache.mapping.PSObject.Properties) {
+                        $cachedMapping[[string]$property.Name] = [string]$property.Value
                     }
-                    return
+                    if ($cache.ok -eq $true -and $cachedMapping.Count -gt 0) {
+                        if ($hasExplicitPerformer) {
+                            Set-BodyRigStashPathMap -Mapping $cachedMapping
+                        } else {
+                            Set-BodyRigStashPathMap -Mapping $cachedMapping -PersistUser
+                        }
+                        Write-Host "BodyRig Stash path map: CACHE HIT ($([string]$cache.cache_mode))"
+                        foreach ($entry in $cachedMapping.GetEnumerator()) {
+                            Write-Host "  $($entry.Key) -> $($entry.Value)"
+                        }
+                        return
+                    }
+                } catch {
+                    # Invalid cache output is deliberately treated as a miss.
                 }
-            } catch {
-                # Invalid cache output is deliberately treated as a miss.
             }
         }
         Write-Host "BodyRig Stash path map: cache MISS; refreshing from Stash."
     }
-} elseif ($ForceRefresh) {
+} else {
     Write-Host "BodyRig Stash path map: forced refresh requested."
 }
 
@@ -305,7 +333,11 @@ if ($mapping.Count -eq 0) {
     throw "BodyRig Stash path map: kunne ikke bevise en læsbar SMB-mapping for Stash paths. Returnerede roots: $($roots -join ', '). Forventede shares på $hostName med navne som VR_E/VR_F."
 }
 
-Set-BodyRigStashPathMap -Mapping $mapping
+if ($hasExplicitPerformer) {
+    Set-BodyRigStashPathMap -Mapping $mapping
+} else {
+    Set-BodyRigStashPathMap -Mapping $mapping -PersistUser
+}
 
 $evidence = [ordered]@{
     format = "bodyrig-local-stash-path-map"
