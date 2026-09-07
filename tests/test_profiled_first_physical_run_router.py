@@ -16,6 +16,29 @@ def test_profiled_first_physical_wrapper_preserves_doctor_and_rewrites_only_clon
     assert 'No physical evidence' not in source
 
 
+def test_profiled_first_physical_wrapper_scopes_stash_path_map_before_doctor() -> None:
+    source = (ROOT / "prepare-profiled-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    configure = source.index('$pathMapConfig = Join-Path $repoRoot "configure-stash-path-map.ps1"')
+    initial_map = source.index('& $pathMapConfig -PerformerId $PerformerId')
+    doctor = source.index('& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1')
+    assert configure < initial_map < doctor
+
+
+def test_profiled_first_physical_wrapper_retries_only_selected_source_map_failures_once() -> None:
+    source = (ROOT / "prepare-profiled-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    assert 'Selected Stash performer/source decode probe failed' in source
+    assert 'Selected Stash performer/source decode probe did not prove at least one decodable local video' in source
+    assert '$sourceMapRetryEligible' in source
+    assert '& $pathMapConfig -PerformerId $PerformerId -ForceRefresh' in source
+    assert 'forcing one performer-scoped Stash path-map refresh before retry' in source
+    assert source.count('& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1') == 2
+    assert source.count('-ForceRefresh') == 1
+    assert 'BodyRig live readiness failed' not in source
+    assert 'BodyRig reference-renderer toolchain readiness failed' not in source
+
+
 def test_operator_router_uses_profiled_wrapper_only_for_performer_bound_preflight() -> None:
     source = (ROOT / "bodyrig-status.ps1").read_text(encoding="utf-8")
 
