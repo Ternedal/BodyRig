@@ -81,6 +81,17 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Resolve-WindowsFile -Value $BodyRigPython -Label "BodyRig Python"
 
+$expectedBodyRigModule = Resolve-WindowsFile -Value (Join-Path $repoRoot "bodyrig\__init__.py") -Label "BodyRig checkout module"
+$env:PYTHONPATH = $repoRoot
+$bodyRigAuthorityRaw = @(& $BodyRigPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())")
+if ($LASTEXITCODE -ne 0 -or $bodyRigAuthorityRaw.Count -ne 1) {
+    throw "BodyRig Python could not prove a single checkout-bound bodyrig import."
+}
+$actualBodyRigModule = Resolve-WindowsFile -Value ([string]$bodyRigAuthorityRaw[0]).Trim() -Label "Imported BodyRig module"
+if (-not [string]::Equals($actualBodyRigModule, $expectedBodyRigModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "BodyRig Python imports bodyrig from unexpected location: $actualBodyRigModule; expected $expectedBodyRigModule"
+}
+
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA) -and ([string]::IsNullOrWhiteSpace($RecoveryRoot) -or [string]::IsNullOrWhiteSpace($SithSetupReport) -or [string]::IsNullOrWhiteSpace($RigSetupReport))) {
     throw "LOCALAPPDATA is unavailable; pass explicit setup/report paths."
 }

@@ -36,6 +36,14 @@ Prerequisites that BodyRig deliberately does not silently install or redistribut
 
 `-DownloadPublicCheckpoints` only concerns the two public SiTH checkpoints expected by the pinned upstream revision. It does not download SMPL/SMPL-X assets or the diffusion-model directory.
 
+## Canonical Windows BodyRig Python runtime
+
+`pyproject.toml` intentionally keeps compatibility ranges for normal development and packaging. The physical Windows rig uses the stricter operator lock in `requirements/windows-python.lock.txt`.
+
+`update-windows.ps1` installs the repo-local `.venv` with that lock as a pip constraints file and then runs `python -m bodyrig.runtime_lock` to prove CPython 3.11 plus the exact locked distribution versions. `check-rig-ready.ps1` repeats the same validation immediately before live recovery/SiTH/Stash readiness. A later package upgrade or a different Python minor therefore blocks canonical physical work even if an older rig-setup report still exists.
+
+The lock is software/runtime authority only. It does not turn CI into physical or human fidelity evidence.
+
 ## Evidence output
 
 The bootstrap requires the existing recovery provisioner to produce:

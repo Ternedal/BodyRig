@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_readiness_gate_checks_live_dependencies_without_starting_clone():
     text = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
+    assert "bodyrig.runtime_lock" in text
     assert "bodyrig.rig_setup" in text
     assert "bodyrig.preflight_cli" in text
     assert "bodyrig.sith_preflight" in text
@@ -20,6 +21,15 @@ def test_readiness_gate_checks_live_dependencies_without_starting_clone():
     assert "bodyrig.observation_cli" not in text
     assert "bodyrig.identity_capture_cli" not in text
     assert "bodyrig.external_fitter_cli" not in text
+
+
+def test_readiness_gate_validates_canonical_windows_python_lock_first():
+    text = (ROOT / "check-rig-ready.ps1").read_text(encoding="utf-8")
+    lock_path = text.index('requirements\\windows-python.lock.txt')
+    runtime_gate = text.index('"-m", "bodyrig.runtime_lock", "--lock", $runtimeLock')
+    rig_setup = text.index('"-m", "bodyrig.rig_setup", $RigSetupReport')
+    recovery = text.index('$recoveryArgs = @(')
+    assert lock_path < runtime_gate < rig_setup < recovery
 
 
 def test_readiness_gate_keeps_recovery_preflight_in_pinned_wsl_transport():

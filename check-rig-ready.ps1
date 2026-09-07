@@ -43,6 +43,8 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) { throw "BodyRig Python not found." }
 $BodyRigPython = Resolve-InputFile -Path $BodyRigPython -Label "BodyRig Python"
+$runtimeLock = Resolve-InputFile -Path (Join-Path $repoRoot "requirements\windows-python.lock.txt") -Label "BodyRig Windows Python runtime lock"
+Invoke-Checked -Arguments @("-m", "bodyrig.runtime_lock", "--lock", $runtimeLock) -Step "Live BodyRig Windows Python runtime lock validation" | Out-Null
 
 if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
     $RigSetupReport = [string][Environment]::GetEnvironmentVariable("BODYRIG_RIG_SETUP_REPORT")

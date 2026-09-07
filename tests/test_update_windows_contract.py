@@ -4,6 +4,11 @@ from pathlib import Path
 SCRIPT = (Path(__file__).resolve().parents[1] / "update-windows.ps1").read_text(encoding="utf-8")
 
 
+def test_update_defaults_normal_authority_to_main() -> None:
+    assert '[string]$Branch = "main"' in SCRIPT
+    assert "agent/person-studio-photoreal-20260902" not in SCRIPT
+
+
 def test_update_never_reuses_powershell_pid_constant_as_loop_variable() -> None:
     assert "foreach ($pid " not in SCRIPT.lower()
     assert "foreach ($ownerprocessid in $listenerpids)" in SCRIPT.lower()
@@ -32,8 +37,16 @@ def test_update_fetches_target_branch_explicitly_before_checkout() -> None:
 
 def test_update_installs_only_after_old_service_has_been_stopped() -> None:
     stop_index = SCRIPT.index("Stop-VerifiedBodyRigService")
-    install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -e ".[test]"')
+    install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
     assert stop_index < install_index
+
+
+def test_update_installs_and_verifies_exact_windows_runtime_lock() -> None:
+    lock_index = SCRIPT.index('Join-Path $RepoRoot "requirements\\windows-python.lock.txt"')
+    install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
+    verify_index = SCRIPT.index(' -m bodyrig.runtime_lock --lock $runtimeLock')
+    configure_index = SCRIPT.index('Join-Path $RepoRoot "configure-stash-path-map.ps1"')
+    assert lock_index < install_index < verify_index < configure_index
 
 
 def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
