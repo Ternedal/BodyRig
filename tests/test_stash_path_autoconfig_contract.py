@@ -12,6 +12,26 @@ def test_stash_path_autoconfig_uses_saved_dpapi_credentials_without_printing_key
     assert 'Write-Host $apiKey' not in SCRIPT
 
 
+def test_stash_path_autoconfig_checks_cache_before_decrypting_or_querying_stash() -> None:
+    cache = SCRIPT.index('bodyrig.stash_path_cache')
+    decrypt = SCRIPT.index('ConvertTo-SecureString $protectedKey')
+    graphql = SCRIPT.index('function Invoke-StashGraphQl')
+    assert cache < decrypt < graphql
+    assert 'CACHE HIT' in SCRIPT
+    assert 'cache MISS; refreshing from Stash' in SCRIPT
+    assert '[switch]$ForceRefresh' in SCRIPT
+
+
+def test_stash_path_autoconfig_cache_is_bound_to_current_performer_scope() -> None:
+    performer_scan = SCRIPT.index('$performerIds = @(')
+    cache = SCRIPT.index('bodyrig.stash_path_cache')
+    assert performer_scan < cache
+    assert '$cacheArgs += @("--performer-id", [string]$performerId)' in SCRIPT
+    assert 'stash_origin = $stashOrigin' in SCRIPT
+    assert 'performer_ids = @($performerIds)' in SCRIPT
+    assert 'version = 2' in SCRIPT
+
+
 def test_stash_path_autoconfig_discovers_actual_stash_scene_paths() -> None:
     assert 'BodyRigPathDiscovery' in SCRIPT
     assert 'findScenes' in SCRIPT
@@ -39,3 +59,11 @@ def test_stash_path_autoconfig_persists_non_secret_verified_mapping() -> None:
     assert 'stash-path-map.json' in SCRIPT
     assert 'verified_files' in SCRIPT
     assert 'candidate_files' in SCRIPT
+    assert 'api_key_dpapi = ' not in SCRIPT[SCRIPT.index('$evidence = [ordered]@{'):]
+
+
+def test_stash_path_autoconfig_cache_hit_returns_before_full_discovery() -> None:
+    cache_hit = SCRIPT.index('Write-Host "BodyRig Stash path map: CACHE HIT')
+    return_after_hit = SCRIPT.index('\n                    return\n', cache_hit)
+    current_query = SCRIPT.index("$currentQuery = @'")
+    assert cache_hit < return_after_hit < current_query
