@@ -24,6 +24,17 @@ VIDEO_SUFFIXES = {
     ".ts",
     ".m2ts",
 }
+UNSUPPORTED_PROJECTION_TAG_MARKERS = (
+    "vr180",
+    "vr360",
+    "side by side",
+    "over under",
+    "equirectangular",
+    "panorama",
+    "panoramic",
+    "stereoscopic",
+)
+UNSUPPORTED_PROJECTION_TAG_WORDS = {"vr", "sbs", "stereo"}
 
 
 class StashSourceError(RuntimeError):
@@ -250,6 +261,37 @@ def _number(value: Any) -> float:
     return parsed if math.isfinite(parsed) and parsed >= 0 else 0.0
 
 
+def _has_unsupported_projection_tags(tags: Iterable[str]) -> bool:
+    for tag in tags:
+        normalized = " ".join(
+            str(tag).strip().lower().replace("_", " ").replace("-", " ").split()
+        )
+        if not normalized:
+            continue
+        words = set(normalized.split())
+        compact = normalized.replace(" ", "")
+        if words & UNSUPPORTED_PROJECTION_TAG_WORDS:
+            return True
+        if any(marker.replace(" ", "") in compact for marker in UNSUPPORTED_PROJECTION_TAG_MARKERS):
+            return True
+    return False
+
+
+def _has_projection_ambiguous_geometry(*, width: int, height: int) -> bool:
+    if width < 2880 or height < 1440:
+        return False
+    aspect_ratio = width / height
+    return 1.95 <= aspect_ratio <= 2.05
+
+
+def _projection_safe_source(*, width: int, height: int, tags: Iterable[str]) -> bool:
+    if _has_unsupported_projection_tags(tags):
+        return False
+    if _has_projection_ambiguous_geometry(width=width, height=height):
+        return False
+    return True
+
+
 def _score_candidate(
     *,
     width: int,
@@ -289,11 +331,6 @@ def _score_candidate(
     elif performer_count > 1:
         score -= 18.0 * (performer_count - 1)
 
-    haystack = " ".join(tags).lower()
-    if any(token in haystack for token in ("vr180", "vr360", "sbs", "side-by-side", "over-under")):
-        # Projected/dual-eye material is still usable, but ordinary flat footage
-        # is a cleaner first choice for identity/body recovery.
-        score -= 20.0
     return score
 
 
@@ -348,6 +385,8 @@ def rank_sources(
                 continue
             width = int(_number(file_info.get("width")))
             height = int(_number(file_info.get("height")))
+            if not _projection_safe_source(width=width, height=height, tags=tags):
+                continue
             duration = _number(file_info.get("duration"))
             framerate = _number(file_info.get("frame_rate"))
             score = _score_candidate(
@@ -388,7 +427,7 @@ def build_source_manifest(
     candidate_count: int,
 ) -> dict[str, Any]:
     if not candidates:
-        raise StashSourceError("no usable local Stash source files found for performer")
+        raise StashSourceError("no usable projection-safe local Stash source files found for performer")
     performer_id = str(performer.get("id") or "").strip()
     performer_name = str(performer.get("name") or "").strip()
     if not performer_id or not performer_name:
