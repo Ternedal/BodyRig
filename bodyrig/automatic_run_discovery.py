@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .acceptance_status import AcceptanceStatusError, _session_status
+from .one_command_recovery import OneCommandRecoveryError, inspect_one_command_recovery
 from .rig_window_acceptance import inspect_for_rig_window, progress_rank
 
 
@@ -90,6 +91,11 @@ def inspect_run_authority(run_root: str | Path) -> dict[str, Any]:
         "session_report": str(session_report),
         "clone_output": str(clone_output),
         "acceptance_dir": str(acceptance_dir),
+        # These are producer-written recovery pointers. They are not trusted here;
+        # inspect_one_command_recovery validates their layout and live hashes.
+        "identity_workspace": str(authority.get("identity_workspace") or "").strip(),
+        "interrupted_fit_recovery_plan": str(authority.get("interrupted_fit_recovery_plan") or "").strip(),
+        "interrupted_fit_recovery_plan_sha256": str(authority.get("interrupted_fit_recovery_plan_sha256") or "").strip().lower(),
         # This flag is informational only. Discovery never trusts it as PASS.
         "declared_production_activation": authority.get("production_activation") is True,
     }
@@ -138,8 +144,8 @@ def discover_run_authorities(data_root: Path) -> tuple[list[dict[str, Any]], lis
 def candidate_from_run(run: dict[str, Any]) -> dict[str, Any] | None:
     session_path = Path(str(run["session_report"]))
     if not session_path.is_file() or session_path.is_symlink():
-        # No canonical completed clone authority exists yet. Partial clone work
-        # belongs to the clone/recovery system, not this run-authority index.
+        # No canonical session authority exists yet. Partial source/observation
+        # work alone is not enough to enter the physical reuse ranking.
         return None
     try:
         session = _session_status(session_path)
@@ -150,10 +156,39 @@ def candidate_from_run(run: dict[str, Any]) -> dict[str, Any] | None:
         raise AutomaticRunDiscoveryError("one-command session revision does not match run authority")
     if str(session.body_id or "") != str(run["body_id"]):
         raise AutomaticRunDiscoveryError("one-command session body_id does not match requested_body_alias")
+
     if session.state in {"blocked", "incomplete", "error"} or session.gate == "physical-clone":
-        # The report may exist before a successful clone finishes. Its existence
-        # alone is not reusable physical progress and must never receive rank 10.
-        return None
+        try:
+            recovery = inspect_one_command_recovery(session_path)
+        except OneCommandRecoveryError as exc:
+            raise AutomaticRunDiscoveryError(f"one-command interrupted recovery is invalid: {exc}") from exc
+        if recovery is None:
+            return None
+        if str(recovery["bodyrig_revision"]) != str(run["revision"]):
+            raise AutomaticRunDiscoveryError("one-command recovery revision does not match run authority")
+        if str(recovery["performer_id"]) != str(run["performer_id"]) or str(recovery["body_id"]) != str(run["body_id"]):
+            raise AutomaticRunDiscoveryError("one-command recovery scope does not match run authority")
+        return {
+            "kind": "physical-session",
+            "rank": int(recovery["progress_rank"]),
+            "stamp": str(run.get("completed_at") or run.get("started_at") or ""),
+            "preferred": False,
+            "session_report": str(session_path.resolve()),
+            # Keep clone output visible in the existing physical-session plan so
+            # exact-revision status/recovery can reconstruct its canonical command.
+            "acceptance_dir": str(recovery["clone_output"]),
+            "state": "ready",
+            "gate": "interrupted-fit-recovery",
+            "evidence_revision": str(recovery["bodyrig_revision"]),
+            "performer_id": str(recovery["performer_id"]),
+            "body_id": str(recovery["body_id"]),
+            "automatic_run_root": str(recovery["run_root"]),
+            "recovery_mode": str(recovery["recovery_mode"]),
+            "identity_workspace": str(recovery["identity_workspace"]),
+            "clone_output": str(recovery["clone_output"]),
+            "expensive_reconstruction_rerun": False,
+            "fitter_rerun": bool(recovery["fitter_rerun"]),
+        }
 
     acceptance_dir = Path(str(run["acceptance_dir"]))
     gate_a = acceptance_dir / "bodyrig-acceptance.json"
