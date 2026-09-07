@@ -100,3 +100,52 @@ def test_update_verifies_running_revision_after_restart() -> None:
     assert 'Write-Host "BodyRig update: READY"' in SCRIPT
     assert 'Write-Host "Authority mode: $targetMode"' in SCRIPT
     assert 'Write-Host "Branch authority: $Remote/$Branch @ $branchTarget"' in SCRIPT
+
+
+def test_update_accepts_explicit_planner_scope_and_rejects_partial_source_scope_early() -> None:
+    assert '[string]$PreferredJobId = ""' in SCRIPT
+    assert '[string]$PersonId = ""' in SCRIPT
+    assert '[string]$PerformerId = ""' in SCRIPT
+    assert '[string]$BodyId = ""' in SCRIPT
+    validation = SCRIPT.index("$hasPerformer -xor $hasBodyId")
+    dirty_check = SCRIPT.index("$dirtyBefore = @(& git status --porcelain)")
+    assert validation < dirty_check
+    assert 'throw "Pass -PerformerId and -BodyId together, or omit both."' in SCRIPT
+
+
+def test_normal_update_runs_read_only_planner_only_after_service_authority_is_verified() -> None:
+    health_verify = SCRIPT.rindex('if (-not $health -or $health.ok -ne $true -or [string]$health.service -ne "bodyrig")')
+    ready = SCRIPT.index('Write-Host "BodyRig update: READY"')
+    planner = SCRIPT.index('$planner = Join-Path $RepoRoot "plan-rig-window.ps1"')
+    assert health_verify < ready < planner
+    assert 'Get-Command pwsh -ErrorAction SilentlyContinue' in SCRIPT
+    assert '"-File", $planner' in SCRIPT
+    assert '& $pwsh.Source @plannerArgs' in SCRIPT
+    assert 'BodyRig rig-window auto-plan (read-only)' in SCRIPT
+
+
+def test_auto_plan_forwards_person_performer_body_and_preferred_job_scope() -> None:
+    assert '$plannerArgs += @("-PreferredJobId", $PreferredJobId)' in SCRIPT
+    assert '$plannerArgs += @("-PersonId", $PersonId)' in SCRIPT
+    assert '$plannerArgs += @("-PerformerId", $PerformerId, "-BodyId", $BodyId)' in SCRIPT
+
+
+def test_planner_failure_does_not_reclassify_successful_update_as_failed() -> None:
+    assert '$plannerExit = $LASTEXITCODE' in SCRIPT
+    assert 'if ($plannerExit -ne 0)' in SCRIPT
+    assert 'BodyRig update er READY, men rig-window auto-plan kunne ikke resolve en sikker næste handling' in SCRIPT
+    assert 'throw "BodyRig update er READY' not in SCRIPT
+
+
+def test_historical_revision_skips_auto_plan_and_preserves_revision_bound_status_flow() -> None:
+    historical = SCRIPT.index('if ($targetMode -eq "historical-revision")')
+    skip = SCRIPT.index('} elseif ($SkipPlan) {', historical)
+    planner = SCRIPT.index('$planner = Join-Path $RepoRoot "plan-rig-window.ps1"', skip)
+    assert historical < skip < planner
+    assert "Auto-planning is skipped in historical-revision mode" in SCRIPT
+    assert "physical-acceptance-status command that selected this checkout" in SCRIPT
+
+
+def test_operator_can_skip_auto_plan_explicitly() -> None:
+    assert '[switch]$SkipPlan' in SCRIPT
+    assert 'Rig-window auto-plan: skipped by -SkipPlan.' in SCRIPT
