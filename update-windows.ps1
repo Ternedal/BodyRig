@@ -4,7 +4,15 @@ param(
     [ValidatePattern('^$|^[0-9a-fA-F]{40}$')]
     [string]$Revision = "",
     [string]$RepoRoot = "",
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [ValidatePattern('^$|^job-[0-9a-f]{32}$')]
+    [string]$PreferredJobId = "",
+    [ValidatePattern('^$|^person-[0-9a-f]{32}$')]
+    [string]$PersonId = "",
+    [string]$PerformerId = "",
+    [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')]
+    [string]$BodyId = "",
+    [switch]$SkipPlan
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +26,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git") -PathType Containe
     throw "RepoRoot er ikke et BodyRig Git-checkout: $RepoRoot"
 }
 Set-Location $RepoRoot
+
+$hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
+$hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
+if ($hasPerformer -xor $hasBodyId) {
+    throw "Pass -PerformerId and -BodyId together, or omit both."
+}
 
 function Get-BodyRigHealth {
     try {
@@ -214,4 +228,37 @@ Write-Host "Branch authority: $Remote/$Branch @ $branchTarget"
 if ($targetMode -eq "historical-revision") {
     Write-Host "Historical evidence continuation is pinned to exact ancestor revision $target."
     Write-Host "Return to current main only after this evidence chain is deliberately completed or abandoned."
+    Write-Host "Auto-planning is skipped in historical-revision mode; continue with the revision-bound physical-acceptance-status command that selected this checkout."
+} elseif ($SkipPlan) {
+    Write-Host "Rig-window auto-plan: skipped by -SkipPlan."
+} else {
+    $planner = Join-Path $RepoRoot "plan-rig-window.ps1"
+    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $planner -PathType Leaf)) {
+        Write-Warning "BodyRig update er READY, men rig-window planner mangler: $planner"
+    } elseif ($null -eq $pwsh) {
+        Write-Warning "BodyRig update er READY, men pwsh (PowerShell 7+) mangler; rig-window auto-plan kunne ikke køres."
+    } else {
+        Write-Host ""
+        Write-Host "BodyRig rig-window auto-plan (read-only)"
+        $plannerArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $planner
+        )
+        if (-not [string]::IsNullOrWhiteSpace($PreferredJobId)) {
+            $plannerArgs += @("-PreferredJobId", $PreferredJobId)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($PersonId)) {
+            $plannerArgs += @("-PersonId", $PersonId)
+        }
+        if ($hasPerformer) {
+            $plannerArgs += @("-PerformerId", $PerformerId, "-BodyId", $BodyId)
+        }
+        & $pwsh.Source @plannerArgs
+        $plannerExit = $LASTEXITCODE
+        if ($plannerExit -ne 0) {
+            Write-Warning "BodyRig update er READY, men rig-window auto-plan kunne ikke resolve en sikker næste handling (exit $plannerExit). Kør plan-rig-window.ps1 igen med eksplicit -PersonId/-PerformerId/-BodyId hvis scope er tvetydigt."
+        }
+    }
 }
