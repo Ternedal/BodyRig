@@ -15,6 +15,7 @@ RESCUE_RANK = 15
 SESSION_RANK = 10
 INTERRUPTED_ADOPT_RANK = 8
 INTERRUPTED_FIT_RANK = 5
+HUMAN_FIDELITY_REWORK_RANK = 1
 
 
 def _scope_sessions(
@@ -115,6 +116,27 @@ def _existing_candidates(
             continue
         rank = progress_rank(status)
         if rank <= 0:
+            if (
+                status.state == "blocked"
+                and status.gate == "windows-rejected"
+                and str(status.acceptance_dir or "").strip()
+            ):
+                candidates.append(
+                    {
+                        "kind": "human-fidelity-rework",
+                        "rank": HUMAN_FIDELITY_REWORK_RANK,
+                        "stamp": item["stamp"],
+                        "preferred": False,
+                        "session_report": item["path"],
+                        "state": status.state,
+                        "gate": status.gate,
+                        "acceptance_dir": status.acceptance_dir,
+                        "evidence_revision": str(status.bodyrig_revision or item["revision"]).lower(),
+                        "performer_id": item["performer_id"],
+                        "body_id": item["body_id"],
+                    }
+                )
+                continue
             rejected.append(
                 {
                     "session_report": str(session_path),
@@ -307,6 +329,41 @@ def build_plan(
         kind = selected["kind"]
         rank = int(selected["rank"])
         revision = str(selected.get("evidence_revision") or "").lower()
+
+        if kind == "human-fidelity-rework":
+            rework_performer = scope_performer or str(selected.get("performer_id") or "")
+            rework_body = body_id or str(selected.get("body_id") or "")
+            if not rework_performer or not rework_body:
+                continue
+            result = _base_result(
+                head,
+                rank=rank,
+                path="human-fidelity-rework",
+                resolved_person=resolved_person,
+                resolved_performer=rework_performer,
+                requested_body=rework_body,
+            )
+            result.update(
+                {
+                    "evidence_revision": revision,
+                    "session_report": selected.get("session_report"),
+                    "acceptance_dir": selected.get("acceptance_dir"),
+                    "gate": selected.get("gate"),
+                    "expensive_reconstruction_rerun": True,
+                    "fitter_rerun": True,
+                    "rationale": (
+                        "Human visual review rejected the scoped Windows fidelity output. "
+                        "Do not re-enter or attest the rejected historical acceptance. Start the current profiled "
+                        "fidelity-convergence path and retain its private SiTH workspaces so later bounded refits can "
+                        "reuse reconstruction authority if another human review still fails."
+                    ),
+                    "next_command": (
+                        f".\\run-profiled-fidelity-convergence.ps1 -PerformerId {base._ps_quote(rework_performer)} "
+                        f"-BodyId {base._ps_quote(rework_body)} -KeepPrivateWorkspaces"
+                    ),
+                }
+            )
+            return result
 
         if kind == "ui-acceptance":
             acceptance_dir = str(selected["acceptance_dir"])
