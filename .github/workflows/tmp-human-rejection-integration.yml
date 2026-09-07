@@ -1,0 +1,27 @@
+name: tmp-human-rejection-integration
+
+on:
+  push:
+    branches: [hardening/human-fidelity-rejection]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: hardening/human-fidelity-rejection
+      - run: python tools/tmp_patch_human_rejection.py
+      - run: |
+          rm tools/tmp_patch_human_rejection.py
+          rm .github/workflows/tmp-human-rejection-integration.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Acceptance: make human rejection authoritative"
+          git push origin HEAD:hardening/human-fidelity-rejection
