@@ -15,6 +15,14 @@ cd <YOUR-BODYRIG-CHECKOUT>
 
 `update-windows.ps1` also starts/verifies the checkout-bound local BodyRig service, which lets the rig-window planner inspect existing interrupted-body recovery opportunities without duplicating service-owned Stash/Person authority.
 
+For an already-valid historical acceptance, the same updater can re-enter its exact accepted revision safely:
+
+```powershell
+.\update-windows.ps1 -Revision '<40-char-sha>' -NoBrowser
+```
+
+Historical mode is fail-closed. The requested SHA must be a Git commit reachable as an ancestor of the freshly fetched `origin/main`, and that exact commit must contain its own Windows runtime lock, runtime-lock validator, launcher and acceptance-status tooling before the currently running BodyRig service is stopped. The target revision is then checked out detached, its own Windows dependency lock is installed and verified, and the restarted service must report that exact revision.
+
 After a fresh Gate A or later physical acceptance evidence has been selected for continuation, do **not** pull, switch branches or edit tracked files until that exact chain is deliberately completed or abandoned.
 
 ## 1. Ask BodyRig for the cheapest valid continuation
@@ -55,6 +63,8 @@ You can explicitly run the same source-preserving assessment yourself:
 
 If a valid Gate-A directory already exists, the planner asks the canonical physical acceptance status engine for its exact next command. Continue Windows/Quest/release from those bytes before considering another clone.
 
+If the acceptance is valid but belongs to an older BodyRig revision, an operator-checkout mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded historical checkout command using `update-windows.ps1 -Revision <accepted-sha>`, then invokes that accepted revision's own `physical-acceptance-status.ps1`. The updater independently verifies that the requested SHA is a safe ancestor of current `origin/main` before stopping the service.
+
 If that physical body acceptance chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction for that body.
 
 ### Priority 3 — completed physical clone session
@@ -84,7 +94,7 @@ That command delegates to BodyRig's existing `/resume-status` and `/resume` serv
 
 ### Priority 5 — fresh profiled physical preflight
 
-Only when no reusable Gate-A rescue, Gate-A continuation, exact-current completed clone session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
+Only when no reusable Gate-A rescue, Gate-A continuation, completed physical session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
 
 With a performer/body pair supplied, the next command routes through checkout-bound `bodyrig-status.ps1`, which delegates to the canonical profiled first-run doctor. That doctor performs rig/source readiness and emits the exact production clone command; it still creates no physical session by itself.
 
@@ -94,13 +104,15 @@ The crash-resilient recovery bridge will also reuse source-hash/adapter/revision
 
 Run the command printed by the planner. Do not manually reconstruct a shorter command and do not skip directly to fresh SiTH merely because it is familiar.
 
-After the command finishes, rerun:
+After a normal current-revision command finishes, rerun:
 
 ```powershell
 .\plan-rig-window.ps1
 ```
 
-The planner should either advance to a later valid stage, report an already-complete body acceptance chain, or explain why every reuse route is invalid before permitting fresh reconstruction.
+If the planner deliberately switches to an older accepted revision, follow the `physical-acceptance-status.ps1` command printed immediately after that switch instead. Older accepted revisions may predate `plan-rig-window.ps1`; that is expected and is why the historical-switch command chains directly into the accepted revision's canonical status engine.
+
+The flow should either advance to a later valid stage, report an already-complete body acceptance chain, or explain why every reuse route is invalid before permitting fresh reconstruction.
 
 ## 3. Human/physical evidence boundary
 
