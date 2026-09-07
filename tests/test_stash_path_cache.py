@@ -56,6 +56,31 @@ def test_v2_cache_requires_same_origin_scope_and_live_share() -> None:
     assert result["mapping"] == {SOURCE: SHARE}
 
 
+def test_one_performer_scope_can_reuse_cache_covering_more_performers() -> None:
+    result = validate_cache(
+        _payload(),
+        stash_url="http://stashbox:9999",
+        performer_ids=["17"],
+        now=NOW,
+        is_dir=_live,
+    )
+
+    assert result["ok"] is True
+    assert result["cache_mode"] == "v2-covering-scope"
+    assert result["performer_ids"] == ["17"]
+
+
+def test_one_performer_scope_rejects_cache_that_does_not_cover_it() -> None:
+    with pytest.raises(StashPathCacheError, match="does not cover the requested performer scope"):
+        validate_cache(
+            _payload(),
+            stash_url="http://stashbox:9999",
+            performer_ids=["99"],
+            now=NOW,
+            is_dir=_live,
+        )
+
+
 def test_v2_cache_rejects_different_stash_origin() -> None:
     with pytest.raises(StashPathCacheError, match="different Stash origin"):
         validate_cache(
@@ -67,7 +92,7 @@ def test_v2_cache_rejects_different_stash_origin() -> None:
         )
 
 
-def test_v2_cache_rejects_changed_performer_scope() -> None:
+def test_v2_cache_rejects_changed_multi_performer_scope() -> None:
     with pytest.raises(StashPathCacheError, match="performer scope changed"):
         validate_cache(
             _payload(),
