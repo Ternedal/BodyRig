@@ -59,6 +59,14 @@ if ($head -ne $originMain) {
     throw "Checkout is not exact current origin/main. HEAD=$head origin/main=$originMain"
 }
 
+$cloneScript = Join-Path $repoRoot "clone-body-from-stash-ready.ps1"
+$acceptScript = Join-Path $repoRoot "accept-physical-clone.ps1"
+$acceptCoreScript = Join-Path $repoRoot "accept-physical-clone-core.ps1"
+$activateScript = Join-Path $repoRoot "run-automatic-production-activation.ps1"
+foreach ($script in @($cloneScript, $acceptScript, $acceptCoreScript, $activateScript)) {
+    if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw "Required production script missing: $script" }
+}
+
 $artifactBase = [string]$env:LOCALAPPDATA
 if ([string]::IsNullOrWhiteSpace($artifactBase)) { $artifactBase = [IO.Path]::GetTempPath() }
 if ([string]::IsNullOrWhiteSpace($RunRoot)) {
@@ -97,13 +105,6 @@ $authority = [ordered]@{
     production_activation = $false
 }
 Write-AtomicJson -Path $runAuthority -Value $authority
-
-$cloneScript = Join-Path $repoRoot "clone-body-from-stash-ready.ps1"
-$acceptScript = Join-Path $repoRoot "accept-physical-clone.ps1"
-$activateScript = Join-Path $repoRoot "run-automatic-production-activation.ps1"
-foreach ($script in @($cloneScript, $acceptScript, $activateScript)) {
-    if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw "Required production script missing: $script" }
-}
 
 Write-Host "BodyRig one-command production activation"
 Write-Host "Revision: $head"
