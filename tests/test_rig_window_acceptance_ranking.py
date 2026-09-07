@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from bodyrig.acceptance_status import AcceptanceStatus
-from bodyrig.rig_window_acceptance import GATE_PROGRESS, progress_rank
+from bodyrig.rig_window_acceptance import AUTOMATIC_STAGE_PROGRESS, GATE_PROGRESS, progress_rank
 from bodyrig.rig_window_plan import rank_acceptance_assessments
 
 
@@ -28,6 +28,20 @@ def test_physical_gate_progress_order_matches_expensive_chain() -> None:
     )] == sorted(GATE_PROGRESS.values())
 
 
+def test_automatic_progress_preserves_real_completed_work_order() -> None:
+    assert [AUTOMATIC_STAGE_PROGRESS[name] for name in (
+        "windows",
+        "quest",
+        "quest-quality",
+        "release",
+        "complete",
+    )] == [16, 40, 50, 60, 100]
+    assert AUTOMATIC_STAGE_PROGRESS["windows"] > GATE_PROGRESS["gate-a"]
+    assert AUTOMATIC_STAGE_PROGRESS["quest"] == GATE_PROGRESS["quest-probe"]
+    assert AUTOMATIC_STAGE_PROGRESS["quest-quality"] == GATE_PROGRESS["quest-attestation"]
+    assert AUTOMATIC_STAGE_PROGRESS["release"] == GATE_PROGRESS["release"]
+
+
 def test_complete_acceptance_always_ranks_above_pending_release() -> None:
     assert progress_rank(_status(state="complete", gate="release")) == 100
     assert progress_rank(_status(gate="release")) == 60
@@ -51,6 +65,21 @@ def test_furthest_gate_beats_newer_timestamp() -> None:
 
     ranked = rank_acceptance_assessments([newest_early, older_late])
     assert [item["acceptance_dir"] for item in ranked] == ["old-quest", "new-gate-a"]
+
+
+def test_automatic_quality_recovery_beats_newer_windows_only_evidence() -> None:
+    newer_windows = {
+        "acceptance_dir": "new-windows",
+        "progress_rank": AUTOMATIC_STAGE_PROGRESS["quest"],
+        "stamp": "2099-01-01T00:00:00Z",
+    }
+    older_quality_recovery = {
+        "acceptance_dir": "old-quest-quality",
+        "progress_rank": AUTOMATIC_STAGE_PROGRESS["quest-quality"],
+        "stamp": "2026-01-01T00:00:00Z",
+    }
+    ranked = rank_acceptance_assessments([newer_windows, older_quality_recovery])
+    assert [item["acceptance_dir"] for item in ranked] == ["old-quest-quality", "new-windows"]
 
 
 def test_timestamp_only_breaks_ties_at_same_gate() -> None:

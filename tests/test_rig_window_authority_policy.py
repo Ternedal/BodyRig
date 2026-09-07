@@ -23,6 +23,23 @@ def _candidate(*, kind: str, gate: str, rank: int, acceptance_dir: str, state: s
     }
 
 
+def _plan(*, gate: str, revision: str = HEAD, state: str = "ready") -> dict:
+    return {
+        "format": "bodyrig-rig-window-plan",
+        "version": 4,
+        "state": state,
+        "path": "existing-gate-a-acceptance",
+        "bodyrig_revision": HEAD,
+        "evidence_revision": revision,
+        "acceptance_dir": r"C:\BodyRig\acceptance",
+        "gate": gate,
+        "progress_rank": 40,
+        "next_command": "legacy-command",
+        "expensive_reconstruction_rerun": False,
+        "fitter_rerun": False,
+    }
+
+
 def test_committed_gate_a_outranks_validatable_rescue(tmp_path: Path, monkeypatch) -> None:
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
@@ -78,6 +95,41 @@ def test_pre_gate_a_session_is_not_misclassified_as_committed_gate_a(tmp_path: P
     assert rejected == []
     assert existing[0]["rank"] == policy.SESSION_RANK == 10
     assert not prospective.exists()
+
+
+def test_automatic_standalone_acceptance_uses_automatic_progress(tmp_path: Path, monkeypatch) -> None:
+    acceptance = tmp_path / "acceptance"
+    acceptance.mkdir()
+    monkeypatch.setattr(authority.policy.base, "_head", lambda _root: HEAD)
+    monkeypatch.setattr(authority, "has_automatic_evidence", lambda _path: True)
+    monkeypatch.setattr(
+        authority,
+        "_automatic_payload",
+        lambda _path: {
+            "policy_scope": "evidence-revision-automatic-structural",
+            "progress_rank": 50,
+            "gate": "automatic-quest-quality",
+            "state": "ready",
+            "bodyrig_revision": HEAD,
+        },
+    )
+
+    kept, rejected = authority.enforce_existing_authority(
+        repo_root=tmp_path,
+        candidates=[
+            _candidate(
+                kind="physical-session",
+                gate="quest-probe",
+                rank=40,
+                acceptance_dir=str(acceptance),
+            )
+        ],
+        rejected=[],
+    )
+
+    assert rejected == []
+    assert kept[0]["rank"] == 50
+    assert kept[0]["gate"] == "automatic-quest-quality"
 
 
 def test_unsafe_complete_historical_acceptance_is_rejected_before_selection(tmp_path: Path, monkeypatch) -> None:
@@ -145,13 +197,63 @@ def test_terminal_historical_authority_fails_closed_when_origin_main_ref_is_miss
     assert authority._strict_complete_historical_revision_is_safe(tmp_path, HISTORICAL) is False
 
 
-def test_authority_guard_restores_legacy_policy_hook_after_call(monkeypatch) -> None:
-    original = policy._existing_candidates
+def test_current_automatic_plan_routes_to_resumable_activation(tmp_path: Path) -> None:
+    routed = authority._route_automatic_plan(tmp_path, _plan(gate="automatic-quest", revision=HEAD))
+    assert routed["path"] == "existing-automatic-production"
+    assert "run-automatic-production-activation.ps1" in routed["next_command"]
+    assert "run-automatic-reference-windows-proof.ps1" not in routed["next_command"]
+    assert routed["expensive_reconstruction_rerun"] is False
+
+
+def test_historical_automatic_with_resumable_producer_uses_exact_checkout_then_resume(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(authority, "_revision_has_resumable_automatic_tooling", lambda _root, _revision: True)
+    routed = authority._route_automatic_plan(tmp_path, _plan(gate="automatic-quest-quality", revision=HISTORICAL))
+    assert routed["path"] == "historical-automatic-production"
+    assert f"-Revision '{HISTORICAL}'" in routed["next_command"]
+    assert "run-automatic-production-activation.ps1" in routed["next_command"]
+
+
+def test_legacy_historical_windows_pass_continues_at_quest_without_rerunning_windows(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(authority, "_revision_has_resumable_automatic_tooling", lambda _root, _revision: False)
+    routed = authority._route_automatic_plan(tmp_path, _plan(gate="automatic-quest", revision=HISTORICAL))
+    assert routed["path"] == "historical-automatic-production"
+    assert "run-automatic-reference-quest-proof.ps1" in routed["next_command"]
+    assert "run-automatic-reference-windows-proof.ps1" not in routed["next_command"]
+    assert "bodyrig.automatic_release_gate" in routed["next_command"]
+
+
+def test_legacy_historical_quest_pass_runs_only_release_gate(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(authority, "_revision_has_resumable_automatic_tooling", lambda _root, _revision: False)
+    routed = authority._route_automatic_plan(tmp_path, _plan(gate="automatic-release", revision=HISTORICAL))
+    assert routed["path"] == "historical-automatic-production"
+    assert "bodyrig.automatic_release_gate" in routed["next_command"]
+    assert "run-automatic-reference-quest-proof.ps1" not in routed["next_command"]
+    assert "run-automatic-reference-windows-proof.ps1" not in routed["next_command"]
+
+
+def test_legacy_historical_quest_quality_fails_closed_instead_of_rebuilding(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(authority, "_revision_has_resumable_automatic_tooling", lambda _root, _revision: False)
+    routed = authority._route_automatic_plan(tmp_path, _plan(gate="automatic-quest-quality", revision=HISTORICAL))
+    assert routed["state"] == "blocked"
+    assert routed["path"] == "historical-automatic-resume-blocked"
+    assert routed["next_command"] is None
+    assert routed["expensive_reconstruction_rerun"] is False
+    assert "Do not rerun reconstruction" in routed["rationale"]
+
+
+def test_authority_guard_restores_all_policy_hooks_after_call(monkeypatch) -> None:
+    original_existing = policy._existing_candidates
+    original_acceptance = policy.base._current_acceptance_status
+    original_session = policy.base._current_session_status
 
     def fake_build_plan(**_kwargs):
         assert policy._existing_candidates is authority._guarded_existing_candidates
-        return {"ok": True}
+        assert policy.base._current_acceptance_status is authority._guarded_current_acceptance_status
+        assert policy.base._current_session_status is authority._guarded_current_session_status
+        return {"gate": "gate-a"}
 
     monkeypatch.setattr(policy, "build_plan", fake_build_plan)
-    assert authority.build_plan(repo_root=Path(".")) == {"ok": True}
-    assert policy._existing_candidates is original
+    assert authority.build_plan(repo_root=Path(".")) == {"gate": "gate-a"}
+    assert policy._existing_candidates is original_existing
+    assert policy.base._current_acceptance_status is original_acceptance
+    assert policy.base._current_session_status is original_session

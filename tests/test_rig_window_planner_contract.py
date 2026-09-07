@@ -114,8 +114,14 @@ def test_unified_policy_only_assesses_and_emits_mutating_next_commands() -> None
     assert "clone-body-from-stash-ready.ps1" not in POLICY
 
 
-def test_authority_shim_is_scoped_and_restores_legacy_policy_hook() -> None:
+def test_authority_shim_is_scoped_and_restores_all_policy_hooks() -> None:
     assert "with _PATCH_LOCK" in AUTHORITY
-    assert "previous = policy._existing_candidates" in AUTHORITY
+    assert "previous_existing = policy._existing_candidates" in AUTHORITY
+    assert "previous_acceptance = policy.base._current_acceptance_status" in AUTHORITY
+    assert "previous_session = policy.base._current_session_status" in AUTHORITY
     assert "policy._existing_candidates = _guarded_existing_candidates" in AUTHORITY
-    assert "policy._existing_candidates = previous" in AUTHORITY
+    assert "policy.base._current_acceptance_status = _guarded_current_acceptance_status" in AUTHORITY
+    assert "policy.base._current_session_status = _guarded_current_session_status" in AUTHORITY
+    assert "policy._existing_candidates = previous_existing" in AUTHORITY
+    assert "policy.base._current_acceptance_status = previous_acceptance" in AUTHORITY
+    assert "policy.base._current_session_status = previous_session" in AUTHORITY
