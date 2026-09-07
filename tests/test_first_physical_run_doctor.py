@@ -12,6 +12,8 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
         "bodyrig-sith-setup v4",
         "check-reference-renderer-ready.ps1",
         "check-rig-ready.ps1",
+        "accept-physical-clone.ps1",
+        "accept-physical-clone-core.ps1",
         "-RigSetupReport",
         "-BodyRigPython",
         "-StashUrl",
@@ -24,8 +26,24 @@ def test_first_physical_run_doctor_is_read_only_and_checkout_bound() -> None:
 
     # The doctor must never create/mutate physical evidence or start the heavy clone.
     assert "bodyrig.physical_session" not in script
-    assert "accept-physical-clone.ps1" not in script
+    assert "& $gateALauncher" not in script
+    assert "& $gateACore" not in script
     assert "& $powerShellExe @cloneArgs" not in script
+
+
+def test_first_physical_run_doctor_preflights_gate_a_dependencies_before_live_checks_and_clone_handoff() -> None:
+    script = Path("prepare-first-physical-run.ps1").read_text(encoding="utf-8")
+
+    launcher = '$gateALauncher = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"'
+    core = '$gateACore = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone-core.ps1") -Label "Gate A transactional core"'
+    rig_validation = script.index("-m bodyrig.rig_setup $RigSetupReport")
+    renderer_check = script.index("Checking Unity/Quest reference-renderer toolchain")
+    live_readiness = script.index("Running live non-session recovery/SiTH/Stash readiness checks")
+    clone_handoff = script.index('$nextCommand = ".\\clone-body-from-stash-ready.ps1')
+
+    assert launcher in script
+    assert core in script
+    assert script.index(launcher) < script.index(core) < rig_validation < renderer_check < live_readiness < clone_handoff
 
 
 def test_first_physical_run_doctor_rejects_stale_rig_setup_before_renderer_or_live_readiness() -> None:
