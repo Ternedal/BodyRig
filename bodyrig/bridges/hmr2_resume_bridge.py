@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import sys
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +37,14 @@ GLOBAL_FORMAT = "bodyrig-recovery-global-phalp-cache"
 GLOBAL_VERSION = 2
 _GLOBAL_DIR = "recovery-phalp-cache"
 
+_legacy_sampling_details = checkpoint._sampling_details
+_legacy_load_canonical_checkpoint = checkpoint._load_canonical_checkpoint
 _legacy_load_raw_checkpoint = checkpoint._load_raw_checkpoint
 _legacy_publish_raw_checkpoint = checkpoint._publish_raw_checkpoint
+_CURRENT_TIMING: ContextVar[tuple[float, int, float] | None] = ContextVar(
+    "bodyrig_recovery_sampling_timing",
+    default=None,
+)
 
 
 def _sha256_file(path: Path) -> str:
@@ -85,6 +93,69 @@ def _global_paths(source_sha256: str) -> tuple[Path, Path]:
     return root / "phalp.pkl", root / "meta.json"
 
 
+def _float_matches(value: Any, expected: float) -> bool:
+    try:
+        actual = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(actual) and math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-9)
+
+
+def _timing_meta_matches(
+    meta: Any,
+    *,
+    source_fps: float,
+    sampling_stride: int,
+    effective_fps: float,
+) -> bool:
+    return (
+        isinstance(meta, dict)
+        and _float_matches(meta.get("source_fps"), source_fps)
+        and meta.get("sampling_stride") == sampling_stride
+        and _float_matches(meta.get("effective_fps"), effective_fps)
+    )
+
+
+def _sampling_details(source: Path) -> tuple[float, int, float]:
+    timing = _legacy_sampling_details(source)
+    _CURRENT_TIMING.set(timing)
+    return timing
+
+
+def _current_timing(sampling_stride: int) -> tuple[float, int, float] | None:
+    timing = _CURRENT_TIMING.get()
+    if timing is None or timing[1] != sampling_stride:
+        return None
+    return timing
+
+
+def _load_canonical_checkpoint(
+    root: Path,
+    *,
+    source_index: int,
+    source_sha256: str,
+    sampling_stride: int,
+):
+    timing = _current_timing(sampling_stride)
+    if timing is None:
+        return None
+    source_fps, _, effective_fps = timing
+    meta = checkpoint._read_json(checkpoint._canonical_path(root, source_index))
+    if not _timing_meta_matches(
+        meta,
+        source_fps=source_fps,
+        sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
+    ):
+        return None
+    return _legacy_load_canonical_checkpoint(
+        root,
+        source_index=source_index,
+        source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
+    )
+
+
 def _valid_global_meta(
     meta: Any,
     *,
@@ -102,11 +173,12 @@ def _valid_global_meta(
         return False
     if meta.get("sampling_policy") != RECOVERY_TEMPORAL_SAMPLING_POLICY:
         return False
-    if meta.get("source_fps") != source_fps:
-        return False
-    if meta.get("sampling_stride") != sampling_stride:
-        return False
-    if meta.get("effective_fps") != effective_fps:
+    if not _timing_meta_matches(
+        meta,
+        source_fps=source_fps,
+        sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
+    ):
         return False
     if meta.get("source_sha256") != source_sha256 or not pkl_path.is_file():
         return False
@@ -251,11 +323,12 @@ def _discover_legacy_raw(
             continue
         if meta.get("sampling_policy") != RECOVERY_TEMPORAL_SAMPLING_POLICY:
             continue
-        if meta.get("source_fps") != source_fps:
-            continue
-        if meta.get("sampling_stride") != sampling_stride:
-            continue
-        if meta.get("effective_fps") != effective_fps:
+        if not _timing_meta_matches(
+            meta,
+            source_fps=source_fps,
+            sampling_stride=sampling_stride,
+            effective_fps=effective_fps,
+        ):
             continue
         if meta.get("source_sha256") != source_sha256:
             continue
@@ -286,19 +359,27 @@ def _load_raw_checkpoint(
     *,
     source_index: int,
     source_sha256: str,
-    source_fps: float,
     sampling_stride: int,
-    effective_fps: float,
 ):
-    # Current-workspace evidence wins and is also promoted into the global cache.
-    current = _legacy_load_raw_checkpoint(
-        root,
-        source_index=source_index,
-        source_sha256=source_sha256,
+    timing = _current_timing(sampling_stride)
+    if timing is None:
+        return None
+    source_fps, _, effective_fps = timing
+
+    local_meta = checkpoint._read_json(checkpoint._raw_meta_path(root, source_index))
+    current = None
+    if _timing_meta_matches(
+        local_meta,
         source_fps=source_fps,
         sampling_stride=sampling_stride,
         effective_fps=effective_fps,
-    )
+    ):
+        current = _legacy_load_raw_checkpoint(
+            root,
+            source_index=source_index,
+            source_sha256=source_sha256,
+            sampling_stride=sampling_stride,
+        )
     if current is not None:
         raw_path = checkpoint._raw_path(root, source_index)
         if raw_path.is_file():
@@ -373,6 +454,8 @@ def _publish_raw_checkpoint(
 
 
 def main() -> int:
+    checkpoint._sampling_details = _sampling_details
+    checkpoint._load_canonical_checkpoint = _load_canonical_checkpoint
     checkpoint._load_raw_checkpoint = _load_raw_checkpoint
     checkpoint._publish_raw_checkpoint = _publish_raw_checkpoint
     return checkpoint.main()
