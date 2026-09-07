@@ -150,6 +150,10 @@ def candidate_from_run(run: dict[str, Any]) -> dict[str, Any] | None:
         raise AutomaticRunDiscoveryError("one-command session revision does not match run authority")
     if str(session.body_id or "") != str(run["body_id"]):
         raise AutomaticRunDiscoveryError("one-command session body_id does not match requested_body_alias")
+    if session.state in {"blocked", "incomplete", "error"} or session.gate == "physical-clone":
+        # The report may exist before a successful clone finishes. Its existence
+        # alone is not reusable physical progress and must never receive rank 10.
+        return None
 
     acceptance_dir = Path(str(run["acceptance_dir"]))
     gate_a = acceptance_dir / "bodyrig-acceptance.json"
