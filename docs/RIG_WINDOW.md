@@ -2,6 +2,8 @@
 
 This runbook exists to maximize scarce time on the physical target rig. The rule is simple: **reuse the furthest valid evidence before spending GPU/WSL/Unity/Quest time on an earlier stage**.
 
+`plan-rig-window.ps1` is intentionally a thin checkout-bound PowerShell wrapper. It proves clean Git authority and checkout-bound Python imports, then delegates read-only planning to `bodyrig.rig_window_plan`. This keeps the Windows operator surface stable while making evidence ranking and fallback behavior directly unit-testable.
+
 The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. Interrupted-recovery assessment delegates to the already-running BodyRig service and its existing exact-authority recovery planner. The planner never runs the mutating command it recommends.
 
 ## 0. Update before creating new evidence
@@ -59,13 +61,17 @@ You can explicitly run the same source-preserving assessment yourself:
 
 `-AssessOnly` creates no persistent BodyRig evidence and does not run the Windows fidelity renderer.
 
-### Priority 2 — existing Gate-A acceptance
+### Priority 2 — furthest existing physical acceptance
 
-If a valid Gate-A directory already exists, the planner asks the canonical physical acceptance status engine for its exact next command. Continue Windows/Quest/release from those bytes before considering another clone.
+All structurally valid Gate-A acceptance directories are inspected before one is selected. Selection is by physical progress first and timestamp only as a tie-breaker:
 
-If the acceptance is valid but belongs to an older BodyRig revision, an operator-checkout mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded historical checkout command using `update-windows.ps1 -Revision <accepted-sha>`, then invokes that accepted revision's own `physical-acceptance-status.ps1`. The updater independently verifies that the requested SHA is a safe ancestor of current `origin/main` before stopping the service.
+`release > quest-attestation > quest-probe > windows-attestation > windows-probe > gate-a`
 
-If that physical body acceptance chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction for that body.
+A newer early-stage acceptance therefore cannot displace an older acceptance that has already consumed more scarce Windows/Quest/human-review work. Structural ranking deliberately uses the evidence chain's own revision-bound bytes and does not apply today's renderer policy to downgrade historical evidence. Current operator/reference policy is applied only after the selected evidence revision is active.
+
+If the selected acceptance belongs to the current revision, the canonical physical acceptance status engine emits its exact next command. If it belongs to an older BodyRig revision, revision mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded historical checkout command using `update-windows.ps1 -Revision <accepted-sha>`, then invokes that accepted revision's own `physical-acceptance-status.ps1`. The updater independently verifies that the requested SHA is a safe ancestor of current `origin/main` before stopping the service.
+
+If the furthest physical body acceptance chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction for that body.
 
 ### Priority 3 — completed physical clone session
 
@@ -94,7 +100,7 @@ That command delegates to BodyRig's existing `/resume-status` and `/resume` serv
 
 ### Priority 5 — fresh profiled physical preflight
 
-Only when no reusable Gate-A rescue, Gate-A continuation, completed physical session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
+Only when no reusable Gate-A rescue, downstream acceptance, completed physical session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
 
 With a performer/body pair supplied, the next command routes through checkout-bound `bodyrig-status.ps1`, which delegates to the canonical profiled first-run doctor. That doctor performs rig/source readiness and emits the exact production clone command; it still creates no physical session by itself.
 
