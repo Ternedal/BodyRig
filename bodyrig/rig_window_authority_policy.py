@@ -9,7 +9,11 @@ from typing import Any, Iterator
 
 from .acceptance_status import AcceptanceStatus
 from .automatic_run_discovery import AutomaticRunDiscoveryError, candidate_from_run, discover_run_authorities
-from .one_command_recovery import OneCommandRecoveryError, build_live_recovery_status
+from .one_command_recovery import (
+    OneCommandRecoveryError,
+    build_live_recovery_status,
+    inspect_one_command_recovery,
+)
 from .rig_window_acceptance import has_automatic_evidence, inspect_for_rig_window
 from . import rig_window_policy as policy
 
@@ -279,6 +283,32 @@ def _historical_automatic_command(
     return None
 
 
+def _route_interrupted_fit_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if str(plan.get("gate") or "") != "interrupted-fit-recovery":
+        return plan
+    session_text = str(plan.get("session_report") or "").strip()
+    if not session_text:
+        return plan
+    try:
+        recovery = inspect_one_command_recovery(Path(session_text))
+    except OneCommandRecoveryError as exc:
+        routed = dict(plan)
+        routed.update(
+            state="blocked",
+            path="interrupted-fit-recovery-blocked",
+            next_command=None,
+            rationale=f"Selected interrupted-fit recovery receipt is no longer structurally reusable: {exc}",
+        )
+        return routed
+    if recovery is None:
+        return plan
+    routed = dict(plan)
+    routed["recovery_mode"] = recovery.get("recovery_mode")
+    routed["expensive_reconstruction_rerun"] = False
+    routed["fitter_rerun"] = bool(recovery.get("fitter_rerun"))
+    return routed
+
+
 def _route_automatic_plan(repo_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     gate = str(plan.get("gate") or "")
     if not gate.startswith("automatic-") or str(plan.get("state") or "") == "complete":
@@ -355,6 +385,7 @@ def build_plan(**kwargs: Any) -> dict[str, Any]:
     repo_root = Path(kwargs["repo_root"]).expanduser().resolve()
     with _authority_guard():
         plan = policy.build_plan(**kwargs)
+    plan = _route_interrupted_fit_plan(plan)
     return _route_automatic_plan(repo_root, plan)
 
 
