@@ -95,11 +95,16 @@ try {
                     try { $job = Get-Content -LiteralPath $jobPath -Raw -Encoding UTF8 | ConvertFrom-Json }
                     catch { return }
                     if ([string]$job.format -ne "bodyrig-ui-job" -or [string]$job.kind -ne "body-build") { return }
+                    $resumeSourceError = ""
+                    $resumeSourceErrorProperty = $job.PSObject.Properties["resume_source_error"]
+                    if ($null -ne $resumeSourceErrorProperty) {
+                        $resumeSourceError = [string]$resumeSourceErrorProperty.Value
+                    }
                     [pscustomobject]@{
                         job_id = [string]$job.job_id
                         status = [string]$job.status
                         error = [string]$job.error
-                        resume_source_error = [string]$job.resume_source_error
+                        resume_source_error = $resumeSourceError
                         acceptance_dir = [string]$job.acceptance_dir
                         stamp = $(if ([string]$job.completed_utc) { [string]$job.completed_utc } else { [string]$job.created_utc })
                     }
@@ -254,7 +259,7 @@ try {
                     }
                 }
         }
-    ) | Sort-Object -Property stamp -Descending -Unique
+    ) | Sort-Object -Property stamp -Descending
 
     foreach ($sessionRow in $sessionRows) {
         $statusRaw = @(& $statusScript -SessionReport $sessionRow.path -BodyRigPython $python -Json 2>&1)
