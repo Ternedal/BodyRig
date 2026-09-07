@@ -17,7 +17,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "httpx>=0.27", "httpx2>=2.12.0", "numpy>=1.26,<2"]
+test = [
+  "pytest>=8.0",
+  "httpx>=0.27",
+  "httpx2>=2.12.0",
+  "numpy>=1.26,<2; python_version < '3.13'",
+  "numpy>=2,<3; python_version >= '3.13'",
+]
 
 [project.scripts]
 bodyrig = "bodyrig.guided_app:run"
