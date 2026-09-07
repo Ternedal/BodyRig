@@ -62,9 +62,10 @@ try {
 
     $rejectedResume = @()
     $resumeCandidates = @()
+    $acceptanceCandidates = @()
     $jobsRoot = Join-Path $dataRoot "ui-jobs"
     if (Test-Path -LiteralPath $jobsRoot -PathType Container) {
-        $rows = @(
+        $jobRows = @(
             Get-ChildItem -LiteralPath $jobsRoot -Directory -ErrorAction Stop |
                 ForEach-Object {
                     $jobPath = Join-Path $_.FullName "job.json"
@@ -72,15 +73,25 @@ try {
                     try { $job = Get-Content -LiteralPath $jobPath -Raw -Encoding UTF8 | ConvertFrom-Json }
                     catch { return }
                     if ([string]$job.format -ne "bodyrig-ui-job" -or [string]$job.kind -ne "body-build") { return }
-                    if ([string]$job.status -ne "failed") { return }
-                    if ([string]$job.error -notlike "*high-fidelity Gate A failed*") { return }
                     [pscustomobject]@{
                         job_id = [string]$job.job_id
+                        status = [string]$job.status
+                        error = [string]$job.error
+                        acceptance_dir = [string]$job.acceptance_dir
                         stamp = $(if ([string]$job.completed_utc) { [string]$job.completed_utc } else { [string]$job.created_utc })
                     }
                 }
         )
-        $resumeCandidates = @($rows | Sort-Object -Property stamp -Descending)
+        $resumeCandidates = @(
+            $jobRows |
+                Where-Object { $_.status -eq "failed" -and $_.error -like "*high-fidelity Gate A failed*" } |
+                Sort-Object -Property stamp -Descending
+        )
+        $acceptanceCandidates = @(
+            $jobRows |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_.acceptance_dir) } |
+                Sort-Object -Property stamp -Descending
+        )
     }
 
     if (-not [string]::IsNullOrWhiteSpace($PreferredJobId)) {
@@ -133,8 +144,75 @@ try {
         }
     }
 
-    # If no cross-revision rescue is valid, prefer a completed physical session
-    # from this exact checkout over a fresh reconstruction.
+    $statusScript = Join-Path $repoRoot "physical-acceptance-status.ps1"
+
+    # A committed Gate A is further downstream than a completed clone session;
+    # continue it before considering any new Gate A or reconstruction work.
+    foreach ($candidate in $acceptanceCandidates) {
+        if (-not (Test-Path -LiteralPath $candidate.acceptance_dir -PathType Container)) { continue }
+        if (-not (Test-Path -LiteralPath (Join-Path $candidate.acceptance_dir "bodyrig-acceptance.json") -PathType Leaf)) { continue }
+        $statusRaw = @(& $statusScript -AcceptanceDir $candidate.acceptance_dir -BodyRigPython $python -Json 2>&1)
+        $statusCode = $LASTEXITCODE
+        if ($statusCode -ne 0 -and $statusCode -ne 3) { continue }
+        try { $status = ($statusRaw -join "`n") | ConvertFrom-Json }
+        catch { continue }
+        if ([string]$status.state -eq "complete") {
+            $result = [ordered]@{
+                format = "bodyrig-rig-window-plan"
+                version = 1
+                read_only = $true
+                state = "complete"
+                priority = 2
+                path = "existing-gate-a-acceptance"
+                bodyrig_revision = $head
+                acceptance_dir = [string]$candidate.acceptance_dir
+                gate = [string]$status.gate
+                recovery_rerun = $false
+                fitter_rerun = $false
+                rationale = "This physical body acceptance chain is already complete. Do not start a fresh reconstruction for this body."
+                next_command = $null
+            }
+            if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
+            else {
+                Write-Host "BodyRig rig-window plan: COMPLETE | PRIORITY 2"
+                Write-Host "Path: existing Gate A acceptance"
+                Write-Host "Acceptance: $([string]$candidate.acceptance_dir)"
+                Write-Host $result.rationale
+            }
+            exit 0
+        }
+        if ([string]$status.state -notin @("blocked", "error") -and -not [string]::IsNullOrWhiteSpace([string]$status.next_command)) {
+            $result = [ordered]@{
+                format = "bodyrig-rig-window-plan"
+                version = 1
+                read_only = $true
+                state = "ready"
+                priority = 2
+                path = "existing-gate-a-acceptance"
+                bodyrig_revision = $head
+                acceptance_dir = [string]$candidate.acceptance_dir
+                gate = [string]$status.gate
+                recovery_rerun = $false
+                fitter_rerun = $false
+                rationale = "Continue the existing Gate A acceptance chain before spending rig time on a new clone/reconstruction."
+                next_command = [string]$status.next_command
+            }
+            if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
+            else {
+                Write-Host "BodyRig rig-window plan: READY | PRIORITY 2"
+                Write-Host "Path: existing Gate A acceptance"
+                Write-Host "Gate: $([string]$status.gate)"
+                Write-Host "Revision: $head"
+                Write-Host $result.rationale
+                Write-Host "Next command:"
+                Write-Host $result.next_command
+            }
+            exit 0
+        }
+    }
+
+    # If no cross-revision rescue or Gate A continuation is valid, prefer a
+    # completed physical session from this exact checkout over reconstruction.
     $sessionsRoot = Join-Path $dataRoot "physical-clone-sessions"
     $sessionRows = @()
     if (Test-Path -LiteralPath $sessionsRoot -PathType Container) {
@@ -156,7 +234,6 @@ try {
         )
     }
 
-    $statusScript = Join-Path $repoRoot "physical-acceptance-status.ps1"
     foreach ($sessionRow in $sessionRows) {
         $statusRaw = @(& $statusScript -SessionReport $sessionRow.path -BodyRigPython $python -Json 2>&1)
         $statusCode = $LASTEXITCODE
@@ -169,7 +246,7 @@ try {
                 version = 1
                 read_only = $true
                 state = "ready"
-                priority = 2
+                priority = 3
                 path = "existing-physical-session"
                 bodyrig_revision = $head
                 session_report = [string]$sessionRow.path
@@ -181,7 +258,7 @@ try {
             }
             if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
             else {
-                Write-Host "BodyRig rig-window plan: READY | PRIORITY 2"
+                Write-Host "BodyRig rig-window plan: READY | PRIORITY 3"
                 Write-Host "Path: existing physical session"
                 Write-Host "Gate: $([string]$status.gate)"
                 Write-Host "Revision: $head"
@@ -203,18 +280,18 @@ try {
         version = 1
         read_only = $true
         state = "ready"
-        priority = 3
+        priority = 4
         path = "fresh-profiled-physical-preflight"
         bodyrig_revision = $head
         recovery_rerun = $true
         fitter_rerun = $true
         rejected_resume_count = $rejectedResume.Count
-        rationale = "No reusable Gate-A rescue or current-revision completed physical session validated. Only now spend rig time on fresh profiled physical preflight/reconstruction."
+        rationale = "No reusable Gate-A rescue, Gate-A continuation or current-revision completed physical session validated. Only now spend rig time on fresh profiled physical preflight/reconstruction."
         next_command = $nextCommand
     }
     if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
     else {
-        Write-Host "BodyRig rig-window plan: READY | PRIORITY 3"
+        Write-Host "BodyRig rig-window plan: READY | PRIORITY 4"
         Write-Host "Path: fresh profiled physical preflight"
         Write-Host "Revision: $head"
         if ($rejectedResume.Count -gt 0) {
