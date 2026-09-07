@@ -12,6 +12,12 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 GLB_MAGIC = b"glTF"
 JSON_CHUNK = b"JSON"
 BIN_CHUNK = b"BIN\x00"
+PBR_METHOD = "source-basecolor-highpass-pbr-v2"
+PBR_NORMAL_SCALE = 0.25
+PBR_ROUGHNESS_BASE = 0.68
+PBR_ROUGHNESS_DETAIL_GAIN = 0.10
+PBR_ROUGHNESS_MIN = 0.64
+PBR_ROUGHNESS_MAX = 0.82
 
 
 class PbrMaterialError(ValueError):
@@ -156,13 +162,16 @@ def _box_blur(np: Any, value: Any, radius: int) -> Any:
 
 
 def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str, float | str]]:
-    """Derive restrained PBR detail maps from the exact source-derived base color.
+    """Derive restrained source-bound PBR detail without treating albedo as gloss.
 
-    This is a deterministic appearance refinement, not a measurement of physical
-    skin properties. Only high-frequency luminance detail influences normals;
-    broad lighting gradients are intentionally removed before gradient mapping.
-    The roughness map stays in a conservative dielectric range and metallic is
-    always zero.
+    The v1 heuristic reduced roughness for dark/saturated pixels. On a real
+    source-projection failure that made dark misprojected regions visibly more
+    glossy, amplifying an appearance defect into a plastic-looking patch. V2
+    keeps metallic at zero, uses only local high-frequency structure for a small
+    roughness increase, and reduces the strength of the synthetic normal map.
+
+    This remains a deterministic source-derived heuristic, not a physical skin
+    measurement and not a substitute for later dedicated skin/SSS authority.
     """
 
     rgb_u8 = _decode_rgb_png(np, texture_png)
@@ -172,7 +181,7 @@ def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str
     detail = luminance - smooth
 
     gradient_y, gradient_x = np.gradient(detail)
-    normal_strength = 8.0
+    normal_strength = 6.0
     nx = -gradient_x * normal_strength
     ny = -gradient_y * normal_strength
     nz = np.ones_like(nx)
@@ -181,13 +190,13 @@ def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str
     normal = np.stack((nx / length, ny / length, nz / length), axis=2)
     normal_rgb = np.clip((normal * 0.5 + 0.5) * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
-    maximum = rgb.max(axis=2)
-    minimum = rgb.min(axis=2)
-    saturation = np.where(maximum > 1e-6, (maximum - minimum) / maximum, 0.0)
+    # Base-color darkness/saturation are lighting/appearance signals, not
+    # physical surface-smoothness measurements. Do not make dark projection
+    # errors glossier. Local source detail can only make the heuristic slightly
+    # rougher, which is the safer direction for an unmeasured dielectric skin map.
     micro = np.clip(np.abs(detail) / 0.12, 0.0, 1.0)
-    darkness = 1.0 - luminance
-    roughness = 0.72 - 0.12 * saturation * darkness - 0.08 * micro
-    roughness = np.clip(roughness, 0.46, 0.82)
+    roughness = PBR_ROUGHNESS_BASE + PBR_ROUGHNESS_DETAIL_GAIN * micro
+    roughness = np.clip(roughness, PBR_ROUGHNESS_MIN, PBR_ROUGHNESS_MAX)
     metallic_roughness = np.empty_like(rgb_u8)
     metallic_roughness[:, :, 0] = 255
     metallic_roughness[:, :, 1] = np.clip(roughness * 255.0 + 0.5, 0, 255).astype(np.uint8)
@@ -196,8 +205,8 @@ def derive_pbr_maps(np: Any, texture_png: bytes) -> tuple[bytes, bytes, dict[str
     normal_png = _encode_rgb_png(np, normal_rgb)
     metallic_roughness_png = _encode_rgb_png(np, metallic_roughness)
     metrics: dict[str, float | str] = {
-        "method": "source-basecolor-highpass-pbr-v1",
-        "normal_scale": 0.45,
+        "method": PBR_METHOD,
+        "normal_scale": PBR_NORMAL_SCALE,
         "roughness_min": round(float(roughness.min()), 6),
         "roughness_max": round(float(roughness.max()), 6),
         "roughness_mean": round(float(roughness.mean()), 6),
@@ -275,6 +284,8 @@ def refine_glb_pbr(
 
     if not normal_png.startswith(PNG_SIGNATURE) or not metallic_roughness_png.startswith(PNG_SIGNATURE):
         raise PbrMaterialError("derived PBR maps must be PNG")
+    if metrics.get("method") != PBR_METHOD:
+        raise PbrMaterialError("PBR refinement receipt method is stale or unsupported")
     normal_sha = hashlib.sha256(normal_png).hexdigest()
     roughness_sha = hashlib.sha256(metallic_roughness_png).hexdigest()
     if metrics.get("normal_texture_sha256") != normal_sha or metrics.get("metallic_roughness_texture_sha256") != roughness_sha:

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 
 import pytest
 
+import bodyrig.bridges.sith_pbr_material as pbr_module
 from bodyrig.bridges.sith_pbr_material import (
     PNG_SIGNATURE,
+    PBR_METHOD,
+    PBR_NORMAL_SCALE,
+    PBR_ROUGHNESS_BASE,
+    PBR_ROUGHNESS_DETAIL_GAIN,
+    PBR_ROUGHNESS_MIN,
     PbrMaterialError,
     _read_glb,
     _write_glb,
@@ -52,14 +59,27 @@ def base_avatar() -> bytes:
 
 def metrics(normal: bytes, roughness: bytes) -> dict[str, float | str]:
     return {
-        "method": "source-basecolor-highpass-pbr-v1",
-        "normal_scale": 0.45,
-        "roughness_min": 0.46,
+        "method": PBR_METHOD,
+        "normal_scale": PBR_NORMAL_SCALE,
+        "roughness_min": PBR_ROUGHNESS_MIN,
         "roughness_max": 0.82,
-        "roughness_mean": 0.69,
+        "roughness_mean": 0.72,
         "normal_texture_sha256": hashlib.sha256(normal).hexdigest(),
         "metallic_roughness_texture_sha256": hashlib.sha256(roughness).hexdigest(),
     }
+
+
+def test_pbr_v2_does_not_turn_dark_or_saturated_albedo_into_gloss() -> None:
+    source = inspect.getsource(pbr_module.derive_pbr_maps)
+
+    assert PBR_METHOD == "source-basecolor-highpass-pbr-v2"
+    assert PBR_NORMAL_SCALE == 0.25
+    assert PBR_ROUGHNESS_BASE >= 0.68
+    assert PBR_ROUGHNESS_DETAIL_GAIN > 0.0
+    assert PBR_ROUGHNESS_MIN >= 0.64
+    assert "saturation * darkness" not in source
+    assert "PBR_ROUGHNESS_BASE + PBR_ROUGHNESS_DETAIL_GAIN * micro" in source
+    assert "normal_strength = 6.0" in source
 
 
 def test_pbr_refinement_preserves_source_base_color_and_thumbnail_index() -> None:
@@ -79,7 +99,7 @@ def test_pbr_refinement_preserves_source_base_color_and_thumbnail_index() -> Non
     assert pbr["metallicFactor"] == 0.0
     assert pbr["roughnessFactor"] == 1.0
     assert pbr["metallicRoughnessTexture"] == {"index": 2}
-    assert material["normalTexture"] == {"index": 1, "scale": 0.45}
+    assert material["normalTexture"] == {"index": 1, "scale": PBR_NORMAL_SCALE}
     assert document["extensions"]["VRMC_vrm"]["meta"]["thumbnailImage"] == 1
     assert [image["name"] for image in document["images"]] == [
         "BodyRigAvatarTexture",
@@ -96,10 +116,27 @@ def test_pbr_refinement_preserves_source_base_color_and_thumbnail_index() -> Non
     assert binary.endswith(roughness)
 
     refinement = document["extras"]["bodyrig"]["materialRefinement"]
+    assert refinement["method"] == PBR_METHOD
+    assert refinement["normalScale"] == PBR_NORMAL_SCALE
     assert refinement["physicalMeasurement"] is False
     assert refinement["sourceDerivedHeuristic"] is True
     assert refinement["normalTextureSha256"] == hashlib.sha256(normal).hexdigest()
     assert refinement["metallicRoughnessTextureSha256"] == hashlib.sha256(roughness).hexdigest()
+
+
+def test_pbr_refinement_rejects_stale_v1_receipt() -> None:
+    normal = PNG_SIGNATURE + b"normal"
+    roughness = PNG_SIGNATURE + b"roughness"
+    stale = metrics(normal, roughness)
+    stale["method"] = "source-basecolor-highpass-pbr-v1"
+
+    with pytest.raises(PbrMaterialError, match="stale or unsupported"):
+        refine_glb_pbr(
+            base_avatar(),
+            normal_png=normal,
+            metallic_roughness_png=roughness,
+            metrics=stale,
+        )
 
 
 def test_pbr_refinement_rejects_hash_mismatch_and_double_application() -> None:
