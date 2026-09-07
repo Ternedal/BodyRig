@@ -1,0 +1,55 @@
+name: patch-legacy-historical-runtime
+on:
+  push:
+    branches: [hardening/legacy-historical-runtime]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: hardening/legacy-historical-runtime
+          fetch-depth: 0
+      - name: Patch updater and tests
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('update-windows.ps1')
+          s=p.read_text(encoding='utf-8')
+          old='''$requiredTargetFiles = @(\n    "pyproject.toml",\n    "requirements/windows-python.lock.txt",\n    "bodyrig/runtime_lock.py",\n    "start-windows.ps1",\n    "physical-acceptance-status.ps1"\n)\nforeach ($relativePath in $requiredTargetFiles) {\n    & git cat-file -e "$target`:$relativePath" 2>$null\n    if ($LASTEXITCODE -ne 0) {\n        throw "Target revision $target mangler required operator/runtime file: $relativePath"\n    }\n}\n'''
+          new='''$requiredTargetFiles = @(\n    "pyproject.toml",\n    "start-windows.ps1",\n    "physical-acceptance-status.ps1"\n)\nforeach ($relativePath in $requiredTargetFiles) {\n    & git cat-file -e "$target`:$relativePath" 2>$null\n    if ($LASTEXITCODE -ne 0) {\n        throw "Target revision $target mangler required operator/runtime file: $relativePath"\n    }\n}\n\n$targetHasRuntimeLockFile = $false\n$targetHasRuntimeLockModule = $false\n& git cat-file -e "$target`:requirements/windows-python.lock.txt" 2>$null\nif ($LASTEXITCODE -eq 0) { $targetHasRuntimeLockFile = $true }\n& git cat-file -e "$target`:bodyrig/runtime_lock.py" 2>$null\nif ($LASTEXITCODE -eq 0) { $targetHasRuntimeLockModule = $true }\nif ($targetHasRuntimeLockFile -xor $targetHasRuntimeLockModule) {\n    throw "Target revision $target har inkonsistent Windows runtime authority: lock file/module skal begge findes eller begge mangle."\n}\n$targetUsesLockedRuntime = $targetHasRuntimeLockFile -and $targetHasRuntimeLockModule\nif ($targetMode -eq "branch" -and -not $targetUsesLockedRuntime) {\n    throw "Current branch target $target mangler canonical Windows runtime lock authority."\n}\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new)
+          old2='''$runtimeLock = Join-Path $RepoRoot "requirements\\windows-python.lock.txt"\nif (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {\n    throw "BodyRig Windows Python runtime lock mangler: $runtimeLock"\n}\n\n# The editable BodyRig source lives in this checkout, so a source-only Git update\n'''
+          new2='''$runtimeLock = Join-Path $RepoRoot "requirements\\windows-python.lock.txt"\nif ($targetUsesLockedRuntime -and -not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {\n    throw "BodyRig Windows Python runtime lock mangler efter checkout: $runtimeLock"\n}\n\n# The editable BodyRig source lives in this checkout, so a source-only Git update\n'''
+          assert s.count(old2)==1
+          s=s.replace(old2,new2)
+          old3='''$runtimeAlreadyValid = $false\nif ($canVerifyEditableInstall) {\n    $runtimeProbe = @(& $python -m bodyrig.runtime_lock --lock $runtimeLock 2>&1)\n    $runtimeProbeExit = $LASTEXITCODE\n    $installProbe = @(& $python -m bodyrig.install_authority --repo-root $RepoRoot 2>&1)\n    $installProbeExit = $LASTEXITCODE\n    if ($runtimeProbeExit -eq 0 -and $installProbeExit -eq 0) {\n        $runtimeAlreadyValid = $true\n    }\n}\n\nif ($runtimeAlreadyValid) {\n'''
+          new3='''$runtimeAlreadyValid = $false\nif ($targetUsesLockedRuntime -and $canVerifyEditableInstall) {\n    $runtimeProbe = @(& $python -m bodyrig.runtime_lock --lock $runtimeLock 2>&1)\n    $runtimeProbeExit = $LASTEXITCODE\n    $installProbe = @(& $python -m bodyrig.install_authority --repo-root $RepoRoot 2>&1)\n    $installProbeExit = $LASTEXITCODE\n    if ($runtimeProbeExit -eq 0 -and $installProbeExit -eq 0) {\n        $runtimeAlreadyValid = $true\n    }\n}\n\nif (-not $targetUsesLockedRuntime) {\n    Write-Host "BodyRig venv: historical revision predates canonical Windows runtime lock; using conservative checkout-local pip install."\n    & $python -m pip install --disable-pip-version-check -e ".[test]"\n    if ($LASTEXITCODE -ne 0) { throw "BodyRig legacy historical venv-opdatering fejlede." }\n} elseif ($runtimeAlreadyValid) {\n'''
+          assert s.count(old3)==1
+          s=s.replace(old3,new3)
+          old4='''& $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null\nif ($LASTEXITCODE -ne 0) {\n    throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."\n}\nif ($canVerifyEditableInstall) {\n'''
+          new4='''if ($targetUsesLockedRuntime) {\n    & $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null\n    if ($LASTEXITCODE -ne 0) {\n        throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."\n    }\n}\nif ($canVerifyEditableInstall) {\n'''
+          assert s.count(old4)==1
+          s=s.replace(old4,new4)
+          p.write_text(s,encoding='utf-8')
+
+          t=Path('tests/test_update_windows_contract.py')
+          x=t.read_text(encoding='utf-8')
+          x += '''\n\ndef test_historical_revision_can_precede_runtime_lock_but_current_branch_cannot() -> None:\n    assert '$targetHasRuntimeLockFile = $false' in SCRIPT\n    assert '$targetHasRuntimeLockModule = $false' in SCRIPT\n    assert '$targetHasRuntimeLockFile -xor $targetHasRuntimeLockModule' in SCRIPT\n    assert '$targetUsesLockedRuntime = $targetHasRuntimeLockFile -and $targetHasRuntimeLockModule' in SCRIPT\n    assert 'if ($targetMode -eq "branch" -and -not $targetUsesLockedRuntime)' in SCRIPT\n    assert 'historical revision predates canonical Windows runtime lock' in SCRIPT\n    assert '& $python -m pip install --disable-pip-version-check -e ".[test]"' in SCRIPT\n\n\ndef test_locked_runtime_verification_is_conditional_on_target_capability() -> None:\n    assert 'if ($targetUsesLockedRuntime -and $canVerifyEditableInstall)' in SCRIPT\n    assert 'if ($targetUsesLockedRuntime) {' in SCRIPT\n    assert 'BodyRig Windows Python runtime lock mangler efter checkout' in SCRIPT\n'''
+          t.write_text(x,encoding='utf-8')
+      - name: Remove bootstrap workflow
+        run: rm .github/workflows/patch-legacy-historical-runtime.yml
+      - name: Verify exact patch surface
+        run: |
+          test "$(git diff --name-only | sort)" = $'tests/test_update_windows_contract.py\nupdate-windows.ps1'
+      - name: Commit verified patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add update-windows.ps1 tests/test_update_windows_contract.py .github/workflows/patch-legacy-historical-runtime.yml
+          git commit -m "Hardening: support pre-lock historical evidence checkout"
+          git push origin HEAD:hardening/legacy-historical-runtime
