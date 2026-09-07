@@ -4,6 +4,11 @@ from pathlib import Path
 SCRIPT = (Path(__file__).resolve().parents[1] / "update-windows.ps1").read_text(encoding="utf-8")
 
 
+def test_update_defaults_normal_authority_to_main() -> None:
+    assert '[string]$Branch = "main"' in SCRIPT
+    assert "agent/person-studio-photoreal-20260902" not in SCRIPT
+
+
 def test_update_never_reuses_powershell_pid_constant_as_loop_variable() -> None:
     assert "foreach ($pid " not in SCRIPT.lower()
     assert "foreach ($ownerprocessid in $listenerpids)" in SCRIPT.lower()
