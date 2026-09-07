@@ -40,9 +40,13 @@ Prerequisites that BodyRig deliberately does not silently install or redistribut
 
 `pyproject.toml` intentionally keeps compatibility ranges for normal development and packaging. The physical Windows rig uses the stricter operator lock in `requirements/windows-python.lock.txt`.
 
-`update-windows.ps1` installs the repo-local `.venv` with that lock as a pip constraints file and then runs `python -m bodyrig.runtime_lock` to prove CPython 3.11 plus the exact locked distribution versions. `check-rig-ready.ps1` repeats the same validation immediately before live recovery/SiTH/Stash readiness. A later package upgrade or a different Python minor therefore blocks canonical physical work even if an older rig-setup report still exists.
+After checking out the exact target revision, `update-windows.ps1` verifies the repo-local `.venv` before deciding whether package installation is necessary. `bodyrig.runtime_lock` proves CPython 3.11 plus every exact locked distribution version. On revisions that contain `bodyrig.install_authority`, a second probe proves that the installed BodyRig distribution is editable-bound to this exact checkout and that its installed version + console-script metadata exactly match the active `pyproject.toml`.
 
-The lock is software/runtime authority only. It does not turn CI into physical or human fidelity evidence.
+If both probes pass, the updater skips the redundant `pip install -e ".[test]"`. If either probe fails, it refreshes the `.venv` using `requirements/windows-python.lock.txt` as the pip constraints authority. The runtime lock is always revalidated after this decision, and new revisions always revalidate editable-install authority before service launch. Historical evidence revisions that predate the install-authority probe use the conservative locked pip-install path rather than being made unrecoverable by newer tooling.
+
+`check-rig-ready.ps1` repeats the runtime-lock validation immediately before live recovery/SiTH/Stash readiness. A later package upgrade or a different Python minor therefore blocks canonical physical work even if an older rig-setup report still exists.
+
+The lock and editable-install checks are software/runtime authority only. They do not turn CI into physical or human fidelity evidence.
 
 ## Evidence output
 
