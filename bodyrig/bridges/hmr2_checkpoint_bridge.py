@@ -114,7 +114,9 @@ def _checkpoint_identity_matches(
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
     sampling_stride: int,
+    effective_fps: float,
     format_name: str,
 ) -> bool:
     return (
@@ -125,7 +127,9 @@ def _checkpoint_identity_matches(
         and payload.get("source_index") == source_index
         and payload.get("source_sha256") == source_sha256
         and payload.get("sampling_policy") == RECOVERY_TEMPORAL_SAMPLING_POLICY
+        and payload.get("source_fps") == source_fps
         and payload.get("sampling_stride") == sampling_stride
+        and payload.get("effective_fps") == effective_fps
     )
 
 
@@ -134,14 +138,18 @@ def _load_canonical_checkpoint(
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
     sampling_stride: int,
+    effective_fps: float,
 ) -> list[dict] | None:
     payload = _read_json(_canonical_path(root, source_index))
     if payload is None or not _checkpoint_identity_matches(
         payload,
         source_index=source_index,
         source_sha256=source_sha256,
+        source_fps=source_fps,
         sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
         format_name=CHECKPOINT_FORMAT,
     ):
         return None
@@ -226,7 +234,9 @@ def _load_raw_checkpoint(
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
     sampling_stride: int,
+    effective_fps: float,
 ):
     meta = _read_json(_raw_meta_path(root, source_index))
     raw_path = _raw_path(root, source_index)
@@ -236,7 +246,9 @@ def _load_raw_checkpoint(
         meta,
         source_index=source_index,
         source_sha256=source_sha256,
+        source_fps=source_fps,
         sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
         format_name=RAW_META_FORMAT,
     ):
         return None
@@ -370,7 +382,9 @@ def _checkpointing_run_source(
         root,
         source_index=source_index,
         source_sha256=source_sha256,
+        source_fps=source_fps,
         sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
     )
     if cached is not None:
         print(
@@ -394,7 +408,9 @@ def _checkpointing_run_source(
             root,
             source_index=source_index,
             source_sha256=source_sha256,
+            source_fps=source_fps,
             sampling_stride=sampling_stride,
+            effective_fps=effective_fps,
         )
         if raw_checkpoint is not None:
             print(
@@ -495,9 +511,9 @@ def _checkpointing_run_source(
 
             # Publish the raw result before loading/canonicalizing it. If the
             # bridge dies anywhere after this point, the expensive PHALP pass is
-            # still reusable on the next invocation. Sampling policy/stride are
-            # part of checkpoint identity, so uncapped historical results cannot
-            # be misread under this throughput candidate.
+            # still reusable on the next invocation. Sampling/timing identity is
+            # part of checkpoint authority, so old or differently interpreted
+            # results cannot be misread under this throughput candidate.
             persistent_raw = _publish_raw_checkpoint(
                 root,
                 source_index=source_index,
