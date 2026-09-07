@@ -20,6 +20,10 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "BodyRig repo virtualenv is required before rig-window planning: $python"
 }
 $python = (Resolve-Path -LiteralPath $python).Path
+$interruptedResume = Join-Path $repoRoot "resume-interrupted-body-job.ps1"
+if (-not (Test-Path -LiteralPath $interruptedResume -PathType Leaf)) {
+    throw "BodyRig interrupted-recovery wrapper is missing: $interruptedResume"
+}
 
 $hasPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 $hasBodyId = -not [string]::IsNullOrWhiteSpace($BodyId)
@@ -61,6 +65,8 @@ try {
     $dataRoot = [System.IO.Path]::GetFullPath($dataRoot)
 
     $rejectedResume = @()
+    $rejectedInterrupted = @()
+    $jobRows = @()
     $resumeCandidates = @()
     $acceptanceCandidates = @()
     $jobsRoot = Join-Path $dataRoot "ui-jobs"
@@ -118,7 +124,7 @@ try {
                     job_id = [string]$candidate.job_id
                     body_id = [string]$assessment.body_id
                     package_sha256 = [string]$assessment.package_sha256
-                    recovery_rerun = $false
+                    expensive_reconstruction_rerun = $false
                     fitter_rerun = $false
                     rationale = "Reuse the already completed clone/recovery/fitter output first; only Gate A and downstream fidelity rendering need to run."
                     next_command = ".\resume-body-job.ps1 -JobId '$([string]$candidate.job_id)'"
@@ -130,7 +136,7 @@ try {
                     Write-Host "Revision: $head"
                     Write-Host "Job: $([string]$candidate.job_id)"
                     Write-Host "Body: $([string]$assessment.body_id)"
-                    Write-Host "Recovery rerun: false | fitter rerun: false"
+                    Write-Host "Expensive reconstruction rerun: false | fitter rerun: false"
                     Write-Host $result.rationale
                     Write-Host "Next command:"
                     Write-Host $result.next_command
@@ -146,8 +152,6 @@ try {
 
     $statusScript = Join-Path $repoRoot "physical-acceptance-status.ps1"
 
-    # A committed Gate A is further downstream than a completed clone session;
-    # continue it before considering any new Gate A or reconstruction work.
     foreach ($candidate in $acceptanceCandidates) {
         if (-not (Test-Path -LiteralPath $candidate.acceptance_dir -PathType Container)) { continue }
         if (-not (Test-Path -LiteralPath (Join-Path $candidate.acceptance_dir "bodyrig-acceptance.json") -PathType Leaf)) { continue }
@@ -167,7 +171,7 @@ try {
                 bodyrig_revision = $head
                 acceptance_dir = [string]$candidate.acceptance_dir
                 gate = [string]$status.gate
-                recovery_rerun = $false
+                expensive_reconstruction_rerun = $false
                 fitter_rerun = $false
                 rationale = "This physical body acceptance chain is already complete. Do not start a fresh reconstruction for this body."
                 next_command = $null
@@ -192,7 +196,7 @@ try {
                 bodyrig_revision = $head
                 acceptance_dir = [string]$candidate.acceptance_dir
                 gate = [string]$status.gate
-                recovery_rerun = $false
+                expensive_reconstruction_rerun = $false
                 fitter_rerun = $false
                 rationale = "Continue the existing Gate A acceptance chain before spending rig time on a new clone/reconstruction."
                 next_command = [string]$status.next_command
@@ -211,8 +215,6 @@ try {
         }
     }
 
-    # If no cross-revision rescue or Gate A continuation is valid, prefer a
-    # completed physical session from this exact checkout over reconstruction.
     $sessionsRoot = Join-Path $dataRoot "physical-clone-sessions"
     $sessionRows = @()
     if (Test-Path -LiteralPath $sessionsRoot -PathType Container) {
@@ -251,7 +253,7 @@ try {
                 bodyrig_revision = $head
                 session_report = [string]$sessionRow.path
                 gate = [string]$status.gate
-                recovery_rerun = $false
+                expensive_reconstruction_rerun = $false
                 fitter_rerun = $false
                 rationale = "Continue the exact completed physical session before spending rig time on a new reconstruction."
                 next_command = [string]$status.next_command
@@ -270,6 +272,65 @@ try {
         }
     }
 
+    # Reuse a retained completed package or completed SiTH reconstruction from
+    # an interrupted/failed exact-current body job before allowing a new PHALP/
+    # SiTH reconstruction. The existing BodyRig service owns this recovery plan.
+    $interruptedCandidates = @(
+        $jobRows |
+            Where-Object { $_.status -in @("failed", "interrupted") -and $_.job_id -match '^job-[0-9a-f]{32}$' } |
+            Sort-Object -Property stamp -Descending
+    )
+    if (-not [string]::IsNullOrWhiteSpace($PreferredJobId)) {
+        $preferredInterrupted = @($interruptedCandidates | Where-Object { $_.job_id -eq $PreferredJobId })
+        $otherInterrupted = @($interruptedCandidates | Where-Object { $_.job_id -ne $PreferredJobId })
+        $interruptedCandidates = @($preferredInterrupted + $otherInterrupted)
+    }
+    foreach ($candidate in $interruptedCandidates) {
+        $assessmentRaw = @(& $interruptedResume -JobId $candidate.job_id -AssessOnly 2>&1)
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
+            try { $assessment = ($assessmentRaw -join "`n") | ConvertFrom-Json }
+            catch { $assessment = $null }
+            if ($null -ne $assessment -and $assessment.available -eq $true -and $assessment.expensive_reconstruction_rerun -eq $false) {
+                $fitterRerun = [bool]$assessment.fitter_rerun
+                $result = [ordered]@{
+                    format = "bodyrig-rig-window-plan"
+                    version = 1
+                    read_only = $true
+                    state = "ready"
+                    priority = 4
+                    path = "interrupted-body-recovery"
+                    bodyrig_revision = $head
+                    job_id = [string]$candidate.job_id
+                    recovery_mode = [string]$assessment.recovery_mode
+                    reconstruction_sha256 = [string]$assessment.reconstruction_sha256
+                    package_sha256 = [string]$assessment.package_sha256
+                    expensive_reconstruction_rerun = $false
+                    fitter_rerun = $fitterRerun
+                    rationale = [string]$assessment.reason
+                    next_command = ".\resume-interrupted-body-job.ps1 -JobId '$([string]$candidate.job_id)'"
+                }
+                if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
+                else {
+                    Write-Host "BodyRig rig-window plan: READY | PRIORITY 4"
+                    Write-Host "Path: interrupted body recovery"
+                    Write-Host "Revision: $head"
+                    Write-Host "Job: $([string]$candidate.job_id)"
+                    Write-Host "Recovery mode: $([string]$assessment.recovery_mode)"
+                    Write-Host "Expensive reconstruction rerun: false | fitter rerun: $fitterRerun"
+                    Write-Host $result.rationale
+                    Write-Host "Next command:"
+                    Write-Host $result.next_command
+                }
+                exit 0
+            }
+        }
+        $rejectedInterrupted += [pscustomobject]@{
+            job_id = [string]$candidate.job_id
+            reason = ($assessmentRaw -join "`n").Trim()
+        }
+    }
+
     $nextCommand = if ($hasPerformer -and $hasBodyId) {
         ".\bodyrig-status.ps1 -PerformerId '$($PerformerId.Replace("'", "''"))' -BodyId '$($BodyId.Replace("'", "''"))'"
     } else {
@@ -280,22 +341,26 @@ try {
         version = 1
         read_only = $true
         state = "ready"
-        priority = 4
+        priority = 5
         path = "fresh-profiled-physical-preflight"
         bodyrig_revision = $head
-        recovery_rerun = $true
+        expensive_reconstruction_rerun = $true
         fitter_rerun = $true
-        rejected_resume_count = $rejectedResume.Count
-        rationale = "No reusable Gate-A rescue, Gate-A continuation or current-revision completed physical session validated. Only now spend rig time on fresh profiled physical preflight/reconstruction."
+        rejected_gate_a_resume_count = $rejectedResume.Count
+        rejected_interrupted_recovery_count = $rejectedInterrupted.Count
+        rationale = "No reusable Gate-A rescue, Gate-A continuation, completed physical session or interrupted reconstruction/package recovery validated. Only now spend rig time on fresh profiled physical preflight/reconstruction."
         next_command = $nextCommand
     }
     if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
     else {
-        Write-Host "BodyRig rig-window plan: READY | PRIORITY 4"
+        Write-Host "BodyRig rig-window plan: READY | PRIORITY 5"
         Write-Host "Path: fresh profiled physical preflight"
         Write-Host "Revision: $head"
         if ($rejectedResume.Count -gt 0) {
             Write-Host "Rejected historical Gate-A rescue candidates: $($rejectedResume.Count)"
+        }
+        if ($rejectedInterrupted.Count -gt 0) {
+            Write-Host "Rejected interrupted recovery candidates: $($rejectedInterrupted.Count)"
         }
         Write-Host $result.rationale
         Write-Host "Next command:"
