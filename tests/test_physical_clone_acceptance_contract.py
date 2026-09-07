@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _script() -> str:
-    return (ROOT / "accept-physical-clone.ps1").read_text(encoding="utf-8")
+    return (ROOT / "accept-physical-clone-core.ps1").read_text(encoding="utf-8")
 
 
 def test_high_fidelity_gate_a_requires_exact_session_revision_and_clean_checkout():
