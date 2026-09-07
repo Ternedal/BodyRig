@@ -16,7 +16,9 @@ def test_assessment_exercises_real_gate_a_without_persistent_output() -> None:
     assert '"fitter_rerun": False' in SOURCE
     assert '"--assess-only"' in SOURCE
     assert "[switch]$AssessOnly" in WRAPPER
-    assert 'if ($AssessOnly) { $argsList += "--assess-only" }' in WRAPPER
+    assert "if ($AssessOnly)" in WRAPPER
+    assert "-m bodyrig.resume_body_job $JobId --assess-only" in WRAPPER
+    assert "-m bodyrig.resume_body_job $JobId" in WRAPPER
 
 
 def test_real_resume_builds_replacement_gate_a_before_quarantine() -> None:
