@@ -2,7 +2,7 @@
 
 This runbook exists to maximize scarce time on the physical target rig. The rule is simple: **reuse the furthest valid evidence before spending GPU/WSL/Unity/Quest time on an earlier stage**.
 
-`plan-rig-window.ps1` is intentionally a thin checkout-bound PowerShell wrapper. It proves clean Git authority and checkout-bound Python imports, then delegates read-only planning to `bodyrig.rig_window_plan`. This keeps the Windows operator surface stable while making evidence ranking and fallback behavior directly unit-testable.
+`plan-rig-window.ps1` is intentionally a thin checkout-bound PowerShell wrapper. It proves clean Git authority and checkout-bound Python imports, then delegates read-only planning to `bodyrig.rig_window_plan`. This keeps the Windows operator surface stable while making evidence ranking, Person scoping and fallback behavior directly unit-testable.
 
 The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. Interrupted-recovery assessment delegates to the already-running BodyRig service and its existing exact-authority recovery planner. The planner never runs the mutating command it recommends.
 
@@ -33,13 +33,21 @@ After a fresh Gate A or later physical acceptance evidence has been selected for
 .\plan-rig-window.ps1
 ```
 
-If the performer id and local BodyId alias are already known, provide them now so the fallback path is immediately source-bound:
+If the performer id and local BodyId alias are already known, provide them now. This scopes both reuse discovery and any fresh fallback to the intended identity/source:
 
 ```powershell
 .\plan-rig-window.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
-If one specific historical UI job is the intended continuation, add `-PreferredJobId '<job-id>'`. This only changes candidate ordering; every candidate still has to pass its canonical validator.
+If several BodyRig Person profiles are bound to the same performer, or you otherwise want to make the target explicit, add the canonical Person id:
+
+```powershell
+.\plan-rig-window.ps1 -PersonId '<person-32hex>' -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
+```
+
+Person scoping is fail-closed. UI jobs, Gate-A rescue, downstream acceptances and interrupted recovery are only considered for the resolved Person. If unscoped job history contains multiple Persons, the planner stops and requires `-PersonId` or `-PerformerId` instead of guessing. If `-PersonId` and `-PerformerId` disagree with the canonical Person profile, planning stops. Standalone physical sessions are matched to an explicit performer/body pair; when that pair is omitted, a performer-derived scope may reuse a standalone session only if it resolves to exactly one candidate.
+
+If one specific historical UI job is the intended continuation, add `-PreferredJobId '<job-id>'`. The job can establish Person intent when no stronger Person/performer scope is supplied; every candidate still has to pass its canonical validator.
 
 The planner uses this strict reuse-first priority order.
 
@@ -63,7 +71,7 @@ You can explicitly run the same source-preserving assessment yourself:
 
 ### Priority 2 — furthest existing physical acceptance
 
-All structurally valid Gate-A acceptance directories are inspected before one is selected. Selection is by physical progress first and timestamp only as a tie-breaker:
+All structurally valid Gate-A acceptance directories for the scoped Person are inspected before one is selected. Selection is by physical progress first and timestamp only as a tie-breaker:
 
 `release > quest-attestation > quest-probe > windows-attestation > windows-probe > gate-a`
 
@@ -71,15 +79,15 @@ A newer early-stage acceptance therefore cannot displace an older acceptance tha
 
 If the selected acceptance belongs to the current revision, the canonical physical acceptance status engine emits its exact next command. If it belongs to an older BodyRig revision, revision mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded historical checkout command using `update-windows.ps1 -Revision <accepted-sha>`, then invokes that accepted revision's own `physical-acceptance-status.ps1`. The updater independently verifies that the requested SHA is a safe ancestor of current `origin/main` before stopping the service.
 
-If the furthest physical body acceptance chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction for that body.
+If the furthest physical body acceptance chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction for that scoped Person.
 
 ### Priority 3 — completed physical clone session
 
-If there is no usable Gate-A continuation but a completed physical clone session exists on the exact current checkout revision, continue that session into Gate A instead of starting another reconstruction.
+If there is no usable Gate-A continuation but a completed physical clone session exists on the exact current checkout revision for the selected performer/body authority, continue that session into Gate A instead of starting another reconstruction.
 
 ### Priority 4 — interrupted package/reconstruction recovery
 
-For other failed/interrupted body jobs on the exact current BodyRig revision, the planner asks the existing BodyRig service recovery engine whether retained private evidence can be reused. Two canonical modes already exist:
+For other failed/interrupted body jobs belonging to the scoped Person on the exact current BodyRig revision, the planner asks the existing BodyRig service recovery engine whether retained private evidence can be reused. Two canonical modes already exist:
 
 - **adopt complete package** — a complete source-bound package survived; expensive reconstruction **and fitter** do not rerun;
 - **resume fit only** — completed SiTH reconstruction survived; expensive reconstruction does not rerun, but the fitter runs again from the retained exact reconstruction authority.
@@ -100,7 +108,7 @@ That command delegates to BodyRig's existing `/resume-status` and `/resume` serv
 
 ### Priority 5 — fresh profiled physical preflight
 
-Only when no reusable Gate-A rescue, downstream acceptance, completed physical session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
+Only when no reusable scoped Gate-A rescue, downstream acceptance, completed physical session, complete package or retained SiTH reconstruction validates may the planner fall back to fresh profiled physical preflight/reconstruction.
 
 With a performer/body pair supplied, the next command routes through checkout-bound `bodyrig-status.ps1`, which delegates to the canonical profiled first-run doctor. That doctor performs rig/source readiness and emits the exact production clone command; it still creates no physical session by itself.
 
@@ -110,10 +118,10 @@ The crash-resilient recovery bridge will also reuse source-hash/adapter/revision
 
 Run the command printed by the planner. Do not manually reconstruct a shorter command and do not skip directly to fresh SiTH merely because it is familiar.
 
-After a normal current-revision command finishes, rerun:
+After a normal current-revision command finishes, rerun the same scoped planner command. For example:
 
 ```powershell
-.\plan-rig-window.ps1
+.\plan-rig-window.ps1 -PersonId '<person-32hex>' -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
 If the planner deliberately switches to an older accepted revision, follow the `physical-acceptance-status.ps1` command printed immediately after that switch instead. Older accepted revisions may predate `plan-rig-window.ps1`; that is expected and is why the historical-switch command chains directly into the accepted revision's canonical status engine.

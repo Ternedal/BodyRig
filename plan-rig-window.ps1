@@ -1,6 +1,8 @@
 param(
     [ValidatePattern('^$|^job-[0-9a-f]{32}$')]
     [string]$PreferredJobId = "",
+    [ValidatePattern('^$|^person-[0-9a-f]{32}$')]
+    [string]$PersonId = "",
     [string]$PerformerId = "",
     [ValidatePattern('^$|^[a-z0-9æøå_-]{1,160}$')]
     [string]$BodyId = "",
@@ -49,6 +51,9 @@ try {
     $argsList = @("-m", "bodyrig.rig_window_plan", "--repo-root", $repoRoot)
     if (-not [string]::IsNullOrWhiteSpace($PreferredJobId)) {
         $argsList += @("--preferred-job-id", $PreferredJobId)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PersonId)) {
+        $argsList += @("--person-id", $PersonId)
     }
     if (-not [string]::IsNullOrWhiteSpace($PerformerId)) {
         $argsList += @("--performer-id", $PerformerId)
