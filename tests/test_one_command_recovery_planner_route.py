@@ -59,3 +59,51 @@ def test_current_session_hook_fails_closed_for_invalid_recovery_receipt(tmp_path
     monkeypatch.setattr(authority, "build_live_recovery_status", invalid)
     with pytest.raises(authority.policy.base.RigWindowPlanError, match="tampered producer receipt"):
         authority._guarded_current_session_status(session, tmp_path)
+
+
+def test_interrupted_fit_plan_preserves_fitter_rerun_from_structural_receipt(monkeypatch) -> None:
+    plan = {
+        "state": "ready",
+        "gate": "interrupted-fit-recovery",
+        "session_report": r"C:\BodyRig\automatic-production\fixture\bodyrig-physical-clone-session.json",
+        "expensive_reconstruction_rerun": False,
+        "fitter_rerun": False,
+        "next_command": r".\resume-interrupted-physical-fit.ps1 -FailedSessionReport 'fixture'",
+    }
+    monkeypatch.setattr(
+        authority,
+        "inspect_one_command_recovery",
+        lambda _session: {
+            "recovery_mode": "resume-fit-only",
+            "fitter_rerun": True,
+            "expensive_reconstruction_rerun": False,
+        },
+    )
+    routed = authority._route_interrupted_fit_plan(plan)
+    assert routed["recovery_mode"] == "resume-fit-only"
+    assert routed["expensive_reconstruction_rerun"] is False
+    assert routed["fitter_rerun"] is True
+    assert routed["next_command"] == plan["next_command"]
+
+
+def test_complete_package_interrupted_plan_keeps_fitter_rerun_false(monkeypatch) -> None:
+    plan = {
+        "state": "ready",
+        "gate": "interrupted-fit-recovery",
+        "session_report": r"C:\BodyRig\automatic-production\fixture\bodyrig-physical-clone-session.json",
+        "expensive_reconstruction_rerun": False,
+        "fitter_rerun": True,
+    }
+    monkeypatch.setattr(
+        authority,
+        "inspect_one_command_recovery",
+        lambda _session: {
+            "recovery_mode": "adopt-complete-package",
+            "fitter_rerun": False,
+            "expensive_reconstruction_rerun": False,
+        },
+    )
+    routed = authority._route_interrupted_fit_plan(plan)
+    assert routed["recovery_mode"] == "adopt-complete-package"
+    assert routed["expensive_reconstruction_rerun"] is False
+    assert routed["fitter_rerun"] is False
