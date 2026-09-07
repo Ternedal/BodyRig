@@ -112,6 +112,14 @@ def _annotation(value: Mapping[str, Any], *, width: int, height: int, side: str)
     return clean
 
 
+def _pixel_values(image: Any) -> Any:
+    """Return image pixels without using Pillow's deprecated getdata() when possible."""
+    flattened = getattr(image, "get_flattened_data", None)
+    if callable(flattened):
+        return flattened()
+    return image.getdata()
+
+
 def _isolate(source: Path, annotation: Mapping[str, Any], *, side: str) -> tuple[bytes, dict[str, Any]]:
     try:
         from PIL import Image, ImageChops, ImageDraw
@@ -132,8 +140,8 @@ def _isolate(source: Path, annotation: Mapping[str, Any], *, side: str) -> tuple
     draw.ellipse((0, 0, crop.width - 1, crop.height - 1), fill=255)
     source_alpha = crop.getchannel("A")
     final_alpha = ImageChops.multiply(source_alpha, circle)
-    circle_pixels = sum(1 for value in circle.getdata() if value > 0)
-    opaque_pixels = sum(1 for value in final_alpha.getdata() if value > 0)
+    circle_pixels = sum(1 for value in _pixel_values(circle) if value > 0)
+    opaque_pixels = sum(1 for value in _pixel_values(final_alpha) if value > 0)
     if circle_pixels < 1:
         raise SourceIrisIsolationError(f"{side} iris circle mask is empty")
     opaque_fraction = opaque_pixels / circle_pixels
