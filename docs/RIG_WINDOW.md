@@ -6,16 +6,32 @@ This runbook exists to maximize scarce time on the physical target rig. The rule
 
 The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. Interrupted-recovery assessment delegates to the already-running BodyRig service and its existing exact-authority recovery planner. The planner never runs the mutating command it recommends.
 
-## 0. Update before creating new evidence
+## 0. Update and get the next rig action in one command
 
-From PowerShell 7+ on the target rig, before a new physical chain is frozen:
+From the target rig, normal current-`main` startup is:
 
 ```powershell
 cd <YOUR-BODYRIG-CHECKOUT>
 .\update-windows.ps1 -NoBrowser
 ```
 
-`update-windows.ps1` also starts/verifies the checkout-bound local BodyRig service, which lets the rig-window planner inspect existing interrupted-body recovery opportunities without duplicating service-owned Stash/Person authority.
+`update-windows.ps1` fetches and checks out exact branch authority, installs/verifies the canonical Windows runtime lock, starts the checkout-bound BodyRig service, verifies launcher state + health, and then automatically runs the rig-window planner **read-only**. A successful update therefore ends by printing the single safest next physical command instead of requiring a separate status/planner step.
+
+When the intended identity is known, pass scope directly to the update so the automatic plan is immediately Person/source-bound:
+
+```powershell
+.\update-windows.ps1 -NoBrowser -PersonId '<person-32hex>' -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
+```
+
+Or, when the canonical Person can be resolved uniquely from the performer:
+
+```powershell
+.\update-windows.ps1 -NoBrowser -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
+```
+
+`-PreferredJobId '<job-id>'` can also be forwarded to the planner. `-PerformerId` and `-BodyId` must always be supplied together; this is checked before Git/service mutation begins.
+
+The automatic planner runs in a separate PowerShell 7 process after service/revision authority is verified. Planner ambiguity or a missing `pwsh` does **not** convert a successful update into a failed update: it emits a warning and requires an explicit scoped planner invocation instead. Use `-SkipPlan` only when you deliberately want update/start without automatic planning.
 
 For already-valid historical physical evidence, the same updater can re-enter its exact evidence revision safely:
 
@@ -25,15 +41,19 @@ For already-valid historical physical evidence, the same updater can re-enter it
 
 Historical mode is fail-closed. The requested SHA must be a Git commit reachable as an ancestor of the freshly fetched `origin/main`, and that exact commit must contain its own Windows runtime lock, runtime-lock validator, launcher and acceptance-status tooling before the currently running BodyRig service is stopped. The target revision is then checked out detached, its own Windows dependency lock is installed and verified, and the restarted service must report that exact revision.
 
+Automatic rig-window planning is intentionally **skipped** in `-Revision` mode. Historical revisions may predate the planner, and the command that selected the historical checkout already chains directly into that revision's own `physical-acceptance-status.ps1`. Follow that revision-bound status command rather than asking current policy to reinterpret old evidence.
+
 After a Gate A or later physical acceptance evidence has been selected for continuation, do **not** pull, switch branches or edit tracked files until that exact chain is deliberately completed or abandoned.
 
-## 1. Ask BodyRig for the furthest valid continuation
+## 1. Rerun the planner after each physical step
+
+The normal update already prints an initial plan. After executing exactly one recommended current-revision action, rerun:
 
 ```powershell
 .\plan-rig-window.ps1
 ```
 
-If the performer id and local BodyId alias are already known, provide them now. This scopes both reuse discovery and any fresh fallback to the intended identity/source:
+If the performer id and local BodyId alias are known, preserve the same scope:
 
 ```powershell
 .\plan-rig-window.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
@@ -51,7 +71,7 @@ If one specific historical UI job is the intended continuation, add `-PreferredJ
 
 ### Unified physical-progress order
 
-The planner no longer treats “Gate-A rescue”, “acceptance”, “session” and “interrupted recovery” as independent first-match buckets. They are assessed read-only and ranked together by how much expensive/physical work has already been preserved:
+The planner does not treat “Gate-A rescue”, “acceptance”, “session” and “interrupted recovery” as independent first-match buckets. They are assessed read-only and ranked together by how much expensive/physical work has already been preserved:
 
 1. **Existing downstream acceptance / session-attached acceptance** — structural ranks: `release=60`, `quest-attestation=50`, `quest-probe=40`, `windows-attestation=30`, `windows-probe=20`; a fully complete chain ranks `100`.
 2. **Validated Gate-A-only rescue** — rank `15`; clone/recovery/fitter already exist and the real Gate-A validator passes against temporary output.
@@ -125,15 +145,9 @@ With a performer/body pair supplied, the next command routes through checkout-bo
 
 ## 2. Execute exactly one recommended next command
 
-Run the command printed by the planner. Do not manually reconstruct a shorter command and do not skip directly to fresh SiTH merely because it is familiar.
+Run the command printed by update/planner. Do not manually reconstruct a shorter command and do not skip directly to fresh SiTH merely because it is familiar.
 
-After a normal current-revision command finishes, rerun the same scoped planner command. For example:
-
-```powershell
-.\plan-rig-window.ps1 -PersonId '<person-32hex>' -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
-```
-
-If the planner deliberately switches to an older evidence revision, follow the `physical-acceptance-status.ps1` command printed immediately after that switch instead. Older revisions may predate `plan-rig-window.ps1`; that is expected and is why the historical-switch command chains directly into the selected revision's canonical status engine.
+After a normal current-revision command finishes, rerun the same scoped planner command. If the planner deliberately switches to an older evidence revision, follow the `physical-acceptance-status.ps1` command printed immediately after that switch instead. Older revisions may predate `plan-rig-window.ps1`; that is expected and is why the historical-switch command chains directly into the selected revision's canonical status engine.
 
 The flow should either advance to a later valid stage, report an already-complete chain, or explain why every reuse route is invalid before permitting fresh reconstruction.
 
