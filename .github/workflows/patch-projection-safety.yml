@@ -1,0 +1,36 @@
+name: patch-projection-safety
+on:
+  push:
+    branches:
+      - fix/reject-unsupported-vr-source
+    paths:
+      - tools/patch_projection_safety.py
+      - .github/workflows/patch-projection-safety.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply asserted product patch
+        run: python tools/patch_projection_safety.py
+      - name: Verify final product diff
+        shell: bash
+        run: |
+          git rm tools/patch_projection_safety.py .github/workflows/patch-projection-safety.yml
+          files="$(git diff --name-only HEAD -- bodyrig/stash_source.py tests/test_stash_source.py)"
+          test "$files" = $'bodyrig/stash_source.py\ntests/test_stash_source.py'
+      - name: Commit final product tree
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bodyrig/stash_source.py tests/test_stash_source.py
+          git commit -am 'Source safety: reject unsupported VR and panoramic inputs'
+          git push origin HEAD:fix/reject-unsupported-vr-source
