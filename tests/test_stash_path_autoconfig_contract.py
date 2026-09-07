@@ -35,6 +35,36 @@ def test_stash_path_autoconfig_cache_is_bound_to_current_performer_scope() -> No
     assert SCRIPT.index('$performerIds = @($PerformerId.Trim())') < cache
 
 
+def test_scoped_autoconfig_uses_separate_hashed_cache_and_can_reuse_broad_cache() -> None:
+    assert '$globalEvidencePath = Join-Path $bodyRigRoot "config\\stash-path-map.json"' in SCRIPT
+    assert '[System.Security.Cryptography.SHA256]::Create()' in SCRIPT
+    assert 'stash-path-map-performer-$scopeHash.json' in SCRIPT
+    assert '$cacheEvidencePaths = @($evidencePath)' in SCRIPT
+    assert '$cacheEvidencePaths += $globalEvidencePath' in SCRIPT
+    assert 'foreach ($cacheEvidencePath in $cacheEvidencePaths)' in SCRIPT
+    assert '"--evidence", $cacheEvidencePath' in SCRIPT
+
+
+def test_scoped_autoconfig_is_process_local_and_cannot_replace_service_user_environment() -> None:
+    function_start = SCRIPT.index('function Set-BodyRigStashPathMap')
+    performer_start = SCRIPT.index('if ($hasExplicitPerformer) {', function_start)
+    function_segment = SCRIPT[function_start:performer_start]
+    assert '[switch]$PersistUser' in function_segment
+    assert 'if ($PersistUser)' in function_segment
+    assert '[Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP"' in function_segment
+
+    cache_hit = SCRIPT.index('if ($cache.ok -eq $true -and $cachedMapping.Count -gt 0)')
+    cache_segment = SCRIPT[cache_hit:SCRIPT.index('Write-Host "BodyRig Stash path map: CACHE HIT', cache_hit)]
+    assert 'Set-BodyRigStashPathMap -Mapping $cachedMapping\n' in cache_segment
+    assert 'Set-BodyRigStashPathMap -Mapping $cachedMapping -PersistUser' in cache_segment
+
+    publish = SCRIPT.index('if ($hasExplicitPerformer) {', SCRIPT.index('if ($mapping.Count -eq 0)'))
+    publish_segment = SCRIPT[publish:SCRIPT.index('$evidence = [ordered]@{', publish)]
+    assert 'Set-BodyRigStashPathMap -Mapping $mapping\n' in publish_segment
+    assert 'Set-BodyRigStashPathMap -Mapping $mapping -PersistUser' in publish_segment
+    assert 'process-local' in SCRIPT
+
+
 def test_unscoped_stash_path_autoconfig_still_uses_person_profiles() -> None:
     assert 'Get-ChildItem -LiteralPath $PeopleDir -Filter "*.json"' in SCRIPT
     assert '$profilePerformerId = [string](Get-OptionalPropertyValue -Object $source -Name "performer_id")' in SCRIPT
@@ -81,6 +111,6 @@ def test_stash_path_autoconfig_persists_non_secret_verified_mapping() -> None:
 
 def test_stash_path_autoconfig_cache_hit_returns_before_full_discovery() -> None:
     cache_hit = SCRIPT.index('Write-Host "BodyRig Stash path map: CACHE HIT')
-    return_after_hit = SCRIPT.index('\n                    return\n', cache_hit)
+    return_after_hit = SCRIPT.index('\n                        return\n', cache_hit)
     current_query = SCRIPT.index("$currentQuery = @'")
     assert cache_hit < return_after_hit < current_query
