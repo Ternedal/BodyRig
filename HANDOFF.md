@@ -135,7 +135,8 @@ Do not close those issues from CI, fixtures, generated screenshots or software-o
 
 Classify old/open PRs deliberately:
 
-- **#60 — ACTIVE CANDIDATE:** recovery-throughput v3; requires real physical A/B before promotion.
+- **#134 — DRAFT CORE CANDIDATE:** current-main recovery temporal-sampling v3 core; exact-head CI is green, but it remains non-production until a fresh exact-baseline/exact-candidate physical A/B, machine audit and explicit human review.
+- **#60 — SUPERSEDED CANDIDATE:** closed unmerged; its clean runtime core was ported to #134. Its hard-coded 2026-09-03 baseline/A-B operator harness is historical design evidence only and must not be treated as current operator authority.
 - **#63 — FROZEN EVIDENCE:** historical Gate-A lineage; reusable validator/rescue software is represented on current `main`, but the frozen branch remains historical evidence rather than normal merge authority.
 - **#132 — DRAFT CANDIDATE:** current-main source-derived PBR v2 candidate; exact-head CI is green, but it remains non-production until fresh revision-bound real visual A/B/human review.
 - **#121 — SUPERSEDED CANDIDATE:** its exact reviewed three-file delta was ported without reinterpretation to #132; keep #121 closed rather than merging its stale lineage.
