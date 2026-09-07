@@ -103,10 +103,18 @@ $python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Repoets .venv mangler. Opret den først med Python 3.11."
 }
+$runtimeLock = Join-Path $RepoRoot "requirements\windows-python.lock.txt"
+if (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
+    throw "BodyRig Windows Python runtime lock mangler: $runtimeLock"
+}
 
-& $python -m pip install --disable-pip-version-check -e ".[test]"
+& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"
 if ($LASTEXITCODE -ne 0) {
     throw "BodyRig venv-opdatering fejlede."
+}
+& $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."
 }
 
 $stashPathConfig = Join-Path $RepoRoot "configure-stash-path-map.ps1"

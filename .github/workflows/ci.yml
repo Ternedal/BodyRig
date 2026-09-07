@@ -156,9 +156,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
-      - name: Install BodyRig test environment
+      - name: Install locked BodyRig test environment
         shell: pwsh
-        run: python -m pip install --disable-pip-version-check -e ".[test]"
+        run: python -m pip install --disable-pip-version-check -c requirements/windows-python.lock.txt -e ".[test]"
+      - name: Verify canonical Windows Python runtime lock
+        shell: pwsh
+        run: python -m bodyrig.runtime_lock --lock requirements/windows-python.lock.txt
       - name: Run full Python suite on production OS
         shell: pwsh
         env:
