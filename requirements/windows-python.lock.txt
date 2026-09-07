@@ -1,5 +1,5 @@
 # BodyRig canonical Windows Python runtime lock.
-# Validated on windows-latest / CPython 3.11.9 in CI on 2026-09-07.
+# Validated on windows-latest / CPython 3.11 in CI on 2026-09-07.
 # Keep pyproject.toml compatibility ranges broad; this file is the exact rig/operator runtime.
 annotated-doc==0.0.5
 annotated-types==0.8.0
