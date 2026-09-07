@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 """Cross-job resume layer for the pinned crash-resilient PHALP bridge.
 
-The existing checkpoint bridge keeps authoritative per-workspace evidence beside
+The checkpoint bridge keeps authoritative per-workspace evidence beside
 observation segments. This wrapper adds a content-addressed cache for the *raw*
 PHALP result only. Raw PHALP output is independent of BodyRig's source index;
 source-local BodyRig track ids are added later during canonicalization.
 
-Cache reuse therefore requires exact source bytes plus the exact pinned recovery
-adapter revision. Canonical checkpoints, status and logs remain workspace-local.
+Cache reuse therefore requires exact source bytes, the exact pinned recovery
+adapter revision, and the exact recovery-only temporal sampling stride.
+Canonical checkpoints, status and logs remain workspace-local.
 """
 from __future__ import annotations
 
@@ -24,10 +25,14 @@ if str(_PACKAGE_PARENT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_PARENT))
 
 from bodyrig.bridges import hmr2_checkpoint_bridge as checkpoint  # noqa: E402
-from bodyrig.bridges.hmr2_config import ADAPTER_NAME, ADAPTER_REVISION  # noqa: E402
+from bodyrig.bridges.hmr2_config import (  # noqa: E402
+    ADAPTER_NAME,
+    ADAPTER_REVISION,
+    RECOVERY_TEMPORAL_SAMPLING_POLICY,
+)
 
 GLOBAL_FORMAT = "bodyrig-recovery-global-phalp-cache"
-GLOBAL_VERSION = 1
+GLOBAL_VERSION = 2
 _GLOBAL_DIR = "recovery-phalp-cache"
 
 _legacy_load_raw_checkpoint = checkpoint._load_raw_checkpoint
@@ -80,12 +85,22 @@ def _global_paths(source_sha256: str) -> tuple[Path, Path]:
     return root / "phalp.pkl", root / "meta.json"
 
 
-def _valid_global_meta(meta: Any, *, source_sha256: str, pkl_path: Path) -> bool:
+def _valid_global_meta(
+    meta: Any,
+    *,
+    source_sha256: str,
+    sampling_stride: int,
+    pkl_path: Path,
+) -> bool:
     if not isinstance(meta, dict):
         return False
     if meta.get("format") != GLOBAL_FORMAT or meta.get("version") != GLOBAL_VERSION:
         return False
     if meta.get("adapter") != ADAPTER_NAME or meta.get("revision") != ADAPTER_REVISION:
+        return False
+    if meta.get("sampling_policy") != RECOVERY_TEMPORAL_SAMPLING_POLICY:
+        return False
+    if meta.get("sampling_stride") != sampling_stride:
         return False
     if meta.get("source_sha256") != source_sha256 or not pkl_path.is_file():
         return False
@@ -98,13 +113,18 @@ def _valid_global_meta(meta: Any, *, source_sha256: str, pkl_path: Path) -> bool
         return False
 
 
-def _load_global_raw(source_sha256: str):
+def _load_global_raw(source_sha256: str, *, sampling_stride: int):
     pkl_path, meta_path = _global_paths(source_sha256)
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else None
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    if not _valid_global_meta(meta, source_sha256=source_sha256, pkl_path=pkl_path):
+    if not _valid_global_meta(
+        meta,
+        source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
+        pkl_path=pkl_path,
+    ):
         return None
     try:
         import joblib
@@ -115,7 +135,12 @@ def _load_global_raw(source_sha256: str):
     return value if isinstance(value, dict) else None
 
 
-def _publish_global_file(*, source_sha256: str, source_pkl: Path) -> Path:
+def _publish_global_file(
+    *,
+    source_sha256: str,
+    sampling_stride: int,
+    source_pkl: Path,
+) -> Path:
     pkl_path, meta_path = _global_paths(source_sha256)
     pkl_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +149,12 @@ def _publish_global_file(*, source_sha256: str, source_pkl: Path) -> Path:
         meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else None
     except (OSError, UnicodeError, json.JSONDecodeError):
         meta = None
-    if _valid_global_meta(meta, source_sha256=source_sha256, pkl_path=pkl_path):
+    if _valid_global_meta(
+        meta,
+        source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
+        pkl_path=pkl_path,
+    ):
         return pkl_path
 
     temp = pkl_path.with_name(f".{pkl_path.name}.{os.getpid()}.tmp")
@@ -145,6 +175,8 @@ def _publish_global_file(*, source_sha256: str, source_pkl: Path) -> Path:
             "version": GLOBAL_VERSION,
             "adapter": ADAPTER_NAME,
             "revision": ADAPTER_REVISION,
+            "sampling_policy": RECOVERY_TEMPORAL_SAMPLING_POLICY,
+            "sampling_stride": sampling_stride,
             "source_sha256": source_sha256,
             "pkl_sha256": pkl_sha256,
         },
@@ -159,13 +191,17 @@ def _observation_workspaces_root(local_checkpoint_root: Path) -> Path | None:
     return None
 
 
-def _discover_legacy_raw(local_checkpoint_root: Path, *, source_sha256: str):
-    """Import a matching raw checkpoint from an older observation workspace.
+def _discover_legacy_raw(
+    local_checkpoint_root: Path,
+    *,
+    source_sha256: str,
+    sampling_stride: int,
+):
+    """Import a matching raw checkpoint from an older surviving workspace.
 
-    Legacy raw metadata contains source_index because it lived beside one job.
-    We deliberately do not require that index here: raw PHALP output has no
-    BodyRig source-local id yet. Current source_index is applied only when the
-    checkpoint bridge canonicalizes the raw frame dictionary.
+    Raw PHALP output has no BodyRig source-local id yet, so source_index is not
+    part of cross-job reuse. Sampling identity *is* required because frame
+    selection changes PHALP input and canonical timestamp spacing.
     """
 
     observation_root = _observation_workspaces_root(local_checkpoint_root)
@@ -191,6 +227,10 @@ def _discover_legacy_raw(local_checkpoint_root: Path, *, source_sha256: str):
             continue
         if meta.get("adapter") != ADAPTER_NAME or meta.get("revision") != ADAPTER_REVISION:
             continue
+        if meta.get("sampling_policy") != RECOVERY_TEMPORAL_SAMPLING_POLICY:
+            continue
+        if meta.get("sampling_stride") != sampling_stride:
+            continue
         if meta.get("source_sha256") != source_sha256:
             continue
         raw_path = meta_path.with_suffix(".pkl")
@@ -204,36 +244,57 @@ def _discover_legacy_raw(local_checkpoint_root: Path, *, source_sha256: str):
             continue
         if not isinstance(value, dict):
             continue
-        _publish_global_file(source_sha256=source_sha256, source_pkl=raw_path)
+        _publish_global_file(
+            source_sha256=source_sha256,
+            sampling_stride=sampling_stride,
+            source_pkl=raw_path,
+        )
         return value
     return None
 
 
-def _load_raw_checkpoint(root: Path, *, source_index: int, source_sha256: str):
+def _load_raw_checkpoint(
+    root: Path,
+    *,
+    source_index: int,
+    source_sha256: str,
+    sampling_stride: int,
+):
     # Current-workspace evidence wins and is also promoted into the global cache.
     current = _legacy_load_raw_checkpoint(
         root,
         source_index=source_index,
         source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
     )
     if current is not None:
         raw_path = checkpoint._raw_path(root, source_index)
         if raw_path.is_file():
-            _publish_global_file(source_sha256=source_sha256, source_pkl=raw_path)
+            _publish_global_file(
+                source_sha256=source_sha256,
+                sampling_stride=sampling_stride,
+                source_pkl=raw_path,
+            )
         return current
 
-    cached = _load_global_raw(source_sha256)
+    cached = _load_global_raw(source_sha256, sampling_stride=sampling_stride)
     if cached is not None:
         print(
-            f"BodyRig recovery cache: reusing raw PHALP result for source SHA {source_sha256[:12]}",
+            f"BodyRig recovery cache: reusing raw PHALP result for source SHA {source_sha256[:12]} "
+            f"with stride={sampling_stride}",
             file=sys.stderr,
         )
         return cached
 
-    discovered = _discover_legacy_raw(root, source_sha256=source_sha256)
+    discovered = _discover_legacy_raw(
+        root,
+        source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
+    )
     if discovered is not None:
         print(
-            f"BodyRig recovery cache: imported raw PHALP result from an older observation workspace for {source_sha256[:12]}",
+            f"BodyRig recovery cache: imported raw PHALP result from an older observation workspace "
+            f"for {source_sha256[:12]} with stride={sampling_stride}",
             file=sys.stderr,
         )
         return discovered
@@ -245,15 +306,25 @@ def _publish_raw_checkpoint(
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
+    sampling_stride: int,
+    effective_fps: float,
     source_pkl: Path,
 ) -> Path:
     local = _legacy_publish_raw_checkpoint(
         root,
         source_index=source_index,
         source_sha256=source_sha256,
+        source_fps=source_fps,
+        sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
         source_pkl=source_pkl,
     )
-    _publish_global_file(source_sha256=source_sha256, source_pkl=local)
+    _publish_global_file(
+        source_sha256=source_sha256,
+        sampling_stride=sampling_stride,
+        source_pkl=local,
+    )
     return local
 
 
