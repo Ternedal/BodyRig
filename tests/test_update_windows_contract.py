@@ -199,3 +199,19 @@ def test_historical_revision_skips_auto_plan_and_preserves_revision_bound_status
 def test_operator_can_skip_auto_plan_explicitly() -> None:
     assert '[switch]$SkipPlan' in SCRIPT
     assert 'Rig-window auto-plan: skipped by -SkipPlan.' in SCRIPT
+
+
+def test_historical_revision_can_precede_runtime_lock_but_current_branch_cannot() -> None:
+    assert '$targetHasRuntimeLockFile = $false' in SCRIPT
+    assert '$targetHasRuntimeLockModule = $false' in SCRIPT
+    assert '$targetHasRuntimeLockFile -xor $targetHasRuntimeLockModule' in SCRIPT
+    assert '$targetUsesLockedRuntime = $targetHasRuntimeLockFile -and $targetHasRuntimeLockModule' in SCRIPT
+    assert 'if ($targetMode -eq "branch" -and -not $targetUsesLockedRuntime)' in SCRIPT
+    assert 'historical revision predates canonical Windows runtime lock' in SCRIPT
+    assert '& $python -m pip install --disable-pip-version-check -e ".[test]"' in SCRIPT
+
+
+def test_locked_runtime_verification_is_conditional_on_target_capability() -> None:
+    assert 'if ($targetUsesLockedRuntime -and $canVerifyEditableInstall)' in SCRIPT
+    assert 'if ($targetUsesLockedRuntime) {' in SCRIPT
+    assert 'BodyRig Windows Python runtime lock mangler efter checkout' in SCRIPT
