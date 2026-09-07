@@ -118,9 +118,10 @@ try {
         "-BodyRigPython", $BodyRigPython,
         "-OutputDir", $staging
     )
-    & $pwshAuthority.Source @coreArgs
+    $coreOutput = @(& $pwshAuthority.Source @coreArgs 2>&1)
     $coreExit = $LASTEXITCODE
     if ($coreExit -ne 0) {
+        foreach ($line in $coreOutput) { Write-Host ([string]$line) }
         throw "Gate A core failed with exit code $coreExit; canonical acceptance was not published."
     }
     if (-not (Test-Path -LiteralPath $staging -PathType Container)) {
