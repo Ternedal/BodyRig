@@ -113,6 +113,21 @@ def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
     assert configure_index < start_index
 
 
+def test_update_scopes_stash_autoconfig_to_selected_performer_when_target_supports_it() -> None:
+    assert '$stashPathCommand = Get-Command $stashPathConfig -ErrorAction Stop' in SCRIPT
+    assert '$stashPathCommand.Parameters.ContainsKey("PerformerId")' in SCRIPT
+    assert 'if ($hasPerformer -and $stashPathCommand.Parameters.ContainsKey("PerformerId"))' in SCRIPT
+    assert '& $stashPathConfig -PerformerId $PerformerId' in SCRIPT
+    assert 'updater scopes autoconfig to performer $PerformerId' in SCRIPT
+
+
+def test_update_preserves_unscoped_stash_autoconfig_for_historical_targets_without_new_parameter() -> None:
+    scoped = SCRIPT.index('if ($hasPerformer -and $stashPathCommand.Parameters.ContainsKey("PerformerId"))')
+    fallback = SCRIPT.index('& $stashPathConfig\n', scoped)
+    assert scoped < fallback
+    assert 'Get-Command $stashPathConfig -ErrorAction Stop' in SCRIPT
+
+
 def test_update_probes_latest_failed_recovery_read_only_without_blocking_launch() -> None:
     probe_index = SCRIPT.index('Join-Path $RepoRoot "diagnose-failed-body-build.ps1"')
     start_index = SCRIPT.index('Join-Path $RepoRoot "start-windows.ps1"')
