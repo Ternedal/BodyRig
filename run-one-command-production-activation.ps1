@@ -22,6 +22,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Write-AtomicJson {
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Value)
+    $temp = "$Path.$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        $Value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $temp -Encoding UTF8
+        Move-Item -LiteralPath $temp -Destination $Path -Force
+    } finally {
+        if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
+    }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig one-command production activation is Windows-only."
 }
@@ -64,6 +75,14 @@ $sessionReport = Join-Path $RunRoot "bodyrig-physical-clone-session.json"
 $acceptanceDir = Join-Path $cloneOutput "acceptance"
 $finalReceipt = Join-Path $acceptanceDir "bodyrig-release-acceptance.json"
 $runAuthority = Join-Path $RunRoot "run-authority.json"
+$recoveryPlanPath = Join-Path $RunRoot "interrupted-fit-recovery-plan.json"
+$identityRoot = Join-Path $artifactBase "BodyRig\identity-workspaces"
+$identityBefore = @{}
+if (Test-Path -LiteralPath $identityRoot -PathType Container) {
+    Get-ChildItem -LiteralPath $identityRoot -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $identityBefore[$_.FullName.ToLowerInvariant()] = $true
+    }
+}
 
 $authority = [ordered]@{
     format = "bodyrig-one-command-production-authority"
@@ -77,7 +96,7 @@ $authority = [ordered]@{
     acceptance_dir = $acceptanceDir
     production_activation = $false
 }
-$authority | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $runAuthority -Encoding UTF8
+Write-AtomicJson -Path $runAuthority -Value $authority
 
 $cloneScript = Join-Path $repoRoot "clone-body-from-stash-ready.ps1"
 $acceptScript = Join-Path $repoRoot "accept-physical-clone.ps1"
@@ -112,8 +131,92 @@ if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $cloneArgs.StashUrl = $Stash
 if (-not [string]::IsNullOrWhiteSpace($TrackId)) { $cloneArgs.TrackId = $TrackId }
 if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $cloneArgs.Ffmpeg = $Ffmpeg }
 
-& $cloneScript @cloneArgs
-if ($LASTEXITCODE -ne 0) { throw "Physical Stash clone failed." }
+try {
+    & $cloneScript @cloneArgs
+    if ($LASTEXITCODE -ne 0) { throw "Physical Stash clone failed." }
+} catch {
+    $cloneFailure = $_
+    try {
+        $recoveryPython = $BodyRigPython
+        if ([string]::IsNullOrWhiteSpace($recoveryPython)) {
+            $candidatePython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+            if (Test-Path -LiteralPath $candidatePython -PathType Leaf) {
+                $recoveryPython = $candidatePython
+            } else {
+                $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+                if ($null -ne $pythonCommand) { $recoveryPython = $pythonCommand.Source }
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($recoveryPython) -or -not (Test-Path -LiteralPath $recoveryPython -PathType Leaf)) {
+            throw "BodyRig Python is unavailable for interrupted-fit assessment"
+        }
+        $recoveryPython = (Resolve-Path -LiteralPath $recoveryPython).Path
+        $expectedModule = (Resolve-Path -LiteralPath (Join-Path $repoRoot "bodyrig\__init__.py")).Path
+        $actualModuleRaw = @(& $recoveryPython -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())")
+        if ($LASTEXITCODE -ne 0 -or $actualModuleRaw.Count -ne 1) {
+            throw "could not prove checkout-bound BodyRig Python for interrupted-fit assessment"
+        }
+        $actualModule = (Resolve-Path -LiteralPath ([string]$actualModuleRaw[0]).Trim()).Path
+        if (-not [string]::Equals($actualModule, $expectedModule, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "interrupted-fit assessment Python is not bound to this checkout"
+        }
+        if (-not (Test-Path -LiteralPath $sessionReport -PathType Leaf) -or -not (Test-Path -LiteralPath $cloneOutput -PathType Container)) {
+            throw "failed clone did not preserve the session/clone-output authority required for fit recovery"
+        }
+
+        $newIdentityWorkspaces = @()
+        if (Test-Path -LiteralPath $identityRoot -PathType Container) {
+            $newIdentityWorkspaces = @(Get-ChildItem -LiteralPath $identityRoot -Directory -ErrorAction SilentlyContinue | Where-Object {
+                -not $identityBefore.ContainsKey($_.FullName.ToLowerInvariant()) -and
+                -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+            })
+        }
+        $matches = @()
+        foreach ($workspace in $newIdentityWorkspaces) {
+            $planRaw = @(& $recoveryPython -m bodyrig.interrupted_fit_recovery plan `
+                --failed-session $sessionReport `
+                --clone-output $cloneOutput `
+                --identity-workspace $workspace.FullName `
+                --current-revision $head 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $planRaw.Count -ne 1) { continue }
+            try { $plan = ([string]$planRaw[0]) | ConvertFrom-Json }
+            catch { continue }
+            if ([string]$plan.format -ne "bodyrig-interrupted-fit-recovery-plan" -or [int]$plan.version -ne 1) { continue }
+            if (([string]$plan.bodyrig_revision).ToLowerInvariant() -ne $head) { continue }
+            if ([string]$plan.performer_id -ne $PerformerId -or [string]$plan.body_alias -ne $BodyId) { continue }
+            $matches += [pscustomobject]@{ Workspace = $workspace.FullName; Plan = $plan }
+        }
+
+        if ($matches.Count -eq 1) {
+            if (Test-Path -LiteralPath $recoveryPlanPath) { throw "interrupted recovery plan output already exists" }
+            $matches[0].Plan | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $recoveryPlanPath -Encoding UTF8
+            $planHash = (Get-FileHash -LiteralPath $recoveryPlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $authority["identity_workspace"] = [string]$matches[0].Workspace
+            $authority["interrupted_fit_recovery_plan"] = $recoveryPlanPath
+            $authority["interrupted_fit_recovery_plan_sha256"] = $planHash
+            $authority["recovery_mode"] = [string]$matches[0].Plan.recovery_mode
+            $authority["expensive_reconstruction_rerun"] = $false
+            $authority["fitter_rerun"] = ([string]$matches[0].Plan.recovery_mode -eq "resume-fit-only")
+            Write-AtomicJson -Path $runAuthority -Value $authority
+
+            Write-Host ""
+            Write-Warning "Physical clone failed, but reusable interrupted-fit authority was preserved."
+            Write-Host "Recovery mode: $([string]$matches[0].Plan.recovery_mode)"
+            Write-Host "Recovery plan: $recoveryPlanPath"
+            Write-Host "Next command:"
+            Write-Host (".\resume-interrupted-physical-fit.ps1 -FailedSessionReport '{0}' -CloneOutput '{1}' -IdentityWorkspace '{2}'" -f `
+                $sessionReport.Replace("'", "''"), $cloneOutput.Replace("'", "''"), ([string]$matches[0].Workspace).Replace("'", "''"))
+        } elseif ($matches.Count -gt 1) {
+            Write-Warning "Multiple new identity workspaces validated against the same failed clone; no recovery receipt was published."
+        } else {
+            Write-Warning "No completed package/SiTH reconstruction authority was recoverable from the failed clone."
+        }
+    } catch {
+        Write-Warning "Interrupted-fit assessment could not publish a recovery receipt: $($_.Exception.Message)"
+    }
+    throw $cloneFailure
+}
+
 if (-not (Test-Path -LiteralPath $sessionReport -PathType Leaf)) { throw "Physical clone PASS did not publish the expected session report." }
 
 $acceptArgs = @{ SessionReport = $sessionReport }
@@ -156,13 +259,7 @@ $finalAuthority = [ordered]@{
     release_receipt = $finalReceipt
     production_activation = $true
 }
-$finalTemp = "$runAuthority.$([Guid]::NewGuid().ToString('N')).tmp"
-try {
-    $finalAuthority | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $finalTemp -Encoding UTF8
-    Move-Item -LiteralPath $finalTemp -Destination $runAuthority -Force
-} finally {
-    if (Test-Path -LiteralPath $finalTemp) { Remove-Item -LiteralPath $finalTemp -Force }
-}
+Write-AtomicJson -Path $runAuthority -Value $finalAuthority
 
 Write-Host ""
 Write-Host "BODYRIG ONE-COMMAND PRODUCTION ACTIVATION: PASS"

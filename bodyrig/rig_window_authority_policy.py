@@ -9,6 +9,11 @@ from typing import Any, Iterator
 
 from .acceptance_status import AcceptanceStatus
 from .automatic_run_discovery import AutomaticRunDiscoveryError, candidate_from_run, discover_run_authorities
+from .one_command_recovery import (
+    OneCommandRecoveryError,
+    build_live_recovery_status,
+    inspect_one_command_recovery,
+)
 from .rig_window_acceptance import has_automatic_evidence, inspect_for_rig_window
 from . import rig_window_policy as policy
 
@@ -89,6 +94,21 @@ def _guarded_current_acceptance_status(acceptance_dir: Path, repo_root: Path) ->
 
 
 def _guarded_current_session_status(session_path: Path, repo_root: Path) -> AcceptanceStatus:
+    try:
+        recovery = build_live_recovery_status(session_path, repo_root)
+    except OneCommandRecoveryError as exc:
+        raise policy.base.RigWindowPlanError(f"One-command interrupted fit recovery is not reusable: {exc}") from exc
+    if recovery is not None:
+        return AcceptanceStatus(
+            state="ready",
+            gate="interrupted-fit-recovery",
+            acceptance_dir=str(recovery["clone_output"]),
+            body_id=str(recovery.get("body_id") or "") or None,
+            bodyrig_revision=str(recovery.get("bodyrig_revision") or "") or None,
+            message=str(recovery.get("message") or "Interrupted one-command fit recovery is reusable."),
+            next_command=str(recovery.get("next_command") or "") or None,
+        )
+
     status = _ORIGINAL_CURRENT_SESSION_STATUS(session_path, repo_root)
     acceptance_text = str(status.acceptance_dir or "").strip()
     if acceptance_text:
@@ -263,6 +283,32 @@ def _historical_automatic_command(
     return None
 
 
+def _route_interrupted_fit_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    if str(plan.get("gate") or "") != "interrupted-fit-recovery":
+        return plan
+    session_text = str(plan.get("session_report") or "").strip()
+    if not session_text:
+        return plan
+    try:
+        recovery = inspect_one_command_recovery(Path(session_text))
+    except OneCommandRecoveryError as exc:
+        routed = dict(plan)
+        routed.update(
+            state="blocked",
+            path="interrupted-fit-recovery-blocked",
+            next_command=None,
+            rationale=f"Selected interrupted-fit recovery receipt is no longer structurally reusable: {exc}",
+        )
+        return routed
+    if recovery is None:
+        return plan
+    routed = dict(plan)
+    routed["recovery_mode"] = recovery.get("recovery_mode")
+    routed["expensive_reconstruction_rerun"] = False
+    routed["fitter_rerun"] = bool(recovery.get("fitter_rerun"))
+    return routed
+
+
 def _route_automatic_plan(repo_root: Path, plan: dict[str, Any]) -> dict[str, Any]:
     gate = str(plan.get("gate") or "")
     if not gate.startswith("automatic-") or str(plan.get("state") or "") == "complete":
@@ -339,6 +385,7 @@ def build_plan(**kwargs: Any) -> dict[str, Any]:
     repo_root = Path(kwargs["repo_root"]).expanduser().resolve()
     with _authority_guard():
         plan = policy.build_plan(**kwargs)
+    plan = _route_interrupted_fit_plan(plan)
     return _route_automatic_plan(repo_root, plan)
 
 
