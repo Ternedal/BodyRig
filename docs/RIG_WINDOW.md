@@ -2,7 +2,7 @@
 
 This runbook exists to maximize scarce time on the physical target rig. The rule is simple: **reuse the furthest valid evidence before spending GPU/WSL/Unity/Quest time on an earlier stage**.
 
-`plan-rig-window.ps1` is intentionally a thin checkout-bound PowerShell wrapper. It proves clean Git authority and checkout-bound Python imports, then delegates read-only selection to `bodyrig.rig_window_policy`. The policy reuses the validation/discovery primitives in `bodyrig.rig_window_plan`, but places all reusable physical evidence in one progress-ranked queue. This keeps the Windows operator surface stable while making evidence ordering, Person scoping and fallback behavior directly unit-testable.
+`plan-rig-window.ps1` is intentionally a thin checkout-bound PowerShell wrapper. It proves clean Git authority and checkout-bound Python imports, then delegates read-only selection to `bodyrig.rig_window_authority_policy`. That authority layer guards the unified ranking engine in `bodyrig.rig_window_policy`, which reuses validation/discovery primitives from `bodyrig.rig_window_plan`. This keeps the Windows operator surface stable while making evidence ordering, Person scoping, repository-lineage authority and fallback behavior directly unit-testable.
 
 The planner is read-only with respect to persistent BodyRig evidence. Historical Gate-A assessment executes the real Gate-A validator against temporary output and removes that output before returning. Interrupted-recovery assessment delegates to the already-running BodyRig service and its existing exact-authority recovery planner. The planner never runs the mutating command it recommends.
 
@@ -74,21 +74,26 @@ If one specific historical UI job is the intended continuation, add `-PreferredJ
 The planner does not treat “Gate-A rescue”, “acceptance”, “session” and “interrupted recovery” as independent first-match buckets. They are assessed read-only and ranked together by how much expensive/physical work has already been preserved:
 
 1. **Existing downstream acceptance / session-attached acceptance** — structural ranks: `release=60`, `quest-attestation=50`, `quest-probe=40`, `windows-attestation=30`, `windows-probe=20`; a fully complete chain ranks `100`.
-2. **Validated Gate-A-only rescue** — rank `15`; clone/recovery/fitter already exist and the real Gate-A validator passes against temporary output.
-3. **Completed physical clone session before Gate A** — rank `10`.
-4. **Interrupted recovery with intact complete package** — rank `8`; reconstruction and fitter do not rerun.
-5. **Interrupted recovery with intact SiTH reconstruction** — rank `5`; reconstruction does not rerun, fitter does.
-6. **Fresh profiled physical preflight/reconstruction** — rank `0`, permitted only if every reusable candidate fails validation or authority checks.
+2. **Committed Gate A** — rank `16`; the persistent `bodyrig-acceptance.json` already exists, so a merely validatable rescue must not displace it.
+3. **Validated Gate-A-only rescue** — rank `15`; clone/recovery/fitter already exist and the real Gate-A validator passes against temporary output, but Gate A still has to be committed.
+4. **Completed physical clone session before Gate A** — rank `10`.
+5. **Interrupted recovery with intact complete package** — rank `8`; reconstruction and fitter do not rerun.
+6. **Interrupted recovery with intact SiTH reconstruction** — rank `5`; reconstruction does not rerun, fitter does.
+7. **Fresh profiled physical preflight/reconstruction** — rank `0`, permitted only if every reusable candidate fails validation or authority checks.
 
-Timestamp is only a tie-breaker within the same progress rank. `-PreferredJobId` is also only a same-rank tie-breaker. Thus a newer Gate-A failure cannot displace an older Quest acceptance, and an interrupted package cannot displace a completed clone session merely because it is newer.
+Timestamp is only a tie-breaker within the same progress rank. `-PreferredJobId` is also only a same-rank tie-breaker. Thus a newer Gate-A failure cannot displace an older Quest acceptance, a validatable Gate-A rescue cannot displace already committed Gate-A bytes, and an interrupted package cannot displace a completed clone session merely because it is newer.
+
+A pre-Gate-A completed session and a committed Gate A both report `gate-a` as the relevant gate, but the authority layer distinguishes them by persistent bytes: the pre-Gate-A session points at a prospective acceptance directory that does not yet contain `bodyrig-acceptance.json`; committed Gate A does.
 
 ### Existing and historical downstream acceptance
 
 UI-job acceptance directories and acceptance directories already attached to standalone physical sessions are structurally inspected before selection. A standalone session is therefore not artificially treated as “only a session” if its `clone_output/acceptance` has already advanced through Windows or Quest.
 
-If the selected evidence belongs to the current revision, the canonical physical acceptance status engine emits its exact next command. If it belongs to an older BodyRig revision, revision mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded `update-windows.ps1 -Revision <evidence-sha>` command, then invokes that historical revision's own `physical-acceptance-status.ps1` against the exact acceptance/session evidence.
+If the selected non-terminal evidence belongs to the current revision, the canonical physical acceptance status engine emits its exact next command. If it belongs to an older BodyRig revision, revision mismatch is **not** treated as a reason to reconstruct. The planner emits a guarded `update-windows.ps1 -Revision <evidence-sha>` command, then invokes that historical revision's own `physical-acceptance-status.ps1` against the exact acceptance/session evidence. The updater fetches `origin/main` and independently proves ancestor authority before any checkout/service mutation.
 
-If the furthest chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction.
+Structurally **complete** historical evidence has no later checkout command where that proof could be deferred. It therefore has a stricter rule: before it may stop the planner as complete, its revision must already be proven as an ancestor of the locally fetched `origin/main`. Normal `update-windows.ps1` refreshes that ref immediately before auto-planning. If the ref is absent or ancestry cannot be proven, the complete historical candidate is rejected rather than trusted optimistically.
+
+If the furthest authority-valid chain is already complete, the planner stops and explicitly refuses to recommend fresh reconstruction.
 
 ### Validated Gate-A rescue
 
