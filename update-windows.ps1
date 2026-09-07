@@ -215,7 +215,12 @@ if ($canVerifyEditableInstall) {
 
 $stashPathConfig = Join-Path $RepoRoot "configure-stash-path-map.ps1"
 if (Test-Path -LiteralPath $stashPathConfig -PathType Leaf) {
-    & $stashPathConfig
+    try {
+        & $stashPathConfig
+    } catch {
+        Remove-Item Env:BODYRIG_STASH_PATH_MAP -ErrorAction SilentlyContinue
+        Write-Warning "BodyRig Stash path-map auto-configuration failed: $($_.Exception.Message) Update continues so existing physical evidence can still be inspected/reused; fresh source work remains fail-closed in canonical preflight."
+    }
 }
 
 $rescueProbe = Join-Path $RepoRoot "diagnose-failed-body-build.ps1"
