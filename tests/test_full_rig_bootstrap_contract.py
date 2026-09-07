@@ -19,6 +19,19 @@ def test_full_rig_bootstrap_runs_both_provisioners_and_validates_master_report()
     assert "BODYRIG_RIG_SETUP_REPORT" in text
 
 
+def test_full_rig_bootstrap_binds_bodyrig_python_to_exact_checkout_before_provisioning():
+    text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
+    authority = text.index('$bodyRigAuthorityRaw = @(& $BodyRigPython -c')
+    recovery = text.index('$recoveryScript = Join-Path $repoRoot "setup-recovery-windows.ps1"')
+    high = text.index('$highScript = Join-Path $repoRoot "setup-high-fidelity-wsl.ps1"')
+    final_validation = text.index('& $BodyRigPython -m bodyrig.rig_setup $temp')
+
+    assert '$env:PYTHONPATH = $repoRoot' in text
+    assert 'bodyrig.__file__' in text
+    assert 'BodyRig Python imports bodyrig from unexpected location' in text
+    assert authority < recovery < high < final_validation
+
+
 def test_full_rig_bootstrap_propagates_wsl_authority_to_both_provisioners():
     text = (ROOT / "setup-rig-windows.ps1").read_text(encoding="utf-8")
 
