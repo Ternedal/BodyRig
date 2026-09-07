@@ -14,6 +14,7 @@ from bodyrig.automatic_release_gate import (
     QUALITY_THRESHOLDS,
     validate_and_build,
 )
+from bodyrig.renderer_human_rejection import write_rejection
 
 REVISION = "a" * 40
 BODY_ID = "auto-proof"
@@ -335,3 +336,33 @@ def test_unity_quality_probe_is_geometry_based_and_top_wrapper_has_no_human_gate
     assert "ConfirmQualityChecklist" not in top
     assert "QualityNote" not in top
     assert "record-reference-renderer-acceptance.ps1" not in top
+
+
+
+def reject_windows_fidelity(acceptance: Path) -> None:
+    gate_path = acceptance / "bodyrig-acceptance.json"
+    gate = json.loads(gate_path.read_text(encoding="utf-8"))
+    probe = acceptance / "windows-evidence" / "windows-probe.json"
+    deformation = acceptance / "windows-evidence" / "windows-deformation-probe.json"
+    write_rejection(
+        acceptance,
+        platform="windows-unity-univrm",
+        bodyrig_revision=REVISION,
+        body_id=BODY_ID,
+        automated_report_sha256=sha(gate_path),
+        probe_report_sha256=sha(probe),
+        deformation_report_sha256=sha(deformation),
+        package_sha256=str(gate["package"]["package_sha256"]),
+        runtime_manifest_sha256=str(gate["runtime"]["manifest_sha256"]),
+        failed_checks=["source_identity", "geometry_proportions", "skin_appearance"],
+        quality_note="Human review rejected identity, proportions and skin fidelity.",
+    )
+
+
+def test_human_rejection_blocks_automatic_resume_and_release(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    reject_windows_fidelity(acceptance)
+    with pytest.raises(AutomaticReleaseGateError, match="human rejection blocks automatic production activation"):
+        inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    with pytest.raises(AutomaticReleaseGateError, match="human rejection blocks automatic release"):
+        validate_and_build(acceptance, repo, require_git_state=False)

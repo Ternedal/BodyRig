@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .acceptance_status import AcceptanceStatusError, _read_json, _sha256, _validate_gate_a
+from .acceptance_status import AcceptanceStatusError, _read_json, _sha256, _validate_gate_a, inspect_acceptance_dir
+from .renderer_human_rejection import any_rejection_exists
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -345,6 +346,16 @@ def validate_and_build(acceptance_dir: Path, repo_root: Path, *, require_git_sta
     except AcceptanceStatusError as exc:
         raise AutomaticReleaseGateError(str(exc)) from exc
     gate_report = _read_json(gate_path, "Gate A acceptance")
+    if any_rejection_exists(acceptance_dir):
+        try:
+            rejection_status = inspect_acceptance_dir(acceptance_dir)
+        except AcceptanceStatusError as exc:
+            raise AutomaticReleaseGateError(f"renderer human rejection is invalid: {exc}") from exc
+        if rejection_status.state != "blocked" or not rejection_status.gate.endswith("-rejected"):
+            raise AutomaticReleaseGateError("renderer human rejection exists without canonical blocked authority")
+        raise AutomaticReleaseGateError(
+            f"renderer human rejection blocks automatic release: {rejection_status.message}"
+        )
     if require_git_state:
         _assert_git_authority(repo_root, gate.revision)
 

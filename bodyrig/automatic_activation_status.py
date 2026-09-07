@@ -7,7 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .acceptance_status import AcceptanceStatusError, _read_json, _validate_gate_a
+from .acceptance_status import AcceptanceStatusError, _read_json, _validate_gate_a, inspect_acceptance_dir
+from .renderer_human_rejection import any_rejection_exists
 from .automatic_release_gate import (
     AutomaticReleaseGateError,
     _assert_git_authority,
@@ -164,6 +165,16 @@ def inspect_automatic_activation(
     except AcceptanceStatusError as exc:
         raise AutomaticReleaseGateError(str(exc)) from exc
     gate_report = _read_json(gate_path, "Gate A acceptance")
+    if any_rejection_exists(acceptance_dir):
+        try:
+            rejection_status = inspect_acceptance_dir(acceptance_dir)
+        except AcceptanceStatusError as exc:
+            raise AutomaticReleaseGateError(f"renderer human rejection is invalid: {exc}") from exc
+        if rejection_status.state != "blocked" or not rejection_status.gate.endswith("-rejected"):
+            raise AutomaticReleaseGateError("renderer human rejection exists without canonical blocked authority")
+        raise AutomaticReleaseGateError(
+            f"renderer human rejection blocks automatic production activation: {rejection_status.message}"
+        )
     if require_git_state:
         _assert_git_authority(repo_root, gate.revision)
 
