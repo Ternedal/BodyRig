@@ -44,7 +44,7 @@ try {
     throw "Could not inspect interrupted recovery status for $JobId."
 }
 if ($status.available -ne $true) {
-    throw "Interrupted recovery is not available for $JobId: $([string]$status.reason)"
+    throw "Interrupted recovery is not available for ${JobId}: $([string]$status.reason)"
 }
 if ([string]$status.bodyrig_revision -ne $head) {
     throw "Interrupted recovery is bound to another BodyRig revision: $([string]$status.bodyrig_revision); checkout=$head"
@@ -62,7 +62,7 @@ $resumeUri = "$baseUri/api/v1/jobs/$JobId/resume"
 try {
     $started = Invoke-RestMethod -Method Post -Uri $resumeUri -TimeoutSec 15
 } catch {
-    throw "BodyRig service refused interrupted recovery for $JobId: $($_.Exception.Message)"
+    throw "BodyRig service refused interrupted recovery for ${JobId}: $($_.Exception.Message)"
 }
 if ([string]::IsNullOrWhiteSpace([string]$started.job_id)) {
     throw "BodyRig interrupted recovery started without returning a new job id."
