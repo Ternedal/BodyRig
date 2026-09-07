@@ -56,6 +56,22 @@ def test_v2_cache_requires_same_origin_scope_and_live_share() -> None:
     assert result["mapping"] == {SOURCE: SHARE}
 
 
+def test_drive_root_prefix_from_autodiscovery_is_cacheable() -> None:
+    payload = _payload()
+    payload["mapping"] = {"E:": SHARE}
+    payload["proof"][0]["source_prefix"] = "E:"
+
+    result = validate_cache(
+        payload,
+        stash_url="http://stashbox:9999",
+        performer_ids=["17", "42"],
+        now=NOW,
+        is_dir=_live,
+    )
+
+    assert result["mapping"] == {"E:": SHARE}
+
+
 def test_one_performer_scope_can_reuse_cache_covering_more_performers() -> None:
     result = validate_cache(
         _payload(),
