@@ -22,6 +22,14 @@ def test_one_command_only_publishes_recovery_after_unique_producer_validation() 
     assert "throw $cloneFailure" in ONE_COMMAND
 
 
+def test_interrupted_assessment_mirrors_supported_bodyrig_python_fallback() -> None:
+    venv = ONE_COMMAND.index('Join-Path $repoRoot ".venv\\Scripts\\python.exe"')
+    system_python = ONE_COMMAND.index("Get-Command python -ErrorAction SilentlyContinue", venv)
+    import_proof = ONE_COMMAND.index("import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())", system_python)
+    assert venv < system_python < import_proof
+    assert "if ($null -ne $pythonCommand) { $recoveryPython = $pythonCommand.Source }" in ONE_COMMAND
+
+
 def test_one_command_success_path_does_not_force_private_workspace_retention() -> None:
     # clone-body.ps1 already retains the identity workspace on failure and removes
     # it on success. The one-command wrapper must not broaden successful-run
