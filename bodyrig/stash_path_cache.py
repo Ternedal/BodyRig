@@ -14,7 +14,7 @@ FORMAT = "bodyrig-local-stash-path-map"
 VERSION = 2
 MAX_AGE = timedelta(days=7)
 LEGACY_MAX_AGE = timedelta(hours=24)
-_SOURCE_PREFIX = re.compile(r"^([A-Za-z]):\\(?:.*)?$")
+_SOURCE_PREFIX = re.compile(r"^([A-Za-z]):(?:\\.*)?$")
 _SHARE_ROOT = re.compile(r"^\\\\([^\\]+)\\VR_([A-Za-z])$", re.IGNORECASE)
 
 
@@ -56,8 +56,7 @@ def _parse_utc(value: Any) -> datetime:
 
 
 def _normalized_performers(values: Sequence[str]) -> list[str]:
-    result = sorted({str(value).strip() for value in values if str(value).strip()})
-    return result
+    return sorted({str(value).strip() for value in values if str(value).strip()})
 
 
 def _validate_age(updated: datetime, *, now: datetime, max_age: timedelta) -> None:
@@ -127,6 +126,7 @@ def validate_cache(
     *,
     stash_url: str,
     performer_ids: Sequence[str],
+    allow_performer_superset: bool = False,
     now: datetime | None = None,
     is_dir: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
@@ -149,11 +149,25 @@ def validate_cache(
         cached_performers = payload.get("performer_ids")
         if not isinstance(cached_performers, list) or not all(isinstance(item, str) for item in cached_performers):
             raise StashPathCacheError("cached path map performer_ids is invalid")
-        if _normalized_performers(cached_performers) != current_performers:
-            raise StashPathCacheError("cached path map performer scope changed")
+        normalized_cached = _normalized_performers(cached_performers)
+        # A one-performer request is safe to satisfy from a cache that covers
+        # additional performers: the mapping is host/share authority, while the
+        # later Stash performer check + FFmpeg decode gate remains source authority.
+        # Multi-performer/unscoped validation stays exact so profile-set changes
+        # still invalidate the broad startup cache.
+        covering_scope_allowed = allow_performer_superset or len(current_performers) == 1
+        if covering_scope_allowed:
+            if not current_performers:
+                raise StashPathCacheError("performer-superset cache validation requires an explicit performer scope")
+            if not set(current_performers).issubset(normalized_cached):
+                raise StashPathCacheError("cached path map does not cover the requested performer scope")
+            mode = "v2-covering-scope" if normalized_cached != current_performers else "v2"
+        else:
+            if normalized_cached != current_performers:
+                raise StashPathCacheError("cached path map performer scope changed")
+            mode = "v2"
         updated = _parse_utc(payload.get("updated_utc"))
         _validate_age(updated, now=current_time, max_age=MAX_AGE)
-        mode = "v2"
     elif version == 1:
         cached_host = str(payload.get("stash_host") or "").strip()
         if cached_host.casefold() != host.casefold():
@@ -192,6 +206,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--stash-url", required=True)
     parser.add_argument("--performer-id", action="append", default=[])
+    parser.add_argument(
+        "--allow-performer-superset",
+        action="store_true",
+        help="Allow a requested performer set to reuse a cache covering additional performers.",
+    )
     return parser
 
 
@@ -199,7 +218,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         payload = _read_payload(args.evidence.expanduser().resolve())
-        result = validate_cache(payload, stash_url=args.stash_url, performer_ids=args.performer_id)
+        result = validate_cache(
+            payload,
+            stash_url=args.stash_url,
+            performer_ids=args.performer_id,
+            allow_performer_superset=args.allow_performer_superset,
+        )
     except StashPathCacheError as exc:
         print(f"BodyRig Stash path-map cache: MISS: {exc}", file=sys.stderr)
         return 1

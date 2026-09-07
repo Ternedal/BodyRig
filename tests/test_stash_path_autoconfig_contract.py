@@ -23,13 +23,28 @@ def test_stash_path_autoconfig_checks_cache_before_decrypting_or_querying_stash(
 
 
 def test_stash_path_autoconfig_cache_is_bound_to_current_performer_scope() -> None:
-    performer_scan = SCRIPT.index('$performerIds = @(')
     cache = SCRIPT.index('bodyrig.stash_path_cache')
-    assert performer_scan < cache
-    assert '$cacheArgs += @("--performer-id", [string]$performerId)' in SCRIPT
+    assert '[string]$PerformerId = ""' in SCRIPT
+    assert '$hasExplicitPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)' in SCRIPT
+    assert '$performerIds = @($PerformerId.Trim())' in SCRIPT
+    assert 'performer-scoped discovery/cache' in SCRIPT
+    assert '$cacheArgs += @("--performer-id", [string]$performerIdItem)' in SCRIPT
     assert 'stash_origin = $stashOrigin' in SCRIPT
     assert 'performer_ids = @($performerIds)' in SCRIPT
     assert 'version = 2' in SCRIPT
+    assert SCRIPT.index('$performerIds = @($PerformerId.Trim())') < cache
+
+
+def test_unscoped_stash_path_autoconfig_still_uses_person_profiles() -> None:
+    assert 'Get-ChildItem -LiteralPath $PeopleDir -Filter "*.json"' in SCRIPT
+    assert '$profilePerformerId = [string](Get-OptionalPropertyValue -Object $source -Name "performer_id")' in SCRIPT
+    assert '$kind -eq "stash-performer"' in SCRIPT
+    assert 'Sort-Object -Unique' in SCRIPT
+
+
+def test_explicit_performer_does_not_require_existing_people_directory() -> None:
+    guard = 'if (-not $hasExplicitPerformer -and -not (Test-Path -LiteralPath $PeopleDir -PathType Container))'
+    assert guard in SCRIPT
 
 
 def test_stash_path_autoconfig_discovers_actual_stash_scene_paths() -> None:
@@ -39,6 +54,8 @@ def test_stash_path_autoconfig_discovers_actual_stash_scene_paths() -> None:
     assert 'performers { id }' in SCRIPT
     assert 'scene_filter: {performers:' in SCRIPT
     assert 'scene_filter: {performer_id:' in SCRIPT
+    assert 'foreach ($performerIdItem in $performerIds)' in SCRIPT
+    assert '$variables = @{ id = $performerIdItem; limit = 200 }' in SCRIPT
 
 
 def test_stash_path_autoconfig_only_accepts_concrete_readable_files() -> None:
