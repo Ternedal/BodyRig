@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-deformation-quality-v1.schema.json",
+  "title": "BodyRig Automatic Deformation Quality v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format","version","observed_at","bodyrig_revision","platform","unity_platform","unity_version","build_guid","device_model",
+    "body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+    "sequence_revision","metric_revision","renderer_count","vertex_count","reference_height_m","poses",
+    "restored_neutral_rms_ratio","restored_neutral_max_displacement_ratio","thresholds","machine_quality_pass","production_activation"
+  ],
+  "properties": {
+    "format": {"const":"bodyrig-deformation-quality"},
+    "version": {"const":1},
+    "observed_at": {"type":"string","minLength":1,"maxLength":80},
+    "bodyrig_revision": {"type":"string","pattern":"^[0-9a-f]{40}$"},
+    "platform": {"enum":["windows-unity-univrm","android-quest-class"]},
+    "unity_platform": {"type":"string","minLength":1,"maxLength":80},
+    "unity_version": {"type":"string","minLength":1,"maxLength":80},
+    "build_guid": {"type":"string","minLength":1,"maxLength":160},
+    "device_model": {"type":"string","minLength":1,"maxLength":240},
+    "body_id": {"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+    "package_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "runtime_manifest_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "avatar_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "bodyprint_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "sequence_revision": {"const":"humanoid-muscle-sweep-v1"},
+    "metric_revision": {"const":"skinned-mesh-geometry-v1"},
+    "renderer_count": {"type":"integer","minimum":1,"maximum":256},
+    "vertex_count": {"type":"integer","minimum":1000,"maximum":5000000},
+    "reference_height_m": {"type":"number","minimum":0.5,"maximum":2.6},
+    "poses": {
+      "type":"array","minItems":6,"maxItems":6,
+      "prefixItems": [
+        {"$ref":"#/$defs/neutral"},
+        {"$ref":"#/$defs/arms"},
+        {"$ref":"#/$defs/elbows"},
+        {"$ref":"#/$defs/forward"},
+        {"$ref":"#/$defs/leg"},
+        {"$ref":"#/$defs/knee"}
+      ],
+      "items": false
+    },
+    "restored_neutral_rms_ratio": {"type":"number","minimum":0,"maximum":0.001},
+    "restored_neutral_max_displacement_ratio": {"type":"number","minimum":0,"maximum":0.005},
+    "thresholds": {"$ref":"#/$defs/thresholds"},
+    "machine_quality_pass": {"const":true},
+    "production_activation": {"const":false}
+  },
+  "$defs": {
+    "metricBase": {
+      "type":"object","additionalProperties":false,
+      "required":["id","vertex_count","nonfinite_vertex_count","changed_vertex_fraction","rms_displacement_ratio","max_displacement_ratio","machine_pass"],
+      "properties": {
+        "id":{"type":"string"},
+        "vertex_count":{"type":"integer","minimum":1000,"maximum":5000000},
+        "nonfinite_vertex_count":{"const":0},
+        "changed_vertex_fraction":{"type":"number","minimum":0,"maximum":1},
+        "rms_displacement_ratio":{"type":"number","minimum":0,"maximum":0.5},
+        "max_displacement_ratio":{"type":"number","minimum":0,"maximum":1.25},
+        "machine_pass":{"const":true}
+      }
+    },
+    "neutral": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"neutral"},"changed_vertex_fraction":{"maximum":0.01},"rms_displacement_ratio":{"maximum":0.001},"max_displacement_ratio":{"maximum":0.005}}}]},
+    "arms": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"arms_abduction"},"changed_vertex_fraction":{"minimum":0.005},"max_displacement_ratio":{"minimum":0.005}}}]},
+    "elbows": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"elbows_flexed"},"changed_vertex_fraction":{"minimum":0.005},"max_displacement_ratio":{"minimum":0.005}}}]},
+    "forward": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"arms_forward"},"changed_vertex_fraction":{"minimum":0.005},"max_displacement_ratio":{"minimum":0.005}}}]},
+    "leg": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"left_leg_lift"},"changed_vertex_fraction":{"minimum":0.005},"max_displacement_ratio":{"minimum":0.005}}}]},
+    "knee": {"allOf":[{"$ref":"#/$defs/metricBase"},{"properties":{"id":{"const":"knee_flexion"},"changed_vertex_fraction":{"minimum":0.005},"max_displacement_ratio":{"minimum":0.005}}}]},
+    "thresholds": {
+      "type":"object","additionalProperties":false,
+      "required":[
+        "min_changed_vertex_fraction","min_pose_max_displacement_ratio","max_pose_displacement_ratio","max_pose_rms_ratio",
+        "neutral_max_changed_vertex_fraction","neutral_max_rms_ratio","neutral_max_displacement_ratio",
+        "restore_max_rms_ratio","restore_max_displacement_ratio","min_reference_height_m","max_reference_height_m","min_vertex_count","change_epsilon_height_ratio"
+      ],
+      "properties": {
+        "min_changed_vertex_fraction":{"const":0.005},
+        "min_pose_max_displacement_ratio":{"const":0.005},
+        "max_pose_displacement_ratio":{"const":1.25},
+        "max_pose_rms_ratio":{"const":0.5},
+        "neutral_max_changed_vertex_fraction":{"const":0.01},
+        "neutral_max_rms_ratio":{"const":0.001},
+        "neutral_max_displacement_ratio":{"const":0.005},
+        "restore_max_rms_ratio":{"const":0.001},
+        "restore_max_displacement_ratio":{"const":0.005},
+        "min_reference_height_m":{"const":0.5},
+        "max_reference_height_m":{"const":2.6},
+        "min_vertex_count":{"const":1000},
+        "change_epsilon_height_ratio":{"const":0.0001}
+      }
+    }
+  }
+}

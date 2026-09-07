@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-release-acceptance-v2.schema.json",
+  "title": "BodyRig Automatic Release Acceptance v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format","version","completed_at","bodyrig_revision","automated_acceptance","renderer_acceptance","release_gate_pass","production_activation"],
+  "$defs": {
+    "rendererEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bodyrig_revision","probe_report_sha256","deformation_report_sha256","quality_report_sha256",
+        "deformation_sequence_revision","machine_quality_revision","machine_quality_pass",
+        "runtime_manifest_sha256","avatar_sha256","bodyprint_sha256",
+        "renderer_name","renderer_version","unity_platform","unity_version","build_guid","device_model","graphics_device",
+        "probe_observed_at","deformation_observed_at","quality_observed_at"
+      ],
+      "properties": {
+        "bodyrig_revision":{"type":"string","pattern":"^[0-9a-f]{40}$"},
+        "probe_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "deformation_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "quality_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "deformation_sequence_revision":{"const":"humanoid-muscle-sweep-v1"},
+        "machine_quality_revision":{"const":"skinned-mesh-geometry-v1"},
+        "machine_quality_pass":{"const":true},
+        "runtime_manifest_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "avatar_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "bodyprint_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "renderer_name":{"type":"string","minLength":1,"maxLength":160},
+        "renderer_version":{"type":"string","minLength":1,"maxLength":160},
+        "unity_platform":{"type":"string","minLength":1,"maxLength":80},
+        "unity_version":{"type":"string","minLength":1,"maxLength":80},
+        "build_guid":{"type":"string","minLength":1,"maxLength":160},
+        "device_model":{"type":"string","minLength":1,"maxLength":240},
+        "graphics_device":{"type":"string","minLength":1,"maxLength":240},
+        "probe_observed_at":{"type":"string","minLength":1,"maxLength":80},
+        "deformation_observed_at":{"type":"string","minLength":1,"maxLength":80},
+        "quality_observed_at":{"type":"string","minLength":1,"maxLength":80}
+      }
+    }
+  },
+  "properties": {
+    "format":{"const":"bodyrig-release-acceptance"},
+    "version":{"const":2},
+    "completed_at":{"type":"string","minLength":1,"maxLength":80},
+    "bodyrig_revision":{"type":"string","pattern":"^[0-9a-f]{40}$"},
+    "automated_acceptance": {
+      "type":"object","additionalProperties":false,
+      "required":["report_sha256","package_sha256","body_id","automated_pass","physical_clone_mode","physical_clone_session_sha256","physical_clone_readiness_sha256","skin_qa_report_sha256","skin_qa_assessment"],
+      "properties": {
+        "report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "package_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "body_id":{"type":"string","minLength":1,"maxLength":160,"pattern":"^[a-z0-9æøå_-]+$"},
+        "automated_pass":{"const":true},
+        "physical_clone_mode":{"const":"stash-sith-high-fidelity"},
+        "physical_clone_session_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "physical_clone_readiness_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_report_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+        "skin_qa_assessment":{"const":"low-risk"}
+      }
+    },
+    "renderer_acceptance": {
+      "type":"object","additionalProperties":false,
+      "required":["windows_unity_univrm","android_quest_class"],
+      "properties": {
+        "windows_unity_univrm":{"$ref":"#/$defs/rendererEvidence"},
+        "android_quest_class":{"$ref":"#/$defs/rendererEvidence"}
+      }
+    },
+    "release_gate_pass":{"const":true},
+    "production_activation":{"const":true}
+  }
+}
