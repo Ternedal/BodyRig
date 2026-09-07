@@ -274,6 +274,7 @@ def operator_checkout_status() -> dict[str, Any]:
     required = [
         root / "clone-body-from-stash-ready.ps1",
         root / "accept-physical-clone.ps1",
+        root / "accept-physical-clone-core.ps1",
         root / "run-fidelity-windows-render-probe.ps1",
         root / "bodyrig" / "__init__.py",
     ]
