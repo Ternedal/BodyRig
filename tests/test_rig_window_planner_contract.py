@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = (ROOT / "plan-rig-window.ps1").read_text(encoding="utf-8")
 CORE = (ROOT / "bodyrig" / "rig_window_plan.py").read_text(encoding="utf-8")
+POLICY = (ROOT / "bodyrig" / "rig_window_policy.py").read_text(encoding="utf-8")
 INTERRUPTED = (ROOT / "resume-interrupted-body-job.ps1").read_text(encoding="utf-8")
 
 
@@ -16,7 +17,7 @@ def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
     assert "BodyRig checkout is dirty" in WRAPPER
     assert "bodyrig.__file__" in WRAPPER
     assert "unexpected location" in WRAPPER
-    assert '"-m", "bodyrig.rig_window_plan"' in WRAPPER
+    assert '"-m", "bodyrig.rig_window_policy"' in WRAPPER
 
 
 def test_wrapper_exposes_explicit_person_scope() -> None:
@@ -27,21 +28,14 @@ def test_wrapper_exposes_explicit_person_scope() -> None:
     assert '"--body-id", $BodyId' in WRAPPER
 
 
-def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
-    rescue = CORE.index('path="historical-gate-a-resume"')
-    acceptance = CORE.index('path="existing-gate-a-acceptance"')
-    historical = CORE.index('path="historical-acceptance-checkout"')
-    existing = CORE.index('path="existing-physical-session"')
-    interrupted = CORE.index('path="interrupted-body-recovery"')
-    fresh = CORE.index('path="fresh-profiled-physical-preflight"')
-
-    assert rescue < acceptance < historical < existing < interrupted < fresh
-    assert "assess_body_job_resume(job_id_value)" in CORE
-    assert 'wrapper = repo_root / "resume-interrupted-body-job.ps1"' in CORE
-    assert '"-AssessOnly"' in CORE
-    assert '"expensive_reconstruction_rerun": False' in CORE
-    assert '"expensive_reconstruction_rerun": True' in CORE
-    assert "furthest valid physical body acceptance chain" in CORE
+def test_unified_policy_scores_physical_progress_before_reconstruction() -> None:
+    assert "RESCUE_RANK = 15" in POLICY
+    assert "SESSION_RANK = 10" in POLICY
+    assert "INTERRUPTED_ADOPT_RANK = 8" in POLICY
+    assert "INTERRUPTED_FIT_RANK = 5" in POLICY
+    assert "rank_physical_candidates(existing + rescues + interrupted)" in POLICY
+    assert 'path="fresh-profiled-physical-preflight"' in POLICY
+    assert "Only now spend rig time on fresh profiled physical preflight/reconstruction" in POLICY
 
 
 def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
@@ -50,37 +44,34 @@ def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
     assert "Rig-window evidence belongs to multiple BodyRig Persons" in CORE
     assert "pass -PersonId or -PerformerId" in CORE
     assert "def _scope_rows" in CORE
-    assert "return []" in CORE
     assert '"scope": {' in CORE
 
 
-def test_standalone_session_reuse_is_scoped_when_identity_is_explicit() -> None:
-    assert "def _scoped_completed_sessions" in CORE
-    assert "explicit_performer_id and body_id" in CORE
-    assert "performer_id=explicit_performer_id" in CORE
-    assert "body_id=body_id" in CORE
-    assert "only reuse when that leaves exactly one" in CORE
+def test_historical_session_switches_to_exact_revision_without_reconstruction() -> None:
+    assert 'path="historical-physical-session-checkout"' in POLICY
+    assert 'flag="-SessionReport"' in POLICY
+    assert "update-windows.ps1 -Revision" in POLICY
+    assert "Re-enter it instead of rerunning clone/reconstruction" in POLICY
 
 
 def test_historical_acceptance_switches_to_exact_evidence_revision_before_new_compute() -> None:
-    assert "_historical_revision_is_safe" in CORE
-    assert 'path="historical-acceptance-checkout"' in CORE
-    assert "-Revision {_ps_quote(evidence_revision)} -NoBrowser" in CORE
-    assert "physical-acceptance-status.ps1 -AcceptanceDir" in CORE
-    assert "Re-enter it before spending rig time on an earlier stage" in CORE
+    assert 'path="historical-acceptance-checkout"' in POLICY
+    assert 'flag="-AcceptanceDir"' in POLICY
+    assert "base._historical_revision_is_safe" in POLICY
+    assert "re-enter its exact revision instead of recomputing" in POLICY
 
 
 def test_planner_searches_both_ui_data_and_standalone_session_roots() -> None:
-    assert 'os.environ.get("LOCALAPPDATA")' in CORE
-    assert '"BodyRig" / "physical-clone-sessions"' in CORE
-    assert 'root / "physical-clone-sessions"' in CORE
-    assert "def _session_roots" in CORE
-    assert "for sessions_root in _session_roots(root)" in CORE
+    assert "for sessions_root in base._session_roots(root)" in POLICY
+    assert 'session.get("performer_id")' in POLICY
+    assert 'session.get("body_id")' in POLICY
+    assert 'session.get("bodyrig_revision")' in POLICY
 
 
 def test_planner_keeps_gate_a_resume_candidate_after_failed_retry() -> None:
     assert '"resume_source_error": str(job.get("resume_source_error") or "")' in CORE
-    assert '"high-fidelity Gate A failed" in row["resume_source_error"]' in CORE
+    assert '"high-fidelity Gate A failed" not in str(row.get("resume_source_error") or "")' in POLICY
+    assert "base.assess_body_job_resume(job_id)" in POLICY
 
 
 def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() -> None:
@@ -96,12 +87,11 @@ def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() 
     assert "[switch]$AssessOnly" in INTERRUPTED
 
 
-def test_python_planner_only_assesses_and_emits_mutating_next_commands() -> None:
-    assert 'f".\\\\resume-body-job.ps1 -JobId {_ps_quote(job_id_value)}"' in CORE
-    assert 'f".\\\\resume-interrupted-body-job.ps1 -JobId {_ps_quote(row[\'job_id\'])}"' in CORE
-    assert 'f".\\\\bodyrig-status.ps1 -PerformerId' in CORE
-    assert '"-AssessOnly"' in CORE
-    assert "assess_body_job_resume(job_id_value)" in CORE
-    assert "start_body_resume" not in CORE
-    assert "resume_body_job(job_id_value)" not in CORE
-    assert "clone-body-from-stash-ready.ps1" not in CORE
+def test_unified_policy_only_assesses_and_emits_mutating_next_commands() -> None:
+    assert 'f".\\\\resume-body-job.ps1 -JobId {base._ps_quote(job_id)}"' in POLICY
+    assert 'f".\\\\resume-interrupted-body-job.ps1 -JobId {base._ps_quote(job_id)}"' in POLICY
+    assert 'f".\\\\bodyrig-status.ps1 -PerformerId' in POLICY
+    assert "base.assess_body_job_resume(job_id)" in POLICY
+    assert "base._interrupted_assessment(repo_root, job_id)" in POLICY
+    assert "start_body_resume" not in POLICY
+    assert "clone-body-from-stash-ready.ps1" not in POLICY
