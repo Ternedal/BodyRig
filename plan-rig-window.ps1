@@ -212,6 +212,47 @@ try {
             }
             exit 0
         }
+
+        # A valid historical Gate-A acceptance is farther downstream than any
+        # new reconstruction. If current operator code is the only blocker,
+        # switch to the exact accepted ancestor revision and ask that revision's
+        # own status engine for the next physical command.
+        if ([string]$status.state -eq "blocked" -and [string]$status.gate -eq "operator-checkout") {
+            $evidenceRevision = ([string]$status.bodyrig_revision).Trim().ToLowerInvariant()
+            if ($evidenceRevision -match '^[0-9a-f]{40}$' -and $evidenceRevision -ne $head) {
+                $escapedAcceptance = ([string]$candidate.acceptance_dir).Replace("'", "''")
+                $result = [ordered]@{
+                    format = "bodyrig-rig-window-plan"
+                    version = 1
+                    read_only = $true
+                    state = "ready"
+                    priority = 2
+                    path = "historical-acceptance-checkout"
+                    bodyrig_revision = $head
+                    evidence_revision = $evidenceRevision
+                    acceptance_dir = [string]$candidate.acceptance_dir
+                    gate = "operator-checkout"
+                    expensive_reconstruction_rerun = $false
+                    fitter_rerun = $false
+                    rationale = "A valid downstream physical acceptance exists on an older exact BodyRig revision. Re-enter that accepted revision before spending rig time on any new reconstruction."
+                    next_command = "& .\update-windows.ps1 -Revision '$evidenceRevision' -NoBrowser; if (`$?) { & .\physical-acceptance-status.ps1 -AcceptanceDir '$escapedAcceptance' }"
+                }
+                if ($Json) { $result | ConvertTo-Json -Depth 5 -Compress }
+                else {
+                    Write-Host "BodyRig rig-window plan: READY | PRIORITY 2"
+                    Write-Host "Path: historical acceptance exact checkout"
+                    Write-Host "Current revision: $head"
+                    Write-Host "Evidence revision: $evidenceRevision"
+                    Write-Host "Acceptance: $([string]$candidate.acceptance_dir)"
+                    Write-Host "Expensive reconstruction rerun: false | fitter rerun: false"
+                    Write-Host $result.rationale
+                    Write-Host "Next command:"
+                    Write-Host $result.next_command
+                }
+                exit 0
+            }
+        }
+
         if ([string]$status.state -notin @("blocked", "error") -and -not [string]::IsNullOrWhiteSpace([string]$status.next_command)) {
             $result = [ordered]@{
                 format = "bodyrig-rig-window-plan"
