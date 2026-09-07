@@ -6,6 +6,7 @@ SCRIPT = (Path(__file__).resolve().parents[1] / "update-windows.ps1").read_text(
 
 def test_update_defaults_normal_authority_to_main() -> None:
     assert '[string]$Branch = "main"' in SCRIPT
+    assert '[string]$Revision = ""' in SCRIPT
     assert "agent/person-studio-photoreal-20260902" not in SCRIPT
 
 
@@ -35,8 +36,29 @@ def test_update_fetches_target_branch_explicitly_before_checkout() -> None:
     assert '& git checkout --detach $target' in SCRIPT
 
 
+def test_exact_historical_revision_must_be_reachable_from_fetched_branch() -> None:
+    assert "[ValidatePattern('^$|^[0-9a-fA-F]{40}$')]" in SCRIPT
+    assert '& git cat-file -e "$requested^{commit}"' in SCRIPT
+    assert '& git fetch --no-tags $Remote $requested' in SCRIPT
+    assert '& git merge-base --is-ancestor $requested $branchTarget' in SCRIPT
+    assert "Refuserer historisk evidence-checkout" in SCRIPT
+    assert '$targetMode = "historical-revision"' in SCRIPT
+
+
+def test_historical_target_is_preflighted_before_service_stop() -> None:
+    required = SCRIPT.index("$requiredTargetFiles = @(")
+    preflight = SCRIPT.index('& git cat-file -e "$target`:$relativePath"')
+    stop_call = SCRIPT.index("\nStop-VerifiedBodyRigService\n")
+    checkout = SCRIPT.index("& git checkout --detach $target")
+    assert required < preflight < stop_call < checkout
+    assert '"requirements/windows-python.lock.txt"' in SCRIPT
+    assert '"bodyrig/runtime_lock.py"' in SCRIPT
+    assert '"start-windows.ps1"' in SCRIPT
+    assert '"physical-acceptance-status.ps1"' in SCRIPT
+
+
 def test_update_installs_only_after_old_service_has_been_stopped() -> None:
-    stop_index = SCRIPT.index("Stop-VerifiedBodyRigService")
+    stop_index = SCRIPT.index("\nStop-VerifiedBodyRigService\n")
     install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
     assert stop_index < install_index
 
@@ -76,3 +98,5 @@ def test_update_can_bootstrap_from_temp_against_explicit_repo_root() -> None:
 def test_update_verifies_running_revision_after_restart() -> None:
     assert '[string]$state.revision -ne $target' in SCRIPT
     assert 'Write-Host "BodyRig update: READY"' in SCRIPT
+    assert 'Write-Host "Authority mode: $targetMode"' in SCRIPT
+    assert 'Write-Host "Branch authority: $Remote/$Branch @ $branchTarget"' in SCRIPT

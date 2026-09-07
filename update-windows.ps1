@@ -1,6 +1,8 @@
 param(
     [string]$Remote = "origin",
     [string]$Branch = "main",
+    [ValidatePattern('^$|^[0-9a-fA-F]{40}$')]
+    [string]$Revision = "",
     [string]$RepoRoot = "",
     [switch]$NoBrowser
 )
@@ -68,10 +70,10 @@ if ($dirtyBefore.Count -gt 0) {
     throw "BodyRig-checkoutet har lokale ændringer; update refuseres."
 }
 
-Stop-VerifiedBodyRigService
-
-$statePath = Join-Path $env:LOCALAPPDATA "BodyRig\ui-service.json"
-Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+$original = (& git rev-parse HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $original -notmatch '^[0-9a-f]{40}$') {
+    throw "Kunne ikke resolve nuværende BodyRig revision."
+}
 
 $remoteRef = "refs/remotes/$Remote/$Branch"
 $sourceRef = "refs/heads/$Branch"
@@ -80,10 +82,56 @@ if ($LASTEXITCODE -ne 0) {
     throw "Kunne ikke hente $Remote/$Branch."
 }
 
-$target = (& git rev-parse "$Remote/$Branch^{commit}").Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $target -notmatch '^[0-9a-f]{40}$') {
+$branchTarget = (& git rev-parse "$Remote/$Branch^{commit}").Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $branchTarget -notmatch '^[0-9a-f]{40}$') {
     throw "Kunne ikke resolve exact target revision for $Remote/$Branch."
 }
+
+$target = $branchTarget
+$targetMode = "branch"
+if (-not [string]::IsNullOrWhiteSpace($Revision)) {
+    $requested = $Revision.Trim().ToLowerInvariant()
+    & git cat-file -e "$requested^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        & git fetch --no-tags $Remote $requested
+        if ($LASTEXITCODE -ne 0) {
+            throw "Kunne ikke hente requested exact revision $requested fra $Remote."
+        }
+        & git cat-file -e "$requested^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Requested exact revision findes ikke som Git commit: $requested"
+        }
+    }
+
+    & git merge-base --is-ancestor $requested $branchTarget
+    if ($LASTEXITCODE -ne 0) {
+        throw "Requested exact revision $requested er ikke en ancestor til fetched $Remote/$Branch $branchTarget. Refuserer historisk evidence-checkout."
+    }
+    $target = $requested
+    $targetMode = "historical-revision"
+}
+
+# Fail closed before stopping the currently healthy service. Historical evidence
+# checkout is only useful if that exact revision carries the operator/runtime
+# files required to reinstall and launch itself authoritatively.
+$requiredTargetFiles = @(
+    "pyproject.toml",
+    "requirements/windows-python.lock.txt",
+    "bodyrig/runtime_lock.py",
+    "start-windows.ps1",
+    "physical-acceptance-status.ps1"
+)
+foreach ($relativePath in $requiredTargetFiles) {
+    & git cat-file -e "$target`:$relativePath" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Target revision $target mangler required operator/runtime file: $relativePath"
+    }
+}
+
+Stop-VerifiedBodyRigService
+
+$statePath = Join-Path $env:LOCALAPPDATA "BodyRig\ui-service.json"
+Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
 
 & git checkout --detach $target
 if ($LASTEXITCODE -ne 0) {
@@ -161,4 +209,9 @@ if (-not $health -or $health.ok -ne $true -or [string]$health.service -ne "bodyr
 
 Write-Host "BodyRig update: READY"
 Write-Host "Revision: $target"
-Write-Host "Branch: $Remote/$Branch"
+Write-Host "Authority mode: $targetMode"
+Write-Host "Branch authority: $Remote/$Branch @ $branchTarget"
+if ($targetMode -eq "historical-revision") {
+    Write-Host "Historical evidence continuation is pinned to exact ancestor revision $target."
+    Write-Host "Return to current main only after this evidence chain is deliberately completed or abandoned."
+}

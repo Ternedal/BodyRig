@@ -20,17 +20,29 @@ def test_rig_window_planner_requires_clean_checkout_bound_authority() -> None:
 def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
     rescue = SOURCE.index('path = "historical-gate-a-resume"')
     acceptance = SOURCE.index('path = "existing-gate-a-acceptance"')
+    historical = SOURCE.index('path = "historical-acceptance-checkout"')
     existing = SOURCE.index('path = "existing-physical-session"')
     interrupted = SOURCE.index('path = "interrupted-body-recovery"')
     fresh = SOURCE.index('path = "fresh-profiled-physical-preflight"')
 
-    assert rescue < acceptance < existing < interrupted < fresh
+    assert rescue < acceptance < historical < existing < interrupted < fresh
     assert "bodyrig.resume_body_job $candidate.job_id --assess-only" in SOURCE
     assert "resume-interrupted-body-job.ps1" in SOURCE
     assert "-AssessOnly" in SOURCE
     assert 'expensive_reconstruction_rerun = $false' in SOURCE
     assert 'expensive_reconstruction_rerun = $true' in SOURCE
     assert "This physical body acceptance chain is already complete" in SOURCE
+
+
+def test_historical_acceptance_switches_to_exact_evidence_revision_before_new_compute() -> None:
+    assert '[string]$status.state -eq "blocked"' in SOURCE
+    assert '[string]$status.gate -eq "operator-checkout"' in SOURCE
+    assert '$evidenceRevision = ([string]$status.bodyrig_revision).Trim().ToLowerInvariant()' in SOURCE
+    assert '$evidenceRevision -match \'^[0-9a-f]{40}$\'' in SOURCE
+    assert 'path = "historical-acceptance-checkout"' in SOURCE
+    assert "-Revision '$evidenceRevision' -NoBrowser" in SOURCE
+    assert "physical-acceptance-status.ps1 -AcceptanceDir" in SOURCE
+    assert "Re-enter that accepted revision before spending rig time on any new reconstruction" in SOURCE
 
 
 def test_planner_searches_both_ui_data_and_standalone_session_roots() -> None:
