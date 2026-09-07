@@ -129,7 +129,7 @@ try {
         }
         $rejectedResume += [pscustomobject]@{
             job_id = [string]$candidate.job_id
-            reason = (($assessmentRaw -join "`n").Trim())[-[Math]::Min((($assessmentRaw -join "`n").Trim()).Length), 1000)..-1] -join ""
+            reason = ($assessmentRaw -join "`n").Trim()
         }
     }
 
