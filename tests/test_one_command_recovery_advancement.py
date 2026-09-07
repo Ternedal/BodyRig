@@ -140,6 +140,19 @@ def test_completed_recovery_requires_session_and_receipt_as_pair(tmp_path: Path,
         advancement.inspect_completed_recovery(structural)
 
 
+def test_completed_recovery_fails_closed_on_partial_gate_a_directory(tmp_path: Path, monkeypatch) -> None:
+    structural, _failed, _recovered, _readiness = _completed_fixture(tmp_path)
+    monkeypatch.setattr(advancement, "validate_package", lambda _path: SimpleNamespace(manifest={"id": CANONICAL_BODY}))
+    acceptance_dir = Path(structural["clone_output"]) / "acceptance"
+    acceptance_dir.mkdir()
+    (acceptance_dir / "partial.tmp").write_bytes(b"interrupted-gate-a")
+    with pytest.raises(
+        advancement.OneCommandRecoveryAdvancementError,
+        match="exists without a canonical Gate A marker",
+    ):
+        advancement.inspect_completed_recovery(structural)
+
+
 def _git_ok(_root: Path, *args: str):
     if args == ("rev-parse", "HEAD"):
         return SimpleNamespace(returncode=0, stdout=REVISION + "\n")
