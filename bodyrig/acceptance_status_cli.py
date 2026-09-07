@@ -18,6 +18,7 @@ from .reference_acceptance_policy import apply_reference_policy
 
 CANONICAL_OPERATOR_SCRIPTS = (
     "accept-physical-clone.ps1",
+    "accept-physical-clone-core.ps1",
     "run-reference-windows-renderer-probe.ps1",
     "record-reference-renderer-acceptance.ps1",
     "run-reference-quest-renderer-probe.ps1",
