@@ -116,7 +116,50 @@ def test_rank_prefers_single_performer_high_quality_flat_video(tmp_path: Path):
     assert ranked[0].performer_count == 1
     assert ranked[-1].path == str(low.resolve())
     assert next(item for item in ranked if item.path == str(multi.resolve())).score < ranked[0].score
-    assert next(item for item in ranked if item.path == str(vr.resolve())).score < ranked[0].score
+    assert all(item.path != str(vr.resolve()) for item in ranked)
+
+
+def test_rank_rejects_real_high_resolution_two_to_one_geometries(tmp_path: Path):
+    safe = tmp_path / "flat-16x9.mp4"
+    vr8k = tmp_path / "vr-8192x4096.mp4"
+    vr5k = tmp_path / "vr-5120x2560.mp4"
+    vr4k = tmp_path / "vr-4320x2160.mp4"
+    for path in (safe, vr8k, vr5k, vr4k):
+        path.write_bytes(b"fixture")
+
+    scenes = [
+        _scene("safe", safe, width=3840, height=2160, framerate=60),
+        _scene("vr8k", vr8k, width=8192, height=4096, framerate=60),
+        _scene("vr5k", vr5k, width=5120, height=2560, framerate=60),
+        _scene("vr4k", vr4k, width=4320, height=2160, framerate=60),
+    ]
+
+    ranked = rank_sources(scenes, performer_id="7", max_sources=10)
+    assert [item.path for item in ranked] == [str(safe.resolve())]
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        ("VR",),
+        ("VR180",),
+        ("VR360",),
+        ("SBS",),
+        ("side-by-side",),
+        ("over-under",),
+        ("equirectangular",),
+        ("panoramic",),
+        ("stereo",),
+    ],
+)
+def test_rank_rejects_explicit_vr_stereo_and_panoramic_tags(tmp_path: Path, tags: tuple[str, ...]):
+    video = tmp_path / "tagged.mp4"
+    video.write_bytes(b"fixture")
+    ranked = rank_sources(
+        [_scene("tagged", video, width=1920, height=1080, tags=tags)],
+        performer_id="7",
+    )
+    assert ranked == []
 
 
 def test_rank_rejects_wrong_performer_missing_files_and_deduplicates(tmp_path: Path):
@@ -155,6 +198,23 @@ def test_manifest_is_build_only_and_contains_no_connection_secret(tmp_path: Path
     assert json.loads(output.read_text(encoding="utf-8")) == manifest
     with pytest.raises(StashSourceError):
         write_source_manifest(output, manifest)
+
+
+def test_manifest_fails_closed_when_only_projection_unsafe_sources_exist(tmp_path: Path):
+    panoramic = tmp_path / "only-panorama.mp4"
+    panoramic.write_bytes(b"fixture")
+    ranked = rank_sources(
+        [_scene("pano", panoramic, width=8192, height=4096)],
+        performer_id="7",
+    )
+    assert ranked == []
+    with pytest.raises(StashSourceError, match="projection-safe"):
+        build_source_manifest(
+            performer={"id": "7", "name": "Alice"},
+            candidates=ranked,
+            stash_version="x",
+            candidate_count=1,
+        )
 
 
 def test_rank_requires_usable_local_source(tmp_path: Path):
