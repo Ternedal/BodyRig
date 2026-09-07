@@ -137,6 +137,11 @@ def inspect_completed_recovery(structural: Mapping[str, Any]) -> dict[str, Any] 
         raise OneCommandRecoveryAdvancementError("recovery receipt recovered-session id mismatch")
     _require_hash(failed_session, receipt.get("failed_session_sha256"), "failed session")
     _require_hash(recovered_session, receipt.get("recovered_session_sha256"), "recovered session")
+    _require_hash(
+        recovered_session.with_suffix(".readiness.json"),
+        recovered.get("readiness_sha256"),
+        "recovered readiness",
+    )
 
     clone_dir = clone_output / "clone"
     bound_files = {
