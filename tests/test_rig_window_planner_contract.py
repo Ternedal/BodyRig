@@ -4,61 +4,57 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "plan-rig-window.ps1").read_text(encoding="utf-8")
+WRAPPER = (ROOT / "plan-rig-window.ps1").read_text(encoding="utf-8")
+CORE = (ROOT / "bodyrig" / "rig_window_plan.py").read_text(encoding="utf-8")
 INTERRUPTED = (ROOT / "resume-interrupted-body-job.ps1").read_text(encoding="utf-8")
 
 
-def test_rig_window_planner_requires_clean_checkout_bound_authority() -> None:
-    assert "PowerShell 7+ (pwsh) is required" in SOURCE
-    assert "git -C $repoRoot rev-parse HEAD" in SOURCE
-    assert "git -C $repoRoot status --porcelain" in SOURCE
-    assert "BodyRig checkout is dirty" in SOURCE
-    assert "bodyrig.__file__" in SOURCE
-    assert "unexpected location" in SOURCE
+def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
+    assert "PowerShell 7+ (pwsh) is required" in WRAPPER
+    assert "git -C $repoRoot rev-parse HEAD" in WRAPPER
+    assert "git -C $repoRoot status --porcelain" in WRAPPER
+    assert "BodyRig checkout is dirty" in WRAPPER
+    assert "bodyrig.__file__" in WRAPPER
+    assert "unexpected location" in WRAPPER
+    assert '"-m", "bodyrig.rig_window_plan"' in WRAPPER
 
 
 def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
-    rescue = SOURCE.index('path = "historical-gate-a-resume"')
-    acceptance = SOURCE.index('path = "existing-gate-a-acceptance"')
-    historical = SOURCE.index('path = "historical-acceptance-checkout"')
-    existing = SOURCE.index('path = "existing-physical-session"')
-    interrupted = SOURCE.index('path = "interrupted-body-recovery"')
-    fresh = SOURCE.index('path = "fresh-profiled-physical-preflight"')
+    rescue = CORE.index('path="historical-gate-a-resume"')
+    acceptance = CORE.index('path="existing-gate-a-acceptance"')
+    historical = CORE.index('path="historical-acceptance-checkout"')
+    existing = CORE.index('path="existing-physical-session"')
+    interrupted = CORE.index('path="interrupted-body-recovery"')
+    fresh = CORE.index('path="fresh-profiled-physical-preflight"')
 
     assert rescue < acceptance < historical < existing < interrupted < fresh
-    assert "bodyrig.resume_body_job $candidate.job_id --assess-only" in SOURCE
-    assert "resume-interrupted-body-job.ps1" in SOURCE
-    assert "-AssessOnly" in SOURCE
-    assert 'expensive_reconstruction_rerun = $false' in SOURCE
-    assert 'expensive_reconstruction_rerun = $true' in SOURCE
-    assert "This physical body acceptance chain is already complete" in SOURCE
+    assert "assess_body_job_resume(job_id)" in CORE
+    assert 'wrapper = repo_root / "resume-interrupted-body-job.ps1"' in CORE
+    assert '"-AssessOnly"' in CORE
+    assert '"expensive_reconstruction_rerun": False' in CORE
+    assert '"expensive_reconstruction_rerun": True' in CORE
+    assert "furthest valid physical body acceptance chain" in CORE
 
 
 def test_historical_acceptance_switches_to_exact_evidence_revision_before_new_compute() -> None:
-    assert '[string]$status.state -eq "blocked"' in SOURCE
-    assert '[string]$status.gate -eq "operator-checkout"' in SOURCE
-    assert '$evidenceRevision = ([string]$status.bodyrig_revision).Trim().ToLowerInvariant()' in SOURCE
-    assert '$evidenceRevision -match \'^[0-9a-f]{40}$\'' in SOURCE
-    assert 'path = "historical-acceptance-checkout"' in SOURCE
-    assert "-Revision '$evidenceRevision' -NoBrowser" in SOURCE
-    assert "physical-acceptance-status.ps1 -AcceptanceDir" in SOURCE
-    assert "Re-enter that accepted revision before spending rig time on any new reconstruction" in SOURCE
+    assert "_historical_revision_is_safe" in CORE
+    assert 'path="historical-acceptance-checkout"' in CORE
+    assert "-Revision {_ps_quote(evidence_revision)} -NoBrowser" in CORE
+    assert "physical-acceptance-status.ps1 -AcceptanceDir" in CORE
+    assert "Re-enter that accepted revision before spending rig time on any earlier stage" in CORE
 
 
 def test_planner_searches_both_ui_data_and_standalone_session_roots() -> None:
-    assert '$dataRoot = [string]$env:BODYRIG_DATA_DIR' in SOURCE
-    assert '$artifactBase = [string]$env:LOCALAPPDATA' in SOURCE
-    assert 'Join-Path $artifactBase "BodyRig\\physical-clone-sessions"' in SOURCE
-    assert 'Join-Path $dataRoot "physical-clone-sessions"' in SOURCE
-    assert '$sessionRoots = @($standaloneSessionRoot, $dataSessionRoot) | Select-Object -Unique' in SOURCE
-    assert 'foreach ($sessionsRoot in $sessionRoots)' in SOURCE
+    assert 'os.environ.get("LOCALAPPDATA")' in CORE
+    assert '"BodyRig" / "physical-clone-sessions"' in CORE
+    assert 'root / "physical-clone-sessions"' in CORE
+    assert "def _session_roots" in CORE
+    assert "for sessions_root in _session_roots(root)" in CORE
 
 
 def test_planner_keeps_gate_a_resume_candidate_after_failed_retry() -> None:
-    assert '$job.PSObject.Properties["resume_source_error"]' in SOURCE
-    assert '$resumeSourceError = [string]$resumeSourceErrorProperty.Value' in SOURCE
-    assert 'resume_source_error = $resumeSourceError' in SOURCE
-    assert '$_.resume_source_error -like "*high-fidelity Gate A failed*"' in SOURCE
+    assert '"resume_source_error": str(job.get("resume_source_error") or "")' in CORE
+    assert '"high-fidelity Gate A failed" in row["resume_source_error"]' in CORE
 
 
 def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() -> None:
@@ -74,11 +70,12 @@ def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() 
     assert "[switch]$AssessOnly" in INTERRUPTED
 
 
-def test_planner_only_emits_mutating_next_commands() -> None:
-    assert 'next_command = ".\\resume-body-job.ps1 -JobId' in SOURCE
-    assert 'next_command = ".\\resume-interrupted-body-job.ps1 -JobId' in SOURCE
-    assert '.\\bodyrig-status.ps1 -PerformerId' in SOURCE
-    assert "& $python -m bodyrig.resume_body_job $candidate.job_id --assess-only" in SOURCE
-    assert "& $interruptedResume -JobId $candidate.job_id -AssessOnly" in SOURCE
-    assert "& .\\resume-body-job.ps1" not in SOURCE
-    assert "clone-body-from-stash-ready.ps1" not in SOURCE
+def test_python_planner_only_assesses_and_emits_mutating_next_commands() -> None:
+    assert 'f".\\\\resume-body-job.ps1 -JobId {_ps_quote(job_id)}"' in CORE
+    assert 'f".\\\\resume-interrupted-body-job.ps1 -JobId {_ps_quote(row[\'job_id\'])}"' in CORE
+    assert 'f".\\\\bodyrig-status.ps1 -PerformerId' in CORE
+    assert '"-AssessOnly"' in CORE
+    assert "assess_body_job_resume(job_id)" in CORE
+    assert "start_body_resume" not in CORE
+    assert "resume_body_job(job_id)" not in CORE
+    assert "clone-body-from-stash-ready.ps1" not in CORE
