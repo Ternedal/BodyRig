@@ -5,6 +5,7 @@ import importlib.metadata
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote, urlparse
@@ -38,11 +39,48 @@ def _file_url_path(value: str) -> Path:
     return Path(path_text).expanduser().resolve()
 
 
-def _entry_point_value(distribution: Any) -> str:
+def _project_metadata(root: Path) -> tuple[str, dict[str, str]]:
+    path = root / "pyproject.toml"
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
+        raise InstallAuthorityError(f"BodyRig pyproject metadata is unreadable: {path}") from exc
+    project = raw.get("project")
+    if not isinstance(project, dict) or str(project.get("name") or "").strip().lower() != DIST_NAME:
+        raise InstallAuthorityError("pyproject.toml does not declare the BodyRig distribution")
+    version = str(project.get("version") or "").strip()
+    if not version:
+        raise InstallAuthorityError("pyproject.toml has no static BodyRig version")
+    scripts_raw = project.get("scripts")
+    if not isinstance(scripts_raw, dict) or not scripts_raw:
+        raise InstallAuthorityError("pyproject.toml has no BodyRig project scripts")
+    scripts: dict[str, str] = {}
+    for name, value in scripts_raw.items():
+        clean_name = str(name or "").strip()
+        clean_value = str(value or "").strip()
+        if not clean_name or not clean_value:
+            raise InstallAuthorityError("pyproject.toml contains an invalid BodyRig project script")
+        scripts[clean_name] = clean_value
+    if scripts.get("bodyrig") != EXPECTED_ENTRY_POINT:
+        raise InstallAuthorityError(
+            f"pyproject.toml bodyrig entry point changed unexpectedly: {scripts.get('bodyrig') or 'missing'}"
+        )
+    return version, scripts
+
+
+def _installed_scripts(distribution: Any) -> dict[str, str]:
+    scripts: dict[str, str] = {}
     for entry in distribution.entry_points:
-        if getattr(entry, "group", None) == "console_scripts" and getattr(entry, "name", None) == "bodyrig":
-            return str(getattr(entry, "value", ""))
-    raise InstallAuthorityError("installed BodyRig distribution has no bodyrig console-script entry point")
+        if getattr(entry, "group", None) != "console_scripts":
+            continue
+        name = str(getattr(entry, "name", "") or "").strip()
+        value = str(getattr(entry, "value", "") or "").strip()
+        if not name or not value:
+            raise InstallAuthorityError("installed BodyRig distribution contains an invalid console-script entry point")
+        if name in scripts:
+            raise InstallAuthorityError(f"installed BodyRig distribution contains duplicate console script: {name}")
+        scripts[name] = value
+    return scripts
 
 
 def validate_editable_install(
@@ -55,6 +93,7 @@ def validate_editable_install(
     root = Path(repo_root).expanduser().resolve()
     if not (root / "pyproject.toml").is_file() or not (root / "bodyrig" / "__init__.py").is_file():
         raise InstallAuthorityError(f"repo root is not a BodyRig checkout: {root}")
+    project_version, project_scripts = _project_metadata(root)
 
     executable = Path(python_executable or sys.executable).expanduser().resolve()
     expected_python = (root / ".venv" / "Scripts" / "python.exe").resolve()
@@ -71,6 +110,12 @@ def validate_editable_install(
         distribution = distribution_reader(DIST_NAME)
     except importlib.metadata.PackageNotFoundError as exc:
         raise InstallAuthorityError("BodyRig distribution is not installed in the repo virtualenv") from exc
+
+    installed_version = str(getattr(distribution, "version", "") or "").strip()
+    if installed_version != project_version:
+        raise InstallAuthorityError(
+            f"installed BodyRig distribution metadata is stale: expected version={project_version}, actual={installed_version or 'missing'}"
+        )
 
     direct_text = distribution.read_text("direct_url.json")
     if not direct_text:
@@ -90,25 +135,40 @@ def validate_editable_install(
             f"installed BodyRig editable source is bound to a different checkout: expected={root}, actual={source}"
         )
 
-    entry_point = _entry_point_value(distribution)
-    if entry_point != EXPECTED_ENTRY_POINT:
+    installed_scripts = _installed_scripts(distribution)
+    if installed_scripts != project_scripts:
+        missing = sorted(set(project_scripts) - set(installed_scripts))
+        extra = sorted(set(installed_scripts) - set(project_scripts))
+        changed = sorted(
+            name
+            for name in set(project_scripts) & set(installed_scripts)
+            if project_scripts[name] != installed_scripts[name]
+        )
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if extra:
+            details.append("extra=" + ",".join(extra))
+        if changed:
+            details.append("changed=" + ",".join(changed))
         raise InstallAuthorityError(
-            f"installed bodyrig console entry point is stale: expected={EXPECTED_ENTRY_POINT}, actual={entry_point or 'missing'}"
+            "installed BodyRig console-script metadata differs from active pyproject.toml"
+            + (": " + "; ".join(details) if details else "")
         )
 
     return {
         "format": "bodyrig-editable-install-authority",
-        "version": 1,
+        "version": 2,
         "ok": True,
         "distribution": {
             "name": DIST_NAME,
-            "version": str(getattr(distribution, "version", "")),
+            "version": installed_version,
             "editable": True,
             "source": str(source),
         },
         "python_executable": str(executable),
         "launcher": str(launcher),
-        "entry_point": entry_point,
+        "project_scripts": installed_scripts,
     }
 
 
