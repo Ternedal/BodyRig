@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from bodyrig.acceptance_status import AcceptanceStatusError, _session_status, inspect_acceptance_dir
+from bodyrig.renderer_human_rejection import write_rejection
+from bodyrig.rig_window_acceptance import inspect_for_rig_window
 
 REVISION = "a" * 40
 OTHER_REVISION = "b" * 40
@@ -449,4 +451,93 @@ def test_partial_dedicated_pair_is_inconsistent(tmp_path: Path) -> None:
     fixture = gate_a(tmp_path)
     probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
     with pytest.raises(AcceptanceStatusError, match="canonical evidence is incomplete"):
+        inspect_acceptance_dir(tmp_path)
+
+
+
+def reject_renderer(
+    fixture: GateFixture,
+    prefix: str,
+    platform: str,
+    *,
+    failed_checks: list[str] | None = None,
+) -> Path:
+    probe_path = evidence_path(fixture, prefix, f"{prefix}-probe.json")
+    deformation_path = evidence_path(fixture, prefix, f"{prefix}-deformation-probe.json")
+    receipt = write_rejection(
+        fixture.directory,
+        platform=platform,
+        bodyrig_revision=REVISION,
+        body_id=BODY_ID,
+        automated_report_sha256=sha(fixture.gate_path),
+        probe_report_sha256=sha(probe_path),
+        deformation_report_sha256=sha(deformation_path),
+        package_sha256=fixture.package_hash,
+        runtime_manifest_sha256=fixture.runtime_hash,
+        failed_checks=failed_checks or ["source_identity", "skin_appearance"],
+        quality_note="Human visual review rejected the exact rendered body fidelity.",
+    )
+    return Path(str(receipt["rejection_path"]))
+
+
+def test_windows_human_rejection_blocks_acceptance_and_reuse(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    reject_renderer(
+        fixture,
+        "windows",
+        "windows-unity-univrm",
+        failed_checks=[
+            "source_identity",
+            "geometry_proportions",
+            "skin_appearance",
+            "hair_appearance",
+            "eye_appearance",
+            "face_secondary",
+            "small_anatomical_detail",
+        ],
+    )
+
+    status = inspect_acceptance_dir(tmp_path)
+    assert status.state == "blocked"
+    assert status.gate == "windows-rejected"
+    assert status.next_command is None
+    assert "source_identity" in status.message
+
+    structural = inspect_for_rig_window(tmp_path)
+    assert structural["state"] == "blocked"
+    assert structural["gate"] == "windows-rejected"
+    assert structural["progress_rank"] == 0
+
+
+def test_human_rejection_dominates_existing_attestation(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    complete_windows(fixture)
+    reject_renderer(fixture, "windows", "windows-unity-univrm")
+    status = inspect_acceptance_dir(tmp_path)
+    assert status.state == "blocked"
+    assert status.gate == "windows-rejected"
+
+
+def test_human_rejection_dominates_automatic_evidence_detection(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    reject_renderer(fixture, "windows", "windows-unity-univrm")
+    write_json(tmp_path / "windows-evidence" / "windows-deformation-quality.json", {"placeholder": True})
+    structural = inspect_for_rig_window(tmp_path)
+    assert structural["state"] == "blocked"
+    assert structural["progress_rank"] == 0
+
+
+def test_tampered_human_rejection_fails_closed(tmp_path: Path) -> None:
+    fixture = gate_a(tmp_path)
+    probe(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    deformation(fixture, "windows", "windows-unity-univrm", "WindowsPlayer", "Windows test rig")
+    path = reject_renderer(fixture, "windows", "windows-unity-univrm")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["probe_report_sha256"] = "9" * 64
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+    with pytest.raises(AcceptanceStatusError, match="human rejection is invalid"):
         inspect_acceptance_dir(tmp_path)

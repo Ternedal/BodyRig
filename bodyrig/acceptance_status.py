@@ -8,6 +8,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .renderer_human_rejection import (
+    RendererHumanRejectionError,
+    read_rejection,
+    rejection_path,
+)
+
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 POSES = (
@@ -304,6 +310,55 @@ def _validate_deformation(path: Path, *, platform: str, probe: dict[str, Any], g
             raise AcceptanceStatusError(f"Deformation probe does not match machine probe field {field}: {path}")
 
 
+
+def _renderer_rejection_status(
+    acceptance_dir: Path,
+    *,
+    platform: str,
+    prefix: str,
+    gate: GateAInfo,
+) -> AcceptanceStatus | None:
+    path = rejection_path(acceptance_dir, platform)
+    if not (path.exists() or path.is_symlink()):
+        return None
+    attestation_name = (
+        "bodyrig-renderer-acceptance-windows.json"
+        if prefix == "windows"
+        else "bodyrig-renderer-acceptance-quest.json"
+    )
+    paths = _platform_paths(acceptance_dir, prefix, attestation_name)
+    if not paths.probe.is_file() or not paths.deformation.is_file():
+        raise AcceptanceStatusError(
+            f"{prefix} human rejection exists without the complete canonical machine/deformation evidence pair."
+        )
+    probe = _validate_probe(paths.probe, platform=platform, gate=gate)
+    _validate_deformation(paths.deformation, platform=platform, probe=probe, gate=gate)
+    try:
+        rejection = read_rejection(
+            acceptance_dir,
+            platform=platform,
+            bodyrig_revision=gate.revision,
+            body_id=gate.body_id,
+            automated_report_sha256=_sha256(gate.path),
+            probe_report_sha256=_sha256(paths.probe),
+            deformation_report_sha256=_sha256(paths.deformation),
+            package_sha256=gate.package_hash,
+            runtime_manifest_sha256=gate.runtime_hash,
+        )
+    except RendererHumanRejectionError as exc:
+        raise AcceptanceStatusError(f"{prefix} human rejection is invalid: {exc}") from exc
+    failures = ", ".join(str(item) for item in rejection["failed_checks"])
+    note = str(rejection["quality_note"])
+    return AcceptanceStatus(
+        "blocked",
+        f"{prefix}-rejected",
+        str(acceptance_dir),
+        gate.body_id,
+        gate.revision,
+        f"{prefix.capitalize()} human visual review rejected this exact acceptance. Failed checks: {failures}. Note: {note}",
+        None,
+    )
+
 def _validate_attestation(path: Path, *, platform: str, gate: GateAInfo, paths: PlatformPaths) -> None:
     attestation = _read_json(path, "Renderer attestation")
     if attestation.get("format") != "bodyrig-renderer-acceptance" or attestation.get("version") != 1:
@@ -544,6 +599,16 @@ def inspect_acceptance_dir(directory: Path) -> AcceptanceStatus:
         raise AcceptanceStatusError(f"Acceptance directory not found: {acceptance_dir}")
     gate_a_path = acceptance_dir / "bodyrig-acceptance.json"
     gate = _validate_gate_a(gate_a_path)
+
+    for platform, prefix in (
+        ("windows-unity-univrm", "windows"),
+        ("android-quest-class", "quest"),
+    ):
+        rejection = _renderer_rejection_status(
+            acceptance_dir, platform=platform, prefix=prefix, gate=gate
+        )
+        if rejection is not None:
+            return rejection
 
     windows_stage, windows = _platform_stage(
         acceptance_dir, platform="windows-unity-univrm", prefix="windows",

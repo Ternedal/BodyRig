@@ -63,7 +63,11 @@ def rejection_path(acceptance_dir: str | Path, platform: str) -> Path:
 
 def any_rejection_exists(acceptance_dir: str | Path) -> bool:
     root = Path(acceptance_dir).expanduser().resolve()
-    return any((root / f"bodyrig-renderer-rejection-{prefix}.json").exists() for prefix in PLATFORMS.values())
+    return any(
+        candidate.exists() or candidate.is_symlink()
+        for prefix in PLATFORMS.values()
+        for candidate in (root / f"bodyrig-renderer-rejection-{prefix}.json",)
+    )
 
 
 def _sha40(value: Any, label: str) -> str:

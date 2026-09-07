@@ -12,6 +12,7 @@ from typing import Any, Iterator
 from .acceptance_status import AcceptanceStatus, AcceptanceStatusError, _read_json, _validate_gate_a, inspect_acceptance_dir
 from .automatic_activation_status import inspect_automatic_activation
 from .automatic_release_gate import AutomaticReleaseGateError
+from .renderer_human_rejection import any_rejection_exists
 
 
 # Higher means farther through the expensive/physical acceptance chain.
@@ -149,6 +150,13 @@ def _inspect_automatic_structural(acceptance_dir: Path) -> dict[str, Any]:
 
 def inspect_for_rig_window(path: str | Path) -> dict[str, Any]:
     acceptance_dir = Path(path).expanduser().resolve()
+    if any_rejection_exists(acceptance_dir):
+        status = inspect_acceptance_dir(acceptance_dir)
+        payload = asdict(status)
+        payload["progress_rank"] = progress_rank(status)
+        payload["read_only"] = True
+        payload["policy_scope"] = "evidence-revision-structural"
+        return payload
     if has_automatic_evidence(acceptance_dir):
         return _inspect_automatic_structural(acceptance_dir)
 
