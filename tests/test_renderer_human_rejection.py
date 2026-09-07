@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from bodyrig import renderer_human_rejection_cli as rejection_cli
+from bodyrig.acceptance_status import AcceptanceStatusError
 from bodyrig.renderer_human_rejection import (
     RendererHumanRejectionError,
     read_rejection,
@@ -97,6 +99,42 @@ def test_rejection_rejects_noncanonical_failed_check_bytes(tmp_path: Path) -> No
     path.write_text(json.dumps(value) + "\n", encoding="utf-8")
     with pytest.raises(RendererHumanRejectionError, match="failed_checks"):
         read_rejection(tmp_path, **_kwargs())
+
+
+def test_cli_rolls_back_new_receipt_if_evidence_drifts_after_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    receipt_path = tmp_path / "bodyrig-renderer-rejection-windows.json"
+    calls = 0
+
+    def fake_binding(_acceptance_dir: Path, _platform: str):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return object(), object()
+        raise AcceptanceStatusError("evidence drifted")
+
+    monkeypatch.setattr(rejection_cli, "_binding", fake_binding)
+    monkeypatch.setattr(rejection_cli, "_expected", lambda _gate, _paths: {})
+
+    def fake_write(_acceptance_dir: Path, **_kwargs: object) -> dict[str, object]:
+        receipt_path.write_text("{}\n", encoding="utf-8")
+        return {"rejection_path": str(receipt_path)}
+
+    monkeypatch.setattr(rejection_cli, "write_rejection", fake_write)
+    result = rejection_cli.main(
+        [
+            "--acceptance-dir",
+            str(tmp_path),
+            "--platform",
+            PLATFORM,
+            "--failed-check",
+            "source_identity",
+            "--quality-note",
+            "Observed identity failure.",
+        ]
+    )
+    assert result == 2
+    assert calls == 2
+    assert not receipt_path.exists()
 
 
 def test_operator_wrapper_requires_explicit_rejection_confirmation() -> None:
