@@ -84,6 +84,9 @@ if ($dirty.Count -gt 0) {
     throw "BodyRig checkout is dirty. Commit/stash changes before starting a production-valid physical session."
 }
 
+$gateALauncher = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone.ps1") -Label "Gate A launcher"
+$gateACore = Resolve-InputFile -Path (Join-Path $repoRoot "accept-physical-clone-core.ps1") -Label "Gate A transactional core"
+
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venv -PathType Leaf) { $BodyRigPython = $venv }
