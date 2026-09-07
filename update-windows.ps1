@@ -125,9 +125,6 @@ if (-not [string]::IsNullOrWhiteSpace($Revision)) {
     $targetMode = "historical-revision"
 }
 
-# Fail closed before stopping the currently healthy service. Historical evidence
-# checkout is only useful if that exact revision carries the operator/runtime
-# files required to reinstall and launch itself authoritatively.
 $requiredTargetFiles = @(
     "pyproject.toml",
     "requirements/windows-python.lock.txt",
@@ -170,11 +167,6 @@ if (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
     throw "BodyRig Windows Python runtime lock mangler: $runtimeLock"
 }
 
-# The editable BodyRig source lives in this checkout, so a source-only Git update
-# does not require reinstalling the package. Skip pip only when both dependency
-# authority and the installed editable/launcher authority prove exact. Historical
-# revisions that predate install_authority.py deliberately keep the conservative
-# reinstall path and then rely on their own start-windows import verification.
 $installAuthorityModule = Join-Path $RepoRoot "bodyrig\install_authority.py"
 $canVerifyEditableInstall = Test-Path -LiteralPath $installAuthorityModule -PathType Leaf
 $runtimeAlreadyValid = $false
@@ -215,7 +207,13 @@ if ($canVerifyEditableInstall) {
 
 $stashPathConfig = Join-Path $RepoRoot "configure-stash-path-map.ps1"
 if (Test-Path -LiteralPath $stashPathConfig -PathType Leaf) {
-    & $stashPathConfig
+    $stashPathCommand = Get-Command $stashPathConfig -ErrorAction Stop
+    if ($hasPerformer -and $stashPathCommand.Parameters.ContainsKey("PerformerId")) {
+        Write-Host "BodyRig Stash path map: updater scopes autoconfig to performer $PerformerId."
+        & $stashPathConfig -PerformerId $PerformerId
+    } else {
+        & $stashPathConfig
+    }
 }
 
 $rescueProbe = Join-Path $RepoRoot "diagnose-failed-body-build.ps1"
