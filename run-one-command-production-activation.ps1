@@ -140,10 +140,15 @@ try {
         $recoveryPython = $BodyRigPython
         if ([string]::IsNullOrWhiteSpace($recoveryPython)) {
             $candidatePython = Join-Path $repoRoot ".venv\Scripts\python.exe"
-            if (Test-Path -LiteralPath $candidatePython -PathType Leaf) { $recoveryPython = $candidatePython }
+            if (Test-Path -LiteralPath $candidatePython -PathType Leaf) {
+                $recoveryPython = $candidatePython
+            } else {
+                $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+                if ($null -ne $pythonCommand) { $recoveryPython = $pythonCommand.Source }
+            }
         }
         if ([string]::IsNullOrWhiteSpace($recoveryPython) -or -not (Test-Path -LiteralPath $recoveryPython -PathType Leaf)) {
-            throw "checkout-bound Python is unavailable for interrupted-fit assessment"
+            throw "BodyRig Python is unavailable for interrupted-fit assessment"
         }
         $recoveryPython = (Resolve-Path -LiteralPath $recoveryPython).Path
         $expectedModule = (Resolve-Path -LiteralPath (Join-Path $repoRoot "bodyrig\__init__.py")).Path
