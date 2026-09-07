@@ -106,13 +106,15 @@ if ($qualityExists -and -not ($probeExists -and $deformationExists)) { throw "Qu
 if ($qualityExists) { throw "Quest automatic quality receipt already exists. Use run-automatic-production-activation.ps1 to validate and continue the chain." }
 $recoverQualityOnly = $probeExists -and $deformationExists
 
+$before = Get-AutomaticStatus
+$expectedStage = if ($recoverQualityOnly) { "quest-quality" } else { "quest" }
+if ([string]$before.stage -ne $expectedStage) {
+    throw "Quest automatic proof requires stage '$expectedStage', got '$([string]$before.stage)'. Refusing to skip automatic production ordering."
+}
+
 $inner = Join-Path $repoRoot "run-reference-quest-renderer-probe.ps1"
 try {
     if ($recoverQualityOnly) {
-        $before = Get-AutomaticStatus
-        if ([string]$before.stage -ne "quest-quality") {
-            throw "Existing Quest probe/deformation pair is not an authority-valid automatic quality recovery state: $([string]$before.stage)"
-        }
         Write-Host "BodyRig Quest automatic proof: reusing committed probe/deformation; recovering quality receipt only."
         Wait-RemoteQuality -RelaunchIfMissing
     } else {
