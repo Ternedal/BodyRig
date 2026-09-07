@@ -101,6 +101,7 @@ def test_automatic_standalone_acceptance_uses_automatic_progress(tmp_path: Path,
     acceptance = tmp_path / "acceptance"
     acceptance.mkdir()
     monkeypatch.setattr(authority.policy.base, "_head", lambda _root: HEAD)
+    monkeypatch.setattr(authority, "has_automatic_evidence", lambda _path: True)
     monkeypatch.setattr(
         authority,
         "_automatic_payload",
