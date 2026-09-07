@@ -59,16 +59,51 @@ def test_historical_target_is_preflighted_before_service_stop() -> None:
 
 def test_update_installs_only_after_old_service_has_been_stopped() -> None:
     stop_index = SCRIPT.index("\nStop-VerifiedBodyRigService\n")
-    install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
+    install_index = SCRIPT.index('& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
     assert stop_index < install_index
 
 
-def test_update_installs_and_verifies_exact_windows_runtime_lock() -> None:
+def test_update_probes_runtime_and_editable_authority_before_optional_install_then_final_verifies() -> None:
     lock_index = SCRIPT.index('Join-Path $RepoRoot "requirements\\windows-python.lock.txt"')
-    install_index = SCRIPT.index(' -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
-    verify_index = SCRIPT.index(' -m bodyrig.runtime_lock --lock $runtimeLock')
+    pre_runtime = SCRIPT.index('$runtimeProbe = @(& $python -m bodyrig.runtime_lock --lock $runtimeLock 2>&1)')
+    pre_install = SCRIPT.index('$installProbe = @(& $python -m bodyrig.install_authority --repo-root $RepoRoot 2>&1)')
+    install_index = SCRIPT.index('& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
+    final_runtime = SCRIPT.index('& $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null')
+    final_install = SCRIPT.index('& $python -m bodyrig.install_authority --repo-root $RepoRoot | Out-Null')
     configure_index = SCRIPT.index('Join-Path $RepoRoot "configure-stash-path-map.ps1"')
-    assert lock_index < install_index < verify_index < configure_index
+    assert lock_index < pre_runtime < pre_install < install_index < final_runtime < final_install < configure_index
+
+
+def test_pip_skip_requires_both_exact_runtime_and_checkout_bound_editable_install() -> None:
+    assert '$runtimeProbeExit = $LASTEXITCODE' in SCRIPT
+    assert '$installProbeExit = $LASTEXITCODE' in SCRIPT
+    assert 'if ($runtimeProbeExit -eq 0 -and $installProbeExit -eq 0)' in SCRIPT
+    assert '$runtimeAlreadyValid = $true' in SCRIPT
+    assert 'if ($runtimeAlreadyValid)' in SCRIPT
+    assert 'pip install skipped' in SCRIPT
+
+
+def test_failed_authority_probe_falls_back_to_canonical_pip_install() -> None:
+    assert 'install/lock authority requires refresh; running canonical pip install' in SCRIPT
+    assert '& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"' in SCRIPT
+    assert 'throw "BodyRig venv-opdatering fejlede."' in SCRIPT
+
+
+def test_historical_revision_that_predates_install_probe_uses_conservative_install() -> None:
+    required_start = SCRIPT.index("$requiredTargetFiles = @(")
+    required_end = SCRIPT.index(")\nforeach ($relativePath in $requiredTargetFiles)", required_start)
+    required_segment = SCRIPT[required_start:required_end]
+    assert 'bodyrig/install_authority.py' not in required_segment
+    assert '$canVerifyEditableInstall = Test-Path -LiteralPath $installAuthorityModule -PathType Leaf' in SCRIPT
+    assert 'target revision predates editable-install authority probe; using conservative canonical pip install' in SCRIPT
+
+
+def test_update_always_final_verifies_runtime_and_new_revision_editable_authority() -> None:
+    install_index = SCRIPT.index('& $python -m pip install --disable-pip-version-check -c $runtimeLock -e ".[test]"')
+    final_runtime = SCRIPT.index('& $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null')
+    final_install = SCRIPT.index('& $python -m bodyrig.install_authority --repo-root $RepoRoot | Out-Null')
+    assert install_index < final_runtime < final_install
+    assert 'BodyRig editable install/launcher er ikke authority-bundet til det aktive checkout efter update.' in SCRIPT
 
 
 def test_update_auto_configures_verified_stash_paths_before_launch() -> None:
