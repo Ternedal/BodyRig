@@ -130,8 +130,6 @@ if (-not [string]::IsNullOrWhiteSpace($Revision)) {
 # files required to reinstall and launch itself authoritatively.
 $requiredTargetFiles = @(
     "pyproject.toml",
-    "requirements/windows-python.lock.txt",
-    "bodyrig/runtime_lock.py",
     "start-windows.ps1",
     "physical-acceptance-status.ps1"
 )
@@ -140,6 +138,20 @@ foreach ($relativePath in $requiredTargetFiles) {
     if ($LASTEXITCODE -ne 0) {
         throw "Target revision $target mangler required operator/runtime file: $relativePath"
     }
+}
+
+$targetHasRuntimeLockFile = $false
+$targetHasRuntimeLockModule = $false
+& git cat-file -e "$target`:requirements/windows-python.lock.txt" 2>$null
+if ($LASTEXITCODE -eq 0) { $targetHasRuntimeLockFile = $true }
+& git cat-file -e "$target`:bodyrig/runtime_lock.py" 2>$null
+if ($LASTEXITCODE -eq 0) { $targetHasRuntimeLockModule = $true }
+if ($targetHasRuntimeLockFile -xor $targetHasRuntimeLockModule) {
+    throw "Target revision $target har inkonsistent Windows runtime authority: lock file/module skal begge findes eller begge mangle."
+}
+$targetUsesLockedRuntime = $targetHasRuntimeLockFile -and $targetHasRuntimeLockModule
+if ($targetMode -eq "branch" -and -not $targetUsesLockedRuntime) {
+    throw "Current branch target $target mangler canonical Windows runtime lock authority."
 }
 
 Stop-VerifiedBodyRigService
@@ -166,8 +178,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Repoets .venv mangler. Opret den først med Python 3.11."
 }
 $runtimeLock = Join-Path $RepoRoot "requirements\windows-python.lock.txt"
-if (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
-    throw "BodyRig Windows Python runtime lock mangler: $runtimeLock"
+if ($targetUsesLockedRuntime -and -not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
+    throw "BodyRig Windows Python runtime lock mangler efter checkout: $runtimeLock"
 }
 
 # The editable BodyRig source lives in this checkout, so a source-only Git update
@@ -178,7 +190,7 @@ if (-not (Test-Path -LiteralPath $runtimeLock -PathType Leaf)) {
 $installAuthorityModule = Join-Path $RepoRoot "bodyrig\install_authority.py"
 $canVerifyEditableInstall = Test-Path -LiteralPath $installAuthorityModule -PathType Leaf
 $runtimeAlreadyValid = $false
-if ($canVerifyEditableInstall) {
+if ($targetUsesLockedRuntime -and $canVerifyEditableInstall) {
     $runtimeProbe = @(& $python -m bodyrig.runtime_lock --lock $runtimeLock 2>&1)
     $runtimeProbeExit = $LASTEXITCODE
     $installProbe = @(& $python -m bodyrig.install_authority --repo-root $RepoRoot 2>&1)
@@ -188,7 +200,11 @@ if ($canVerifyEditableInstall) {
     }
 }
 
-if ($runtimeAlreadyValid) {
+if (-not $targetUsesLockedRuntime) {
+    Write-Host "BodyRig venv: historical revision predates canonical Windows runtime lock; using conservative checkout-local pip install."
+    & $python -m pip install --disable-pip-version-check -e ".[test]"
+    if ($LASTEXITCODE -ne 0) { throw "BodyRig legacy historical venv-opdatering fejlede." }
+} elseif ($runtimeAlreadyValid) {
     Write-Host "BodyRig venv: exact runtime lock + checkout-bound editable install already valid; pip install skipped."
 } else {
     if ($canVerifyEditableInstall) {
@@ -202,9 +218,11 @@ if ($runtimeAlreadyValid) {
     }
 }
 
-& $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."
+if ($targetUsesLockedRuntime) {
+    & $python -m bodyrig.runtime_lock --lock $runtimeLock | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "BodyRig venv matcher ikke den canonical Windows Python runtime lock."
+    }
 }
 if ($canVerifyEditableInstall) {
     & $python -m bodyrig.install_authority --repo-root $RepoRoot | Out-Null
