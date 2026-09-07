@@ -250,6 +250,41 @@ def _number(value: Any) -> float:
     return parsed if math.isfinite(parsed) and parsed >= 0 else 0.0
 
 
+def _projection_is_unsupported(*, width: int, height: int, tags: Iterable[str]) -> bool:
+    """Fail closed on source geometry the flat-frame analyzer cannot interpret safely."""
+    normalized_tags = {str(value or "").strip().lower() for value in tags if str(value or "").strip()}
+    joined_tags = " ".join(sorted(normalized_tags))
+    explicit_tokens = (
+        "vr180",
+        "vr360",
+        "virtual reality",
+        "side-by-side",
+        "side by side",
+        "over-under",
+        "over under",
+        "equirect",
+        "spherical",
+        "panorama",
+        "panoramic",
+    )
+    if (
+        any(tag in {"vr", "sbs"} or tag.startswith("vr ") or tag.endswith(" vr") for tag in normalized_tags)
+        or any(token in joined_tags for token in explicit_tokens)
+    ):
+        return True
+
+    # The current observation analyzer consumes raw flat frames and has no
+    # equirectangular/VR reprojection. High-resolution ~2:1 material is therefore
+    # projection-ambiguous even when Stash has no useful VR tags. These exact
+    # geometries are common for 180/360 exports and include the real rig sources
+    # that produced a severely distorted human-fidelity result.
+    if width >= 3840 and height >= 1800:
+        ratio = float(width) / float(height) if height > 0 else 0.0
+        if 1.95 <= ratio <= 2.05:
+            return True
+    return False
+
+
 def _score_candidate(
     *,
     width: int,
@@ -348,6 +383,11 @@ def rank_sources(
                 continue
             width = int(_number(file_info.get("width")))
             height = int(_number(file_info.get("height")))
+            if _projection_is_unsupported(width=width, height=height, tags=tags):
+                # Never feed unsupported panoramic/stereo geometry into the raw
+                # flat-frame observation analyzer. Prefer an explicit source
+                # failure over producing physically misleading reconstruction.
+                continue
             duration = _number(file_info.get("duration"))
             framerate = _number(file_info.get("frame_rate"))
             score = _score_candidate(

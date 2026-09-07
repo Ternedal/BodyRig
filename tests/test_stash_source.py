@@ -116,7 +116,47 @@ def test_rank_prefers_single_performer_high_quality_flat_video(tmp_path: Path):
     assert ranked[0].performer_count == 1
     assert ranked[-1].path == str(low.resolve())
     assert next(item for item in ranked if item.path == str(multi.resolve())).score < ranked[0].score
-    assert next(item for item in ranked if item.path == str(vr.resolve())).score < ranked[0].score
+    assert all(item.path != str(vr.resolve()) for item in ranked)
+
+
+def test_rank_rejects_untagged_high_resolution_two_to_one_projection_ambiguous_sources(tmp_path: Path):
+    flat = tmp_path / "flat-4k.mp4"
+    panoramic = []
+    for width, height in ((8192, 4096), (7168, 3584), (5120, 2560), (4320, 2160)):
+        path = tmp_path / f"pano-{width}x{height}.mp4"
+        path.write_bytes(b"fixture")
+        panoramic.append((path, width, height))
+    flat.write_bytes(b"fixture")
+
+    scenes = [_scene("flat", flat, width=3840, height=2160, framerate=60)]
+    scenes.extend(
+        _scene(f"pano-{width}", path, width=width, height=height, framerate=60)
+        for path, width, height in panoramic
+    )
+
+    ranked = rank_sources(scenes, performer_id="7", max_sources=10)
+    assert [item.path for item in ranked] == [str(flat.resolve())]
+
+
+def test_projection_unsafe_only_sources_fail_closed_instead_of_falling_back(tmp_path: Path):
+    tagged = tmp_path / "tagged-vr.mp4"
+    ambiguous = tmp_path / "untagged-8k-2to1.mp4"
+    tagged.write_bytes(b"fixture")
+    ambiguous.write_bytes(b"fixture")
+    scenes = [
+        _scene("tagged", tagged, width=3840, height=2160, framerate=60, tags=("VR180", "SBS")),
+        _scene("ambiguous", ambiguous, width=8192, height=4096, framerate=60),
+    ]
+
+    ranked = rank_sources(scenes, performer_id="7", max_sources=10)
+    assert ranked == []
+    with pytest.raises(StashSourceError, match="no usable"):
+        build_source_manifest(
+            performer={"id": "7", "name": "Alice"},
+            candidates=ranked,
+            stash_version="x",
+            candidate_count=2,
+        )
 
 
 def test_rank_rejects_wrong_performer_missing_files_and_deduplicates(tmp_path: Path):
