@@ -48,7 +48,7 @@ try {
         throw "BodyRig Python imports bodyrig from unexpected location: $actualModule. Expected checkout authority: $expectedModule"
     }
 
-    $argsList = @("-m", "bodyrig.rig_window_policy", "--repo-root", $repoRoot)
+    $argsList = @("-m", "bodyrig.rig_window_authority_policy", "--repo-root", $repoRoot)
     if (-not [string]::IsNullOrWhiteSpace($PreferredJobId)) {
         $argsList += @("--preferred-job-id", $PreferredJobId)
     }
