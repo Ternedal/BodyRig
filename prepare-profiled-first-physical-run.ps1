@@ -11,18 +11,58 @@ Set-StrictMode -Version Latest
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $doctor = Join-Path $repoRoot "prepare-first-physical-run.ps1"
 $profiledLauncher = Join-Path $repoRoot "clone-body-from-stash-profiled-ready.ps1"
-foreach ($required in @($doctor, $profiledLauncher)) {
+$pathMapConfig = Join-Path $repoRoot "configure-stash-path-map.ps1"
+foreach ($required in @($doctor, $profiledLauncher, $pathMapConfig)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "BodyRig profiled physical preflight dependency is missing: $required"
     }
 }
 
+# Scope path-map cache/discovery to the one performer this physical window is
+# about. A cache hit is cheap; a miss discovers only this performer instead of
+# scanning every Stash-bound Person profile before the canonical doctor runs.
+& $pathMapConfig -PerformerId $PerformerId
+
 # Keep the existing first-run doctor as the sole readiness/source-probe authority.
 # Capture its human-readable output so only the emitted production command is
 # rewritten; no readiness result or physical evidence is synthesized here.
-$captured = @(& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1)
-$code = $LASTEXITCODE
-if ($null -eq $code) { $code = 0 }
+$captured = @()
+$code = 0
+try {
+    $captured = @(& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1)
+    $code = $LASTEXITCODE
+    if ($null -eq $code) { $code = 0 }
+} catch {
+    $captured = @([string]$_.Exception.Message)
+    $code = 1
+}
+
+# A recently cached mapping can remain structurally/live-share valid while the
+# selected performer's Stash path layout changed. Only that narrow source-map
+# failure gets one forced performer-scoped refresh and one doctor retry. Other
+# readiness/auth/renderer failures remain fail-fast and are never retried here.
+if ($code -ne 0) {
+    $failureText = ($captured | ForEach-Object { [string]$_ }) -join "`n"
+    $sourceMapRetryEligible = (
+        $failureText.Contains("Selected Stash performer/source decode probe failed", [System.StringComparison]::Ordinal) -or
+        $failureText.Contains("Selected Stash performer/source decode probe did not prove at least one decodable local video", [System.StringComparison]::Ordinal)
+    )
+    if ($sourceMapRetryEligible) {
+        Write-Host "BodyRig profiled preflight: selected-source probe failed; forcing one performer-scoped Stash path-map refresh before retry."
+        & $pathMapConfig -PerformerId $PerformerId -ForceRefresh
+        $captured = @()
+        $code = 0
+        try {
+            $captured = @(& $doctor -PerformerId $PerformerId -BodyId $BodyId 6>&1)
+            $code = $LASTEXITCODE
+            if ($null -eq $code) { $code = 0 }
+        } catch {
+            $captured = @([string]$_.Exception.Message)
+            $code = 1
+        }
+    }
+}
+
 if ($code -ne 0) {
     foreach ($entry in $captured) { Write-Host ([string]$entry) }
     exit $code
