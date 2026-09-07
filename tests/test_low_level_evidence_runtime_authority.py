@@ -34,7 +34,8 @@ def test_executed_release_tamper_suite_runs_on_windows() -> None:
     linux_jobs, windows_job = workflow.split("  acceptance-windows:", 1)
 
     assert "Test final acceptance gate" not in linux_jobs
-    assert "runs-on: windows-latest" in windows_job
+    assert "runs-on: windows-2025" in windows_job
+    assert "runs-on: windows-latest" not in windows_job
     assert "Test final acceptance gate on production OS" in windows_job
     assert "./tests/test-complete-acceptance.ps1" in windows_job
     assert "Assert exact checkout authority" in windows_job
