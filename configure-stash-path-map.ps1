@@ -1,6 +1,7 @@
 param(
     [string]$ConfigPath = "",
     [string]$PeopleDir = "",
+    [string]$PerformerId = "",
     [switch]$ForceRefresh
 )
 
@@ -22,12 +23,13 @@ if ([string]::IsNullOrWhiteSpace($PeopleDir)) {
     $PeopleDir = Join-Path $bodyRigRoot "people"
 }
 $evidencePath = Join-Path $bodyRigRoot "config\stash-path-map.json"
+$hasExplicitPerformer = -not [string]::IsNullOrWhiteSpace($PerformerId)
 
 if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
     Write-Host "BodyRig Stash path map: ingen gemt Stash-konfiguration; springer over."
     return
 }
-if (-not (Test-Path -LiteralPath $PeopleDir -PathType Container)) {
+if (-not $hasExplicitPerformer -and -not (Test-Path -LiteralPath $PeopleDir -PathType Container)) {
     Write-Host "BodyRig Stash path map: ingen Person-profiler endnu; springer over."
     return
 }
@@ -79,24 +81,29 @@ function Set-BodyRigStashPathMap {
     [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
 }
 
-$performerIds = @(
-    Get-ChildItem -LiteralPath $PeopleDir -Filter "*.json" -File -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            try {
-                $profile = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-            } catch {
-                return
-            }
-            $source = Get-OptionalPropertyValue -Object $profile -Name "source"
-            if ($null -eq $source) { return }
-            $kind = [string](Get-OptionalPropertyValue -Object $source -Name "kind")
-            $performerId = [string](Get-OptionalPropertyValue -Object $source -Name "performer_id")
-            if ($kind -eq "stash-performer" -and -not [string]::IsNullOrWhiteSpace($performerId)) {
-                $performerId
-            }
-        } |
-        Sort-Object -Unique
-)
+if ($hasExplicitPerformer) {
+    $performerIds = @($PerformerId.Trim())
+    Write-Host "BodyRig Stash path map: performer-scoped discovery/cache = $($performerIds[0])"
+} else {
+    $performerIds = @(
+        Get-ChildItem -LiteralPath $PeopleDir -Filter "*.json" -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                try {
+                    $profile = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                } catch {
+                    return
+                }
+                $source = Get-OptionalPropertyValue -Object $profile -Name "source"
+                if ($null -eq $source) { return }
+                $kind = [string](Get-OptionalPropertyValue -Object $source -Name "kind")
+                $profilePerformerId = [string](Get-OptionalPropertyValue -Object $source -Name "performer_id")
+                if ($kind -eq "stash-performer" -and -not [string]::IsNullOrWhiteSpace($profilePerformerId)) {
+                    $profilePerformerId
+                }
+            } |
+            Sort-Object -Unique
+    )
+}
 if ($performerIds.Count -eq 0) {
     Write-Host "BodyRig Stash path map: ingen Stash-bundne personer endnu; springer over."
     return
@@ -115,8 +122,8 @@ if (-not $ForceRefresh -and (Test-Path -LiteralPath $evidencePath -PathType Leaf
             "--evidence", $evidencePath,
             "--stash-url", $stashUrl
         )
-        foreach ($performerId in $performerIds) {
-            $cacheArgs += @("--performer-id", [string]$performerId)
+        foreach ($performerIdItem in $performerIds) {
+            $cacheArgs += @("--performer-id", [string]$performerIdItem)
         }
         $cacheRaw = @(& $cachePython @cacheArgs 2>$null)
         $cacheExit = $LASTEXITCODE
@@ -201,8 +208,8 @@ query BodyRigPathDiscoveryLegacy($id: ID!, $limit: Int!) {
 '@
 
 $rawPaths = [System.Collections.Generic.List[string]]::new()
-foreach ($performerId in $performerIds) {
-    $variables = @{ id = $performerId; limit = 200 }
+foreach ($performerIdItem in $performerIds) {
+    $variables = @{ id = $performerIdItem; limit = 200 }
     try {
         $data = Invoke-StashGraphQl -Query $currentQuery -Variables $variables
     } catch {
@@ -216,7 +223,7 @@ foreach ($performerId in $performerIds) {
         $scenePerformerIds = @($performers | ForEach-Object {
             [string](Get-OptionalPropertyValue -Object $_ -Name "id")
         })
-        if ($scenePerformerIds -notcontains [string]$performerId) { continue }
+        if ($scenePerformerIds -notcontains [string]$performerIdItem) { continue }
         $files = @(Get-OptionalPropertyValue -Object $scene -Name "files")
         foreach ($file in $files) {
             if ($null -eq $file) { continue }
