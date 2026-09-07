@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^job-[0-9a-f]{32}$')]
     [string]$JobId,
-    [string]$BodyRigPython = ""
+    [string]$BodyRigPython = "",
+    [switch]$AssessOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,7 +51,9 @@ try {
         throw "BodyRig Python imports bodyrig from unexpected location: $actualModulePath. Expected checkout authority: $expectedModulePath"
     }
 
-    & $BodyRigPython -m bodyrig.resume_body_job $JobId
+    $argsList = @("-m", "bodyrig.resume_body_job", $JobId)
+    if ($AssessOnly) { $argsList += "--assess-only" }
+    & $BodyRigPython @argsList
     $exitCode = $LASTEXITCODE
 }
 finally {
@@ -58,6 +61,7 @@ finally {
 }
 
 if ($exitCode -ne 0) {
-    throw "BodyRig historical Gate A rescue failed with exit code $exitCode"
+    $mode = if ($AssessOnly) { "assessment" } else { "rescue" }
+    throw "BodyRig historical Gate A $mode failed with exit code $exitCode"
 }
 exit 0
