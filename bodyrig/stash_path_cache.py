@@ -150,7 +150,13 @@ def validate_cache(
         if not isinstance(cached_performers, list) or not all(isinstance(item, str) for item in cached_performers):
             raise StashPathCacheError("cached path map performer_ids is invalid")
         normalized_cached = _normalized_performers(cached_performers)
-        if allow_performer_superset:
+        # A one-performer request is safe to satisfy from a cache that covers
+        # additional performers: the mapping is host/share authority, while the
+        # later Stash performer check + FFmpeg decode gate remains source authority.
+        # Multi-performer/unscoped validation stays exact so profile-set changes
+        # still invalidate the broad startup cache.
+        covering_scope_allowed = allow_performer_superset or len(current_performers) == 1
+        if covering_scope_allowed:
             if not current_performers:
                 raise StashPathCacheError("performer-superset cache validation requires an explicit performer scope")
             if not set(current_performers).issubset(normalized_cached):
@@ -203,7 +209,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-performer-superset",
         action="store_true",
-        help="Allow an explicit requested performer set to reuse a cache covering additional performers.",
+        help="Allow a requested performer set to reuse a cache covering additional performers.",
     )
     return parser
 
