@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -83,7 +86,7 @@ def _existing_body_revision(profile: dict[str, Any], *, body_id: str, package_sh
     return None
 
 
-def resume_body_job(job_id: str) -> dict[str, Any]:
+def _resume_context(job_id: str) -> dict[str, Any]:
     path = _job_path(job_id)
     job = _read_job(path)
     if job.get("kind") != "body-build":
@@ -104,45 +107,112 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
     if producer_revision == validator_revision:
         raise ResumeBodyJobError("Gate A resume requires a newer validator revision than the failed producer job")
 
-    acceptance_dir = Path(str(job["acceptance_dir"])).expanduser().resolve()
-    fidelity_dir = Path(str(job["fidelity_dir"])).expanduser().resolve()
-    session_report = Path(str(job["session_report"])).expanduser().resolve()
+    return {
+        "path": path,
+        "job": job,
+        "producer_revision": producer_revision,
+        "validator_revision": validator_revision,
+        "acceptance_dir": Path(str(job["acceptance_dir"])).expanduser().resolve(),
+        "fidelity_dir": Path(str(job["fidelity_dir"])).expanduser().resolve(),
+        "session_report": Path(str(job["session_report"])).expanduser().resolve(),
+    }
 
-    # Every resume must derive a fresh Gate A result from the immutable producer
-    # evidence. A previous acceptance directory is preserved for forensics but
-    # is never trusted as validator authority for a later attempt.
-    quarantined_acceptance = None
-    if acceptance_dir.exists():
-        quarantined_acceptance = _quarantine_partial(acceptance_dir, label="previous Gate A")
 
-    quarantined_fidelity = None
-    if fidelity_dir.exists():
-        quarantined_fidelity = _quarantine_partial(fidelity_dir, label="partial fidelity review")
+def assess_body_job_resume(job_id: str) -> dict[str, Any]:
+    """Prove that a failed Gate-A body job can be resumed without persistent mutation.
 
-    current = _read_job(path)
-    current["producer_revision"] = producer_revision
-    current["validator_revision"] = validator_revision
-    current["status"] = "running"
-    current["completed_utc"] = None
-    current["pid"] = None
-    current["error"] = None
-    current["resume_stage"] = "gate-a"
-    current["resume_started_utc"] = _now()
-    _write_job(current)
+    The canonical Gate-A implementation is executed against a temporary output
+    directory so the assessment exercises the same immutable producer evidence,
+    package lineage, skin/topology QA and runtime materialization as the real
+    resume. The temporary result is removed before this function returns.
+    """
 
-    try:
+    context = _resume_context(job_id)
+    with tempfile.TemporaryDirectory(prefix="bodyrig-gate-a-resume-assessment-") as temp_root:
         gate = resume_gate_a(
-            session_report=session_report,
-            validator_revision=validator_revision,
-            output_dir=acceptance_dir,
+            session_report=context["session_report"],
+            validator_revision=context["validator_revision"],
+            output_dir=Path(temp_root) / "acceptance",
             python_executable=sys.executable,
         )
 
-        body_id = str(gate["body_id"])
-        expected_hash = str(gate["package_sha256"])
+    return {
+        "format": "bodyrig-body-job-resume-assessment",
+        "version": 1,
+        "job_id": job_id,
+        "eligible": True,
+        "persistent_mutation": False,
+        "producer_revision": context["producer_revision"],
+        "validator_revision": context["validator_revision"],
+        "body_id": gate["body_id"],
+        "package_sha256": gate["package_sha256"],
+        "skin_assessment": gate["skin_assessment"],
+        "topology_assessment": gate["topology_assessment"],
+        "recovery_rerun": False,
+        "fitter_rerun": False,
+        "next_gate": "historical-gate-a-resume",
+    }
+
+
+def resume_body_job(job_id: str) -> dict[str, Any]:
+    context = _resume_context(job_id)
+    path = context["path"]
+    producer_revision = context["producer_revision"]
+    validator_revision = context["validator_revision"]
+    acceptance_dir = context["acceptance_dir"]
+    fidelity_dir = context["fidelity_dir"]
+    session_report = context["session_report"]
+
+    # Build and fully validate the replacement Gate A beside the canonical
+    # output first. Historical/partial output is not moved until the immutable
+    # producer evidence, package lineage, QA and runtime materialization have
+    # all passed on the current validator revision.
+    staged_acceptance = acceptance_dir.with_name(
+        f"{acceptance_dir.name}.resume-staging-{uuid.uuid4().hex}"
+    )
+    gate = resume_gate_a(
+        session_report=session_report,
+        validator_revision=validator_revision,
+        output_dir=staged_acceptance,
+        python_executable=sys.executable,
+    )
+
+    body_id = str(gate["body_id"])
+    expected_hash = str(gate["package_sha256"])
+    staged_package = staged_acceptance / f"{body_id}.mrbody"
+    if not body_id or len(expected_hash) != 64 or not staged_package.is_file():
+        shutil.rmtree(staged_acceptance, ignore_errors=True)
+        raise ResumeBodyJobError("staged Gate A did not produce a canonical package authority")
+
+    # Every committed resume derives a fresh Gate A result from the immutable
+    # producer evidence. Previous acceptance/fidelity output is preserved for
+    # forensics, but only after the complete replacement Gate A is ready.
+    quarantined_acceptance = None
+    quarantined_fidelity = None
+    try:
+        if acceptance_dir.exists():
+            quarantined_acceptance = _quarantine_partial(acceptance_dir, label="previous Gate A")
+        if fidelity_dir.exists():
+            quarantined_fidelity = _quarantine_partial(fidelity_dir, label="partial fidelity review")
+
+        current = _read_job(path)
+        current["producer_revision"] = producer_revision
+        current["validator_revision"] = validator_revision
+        current["status"] = "running"
+        current["completed_utc"] = None
+        current["pid"] = None
+        current["error"] = None
+        current["resume_stage"] = "gate-a"
+        current["resume_started_utc"] = _now()
+        _write_job(current)
+
+        if acceptance_dir.exists():
+            raise ResumeBodyJobError("canonical Gate A destination unexpectedly exists after quarantine")
+        os.replace(staged_acceptance, acceptance_dir)
+
         package_path = acceptance_dir / f"{body_id}.mrbody"
-        if not body_id or len(expected_hash) != 64 or not package_path.is_file():
-            raise ResumeBodyJobError("resumed Gate A did not produce a canonical package authority")
+        if not package_path.is_file():
+            raise ResumeBodyJobError("committed resumed Gate A package is missing after atomic directory promotion")
 
         ps = _powershell()
         fidelity_command = [
@@ -229,6 +299,8 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
         _write_job(finished)
         return finished
     except Exception as exc:
+        if staged_acceptance.exists():
+            shutil.rmtree(staged_acceptance, ignore_errors=True)
         failed = _read_job(path)
         failed["status"] = "failed"
         failed["completed_utc"] = _now()
@@ -242,10 +314,21 @@ def resume_body_job(job_id: str) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Resume a BodyRig UI body job that failed only at Gate A, without rerunning clone/recovery/fitting.")
+    parser = argparse.ArgumentParser(
+        description="Assess or resume a BodyRig UI body job that failed only at Gate A without rerunning clone/recovery/fitting."
+    )
     parser.add_argument("job_id")
+    parser.add_argument(
+        "--assess-only",
+        action="store_true",
+        help="Run the complete Gate-A validator against temporary output and report resume eligibility without persistent mutation.",
+    )
     args = parser.parse_args(argv)
     try:
+        if args.assess_only:
+            value = assess_body_job_resume(args.job_id)
+            print(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+            return 0
         result = resume_body_job(args.job_id)
     except Exception as exc:
         print(f"BodyRig body-job Gate A resume: FAIL: {exc}", file=sys.stderr)
