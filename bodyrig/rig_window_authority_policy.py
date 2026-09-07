@@ -9,6 +9,7 @@ from typing import Any, Iterator
 
 from .acceptance_status import AcceptanceStatus
 from .automatic_run_discovery import AutomaticRunDiscoveryError, candidate_from_run, discover_run_authorities
+from .one_command_recovery import OneCommandRecoveryError, build_live_recovery_status
 from .rig_window_acceptance import has_automatic_evidence, inspect_for_rig_window
 from . import rig_window_policy as policy
 
@@ -89,6 +90,21 @@ def _guarded_current_acceptance_status(acceptance_dir: Path, repo_root: Path) ->
 
 
 def _guarded_current_session_status(session_path: Path, repo_root: Path) -> AcceptanceStatus:
+    try:
+        recovery = build_live_recovery_status(session_path, repo_root)
+    except OneCommandRecoveryError as exc:
+        raise policy.base.RigWindowPlanError(f"One-command interrupted fit recovery is not reusable: {exc}") from exc
+    if recovery is not None:
+        return AcceptanceStatus(
+            state="ready",
+            gate="interrupted-fit-recovery",
+            acceptance_dir=str(recovery["clone_output"]),
+            body_id=str(recovery.get("body_id") or "") or None,
+            bodyrig_revision=str(recovery.get("bodyrig_revision") or "") or None,
+            message=str(recovery.get("message") or "Interrupted one-command fit recovery is reusable."),
+            next_command=str(recovery.get("next_command") or "") or None,
+        )
+
     status = _ORIGINAL_CURRENT_SESSION_STATUS(session_path, repo_root)
     acceptance_text = str(status.acceptance_dir or "").strip()
     if acceptance_text:
