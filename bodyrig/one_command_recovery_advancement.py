@@ -176,6 +176,16 @@ def inspect_completed_recovery(structural: Mapping[str, Any]) -> dict[str, Any] 
     else:
         raise OneCommandRecoveryAdvancementError(f"unsupported recovery mode: {mode}")
 
+    acceptance_dir = clone_output / "acceptance"
+    if acceptance_dir.exists():
+        if acceptance_dir.is_symlink() or not acceptance_dir.is_dir():
+            raise OneCommandRecoveryAdvancementError("recovered acceptance path exists but is not a canonical directory")
+        gate_a = acceptance_dir / "bodyrig-acceptance.json"
+        if gate_a.is_symlink() or not gate_a.is_file():
+            raise OneCommandRecoveryAdvancementError(
+                "recovered acceptance directory exists without a canonical Gate A marker; refusing to write over partial acceptance bytes"
+            )
+
     return {
         "state": "complete",
         "gate": "physical-clone",
@@ -187,7 +197,7 @@ def inspect_completed_recovery(structural: Mapping[str, Any]) -> dict[str, Any] 
         "recovered_session": str(recovered_session),
         "recovery_receipt": str(recovery_receipt),
         "clone_output": str(clone_output),
-        "acceptance_dir": str(clone_output / "acceptance"),
+        "acceptance_dir": str(acceptance_dir),
         "package_sha256": package_sha,
         "expensive_reconstruction_rerun": False,
         "fitter_rerun": False,
