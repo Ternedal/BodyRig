@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = (ROOT / "plan-rig-window.ps1").read_text(encoding="utf-8")
 CORE = (ROOT / "bodyrig" / "rig_window_plan.py").read_text(encoding="utf-8")
 POLICY = (ROOT / "bodyrig" / "rig_window_policy.py").read_text(encoding="utf-8")
+AUTHORITY = (ROOT / "bodyrig" / "rig_window_authority_policy.py").read_text(encoding="utf-8")
 INTERRUPTED = (ROOT / "resume-interrupted-body-job.ps1").read_text(encoding="utf-8")
 
 
@@ -17,7 +18,7 @@ def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
     assert "BodyRig checkout is dirty" in WRAPPER
     assert "bodyrig.__file__" in WRAPPER
     assert "unexpected location" in WRAPPER
-    assert '"-m", "bodyrig.rig_window_policy"' in WRAPPER
+    assert '"-m", "bodyrig.rig_window_authority_policy"' in WRAPPER
 
 
 def test_wrapper_exposes_explicit_person_scope() -> None:
@@ -36,6 +37,22 @@ def test_unified_policy_scores_physical_progress_before_reconstruction() -> None
     assert "rank_physical_candidates(existing + rescues + interrupted)" in POLICY
     assert 'path="fresh-profiled-physical-preflight"' in POLICY
     assert "Only now spend rig time on fresh profiled physical preflight/reconstruction" in POLICY
+
+
+def test_authority_layer_places_committed_gate_a_above_rescue_without_promoting_plain_session() -> None:
+    assert "COMMITTED_GATE_A_RANK = 16" in AUTHORITY
+    assert 'str(candidate.get("gate") or "") != "gate-a"' in AUTHORITY
+    assert '"bodyrig-acceptance.json"' in AUTHORITY
+    assert 'candidate["rank"] = max' in AUTHORITY
+    assert "COMMITTED_GATE_A_RANK" in AUTHORITY
+
+
+def test_complete_historical_evidence_requires_current_origin_main_ancestry_now() -> None:
+    assert "def _strict_complete_historical_revision_is_safe" in AUTHORITY
+    assert '"refs/remotes/origin/main^{commit}"' in AUTHORITY
+    assert '"merge-base", "--is-ancestor"' in AUTHORITY
+    assert 'str(candidate.get("state") or "") == "complete"' in AUTHORITY
+    assert "complete historical evidence revision is not proven as an ancestor" in AUTHORITY
 
 
 def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
@@ -95,3 +112,10 @@ def test_unified_policy_only_assesses_and_emits_mutating_next_commands() -> None
     assert "base._interrupted_assessment(repo_root, job_id)" in POLICY
     assert "start_body_resume" not in POLICY
     assert "clone-body-from-stash-ready.ps1" not in POLICY
+
+
+def test_authority_shim_is_scoped_and_restores_legacy_policy_hook() -> None:
+    assert "with _PATCH_LOCK" in AUTHORITY
+    assert "previous = policy._existing_candidates" in AUTHORITY
+    assert "policy._existing_candidates = _guarded_existing_candidates" in AUTHORITY
+    assert "policy._existing_candidates = previous" in AUTHORITY
