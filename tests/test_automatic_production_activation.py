@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from bodyrig.automatic_activation_status import inspect_automatic_activation
 from bodyrig.automatic_release_gate import (
     AutomaticReleaseGateError,
     QUALITY_THRESHOLDS,
@@ -257,6 +259,69 @@ def test_automatic_gate_requires_low_risk_skin_qa(tmp_path: Path) -> None:
     write_json(gate, gate_value)
     with pytest.raises(AutomaticReleaseGateError, match="requires skin QA low-risk"):
         validate_and_build(acceptance, repo, require_git_state=False)
+
+
+def test_automatic_resume_starts_at_windows_for_gate_a_only(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    shutil.rmtree(acceptance / "windows-evidence")
+    shutil.rmtree(acceptance / "quest-evidence")
+    status = inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    assert status.state == "ready"
+    assert status.stage == "windows"
+
+
+def test_automatic_resume_skips_valid_windows_and_goes_to_quest(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    shutil.rmtree(acceptance / "quest-evidence")
+    status = inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    assert status.stage == "quest"
+    assert "Windows automatic PASS is reusable" in status.message
+
+
+def test_automatic_resume_can_recover_quest_quality_without_rebuilding_windows(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    (acceptance / "quest-evidence" / "quest-deformation-quality.json").unlink()
+    status = inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    assert status.stage == "quest-quality"
+    assert "probe/deformation PASS is reusable" in status.message
+
+
+def test_automatic_resume_reaches_release_after_both_platforms(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    status = inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    assert status.stage == "release"
+
+
+def test_automatic_resume_validates_existing_release_v2_as_complete(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    report = validate_and_build(acceptance, repo, require_git_state=False)
+    write_json(acceptance / "bodyrig-release-acceptance.json", report)
+    status = inspect_automatic_activation(acceptance, repo, require_git_state=False)
+    assert status.state == "complete"
+    assert status.stage == "complete"
+
+
+def test_automatic_resume_rejects_tampered_existing_release(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    report = validate_and_build(acceptance, repo, require_git_state=False)
+    report["renderer_acceptance"]["windows_unity_univrm"]["device_model"] = "tampered"
+    write_json(acceptance / "bodyrig-release-acceptance.json", report)
+    with pytest.raises(AutomaticReleaseGateError, match="no longer exactly matches"):
+        inspect_automatic_activation(acceptance, repo, require_git_state=False)
+
+
+def test_automatic_resume_refuses_legacy_human_attestation_mixing(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    write_json(acceptance / "bodyrig-renderer-acceptance-windows.json", {"format": "legacy-human"})
+    with pytest.raises(AutomaticReleaseGateError, match="refuses to mix"):
+        inspect_automatic_activation(acceptance, repo, require_git_state=False)
+
+
+def test_automatic_resume_rejects_windows_pair_without_quality(tmp_path: Path) -> None:
+    acceptance, repo = build_fixture(tmp_path)
+    (acceptance / "windows-evidence" / "windows-deformation-quality.json").unlink()
+    with pytest.raises(AutomaticReleaseGateError, match="transactional Windows proof is incomplete"):
+        inspect_automatic_activation(acceptance, repo, require_git_state=False)
 
 
 def test_unity_quality_probe_is_geometry_based_and_top_wrapper_has_no_human_gate() -> None:
