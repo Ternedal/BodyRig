@@ -19,6 +19,14 @@ def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
     assert '"-m", "bodyrig.rig_window_plan"' in WRAPPER
 
 
+def test_wrapper_exposes_explicit_person_scope() -> None:
+    assert "[string]$PersonId" in WRAPPER
+    assert "^person-[0-9a-f]{32}$" in WRAPPER
+    assert '"--person-id", $PersonId' in WRAPPER
+    assert '"--performer-id", $PerformerId' in WRAPPER
+    assert '"--body-id", $BodyId' in WRAPPER
+
+
 def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
     rescue = CORE.index('path="historical-gate-a-resume"')
     acceptance = CORE.index('path="existing-gate-a-acceptance"')
@@ -28,7 +36,7 @@ def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
     fresh = CORE.index('path="fresh-profiled-physical-preflight"')
 
     assert rescue < acceptance < historical < existing < interrupted < fresh
-    assert "assess_body_job_resume(job_id)" in CORE
+    assert "assess_body_job_resume(job_id_value)" in CORE
     assert 'wrapper = repo_root / "resume-interrupted-body-job.ps1"' in CORE
     assert '"-AssessOnly"' in CORE
     assert '"expensive_reconstruction_rerun": False' in CORE
@@ -36,12 +44,30 @@ def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
     assert "furthest valid physical body acceptance chain" in CORE
 
 
+def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
+    assert "def resolve_person_scope" in CORE
+    assert "Multiple BodyRig Persons are bound to the requested Stash performer" in CORE
+    assert "Rig-window evidence belongs to multiple BodyRig Persons" in CORE
+    assert "pass -PersonId or -PerformerId" in CORE
+    assert "def _scope_rows" in CORE
+    assert "return []" in CORE
+    assert '"scope": {' in CORE
+
+
+def test_standalone_session_reuse_is_scoped_when_identity_is_explicit() -> None:
+    assert "def _scoped_completed_sessions" in CORE
+    assert "explicit_performer_id and body_id" in CORE
+    assert "performer_id=explicit_performer_id" in CORE
+    assert "body_id=body_id" in CORE
+    assert "only reuse when that leaves exactly one" in CORE
+
+
 def test_historical_acceptance_switches_to_exact_evidence_revision_before_new_compute() -> None:
     assert "_historical_revision_is_safe" in CORE
     assert 'path="historical-acceptance-checkout"' in CORE
     assert "-Revision {_ps_quote(evidence_revision)} -NoBrowser" in CORE
     assert "physical-acceptance-status.ps1 -AcceptanceDir" in CORE
-    assert "Re-enter that accepted revision before spending rig time on any earlier stage" in CORE
+    assert "Re-enter it before spending rig time on an earlier stage" in CORE
 
 
 def test_planner_searches_both_ui_data_and_standalone_session_roots() -> None:
@@ -71,11 +97,11 @@ def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() 
 
 
 def test_python_planner_only_assesses_and_emits_mutating_next_commands() -> None:
-    assert 'f".\\\\resume-body-job.ps1 -JobId {_ps_quote(job_id)}"' in CORE
+    assert 'f".\\\\resume-body-job.ps1 -JobId {_ps_quote(job_id_value)}"' in CORE
     assert 'f".\\\\resume-interrupted-body-job.ps1 -JobId {_ps_quote(row[\'job_id\'])}"' in CORE
     assert 'f".\\\\bodyrig-status.ps1 -PerformerId' in CORE
     assert '"-AssessOnly"' in CORE
-    assert "assess_body_job_resume(job_id)" in CORE
+    assert "assess_body_job_resume(job_id_value)" in CORE
     assert "start_body_resume" not in CORE
-    assert "resume_body_job(job_id)" not in CORE
+    assert "resume_body_job(job_id_value)" not in CORE
     assert "clone-body-from-stash-ready.ps1" not in CORE
