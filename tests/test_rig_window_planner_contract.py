@@ -33,6 +33,20 @@ def test_rig_window_priority_is_reuse_before_reconstruction() -> None:
     assert "This physical body acceptance chain is already complete" in SOURCE
 
 
+def test_planner_searches_both_ui_data_and_standalone_session_roots() -> None:
+    assert '$dataRoot = [string]$env:BODYRIG_DATA_DIR' in SOURCE
+    assert '$artifactBase = [string]$env:LOCALAPPDATA' in SOURCE
+    assert 'Join-Path $artifactBase "BodyRig\\physical-clone-sessions"' in SOURCE
+    assert 'Join-Path $dataRoot "physical-clone-sessions"' in SOURCE
+    assert '$sessionRoots = @($standaloneSessionRoot, $dataSessionRoot) | Select-Object -Unique' in SOURCE
+    assert 'foreach ($sessionsRoot in $sessionRoots)' in SOURCE
+
+
+def test_planner_keeps_gate_a_resume_candidate_after_failed_retry() -> None:
+    assert "resume_source_error = [string]$job.resume_source_error" in SOURCE
+    assert '$_.resume_source_error -like "*high-fidelity Gate A failed*"' in SOURCE
+
+
 def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() -> None:
     assert "$PSVersionTable.PSVersion.Major -lt 7" in INTERRUPTED
     assert "git -C $repoRoot rev-parse HEAD" in INTERRUPTED
