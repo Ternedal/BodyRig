@@ -125,6 +125,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $acceptanceDir "bodyrig-acceptance.j
 }
 
 $activateArgs = @{ AcceptanceDir = $acceptanceDir; Output = $finalReceipt }
+if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $activateArgs.BodyRigPython = $BodyRigPython }
 if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $activateArgs.UnityExe = $UnityExe }
 if (-not [string]::IsNullOrWhiteSpace($AdbExe)) { $activateArgs.AdbExe = $AdbExe }
 if (-not [string]::IsNullOrWhiteSpace($Serial)) { $activateArgs.Serial = $Serial }
