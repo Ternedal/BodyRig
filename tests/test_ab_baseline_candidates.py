@@ -41,10 +41,22 @@ def test_reviewed_contract_binds_every_active_candidate_blob() -> None:
     )
 
 
-def test_contract_cannot_grant_physical_or_production_authority() -> None:
+def test_contract_cannot_grant_physical_promotion_or_production_authority() -> None:
     value = _contract()
     value["production_activation"] = True
-    with pytest.raises(ab.AbBaselineCandidateError, match="cannot grant physical or production authority"):
+    with pytest.raises(ab.AbBaselineCandidateError, match="cannot grant physical, promotion or production authority"):
+        ab._validate_contract(value)
+
+    value = _contract()
+    value["promotion_authority"] = True
+    with pytest.raises(ab.AbBaselineCandidateError, match="cannot grant physical, promotion or production authority"):
+        ab._validate_contract(value)
+
+
+def test_contract_rejects_unknown_top_level_authority_field() -> None:
+    value = _contract()
+    value["implicit_acceptance"] = True
+    with pytest.raises(ab.AbBaselineCandidateError, match="unexpected top-level fields"):
         ab._validate_contract(value)
 
 
@@ -104,6 +116,7 @@ def test_inspection_requires_clean_exact_main_and_one_commit_candidate_deltas(mo
     assert result["candidates"]["recovery_throughput_v3"]["revision"] == THROUGHPUT
     assert result["comparison_only"] is True
     assert result["physical_acceptance_authority"] is False
+    assert result["promotion_authority"] is False
     assert result["production_activation"] is False
 
 
