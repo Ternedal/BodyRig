@@ -95,7 +95,7 @@ def _validate_ab(path: Path) -> dict[str, Any]:
     return evidence
 
 
-def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dict[str, str]:
+def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dict[str, Any]:
     if not path.is_dir():
         raise FidelityAbReviewError(f"{label} render directory not found: {path}")
     comparison_path = path / "comparison-authority.json"
@@ -132,6 +132,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
     if not isinstance(snapshots, list) or len(snapshots) != len(CANONICAL_VIEWS):
         raise FidelityAbReviewError(f"{label} render set must contain four canonical snapshots")
     actual_views: list[str] = []
+    snapshot_bindings: list[dict[str, str]] = []
     for entry in snapshots:
         if not isinstance(entry, dict):
             raise FidelityAbReviewError(f"{label} render-set snapshot is invalid")
@@ -148,6 +149,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
         expected_sha = _need_sha(entry.get("sha256"), label=f"{label} {view} snapshot SHA-256")
         if _sha256_file(snapshot_path) != expected_sha:
             raise FidelityAbReviewError(f"{label} snapshot bytes changed after render capture: {view}")
+        snapshot_bindings.append({"view": view, "sha256": expected_sha})
     if tuple(actual_views) != CANONICAL_VIEWS:
         raise FidelityAbReviewError(f"{label} render-set canonical view order mismatch")
 
@@ -155,6 +157,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
         "comparison_authority_sha256": _sha256_file(comparison_path),
         "render_set_sha256": _sha256_file(render_set_path),
         "renderer_revision": renderer_revision,
+        "snapshots": snapshot_bindings,
     }
 
 
@@ -194,16 +197,18 @@ def build_review(
             "builder_revision": _need_revision(evidence["left"].get("builder_revision"), label="left builder revision"),
             "comparison_authority_sha256": left_render["comparison_authority_sha256"],
             "render_set_sha256": left_render["render_set_sha256"],
+            "snapshots": left_render["snapshots"],
         },
         "right": {
             "package_sha256": _need_sha(evidence["right"].get("package_sha256"), label="right package SHA-256"),
             "builder_revision": _need_revision(evidence["right"].get("builder_revision"), label="right builder revision"),
             "comparison_authority_sha256": right_render["comparison_authority_sha256"],
             "render_set_sha256": right_render["render_set_sha256"],
+            "snapshots": right_render["snapshots"],
         },
         "clean_appearance_ab_verified": True,
         "human_visual_review_confirmed": True,
-        "candidate_preference_authority": decision in {"left", "right"},
+        "directional_preference_recorded": decision in {"left", "right"},
         "comparison_only": True,
         "physical_acceptance_authority": False,
         "production_activation": False,
