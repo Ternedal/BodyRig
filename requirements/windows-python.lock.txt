@@ -1,0 +1,35 @@
+# BodyRig canonical Windows Python runtime lock.
+# Validated on windows-latest / CPython 3.11 in CI on 2026-09-07.
+# Keep pyproject.toml compatibility ranges broad; this file is the exact rig/operator runtime.
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6
+fastapi==0.141.1
+h11==0.16.0
+httpcore==1.0.9
+httpcore2==2.12.0
+httptools==0.8.0
+httpx==0.28.1
+httpx2==2.12.0
+idna==3.19
+iniconfig==2.3.0
+numpy==1.26.4
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+pydantic==2.13.5
+pydantic-core==2.46.5
+pygments==2.21.0
+pytest==9.1.1
+python-dotenv==1.2.3
+pyyaml==6.0.3
+starlette==1.6.0
+truststore==0.10.4
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+uvicorn==0.52.4
+watchfiles==1.2.0
+websockets==17.1
