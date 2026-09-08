@@ -1,0 +1,41 @@
+{
+  "format": "bodyrig-ab-baseline-candidate-contract",
+  "version": 1,
+  "candidates": {
+    "pbr_v2": {
+      "ref": "candidate/skin-pbr-v2-current-main-20260908",
+      "files": {
+        "bodyrig/bridges/sith_pbr_material.py": "ff79c39f66d44f6649a819da9d75adc35609d0da",
+        "tests/test_sith_basecolor_detail.py": "860a5ece9c92c1438d99b7e32b254ab2457552f1",
+        "tests/test_sith_pbr_material.py": "bb093a213c5b5ddcfd17f5aa2557bd7568d43012"
+      }
+    },
+    "recovery_throughput_v3": {
+      "ref": "candidate/recovery-throughput-v3-current-main-20260908",
+      "files": {
+        "bodyrig/bridges/hmr2_checkpoint_bridge.py": "853414c46568cfeb8d00fbb00c51acf491d78dbd",
+        "bodyrig/bridges/hmr2_config.py": "d310d972b25edec83552babfd2e7e0626698be3e",
+        "bodyrig/bridges/hmr2_resume_bridge.py": "d8ddd983cc9a6275d424add81ed530326cdf9c0a",
+        "bodyrig/recovery_throughput_human_review.py": "57fa06c0217f7069f5449d7834a6b35196105b09",
+        "bodyrig/recovery_throughput_review_bundle.py": "6bc1ad5e1982199c770cd084378904714ff68951",
+        "bodyrig/recovery_throughput_sampling_audit.py": "955c5dccbf6a9d428475bd39435d662bfdec3a64",
+        "build-recovery-throughput-review-bundle.ps1": "922e73140e0ee065539d478fc850d3a95cba23b7",
+        "compare-recovery-throughput.ps1": "15923835d4c5ad13569f80ccc6dfaa3eb19ae003",
+        "docs/RECOVERY_THROUGHPUT_AB.md": "f93809ec8734d415aa75a4f333e9367e800df152",
+        "record-recovery-throughput-human-review.ps1": "9620956b39459998a065e9cc6c10811ee0dded73",
+        "tests/test_compare_recovery_throughput_script.py": "6b2b018abb9632ed6b48fa9978e5d2d737d3e318",
+        "tests/test_hmr2_cross_job_resume.py": "e71b2f273622f9d77fa04283034a982fe46dd1a0",
+        "tests/test_hmr2_recovery_checkpoints.py": "ca318b6801b077016467a7aa44ca1909088eb8bb",
+        "tests/test_observation_throughput.py": "833c5e52de8075b4173a83bf79b8ba94ff7b11a9",
+        "tests/test_recovery_throughput_ab_docs.py": "edee10460303f7731fddd76cb0a268fab7952145",
+        "tests/test_recovery_throughput_review_chain.py": "a3bb4f29c58fc1e90f9fc6e44600effd693bf4d0",
+        "tests/test_recovery_throughput_review_wrappers.py": "1b6837376ebf7b034184472c427d060eb8d89c86",
+        "tests/test_recovery_throughput_sampling_audit.py": "875e60f7ecd53589e04d545f8c77a481f779c30b"
+      }
+    }
+  },
+  "comparison_only": true,
+  "human_visual_authority_required": true,
+  "physical_acceptance_authority": false,
+  "production_activation": false
+}
