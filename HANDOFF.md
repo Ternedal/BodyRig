@@ -10,7 +10,7 @@ Historical PR heads, old comments and frozen evidence branches are not current o
 
 The current operator path is checkout-bound and fail-closed. A global/stale BodyRig install must not authorize a physical next command. Fresh physical `body-build` creation is additionally revision-bound: the local clean checkout revision, running BodyRig service revision and enqueued job revision must all match exactly.
 
-Repository-setting verification is now also landed on `main`: `verify-repository-authority.ps1` is a checkout-bound, read-only verifier for classic branch protection or an equivalent active ruleset. It binds local clean `main` to GitHub `main`, requires the exact BodyRig CI contexts, PR-before-merge, review-thread resolution, no force/non-fast-forward push, no deletion, and no bypass authority. For classic protection, `required_pull_request_reviews.bypass_pull_request_allowances` must be empty for users, teams and apps; named PR-bypass actors fail closed even when administrator enforcement is enabled.
+Repository-setting verification is now also landed on `main`: `verify-repository-authority.ps1` is a checkout-bound, read-only verifier for classic branch protection or an equivalent active ruleset. It binds local clean `main` to GitHub `main`, requires the exact BodyRig CI contexts, requires every one of those checks to be source-bound to the GitHub Actions app/integration ID `15368`, requires PR-before-merge and review-thread resolution, and rejects force/non-fast-forward push, deletion and bypass authority. For classic protection, `required_pull_request_reviews.bypass_pull_request_allowances` must be empty for users, teams and apps and every required check must carry `app_id=15368`; for repository rulesets every required status-check entry must carry `integration_id=15368`. Matching context names without that GitHub Actions source binding fail closed.
 
 Repository-level enforcement itself is **not** complete: issue #138 remains open because live GitHub still reports `main` as `protected=false`. An authorized repository administrator must configure branch protection or an equivalent ruleset and then make `./verify-repository-authority.ps1` PASS from exact clean current `main`. Software, CI or physical evidence cannot substitute for that administration boundary.
 
@@ -153,7 +153,7 @@ The open product backlog is intentionally physical/human:
 
 One separate repository-administration blocker remains:
 
-- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier is landed, including rejection of classic user/team/app PR-bypass allowances, but live GitHub verification on 2026-09-08 still reports `protected=false`. This requires authorized GitHub administration; close #138 only after exact clean current `main` makes `./verify-repository-authority.ps1` PASS.
+- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier is landed, including rejection of classic user/team/app PR-bypass allowances and mandatory source binding of all five required checks to GitHub Actions app/integration ID `15368`; live GitHub verification on 2026-09-08 still reports `protected=false`. This requires authorized GitHub administration; mark #138 complete only after exact clean current `main` makes `./verify-repository-authority.ps1` PASS.
 
 Do not close the physical/human issues from CI, fixtures, generated screenshots or software-only evidence.
 
