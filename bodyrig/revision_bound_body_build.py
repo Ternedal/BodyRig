@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .ui_jobs import UiJobError, manager, operator_checkout_status
+from .ui_jobs import UiJobError, _job_path, _read_job, _write_job, manager, operator_checkout_status
 
 
 class RevisionBoundBodyBuildError(UiJobError):
@@ -16,7 +16,12 @@ def _canonical_revision(value: object, *, label: str) -> str:
     return revision
 
 
-def start_revision_bound_body_build(person_id: str, *, expected_bodyrig_revision: str) -> dict[str, Any]:
+def start_revision_bound_body_build(
+    person_id: str,
+    *,
+    expected_bodyrig_revision: str,
+    retain_private_workspace_for_ab: bool = False,
+) -> dict[str, Any]:
     expected = _canonical_revision(expected_bodyrig_revision, label="expected BodyRig revision")
 
     # UiJobManager.start_body_build starts its worker thread before returning.
@@ -53,4 +58,32 @@ def start_revision_bound_body_build(person_id: str, *, expected_bodyrig_revision
             raise RevisionBoundBodyBuildError(
                 f"body-build revision changed during enqueue; canceled queued job {job_id} before physical start"
             )
+
+        if retain_private_workspace_for_ab:
+            job_id = str(started.get("job_id") or "")
+            if not job_id:
+                raise RevisionBoundBodyBuildError("A/B retention request did not receive a canonical queued job id")
+            queued = _read_job(_job_path(job_id))
+            if queued.get("status") != "queued" or queued.get("kind") != "body-build":
+                raise RevisionBoundBodyBuildError(
+                    "A/B private-workspace retention can only be bound while the exact body-build is still queued"
+                )
+            queued_revision = _canonical_revision(
+                queued.get("bodyrig_revision"),
+                label="queued A/B baseline body-build revision",
+            )
+            if queued_revision != expected:
+                raise RevisionBoundBodyBuildError(
+                    "queued A/B baseline body-build revision changed before retention could be bound"
+                )
+            queued["ab_baseline_retention"] = {
+                "format": "bodyrig-ab-baseline-retention",
+                "version": 1,
+                "retain_private_workspace": True,
+                "expected_bodyrig_revision": expected,
+                "job_id": job_id,
+            }
+            _write_job(queued)
+            started = dict(queued)
+
         return started
