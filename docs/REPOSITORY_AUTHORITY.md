@@ -55,11 +55,14 @@ Requiring the branch to be up to date before merge is strongly recommended. The 
 A passing classic policy requires:
 
 - `required_pull_request_reviews` present;
+- `required_pull_request_reviews.bypass_pull_request_allowances` empty for users, teams and apps;
 - all five required status checks;
 - `enforce_admins.enabled=true`;
 - `allow_force_pushes.enabled=false`;
 - `allow_deletions.enabled=false`;
 - `required_conversation_resolution.enabled=true`.
+
+GitHub can explicitly allow selected users, teams, or apps to bypass required pull requests. Those `bypass_pull_request_allowances` are treated as a hard failure even when `enforce_admins` is enabled, because a named bypass actor would still make the exact-green PR boundary non-authoritative.
 
 ## Repository ruleset
 
