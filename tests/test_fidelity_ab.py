@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 from pathlib import Path
 
@@ -197,7 +198,13 @@ def _provenance() -> dict:
     }
 
 
-def _package(path: Path, *, avatar: bytes, bodyprint: dict | None = None) -> Path:
+def _package(
+    path: Path,
+    *,
+    avatar: bytes,
+    bodyprint: dict | None = None,
+    builder_revision: str | None = None,
+) -> Path:
     return build_package(
         path,
         body_id="fixture",
@@ -206,6 +213,7 @@ def _package(path: Path, *, avatar: bytes, bodyprint: dict | None = None) -> Pat
         bodyprint=bodyprint or _bodyprint(),
         provenance=_provenance(),
         thumbnail_png=_thumbnail_png(16, 16),
+        builder_revision=builder_revision,
     )
 
 
@@ -247,10 +255,95 @@ def test_clean_appearance_ab_rejects_bodyprint_drift(tmp_path: Path) -> None:
     assert evidence["invariants"]["clean_appearance_ab"] is False
 
 
-def test_cli_can_fail_closed_and_write_create_only_evidence(tmp_path: Path) -> None:
-    left = _package(tmp_path / "left.mrbody", avatar=_avatar(seam_split=False))
-    right = _package(tmp_path / "right.mrbody", avatar=_avatar(seam_split=True))
-    output = tmp_path / "ab-evidence.json"
-    assert main([str(left), str(right), "--require-clean-appearance-ab", "--out", str(output)]) == 0
-    assert output.is_file()
+def test_cli_clean_ab_requires_expected_builder_revisions(tmp_path: Path, capsys) -> None:
+    left = _package(
+        tmp_path / "left.mrbody",
+        avatar=_avatar(seam_split=False),
+        builder_revision="baseline-rev",
+    )
+    right = _package(
+        tmp_path / "right.mrbody",
+        avatar=_avatar(seam_split=True),
+        builder_revision="candidate-rev",
+    )
+    output = tmp_path / "unbound.json"
     assert main([str(left), str(right), "--require-clean-appearance-ab", "--out", str(output)]) == 1
+    assert "requires both --expected-left-builder-revision" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_cli_rejects_wrong_builder_revision_without_writing_evidence(tmp_path: Path, capsys) -> None:
+    left = _package(
+        tmp_path / "left.mrbody",
+        avatar=_avatar(seam_split=False),
+        builder_revision="baseline-rev",
+    )
+    right = _package(
+        tmp_path / "right.mrbody",
+        avatar=_avatar(seam_split=True),
+        builder_revision="candidate-rev",
+    )
+    output = tmp_path / "wrong-revision.json"
+    assert main([
+        str(left),
+        str(right),
+        "--expected-left-builder-revision", "wrong-baseline",
+        "--expected-right-builder-revision", "candidate-rev",
+        "--require-clean-appearance-ab",
+        "--out", str(output),
+    ]) == 1
+    assert "left builder revision 'baseline-rev' != expected 'wrong-baseline'" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_cli_rejects_missing_package_builder_revision_when_bound(tmp_path: Path, capsys) -> None:
+    left = _package(tmp_path / "left.mrbody", avatar=_avatar(seam_split=False))
+    right = _package(
+        tmp_path / "right.mrbody",
+        avatar=_avatar(seam_split=True),
+        builder_revision="candidate-rev",
+    )
+    output = tmp_path / "missing-revision.json"
+    assert main([
+        str(left),
+        str(right),
+        "--expected-left-builder-revision", "baseline-rev",
+        "--expected-right-builder-revision", "candidate-rev",
+        "--require-clean-appearance-ab",
+        "--out", str(output),
+    ]) == 1
+    assert "left builder revision None != expected 'baseline-rev'" in capsys.readouterr().err
+    assert not output.exists()
+
+
+def test_cli_can_fail_closed_and_write_revision_bound_create_only_evidence(tmp_path: Path) -> None:
+    left = _package(
+        tmp_path / "left.mrbody",
+        avatar=_avatar(seam_split=False),
+        builder_revision="baseline-rev",
+    )
+    right = _package(
+        tmp_path / "right.mrbody",
+        avatar=_avatar(seam_split=True),
+        builder_revision="candidate-rev",
+    )
+    output = tmp_path / "ab-evidence.json"
+    args = [
+        str(left),
+        str(right),
+        "--expected-left-builder-revision", "baseline-rev",
+        "--expected-right-builder-revision", "candidate-rev",
+        "--require-clean-appearance-ab",
+        "--out", str(output),
+    ]
+    assert main(args) == 0
+    assert output.is_file()
+    evidence = json.loads(output.read_text(encoding="utf-8"))
+    assert evidence["left"]["builder_revision"] == "baseline-rev"
+    assert evidence["right"]["builder_revision"] == "candidate-rev"
+    assert evidence["revision_binding"] == {
+        "expected_left_builder_revision": "baseline-rev",
+        "expected_right_builder_revision": "candidate-rev",
+        "passed": True,
+    }
+    assert main(args) == 1
