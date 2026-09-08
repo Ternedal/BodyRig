@@ -1,6 +1,6 @@
 # BodyRig handoff
 
-_Last updated: 2026-09-07_
+_Last updated: 2026-09-08_
 
 ## Canonical repository authority
 
@@ -9,6 +9,8 @@ BodyRig has one normal software/run authority: **exact clean current `main`**.
 Historical PR heads, old comments and frozen evidence branches are not current operator authority merely because they once passed CI. Existing physical evidence remains bound to the exact BodyRig revision, package/runtime bytes and receipts recorded in that evidence; later merges never rewrite historical authority.
 
 The current operator path is checkout-bound and fail-closed. A global/stale BodyRig install must not authorize a physical next command.
+
+Repository-level enforcement is not yet complete: issue #138 remains open because GitHub currently reports `main` as unprotected and the repository has no ruleset requiring the exact-green PR checks. This is an admin/configuration blocker, not a software or evidence state that can be bypassed in code.
 
 ## Product definition: full digital twin
 
@@ -49,18 +51,23 @@ Operator hardening is also landed:
 - status tooling distinguishes missing Person evidence from missing implementation;
 - current Gate A accepts the canonical anatomy-aware appearance receipt while preserving legacy aggregate skin-QA;
 - a historical completed clone that failed only at a later Gate-A validator contract can use the explicit cross-revision rescue path without rerunning recovery/fitting, provided the original evidence still validates;
-- retained/high-fidelity Windows/WSL operators no longer assign PowerShell's read-only automatic `$HOME` variable; default SiTH root discovery remains `<WSL home>/.local/share/bodyrig/sith`.
+- retained/high-fidelity Windows/WSL operators no longer assign PowerShell's read-only automatic `$HOME` variable; default SiTH root discovery remains `<WSL home>/.local/share/bodyrig/sith`;
+- Stash source ranking rejects explicit VR/stereo/panoramic inputs and high-resolution approximately 2:1 projection-ambiguous geometry before the flat observation path;
+- stale/manual source manifests and observation checkpoints are revalidated downstream, and the built-in OpenCV analyzer independently rejects projection-ambiguous decoded frame geometry before HOG/Haar work;
+- canonical observation selection now requires feasible high-fidelity coverage with at least one `face_visibility >= 0.72` observation and one `full_body_visibility >= 0.72` observation under the existing overlap/per-source constraints before expensive SiTH work begins.
 
 ## Current high-fidelity body/avatar software chain
 
 The trunk contains the full high-fidelity body/avatar continuation:
 
-`Stash/source → decode-qualified observation → retained reconstruction → subject anatomy candidate/audit → anatomy promotion → source hair review/deformation/promotion → eye/iris review/fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → promoted .mrbody → package-bound human review → fresh Gate A → Windows → Quest → final body release`.
+`Stash/source → decode-qualified + projection-safe observation → mandatory face/full-body coverage → retained reconstruction → subject anatomy candidate/audit → anatomy promotion → source hair review/deformation/promotion → eye/iris review/fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → promoted .mrbody → package-bound human review → fresh Gate A → Windows → Quest → final body release`.
 
 Recent anatomy work on `main` includes source/appearance diagnostics, improved texture correspondence, normal-aware subject-anatomy fitting and exact-bake bounded scoring/line search. Those machine metrics remain comparison/selection evidence; they do not manufacture a human anatomy or visual-fidelity PASS.
 
 Important boundaries:
 
+- projection-ambiguous VR/panoramic material must fail closed rather than being treated as flat-camera evidence;
+- mandatory face/full-body observation coverage must be feasible before reconstruction; bypassing the source-quality gate is not a valid production path;
 - retained reconstruction must not be rerun merely to manufacture cleaner evidence;
 - preview/review artifacts are not component authority by themselves;
 - promotion does not silently mutate baseline source evidence;
@@ -119,7 +126,7 @@ If the original evidence is missing, drifted or otherwise invalid, do not recons
 
 ## Remaining real work
 
-The open product/issues backlog is intentionally physical/human:
+The open product backlog is intentionally physical/human:
 
 - #2 real video → source-derived BodyPrint/package on target rig;
 - #3 exact fitted package → real Windows/Quest acceptance;
@@ -129,7 +136,11 @@ The open product/issues backlog is intentionally physical/human:
 - #50 one coherent Person with human-approved anatomy, skin, hair, eyes/iris/cornea and face-secondary detail;
 - #89 one complete Person Revision through M2/M3/M4/M5 and canonical M6.
 
-Do not close those issues from CI, fixtures, generated screenshots or software-only evidence.
+One separate repository-administration blocker remains:
+
+- #138 protect `main` with required exact-green CI / no-force-push / no-delete repository rules. Live verification on 2026-09-08 still reports `protected=false` and no repository rulesets. This requires authorized GitHub administration; software or CI evidence cannot substitute for it.
+
+Do not close the physical/human issues from CI, fixtures, generated screenshots or software-only evidence.
 
 ## Open PR / historical branch discipline
 
@@ -158,6 +169,7 @@ Never:
 - rerun expensive reconstruction merely to manufacture authority;
 - hand-edit evidence JSON or delete create-only evidence to force a retry;
 - bypass checkout-bound status/next-command authority;
+- bypass projection/source-quality gates to force expensive reconstruction;
 - substitute arbitrary PATH tools where an exact pinned runtime owns authority;
 - treat source outfit as persistent body identity;
 - call a body/avatar release, M4 composition or CI-green M5/M6 software a completed digital twin.
