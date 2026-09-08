@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         python: ["3.11", "3.12"]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,8 +29,30 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Install
-        run: python -m pip install --disable-pip-version-check -e ".[test]"
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Verify exact Linux CI dependency lock
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib.metadata
+          from bodyrig.runtime_lock import load_lock
+
+          expected = load_lock("requirements/linux-ci-python.lock.txt")
+          mismatches = []
+          for name, wanted in sorted(expected.items()):
+              try:
+                  actual = importlib.metadata.version(name)
+              except importlib.metadata.PackageNotFoundError:
+                  mismatches.append(f"{name}: missing (expected {wanted})")
+                  continue
+              if actual != wanted:
+                  mismatches.append(f"{name}: {actual} != {wanted}")
+          if mismatches:
+              raise SystemExit("Linux CI dependency lock mismatch: " + "; ".join(mismatches))
+          print(f"Linux CI dependency lock: PASS | {len(expected)} exact pins")
+          PY
+          python -m pip check
       - name: Verify wheel carries exact renderer contract
         shell: bash
         run: |
@@ -138,8 +160,49 @@ jobs:
         shell: pwsh
         run: ./tests/test-run-physical-gate.ps1
 
+  test-windows-python:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact checkout authority
+        shell: pwsh
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          $actual = (& git rev-parse HEAD).Trim().ToLowerInvariant()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne $env:EXPECTED_SHA.ToLowerInvariant()) {
+            throw "checkout mismatch: $actual != $env:EXPECTED_SHA"
+          }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install locked BodyRig test environment
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check -c requirements/windows-python.lock.txt -e ".[test]"
+      - name: Verify canonical Windows Python runtime lock
+        shell: pwsh
+        run: python -m bodyrig.runtime_lock --lock requirements/windows-python.lock.txt
+      - name: Run full Python suite on production OS
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m pytest -q
+      - name: Assert tests did not mutate tracked files
+        shell: pwsh
+        run: |
+          $dirty = @(& git status --porcelain)
+          if ($LASTEXITCODE -ne 0) {
+            throw "could not read checkout status after Windows Python tests"
+          }
+          if ($dirty.Count -gt 0) {
+            $dirty | ForEach-Object { Write-Host $_ }
+            throw "Windows Python tests dirtied the checkout"
+          }
+
   acceptance-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
