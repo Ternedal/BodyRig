@@ -22,6 +22,8 @@ def test_launcher_revalidates_exact_live_candidate_contract_before_switch() -> N
     assert 'candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef' in SCRIPT
     assert 'candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef' in SCRIPT
     assert 'candidateAuthority.contract_sha256' in SCRIPT
+    assert 'candidate/skin-pbr-v2-current-main-20260908' not in SCRIPT
+    assert 'candidate/recovery-throughput-v3-current-main-20260908' not in SCRIPT
 
 
 def test_launcher_switches_service_and_starts_exact_non_retained_candidate() -> None:
