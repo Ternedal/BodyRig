@@ -13,14 +13,17 @@ def test_latest_launcher_requires_explicit_body_and_verifies_checkpoint_before_s
     assert 'Sort-Object LastWriteTimeUtc -Descending' in SOURCE
     assert 'bodyrig.fidelity_checkpoint_verify_cli' in SOURCE
     assert 'checkpoint body alias mismatch' in SOURCE
-    assert 'newest convergence root whose latest checkpoint passes strict byte verification' in SOURCE
+    assert '$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"' in SOURCE
+    assert 'git -C $repoRoot merge-base --is-ancestor $Ancestor $Descendant' in SOURCE
+    assert 'newest byte-verified convergence whose BodyRig revision descends from the safe-source floor' in SOURCE
 
 
-def test_latest_launcher_only_delegates_after_verified_selection() -> None:
+def test_latest_launcher_only_delegates_after_safe_verified_selection() -> None:
     assert 'run-pbr-ab-physical-review.ps1' in SOURCE
     assert 'ConvergenceWorkRoot = $selected' in SOURCE
     assert 'CandidateRef = $CandidateRef' in SOURCE
     assert 'BodyRigPython = $BodyRigPython' in SOURCE
-    assert 'No verified retained convergence checkpoint is usable' in SOURCE
+    assert 'No safe verified retained convergence checkpoint is usable' in SOURCE
+    assert 'Historical/pre-projection-safety evidence remains historical and cannot be rebound.' in SOURCE
     assert 'accept-physical-clone.ps1' not in SOURCE
     assert 'production_activation' not in SOURCE
