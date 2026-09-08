@@ -8,7 +8,7 @@ BodyRig has one normal software/run authority: **exact clean current `main`**.
 
 Historical PR heads, old comments and frozen evidence branches are not current operator authority merely because they once passed CI. Existing physical evidence remains bound to the exact BodyRig revision, package/runtime bytes and receipts recorded in that evidence; later merges never rewrite historical authority.
 
-The current operator path is checkout-bound and fail-closed. A global/stale BodyRig install must not authorize a physical next command.
+The current operator path is checkout-bound and fail-closed. A global/stale BodyRig install must not authorize a physical next command. Fresh physical `body-build` creation is additionally revision-bound: the local clean checkout revision, running BodyRig service revision and enqueued job revision must all match exactly.
 
 Repository-level enforcement is not yet complete: issue #138 remains open because GitHub currently reports `main` as unprotected and the repository has no ruleset requiring the exact-green PR checks. This is an admin/configuration blocker, not a software or evidence state that can be bypassed in code.
 
@@ -47,6 +47,10 @@ Operator hardening is also landed:
 
 - one checkout-bound read-only `bodyrig-status.ps1` routes physical preflight → physical acceptance → high-fidelity continuation → M4/M5/M6 status;
 - performer-bound preflight delegates to the canonical source doctor and emits the doctor-owned production clone command;
+- `/api/v1/operator-authority` exposes the exact running BodyRig service revision without leaking checkout-path authority;
+- `start-revision-bound-body-build.ps1` requires PowerShell 7+, exact clean local HEAD, healthy BodyRig service, service revision == checkout revision, one unambiguous Person and no competing active body-build before enqueue;
+- revision-bound body-build enqueue carries `expected_bodyrig_revision` server-side; the manager lock covers authority-check → enqueue → returned-job revision validation, and a drifted queued job is cancelled before its physical subprocess can start;
+- interrupted body-build resume also requires running-service revision == clean checkout revision and verifies the resumed/enqueued job revision;
 - mixed selectors, checkout drift, invalid platform authority, body/revision mismatch, library drift and false release-complete states fail closed;
 - status tooling distinguishes missing Person evidence from missing implementation;
 - current Gate A accepts the canonical anatomy-aware appearance receipt while preserving legacy aggregate skin-QA;
@@ -97,6 +101,14 @@ After Stash health/search has identified the intended performer, use the same ro
 .\bodyrig-status.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
+When the current physical path requires a **fresh `body-build`**, start it only through the revision-bound launcher from the same exact clean checkout and with the BodyRig service restarted from that checkout if necessary:
+
+```powershell
+.\start-revision-bound-body-build.ps1 -PerformerId '<stash-performer-id>'
+```
+
+You may instead pass exactly one canonical `-PersonId`. The launcher fails closed if the service revision differs from local HEAD, if performer→Person resolution is missing/ambiguous, or if another body-build is already queued/running. On success it emits the revision-bound `job-...` id and the canonical `watch-body-build.ps1` monitor command.
+
 As evidence is created, continue through the same router with the relevant selector:
 
 ```powershell
@@ -146,11 +158,13 @@ Do not close the physical/human issues from CI, fixtures, generated screenshots 
 
 Classify old/open PRs deliberately:
 
-- **#134 — DRAFT HISTORICAL CANDIDATE:** recovery temporal-sampling v3 remains intentionally diverged from current `main`. Current head `e891c03f6cb477414896a6f80157ab1e3d99d901` is exact-head software-green under the current CI contract via validation-only PR #194 (`ci` run `34190046670`; `windows-log-handle-regression` run `34190046649`), but this does **not** establish current-main mergeability or physical A/B authority. Preserve the revision-bound lineage; promotion/integration still requires fresh exact baseline/candidate physical runs, machine A/B, real human visual review and an explicit semantic-integration decision.
-- **#60 — SUPERSEDED CANDIDATE:** closed unmerged; its clean runtime core was ported to #134. Its hard-coded 2026-09-03 baseline/A-B operator harness is historical design evidence only and must not be treated as current operator authority.
+- **#196 — ACTIVE/DRAFT CURRENT-MAIN CANDIDATE:** source-derived skin PBR v2; current head `9e5026fd8f879784d354f81b00231991227f1d66`, exactly one commit ahead / zero behind #209 `main`, and exact-head software-green (`ci` `34204358571`; `windows-log-handle-regression` `34204358559`). Its three candidate blobs are the exact reviewed #132 blobs. CI does **not** grant physical skin/SSS/visual-fidelity or promotion authority. Fresh safe-source baseline/candidate package evidence plus real human visual review is still required before any explicit merge/promotion decision.
+- **#208 — ACTIVE/DRAFT CURRENT-MAIN CANDIDATE:** PHALP temporal sampling v3; current head `f6cb88735df67c9a143d91edce57e73ef8c2ccd8`, exactly one commit ahead / zero behind #209 `main`, with the exact 18 blobs from the prior software-green integration head and unchanged reviewed PHALP/HMR2 runtime blobs. Exact-head software validation is green (`ci` `34205290162`; `windows-log-handle-regression` `34205290343`). CI does **not** prove throughput benefit or identity/anatomy preservation. Fresh revision-bound exact-main baseline + exact-candidate body-builds, machine A/B, real human visual review and a later explicit promotion decision remain mandatory.
+- **#132 — HISTORICAL PBR LINEAGE:** historical source-derived PBR v2 revision `db3839b793b73f72d7d1d6006b873ad5954671dd`; keep as revision-bound lineage/evidence reference. #196 is the current-main integration candidate; do not silently rebase or merge #132 as current authority.
+- **#134 — HISTORICAL THROUGHPUT LINEAGE:** historical recovery temporal-sampling v3 head `e891c03f6cb477414896a6f80157ab1e3d99d901`; exact bytes passed the current CI contract via validation-only PR #194 (`ci` `34190046670`; `windows-log-handle-regression` `34190046649`). #208 is the current-main integration candidate. Preserve #134's historical revision-bound lineage rather than treating it as merge authority.
+- **#60 — SUPERSEDED CANDIDATE:** closed unmerged; its clean runtime core was ported forward. Its hard-coded 2026-09-03 baseline/A-B operator harness is historical design evidence only and must not be treated as current operator authority.
 - **#63 — FROZEN EVIDENCE:** historical Gate-A lineage; reusable validator/rescue software is represented on current `main`, but the frozen branch remains historical evidence rather than normal merge authority.
-- **#132 — DRAFT HISTORICAL CANDIDATE:** source-derived PBR v2 current head `db3839b793b73f72d7d1d6006b873ad5954671dd` is exact-head software-green only at its own historical revision and intentionally diverged from current `main`; preserve that lineage for revision-bound evidence or create a deliberate current-main semantic port rather than silently rebasing it.
-- **#121 — SUPERSEDED CANDIDATE:** its exact reviewed three-file delta was ported without reinterpretation to #132; keep #121 closed rather than merging its stale lineage.
+- **#121 — SUPERSEDED DOC/CANDIDATE LINE:** its exact reviewed three-file PBR delta was ported forward; keep #121 closed rather than merging stale lineage.
 - **#109 — SUPERSEDED DOCS:** its intent is incorporated by the current handoff; do not merge its old base onto modern `main`.
 
 Use these meanings consistently:
@@ -158,7 +172,7 @@ Use these meanings consistently:
 - `LANDED` — effective content is already on trunk;
 - `SUPERSEDED` — later work replaced the branch/approach;
 - `FROZEN EVIDENCE` — branch identity must remain available for historical physical evidence;
-- `ACTIVE/DRAFT CANDIDATE` — deliberate unlanded delta still needs its own validation.
+- `ACTIVE/DRAFT CANDIDATE` — deliberate unlanded delta still needs its own validation and explicit evidence/promotion decision.
 
 ## Non-negotiable evidence rules
 
@@ -169,6 +183,7 @@ Never:
 - rerun expensive reconstruction merely to manufacture authority;
 - hand-edit evidence JSON or delete create-only evidence to force a retry;
 - bypass checkout-bound status/next-command authority;
+- bypass revision-bound physical body-build startup when a fresh body-build is required;
 - bypass projection/source-quality gates to force expensive reconstruction;
 - substitute arbitrary PATH tools where an exact pinned runtime owns authority;
 - treat source outfit as persistent body identity;
