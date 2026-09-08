@@ -14,7 +14,7 @@ FLOOR = "9" * 40
 JOB_ID = "job-" + "1" * 32
 PERSON_ID = "person-" + "2" * 32
 ROOT = Path(__file__).resolve().parents[1]
-WRAPPER = (ROOT / "run-pbr-ab-from-body-job.ps1").read_text(encoding="utf-8")
+WRAPPER = (ROOT / "run-pbr-ab-from-body-job-internal.ps1").read_text(encoding="utf-8")
 CLONE_READY = (ROOT / "clone-body-from-stash-ready.ps1").read_text(encoding="utf-8")
 
 
