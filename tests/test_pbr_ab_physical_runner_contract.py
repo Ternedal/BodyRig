@@ -82,12 +82,13 @@ def test_runner_stops_before_human_or_physical_acceptance() -> None:
     assert 'complete-acceptance.ps1' not in RUNNER
 
 
-def test_review_wrapper_requires_explicit_human_confirmation_and_clean_checkout() -> None:
+def test_review_wrapper_requires_explicit_human_confirmation_clean_checkout_and_renderer_match() -> None:
     assert '[ValidateSet("left", "right", "tie", "reject-both")]' in REVIEW
     assert '[Parameter(Mandatory = $true)][switch]$ConfirmVisualReview' in REVIEW
     assert 'Pass -ConfirmVisualReview only after visually comparing all four canonical left/right snapshots.' in REVIEW
     assert 'git -C $repoRoot status --porcelain' in REVIEW
     assert 'bodyrig.fidelity_ab_review' in REVIEW
+    assert '--expected-renderer-revision $head' in REVIEW
     assert '--confirm-visual-review' in REVIEW
     assert 'removed non-authoritative receipt' in REVIEW
     assert 'production activation=false' in REVIEW
