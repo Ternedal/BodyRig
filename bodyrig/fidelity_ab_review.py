@@ -168,12 +168,14 @@ def build_review(
     right_render_dir: str | Path,
     decision: str,
     quality_note: str,
+    expected_renderer_revision: str,
 ) -> dict[str, Any]:
     if decision not in DECISIONS:
         raise FidelityAbReviewError(f"decision must be one of: {', '.join(DECISIONS)}")
     note = str(quality_note).strip()
     if not note or len(note) > 4000 or (note.startswith("<") and note.endswith(">")):
         raise FidelityAbReviewError("quality note must contain the operator's actual visual A/B assessment")
+    expected_renderer = _need_revision(expected_renderer_revision, label="expected renderer revision")
 
     ab_path = Path(ab_evidence).expanduser().resolve()
     evidence = _validate_ab(ab_path)
@@ -181,6 +183,8 @@ def build_review(
     right_render = _validate_render_dir(Path(right_render_dir).expanduser().resolve(), side=evidence["right"], label="right")
     if left_render["renderer_revision"] != right_render["renderer_revision"]:
         raise FidelityAbReviewError("left/right snapshots were rendered by different BodyRig revisions")
+    if left_render["renderer_revision"] != expected_renderer:
+        raise FidelityAbReviewError("human A/B review checkout does not match the renderer revision")
 
     preferred_side = decision if decision in {"left", "right"} else None
     return {
@@ -192,6 +196,7 @@ def build_review(
         "quality_note": note,
         "ab_evidence_sha256": _sha256_file(ab_path),
         "renderer_revision": left_render["renderer_revision"],
+        "review_bodyrig_revision": expected_renderer,
         "left": {
             "package_sha256": _need_sha(evidence["left"].get("package_sha256"), label="left package SHA-256"),
             "builder_revision": _need_revision(evidence["left"].get("builder_revision"), label="left builder revision"),
@@ -237,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--right-render-dir", required=True)
     parser.add_argument("--decision", choices=DECISIONS, required=True)
     parser.add_argument("--quality-note", required=True)
+    parser.add_argument("--expected-renderer-revision", required=True)
     parser.add_argument("--confirm-visual-review", action="store_true")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
@@ -250,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             right_render_dir=args.right_render_dir,
             decision=args.decision,
             quality_note=args.quality_note,
+            expected_renderer_revision=args.expected_renderer_revision,
         )
         _write_create_only(Path(args.out).expanduser().resolve(), value)
     except (FidelityAbReviewError, OSError, ValueError) as exc:
