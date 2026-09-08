@@ -16,14 +16,42 @@ Set-StrictMode -Version Latest
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig latest PBR A/B launcher is Windows-only." }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ (pwsh) is required." }
 
+# #188 is the first mainline revision that combines the already-landed
+# projection-safety chain with mandatory face + full-body observation coverage.
+# A checkpoint may be byte-valid and still be unsafe evidence if it predates this
+# source-quality floor. Use Git ancestry, never timestamps, to distinguish them.
+$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"
+
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Need-Revision {
+    param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
+    $normalized = $Value.Trim().ToLowerInvariant()
+    if ($normalized -notmatch '^[0-9a-f]{40}$') { throw "$Label is not a canonical Git revision: $Value" }
+    return $normalized
+}
+function Test-CommitExists {
+    param([Parameter(Mandatory = $true)][string]$Revision)
+    $spec = $Revision + "^{commit}"
+    & git -C $repoRoot cat-file -e $spec 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+function Test-IsAncestor {
+    param([Parameter(Mandatory = $true)][string]$Ancestor,[Parameter(Mandatory = $true)][string]$Descendant)
+    & git -C $repoRoot merge-base --is-ancestor $Ancestor $Descendant 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-pbr-ab-physical-review.ps1") -Label "PBR A/B retained-reconstruction runner"
+
+$safeSourceFloorRevision = Need-Revision -Value $safeSourceFloorRevision -Label "Safe-source floor revision"
+if (-not (Test-CommitExists -Revision $safeSourceFloorRevision)) {
+    throw "BodyRig checkout cannot resolve safe-source floor revision $safeSourceFloorRevision. Use a full/current checkout before selecting retained PBR A/B evidence."
+}
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $candidatePython = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -50,6 +78,7 @@ if ($candidates.Count -eq 0) { throw "No fidelity-convergence work root found fo
 
 $previousPythonPath = [string]$env:PYTHONPATH
 $selected = ""
+$selectedCheckpointRevision = ""
 $rejections = New-Object System.Collections.Generic.List[string]
 try {
     $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $repoRoot } else { "$repoRoot$([IO.Path]::PathSeparator)$previousPythonPath" })
@@ -81,7 +110,21 @@ try {
             $rejections.Add("$($candidate.Name): checkpoint body alias mismatch")
             continue
         }
+        try { $checkpointRevision = Need-Revision -Value ([string]$checkpoint.bodyrig_revision) -Label "checkpoint bodyrig_revision" }
+        catch {
+            $rejections.Add("$($candidate.Name): checkpoint BodyRig revision is invalid")
+            continue
+        }
+        if (-not (Test-CommitExists -Revision $checkpointRevision)) {
+            $rejections.Add("$($candidate.Name): checkpoint BodyRig revision $checkpointRevision cannot be resolved in this checkout")
+            continue
+        }
+        if (-not (Test-IsAncestor -Ancestor $safeSourceFloorRevision -Descendant $checkpointRevision)) {
+            $rejections.Add("$($candidate.Name): checkpoint revision $checkpointRevision predates or is outside safe-source floor $safeSourceFloorRevision")
+            continue
+        }
         $selected = $candidate.FullName
+        $selectedCheckpointRevision = $checkpointRevision
         break
     }
 } finally {
@@ -91,14 +134,16 @@ try {
 
 if ([string]::IsNullOrWhiteSpace($selected)) {
     $detail = if ($rejections.Count -gt 0) { $rejections -join [Environment]::NewLine } else { "no usable candidates" }
-    throw "No verified retained convergence checkpoint is usable for '$BodyId'.`n$detail"
+    throw "No safe verified retained convergence checkpoint is usable for '$BodyId'. Historical/pre-projection-safety evidence remains historical and cannot be rebound.`n$detail"
 }
 
 Write-Host "BodyRig latest retained PBR A/B"
-Write-Host "BodyId:       $BodyId"
-Write-Host "Convergence:  $selected"
-Write-Host "Candidate:    $CandidateRef"
-Write-Host "Selection:    newest convergence root whose latest checkpoint passes strict byte verification"
+Write-Host "BodyId:          $BodyId"
+Write-Host "Convergence:     $selected"
+Write-Host "Checkpoint rev:  $selectedCheckpointRevision"
+Write-Host "Safe-source floor:$safeSourceFloorRevision"
+Write-Host "Candidate:       $CandidateRef"
+Write-Host "Selection:       newest byte-verified convergence whose BodyRig revision descends from the safe-source floor"
 Write-Host ""
 
 $args = @{

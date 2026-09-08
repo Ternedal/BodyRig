@@ -34,7 +34,7 @@ The runner then:
 
 A successful runner result still requires human visual review. It does not merge the PBR candidate and it writes no acceptance or production activation.
 
-## Fast path: latest verified convergence for one body
+## Fast path: latest safe verified convergence for one body
 
 When the retained reconstruction came from the normal fidelity-convergence flow, the convenience launcher can locate it for you:
 
@@ -50,9 +50,18 @@ git status --short
   -BodyId "lauren-phillips-test-01"
 ```
 
-`run-latest-pbr-ab-physical-review.ps1` searches only local fidelity-convergence roots matching the explicit `BodyId`, newest first. A directory is not selected merely because it is newest: its latest checkpoint must first pass `bodyrig.fidelity_checkpoint_verify_cli`, including the checkpoint's byte-bound artifact verification, and the checkpoint body alias must exactly match the requested `BodyId`. If no matching run passes strict verification, the launcher fails instead of guessing.
+`run-latest-pbr-ab-physical-review.ps1` searches only local fidelity-convergence roots matching the explicit `BodyId`, newest first. Recency is only a search order and carries **no** safety authority. A run is usable only when all of the following hold:
 
-After selecting a verified work root, the convenience launcher delegates to the same strict `run-pbr-ab-physical-review.ps1` path described below. It does not weaken candidate revision, retained-workspace, renderer, A/B, or human-review authority.
+- its latest checkpoint passes `bodyrig.fidelity_checkpoint_verify_cli`, including every bound artifact hash;
+- the checkpoint body alias exactly matches the requested `BodyId`;
+- the checkpoint's `bodyrig_revision` is a resolvable Git commit in this checkout;
+- merge ancestry proves that safe-source floor `905fb0e9e9b67ad009fb707164474caf827a93a6` (#188) is an ancestor of that checkpoint revision.
+
+The safe-source floor is deliberate. Its base already contains the downstream projection-safety and unified projection-policy chain, and #188 adds mandatory strong face plus full-body observation coverage before expensive SiTH reconstruction. A pre-floor checkpoint can therefore be perfectly intact at the byte level and still be unsuitable as new visual evidence.
+
+For `lauren-phillips-test-01`, historical projected-source/reconstruction evidence remains historical FAIL evidence. The convenience launcher must reject it rather than rebind it to a new PBR comparison. If no post-floor retained convergence exists, the correct path is to run a fresh current-main fidelity convergence first.
+
+After selecting a safe verified work root, the convenience launcher delegates to the same strict `run-pbr-ab-physical-review.ps1` path described below. It does not weaken candidate revision, retained-workspace, renderer, A/B, or human-review authority.
 
 ## Explicit invocation from a retained convergence run
 
@@ -63,7 +72,7 @@ Use this form when you want to choose a particular fidelity-convergence work roo
   -ConvergenceWorkRoot "<path-to-fidelity-convergence-work-root>"
 ```
 
-The runner verifies the latest checkpoint before using its `current_baseline_clone_output`, `current_identity_workspace`, body alias, and display name.
+The runner verifies the latest checkpoint before using its `current_baseline_clone_output`, `current_identity_workspace`, body alias, and display name. The preferred convenience launcher adds the safe-source ancestry floor described above; do not use explicit mode to reinterpret a known historical/pre-safe-source run as new evidence.
 
 ## Explicit retained-workspace invocation
 
@@ -75,7 +84,7 @@ If the retained reconstruction did not come from a convergence work root:
   -IdentityWorkspace "<path-to-retained-identity-workspace>"
 ```
 
-`BaselineCloneOutput` is the directory containing `bodyrig-sith-fitter-config.json` and a `clone` subdirectory. `IdentityWorkspace` must contain the completed `sith-input-v1` reconstruction and its current reconstruction authority.
+`BaselineCloneOutput` is the directory containing `bodyrig-sith-fitter-config.json` and a `clone` subdirectory. `IdentityWorkspace` must contain the completed `sith-input-v1` reconstruction and its current reconstruction authority. Explicit paths are an expert recovery path; they do not grant permission to recycle known projection-unsafe historical evidence.
 
 ## Candidate branch
 

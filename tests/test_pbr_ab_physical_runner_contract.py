@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = (ROOT / "run-pbr-ab-physical-review.ps1").read_text(encoding="utf-8")
+LATEST = (ROOT / "run-latest-pbr-ab-physical-review.ps1").read_text(encoding="utf-8")
 REVIEW = (ROOT / "record-fidelity-ab-review.ps1").read_text(encoding="utf-8")
 
 
@@ -67,6 +68,22 @@ def test_runner_uses_one_common_renderer_revision_for_both_sides() -> None:
     assert 'renderer_revision = $baselineRevision' in RUNNER
     assert 'baseline-render' in RUNNER
     assert 'candidate-render' in RUNNER
+
+
+def test_latest_runner_rejects_pre_safe_source_checkpoints_by_git_ancestry() -> None:
+    assert '$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"' in LATEST
+    assert 'git -C $repoRoot cat-file -e $spec' in LATEST
+    assert 'git -C $repoRoot merge-base --is-ancestor $Ancestor $Descendant' in LATEST
+    assert 'checkpoint.bodyrig_revision' in LATEST
+    assert 'predates or is outside safe-source floor' in LATEST
+    assert 'Historical/pre-projection-safety evidence remains historical and cannot be rebound.' in LATEST
+    assert 'LastWriteTimeUtc' in LATEST  # ordering only, never safety authority
+
+
+def test_latest_runner_keeps_byte_verification_and_exact_body_binding() -> None:
+    assert 'bodyrig.fidelity_checkpoint_verify_cli' in LATEST
+    assert 'checkpoint body alias mismatch' in LATEST
+    assert 'newest byte-verified convergence whose BodyRig revision descends from the safe-source floor' in LATEST
 
 
 def test_runner_stops_before_human_or_physical_acceptance() -> None:
