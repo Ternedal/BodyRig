@@ -84,7 +84,7 @@ def test_inspection_requires_clean_exact_main_and_one_commit_candidate_deltas(mo
             return "1" if left == MAIN and right in {PBR, THROUGHPUT} else "0"
         if len(args) == 3 and args[0] == "merge-base":
             return MAIN
-        if len(args) == 7 and args[:3] == ("diff", "--name-only", "--no-renames"):
+        if len(args) == 6 and args[:3] == ("diff", "--name-only", "--no-renames"):
             revision = args[4]
             name = "pbr_v2" if revision == PBR else "recovery_throughput_v3"
             return "\n".join(normalized[name]["files"])
