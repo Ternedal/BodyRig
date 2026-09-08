@@ -17,6 +17,8 @@ SELECTION_FORMAT = "bodyrig-observation-selection"
 SEGMENTS_FORMAT = "bodyrig-observation-segments"
 VERSION = 1
 VIEWS = {"front", "left_profile", "right_profile", "rear", "unknown"}
+MANDATORY_FACE_VISIBILITY = 0.72
+MANDATORY_FULL_BODY_VISIBILITY = 0.72
 
 
 class ObservationError(ValueError):
@@ -262,6 +264,112 @@ def _overlap_ratio(a: Observation, b: Observation) -> float:
     return overlap / shorter if shorter > 0 else 0.0
 
 
+def _can_select_observation(
+    candidate: Observation,
+    *,
+    selected: Sequence[Observation],
+    source_counts: Mapping[str, int],
+    max_per_source: int,
+) -> bool:
+    if source_counts.get(candidate.source_id, 0) >= max_per_source:
+        return False
+    return not any(_overlap_ratio(candidate, existing) > 0.45 for existing in selected)
+
+
+def _selection_score(
+    candidate: Observation,
+    *,
+    used_views: set[str],
+    source_counts: Mapping[str, int],
+) -> float:
+    diversity = 0.0
+    if candidate.view != "unknown" and candidate.view not in used_views:
+        diversity += 0.16
+    if source_counts.get(candidate.source_id, 0) == 0:
+        diversity += 0.10
+    if candidate.face_visibility >= MANDATORY_FACE_VISIBILITY:
+        diversity += 0.05
+    if candidate.full_body_visibility >= MANDATORY_FULL_BODY_VISIBILITY:
+        diversity += 0.05
+    return candidate.base_score + diversity
+
+
+def _mandatory_coverage_seed(
+    pool: Sequence[Observation],
+    *,
+    max_segments: int,
+    max_per_source: int,
+) -> list[Observation]:
+    face_candidates = [item for item in pool if item.face_visibility >= MANDATORY_FACE_VISIBILITY]
+    body_candidates = [item for item in pool if item.full_body_visibility >= MANDATORY_FULL_BODY_VISIBILITY]
+    if not face_candidates:
+        raise ObservationError("no face-strong observation passed the minimum quality threshold")
+    if not body_candidates:
+        raise ObservationError("no full-body-strong observation passed the minimum quality threshold")
+
+    dual_candidates = [
+        item
+        for item in face_candidates
+        if item.full_body_visibility >= MANDATORY_FULL_BODY_VISIBILITY
+    ]
+    if dual_candidates:
+        dual_candidates.sort(
+            key=lambda item: (
+                -_selection_score(item, used_views=set(), source_counts={}),
+                -item.base_score,
+                item.source_id,
+                item.start_seconds,
+            )
+        )
+        return [dual_candidates[0]]
+
+    if max_segments < 2:
+        raise ObservationError("mandatory face/full-body coverage cannot fit within max_segments")
+
+    pairs: list[tuple[float, Observation, Observation]] = []
+    for face in face_candidates:
+        for body in body_candidates:
+            if face is body:
+                continue
+            if face.source_id == body.source_id:
+                if max_per_source < 2 or _overlap_ratio(face, body) > 0.45:
+                    continue
+            unique_views = {item.view for item in (face, body) if item.view != "unknown"}
+            unique_sources = {face.source_id, body.source_id}
+            pair_score = (
+                face.base_score
+                + body.base_score
+                + 0.16 * len(unique_views)
+                + 0.10 * len(unique_sources)
+                + 0.10
+            )
+            pairs.append((pair_score, face, body))
+    if not pairs:
+        raise ObservationError("mandatory face/full-body coverage is incompatible with overlap/source constraints")
+
+    pairs.sort(
+        key=lambda row: (
+            -row[0],
+            -(row[1].base_score + row[2].base_score),
+            row[1].source_id,
+            row[1].start_seconds,
+            row[2].source_id,
+            row[2].start_seconds,
+        )
+    )
+    face, body = pairs[0][1], pairs[0][2]
+    seed = [face, body]
+    seed.sort(
+        key=lambda item: (
+            -_selection_score(item, used_views=set(), source_counts={}),
+            -item.base_score,
+            item.source_id,
+            item.start_seconds,
+        )
+    )
+    return seed
+
+
 def select_observations(
     observations: Sequence[Observation],
     *,
@@ -278,28 +386,34 @@ def select_observations(
     if not pool:
         raise ObservationError("no observation passed the minimum quality threshold")
 
-    selected: list[Observation] = []
-    used_views: set[str] = set()
+    selected = _mandatory_coverage_seed(
+        pool,
+        max_segments=max_segments,
+        max_per_source=max_per_source,
+    )
+    used_views = {item.view for item in selected}
     source_counts: dict[str, int] = {}
+    for item in selected:
+        source_counts[item.source_id] = source_counts.get(item.source_id, 0) + 1
+    selected_ids = {id(item) for item in selected}
+    pool = [item for item in pool if id(item) not in selected_ids]
+
     while pool and len(selected) < max_segments:
         scored: list[tuple[float, Observation]] = []
         for candidate in pool:
-            if source_counts.get(candidate.source_id, 0) >= max_per_source:
+            if not _can_select_observation(
+                candidate,
+                selected=selected,
+                source_counts=source_counts,
+                max_per_source=max_per_source,
+            ):
                 continue
-            if any(_overlap_ratio(candidate, existing) > 0.45 for existing in selected):
-                continue
-            diversity = 0.0
-            if candidate.view != "unknown" and candidate.view not in used_views:
-                diversity += 0.16
-            if source_counts.get(candidate.source_id, 0) == 0:
-                diversity += 0.10
-            # Reward observations that are especially useful for one of the two
-            # distinct clone tasks, even if their aggregate score is similar.
-            if candidate.face_visibility >= 0.72:
-                diversity += 0.05
-            if candidate.full_body_visibility >= 0.72:
-                diversity += 0.05
-            scored.append((candidate.base_score + diversity, candidate))
+            scored.append(
+                (
+                    _selection_score(candidate, used_views=used_views, source_counts=source_counts),
+                    candidate,
+                )
+            )
         if not scored:
             break
         scored.sort(
@@ -318,6 +432,10 @@ def select_observations(
 
     if not selected:
         raise ObservationError("no non-overlapping observation could be selected")
+    if not any(item.face_visibility >= MANDATORY_FACE_VISIBILITY for item in selected):
+        raise ObservationError("selected observations are missing mandatory face coverage")
+    if not any(item.full_body_visibility >= MANDATORY_FULL_BODY_VISIBILITY for item in selected):
+        raise ObservationError("selected observations are missing mandatory full-body coverage")
     return selected
 
 
