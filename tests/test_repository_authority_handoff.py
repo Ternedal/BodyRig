@@ -8,7 +8,7 @@ HANDOFF = (Path(__file__).resolve().parents[1] / "HANDOFF.md").read_text(encodin
 
 def test_handoff_exposes_canonical_repository_authority_admin_helper() -> None:
     assert "configure-repository-authority.ps1" in HANDOFF
-    assert ".\\configure-repository-authority.ps1 -Apply" in HANDOFF
+    assert "./configure-repository-authority.ps1 -Apply" in HANDOFF
     assert "dry run" in HANDOFF.lower()
     assert "app_id=15368" in HANDOFF
     assert "verify-repository-authority.ps1" in HANDOFF
