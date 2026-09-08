@@ -81,7 +81,7 @@ It scores candidate windows from:
 
 The lightweight built-in analyzer is deliberately conservative: it only performs automatic target selection for Stash scenes tagged with exactly one performer. Multi-performer footage remains available to future identity-aware analyzers but the simple analyzer will not silently guess which person is the named performer.
 
-BodyRig core — not the external analyzer — chooses the final observations. It rejects bad ranges/unknown sources/non-finite metrics, applies a minimum quality threshold, avoids strongly overlapping windows, limits domination by one scene and rewards different sources/views plus face-strong and body-strong observations.
+BodyRig core — not the external analyzer — chooses the final observations. It rejects bad ranges/unknown sources/non-finite metrics, applies a minimum quality threshold, avoids strongly overlapping windows and limits domination by one scene. The final set is fail-closed for high-fidelity coverage: it must contain at least one face-strong observation (`face_visibility >= 0.72`) and at least one full-body-strong observation (`full_body_visibility >= 0.72`); missing mandatory coverage outranks ordinary source/view diversity during greedy selection.
 
 Selected windows are re-encoded by FFmpeg as 1..10 private H.264 MP4 segments. The segment manifest records a SHA-256 for every clip. `clone-body.ps1` re-hashes every segment before recovery, so a clip cannot be replaced between selection and cloning.
 
