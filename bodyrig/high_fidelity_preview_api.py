@@ -33,6 +33,7 @@ class HighFidelityPreviewStartRequest(BaseModel):
 class RevisionBoundBodyBuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_bodyrig_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    retain_private_workspace_for_ab: bool = False
 
 
 def _canonical_revision(value: object) -> str | None:
@@ -64,6 +65,7 @@ def start_exact_revision_body_build(person_id: str, request: RevisionBoundBodyBu
         return start_revision_bound_body_build(
             person_id,
             expected_bodyrig_revision=request.expected_bodyrig_revision,
+            retain_private_workspace_for_ab=request.retain_private_workspace_for_ab,
         )
     except RevisionBoundBodyBuildError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
