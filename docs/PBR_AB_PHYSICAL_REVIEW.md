@@ -13,9 +13,11 @@ Before it builds anything, it requires:
 - local `main` to equal current `origin/main`;
 - the candidate branch to resolve to exactly one commit ahead of `main`;
 - the candidate diff to contain only the three reviewed PBR-v2 files;
-- a verified convergence checkpoint **or** explicit baseline-clone + retained-identity-workspace paths;
+- a verified safe-source convergence checkpoint **or** explicit baseline-clone + retained-identity-workspace paths;
 - current rig/SiTH setup authority;
 - a current `sith-input-v1/reconstruction.json` and `reconstruction-authority.json`.
+
+For convergence-backed reuse, both the convenience launcher and strict runner read the same `contracts/pbr-ab-source-policy-v1.json`. The policy currently requires safe-source floor `905fb0e9e9b67ad009fb707164474caf827a93a6` (#188) to be a Git ancestor of the retained checkpoint's `bodyrig_revision`.
 
 The runner then:
 
@@ -31,6 +33,8 @@ The runner then:
 10. renders the same four canonical Windows views for both packages using one common baseline renderer build;
 11. rechecks the retained reconstruction bytes and both remote refs;
 12. writes a comparison-only `run-authority.json`, `review.html`, and `REVIEW-NEXT.txt`.
+
+For convergence mode, `run-authority.json` also records the retained-source mode, shared policy hash, safe-source floor revision and retained checkpoint revision. Explicit raw workspace mode is labelled `explicit-expert-recovery` and deliberately claims no checkpoint ancestry authority.
 
 A successful runner result still requires human visual review. It does not merge the PBR candidate and it writes no acceptance or production activation.
 
@@ -55,13 +59,13 @@ git status --short
 - its latest checkpoint passes `bodyrig.fidelity_checkpoint_verify_cli`, including every bound artifact hash;
 - the checkpoint body alias exactly matches the requested `BodyId`;
 - the checkpoint's `bodyrig_revision` is a resolvable Git commit in this checkout;
-- merge ancestry proves that safe-source floor `905fb0e9e9b67ad009fb707164474caf827a93a6` (#188) is an ancestor of that checkpoint revision.
+- merge ancestry satisfies the shared retained-source policy floor.
 
 The safe-source floor is deliberate. Its base already contains the downstream projection-safety and unified projection-policy chain, and #188 adds mandatory strong face plus full-body observation coverage before expensive SiTH reconstruction. A pre-floor checkpoint can therefore be perfectly intact at the byte level and still be unsuitable as new visual evidence.
 
 For `lauren-phillips-test-01`, historical projected-source/reconstruction evidence remains historical FAIL evidence. The convenience launcher must reject it rather than rebind it to a new PBR comparison. If no post-floor retained convergence exists, the correct path is to run a fresh current-main fidelity convergence first.
 
-After selecting a safe verified work root, the convenience launcher delegates to the same strict `run-pbr-ab-physical-review.ps1` path described below. It does not weaken candidate revision, retained-workspace, renderer, A/B, or human-review authority.
+After selecting a safe verified work root, the convenience launcher delegates to the same strict `run-pbr-ab-physical-review.ps1` path described below. The strict runner independently revalidates the same shared policy before using the checkpoint, so manual convergence-root selection cannot bypass the source floor.
 
 ## Explicit invocation from a retained convergence run
 
@@ -72,7 +76,7 @@ Use this form when you want to choose a particular fidelity-convergence work roo
   -ConvergenceWorkRoot "<path-to-fidelity-convergence-work-root>"
 ```
 
-The runner verifies the latest checkpoint before using its `current_baseline_clone_output`, `current_identity_workspace`, body alias, and display name. The preferred convenience launcher adds the safe-source ancestry floor described above; do not use explicit mode to reinterpret a known historical/pre-safe-source run as new evidence.
+The runner verifies the latest checkpoint, validates the checkpoint revision against the same shared safe-source policy used by the fast path, and only then uses its `current_baseline_clone_output`, `current_identity_workspace`, body alias and display name. A known historical/pre-safe-source run is rejected even when supplied manually.
 
 ## Explicit retained-workspace invocation
 
@@ -84,7 +88,7 @@ If the retained reconstruction did not come from a convergence work root:
   -IdentityWorkspace "<path-to-retained-identity-workspace>"
 ```
 
-`BaselineCloneOutput` is the directory containing `bodyrig-sith-fitter-config.json` and a `clone` subdirectory. `IdentityWorkspace` must contain the completed `sith-input-v1` reconstruction and its current reconstruction authority. Explicit paths are an expert recovery path; they do not grant permission to recycle known projection-unsafe historical evidence.
+`BaselineCloneOutput` is the directory containing `bodyrig-sith-fitter-config.json` and a `clone` subdirectory. `IdentityWorkspace` must contain the completed `sith-input-v1` reconstruction and its current reconstruction authority. This is an expert/recovery path with no checkpoint revision to prove. The runner does not manufacture a safe-source ancestry claim for it, and it must not be used to recycle known projection-unsafe historical evidence.
 
 ## Candidate branch
 

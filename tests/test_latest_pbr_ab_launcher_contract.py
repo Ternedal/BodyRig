@@ -13,7 +13,8 @@ def test_latest_launcher_requires_explicit_body_and_verifies_checkpoint_before_s
     assert 'Sort-Object LastWriteTimeUtc -Descending' in SOURCE
     assert 'bodyrig.fidelity_checkpoint_verify_cli' in SOURCE
     assert 'checkpoint body alias mismatch' in SOURCE
-    assert '$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"' in SOURCE
+    assert 'contracts\\pbr-ab-source-policy-v1.json' in SOURCE
+    assert 'safe_source_floor_revision' in SOURCE
     assert 'git -C $repoRoot merge-base --is-ancestor $Ancestor $Descendant' in SOURCE
     assert 'newest byte-verified convergence whose BodyRig revision descends from the safe-source floor' in SOURCE
 
