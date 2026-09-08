@@ -54,6 +54,17 @@ function Invoke-Git {
     if ($LASTEXITCODE -ne 0) { throw "$Step failed: $($raw -join ' ')" }
     return @($raw)
 }
+function Test-CommitExists {
+    param([Parameter(Mandatory = $true)][string]$Root,[Parameter(Mandatory = $true)][string]$Revision)
+    $spec = $Revision + "^{commit}"
+    & git -C $Root cat-file -e $spec 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+function Test-IsAncestor {
+    param([Parameter(Mandatory = $true)][string]$Root,[Parameter(Mandatory = $true)][string]$Ancestor,[Parameter(Mandatory = $true)][string]$Descendant)
+    & git -C $Root merge-base --is-ancestor $Ancestor $Descendant 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
 function Assert-CleanCheckout {
     param([Parameter(Mandatory = $true)][string]$Root,[Parameter(Mandatory = $true)][string]$ExpectedRevision,[Parameter(Mandatory = $true)][string]$Label)
     $head = Need-Revision ((Invoke-Git -Arguments @("-C",$Root,"rev-parse","HEAD") -Step "$Label HEAD") -join "") "$Label HEAD"
@@ -178,7 +189,24 @@ if ($usingExplicit -and ([string]::IsNullOrWhiteSpace($BaselineCloneOutput) -or 
     throw "Explicit mode requires both -BaselineCloneOutput and -IdentityWorkspace."
 }
 
+$checkpointRevision = ""
+$safeSourceFloorRevision = ""
+$sourcePolicySha256 = ""
 if ($usingConvergence) {
+    $policyPath = Need-File -Path (Join-Path $repoRoot "contracts\pbr-ab-source-policy-v1.json") -Label "PBR A/B retained-source policy"
+    try { $policy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { throw "PBR A/B retained-source policy is invalid JSON: $policyPath" }
+    $policyFields = @($policy.PSObject.Properties.Name)
+    if ($policyFields.Count -ne 3 -or ($policyFields -notcontains "format") -or ($policyFields -notcontains "version") -or ($policyFields -notcontains "safe_source_floor_revision") -or
+        [string]$policy.format -ne "bodyrig-pbr-ab-source-policy" -or [int]$policy.version -ne 1) {
+        throw "PBR A/B retained-source policy fields/format/version do not match v1."
+    }
+    $safeSourceFloorRevision = Need-Revision -Value ([string]$policy.safe_source_floor_revision) -Label "Safe-source floor revision"
+    $sourcePolicySha256 = (Get-FileHash -LiteralPath $policyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not (Test-CommitExists -Root $repoRoot -Revision $safeSourceFloorRevision)) {
+        throw "BodyRig checkout cannot resolve safe-source floor revision $safeSourceFloorRevision. Use a full/current checkout before selecting retained PBR A/B evidence."
+    }
+
     $ConvergenceWorkRoot = Need-Directory -Path $ConvergenceWorkRoot -Label "Fidelity convergence work root"
     $checkpointDir = Need-Directory -Path (Join-Path $ConvergenceWorkRoot "checkpoints") -Label "Fidelity convergence checkpoint directory"
     $checkpoints = @(Get-ChildItem -LiteralPath $checkpointDir -Filter "checkpoint-*.json" -File | Sort-Object Name -Descending)
@@ -187,6 +215,13 @@ if ($usingConvergence) {
     [void](Invoke-CheckoutPython -CheckoutRoot $repoRoot -Arguments @("-m","bodyrig.fidelity_checkpoint_verify_cli","--checkpoint",$latestCheckpoint,"--work-root",$ConvergenceWorkRoot) -Step "Convergence checkpoint verification")
     try { $checkpoint = Get-Content -LiteralPath $latestCheckpoint -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 60 }
     catch { throw "Latest convergence checkpoint is unreadable." }
+    $checkpointRevision = Need-Revision -Value ([string]$checkpoint.bodyrig_revision) -Label "checkpoint bodyrig_revision"
+    if (-not (Test-CommitExists -Root $repoRoot -Revision $checkpointRevision)) {
+        throw "Convergence checkpoint BodyRig revision $checkpointRevision cannot be resolved in this checkout."
+    }
+    if (-not (Test-IsAncestor -Root $repoRoot -Ancestor $safeSourceFloorRevision -Descendant $checkpointRevision)) {
+        throw "Convergence checkpoint revision $checkpointRevision predates or is outside safe-source floor $safeSourceFloorRevision; historical/pre-projection-safety evidence cannot be rebound."
+    }
     $relativeBaseline = ([string]$checkpoint.state.current_baseline_clone_output).Replace('/',[IO.Path]::DirectorySeparatorChar)
     $BaselineCloneOutput = [IO.Path]::GetFullPath((Join-Path $ConvergenceWorkRoot $relativeBaseline))
     $IdentityWorkspace = [IO.Path]::GetFullPath([string]$checkpoint.state.current_identity_workspace)
@@ -298,6 +333,8 @@ print(json.dumps(validate_reconstruction_authority(sys.argv[1],expected_body_mod
     Write-Host "Candidate:  $candidateRevision ($CandidateRef)"
     Write-Host "SMPL-X:     $bodyModelGender"
     Write-Host "Workspace:  $IdentityWorkspace"
+    if ($usingConvergence) { Write-Host "Source floor: $safeSourceFloorRevision | checkpoint=$checkpointRevision" }
+    else { Write-Host "Source mode:  explicit expert/recovery workspace; no checkpoint ancestry authority claimed" }
     Write-Host "Tree SHA:   $([string]$treeBefore.sha256) | files=$([int]$treeBefore.file_count) | bytes=$([int64]$treeBefore.byte_count)"
     Write-Host ""
 
@@ -393,6 +430,10 @@ print(json.dumps(validate_reconstruction_authority(sys.argv[1],expected_body_mod
         body_model_gender = $bodyModelGender
         retained_reconstruction_reused = $true
         retained_reconstruction_unchanged = $true
+        retained_source_mode = $(if ($usingConvergence) { "verified-safe-convergence" } else { "explicit-expert-recovery" })
+        retained_source_policy_sha256 = $(if ($usingConvergence) { Need-Sha256 $sourcePolicySha256 "retained source policy SHA-256" } else { $null })
+        safe_source_floor_revision = $(if ($usingConvergence) { $safeSourceFloorRevision } else { $null })
+        retained_checkpoint_revision = $(if ($usingConvergence) { $checkpointRevision } else { $null })
         clean_appearance_ab_passed = $true
         human_visual_review_required = $true
         comparison_only = $true
