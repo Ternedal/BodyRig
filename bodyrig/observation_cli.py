@@ -13,6 +13,7 @@ from .observation import (
     select_observations,
 )
 from .observation_runner import run_external_analyzer
+from .projection_safety import projection_ambiguous_manifest_entries
 
 CONFIG_FORMAT = "bodyrig-observation-analyzer-config"
 CONFIG_VERSION = 1
@@ -80,6 +81,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         source_manifest, sources, source_sha = load_stash_source_manifest(args.source_manifest)
+        ambiguous_entries = projection_ambiguous_manifest_entries(source_manifest)
+        if ambiguous_entries:
+            raise ObservationError(
+                "Stash source manifest contains projection-ambiguous high-resolution ~2:1 source geometry"
+            )
         performer = source_manifest.get("performer") or {}
         performer_id = str(performer.get("id") or "").strip()
         if not performer_id:

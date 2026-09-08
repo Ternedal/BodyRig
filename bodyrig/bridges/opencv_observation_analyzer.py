@@ -19,6 +19,19 @@ REVISION = "1"
 MAX_SAMPLES_PER_SOURCE = 400
 BASE_SAMPLE_INTERVAL_SECONDS = 2.0
 WINDOW_SECONDS = 6.0
+PROJECTION_AMBIGUOUS_MIN_WIDTH = 2880
+PROJECTION_AMBIGUOUS_MIN_HEIGHT = 1440
+PROJECTION_AMBIGUOUS_MIN_ASPECT = 1.95
+PROJECTION_AMBIGUOUS_MAX_ASPECT = 2.05
+
+
+def _projection_ambiguous_geometry(width: int, height: int) -> bool:
+    if width < PROJECTION_AMBIGUOUS_MIN_WIDTH or height < PROJECTION_AMBIGUOUS_MIN_HEIGHT:
+        return False
+    if height <= 0:
+        return False
+    aspect_ratio = width / height
+    return PROJECTION_AMBIGUOUS_MIN_ASPECT <= aspect_ratio <= PROJECTION_AMBIGUOUS_MAX_ASPECT
 
 
 def _clamp(value: float) -> float:
@@ -135,10 +148,16 @@ def _read_manifest_counts(path: Path, expected_performer_id: str) -> list[int]:
     for item in selected:
         try:
             count = int(item["performer_count"])
+            width = int(item["width"])
+            height = int(item["height"])
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError("Stash source manifest performer_count is invalid") from exc
+            raise RuntimeError("Stash source manifest performer_count/geometry is invalid") from exc
         if count < 1:
             raise RuntimeError("Stash source manifest performer_count must be positive")
+        if width <= 0 or height <= 0:
+            raise RuntimeError("Stash source manifest geometry must be positive")
+        if _projection_ambiguous_geometry(width, height):
+            raise RuntimeError("Stash source manifest contains projection-ambiguous high-resolution ~2:1 geometry")
         counts.append(count)
     return counts
 
@@ -186,6 +205,10 @@ def _analyze_source(
             if original_width <= 0 or original_height <= 0:
                 timestamp += interval
                 continue
+            if _projection_ambiguous_geometry(original_width, original_height):
+                raise RuntimeError(
+                    "projection-ambiguous decoded frame geometry is unsupported by the flat observation analyzer"
+                )
             scale = min(1.0, 640.0 / max(original_width, original_height))
             small = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1.0 else frame
             height, width = small.shape[:2]

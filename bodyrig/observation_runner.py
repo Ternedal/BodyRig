@@ -16,6 +16,7 @@ from .observation import (
     build_analyzer_request,
     validate_analyzer_result,
 )
+from .projection_safety import is_projection_ambiguous_geometry
 
 _CHECKPOINT_FORMAT = "bodyrig-observation-source-checkpoint"
 _CHECKPOINT_VERSION = 1
@@ -81,6 +82,7 @@ def _source_fingerprint(
     source: Mapping[str, Any],
     performer_id: str,
     performer_count: int,
+    source_manifest_sha256: str,
     adapter: str,
     revision: str,
 ) -> str:
@@ -96,6 +98,7 @@ def _source_fingerprint(
         "scene_id": str(source["scene_id"]),
         "duration": round(float(source["duration"]), 3),
         "performer_count": int(performer_count),
+        "source_manifest_sha256": str(source_manifest_sha256).lower(),
         "size": int(stat.st_size),
         "mtime_ns": int(stat.st_mtime_ns),
         "path_sha256": hashlib.sha256(os.path.normcase(str(path)).encode("utf-8")).hexdigest(),
@@ -353,10 +356,16 @@ def _run_checkpointed_builtin(
     for item in selected:
         try:
             count = int(item["performer_count"])
+            width = int(item["width"])
+            height = int(item["height"])
         except (KeyError, TypeError, ValueError):
             return None
-        if count < 1:
+        if count < 1 or width <= 0 or height <= 0:
             return None
+        if is_projection_ambiguous_geometry(width, height):
+            raise ObservationError(
+                "Stash source manifest contains projection-ambiguous high-resolution ~2:1 source geometry"
+            )
         counts.append(count)
 
     root = _checkpoint_root(workspace, adapter, performer_id)
@@ -369,6 +378,7 @@ def _run_checkpointed_builtin(
             source=source,
             performer_id=performer_id,
             performer_count=performer_count,
+            source_manifest_sha256=source_manifest_sha256,
             adapter=adapter,
             revision=revision,
         )

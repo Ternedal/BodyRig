@@ -26,23 +26,34 @@ def _observation(source_id: str) -> Observation:
     )
 
 
+def _write_manifest(path: Path, *, width: int = 1920, height: int = 1080) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "format": "bodyrig-stash-source-manifest",
+                "version": 1,
+                "performer": {"id": "42"},
+                "selected": [
+                    {
+                        "scene_id": "scene-1",
+                        "performer_count": 1,
+                        "width": width,
+                        "height": height,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_builtin_runner_checkpoints_each_source_and_reuses_across_fresh_workspace(tmp_path: Path, monkeypatch) -> None:
     local = tmp_path / "local"
     monkeypatch.setenv("LOCALAPPDATA", str(local))
     source_file = tmp_path / "source.mp4"
     source_file.write_bytes(b"video")
     manifest = tmp_path / "manifest.json"
-    manifest.write_text(
-        json.dumps(
-            {
-                "format": "bodyrig-stash-source-manifest",
-                "version": 1,
-                "performer": {"id": "42"},
-                "selected": [{"scene_id": "scene-1", "performer_count": 1}],
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_manifest(manifest)
     command = ["python", "bridge.py", "--bodyrig-stash-manifest", str(manifest)]
     sources = [{"source_id": "s001", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
     calls = []
@@ -72,7 +83,7 @@ def test_builtin_runner_checkpoints_each_source_and_reuses_across_fresh_workspac
     workspace2.mkdir()
 
     def must_not_run(*args, **kwargs):
-        raise AssertionError("checkpoint miss on unchanged source")
+        raise AssertionError("checkpoint miss on unchanged source manifest")
 
     monkeypatch.setattr(runner, "_run_single_source", must_not_run)
     second_sources = [{"source_id": "s007", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
@@ -80,7 +91,7 @@ def test_builtin_runner_checkpoints_each_source_and_reuses_across_fresh_workspac
         command,
         sources=second_sources,
         performer_id="42",
-        source_manifest_sha256="b" * 64,
+        source_manifest_sha256="a" * 64,
         workspace=workspace2,
         adapter="opencv-hog-haar",
         revision="1",
@@ -88,6 +99,64 @@ def test_builtin_runner_checkpoints_each_source_and_reuses_across_fresh_workspac
     )
     assert second is not None and len(second) == 1
     assert second[0].source_id == "s007"
+
+
+def test_checkpoint_is_invalidated_when_source_manifest_changes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    source_file = tmp_path / "source.mp4"
+    source_file.write_bytes(b"video")
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(manifest)
+    command = ["python", "bridge.py", "--bodyrig-stash-manifest", str(manifest)]
+    sources = [{"source_id": "s001", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
+    calls = []
+
+    def fake_run_single_source(*args, **kwargs):
+        calls.append(kwargs["source_manifest_sha256"])
+        return [_observation(str(kwargs["source"]["source_id"]))]
+
+    monkeypatch.setattr(runner, "_run_single_source", fake_run_single_source)
+
+    for index, manifest_sha in enumerate(("a" * 64, "b" * 64), start=1):
+        workspace = tmp_path / f"workspace-{index}"
+        workspace.mkdir()
+        result = runner._run_checkpointed_builtin(
+            command,
+            sources=sources,
+            performer_id="42",
+            source_manifest_sha256=manifest_sha,
+            workspace=workspace,
+            adapter="opencv-hog-haar",
+            revision="1",
+            timeout_seconds=7200,
+        )
+        assert result is not None and len(result) == 1
+
+    assert calls == ["a" * 64, "b" * 64]
+
+
+def test_checkpoint_runner_rejects_projection_ambiguous_manifest_before_cache_lookup(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    source_file = tmp_path / "source.mp4"
+    source_file.write_bytes(b"video")
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(manifest, width=8192, height=4096)
+    command = ["python", "bridge.py", "--bodyrig-stash-manifest", str(manifest)]
+    sources = [{"source_id": "s001", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with pytest.raises(Exception, match="projection-ambiguous"):
+        runner._run_checkpointed_builtin(
+            command,
+            sources=sources,
+            performer_id="42",
+            source_manifest_sha256="a" * 64,
+            workspace=workspace,
+            adapter="opencv-hog-haar",
+            revision="1",
+            timeout_seconds=7200,
+        )
 
 
 def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path: Path, monkeypatch) -> None:
@@ -99,6 +168,7 @@ def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path: Path, monk
         source=source,
         performer_id="42",
         performer_count=1,
+        source_manifest_sha256="a" * 64,
         adapter="opencv-hog-haar",
         revision="1",
     )
@@ -107,6 +177,7 @@ def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path: Path, monk
         source=source,
         performer_id="42",
         performer_count=1,
+        source_manifest_sha256="a" * 64,
         adapter="opencv-hog-haar",
         revision="1",
     )
