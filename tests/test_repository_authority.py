@@ -10,11 +10,23 @@ def branch(*, protected: bool = True) -> dict:
     return {"name": "main", "protected": protected, "commit": {"sha": HEAD}}
 
 
-def classic(*, missing: str | None = None, enforce_admins: bool = True) -> dict:
+def classic(
+    *,
+    missing: str | None = None,
+    enforce_admins: bool = True,
+    bypass_category: str | None = None,
+) -> dict:
     checks = [name for name in REQUIRED_STATUS_CHECKS if name != missing]
+    bypass = {"users": [], "teams": [], "apps": []}
+    if bypass_category == "users":
+        bypass["users"] = [{"login": "octocat"}]
+    elif bypass_category == "teams":
+        bypass["teams"] = [{"slug": "release-admins"}]
+    elif bypass_category == "apps":
+        bypass["apps"] = [{"slug": "release-app"}]
     return {
         "required_status_checks": {"strict": True, "contexts": checks, "checks": []},
-        "required_pull_request_reviews": {},
+        "required_pull_request_reviews": {"bypass_pull_request_allowances": bypass},
         "enforce_admins": {"enabled": enforce_admins},
         "allow_force_pushes": {"enabled": False},
         "allow_deletions": {"enabled": False},
@@ -52,6 +64,7 @@ def test_classic_branch_protection_can_satisfy_repository_authority() -> None:
     result = evaluate_repository_authority(branch(), classic_protection=classic(), expected_head=HEAD)
     assert result["passed"] is True
     assert result["authority_mode"] == "classic"
+    assert result["classic"]["pull_request_bypass_categories"] == []
     assert result["physical_acceptance_authority"] is False
     assert result["production_activation"] is False
 
@@ -70,6 +83,17 @@ def test_classic_requires_every_exact_green_check_and_admin_enforcement() -> Non
     bypass = evaluate_repository_authority(branch(), classic_protection=classic(enforce_admins=False))
     assert bypass["passed"] is False
     assert "administrators can bypass branch protection" in bypass["classic"]["errors"]
+
+
+def test_classic_fails_closed_on_pull_request_bypass_allowances() -> None:
+    for category in ("users", "teams", "apps"):
+        result = evaluate_repository_authority(
+            branch(),
+            classic_protection=classic(bypass_category=category),
+        )
+        assert result["passed"] is False
+        assert result["classic"]["pull_request_bypass_categories"] == [category]
+        assert f"pull request requirements have bypass allowances: {category}" in result["classic"]["errors"]
 
 
 def test_active_ruleset_can_satisfy_equivalent_repository_authority() -> None:
