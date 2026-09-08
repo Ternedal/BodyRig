@@ -35,6 +35,17 @@ def test_runner_locks_current_pbr_candidate_to_reviewed_three_file_delta() -> No
     assert 'PBR candidate diff boundary changed' in RUNNER
 
 
+def test_checkout_python_executes_from_exact_bound_checkout_and_restores_location() -> None:
+    assert '$checkoutPath = Need-Directory -Path $CheckoutRoot -Label "$Step checkout"' in RUNNER
+    assert '$locationPushed = $false' in RUNNER
+    assert 'Push-Location -LiteralPath $checkoutPath' in RUNNER
+    assert '$locationPushed = $true' in RUNNER
+    assert '"$checkoutPath$([IO.Path]::PathSeparator)$oldPythonPath"' in RUNNER
+    assert 'Join-Path $checkoutPath "bodyrig\\__init__.py"' in RUNNER
+    assert 'if ($locationPushed) { Pop-Location }' in RUNNER
+    assert RUNNER.index('Push-Location -LiteralPath $checkoutPath') < RUNNER.index('import pathlib,bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())')
+
+
 def test_runner_reuses_one_reconstruction_and_proves_workspace_immutability() -> None:
     assert 'bodyrig.fidelity_checkpoint_verify_cli' in RUNNER
     assert 'reconstruction.json' in RUNNER
