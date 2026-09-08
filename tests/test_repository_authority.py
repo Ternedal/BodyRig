@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from bodyrig.repository_authority import REQUIRED_STATUS_CHECKS, evaluate_repository_authority
+from bodyrig.repository_authority import (
+    REQUIRED_STATUS_CHECK_APP_ID,
+    REQUIRED_STATUS_CHECKS,
+    evaluate_repository_authority,
+)
 
 
 HEAD = "a" * 40
@@ -15,8 +19,16 @@ def classic(
     missing: str | None = None,
     enforce_admins: bool = True,
     bypass_category: str | None = None,
+    wrong_source: str | None = None,
 ) -> dict:
     checks = [name for name in REQUIRED_STATUS_CHECKS if name != missing]
+    check_entries = [
+        {
+            "context": name,
+            "app_id": -1 if name == wrong_source else REQUIRED_STATUS_CHECK_APP_ID,
+        }
+        for name in checks
+    ]
     bypass = {"users": [], "teams": [], "apps": []}
     if bypass_category == "users":
         bypass["users"] = [{"login": "octocat"}]
@@ -25,7 +37,7 @@ def classic(
     elif bypass_category == "apps":
         bypass["apps"] = [{"slug": "release-app"}]
     return {
-        "required_status_checks": {"strict": True, "contexts": checks, "checks": []},
+        "required_status_checks": {"strict": True, "contexts": checks, "checks": check_entries},
         "required_pull_request_reviews": {"bypass_pull_request_allowances": bypass},
         "enforce_admins": {"enabled": enforce_admins},
         "allow_force_pushes": {"enabled": False},
@@ -34,8 +46,20 @@ def classic(
     }
 
 
-def ruleset(*, bypass: bool = False, missing: str | None = None) -> dict:
-    checks = [{"context": name} for name in REQUIRED_STATUS_CHECKS if name != missing]
+def ruleset(
+    *,
+    bypass: bool = False,
+    missing: str | None = None,
+    wrong_source: str | None = None,
+) -> dict:
+    checks = [
+        {
+            "context": name,
+            "integration_id": -1 if name == wrong_source else REQUIRED_STATUS_CHECK_APP_ID,
+        }
+        for name in REQUIRED_STATUS_CHECKS
+        if name != missing
+    ]
     return {
         "id": 42,
         "target": "branch",
@@ -64,6 +88,9 @@ def test_classic_branch_protection_can_satisfy_repository_authority() -> None:
     result = evaluate_repository_authority(branch(), classic_protection=classic(), expected_head=HEAD)
     assert result["passed"] is True
     assert result["authority_mode"] == "classic"
+    assert result["required_status_check_app_id"] == 15368
+    assert result["classic"]["source_bound_checks"] == sorted(REQUIRED_STATUS_CHECKS)
+    assert result["classic"]["wrong_source_checks"] == []
     assert result["classic"]["pull_request_bypass_categories"] == []
     assert result["physical_acceptance_authority"] is False
     assert result["production_activation"] is False
@@ -96,10 +123,22 @@ def test_classic_fails_closed_on_pull_request_bypass_allowances() -> None:
         assert f"pull request requirements have bypass allowances: {category}" in result["classic"]["errors"]
 
 
+def test_classic_requires_github_actions_source_binding() -> None:
+    result = evaluate_repository_authority(
+        branch(),
+        classic_protection=classic(wrong_source="test (3.11)"),
+    )
+    assert result["passed"] is False
+    assert result["classic"]["wrong_source_checks"] == ["test (3.11)"]
+    assert "required status checks are not bound to GitHub Actions app 15368" in result["classic"]["errors"]
+
+
 def test_active_ruleset_can_satisfy_equivalent_repository_authority() -> None:
     result = evaluate_repository_authority(branch(), rulesets=[ruleset()], expected_head=HEAD)
     assert result["passed"] is True
     assert result["authority_mode"] == "ruleset"
+    assert result["rulesets"]["source_bound_checks"] == sorted(REQUIRED_STATUS_CHECKS)
+    assert result["rulesets"]["wrong_source_checks"] == []
 
 
 def test_ruleset_fails_closed_on_bypass_actor_or_missing_check() -> None:
@@ -110,6 +149,16 @@ def test_ruleset_fails_closed_on_bypass_actor_or_missing_check() -> None:
     missing = evaluate_repository_authority(branch(), rulesets=[ruleset(missing="test-windows-python")])
     assert missing["passed"] is False
     assert missing["rulesets"]["missing_checks"] == ["test-windows-python"]
+
+
+def test_ruleset_requires_github_actions_source_binding() -> None:
+    result = evaluate_repository_authority(
+        branch(),
+        rulesets=[ruleset(wrong_source="adapter-log-handle")],
+    )
+    assert result["passed"] is False
+    assert result["rulesets"]["wrong_source_checks"] == ["adapter-log-handle"]
+    assert "required status checks are not bound to GitHub Actions app 15368" in result["rulesets"]["errors"]
 
 
 def test_expected_head_is_revision_bound() -> None:

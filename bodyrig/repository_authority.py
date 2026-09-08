@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 FORMAT = "bodyrig-repository-authority"
 VERSION = 1
+REQUIRED_STATUS_CHECK_APP_ID = 15368
 REQUIRED_STATUS_CHECKS = (
     "test (3.11)",
     "test (3.12)",
@@ -37,6 +38,22 @@ def _classic_checks(protection: dict[str, Any]) -> set[str]:
             context = check.get("context")
             if isinstance(context, str) and context:
                 checks.add(context)
+    return checks
+
+
+def _classic_source_bound_checks(protection: dict[str, Any]) -> set[str]:
+    required = protection.get("required_status_checks") or {}
+    checks: set[str] = set()
+    for check in required.get("checks") or []:
+        if not isinstance(check, dict):
+            continue
+        context = check.get("context")
+        if (
+            isinstance(context, str)
+            and context
+            and check.get("app_id") == REQUIRED_STATUS_CHECK_APP_ID
+        ):
+            checks.add(context)
     return checks
 
 
@@ -70,7 +87,13 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
         }
 
     checks = _classic_checks(protection)
+    source_bound_checks = _classic_source_bound_checks(protection)
     missing = [name for name in REQUIRED_STATUS_CHECKS if name not in checks]
+    wrong_source = [
+        name
+        for name in REQUIRED_STATUS_CHECKS
+        if name in checks and name not in source_bound_checks
+    ]
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -84,6 +107,10 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
         )
     if missing:
         errors.append("required exact-green status checks are incomplete")
+    if wrong_source:
+        errors.append(
+            f"required status checks are not bound to GitHub Actions app {REQUIRED_STATUS_CHECK_APP_ID}"
+        )
     if not _enabled(protection.get("enforce_admins")):
         errors.append("administrators can bypass branch protection")
     if _enabled(protection.get("allow_force_pushes")):
@@ -101,7 +128,10 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
         "mode": "classic",
         "passed": not errors,
         "required_checks": sorted(checks),
+        "source_bound_checks": sorted(source_bound_checks),
         "missing_checks": missing,
+        "wrong_source_checks": wrong_source,
+        "required_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
         "pull_request_bypass_categories": bypass_categories,
         "strict_required_status_checks": strict,
         "errors": errors,
@@ -152,6 +182,7 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
     warnings: list[str] = []
     rule_types: set[str] = set()
     required_checks: set[str] = set()
+    source_bound_checks: set[str] = set()
     strict = False
     review_resolution = False
 
@@ -171,15 +202,26 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
                     context = check.get("context")
                     if isinstance(context, str) and context:
                         required_checks.add(context)
+                        if check.get("integration_id") == REQUIRED_STATUS_CHECK_APP_ID:
+                            source_bound_checks.add(context)
         elif rule_type == "pull_request":
             review_resolution = review_resolution or parameters.get("required_review_thread_resolution") is True
 
     missing = [name for name in REQUIRED_STATUS_CHECKS if name not in required_checks]
+    wrong_source = [
+        name
+        for name in REQUIRED_STATUS_CHECKS
+        if name in required_checks and name not in source_bound_checks
+    ]
     for required_rule in ("pull_request", "required_status_checks", "non_fast_forward", "deletion"):
         if required_rule not in rule_types:
             errors.append(f"required ruleset rule is missing: {required_rule}")
     if missing:
         errors.append("required exact-green status checks are incomplete")
+    if wrong_source:
+        errors.append(
+            f"required status checks are not bound to GitHub Actions app {REQUIRED_STATUS_CHECK_APP_ID}"
+        )
     if not review_resolution:
         errors.append("review conversation resolution is not required")
     if not strict:
@@ -190,7 +232,10 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
         "passed": not errors,
         "applicable_ruleset_ids": [r.get("id") for r in applicable],
         "required_checks": sorted(required_checks),
+        "source_bound_checks": sorted(source_bound_checks),
         "missing_checks": missing,
+        "wrong_source_checks": wrong_source,
+        "required_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
         "strict_required_status_checks": strict,
         "errors": errors,
         "warnings": warnings,
@@ -231,6 +276,7 @@ def evaluate_repository_authority(
         "protected": branch.get("protected") is True,
         "authority_mode": selected["mode"] if selected else None,
         "required_status_checks": list(REQUIRED_STATUS_CHECKS),
+        "required_status_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
         "passed": not errors,
         "errors": errors,
         "warnings": list(selected.get("warnings", [])) if selected else [],
