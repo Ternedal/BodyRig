@@ -44,17 +44,17 @@ function Invoke-CandidateAuthority {
             throw "Dual-candidate A/B validator imported from wrong checkout: $actualModule"
         }
 
-        $args = @("-m", "bodyrig.ab_baseline_candidates", "--repo-root", $RepoRoot)
+        $pythonArgs = @("-m", "bodyrig.ab_baseline_candidates", "--repo-root", $RepoRoot)
         if (-not [string]::IsNullOrWhiteSpace($ExpectedMainRevision)) {
-            $args += @("--expected-main-revision", $ExpectedMainRevision)
+            $pythonArgs += @("--expected-main-revision", $ExpectedMainRevision)
         }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedPbrRevision)) {
-            $args += @("--expected-pbr-revision", $ExpectedPbrRevision)
+            $pythonArgs += @("--expected-pbr-revision", $ExpectedPbrRevision)
         }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedThroughputRevision)) {
-            $args += @("--expected-throughput-revision", $ExpectedThroughputRevision)
+            $pythonArgs += @("--expected-throughput-revision", $ExpectedThroughputRevision)
         }
-        $raw = @(& $Python @args 2>&1)
+        $raw = @(& $Python @pythonArgs 2>&1)
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
             throw "Dual-candidate A/B authority validation failed: $($raw -join ' ')"
         }
@@ -66,6 +66,7 @@ function Invoke-CandidateAuthority {
             $result.comparison_only -ne $true -or
             $result.human_visual_authority_required -ne $true -or
             $result.physical_acceptance_authority -ne $false -or
+            $result.promotion_authority -ne $false -or
             $result.production_activation -ne $false
         ) {
             throw "Dual-candidate A/B validator returned unexpected authority semantics."
@@ -148,8 +149,8 @@ if (-not [string]::IsNullOrWhiteSpace($PersonId)) { $startArgs += @("-PersonId",
 else { $startArgs += @("-PerformerId", $PerformerId) }
 
 $startedRaw = @(& $startScript @startArgs)
-if ($LASTEXITCODE -ne 0 -or $startedRaw.Count -ne 1) {
-    throw "Revision-bound retained baseline launcher failed before a stable A/B plan was created."
+if ($startedRaw.Count -ne 1) {
+    throw "Revision-bound retained baseline launcher did not return exactly one machine-readable job result."
 }
 try { $started = ([string]$startedRaw[0]) | ConvertFrom-Json }
 catch { throw "Revision-bound retained baseline launcher returned unreadable JSON." }
