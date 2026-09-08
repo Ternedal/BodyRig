@@ -40,6 +40,25 @@ def _classic_checks(protection: dict[str, Any]) -> set[str]:
     return checks
 
 
+def _classic_pr_bypass_categories(protection: dict[str, Any]) -> list[str]:
+    reviews = protection.get("required_pull_request_reviews") or {}
+    if not isinstance(reviews, dict):
+        return ["<unreadable>"]
+    allowances = reviews.get("bypass_pull_request_allowances") or {}
+    if not isinstance(allowances, dict):
+        return ["<unreadable>"] if allowances else []
+
+    present: list[str] = []
+    for category in ("users", "teams", "apps"):
+        value = allowances.get(category)
+        if isinstance(value, (list, tuple, set)):
+            if value:
+                present.append(category)
+        elif value:
+            present.append(category)
+    return present
+
+
 def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
     if not protection:
         return {
@@ -57,6 +76,12 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
 
     if protection.get("required_pull_request_reviews") is None:
         errors.append("pull requests are not required before merge")
+    bypass_categories = _classic_pr_bypass_categories(protection)
+    if bypass_categories:
+        errors.append(
+            "pull request requirements have bypass allowances: "
+            + ", ".join(bypass_categories)
+        )
     if missing:
         errors.append("required exact-green status checks are incomplete")
     if not _enabled(protection.get("enforce_admins")):
@@ -77,6 +102,7 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
         "passed": not errors,
         "required_checks": sorted(checks),
         "missing_checks": missing,
+        "pull_request_bypass_categories": bypass_categories,
         "strict_required_status_checks": strict,
         "errors": errors,
         "warnings": warnings,
