@@ -37,5 +37,6 @@
   "comparison_only": true,
   "human_visual_authority_required": true,
   "physical_acceptance_authority": false,
+  "promotion_authority": false,
   "production_activation": false
 }
