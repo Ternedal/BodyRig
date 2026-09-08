@@ -1,6 +1,6 @@
-# BodyRig canonical Linux CI dependency lock.
-# Resolved from the exact-green Ubuntu 24.04 / CPython 3.11 CI environment on 2026-09-07.
-# This is CI authority only; Windows physical/operator runtime authority remains windows-python.lock.txt.
+# BodyRig candidate Linux CI dependency lock.
+# Pinned to the current CI-resolved versions while preserving this historical candidate's dependency graph.
+# This candidate predates numpy as a BodyRig test dependency; do not add dependencies merely to satisfy lock parity with trunk.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
@@ -15,7 +15,6 @@ httpx==0.28.1
 httpx2==2.12.0
 idna==3.19
 iniconfig==2.3.0
-numpy==1.26.4
 packaging==26.3
 pillow==12.3.0
 pluggy==1.6.0
