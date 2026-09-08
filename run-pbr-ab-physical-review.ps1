@@ -78,14 +78,18 @@ function Invoke-CheckoutPython {
         [Parameter(Mandatory = $true)][object[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$Step
     )
+    $checkoutPath = Need-Directory -Path $CheckoutRoot -Label "$Step checkout"
     $oldPythonPath = [string]$env:PYTHONPATH
     $oldNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
+    $locationPushed = $false
     try {
-        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $CheckoutRoot } else { "$CheckoutRoot$([IO.Path]::PathSeparator)$oldPythonPath" })
+        Push-Location -LiteralPath $checkoutPath
+        $locationPushed = $true
+        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $checkoutPath } else { "$checkoutPath$([IO.Path]::PathSeparator)$oldPythonPath" })
         $env:PYTHONDONTWRITEBYTECODE = "1"
         $moduleRaw = @(& $BodyRigPython -c "import pathlib,bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())" 2>&1)
         if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "$Step could not resolve checkout-bound BodyRig module." }
-        $expectedModule = [IO.Path]::GetFullPath((Join-Path $CheckoutRoot "bodyrig\__init__.py"))
+        $expectedModule = [IO.Path]::GetFullPath((Join-Path $checkoutPath "bodyrig\__init__.py"))
         $actualModule = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
         if (-not [string]::Equals($actualModule,$expectedModule,[StringComparison]::OrdinalIgnoreCase)) {
             throw "$Step imported BodyRig from wrong checkout: $actualModule"
@@ -96,6 +100,7 @@ function Invoke-CheckoutPython {
     } finally {
         if ([string]::IsNullOrEmpty($oldPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $oldPythonPath }
         if ([string]::IsNullOrEmpty($oldNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue } else { $env:PYTHONDONTWRITEBYTECODE = $oldNoBytecode }
+        if ($locationPushed) { Pop-Location }
     }
 }
 function Get-TreeDigest {
