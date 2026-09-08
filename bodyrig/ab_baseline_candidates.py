@@ -14,6 +14,16 @@ FORMAT = "bodyrig-ab-baseline-candidate-contract"
 VERSION = 1
 CONTRACT_RELATIVE_PATH = Path("contracts/ab-baseline-candidates-v1.json")
 EXPECTED_CANDIDATES = {"pbr_v2", "recovery_throughput_v3"}
+EXPECTED_TOP_LEVEL_FIELDS = {
+    "format",
+    "version",
+    "candidates",
+    "comparison_only",
+    "human_visual_authority_required",
+    "physical_acceptance_authority",
+    "promotion_authority",
+    "production_activation",
+}
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _REF_RE = re.compile(r"^candidate/[A-Za-z0-9._/-]+$")
 _PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
@@ -39,6 +49,17 @@ def _git(repo_root: Path, *args: str) -> str:
         suffix = f": {detail}" if detail else ""
         raise AbBaselineCandidateError(f"Git authority check failed: {' '.join(args)}{suffix}")
     return completed.stdout.strip()
+
+
+def _git_count(repo_root: Path, *args: str, label: str) -> int:
+    raw = _git(repo_root, *args)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise AbBaselineCandidateError(f"{label} did not return an integer Git count") from exc
+    if value < 0:
+        raise AbBaselineCandidateError(f"{label} returned an invalid negative Git count")
+    return value
 
 
 def _revision(value: object, label: str) -> str:
@@ -91,14 +112,20 @@ def _load_contract(repo_root: Path) -> tuple[dict[str, Any], str]:
 
 
 def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if set(value) != EXPECTED_TOP_LEVEL_FIELDS:
+        raise AbBaselineCandidateError("A/B candidate contract has unexpected top-level fields")
     if value.get("format") != FORMAT or value.get("version") != VERSION:
         raise AbBaselineCandidateError("A/B candidate contract format/version mismatch")
     if value.get("comparison_only") is not True:
         raise AbBaselineCandidateError("A/B candidate contract must remain comparison-only")
     if value.get("human_visual_authority_required") is not True:
         raise AbBaselineCandidateError("A/B candidate contract must require human visual authority")
-    if value.get("physical_acceptance_authority") is not False or value.get("production_activation") is not False:
-        raise AbBaselineCandidateError("A/B candidate contract cannot grant physical or production authority")
+    if (
+        value.get("physical_acceptance_authority") is not False
+        or value.get("promotion_authority") is not False
+        or value.get("production_activation") is not False
+    ):
+        raise AbBaselineCandidateError("A/B candidate contract cannot grant physical, promotion or production authority")
 
     candidates = value.get("candidates")
     if not isinstance(candidates, dict) or set(candidates) != EXPECTED_CANDIDATES:
@@ -187,8 +214,8 @@ def inspect_candidate_authority(
         if expected is not None and revision != _revision(expected, f"expected {name} revision"):
             raise AbBaselineCandidateError(f"candidate {name} ref moved after the A/B baseline preflight")
 
-        ahead = int(_git(repo, "rev-list", "--count", f"{main_revision}..{revision}"))
-        behind = int(_git(repo, "rev-list", "--count", f"{revision}..{main_revision}"))
+        ahead = _git_count(repo, "rev-list", "--count", f"{main_revision}..{revision}", label=f"candidate {name} ahead count")
+        behind = _git_count(repo, "rev-list", "--count", f"{revision}..{main_revision}", label=f"candidate {name} behind count")
         merge_base = _revision(_git(repo, "merge-base", main_revision, revision), f"candidate {name} merge base")
         if ahead != 1 or behind != 0 or merge_base != main_revision:
             raise AbBaselineCandidateError(
@@ -230,6 +257,7 @@ def inspect_candidate_authority(
         "comparison_only": True,
         "human_visual_authority_required": True,
         "physical_acceptance_authority": False,
+        "promotion_authority": False,
         "production_activation": False,
     }
 
