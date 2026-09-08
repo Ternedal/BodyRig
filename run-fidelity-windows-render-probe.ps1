@@ -129,8 +129,26 @@ try {
         }
         $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
         $runtimeRoot = Join-Path $attempt "runtime"
-        $materializeRaw = @(& $BodyRigPython -m bodyrig.materialize_cli $PackagePath --out $runtimeRoot)
-        if ($LASTEXITCODE -ne 0 -or $materializeRaw.Count -ne 1) { throw "Comparison-only package materialization failed." }
+        $previousPythonPath = [string]$env:PYTHONPATH
+        $previousNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
+        try {
+            $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $repoRoot } else { "$repoRoot$([IO.Path]::PathSeparator)$previousPythonPath" })
+            $env:PYTHONDONTWRITEBYTECODE = "1"
+            $expectedMaterializeModule = Need-File -Path (Join-Path $repoRoot "bodyrig\materialize_cli.py") -Label "Checkout BodyRig materialize module"
+            $moduleRaw = @(& $BodyRigPython -c "import pathlib,bodyrig.materialize_cli as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+            if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not resolve checkout-bound BodyRig materialize module." }
+            $actualMaterializeModule = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+            if (-not [string]::Equals($actualMaterializeModule,$expectedMaterializeModule,[StringComparison]::OrdinalIgnoreCase)) {
+                throw "Comparison-only package materialization imported BodyRig from a different checkout: $actualMaterializeModule"
+            }
+            $materializeRaw = @(& $BodyRigPython -m bodyrig.materialize_cli $PackagePath --out $runtimeRoot)
+            if ($LASTEXITCODE -ne 0 -or $materializeRaw.Count -ne 1) { throw "Comparison-only package materialization failed." }
+        } finally {
+            if ([string]::IsNullOrEmpty($previousPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue }
+            else { $env:PYTHONPATH = $previousPythonPath }
+            if ([string]::IsNullOrEmpty($previousNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue }
+            else { $env:PYTHONDONTWRITEBYTECODE = $previousNoBytecode }
+        }
         try { $materialize = ([string]$materializeRaw[0]) | ConvertFrom-Json }
         catch { throw "Comparison-only materializer returned unreadable JSON." }
         $runtimeManifest = Need-File -Path ([string]$materialize.runtime_manifest) -Label "Comparison-only runtime manifest"
