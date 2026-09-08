@@ -40,9 +40,9 @@ def test_plan_bound_continuation_requires_exact_succeeded_jobs() -> None:
 
 
 def test_plan_bound_continuation_runs_machine_gate_before_bundle() -> None:
-    compare = SCRIPT.index('compare-recovery-throughput.ps1')
+    compare = SCRIPT.index('& $compareScript -BaselineJobId')
     machine_pass = SCRIPT.index('machine_evidence_pass -ne $true')
-    bundle = SCRIPT.index('build-recovery-throughput-review-bundle.ps1')
+    bundle = SCRIPT.index('& $bundleScript -BaselineJobId')
     publish = SCRIPT.index('format = "bodyrig-throughput-plan-bound-review-continuation"')
     assert compare < machine_pass < bundle < publish
     assert '[string]$machine.baseline_job_id -ne $BaselineJobId' in SCRIPT
