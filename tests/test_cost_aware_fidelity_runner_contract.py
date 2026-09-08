@@ -46,6 +46,17 @@ def test_direct_refit_rendering_is_explicitly_comparison_only() -> None:
     assert "complete-reference-renderer-acceptance" not in source
 
 
+def test_direct_package_materialization_is_bound_to_exact_renderer_checkout() -> None:
+    source = text("run-fidelity-windows-render-probe.ps1")
+    assert '$env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $repoRoot }' in source
+    assert '$env:PYTHONDONTWRITEBYTECODE = "1"' in source
+    assert 'bodyrig\\materialize_cli.py' in source
+    assert 'import pathlib,bodyrig.materialize_cli as m' in source
+    assert 'Comparison-only package materialization imported BodyRig from a different checkout' in source
+    assert 'Remove-Item Env:PYTHONPATH' in source
+    assert 'Remove-Item Env:PYTHONDONTWRITEBYTECODE' in source
+
+
 def test_runner_writes_live_progress_best_preview_and_never_auto_activates() -> None:
     source = text("run-profiled-fidelity-convergence.ps1")
     assert 'progress.json' in source
