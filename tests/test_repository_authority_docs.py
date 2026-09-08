@@ -35,3 +35,13 @@ def test_runbook_requires_github_actions_source_binding() -> None:
     assert "app_id=15368" in DOC
     assert "integration_id=15368" in DOC
     assert "matching context name alone is not sufficient" in DOC
+
+
+def test_runbook_documents_explicit_admin_helper_and_safe_defaults() -> None:
+    assert ".\\configure-repository-authority.ps1" in DOC
+    assert ".\\configure-repository-authority.ps1 -Apply" in DOC
+    assert "dry run" in DOC.lower()
+    assert "required_approving_review_count=0" in DOC
+    assert "strict=true" in DOC
+    assert "refuses to compose over existing repository rulesets" in DOC
+    assert "-ReplaceExistingProtection" in DOC

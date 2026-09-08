@@ -4,6 +4,42 @@ BodyRig's normal software/run authority is exact clean current `main`. That auth
 
 Issue #138 remains open until GitHub actually protects `main` with the required exact-green merge boundary.
 
+## Canonical admin helper
+
+For this repository's current personal-repository layout, `configure-repository-authority.ps1` can apply the accepted **classic branch protection** policy using an authenticated GitHub CLI identity with repository `Administration: write`.
+
+Start from exact clean current `main` and inspect the intended payload without mutating GitHub:
+
+```powershell
+cd C:\Users\admin\Desktop\BodyRig-git
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git status --short
+
+.\configure-repository-authority.ps1
+```
+
+The default invocation is a dry run. It proves local `main` equals GitHub `main`, confirms no repository rulesets are present, refuses to replace existing classic branch protection, and prints the exact policy it would submit.
+
+To apply that policy explicitly:
+
+```powershell
+.\configure-repository-authority.ps1 -Apply
+```
+
+The helper configures the exact five required checks with `app_id=15368`, `strict=true`, admin enforcement, required pull-request flow, `required_approving_review_count=0`, required conversation resolution, force-push blocking, and branch-deletion blocking. Zero required approving reviews is deliberate for the current solo repository: a pull request is still mandatory, while the repository is not made impossible to merge without another reviewer.
+
+The helper refuses to compose over existing repository rulesets because combining unknown rules with a new classic rule is not safe automation. If classic branch protection already exists, it also refuses replacement unless the administrator deliberately uses:
+
+```powershell
+.\configure-repository-authority.ps1 -Apply -ReplaceExistingProtection
+```
+
+That override replaces the classic protection payload and should only be used after reviewing the live protection state. The helper never removes protection automatically if post-write verification fails; it leaves the repository fail-closed for inspection.
+
+After a successful write, the helper automatically runs the checkout-bound `verify-repository-authority.ps1`. A successful API write without a verifier PASS is **not** repository authority.
+
 ## Canonical read-only verifier
 
 After the repository setting has been applied by an authorized administrator, verify it from an exact clean `main` checkout:
@@ -83,6 +119,6 @@ Applicable rulesets must not expose bypass actors. Rules that do not actually ta
 
 ## Boundary
 
-`verify-repository-authority.ps1` is read-only repository-settings evidence. It does not create or imply physical acceptance, human review, candidate promotion, or production activation.
+`verify-repository-authority.ps1` remains read-only repository-settings evidence. `configure-repository-authority.ps1` is an explicit administrator mutation helper whose only authority is repository configuration. Repository-authority tooling does not create or imply physical acceptance, human review, candidate promotion, or production activation.
 
 Protecting `main` also does not retroactively alter historical evidence: existing evidence remains bound to the exact revisions and bytes it recorded.
