@@ -27,3 +27,11 @@ def test_runbook_lists_exact_required_checks_and_repository_boundaries() -> None
     assert "bypass_pull_request_allowances" in DOC
     assert "users, teams and apps" in DOC
     assert "does not create or imply physical acceptance" in DOC
+
+
+def test_runbook_requires_github_actions_source_binding() -> None:
+    assert "GitHub Actions" in DOC
+    assert "app/integration ID `15368`" in DOC
+    assert "app_id=15368" in DOC
+    assert "integration_id=15368" in DOC
+    assert "matching context name alone is not sufficient" in DOC
