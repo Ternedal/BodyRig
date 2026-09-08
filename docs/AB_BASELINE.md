@@ -53,17 +53,30 @@ After the retained baseline succeeds, the same job can provide the current-main 
 
 That wrapper independently revalidates the succeeded body job, exact current main, safe-source ancestry, managed retained workspace and PBR candidate ref before producing comparison-only machine/render evidence. Human visual review remains mandatory.
 
+Because the throughput candidate transition intentionally switches the checkout and running BodyRig service away from `main`, finish/generate the PBR machine/render comparison you want from the retained baseline **before** starting the throughput candidate job.
+
 ## Recovery-throughput comparison
 
 The same succeeded baseline job is the baseline side of the throughput comparison, but throughput still requires a **separate fresh succeeded physical body-build from the exact throughput-candidate revision** using the same Person/source authority.
 
-Do not treat the retained baseline as the throughput candidate. After the exact candidate job succeeds, run the candidate-owned comparison/review chain from that exact clean candidate checkout using the baseline job id, candidate job id and baseline revision recorded by the shared baseline plan.
+From the exact clean baseline `main` checkout, after the shared baseline has succeeded, start the candidate side only through the plan-bound transition wrapper:
+
+```powershell
+.\start-throughput-candidate-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>'
+```
+
+The wrapper revalidates the create-only baseline plan, the succeeded retained safe-source baseline body job, and the live 3/3 + 18/18 candidate byte contract **before** switching branches. It then uses `update-windows.ps1` to update/restart BodyRig from the exact plan-bound throughput candidate ref, requires checkout HEAD == service revision == the plan candidate revision, and starts the candidate through `start-revision-bound-body-build.ps1` using the exact Person from the baseline plan.
+
+After enqueue it re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and machine A/B commands.
+
+After the candidate job succeeds, remain on that exact clean candidate checkout and run the candidate-owned machine audit, immutable review-bundle builder and explicit human-review receipt chain. Do not switch back to `main` until that exact candidate evidence chain is deliberately completed or abandoned.
 
 The throughput machine audit and human review remain comparison evidence only. They do not merge or promote the candidate.
 
 ## Authority boundary
 
-This launcher does not:
+These launchers do not:
 
 - create a human or physical PASS;
 - make either draft candidate mergeable from CI alone;
