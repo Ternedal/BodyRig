@@ -4,6 +4,8 @@ param(
 
     [string]$PerformerId = "",
 
+    [switch]$RetainPrivateWorkspaceForAb,
+
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
     [string]$BaseUri = "http://127.0.0.1:8775"
 )
@@ -95,6 +97,7 @@ if ($active.Count -gt 0) {
 
 $payload = @{
     expected_bodyrig_revision = $head
+    retain_private_workspace_for_ab = [bool]$RetainPrivateWorkspaceForAb
 } | ConvertTo-Json -Depth 4 -Compress
 
 try {
@@ -119,11 +122,20 @@ if ([string]$started.kind -ne "body-build" -or [string]$started.person_id -ne $P
 if ($jobRevision -ne $head) {
     throw "BodyRig body-build enqueue revision differs from the bound checkout: job=$jobRevision, checkout=$head"
 }
+if ($RetainPrivateWorkspaceForAb) {
+    $retention = $started.ab_baseline_retention
+    if ($null -eq $retention -or [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or [int]$retention.version -ne 1 -or
+        $retention.retain_private_workspace -ne $true -or ([string]$retention.expected_bodyrig_revision).ToLowerInvariant() -ne $head -or
+        [string]$retention.job_id -ne $jobId) {
+        throw "BodyRig did not persist exact A/B baseline retention authority on the queued job."
+    }
+}
 
 Write-Host "BodyRig revision-bound body build: STARTED"
 Write-Host "Person:   $PersonId"
 Write-Host "Revision: $head"
 Write-Host "Job:      $jobId"
+Write-Host "A/B retained workspace: $([bool]$RetainPrivateWorkspaceForAb)"
 Write-Host "Monitor:  .\watch-body-build.ps1 -JobId '$jobId'"
 
 [pscustomobject]@{
@@ -131,4 +143,5 @@ Write-Host "Monitor:  .\watch-body-build.ps1 -JobId '$jobId'"
     person_id = $PersonId
     bodyrig_revision = $head
     status = [string]$started.status
-} | ConvertTo-Json -Compress
+    ab_baseline_retention = $(if ($RetainPrivateWorkspaceForAb) { $started.ab_baseline_retention } else { $null })
+} | ConvertTo-Json -Depth 8 -Compress
