@@ -33,12 +33,21 @@ try {
 if ($health.ok -ne $true -or [string]$health.service -ne "bodyrig") {
     throw "Port 8775 did not identify a healthy BodyRig service."
 }
-$healthRevisionProperty = $health.PSObject.Properties["bodyrig_revision"]
-if ($null -ne $healthRevisionProperty) {
-    $healthRevision = [string]$healthRevisionProperty.Value
-    if (-not [string]::IsNullOrWhiteSpace($healthRevision) -and $healthRevision -ne $head) {
-        throw "Running BodyRig service revision differs from the operator checkout: service=$healthRevision, checkout=$head"
-    }
+
+try {
+    $authority = Invoke-RestMethod -Method Get -Uri "$baseUri/api/v1/operator-authority" -TimeoutSec 2
+} catch {
+    throw "BodyRig service does not expose exact operator checkout authority. Update/restart it from this checkout before interrupted recovery."
+}
+$serviceRevision = ([string]$authority.bodyrig_revision).Trim().ToLowerInvariant()
+if ($authority.ok -ne $true) {
+    throw "Running BodyRig service is not ready for physical work: $([string]$authority.reason)"
+}
+if ($serviceRevision -notmatch '^[0-9a-f]{40}$') {
+    throw "Running BodyRig service did not return a canonical bodyrig_revision."
+}
+if ($serviceRevision -ne $head) {
+    throw "Running BodyRig service revision differs from the operator checkout: service=$serviceRevision, checkout=$head"
 }
 
 $statusUri = "$baseUri/api/v1/jobs/$JobId/resume-status"
@@ -71,12 +80,16 @@ try {
 if ([string]::IsNullOrWhiteSpace([string]$started.job_id)) {
     throw "BodyRig interrupted recovery started without returning a new job id."
 }
+if (([string]$started.bodyrig_revision).Trim().ToLowerInvariant() -ne $head) {
+    throw "Interrupted recovery enqueue returned a different BodyRig revision than the bound checkout."
+}
 
 Write-Host "BodyRig interrupted body recovery: STARTED"
 Write-Host "Source job: $JobId"
 Write-Host "Recovery mode: $([string]$status.recovery_mode)"
 Write-Host "Expensive reconstruction rerun: false"
 Write-Host "Fitter rerun: $([bool]$status.fitter_rerun)"
+Write-Host "BodyRig revision: $head"
 Write-Host "New job: $([string]$started.job_id)"
 Write-Host "Monitor the BodyRig UI/job status; do not start a competing body build for the same person."
 exit 0
