@@ -122,7 +122,7 @@ def _render_dir(
     return root
 
 
-def test_review_binds_machine_ab_packages_renderer_and_snapshot_sets(tmp_path: Path) -> None:
+def test_review_binds_machine_ab_packages_renderer_and_snapshot_bytes(tmp_path: Path) -> None:
     ab = _ab_evidence(tmp_path)
     left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
     right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
@@ -142,9 +142,13 @@ def test_review_binds_machine_ab_packages_renderer_and_snapshot_sets(tmp_path: P
     assert value["right"]["builder_revision"] == RIGHT_REV
     assert value["left"]["package_sha256"] == LEFT_PACKAGE
     assert value["right"]["package_sha256"] == RIGHT_PACKAGE
+    assert [entry["view"] for entry in value["left"]["snapshots"]] == list(CANONICAL_VIEWS)
+    assert [entry["view"] for entry in value["right"]["snapshots"]] == list(CANONICAL_VIEWS)
+    for side in ("left", "right"):
+        assert all(len(entry["sha256"]) == 64 for entry in value[side]["snapshots"])
     assert value["clean_appearance_ab_verified"] is True
     assert value["human_visual_review_confirmed"] is True
-    assert value["candidate_preference_authority"] is True
+    assert value["directional_preference_recorded"] is True
     assert value["comparison_only"] is True
     assert value["physical_acceptance_authority"] is False
     assert value["production_activation"] is False
@@ -207,7 +211,7 @@ def test_review_rejects_gate_a_or_physical_render_authority(tmp_path: Path) -> N
         )
 
 
-def test_tie_is_non_preference_authority(tmp_path: Path) -> None:
+def test_tie_is_non_directional_preference(tmp_path: Path) -> None:
     ab = _ab_evidence(tmp_path)
     left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
     right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
@@ -220,7 +224,23 @@ def test_tie_is_non_preference_authority(tmp_path: Path) -> None:
         quality_note="No reliable visual preference across the four canonical views.",
     )
     assert value["preferred_side"] is None
-    assert value["candidate_preference_authority"] is False
+    assert value["directional_preference_recorded"] is False
+
+
+def test_left_preference_is_recorded_without_claiming_candidate_semantics(tmp_path: Path) -> None:
+    ab = _ab_evidence(tmp_path)
+    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
+    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
+    value = build_review(
+        ab_evidence=ab,
+        left_render_dir=left,
+        right_render_dir=right,
+        decision="left",
+        quality_note="Left is visibly more natural in the face and three-quarter views.",
+    )
+    assert value["preferred_side"] == "left"
+    assert value["directional_preference_recorded"] is True
+    assert "candidate_preference_authority" not in value
 
 
 def test_cli_requires_confirmation_and_writes_create_only(tmp_path: Path, capsys) -> None:
