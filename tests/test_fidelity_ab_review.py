@@ -122,22 +122,27 @@ def _render_dir(
     return root
 
 
-def test_review_binds_machine_ab_packages_renderer_and_snapshot_bytes(tmp_path: Path) -> None:
+def _review(tmp_path: Path, *, decision: str = "right", renderer_revision: str = RENDERER_REV) -> dict:
     ab = _ab_evidence(tmp_path)
-    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
-    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
-
-    value = build_review(
+    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE, renderer_revision=renderer_revision)
+    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE, renderer_revision=renderer_revision)
+    return build_review(
         ab_evidence=ab,
         left_render_dir=left,
         right_render_dir=right,
-        decision="right",
+        decision=decision,
         quality_note="Candidate preserves skin tone while removing the plastic highlight amplification.",
+        expected_renderer_revision=renderer_revision,
     )
+
+
+def test_review_binds_machine_ab_packages_renderer_checkout_and_snapshot_bytes(tmp_path: Path) -> None:
+    value = _review(tmp_path)
 
     assert value["decision"] == "right"
     assert value["preferred_side"] == "right"
     assert value["renderer_revision"] == RENDERER_REV
+    assert value["review_bodyrig_revision"] == RENDERER_REV
     assert value["left"]["builder_revision"] == LEFT_REV
     assert value["right"]["builder_revision"] == RIGHT_REV
     assert value["left"]["package_sha256"] == LEFT_PACKAGE
@@ -167,6 +172,7 @@ def test_review_rejects_snapshot_tampering(tmp_path: Path) -> None:
             right_render_dir=right,
             decision="right",
             quality_note="Candidate is better.",
+            expected_renderer_revision=RENDERER_REV,
         )
 
 
@@ -187,6 +193,23 @@ def test_review_rejects_different_renderer_revisions(tmp_path: Path) -> None:
             right_render_dir=right,
             decision="right",
             quality_note="Candidate is better.",
+            expected_renderer_revision=RENDERER_REV,
+        )
+
+
+def test_review_rejects_clean_but_different_attestation_checkout(tmp_path: Path) -> None:
+    ab = _ab_evidence(tmp_path)
+    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
+    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
+
+    with pytest.raises(FidelityAbReviewError, match="checkout does not match the renderer revision"):
+        build_review(
+            ab_evidence=ab,
+            left_render_dir=left,
+            right_render_dir=right,
+            decision="right",
+            quality_note="Candidate is better.",
+            expected_renderer_revision="8" * 40,
         )
 
 
@@ -208,36 +231,18 @@ def test_review_rejects_gate_a_or_physical_render_authority(tmp_path: Path) -> N
             right_render_dir=right,
             decision="right",
             quality_note="Candidate is better.",
+            expected_renderer_revision=RENDERER_REV,
         )
 
 
 def test_tie_is_non_directional_preference(tmp_path: Path) -> None:
-    ab = _ab_evidence(tmp_path)
-    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
-    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
-
-    value = build_review(
-        ab_evidence=ab,
-        left_render_dir=left,
-        right_render_dir=right,
-        decision="tie",
-        quality_note="No reliable visual preference across the four canonical views.",
-    )
+    value = _review(tmp_path, decision="tie")
     assert value["preferred_side"] is None
     assert value["directional_preference_recorded"] is False
 
 
 def test_left_preference_is_recorded_without_claiming_candidate_semantics(tmp_path: Path) -> None:
-    ab = _ab_evidence(tmp_path)
-    left = _render_dir(tmp_path, name="left-render", package_sha=LEFT_PACKAGE)
-    right = _render_dir(tmp_path, name="right-render", package_sha=RIGHT_PACKAGE)
-    value = build_review(
-        ab_evidence=ab,
-        left_render_dir=left,
-        right_render_dir=right,
-        decision="left",
-        quality_note="Left is visibly more natural in the face and three-quarter views.",
-    )
+    value = _review(tmp_path, decision="left")
     assert value["preferred_side"] == "left"
     assert value["directional_preference_recorded"] is True
     assert "candidate_preference_authority" not in value
@@ -254,6 +259,7 @@ def test_cli_requires_confirmation_and_writes_create_only(tmp_path: Path, capsys
         "--right-render-dir", str(right),
         "--decision", "right",
         "--quality-note", "Candidate wins the visual material A/B.",
+        "--expected-renderer-revision", RENDERER_REV,
         "--out", str(output),
     ]
     assert main(args) == 1
