@@ -157,6 +157,39 @@ if ([string]::IsNullOrWhiteSpace($SessionReport)) {
     $SessionReport = Join-Path $artifactBase "BodyRig\physical-clone-sessions\$BodyId-$stamp-$runSuffix.json"
 }
 $SessionReport = [System.IO.Path]::GetFullPath($SessionReport)
+
+# A normal successful UI body-build deliberately deletes its private identity
+# workspace. The only automatic exception is an explicit revision-bound A/B
+# baseline request persisted on this exact queued/running job before its worker
+# was released. Direct operator -KeepPrivateWorkspace remains an explicit CLI
+# development/convergence choice and does not manufacture A/B job authority.
+$uiJobRoot = Split-Path -Parent $OutputDir
+$uiJobPath = Join-Path $uiJobRoot "job.json"
+if (Test-Path -LiteralPath $uiJobPath -PathType Leaf) {
+    try { $uiJob = Get-Content -LiteralPath $uiJobPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+    catch { throw "UI body-build job state is unreadable before clone start: $uiJobPath" }
+    $retentionProperty = $uiJob.PSObject.Properties["ab_baseline_retention"]
+    if ($null -ne $retentionProperty -and $null -ne $retentionProperty.Value) {
+        $retention = $retentionProperty.Value
+        $jobId = [string]$uiJob.job_id
+        $jobRevision = ([string]$uiJob.bodyrig_revision).Trim().ToLowerInvariant()
+        $jobCloneOutput = [System.IO.Path]::GetFullPath([string]$uiJob.clone_output)
+        $retentionRevision = ([string]$retention.expected_bodyrig_revision).Trim().ToLowerInvariant()
+        if ([string]$uiJob.format -ne "bodyrig-ui-job" -or [int]$uiJob.version -ne 1 -or [string]$uiJob.kind -ne "body-build" -or
+            [string]$uiJob.status -ne "running" -or $jobId -notmatch '^job-[0-9a-f]{32}$' -or
+            -not [string]::Equals((Split-Path -Leaf $uiJobRoot), $jobId, [StringComparison]::Ordinal) -or
+            $jobRevision -ne $head -or [string]$uiJob.person_id -ne $BodyId -or
+            -not [string]::Equals($jobCloneOutput, $OutputDir, [StringComparison]::OrdinalIgnoreCase) -or
+            [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or [int]$retention.version -ne 1 -or
+            $retention.retain_private_workspace -ne $true -or [string]$retention.job_id -ne $jobId -or
+            $retentionRevision -ne $head) {
+            throw "UI A/B baseline retention marker is not exactly bound to this running body-build/revision."
+        }
+        $KeepPrivateWorkspace = $true
+        Write-Host "A/B baseline private-workspace retention: $jobId @ $head"
+    }
+}
+
 $readinessReport = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.json")
 $rigSetupHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $RigSetupReport).Hash.ToLowerInvariant()
 $checkoutCleanText = "true"
