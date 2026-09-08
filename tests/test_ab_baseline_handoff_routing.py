@@ -21,4 +21,5 @@ def test_handoff_routes_dual_candidate_baseline_through_plan_bound_wrapper() -> 
 def test_handoff_keeps_generic_revision_bound_launcher_for_non_ab_builds() -> None:
     assert "start-revision-bound-body-build.ps1" in HANDOFF
     assert "ordinary standalone fresh `body-build`" in HANDOFF
-    assert "not shared dual-candidate baseline-plan authority" in HANDOFF
+    assert "shared dual-candidate baseline-plan authority" in HANDOFF
+    assert "merely because it otherwise succeeded" in HANDOFF
