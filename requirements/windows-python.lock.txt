@@ -1,6 +1,6 @@
-# BodyRig canonical Windows Python runtime lock.
-# Validated on windows-latest / CPython 3.11 in CI on 2026-09-07.
-# Keep pyproject.toml compatibility ranges broad; this file is the exact rig/operator runtime.
+# BodyRig candidate Windows Python runtime lock.
+# Pinned to the current CI-resolved versions while preserving this historical candidate's dependency graph.
+# This candidate predates numpy as a BodyRig test dependency; do not add dependencies merely to satisfy lock parity with trunk.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
@@ -16,7 +16,6 @@ httpx==0.28.1
 httpx2==2.12.0
 idna==3.19
 iniconfig==2.3.0
-numpy==1.26.4
 packaging==26.3
 pillow==12.3.0
 pluggy==1.6.0
