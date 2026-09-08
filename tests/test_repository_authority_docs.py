@@ -24,4 +24,6 @@ def test_runbook_lists_exact_required_checks_and_repository_boundaries() -> None
     assert "prevent force/non-fast-forward pushes" in DOC
     assert "prevent deletion of `main`" in DOC
     assert "bypass actors" in DOC
+    assert "bypass_pull_request_allowances" in DOC
+    assert "users, teams and apps" in DOC
     assert "does not create or imply physical acceptance" in DOC
