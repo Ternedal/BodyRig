@@ -53,6 +53,7 @@ Operator hardening is also landed:
 - performer-bound preflight delegates to the canonical source doctor and emits the doctor-owned production clone command;
 - `/api/v1/operator-authority` exposes the exact running BodyRig service revision without leaking checkout-path authority;
 - `start-revision-bound-body-build.ps1` requires PowerShell 7+, exact clean local HEAD, healthy BodyRig service, service revision == checkout revision, one unambiguous Person and no competing active body-build before enqueue;
+- `start-ab-baseline.ps1` is the canonical wrapper when the active #196 PBR and #208 throughput candidates are both receiving fresh physical comparison evidence: it validates the live frozen candidate byte contract, forces baseline workspace retention, revalidates refs after enqueue and publishes the create-only shared baseline plan;
 - revision-bound body-build enqueue carries `expected_bodyrig_revision` server-side; the manager lock covers authority-check → enqueue → returned-job revision validation, and a drifted queued job is cancelled before its physical subprocess can start;
 - interrupted body-build resume also requires running-service revision == clean checkout revision and verifies the resumed/enqueued job revision;
 - one exact-main succeeded body-build may deliberately retain its managed private identity workspace for comparison-only A/B reuse while default success cleanup, source-safety ancestry and production-activation boundaries remain unchanged;
@@ -106,13 +107,21 @@ After Stash health/search has identified the intended performer, use the same ro
 .\bodyrig-status.ps1 -PerformerId '<stash-performer-id>' -BodyId '<operator-alias>'
 ```
 
-When the current physical path requires a **fresh `body-build`**, start it only through the revision-bound launcher from the same exact clean checkout and with the BodyRig service restarted from that checkout if necessary:
+For an **ordinary standalone fresh `body-build`** that is not intended to become the shared #196/#208 comparison baseline, use the generic revision-bound launcher from the same exact clean checkout and with the BodyRig service restarted from that checkout if necessary:
 
 ```powershell
 .\start-revision-bound-body-build.ps1 -PerformerId '<stash-performer-id>'
 ```
 
-You may instead pass exactly one canonical `-PersonId`. The launcher fails closed if the service revision differs from local HEAD, if performer→Person resolution is missing/ambiguous, or if another body-build is already queued/running. On success it emits the revision-bound `job-...` id and the canonical `watch-body-build.ps1` monitor command.
+You may instead pass exactly one canonical `-PersonId`. The generic launcher fails closed if the service revision differs from local HEAD, if performer→Person resolution is missing/ambiguous, or if another body-build is already queued/running. On success it emits the revision-bound `job-...` id and the canonical `watch-body-build.ps1` monitor command.
+
+When the active #196 PBR and #208 throughput candidates are both going to receive **fresh physical comparison evidence**, do **not** start that shared baseline by calling the generic launcher directly. From exact clean current `main`, use the plan-bound wrapper:
+
+```powershell
+.\start-ab-baseline.ps1 -PerformerId '<stash-performer-id>'
+```
+
+You may instead pass exactly one canonical `-PersonId`. `start-ab-baseline.ps1` first validates current `main` plus the live 3/3 PBR and 18/18 throughput frozen-byte contract, then invokes the revision-bound launcher with retained private-workspace authority. After enqueue it revalidates `main`, both candidate refs and the contract hash; drift causes cancellation/fail-closed behavior. Only after that postflight does it publish the create-only shared baseline plan used by `run-pbr-ab-from-body-job-plan-bound.ps1` and the later throughput continuation. A body-build started directly through the generic launcher is **not** shared dual-candidate baseline-plan authority merely because it otherwise succeeded.
 
 As evidence is created, continue through the same router with the relevant selector:
 
