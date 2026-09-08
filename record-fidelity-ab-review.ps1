@@ -81,6 +81,7 @@ try {
         --right-render-dir $RightRenderDir `
         --decision $Decision `
         --quality-note $QualityNote.Trim() `
+        --expected-renderer-revision $head `
         --confirm-visual-review `
         --out $Output
     if ($LASTEXITCODE -ne 0) { throw "BodyRig fidelity A/B human review failed." }
@@ -98,6 +99,7 @@ if ($LASTEXITCODE -ne 0 -or $finalHead -ne $head -or $finalDirty.Count -gt 0) {
 
 Write-Host "BodyRig fidelity A/B human review: PASS"
 Write-Host "Decision:   $Decision"
+Write-Host "Revision:   $head (matches both render sets)"
 Write-Host "Evidence:   $Output"
 Write-Host "Authority:  comparison-only human preference; physical acceptance=false; production activation=false"
 exit 0
