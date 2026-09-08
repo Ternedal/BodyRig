@@ -93,7 +93,9 @@ def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path):
         root,
         source_index=0,
         source_sha256=first_hash,
+        source_fps=SOURCE_FPS,
         sampling_stride=SAMPLING_STRIDE,
+        effective_fps=EFFECTIVE_FPS,
     ) is not None
 
     source.write_bytes(b"version two")
@@ -103,7 +105,9 @@ def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path):
         root,
         source_index=0,
         source_sha256=second_hash,
+        source_fps=SOURCE_FPS,
         sampling_stride=SAMPLING_STRIDE,
+        effective_fps=EFFECTIVE_FPS,
     ) is None
 
 
@@ -127,7 +131,9 @@ def test_checkpoint_is_invalidated_when_sampling_stride_changes(tmp_path):
         root,
         source_index=0,
         source_sha256=source_sha256,
+        source_fps=SOURCE_FPS,
         sampling_stride=1,
+        effective_fps=SOURCE_FPS,
     ) is None
 
 
