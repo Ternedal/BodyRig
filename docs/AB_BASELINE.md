@@ -44,22 +44,24 @@ The baseline must succeed normally. Do not start a candidate merely to work arou
 
 ## PBR v2 comparison
 
-After the retained baseline succeeds, the same job can provide the current-main package and retained reconstruction for the strict PBR A/B path:
+After the retained baseline succeeds, the same job can provide the current-main package and retained reconstruction for the canonical plan-bound PBR A/B path:
 
 ```powershell
-.\run-pbr-ab-from-body-job.ps1 `
+.\run-pbr-ab-from-body-job-plan-bound.ps1 `
   -BaselineJobId '<baseline-job>'
 ```
 
-That wrapper independently revalidates the succeeded body job, exact current main, safe-source ancestry, managed retained workspace and PBR candidate ref before producing comparison-only machine/render evidence. Human visual review remains mandatory.
+This launcher delegates the machine/render work to the strict body-job PBR runner, then revalidates the completed run/source/plan authority chain and atomically replaces `REVIEW-NEXT.txt` with the explicit shared-plan-bound human-review command. The decision and quality-note placeholders are deliberately non-runnable until the operator has reviewed all four canonical LEFT/RIGHT views and supplies a real assessment.
 
-Because the throughput candidate transition intentionally switches the checkout and running BodyRig service away from `main`, finish/generate the PBR machine/render comparison you want from the retained baseline **before** starting the throughput candidate job.
+Do not substitute `run-pbr-ab-from-body-job.ps1` as the operator entrypoint for a shared-plan run. That lower-level wrapper remains part of the implementation chain, but the canonical launcher above is what preserves the terminal human-review binding introduced for the shared baseline plan.
+
+Because the throughput candidate transition intentionally switches the checkout and running BodyRig service away from `main`, finish the PBR machine/render comparison **and its plan-bound human review** from the retained baseline before starting the throughput candidate job.
 
 ## Recovery-throughput comparison
 
 The same succeeded baseline job is the baseline side of the throughput comparison, but throughput still requires a **separate fresh succeeded physical body-build from the exact throughput-candidate revision** using the same Person/source authority.
 
-From the exact clean baseline `main` checkout, after the shared baseline has succeeded, start the candidate side only through the plan-bound transition wrapper:
+From the exact clean baseline `main` checkout, after the shared baseline has succeeded and the PBR plan-bound human review has been completed, start the candidate side only through the plan-bound transition wrapper:
 
 ```powershell
 .\start-throughput-candidate-from-ab-plan.ps1 `
@@ -72,7 +74,15 @@ The wrapper revalidates the create-only baseline plan, the succeeded retained sa
 
 After enqueue the candidate wrapper re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and machine A/B commands.
 
-After the candidate job succeeds, remain on that exact clean candidate checkout and run the candidate-owned machine audit, immutable review-bundle builder and explicit human-review receipt chain. Do not switch back to `main` until that exact candidate evidence chain is deliberately completed or abandoned.
+After the candidate job succeeds, remain on that exact clean candidate checkout and continue only through the plan-bound candidate evidence chain:
+
+```powershell
+.\continue-throughput-review-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -CandidateJobId '<candidate-job>'
+```
+
+That continuation revalidates the shared baseline plan, candidate-run receipt, exact candidate contract/ref/revision and succeeded job identities before it performs the machine audit and builds the immutable review bundle. The explicit human review remains a separate operator decision.
 
 The throughput machine audit and human review remain comparison evidence only. They do not merge or promote the candidate.
 
@@ -80,7 +90,7 @@ The throughput machine audit and human review remain comparison evidence only. T
 
 These launchers do not:
 
-- create a human or physical PASS;
+- create a human or physical PASS automatically;
 - make either draft candidate mergeable from CI alone;
 - rebind historical Lauren evidence;
 - bypass projection or source-quality gates;
