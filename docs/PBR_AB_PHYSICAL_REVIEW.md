@@ -19,7 +19,7 @@ Before it builds anything, it requires:
 
 For convergence-backed reuse, both the convenience launcher and strict runner read the same `contracts/pbr-ab-source-policy-v1.json`. The policy currently requires safe-source floor `905fb0e9e9b67ad009fb707164474caf827a93a6` (#188) to be a Git ancestor of the retained checkpoint's `bodyrig_revision`.
 
-The runner then:
+The strict runner then:
 
 1. creates a detached worktree for the exact candidate commit;
 2. validates the same retained reconstruction under both baseline and candidate code;
@@ -38,36 +38,51 @@ For convergence mode, `run-authority.json` also records the retained-source mode
 
 A successful runner result still requires human visual review. It does not merge the PBR candidate and it writes no acceptance or production activation.
 
-## Efficient one-baseline path: succeeded revision-bound body job
+## Canonical shared-baseline path
 
-When throughput A/B and PBR A/B are both planned, do **not** pay for two independent current-main reconstructions merely because their evidence consumers differ. A fresh revision-bound UI `body-build` may explicitly retain its private identity workspace for A/B reuse while remaining a normal succeeded body job with Gate A, fidelity review and persisted Person/body evidence.
+When throughput A/B and PBR A/B are both planned, do **not** pay for two independent current-main reconstructions merely because their evidence consumers differ. Use the shared dual-candidate baseline plan so both candidates are frozen to exact reviewed bytes before physical work begins.
 
-Start the baseline only from exact clean current `main`, with the running BodyRig service bound to the same revision:
+Start only from exact clean current `main`, with the running BodyRig service bound to the same revision:
 
 ```powershell
 cd C:\Users\admin\Desktop\BodyRig-git
-
 .\update-windows.ps1 -Branch main -NoBrowser -SkipPlan
 
-.\start-revision-bound-body-build.ps1 `
-  -PerformerId "42" `
-  -RetainPrivateWorkspaceForAb
+.\start-ab-baseline.ps1 `
+  -PerformerId "42"
 ```
 
-Record the returned `job-...` id and let the job reach `succeeded`:
+You may pass exactly one canonical `-PersonId` instead of `-PerformerId`.
+
+Record the returned `job-...` id and let the baseline reach `succeeded`:
 
 ```powershell
 .\watch-body-build.ps1 -JobId '<baseline-job>'
 ```
 
-That exact succeeded job can be the baseline job for the recovery-throughput comparison **and** the retained source for PBR A/B:
+That exact succeeded job can be the baseline job for the recovery-throughput comparison **and** the retained source for PBR A/B. For a shared-plan run, the canonical PBR operator entrypoint is:
 
 ```powershell
-.\run-pbr-ab-from-body-job.ps1 `
+.\run-pbr-ab-from-body-job-plan-bound.ps1 `
   -BaselineJobId '<baseline-job>'
 ```
 
-The body-job wrapper is intentionally stricter than generic explicit-workspace mode. Before delegating to `run-pbr-ab-physical-review.ps1`, it requires:
+Do not substitute `run-pbr-ab-from-body-job.ps1` as the operator entrypoint for the shared-plan flow. The lower-level body-job wrapper is still used internally, but the canonical launcher adds the terminal routing that binds the explicit human decision back to the same immutable shared baseline plan.
+
+The canonical launcher delegates the expensive machine/render work to `run-pbr-ab-from-body-job.ps1`, then requires and revalidates:
+
+- `run-authority.json`;
+- `body-job-source-authority.json`;
+- `body-job-plan-authority.json`;
+- `machine-ab.json`;
+- both canonical render sets;
+- `review.html`;
+- exact run/source hashes referenced by the plan authority;
+- comparison-only authority with no physical acceptance, promotion or production activation.
+
+Only after that chain is intact does it atomically replace `REVIEW-NEXT.txt` with a command to `record-pbr-ab-human-review-from-plan.ps1`. The generated decision and quality-note placeholders are deliberately non-runnable until the operator has actually reviewed all four canonical LEFT/RIGHT views.
+
+For the retained body-job source itself, the lower-level body-job wrapper remains intentionally stricter than generic explicit-workspace mode. Before delegating to `run-pbr-ab-physical-review.ps1`, it requires:
 
 - the canonical persisted job to be `bodyrig-ui-job` v1, `kind=body-build`, `status=succeeded`;
 - the job revision to equal exact clean current checkout HEAD **and** freshly fetched `origin/main`;
@@ -78,15 +93,15 @@ The body-job wrapper is intentionally stricter than generic explicit-workspace m
 - completed retained `sith-input-v1/reconstruction.json` plus `reconstruction-authority.json`;
 - the same `contracts/pbr-ab-source-policy-v1.json` safe-source ancestry floor used by convergence mode.
 
-After the strict PBR runner succeeds, the wrapper re-runs the body-job source validator and refuses terminal authority if the job JSON, producer log, retained reconstruction, reconstruction authority, source policy or main revision changed. It then writes create-only `body-job-source-authority.json`, binding those hashes to the strict PBR `run-authority.json` hash. The receipt is comparison-only, requires human visual review, and keeps `physical_acceptance_authority=false` and `production_activation=false`.
+After the strict PBR runner succeeds, the body-job wrapper re-runs the body-job source validator and refuses terminal authority if the job JSON, producer log, retained reconstruction, reconstruction authority, source policy or main revision changed. It writes create-only `body-job-source-authority.json`; the shared-plan wrapper additionally writes `body-job-plan-authority.json`, binding the source/run receipts to the immutable dual-candidate plan.
 
-A normal UI body build is unchanged: successful standard jobs still delete the private identity workspace. Retention occurs only after an explicit `-RetainPrivateWorkspaceForAb` request has been revision-bound and persisted while the job is still queued. The retained workspace remains local/build-only and never becomes part of the portable `.mrbody` or runtime.
+A normal UI body build is unchanged: successful standard jobs still delete the private identity workspace. Retention occurs only after an explicit A/B-retention request has been revision-bound and persisted while the job is still queued. The retained workspace remains local/build-only and never becomes part of the portable `.mrbody` or runtime.
 
 For `lauren-phillips-test-01`, old projected-source evidence remains historical FAIL and cannot satisfy this path. The reusable body job must be a **fresh succeeded current-main job** created after the safe-source floor; no historical evidence is rebound.
 
 ## Fast path: latest safe verified convergence for one body
 
-When the retained reconstruction came from the normal fidelity-convergence flow rather than a revision-bound UI body job, the convenience launcher can locate it for you:
+When the retained reconstruction came from the normal fidelity-convergence flow rather than a shared revision-bound UI body job, the convenience launcher can locate it for you:
 
 ```powershell
 cd C:\Users\admin\Desktop\BodyRig-git
@@ -148,7 +163,7 @@ The runner fetches and freezes the exact remote SHA at start, then fetches again
 
 ## Output
 
-The strict runner's default output is under `%LOCALAPPDATA%\BodyRig\pbr-ab\...`. The body-job wrapper defaults under `%LOCALAPPDATA%\BodyRig\pbr-ab-body-job\...`. A completed run contains:
+The strict runner's default output is under `%LOCALAPPDATA%\BodyRig\pbr-ab\...`. The body-job wrappers default under `%LOCALAPPDATA%\BodyRig\pbr-ab-body-job\...`. A completed strict run contains:
 
 ```text
 baseline/<body>.mrbody
@@ -167,6 +182,19 @@ Body-job mode additionally writes:
 body-job-source-authority.json
 ```
 
+Shared-plan body-job mode additionally writes:
+
+```text
+body-job-plan-authority.json
+```
+
+After the explicit plan-bound human review, the run also contains:
+
+```text
+human-review.json
+plan-bound-human-review-authority.json
+```
+
 Open `review.html` to compare LEFT (baseline) and RIGHT (candidate) for:
 
 - front-full;
@@ -176,29 +204,35 @@ Open `review.html` to compare LEFT (baseline) and RIGHT (candidate) for:
 
 ## Human decision
 
-After reviewing all four views, use the exact command template written to `REVIEW-NEXT.txt`.
+### Shared-plan body-job mode
 
-Decisions are:
+After reviewing all four views, use the exact command template written by `run-pbr-ab-from-body-job-plan-bound.ps1` to `REVIEW-NEXT.txt`. It calls only the shared-plan-bound recorder.
+
+The shape is:
+
+```powershell
+.\record-pbr-ab-human-review-from-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -RunDir '<pbr-run-dir>' `
+  -Decision '<left|right|tie|reject-both>' `
+  -QualityNote '<actual visual assessment>' `
+  -ConfirmVisualReview
+```
+
+Replace both placeholders only after the visual review. The recorder validates the shared baseline plan, candidate contract, exact main/PBR/throughput revisions, run/source/plan authority receipts, machine A/B bytes and resulting canonical fidelity-review receipt before publishing create-only `plan-bound-human-review-authority.json`.
+
+### Standalone convergence / expert modes
+
+For standalone strict runs that are not tied to a shared dual-candidate baseline plan, use the exact generic command template produced by that strict run's `REVIEW-NEXT.txt`. Those modes continue to use `record-fidelity-ab-review.ps1` and do **not** manufacture shared-plan authority.
+
+Decisions in either mode are:
 
 - `right` — candidate is visibly preferable;
 - `left` — baseline is visibly preferable;
 - `tie` — no reliable preference;
 - `reject-both` — neither is acceptable.
 
-Example only:
-
-```powershell
-.\record-fidelity-ab-review.ps1 `
-  -AbEvidence "<run>\machine-ab.json" `
-  -LeftRenderDir "<run>\baseline-render" `
-  -RightRenderDir "<run>\candidate-render" `
-  -Decision right `
-  -QualityNote "Candidate has more natural skin response without changing geometry; face-front and three-quarter views are clearly better." `
-  -ConfirmVisualReview `
-  -Output "<run>\human-review.json"
-```
-
-The human-review receipt binds:
+The canonical fidelity human-review receipt binds:
 
 - exact left/right package SHA-256 values;
 - exact left/right builder Git revisions;
@@ -209,7 +243,7 @@ The human-review receipt binds:
 - all eight individual canonical snapshot SHA-256 values;
 - the operator decision and quality note.
 
-It remains comparison-only and non-activating.
+In shared-plan mode the terminal plan-bound authority additionally binds that receipt back to the immutable baseline plan and both active candidate revisions. All of these receipts remain comparison-only and non-activating.
 
 ## Interpretation
 

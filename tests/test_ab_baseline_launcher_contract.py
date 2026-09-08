@@ -34,4 +34,5 @@ def test_launcher_plan_is_create_only_and_non_activating() -> None:
 def test_launcher_keeps_throughput_candidate_build_separate() -> None:
     assert 'separate_candidate_body_build_required = $true' in SCRIPT
     assert "Throughput A/B still requires a separate succeeded body-build" in SCRIPT
-    assert "run-pbr-ab-from-body-job.ps1 -BaselineJobId '$jobId'" in SCRIPT
+    assert "run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '$jobId'" in SCRIPT
+    assert "run-pbr-ab-from-body-job.ps1 -BaselineJobId '$jobId'" not in SCRIPT
