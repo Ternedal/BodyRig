@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNNER = (ROOT / "run-pbr-ab-physical-review.ps1").read_text(encoding="utf-8")
 LATEST = (ROOT / "run-latest-pbr-ab-physical-review.ps1").read_text(encoding="utf-8")
 REVIEW = (ROOT / "record-fidelity-ab-review.ps1").read_text(encoding="utf-8")
+POLICY = json.loads((ROOT / "contracts" / "pbr-ab-source-policy-v1.json").read_text(encoding="utf-8"))
 
 
 def test_runner_requires_current_clean_main_and_freezes_remote_refs() -> None:
@@ -70,14 +72,37 @@ def test_runner_uses_one_common_renderer_revision_for_both_sides() -> None:
     assert 'candidate-render' in RUNNER
 
 
+def test_pbr_ab_runners_share_one_safe_source_policy_contract() -> None:
+    assert POLICY == {
+        "format": "bodyrig-pbr-ab-source-policy",
+        "version": 1,
+        "safe_source_floor_revision": "905fb0e9e9b67ad009fb707164474caf827a93a6",
+    }
+    for source in (LATEST, RUNNER):
+        assert 'contracts\\pbr-ab-source-policy-v1.json' in source
+        assert 'bodyrig-pbr-ab-source-policy' in source
+        assert 'safe_source_floor_revision' in source
+        assert 'PBR A/B retained-source policy fields/format/version do not match v1.' in source
+
+
 def test_latest_runner_rejects_pre_safe_source_checkpoints_by_git_ancestry() -> None:
-    assert '$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"' in LATEST
     assert 'git -C $repoRoot cat-file -e $spec' in LATEST
     assert 'git -C $repoRoot merge-base --is-ancestor $Ancestor $Descendant' in LATEST
     assert 'checkpoint.bodyrig_revision' in LATEST
     assert 'predates or is outside safe-source floor' in LATEST
     assert 'Historical/pre-projection-safety evidence remains historical and cannot be rebound.' in LATEST
     assert 'LastWriteTimeUtc' in LATEST  # ordering only, never safety authority
+
+
+def test_strict_convergence_runner_enforces_same_safe_source_floor() -> None:
+    assert '$checkpointRevision = Need-Revision -Value ([string]$checkpoint.bodyrig_revision)' in RUNNER
+    assert 'Test-CommitExists -Root $repoRoot -Revision $checkpointRevision' in RUNNER
+    assert 'Test-IsAncestor -Root $repoRoot -Ancestor $safeSourceFloorRevision -Descendant $checkpointRevision' in RUNNER
+    assert 'historical/pre-projection-safety evidence cannot be rebound.' in RUNNER
+    assert 'retained_source_mode = $(if ($usingConvergence) { "verified-safe-convergence" } else { "explicit-expert-recovery" })' in RUNNER
+    assert 'retained_source_policy_sha256' in RUNNER
+    assert 'safe_source_floor_revision' in RUNNER
+    assert 'retained_checkpoint_revision' in RUNNER
 
 
 def test_latest_runner_keeps_byte_verification_and_exact_body_binding() -> None:
