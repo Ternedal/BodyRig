@@ -34,9 +34,9 @@ The runner then:
 
 A successful runner result still requires human visual review. It does not merge the PBR candidate and it writes no acceptance or production activation.
 
-## Preferred invocation from a retained convergence run
+## Fast path: latest verified convergence for one body
 
-Use the existing fidelity-convergence work root whose latest checkpoint points at the retained reconstruction you want to compare:
+When the retained reconstruction came from the normal fidelity-convergence flow, the convenience launcher can locate it for you:
 
 ```powershell
 cd C:\Users\admin\Desktop\BodyRig-git
@@ -46,6 +46,19 @@ git switch main
 git pull --ff-only origin main
 git status --short
 
+.\run-latest-pbr-ab-physical-review.ps1 `
+  -BodyId "lauren-phillips-test-01"
+```
+
+`run-latest-pbr-ab-physical-review.ps1` searches only local fidelity-convergence roots matching the explicit `BodyId`, newest first. A directory is not selected merely because it is newest: its latest checkpoint must first pass `bodyrig.fidelity_checkpoint_verify_cli`, including the checkpoint's byte-bound artifact verification, and the checkpoint body alias must exactly match the requested `BodyId`. If no matching run passes strict verification, the launcher fails instead of guessing.
+
+After selecting a verified work root, the convenience launcher delegates to the same strict `run-pbr-ab-physical-review.ps1` path described below. It does not weaken candidate revision, retained-workspace, renderer, A/B, or human-review authority.
+
+## Explicit invocation from a retained convergence run
+
+Use this form when you want to choose a particular fidelity-convergence work root yourself:
+
+```powershell
 .\run-pbr-ab-physical-review.ps1 `
   -ConvergenceWorkRoot "<path-to-fidelity-convergence-work-root>"
 ```
