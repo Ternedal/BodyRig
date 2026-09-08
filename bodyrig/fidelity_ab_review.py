@@ -104,17 +104,27 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
     render_set = _load_json(render_set_path, label=f"{label} render set")
 
     package_sha = _need_sha(side.get("package_sha256"), label=f"{label} package SHA-256")
+    body_id = side.get("body_id")
+    if not isinstance(body_id, str) or not body_id:
+        raise FidelityAbReviewError(f"{label} body id is missing")
     if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or comparison.get("version") != 1:
         raise FidelityAbReviewError(f"{label} comparison authority format/version mismatch")
+    if comparison.get("authority") != "validated-package-comparison-only":
+        raise FidelityAbReviewError(f"{label} comparison authority is not direct package comparison evidence")
     if comparison.get("comparison_only") is not True or comparison.get("production_activation") is not False:
         raise FidelityAbReviewError(f"{label} comparison authority crossed the comparison-only boundary")
+    if comparison.get("physical_acceptance_authority") is not False:
+        raise FidelityAbReviewError(f"{label} comparison authority unexpectedly carries physical acceptance")
     if _need_sha(comparison.get("package_sha256"), label=f"{label} comparison package SHA-256") != package_sha:
         raise FidelityAbReviewError(f"{label} comparison authority is bound to different package bytes")
+    renderer_revision = _need_revision(comparison.get("bodyrig_revision"), label=f"{label} renderer revision")
 
     if render_set.get("format") != "bodyrig-fidelity-render-set" or render_set.get("version") != 1:
         raise FidelityAbReviewError(f"{label} render-set format/version mismatch")
     if render_set.get("semantics") != "visual-fidelity-not-identity-verification":
         raise FidelityAbReviewError(f"{label} render-set semantics mismatch")
+    if render_set.get("body_id") != body_id:
+        raise FidelityAbReviewError(f"{label} render set is bound to a different body")
     if _need_sha(render_set.get("package_sha256"), label=f"{label} render-set package SHA-256") != package_sha:
         raise FidelityAbReviewError(f"{label} render set is bound to different package bytes")
 
@@ -144,6 +154,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
     return {
         "comparison_authority_sha256": _sha256_file(comparison_path),
         "render_set_sha256": _sha256_file(render_set_path),
+        "renderer_revision": renderer_revision,
     }
 
 
@@ -165,6 +176,8 @@ def build_review(
     evidence = _validate_ab(ab_path)
     left_render = _validate_render_dir(Path(left_render_dir).expanduser().resolve(), side=evidence["left"], label="left")
     right_render = _validate_render_dir(Path(right_render_dir).expanduser().resolve(), side=evidence["right"], label="right")
+    if left_render["renderer_revision"] != right_render["renderer_revision"]:
+        raise FidelityAbReviewError("left/right snapshots were rendered by different BodyRig revisions")
 
     preferred_side = decision if decision in {"left", "right"} else None
     return {
@@ -175,15 +188,18 @@ def build_review(
         "preferred_side": preferred_side,
         "quality_note": note,
         "ab_evidence_sha256": _sha256_file(ab_path),
+        "renderer_revision": left_render["renderer_revision"],
         "left": {
             "package_sha256": _need_sha(evidence["left"].get("package_sha256"), label="left package SHA-256"),
             "builder_revision": _need_revision(evidence["left"].get("builder_revision"), label="left builder revision"),
-            **left_render,
+            "comparison_authority_sha256": left_render["comparison_authority_sha256"],
+            "render_set_sha256": left_render["render_set_sha256"],
         },
         "right": {
             "package_sha256": _need_sha(evidence["right"].get("package_sha256"), label="right package SHA-256"),
             "builder_revision": _need_revision(evidence["right"].get("builder_revision"), label="right builder revision"),
-            **right_render,
+            "comparison_authority_sha256": right_render["comparison_authority_sha256"],
+            "render_set_sha256": right_render["render_set_sha256"],
         },
         "clean_appearance_ab_verified": True,
         "human_visual_review_confirmed": True,
