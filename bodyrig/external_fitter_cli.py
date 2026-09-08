@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +44,7 @@ from .subject_anatomy_provenance import (
 CONFIG_FORMAT = "bodyrig-external-fitter-config"
 CONFIG_VERSION = 1
 ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+GIT_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 ADJUSTMENT_REQUEST_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
 BOUND_ADJUSTMENT_FILENAME = "bodyrig-bodyprint-adjustment.json"
 BUILTIN_SITH_ADAPTER = "sith-smplx-vrm"
@@ -100,6 +102,43 @@ def validate_external_fitter_config(value: Any) -> dict[str, Any]:
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 86_400:
         raise ExternalFitterConfigError("external fitter timeout_seconds must be in 1..86400")
     return value
+
+
+def _clean_checkout_revision(repo_root: Path | None = None) -> str | None:
+    """Return the exact BodyRig Git revision only for this module's clean checkout.
+
+    A wheel/global install or dirty/unresolvable checkout deliberately has no
+    promotion-quality builder revision. Canonical physical launchers already
+    require checkout-bound imports and a clean repository, so their packages
+    acquire the exact code revision without trusting a caller-supplied label.
+    """
+
+    root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if head.returncode != 0:
+            return None
+        revision = head.stdout.strip().lower()
+        if not GIT_REVISION_RE.fullmatch(revision):
+            return None
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if status.returncode != 0 or status.stdout.strip():
+        return None
+    return revision
 
 
 def _resolve_adjustment_path(args: argparse.Namespace) -> str:
@@ -265,6 +304,7 @@ def main(argv: list[str] | None = None) -> int:
             bodyprint=effective_bodyprint,
             provenance=provenance,
             thumbnail_png=fitted.fit.thumbnail_png,
+            builder_revision=_clean_checkout_revision(),
         )
         if config["adapter"] == BUILTIN_SITH_ADAPTER:
             publish_retained_anatomy_source(

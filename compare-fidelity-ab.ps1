@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$LeftPackage,
     [Parameter(Mandatory = $true)][string]$RightPackage,
     [Parameter(Mandatory = $true)][string]$Output,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ExpectedLeftBuilderRevision,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ExpectedRightBuilderRevision,
     [string]$BodyRigPython = ""
 )
 
@@ -46,6 +48,8 @@ try {
     & $python -m bodyrig.fidelity_ab_cli `
         $left `
         $right `
+        --expected-left-builder-revision $ExpectedLeftBuilderRevision `
+        --expected-right-builder-revision $ExpectedRightBuilderRevision `
         --require-clean-appearance-ab `
         --out $outputPath
     if ($LASTEXITCODE -ne 0) { throw "BodyRig clean appearance A/B evidence failed." }
@@ -55,8 +59,10 @@ try {
 }
 
 Write-Host "BodyRig clean appearance A/B: PASS"
-Write-Host "Left:     $left"
-Write-Host "Right:    $right"
-Write-Host "Evidence: $outputPath"
+Write-Host "Left:              $left"
+Write-Host "Right:             $right"
+Write-Host "Expected left rev: $ExpectedLeftBuilderRevision"
+Write-Host "Expected right rev: $ExpectedRightBuilderRevision"
+Write-Host "Evidence:          $outputPath"
 Write-Host "NEXT: human visual review remains mandatory; this evidence cannot grant production activation."
 exit 0
