@@ -156,15 +156,16 @@ Require-ExactFields -Value $plan.throughput_candidate -Label "throughput candida
 Require-ExactFields -Value $plan.ab_baseline_retention -Label "A/B retention plan" -Expected @("format", "version", "retain_private_workspace", "expected_bodyrig_revision", "job_id")
 
 $mainRevision = ([string]$plan.baseline_bodyrig_revision).ToLowerInvariant()
+$pbrRef = [string]$plan.pbr_candidate.ref
 $pbrRevision = ([string]$plan.pbr_candidate.revision).ToLowerInvariant()
-$throughputRevision = ([string]$plan.throughput_candidate.revision).ToLowerInvariant()
 $throughputRef = [string]$plan.throughput_candidate.ref
+$throughputRevision = ([string]$plan.throughput_candidate.revision).ToLowerInvariant()
 $personId = [string]$plan.person_id
 if (
-    [string]$plan.pbr_candidate.ref -ne "candidate/skin-pbr-v2-current-main-20260908" -or
+    [string]::IsNullOrWhiteSpace($pbrRef) -or
     $pbrRevision -notmatch '^[0-9a-f]{40}$' -or
     $plan.pbr_candidate.retained_reconstruction_reuse -ne $true -or
-    $throughputRef -ne "candidate/recovery-throughput-v3-current-main-20260908" -or
+    [string]::IsNullOrWhiteSpace($throughputRef) -or
     $throughputRevision -notmatch '^[0-9a-f]{40}$' -or
     $plan.throughput_candidate.separate_candidate_body_build_required -ne $true -or
     [string]$plan.ab_baseline_retention.format -ne "bodyrig-ab-baseline-retention" -or
@@ -173,7 +174,7 @@ if (
     ([string]$plan.ab_baseline_retention.expected_bodyrig_revision).ToLowerInvariant() -ne $mainRevision -or
     [string]$plan.ab_baseline_retention.job_id -ne $BaselineJobId
 ) {
-    throw "Shared A/B baseline plan does not bind the canonical retained baseline and active candidate refs."
+    throw "Shared A/B baseline plan does not bind the canonical retained baseline and candidate identities."
 }
 
 $branchRaw = @(& git -C $repoRoot branch --show-current 2>&1)
@@ -217,9 +218,10 @@ if (
     [int]$candidateAuthority.version -ne 1 -or
     [string]$candidateAuthority.main_revision -ne $mainRevision -or
     [string]$candidateAuthority.contract_sha256 -ne ([string]$plan.candidate_contract_sha256).ToLowerInvariant() -or
+    [string]$candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef -or
     [string]$candidateAuthority.candidates.pbr_v2.revision -ne $pbrRevision -or
-    [string]$candidateAuthority.candidates.recovery_throughput_v3.revision -ne $throughputRevision -or
     [string]$candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef -or
+    [string]$candidateAuthority.candidates.recovery_throughput_v3.revision -ne $throughputRevision -or
     $candidateAuthority.comparison_only -ne $true -or
     $candidateAuthority.human_visual_authority_required -ne $true -or
     $candidateAuthority.physical_acceptance_authority -ne $false -or
@@ -254,9 +256,6 @@ if (
 Write-Host "Shared baseline is succeeded and exact. Switching BodyRig to throughput candidate $throughputRevision..."
 $updateScript = Need-File -Path (Join-Path $repoRoot "update-windows.ps1") -Label "BodyRig updater"
 & $updateScript -Branch $throughputRef -NoBrowser -SkipPlan
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not update/restart BodyRig from the exact throughput candidate ref."
-}
 
 $afterHeadRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $afterHeadRaw.Count -ne 1 -or ([string]$afterHeadRaw[0]).Trim().ToLowerInvariant() -ne $throughputRevision) {
