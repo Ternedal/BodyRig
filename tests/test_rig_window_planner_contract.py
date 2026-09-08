@@ -96,7 +96,10 @@ def test_interrupted_recovery_wrapper_uses_existing_bodyrig_service_authority() 
     assert "git -C $repoRoot rev-parse HEAD" in INTERRUPTED
     assert "git -C $repoRoot status --porcelain" in INTERRUPTED
     assert 'Invoke-RestMethod -Method Get -Uri "$baseUri/api/v1/health"' in INTERRUPTED
-    assert '$health.PSObject.Properties["bodyrig_revision"]' in INTERRUPTED
+    assert 'Invoke-RestMethod -Method Get -Uri "$baseUri/api/v1/operator-authority"' in INTERRUPTED
+    assert "$authority.ok -ne $true" in INTERRUPTED
+    assert "$serviceRevision -notmatch '^[0-9a-f]{40}$'" in INTERRUPTED
+    assert "$serviceRevision -ne $head" in INTERRUPTED
     assert '"$baseUri/api/v1/jobs/$JobId/resume-status"' in INTERRUPTED
     assert '"$baseUri/api/v1/jobs/$JobId/resume"' in INTERRUPTED
     assert "$status.expensive_reconstruction_rerun -ne $false" in INTERRUPTED

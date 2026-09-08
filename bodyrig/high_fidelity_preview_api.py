@@ -15,6 +15,11 @@ from .high_fidelity_release_readiness import (
     HighFidelityReleaseReadinessError,
     inspect_release_readiness,
 )
+from .revision_bound_body_build import (
+    RevisionBoundBodyBuildError,
+    start_revision_bound_body_build,
+)
+from .ui_jobs import operator_checkout_status
 
 router = APIRouter()
 
@@ -23,6 +28,45 @@ class HighFidelityPreviewStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     body_job_id: str = Field(pattern=r"^job-[0-9a-f]{32}$")
     target_family: Literal["female", "male", "neutral"]
+
+
+class RevisionBoundBodyBuildRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_bodyrig_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
+def _canonical_revision(value: object) -> str | None:
+    revision = str(value or "").strip().lower()
+    if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
+        return None
+    return revision
+
+
+@router.get("/api/v1/operator-authority")
+def get_operator_authority() -> dict:
+    authority = operator_checkout_status()
+    revision = _canonical_revision(authority.get("revision"))
+    ready = bool(authority.get("ok"))
+    reason = authority.get("reason")
+    if ready and revision is None:
+        ready = False
+        reason = "BodyRig operator checkout reported ready without an exact Git revision"
+    return {
+        "ok": ready,
+        "bodyrig_revision": revision,
+        "reason": reason,
+    }
+
+
+@router.post("/api/v1/people/{person_id}/body/build-revision-bound")
+def start_exact_revision_body_build(person_id: str, request: RevisionBoundBodyBuildRequest) -> dict:
+    try:
+        return start_revision_bound_body_build(
+            person_id,
+            expected_bodyrig_revision=request.expected_bodyrig_revision,
+        )
+    except RevisionBoundBodyBuildError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/api/v1/people/{person_id}/body/high-fidelity-preview")
