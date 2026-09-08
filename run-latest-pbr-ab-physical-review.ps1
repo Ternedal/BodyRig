@@ -16,12 +16,6 @@ Set-StrictMode -Version Latest
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig latest PBR A/B launcher is Windows-only." }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ (pwsh) is required." }
 
-# #188 is the first mainline revision that combines the already-landed
-# projection-safety chain with mandatory face + full-body observation coverage.
-# A checkpoint may be byte-valid and still be unsafe evidence if it predates this
-# source-quality floor. Use Git ancestry, never timestamps, to distinguish them.
-$safeSourceFloorRevision = "905fb0e9e9b67ad009fb707164474caf827a93a6"
-
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -47,8 +41,15 @@ function Test-IsAncestor {
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-pbr-ab-physical-review.ps1") -Label "PBR A/B retained-reconstruction runner"
-
-$safeSourceFloorRevision = Need-Revision -Value $safeSourceFloorRevision -Label "Safe-source floor revision"
+$policyPath = Need-File -Path (Join-Path $repoRoot "contracts\pbr-ab-source-policy-v1.json") -Label "PBR A/B retained-source policy"
+try { $policy = Get-Content -LiteralPath $policyPath -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "PBR A/B retained-source policy is invalid JSON: $policyPath" }
+$policyFields = @($policy.PSObject.Properties.Name)
+if ($policyFields.Count -ne 3 -or ($policyFields -notcontains "format") -or ($policyFields -notcontains "version") -or ($policyFields -notcontains "safe_source_floor_revision") -or
+    [string]$policy.format -ne "bodyrig-pbr-ab-source-policy" -or [int]$policy.version -ne 1) {
+    throw "PBR A/B retained-source policy fields/format/version do not match v1."
+}
+$safeSourceFloorRevision = Need-Revision -Value ([string]$policy.safe_source_floor_revision) -Label "Safe-source floor revision"
 if (-not (Test-CommitExists -Revision $safeSourceFloorRevision)) {
     throw "BodyRig checkout cannot resolve safe-source floor revision $safeSourceFloorRevision. Use a full/current checkout before selecting retained PBR A/B evidence."
 }
