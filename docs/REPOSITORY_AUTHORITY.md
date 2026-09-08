@@ -40,6 +40,8 @@ The effective policy must require all of the following status checks:
 - `acceptance-windows`;
 - `adapter-log-handle`.
 
+All five checks must also be source-bound to the GitHub Actions GitHub App, app/integration ID `15368`. A matching context name alone is not sufficient repository authority: GitHub allows required status checks to be restricted to a specific GitHub App, and BodyRig deliberately requires that stronger binding so another integration cannot satisfy the exact-green boundary merely by emitting the same context name.
+
 It must also:
 
 - require a pull request before merge;
@@ -57,6 +59,7 @@ A passing classic policy requires:
 - `required_pull_request_reviews` present;
 - `required_pull_request_reviews.bypass_pull_request_allowances` empty for users, teams and apps;
 - all five required status checks;
+- every required check present in `required_status_checks.checks` with `app_id=15368`;
 - `enforce_admins.enabled=true`;
 - `allow_force_pushes.enabled=false`;
 - `allow_deletions.enabled=false`;
@@ -64,16 +67,19 @@ A passing classic policy requires:
 
 GitHub can explicitly allow selected users, teams, or apps to bypass required pull requests. Those `bypass_pull_request_allowances` are treated as a hard failure even when `enforce_admins` is enabled, because a named bypass actor would still make the exact-green PR boundary non-authoritative.
 
+GitHub's classic protection API also exposes each required check as a `checks` entry with an optional `app_id`. BodyRig requires `app_id=15368` for every one of the five required contexts. A contexts-only configuration, `app_id=-1`, `app_id=null`, or another app ID fails closed because the verifier cannot prove the check is restricted to GitHub Actions.
+
 ## Repository ruleset
 
 A passing ruleset path requires one or more active branch rulesets whose combined effective rules on `main` include:
 
 - `pull_request`, with `required_review_thread_resolution=true`;
 - `required_status_checks`, containing all five exact contexts;
+- every required status-check entry with `integration_id=15368`;
 - `non_fast_forward`;
 - `deletion`.
 
-Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, or incomplete status-check lists do not satisfy authority.
+Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, incomplete status-check lists, or required checks not bound to GitHub Actions integration ID `15368` do not satisfy authority.
 
 ## Boundary
 
