@@ -57,6 +57,19 @@ function Stop-VerifiedBodyRigService {
         throw "Port 8775 er optaget, men servicen kan ikke verificeres som BodyRig. Refuserer at stoppe en ukendt proces."
     }
 
+    try {
+        $jobsPayload = Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8775/api/v1/jobs" -TimeoutSec 3
+    } catch {
+        throw "BodyRig-servicen er verificeret, men aktive jobs kunne ikke inspiceres. Refuserer at stoppe servicen fail-closed."
+    }
+    $activeBodyBuilds = @($jobsPayload.jobs | Where-Object {
+        [string]$_.kind -eq "body-build" -and [string]$_.status -in @("queued", "running", "cancelling")
+    })
+    if ($activeBodyBuilds.Count -gt 0) {
+        $activeIds = @($activeBodyBuilds | ForEach-Object { [string]$_.job_id }) -join ", "
+        throw "BodyRig har aktive body-build jobs ($activeIds). Refuserer at stoppe servicen; vent til de er terminale eller afbryd dem eksplicit først."
+    }
+
     foreach ($ownerProcessId in $listenerPids) {
         if ([int]$ownerProcessId -le 0) { continue }
         Stop-Process -Id ([int]$ownerProcessId) -Force -ErrorAction Stop

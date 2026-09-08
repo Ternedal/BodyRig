@@ -23,10 +23,16 @@ def test_update_preserves_listener_results_as_arrays_under_strict_mode() -> None
     assert "if ((Get-BodyRigListeners).Count -eq 0)" not in SCRIPT
 
 
-def test_update_verifies_service_before_stopping_listener() -> None:
-    assert '[string]$health.service -ne "bodyrig"' in SCRIPT
+def test_update_verifies_service_and_no_active_physical_job_before_stopping_listener() -> None:
+    health = SCRIPT.index('[string]$health.service -ne "bodyrig"')
+    jobs = SCRIPT.index('Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8775/api/v1/jobs"', health)
+    active = SCRIPT.index('[string]$_.kind -eq "body-build"', jobs)
+    refusal = SCRIPT.index('Refuserer at stoppe servicen; vent til de er terminale eller afbryd dem eksplicit først.', active)
+    stop = SCRIPT.index("Stop-Process -Id ([int]$ownerProcessId)", refusal)
+    assert health < jobs < active < refusal < stop
+    assert '@("queued", "running", "cancelling")' in SCRIPT
     assert "Refuserer at stoppe en ukendt proces" in SCRIPT
-    assert "Stop-Process -Id ([int]$ownerProcessId)" in SCRIPT
+    assert "aktive jobs kunne ikke inspiceres" in SCRIPT
 
 
 def test_update_fetches_target_branch_explicitly_before_checkout() -> None:
