@@ -17,6 +17,7 @@ SELECTION_FORMAT = "bodyrig-observation-selection"
 SEGMENTS_FORMAT = "bodyrig-observation-segments"
 VERSION = 1
 VIEWS = {"front", "left_profile", "right_profile", "rear", "unknown"}
+FIDELITY_COVERAGE_THRESHOLD = 0.72
 
 
 class ObservationError(ValueError):
@@ -262,6 +263,75 @@ def _overlap_ratio(a: Observation, b: Observation) -> float:
     return overlap / shorter if shorter > 0 else 0.0
 
 
+def _coverage_seed(
+    pool: Sequence[Observation],
+    *,
+    max_segments: int,
+    max_per_source: int,
+) -> list[Observation]:
+    """Reserve a feasible mandatory face/full-body covering set before greedy fill.
+
+    Prefer one dual-purpose observation because it consumes the fewest scarce
+    segment slots. Otherwise choose the highest-quality compatible face/body
+    pair under the same overlap and per-source constraints used by selection.
+    """
+    dual = [
+        item
+        for item in pool
+        if item.face_visibility >= FIDELITY_COVERAGE_THRESHOLD
+        and item.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD
+    ]
+    if dual:
+        dual.sort(key=lambda item: (-item.base_score, item.source_id, item.start_seconds))
+        return [dual[0]]
+
+    if max_segments < 2:
+        return []
+
+    pairs: list[tuple[float, Observation, Observation]] = []
+    for index, first in enumerate(pool):
+        for second in pool[index + 1 :]:
+            if first.source_id == second.source_id and max_per_source < 2:
+                continue
+            if _overlap_ratio(first, second) > 0.45:
+                continue
+            face_covered = (
+                first.face_visibility >= FIDELITY_COVERAGE_THRESHOLD
+                or second.face_visibility >= FIDELITY_COVERAGE_THRESHOLD
+            )
+            body_covered = (
+                first.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD
+                or second.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD
+            )
+            if not (face_covered and body_covered):
+                continue
+            diversity = 0.0
+            if first.source_id != second.source_id:
+                diversity += 0.10
+            if (
+                first.view != "unknown"
+                and second.view != "unknown"
+                and first.view != second.view
+            ):
+                diversity += 0.16
+            pairs.append((first.base_score + second.base_score + diversity, first, second))
+
+    if not pairs:
+        return []
+    pairs.sort(
+        key=lambda row: (
+            -row[0],
+            -row[1].base_score,
+            row[1].source_id,
+            row[1].start_seconds,
+            -row[2].base_score,
+            row[2].source_id,
+            row[2].start_seconds,
+        )
+    )
+    return [pairs[0][1], pairs[0][2]]
+
+
 def select_observations(
     observations: Sequence[Observation],
     *,
@@ -277,10 +347,34 @@ def select_observations(
     pool = [item for item in observations if item.base_score >= min_score]
     if not pool:
         raise ObservationError("no observation passed the minimum quality threshold")
+    if not any(item.face_visibility >= FIDELITY_COVERAGE_THRESHOLD for item in pool):
+        raise ObservationError(
+            "no quality observation provides required face fidelity coverage "
+            f"(face_visibility >= {FIDELITY_COVERAGE_THRESHOLD:.2f})"
+        )
+    if not any(item.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD for item in pool):
+        raise ObservationError(
+            "no quality observation provides required full-body fidelity coverage "
+            f"(full_body_visibility >= {FIDELITY_COVERAGE_THRESHOLD:.2f})"
+        )
 
-    selected: list[Observation] = []
-    used_views: set[str] = set()
+    selected = _coverage_seed(
+        pool,
+        max_segments=max_segments,
+        max_per_source=max_per_source,
+    )
+    if not selected:
+        raise ObservationError(
+            "selection constraints prevented a compatible face/full-body fidelity coverage set"
+        )
+    used_views: set[str] = {item.view for item in selected}
     source_counts: dict[str, int] = {}
+    for item in selected:
+        source_counts[item.source_id] = source_counts.get(item.source_id, 0) + 1
+    face_covered = any(item.face_visibility >= FIDELITY_COVERAGE_THRESHOLD for item in selected)
+    body_covered = any(item.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD for item in selected)
+    selected_ids = {id(item) for item in selected}
+    pool = [item for item in pool if id(item) not in selected_ids]
     while pool and len(selected) < max_segments:
         scored: list[tuple[float, Observation]] = []
         for candidate in pool:
@@ -288,18 +382,26 @@ def select_observations(
                 continue
             if any(_overlap_ratio(candidate, existing) > 0.45 for existing in selected):
                 continue
+            # Mandatory source fidelity coverage outranks ordinary quality/diversity.
+            # This prevents the greedy selector from spending every slot on strong
+            # generic windows while omitting the face or whole-body evidence that
+            # high-fidelity reconstruction actually needs.
+            required_coverage = 0.0
+            if not face_covered and candidate.face_visibility >= FIDELITY_COVERAGE_THRESHOLD:
+                required_coverage += 2.0
+            if not body_covered and candidate.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD:
+                required_coverage += 2.0
+
             diversity = 0.0
             if candidate.view != "unknown" and candidate.view not in used_views:
                 diversity += 0.16
             if source_counts.get(candidate.source_id, 0) == 0:
                 diversity += 0.10
-            # Reward observations that are especially useful for one of the two
-            # distinct clone tasks, even if their aggregate score is similar.
-            if candidate.face_visibility >= 0.72:
+            if candidate.face_visibility >= FIDELITY_COVERAGE_THRESHOLD:
                 diversity += 0.05
-            if candidate.full_body_visibility >= 0.72:
+            if candidate.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD:
                 diversity += 0.05
-            scored.append((candidate.base_score + diversity, candidate))
+            scored.append((required_coverage + candidate.base_score + diversity, candidate))
         if not scored:
             break
         scored.sort(
@@ -314,10 +416,16 @@ def select_observations(
         selected.append(chosen)
         used_views.add(chosen.view)
         source_counts[chosen.source_id] = source_counts.get(chosen.source_id, 0) + 1
+        face_covered = face_covered or chosen.face_visibility >= FIDELITY_COVERAGE_THRESHOLD
+        body_covered = body_covered or chosen.full_body_visibility >= FIDELITY_COVERAGE_THRESHOLD
         pool = [item for item in pool if item is not chosen]
 
     if not selected:
         raise ObservationError("no non-overlapping observation could be selected")
+    if not face_covered:
+        raise ObservationError("selection constraints prevented required face fidelity coverage")
+    if not body_covered:
+        raise ObservationError("selection constraints prevented required full-body fidelity coverage")
     return selected
 
 

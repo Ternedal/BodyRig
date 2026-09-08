@@ -200,6 +200,61 @@ def test_selection_rewards_view_and_scene_diversity_and_avoids_overlap():
     assert not ({0.0, 1.0} <= {item.start_seconds for item in selected})
 
 
+def test_selection_fails_closed_without_face_fidelity_coverage():
+    observations = [
+        _observation("s001", 0, view="front", face=0.60, body=0.92),
+        _observation("s002", 10, view="left_profile", face=0.55, body=0.88),
+    ]
+    with pytest.raises(ObservationError, match="required face fidelity coverage"):
+        select_observations(observations, max_segments=2, min_base_score=0.2)
+
+
+def test_selection_fails_closed_without_full_body_fidelity_coverage():
+    observations = [
+        _observation("s001", 0, view="front", face=0.94, body=0.61),
+        _observation("s002", 10, view="left_profile", face=0.82, body=0.58),
+    ]
+    with pytest.raises(ObservationError, match="required full-body fidelity coverage"):
+        select_observations(observations, max_segments=2, min_base_score=0.2)
+
+
+def test_selection_prioritizes_missing_mandatory_coverage_before_generic_score():
+    observations = [
+        _observation("s001", 0, view="front", face=0.68, body=0.68, score_bias=0.20),
+        _observation("s002", 10, view="front", face=0.92, body=0.45, score_bias=-0.10),
+        _observation("s003", 20, view="left_profile", face=0.40, body=0.94, score_bias=-0.10),
+    ]
+    selected = select_observations(observations, max_segments=2, min_base_score=0.2, max_per_source=2)
+    assert len(selected) == 2
+    assert any(item.face_visibility >= 0.72 for item in selected)
+    assert any(item.full_body_visibility >= 0.72 for item in selected)
+    assert all(item.source_id != "s001" for item in selected)
+
+
+def test_selection_reserves_compatible_coverage_pair_before_greedy_overlap_choice():
+    observations = [
+        _observation("s001", 0, view="front", face=0.96, body=0.30, score_bias=0.20),
+        _observation("s001", 1, view="rear", face=0.30, body=0.96, score_bias=0.10),
+        _observation("s002", 20, view="left_profile", face=0.82, body=0.35, score_bias=-0.10),
+    ]
+    selected = select_observations(observations, max_segments=2, min_base_score=0.2, max_per_source=2)
+    assert len(selected) == 2
+    assert any(item.source_id == "s001" and item.start_seconds == 1 for item in selected)
+    assert any(item.source_id == "s002" for item in selected)
+    assert not any(item.source_id == "s001" and item.start_seconds == 0 for item in selected)
+    assert any(item.face_visibility >= 0.72 for item in selected)
+    assert any(item.full_body_visibility >= 0.72 for item in selected)
+
+
+def test_selection_fails_closed_when_slot_budget_cannot_satisfy_both_coverage_classes():
+    observations = [
+        _observation("s001", 0, view="front", face=0.92, body=0.40),
+        _observation("s002", 10, view="left_profile", face=0.40, body=0.94),
+    ]
+    with pytest.raises(ObservationError, match="selection constraints prevented"):
+        select_observations(observations, max_segments=1, min_base_score=0.2)
+
+
 def test_materialize_segments_is_create_only_hashes_bytes_and_removes_workspace_on_failure(tmp_path: Path):
     source_manifest = _source_manifest(tmp_path)
     _, sources, source_sha = load_stash_source_manifest(source_manifest)
