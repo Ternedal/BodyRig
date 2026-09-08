@@ -19,14 +19,15 @@ def test_launcher_revalidates_exact_live_candidate_contract_before_switch() -> N
     assert '--expected-main-revision", $mainRevision' in SCRIPT
     assert '--expected-pbr-revision", $pbrRevision' in SCRIPT
     assert '--expected-throughput-revision", $throughputRevision' in SCRIPT
-    assert 'candidate/recovery-throughput-v3-current-main-20260908' in SCRIPT
-    assert 'candidate/skin-pbr-v2-current-main-20260908' in SCRIPT
+    assert 'candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef' in SCRIPT
+    assert 'candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef' in SCRIPT
     assert 'candidateAuthority.contract_sha256' in SCRIPT
 
 
 def test_launcher_switches_service_and_starts_exact_non_retained_candidate() -> None:
     assert 'update-windows.ps1' in SCRIPT
     assert '& $updateScript -Branch $throughputRef -NoBrowser -SkipPlan' in SCRIPT
+    assert 'if ($LASTEXITCODE -ne 0) {\n    throw "Could not update/restart BodyRig' not in SCRIPT
     assert 'start-revision-bound-body-build.ps1' in SCRIPT
     assert '& $startScript -PersonId $personId -BaseUri $BaseUri' in SCRIPT
     assert 'started.ab_baseline_retention' in SCRIPT
