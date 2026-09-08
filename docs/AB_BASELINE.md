@@ -68,7 +68,9 @@ From the exact clean baseline `main` checkout, after the shared baseline has suc
 
 The wrapper revalidates the create-only baseline plan, the succeeded retained safe-source baseline body job, and the live 3/3 + 18/18 candidate byte contract **before** switching branches. It then uses `update-windows.ps1` to update/restart BodyRig from the exact plan-bound throughput candidate ref, requires checkout HEAD == service revision == the plan candidate revision, and starts the candidate through `start-revision-bound-body-build.ps1` using the exact Person from the baseline plan.
 
-After enqueue it re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and machine A/B commands.
+`update-windows.ps1` itself now refuses to stop a verified BodyRig service while any `body-build` is `queued`, `running` or `cancelling`, and fails closed if the active-job list cannot be inspected. Therefore the candidate transition cannot silently interrupt another physical body build merely to switch revisions.
+
+After enqueue the candidate wrapper re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and machine A/B commands.
 
 After the candidate job succeeds, remain on that exact clean candidate checkout and run the candidate-owned machine audit, immutable review-bundle builder and explicit human-review receipt chain. Do not switch back to `main` until that exact candidate evidence chain is deliberately completed or abandoned.
 
