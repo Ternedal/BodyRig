@@ -54,3 +54,11 @@ def test_plan_bound_pbr_human_review_is_create_only_and_fail_closed() -> None:
     assert 'physical_acceptance_authority = $false' in SCRIPT
     assert 'promotion_authority = $false' in SCRIPT
     assert 'production_activation = $false' in SCRIPT
+
+
+def test_plan_bound_pbr_human_review_routes_to_throughput_without_auto_start() -> None:
+    assert 'Next canonical shared-plan step:' in SCRIPT
+    assert '.\\start-throughput-candidate-from-ab-plan.ps1 -BaselineJobId' in SCRIPT
+    assert 'Routing only: the throughput command is not executed automatically' in SCRIPT
+    assert '& .\\start-throughput-candidate-from-ab-plan.ps1' not in SCRIPT
+    assert '& $throughput' not in SCRIPT
