@@ -11,6 +11,7 @@ from bodyrig.pbr_human_review_gate import validate
 
 JOB = "job-" + "1" * 32
 PERSON = "person-" + "2" * 32
+STASH_PERFORMER = "42"
 MAIN = "3" * 40
 PBR = "4" * 40
 THROUGHPUT = "5" * 40
@@ -71,6 +72,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     _write(source_authority, {
         "format": "bodyrig-pbr-ab-body-job-source-authority", "version": 1,
         "body_job_id": JOB, "person_id": PERSON, "bodyrig_revision": MAIN,
+        "stash_performer_id": STASH_PERFORMER,
         "comparison_only": True, "human_visual_authority_required": True,
         "physical_acceptance_authority": False, "production_activation": False,
     })
@@ -116,6 +118,7 @@ def test_validate_binds_exact_pbr_human_review_chain(tmp_path: Path) -> None:
     result = validate(repo_root=repo, baseline_job_id=JOB, local_app_data=local, pbr_run_dir=str(run))
     assert result["format"] == "bodyrig-pbr-human-review-gate-context"
     assert result["baseline_job_id"] == JOB
+    assert result["stash_performer_id"] == STASH_PERFORMER
     assert result["pbr_candidate_revision"] == PBR
     assert result["throughput_candidate_revision"] == THROUGHPUT
     assert result["pbr_decision"] == "right"
@@ -123,6 +126,25 @@ def test_validate_binds_exact_pbr_human_review_chain(tmp_path: Path) -> None:
     assert result["physical_acceptance_authority"] is False
     assert result["promotion_authority"] is False
     assert result["production_activation"] is False
+
+
+def test_validate_rejects_missing_source_performer_authority(tmp_path: Path) -> None:
+    repo, local, run = _fixture(tmp_path)
+    source_path = run / "body-job-source-authority.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source.pop("stash_performer_id")
+    _write(source_path, source)
+    plan_authority_path = run / "body-job-plan-authority.json"
+    plan_authority = json.loads(plan_authority_path.read_text(encoding="utf-8"))
+    plan_authority["source_authority_sha256"] = _sha(source_path)
+    _write(plan_authority_path, plan_authority)
+    human_authority_path = run / "plan-bound-human-review-authority.json"
+    human_authority = json.loads(human_authority_path.read_text(encoding="utf-8"))
+    human_authority["source_authority_sha256"] = _sha(source_path)
+    human_authority["plan_authority_sha256"] = _sha(plan_authority_path)
+    _write(human_authority_path, human_authority)
+    with pytest.raises(ValueError, match="no revision-bound Stash performer identity"):
+        validate(repo_root=repo, baseline_job_id=JOB, local_app_data=local, pbr_run_dir=str(run))
 
 
 def test_validate_rejects_human_review_tamper(tmp_path: Path) -> None:
