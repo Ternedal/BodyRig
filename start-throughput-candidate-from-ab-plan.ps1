@@ -3,6 +3,8 @@ param(
     [ValidatePattern('^job-[0-9a-f]{32}$')]
     [string]$BaselineJobId,
 
+    [string]$PbrRunDir = "",
+
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
     [string]$BaseUri = "http://127.0.0.1:8775",
 
@@ -13,183 +15,100 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 function Need-File {
-    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Label)
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
-function Read-JsonObject {
-    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Label)
-    try { $value = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json }
-    catch { throw "$Label is not valid JSON: $Path" }
+function File-Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Read-Json {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    try { $value = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 40 }
+    catch { throw "$Label is unreadable JSON: $Path" }
     if ($null -eq $value) { throw "$Label is empty: $Path" }
     return $value
 }
 
-function Require-ExactFields {
-    param(
-        [Parameter(Mandatory = $true)]$Value,
-        [Parameter(Mandatory = $true)][string[]]$Expected,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    $actual = @($Value.PSObject.Properties.Name | Sort-Object)
-    $wanted = @($Expected | Sort-Object)
-    $delta = @(Compare-Object -ReferenceObject $wanted -DifferenceObject $actual)
-    if ($delta.Count -gt 0) {
-        throw "$Label fields do not match the canonical contract."
-    }
-}
-
-function Invoke-CheckoutPythonJson {
-    param(
-        [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][string]$Python,
-        [Parameter(Mandatory = $true)][string]$Module,
-        [Parameter(Mandatory = $true)][string]$ExpectedModulePath,
-        [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-
-    $oldPythonPath = [string]$env:PYTHONPATH
-    $oldNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
-    try {
-        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" })
-        $env:PYTHONDONTWRITEBYTECODE = "1"
-
-        $probeRaw = @(& $Python -c "import importlib,pathlib; m=importlib.import_module('$Module'); print(pathlib.Path(m.__file__).resolve())" 2>&1)
-        if ($LASTEXITCODE -ne 0 -or $probeRaw.Count -ne 1) {
-            throw "Could not prove checkout-bound $Label module: $($probeRaw -join ' ')"
-        }
-        $expectedPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot $ExpectedModulePath))
-        $actualPath = [IO.Path]::GetFullPath(([string]$probeRaw[0]).Trim())
-        if (-not [string]::Equals($actualPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "$Label module imported from wrong checkout: $actualPath"
-        }
-
-        $raw = @(& $Python -m $Module @Arguments 2>&1)
-        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
-            throw "$Label failed: $($raw -join ' ')"
-        }
-        try { return (([string]$raw[0]) | ConvertFrom-Json) }
-        catch { throw "$Label returned unreadable JSON." }
-    }
-    finally {
-        if ([string]::IsNullOrEmpty($oldPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $oldPythonPath }
-        if ([string]::IsNullOrEmpty($oldNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue } else { $env:PYTHONDONTWRITEBYTECODE = $oldNoBytecode }
-    }
-}
-
-function Try-CancelCandidateJob {
-    param(
-        [Parameter(Mandatory = $true)][string]$JobId,
-        [Parameter(Mandatory = $true)][string]$UriBase
-    )
-    try {
-        $result = Invoke-RestMethod -Method Post -Uri "$UriBase/api/v1/jobs/$JobId/cancel" -TimeoutSec 10
-        $status = [string]$result.status
-        if ([string]$result.job_id -ne $JobId -or $status -notin @("canceled", "cancelling")) {
-            return "cancel endpoint returned unexpected state '$status'"
-        }
-        return "cancel requested successfully ($status)"
-    }
-    catch {
-        return "cancel request failed: $($_.Exception.Message)"
-    }
-}
-
 function Write-CreateOnlyJson {
-    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Value)
-    if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite throughput candidate run plan: $Path" }
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)]$Value)
+    if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite PBR-to-throughput gate receipt: $Path" }
     $parent = Split-Path -Parent $Path
-    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
-        New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    }
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
     $temp = Join-Path $parent ("." + [IO.Path]::GetFileName($Path) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
     try {
-        $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $temp -Encoding utf8
+        $Value | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $temp -Encoding UTF8
         Move-Item -LiteralPath $temp -Destination $Path
-    }
-    finally {
+    } finally {
         if (Test-Path -LiteralPath $temp -PathType Leaf) { Remove-Item -LiteralPath $temp -Force }
     }
 }
 
-if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
-    throw "BodyRig throughput candidate launcher is Windows-only."
+function Try-CancelCandidateJob {
+    param([Parameter(Mandatory = $true)][string]$JobId,[Parameter(Mandatory = $true)][string]$UriBase)
+    try {
+        $result = Invoke-RestMethod -Method Post -Uri "$UriBase/api/v1/jobs/$JobId/cancel" -TimeoutSec 10
+        return "cancel requested ($([string]$result.status))"
+    } catch {
+        return "cancel request failed: $($_.Exception.Message)"
+    }
 }
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    throw "PowerShell 7+ (pwsh) is required for revision-bound throughput candidate runs."
+
+function Invoke-PbrGateProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$JobId,
+        [string]$RunDir = ""
+    )
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldNoBytecode = [Environment]::GetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "Process")
+    try {
+        $bound = if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" }
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", $bound, "Process")
+        [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "1", "Process")
+        $moduleRaw = @(& $Python -c "import pathlib,bodyrig.pbr_human_review_gate as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not prove checkout-bound PBR human-review gate validator." }
+        $expected = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\pbr_human_review_gate.py"))
+        $actual = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+        if (-not [string]::Equals($actual, $expected, [StringComparison]::OrdinalIgnoreCase)) { throw "PBR gate validator imported from wrong checkout: $actual" }
+        $args = @("-m", "bodyrig.pbr_human_review_gate", "--repo-root", $RepoRoot, "--baseline-job-id", $JobId)
+        if (-not [string]::IsNullOrWhiteSpace($RunDir)) { $args += @("--pbr-run-dir", $RunDir) }
+        $raw = @(& $Python @args 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR human-review gate validation failed: $($raw -join ' ')" }
+        try { $value = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
+        catch { throw "PBR human-review gate validator returned unreadable JSON." }
+        if ([string]$value.format -ne "bodyrig-pbr-human-review-gate-context" -or [int]$value.version -ne 1) { throw "PBR human-review gate validator returned wrong format/version." }
+        if ($value.comparison_only -ne $true -or $value.human_visual_authority_recorded -ne $true -or $value.physical_acceptance_authority -ne $false -or $value.promotion_authority -ne $false -or $value.production_activation -ne $false) {
+            throw "PBR human-review gate crossed the comparison-only authority boundary."
+        }
+        return $value
+    } finally {
+        if ($null -eq $oldPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
+        if ($null -eq $oldNoBytecode) { [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", $oldNoBytecode, "Process") }
+    }
 }
-if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw "LOCALAPPDATA is required for A/B plan authority."
+
+function Assert-GateProbeStable {
+    param([Parameter(Mandatory = $true)]$Before,[Parameter(Mandatory = $true)]$After)
+    foreach ($field in @(
+        "baseline_job_id","person_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
+        "pbr_candidate_ref","pbr_candidate_revision","throughput_candidate_ref","throughput_candidate_revision",
+        "pbr_run_dir","pbr_human_review_authority_sha256","pbr_human_review_sha256","pbr_decision",
+        "stable_evidence_fingerprint_sha256"
+    )) {
+        if ([string]$Before.$field -ne [string]$After.$field) { throw "PBR human-review gate changed during throughput candidate launch: $field" }
+    }
 }
+
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig PBR-gated throughput candidate launcher is Windows-only." }
+if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ (pwsh) is required." }
+if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required for PBR-to-throughput gate authority." }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
-$planPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId.json"
-$planPath = Need-File -Path $planPath -Label "shared A/B baseline plan"
-$plan = Read-JsonObject -Path $planPath -Label "shared A/B baseline plan"
-$planSha256 = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
-
-Require-ExactFields -Value $plan -Label "shared A/B baseline plan" -Expected @(
-    "format", "version", "baseline_job_id", "person_id", "baseline_bodyrig_revision",
-    "candidate_contract_sha256", "pbr_candidate", "throughput_candidate", "ab_baseline_retention",
-    "comparison_only", "human_visual_authority_required", "physical_acceptance_authority",
-    "promotion_authority", "production_activation"
-)
-if (
-    [string]$plan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or
-    [int]$plan.version -ne 1 -or
-    [string]$plan.baseline_job_id -ne $BaselineJobId -or
-    [string]$plan.person_id -notmatch '^person-[0-9a-f]{32}$' -or
-    [string]$plan.baseline_bodyrig_revision -notmatch '^[0-9a-f]{40}$' -or
-    [string]$plan.candidate_contract_sha256 -notmatch '^[0-9a-f]{64}$' -or
-    $plan.comparison_only -ne $true -or
-    $plan.human_visual_authority_required -ne $true -or
-    $plan.physical_acceptance_authority -ne $false -or
-    $plan.promotion_authority -ne $false -or
-    $plan.production_activation -ne $false
-) {
-    throw "Shared A/B baseline plan has invalid identity or authority semantics."
-}
-Require-ExactFields -Value $plan.pbr_candidate -Label "PBR candidate plan" -Expected @("ref", "revision", "retained_reconstruction_reuse")
-Require-ExactFields -Value $plan.throughput_candidate -Label "throughput candidate plan" -Expected @("ref", "revision", "separate_candidate_body_build_required")
-Require-ExactFields -Value $plan.ab_baseline_retention -Label "A/B retention plan" -Expected @("format", "version", "retain_private_workspace", "expected_bodyrig_revision", "job_id")
-
-$mainRevision = ([string]$plan.baseline_bodyrig_revision).ToLowerInvariant()
-$pbrRef = [string]$plan.pbr_candidate.ref
-$pbrRevision = ([string]$plan.pbr_candidate.revision).ToLowerInvariant()
-$throughputRef = [string]$plan.throughput_candidate.ref
-$throughputRevision = ([string]$plan.throughput_candidate.revision).ToLowerInvariant()
-$personId = [string]$plan.person_id
-if (
-    [string]::IsNullOrWhiteSpace($pbrRef) -or
-    $pbrRevision -notmatch '^[0-9a-f]{40}$' -or
-    $plan.pbr_candidate.retained_reconstruction_reuse -ne $true -or
-    [string]::IsNullOrWhiteSpace($throughputRef) -or
-    $throughputRevision -notmatch '^[0-9a-f]{40}$' -or
-    $plan.throughput_candidate.separate_candidate_body_build_required -ne $true -or
-    [string]$plan.ab_baseline_retention.format -ne "bodyrig-ab-baseline-retention" -or
-    [int]$plan.ab_baseline_retention.version -ne 1 -or
-    $plan.ab_baseline_retention.retain_private_workspace -ne $true -or
-    ([string]$plan.ab_baseline_retention.expected_bodyrig_revision).ToLowerInvariant() -ne $mainRevision -or
-    [string]$plan.ab_baseline_retention.job_id -ne $BaselineJobId
-) {
-    throw "Shared A/B baseline plan does not bind the canonical retained baseline and candidate identities."
-}
-
-$branchRaw = @(& git -C $repoRoot branch --show-current 2>&1)
-if ($LASTEXITCODE -ne 0 -or $branchRaw.Count -ne 1 -or ([string]$branchRaw[0]).Trim() -ne "main") {
-    throw "Start the throughput candidate transition from branch main."
-}
-$dirty = @(& git -C $repoRoot status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
-    throw "Current main checkout must be exact and clean before switching to the throughput candidate."
-}
-$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1 -or ([string]$headRaw[0]).Trim().ToLowerInvariant() -ne $mainRevision) {
-    throw "Current main checkout does not match the baseline plan revision $mainRevision."
-}
-
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venvPython -PathType Leaf) { $BodyRigPython = $venvPython }
@@ -201,158 +120,70 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
-$candidateAuthority = Invoke-CheckoutPythonJson `
-    -RepoRoot $repoRoot `
-    -Python $BodyRigPython `
-    -Module "bodyrig.ab_baseline_candidates" `
-    -ExpectedModulePath "bodyrig\ab_baseline_candidates.py" `
-    -Label "dual-candidate A/B authority validation" `
-    -Arguments @(
-        "--repo-root", $repoRoot,
-        "--expected-main-revision", $mainRevision,
-        "--expected-pbr-revision", $pbrRevision,
-        "--expected-throughput-revision", $throughputRevision
-    )
-if (
-    [string]$candidateAuthority.format -ne "bodyrig-ab-baseline-candidate-authority" -or
-    [int]$candidateAuthority.version -ne 1 -or
-    [string]$candidateAuthority.main_revision -ne $mainRevision -or
-    [string]$candidateAuthority.contract_sha256 -ne ([string]$plan.candidate_contract_sha256).ToLowerInvariant() -or
-    [string]$candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef -or
-    [string]$candidateAuthority.candidates.pbr_v2.revision -ne $pbrRevision -or
-    [string]$candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef -or
-    [string]$candidateAuthority.candidates.recovery_throughput_v3.revision -ne $throughputRevision -or
-    $candidateAuthority.comparison_only -ne $true -or
-    $candidateAuthority.human_visual_authority_required -ne $true -or
-    $candidateAuthority.physical_acceptance_authority -ne $false -or
-    $candidateAuthority.promotion_authority -ne $false -or
-    $candidateAuthority.production_activation -ne $false
-) {
-    throw "Live candidate authority does not match the shared baseline plan."
+$gateBefore = Invoke-PbrGateProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -RunDir $PbrRunDir
+Write-Host "Plan-bound PBR human review is exact and recorded. Starting throughput transition through internal launcher..."
+
+$internal = Need-File -Path (Join-Path $repoRoot "start-throughput-candidate-from-ab-plan-internal.ps1") -Label "internal throughput candidate launcher"
+$internalParams = @{ BaselineJobId = $BaselineJobId; BaseUri = $BaseUri; BodyRigPython = $BodyRigPython }
+$raw = @(& $internal @internalParams)
+if ($raw.Count -ne 1) { throw "Internal throughput candidate launcher did not return exactly one machine-readable result." }
+try { $started = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
+catch { throw "Internal throughput candidate launcher returned unreadable JSON." }
+$candidateJobId = [string]$started.candidate_job_id
+if ([string]::IsNullOrWhiteSpace($candidateJobId)) { $candidateJobId = [string]$started.job_id }
+if ($candidateJobId -notmatch '^job-[0-9a-f]{32}$') { throw "Internal throughput candidate launcher did not return a canonical candidate job id." }
+if ([string]$started.person_id -ne [string]$gateBefore.person_id -or ([string]$started.throughput_candidate_revision -ne "" -and [string]$started.throughput_candidate_revision -ne [string]$gateBefore.throughput_candidate_revision)) {
+    $cancel = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
+    throw "Internal throughput candidate result does not match PBR-gated Person/revision authority; $cancel."
 }
 
-$baselineSource = Invoke-CheckoutPythonJson `
-    -RepoRoot $repoRoot `
-    -Python $BodyRigPython `
-    -Module "bodyrig.pbr_ab_body_job_source" `
-    -ExpectedModulePath "bodyrig\pbr_ab_body_job_source.py" `
-    -Label "retained baseline body-job validation" `
-    -Arguments @("--job-id", $BaselineJobId, "--repo-root", $repoRoot, "--expected-revision", $mainRevision)
-if (
-    [string]$baselineSource.format -ne "bodyrig-pbr-ab-body-job-source" -or
-    [int]$baselineSource.version -ne 1 -or
-    [string]$baselineSource.body_job_id -ne $BaselineJobId -or
-    [string]$baselineSource.person_id -ne $personId -or
-    [string]$baselineSource.bodyrig_revision -ne $mainRevision -or
-    $baselineSource.safe_source_lineage_passed -ne $true -or
-    $baselineSource.comparison_only -ne $true -or
-    $baselineSource.human_visual_authority_required -ne $true -or
-    $baselineSource.physical_acceptance_authority -ne $false -or
-    $baselineSource.production_activation -ne $false
-) {
-    throw "Succeeded retained baseline authority does not match the shared A/B plan."
-}
-
-Write-Host "Shared baseline is succeeded and exact. Switching BodyRig to throughput candidate $throughputRevision..."
-$updateScript = Need-File -Path (Join-Path $repoRoot "update-windows.ps1") -Label "BodyRig updater"
-& $updateScript -Branch $throughputRef -NoBrowser -SkipPlan
-
-$afterHeadRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $afterHeadRaw.Count -ne 1 -or ([string]$afterHeadRaw[0]).Trim().ToLowerInvariant() -ne $throughputRevision) {
-    throw "Candidate checkout after update does not match plan revision $throughputRevision. No candidate job was started."
-}
-$afterDirty = @(& git -C $repoRoot status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0 -or $afterDirty.Count -gt 0) {
-    throw "Candidate checkout is not clean after update. No candidate job was started."
-}
-try { $serviceAuthority = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/operator-authority" -TimeoutSec 3 }
-catch { throw "Candidate BodyRig service does not expose operator authority. No candidate job was started." }
-if ($serviceAuthority.ok -ne $true -or ([string]$serviceAuthority.bodyrig_revision).ToLowerInvariant() -ne $throughputRevision) {
-    throw "Candidate BodyRig service revision does not match the plan. No candidate job was started."
-}
-
-$startScript = Need-File -Path (Join-Path $repoRoot "start-revision-bound-body-build.ps1") -Label "revision-bound body-build launcher"
-$startedRaw = @(& $startScript -PersonId $personId -BaseUri $BaseUri)
-if ($startedRaw.Count -ne 1) {
-    throw "Revision-bound throughput candidate launcher did not return exactly one machine-readable job result."
-}
-try { $started = ([string]$startedRaw[0]) | ConvertFrom-Json }
-catch { throw "Revision-bound throughput candidate launcher returned unreadable JSON." }
-$candidateJobId = [string]$started.job_id
-if (
-    $candidateJobId -notmatch '^job-[0-9a-f]{32}$' -or
-    [string]$started.person_id -ne $personId -or
-    ([string]$started.bodyrig_revision).ToLowerInvariant() -ne $throughputRevision -or
-    $null -ne $started.ab_baseline_retention
-) {
-    if ($candidateJobId -match '^job-[0-9a-f]{32}$') {
-        $cancelState = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
-        throw "Candidate enqueue did not preserve exact non-retained plan authority; $cancelState."
-    }
-    throw "Candidate enqueue did not preserve exact non-retained plan authority."
-}
+$runPlanPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$candidateJobId.json"
+$runPlanPath = Need-File -Path $runPlanPath -Label "throughput candidate run plan"
+$runPlanSha = File-Sha256 -Path $runPlanPath
 
 try {
-    $refspecMain = "+refs/heads/main:refs/remotes/origin/main"
-    $refspecCandidate = "+refs/heads/${throughputRef}:refs/remotes/origin/${throughputRef}"
-    $fetchRaw = @(& git -C $repoRoot fetch --no-tags origin $refspecMain $refspecCandidate 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "post-enqueue authority fetch failed: $($fetchRaw -join ' ')" }
-    $originMain = (& git -C $repoRoot rev-parse refs/remotes/origin/main).Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $originMain -ne $mainRevision) { throw "origin/main moved after baseline plan creation" }
-    $originCandidate = (& git -C $repoRoot rev-parse "refs/remotes/origin/$throughputRef").Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $originCandidate -ne $throughputRevision) { throw "throughput candidate ref moved after baseline plan creation" }
-    $currentHead = (& git -C $repoRoot rev-parse HEAD).Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $currentHead -ne $throughputRevision) { throw "candidate checkout moved after enqueue" }
-    $currentDirty = @(& git -C $repoRoot status --porcelain 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $currentDirty.Count -gt 0) { throw "candidate checkout became dirty after enqueue" }
-    $servicePost = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/operator-authority" -TimeoutSec 3
-    if ($servicePost.ok -ne $true -or ([string]$servicePost.bodyrig_revision).ToLowerInvariant() -ne $throughputRevision) {
-        throw "candidate service revision drifted after enqueue"
-    }
-}
-catch {
-    $cancelState = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
-    throw "Throughput candidate authority drifted after enqueue: $($_.Exception.Message). $cancelState. Job $candidateJobId is NOT A/B candidate-run authority."
+    $gateAfter = Invoke-PbrGateProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -RunDir ([string]$gateBefore.pbr_run_dir)
+    Assert-GateProbeStable -Before $gateBefore -After $gateAfter
+} catch {
+    $cancel = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
+    if (Test-Path -LiteralPath $runPlanPath -PathType Leaf) { Remove-Item -LiteralPath $runPlanPath -Force -ErrorAction SilentlyContinue }
+    throw "PBR human-review authority drifted while starting throughput candidate; removed candidate-run authority when present. $cancel. $($_.Exception.Message)"
 }
 
-$receiptDir = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans"
-$receiptPath = Join-Path $receiptDir "$BaselineJobId-throughput-$candidateJobId.json"
-$receipt = [ordered]@{
-    format = "bodyrig-throughput-candidate-run-plan"
+$gateReceiptPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$candidateJobId-pbr-gate.json"
+$gateReceipt = [ordered]@{
+    format = "bodyrig-throughput-pbr-human-review-gate"
     version = 1
-    baseline_plan_sha256 = $planSha256
-    candidate_contract_sha256 = ([string]$plan.candidate_contract_sha256).ToLowerInvariant()
     baseline_job_id = $BaselineJobId
-    baseline_job_json_sha256 = [string]$baselineSource.job_json_sha256
-    baseline_bodyrig_revision = $mainRevision
-    person_id = $personId
-    throughput_candidate_ref = $throughputRef
-    throughput_candidate_revision = $throughputRevision
     candidate_job_id = $candidateJobId
-    candidate_workspace_retained = $false
+    person_id = [string]$gateAfter.person_id
+    baseline_plan_sha256 = [string]$gateAfter.baseline_plan_sha256
+    candidate_run_plan_sha256 = $runPlanSha
+    candidate_contract_sha256 = [string]$gateAfter.candidate_contract_sha256
+    baseline_revision = [string]$gateAfter.baseline_revision
+    pbr_candidate_ref = [string]$gateAfter.pbr_candidate_ref
+    pbr_candidate_revision = [string]$gateAfter.pbr_candidate_revision
+    throughput_candidate_ref = [string]$gateAfter.throughput_candidate_ref
+    throughput_candidate_revision = [string]$gateAfter.throughput_candidate_revision
+    pbr_run_dir = [string]$gateAfter.pbr_run_dir
+    pbr_human_review_authority_sha256 = [string]$gateAfter.pbr_human_review_authority_sha256
+    pbr_human_review_sha256 = [string]$gateAfter.pbr_human_review_sha256
+    pbr_decision = [string]$gateAfter.pbr_decision
+    pbr_stable_evidence_fingerprint_sha256 = [string]$gateAfter.stable_evidence_fingerprint_sha256
     comparison_only = $true
-    human_visual_authority_required = $true
+    human_visual_authority_recorded = $true
     physical_acceptance_authority = $false
     promotion_authority = $false
     production_activation = $false
 }
-try { Write-CreateOnlyJson -Path $receiptPath -Value $receipt }
+try { Write-CreateOnlyJson -Path $gateReceiptPath -Value $gateReceipt }
 catch {
-    $cancelState = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
-    throw "Could not publish create-only throughput candidate run plan: $($_.Exception.Message). $cancelState. Job $candidateJobId is NOT A/B candidate-run authority."
+    $cancel = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
+    if (Test-Path -LiteralPath $runPlanPath -PathType Leaf) { Remove-Item -LiteralPath $runPlanPath -Force -ErrorAction SilentlyContinue }
+    throw "Could not publish create-only PBR-to-throughput gate receipt; removed candidate-run authority when present. $cancel. $($_.Exception.Message)"
 }
 
-Write-Host "BodyRig throughput A/B candidate: STARTED"
-Write-Host "Baseline job:       $BaselineJobId"
-Write-Host "Baseline revision:  $mainRevision"
-Write-Host "Candidate revision: $throughputRevision"
-Write-Host "Person:             $personId"
-Write-Host "Candidate job:      $candidateJobId"
-Write-Host "Candidate plan:     $receiptPath"
-Write-Host "Monitor:            .\watch-body-build.ps1 -JobId '$candidateJobId'"
-Write-Host "After the candidate succeeds, remain on this exact clean candidate checkout and run:"
-Write-Host "  .\compare-recovery-throughput.ps1 -BaselineJobId '$BaselineJobId' -CandidateJobId '$candidateJobId' -BaselineBodyRigRevision '$mainRevision' -Out '<create-only-audit.json>'"
-Write-Host "Then build the immutable review bundle and record the explicit human review."
-Write-Host "Authority: comparison-only; no physical acceptance, promotion or production activation."
-
-$receipt | ConvertTo-Json -Depth 20 -Compress
+Write-Host "PBR-to-throughput gate: RECORDED"
+Write-Host "Gate receipt: $gateReceiptPath"
+Write-Host "Authority: PBR human review recorded; no physical acceptance, promotion or production activation."
+[Console]::Out.WriteLine(([string]$raw[0]))
