@@ -184,15 +184,17 @@ def test_revision_bound_launcher_resolves_person_and_binds_current_source() -> N
     assert '[string]$_.source.performer_id -eq $PerformerId' in LAUNCHER
     assert ".source.id" not in LAUNCHER
     assert "Multiple BodyRig Persons are bound to Stash performer" in LAUNCHER
-    assert "$resolvedPerformerId" in LAUNCHER
-    assert "expected_stash_performer_id = $resolvedPerformerId" in LAUNCHER
+    assert "$currentPerformerId" in LAUNCHER
+    assert "$pinnedPerformerId" in LAUNCHER
+    assert "$env:BODYRIG_PINNED_STASH_PERFORMER_ID" in LAUNCHER
+    assert "expected_stash_performer_id = $pinnedPerformerId" in LAUNCHER
     assert '[string]$_.kind -eq "body-build"' in LAUNCHER
     assert '[string]$_.status -in @("queued", "running")' in LAUNCHER
 
 
 def test_revision_bound_launcher_binds_expected_authority_and_verifies_enqueued_job() -> None:
     assert "expected_bodyrig_revision = $head" in LAUNCHER
-    assert "expected_stash_performer_id = $resolvedPerformerId" in LAUNCHER
+    assert "expected_stash_performer_id = $pinnedPerformerId" in LAUNCHER
     assert "retain_private_workspace_for_ab = [bool]$RetainPrivateWorkspaceForAb" in LAUNCHER
     assert '"$BaseUri/api/v1/people/$PersonId/body/build-revision-bound"' in LAUNCHER
     assert "$jobId -notmatch '^job-[0-9a-f]{32}$'" in LAUNCHER
@@ -200,7 +202,7 @@ def test_revision_bound_launcher_binds_expected_authority_and_verifies_enqueued_
     assert "$jobRevision -ne $head" in LAUNCHER
     assert "$started.source_enqueue_authority" in LAUNCHER
     assert '"bodyrig-body-build-source-enqueue-authority"' in LAUNCHER
-    assert '[string]$sourceAuthority.stash_performer_id -ne $resolvedPerformerId' in LAUNCHER
+    assert '[string]$sourceAuthority.stash_performer_id -ne $pinnedPerformerId' in LAUNCHER
     assert '"Monitor:  .\\watch-body-build.ps1 -JobId \'$jobId\'"' in LAUNCHER
 
 
