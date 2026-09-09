@@ -20,9 +20,11 @@ def test_internal_launcher_revalidates_exact_live_candidate_contract_before_swit
     assert '--expected-main-revision", $mainRevision' in INTERNAL
     assert '--expected-pbr-revision", $pbrRevision' in INTERNAL
     assert '--expected-throughput-revision", $throughputRevision' in INTERNAL
-    assert 'candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef' in INTERNAL
+    assert 'candidateAuthority.candidates.pbr_v3.ref -ne $pbrRef' in INTERNAL
+    assert 'candidateAuthority.candidates.pbr_v3.revision -ne $pbrRevision' in INTERNAL
     assert 'candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef' in INTERNAL
     assert 'candidateAuthority.contract_sha256' in INTERNAL
+    assert 'candidateAuthority.candidates.pbr_v2' not in INTERNAL
     assert 'candidate/skin-pbr-v2-current-main-20260908' not in INTERNAL
     assert 'candidate/recovery-throughput-v3-current-main-20260908' not in INTERNAL
 

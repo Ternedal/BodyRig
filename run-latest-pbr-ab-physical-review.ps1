@@ -4,7 +4,7 @@ param(
     [string]$BodyId,
     [string]$RigSetupReport = "",
     [ValidatePattern('^[A-Za-z0-9._/-]{1,200}$')]
-    [string]$CandidateRef = "candidate/skin-pbr-v2-current-main-20260908",
+    [string]$CandidateRef = "candidate/skin-pbr-v3-linear-light-20260909",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
     [string]$UnityExe = ""

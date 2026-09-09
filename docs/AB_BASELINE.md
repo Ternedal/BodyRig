@@ -1,8 +1,10 @@
 # Shared physical A/B baseline
 
-`start-ab-baseline.ps1` is the canonical operator entrypoint when the active PBR-v2 and recovery-throughput-v3 draft candidates are both going to receive fresh physical comparison evidence.
+`start-ab-baseline.ps1` is the canonical operator entrypoint when the active PBR-v3 and recovery-throughput-v3 draft candidates are both going to receive fresh physical comparison evidence.
 
 It exists to avoid paying for two identical expensive current-main baseline reconstructions while preserving exact revision and candidate-byte authority.
+
+The active PBR comparison candidate is the linear-light v3 replacement in PR #258. PR #196 is superseded historical PBR-v2 lineage and is not current shared-baseline authority.
 
 ## Start one retained current-main baseline
 
@@ -35,7 +37,7 @@ The physical part of that preflight executes **inside the running BodyRig servic
 
 After the service-bound live checks, `preflight-ab-baseline.ps1` re-fetches and revalidates exact `main` plus both candidate revisions/contract bytes. `start-ab-baseline.ps1` then performs a fresh candidate-contract validation again immediately before enqueue. This duplication is intentional because the live renderer/rig/source checks can take time.
 
-Only after those fail-fast checks does the wrapper call `start-revision-bound-body-build.ps1` with `-RetainPrivateWorkspaceForAb`. The revision-bound launcher still independently requires clean local HEAD == running BodyRig service revision == enqueued job revision and persists the exact A/B retention marker before physical worker start. The physical clone itself continues to revalidate its rig/source/reconstruction authorities at point of use; the preflight is not a substitute for those evidence-producing gates.
+Only after those fail-fast checks does the wrapper call `start-revision-bound-body-build.ps1` with `-RetainPrivateWorkspaceForAb` and the exact preflight-bound Stash performer identity. The revision-bound launcher still independently requires clean local HEAD == running BodyRig service revision == enqueued job revision and persists both the exact source-enqueue authority and A/B retention marker before physical worker start. The physical clone itself continues to revalidate its rig/source/reconstruction authorities at point of use; the preflight is not a substitute for those evidence-producing gates.
 
 After enqueue, `start-ab-baseline.ps1` fetches main and both candidate refs again. If main or either candidate ref moved, it refuses to publish baseline-plan authority and attempts to cancel the newly created UI job through the canonical local job-cancel endpoint. A job for which this post-enqueue authority check failed must not be used as the shared dual-candidate baseline even if the physical process later finishes.
 
@@ -57,7 +59,7 @@ Use the exact job id printed by the launcher:
 
 The baseline must succeed normally. Do not start a candidate merely to work around a failed baseline.
 
-## PBR v2 comparison
+## PBR v3 comparison
 
 After the retained baseline succeeds, the same job can provide the current-main package and retained reconstruction for the canonical plan-bound PBR A/B path:
 
@@ -83,11 +85,11 @@ From the exact clean baseline `main` checkout, after the shared baseline has suc
   -BaselineJobId '<baseline-job>'
 ```
 
-The wrapper revalidates the create-only baseline plan, the succeeded retained safe-source baseline body job, and the live 3/3 + 18/18 candidate byte contract **before** switching branches. It then uses `update-windows.ps1` to update/restart BodyRig from the exact plan-bound throughput candidate ref, requires checkout HEAD == service revision == the plan candidate revision, and starts the candidate through `start-revision-bound-body-build.ps1` using the exact Person from the baseline plan.
+The wrapper revalidates the create-only baseline plan, the succeeded retained safe-source baseline body job, and the live 3/3 + 18/18 candidate byte contract **before** switching branches. It also requires the recorded PBR human-review gate and pins the candidate enqueue to the same reviewed Stash performer identity. It then uses `update-windows.ps1` to update/restart BodyRig from the exact plan-bound throughput candidate ref, requires checkout HEAD == service revision == the plan candidate revision, and starts the candidate through `start-revision-bound-body-build.ps1` using the exact Person/source authority from the reviewed chain.
 
 `update-windows.ps1` itself now refuses to stop a verified BodyRig service while any `body-build` is `queued`, `running` or `cancelling`, and fails closed if the active-job list cannot be inspected. Therefore the candidate transition cannot silently interrupt another physical body build merely to switch revisions.
 
-After enqueue the candidate wrapper re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and machine A/B commands.
+After enqueue the candidate wrapper re-fetches both `origin/main` and the throughput candidate ref. If either moved from the revisions bound by the baseline plan, it refuses candidate-run-plan authority and attempts to cancel the new job. A stable candidate start writes a create-only `bodyrig-throughput-candidate-run-plan` under `%LOCALAPPDATA%\BodyRig\ab-baseline-plans\` and prints the exact monitor and canonical continuation commands.
 
 After the candidate job succeeds, remain on that exact clean candidate checkout and continue only through the plan-bound candidate evidence chain:
 
@@ -97,7 +99,7 @@ After the candidate job succeeds, remain on that exact clean candidate checkout 
   -CandidateJobId '<candidate-job>'
 ```
 
-That continuation revalidates the shared baseline plan, candidate-run receipt, exact candidate contract/ref/revision and succeeded job identities before it performs the machine audit and builds the immutable review bundle. The explicit human review remains a separate operator decision.
+That continuation revalidates the shared baseline plan, PBR sequencing gate, candidate-run receipt, exact candidate contract/ref/revision and succeeded job/source identities before it performs the machine audit and builds the immutable review bundle. The explicit human review remains a separate operator decision.
 
 The throughput machine audit and human review remain comparison evidence only. They do not merge or promote the candidate.
 

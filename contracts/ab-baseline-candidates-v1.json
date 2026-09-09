@@ -2,12 +2,12 @@
   "format": "bodyrig-ab-baseline-candidate-contract",
   "version": 1,
   "candidates": {
-    "pbr_v2": {
-      "ref": "candidate/skin-pbr-v2-current-main-20260908",
+    "pbr_v3": {
+      "ref": "candidate/skin-pbr-v3-linear-light-20260909",
       "files": {
-        "bodyrig/bridges/sith_pbr_material.py": "ff79c39f66d44f6649a819da9d75adc35609d0da",
-        "tests/test_sith_basecolor_detail.py": "860a5ece9c92c1438d99b7e32b254ab2457552f1",
-        "tests/test_sith_pbr_material.py": "bb093a213c5b5ddcfd17f5aa2557bd7568d43012"
+        "bodyrig/bridges/sith_pbr_material.py": "b7c3df91d65cab41ed9b3ed3123b21bb2ac8f7be",
+        "tests/test_sith_basecolor_detail.py": "be8ee63187efd595c1e80902d0002bb155f09e21",
+        "tests/test_sith_pbr_material.py": "085052f1a01818ab23fd01f628ce74bc484d7d56"
       }
     },
     "recovery_throughput_v3": {

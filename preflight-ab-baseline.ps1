@@ -133,7 +133,7 @@ $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 Write-Host "Validating current main and both active A/B candidate byte contracts..."
 $pre = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
 $mainRevision = [string]$pre.main_revision
-$pbrRevision = [string]$pre.candidates.pbr_v2.revision
+$pbrRevision = [string]$pre.candidates.pbr_v3.revision
 $throughputRevision = [string]$pre.candidates.recovery_throughput_v3.revision
 $contractSha256 = [string]$pre.contract_sha256
 

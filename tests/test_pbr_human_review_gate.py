@@ -15,7 +15,7 @@ STASH_PERFORMER = "42"
 MAIN = "3" * 40
 PBR = "4" * 40
 THROUGHPUT = "5" * 40
-PBR_REF = "candidate/skin-pbr-v2-current-main-20260908"
+PBR_REF = "candidate/skin-pbr-v3-linear-light-20260909"
 THROUGHPUT_REF = "candidate/recovery-throughput-v3-current-main-20260908"
 
 

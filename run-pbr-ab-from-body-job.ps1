@@ -5,7 +5,7 @@ param(
 
     [string]$RigSetupReport = "",
     [ValidatePattern('^[A-Za-z0-9._/-]{1,200}$')]
-    [string]$CandidateRef = "candidate/skin-pbr-v2-current-main-20260908",
+    [string]$CandidateRef = "candidate/skin-pbr-v3-linear-light-20260909",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
     [string]$UnityExe = ""
@@ -126,8 +126,8 @@ function Validate-CandidateAuthority {
         [int]$authority.version -ne 1 -or
         [string]$authority.main_revision -ne $MainRevision -or
         [string]$authority.contract_sha256 -ne $ContractSha256 -or
-        [string]$authority.candidates.pbr_v2.ref -ne $PbrRef -or
-        [string]$authority.candidates.pbr_v2.revision -ne $PbrRevision -or
+        [string]$authority.candidates.pbr_v3.ref -ne $PbrRef -or
+        [string]$authority.candidates.pbr_v3.revision -ne $PbrRevision -or
         [string]$authority.candidates.recovery_throughput_v3.ref -ne $ThroughputRef -or
         [string]$authority.candidates.recovery_throughput_v3.revision -ne $ThroughputRevision -or
         $authority.comparison_only -ne $true -or

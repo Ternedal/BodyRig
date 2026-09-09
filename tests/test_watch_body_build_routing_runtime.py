@@ -66,7 +66,7 @@ def _write_fixture(tmp_path: Path, *, plan_revision: str = MAIN_REVISION) -> tup
         "baseline_bodyrig_revision": plan_revision,
         "candidate_contract_sha256": CONTRACT_SHA256,
         "pbr_candidate": {
-            "ref": "candidate/skin-pbr-v2-current-main-20260908",
+            "ref": "candidate/skin-pbr-v3-linear-light-20260909",
             "revision": PBR_REVISION,
             "retained_reconstruction_reuse": True,
         },
