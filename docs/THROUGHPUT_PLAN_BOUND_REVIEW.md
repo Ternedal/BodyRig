@@ -1,13 +1,15 @@
 # Plan-bound recovery throughput A/B continuation
 
-This flow is for the physical throughput candidate created by `start-throughput-candidate-from-ab-plan.ps1`.
+This flow is for the physical throughput candidate created by the canonical `start-throughput-candidate-from-ab-plan.ps1` sequencing gate.
 
-It exists to prevent an operator mix-up between multiple succeeded candidate jobs. The candidate-start step publishes a create-only `bodyrig-throughput-candidate-run-plan` that binds the shared baseline plan, exact baseline job, exact throughput candidate revision/ref, Person and newly enqueued candidate job id. The review continuation must consume that exact receipt.
+It exists to prevent an operator mix-up between multiple succeeded candidate jobs **and** to enforce that the shared-plan PBR human review actually happened before throughput evaluation. The candidate-start step publishes a create-only `bodyrig-throughput-candidate-run-plan` plus a create-only `bodyrig-throughput-pbr-human-review-gate` receipt that binds that candidate run to the exact reviewed PBR evidence chain.
 
 ## Preconditions
 
 - the shared exact-main baseline job has succeeded;
-- the throughput candidate was started with `start-throughput-candidate-from-ab-plan.ps1`;
+- the plan-bound PBR A/B has completed through `record-pbr-ab-human-review-from-plan.ps1` and has a valid create-only `bodyrig-pbr-plan-bound-human-review-authority`;
+- the throughput candidate was started with the canonical `start-throughput-candidate-from-ab-plan.ps1`, not the internal launcher;
+- the PBR-to-throughput gate receipt still revalidates against the exact PBR run/review/plan/source/machine bytes;
 - that exact candidate job has succeeded;
 - both succeeded jobs still have authoritative persisted Person source-binding and four-view body-review receipts matching the hashes recorded when each body job completed;
 - baseline and candidate source-bindings resolve to the exact same deterministic `stash-physical-source-manifest-v1` SHA;
@@ -15,7 +17,7 @@ It exists to prevent an operator mix-up between multiple succeeded candidate job
 - the checkout is still the exact clean plan-bound throughput candidate branch/revision;
 - the candidate branch still resolves to the same revision and `origin/main` is still the baseline revision frozen by the shared plan.
 
-The launcher fails closed if any of those conditions drift.
+The canonical wrappers fail closed if any of those conditions drift. `start-throughput-candidate-from-ab-plan-internal.ps1` and `record-throughput-human-review-from-ab-plan-internal.ps1` are implementation details, not operator entrypoints.
 
 ## Build plan-bound machine evidence and immutable human-review bundle
 
@@ -43,7 +45,7 @@ Temporary output is removed on failure; incomplete evidence is not promoted to a
 
 ## Human review
 
-The continuation never records a human decision automatically. Review all four canonical views and then use the **main-owned plan-bound wrapper** that the continuation prints:
+The continuation never records a human decision automatically. Review all four canonical views and then use the **canonical main-owned wrapper** that the continuation prints:
 
 ```powershell
 .\record-throughput-human-review-from-ab-plan.ps1 `
@@ -58,10 +60,22 @@ The continuation never records a human decision automatically. Review all four c
   -ConfirmVisualReview
 ```
 
-The frozen candidate-owned `record-recovery-throughput-human-review.ps1` remains the low-level evidence recorder used internally by the wrapper and **must not be invoked directly** for plan-bound #208 authority. The wrapper consumes `continuation-authority.json`, revalidates the shared baseline plan and candidate-run plan, exact candidate checkout and remote refs, both persisted body-job receipt chains, source-manifest/source-file-hash parity, machine audit and immutable review-bundle bytes. It then runs the candidate-owned recorder in a separate `pwsh` process, verifies the resulting human receipt, replays the same receipt/ref authority again and finally publishes a create-only `bodyrig-throughput-plan-bound-human-review-authority` receipt.
+The canonical wrapper first requires the create-only `bodyrig-throughput-pbr-human-review-gate` for the selected baseline/candidate jobs and replays the checkout-bound `bodyrig.pbr_human_review_gate` validator against the exact reviewed PBR run. It also requires the gate to bind the exact current candidate-run-plan bytes.
 
-The terminal receipt records `human_visual_authority_recorded=true` but keeps physical acceptance, promotion and production activation false. A human PASS is evidence only until a later explicit promotion decision exists.
+The established plan-bound throughput review logic remains byte-identical in `record-throughput-human-review-from-ab-plan-internal.ps1`. That internal wrapper consumes `continuation-authority.json`, revalidates the shared baseline plan and candidate-run plan, exact candidate checkout and remote refs, both persisted body-job receipt chains, source-manifest/source-file-hash parity, machine audit and immutable review-bundle bytes. It invokes the frozen candidate-owned `record-recovery-throughput-human-review.ps1` in a separate `pwsh`, verifies the resulting human receipt, replays the same receipt/ref authority and publishes the **intermediate** create-only `bodyrig-throughput-plan-bound-human-review-authority` receipt.
+
+The canonical outer wrapper then replays the PBR gate again and publishes the canonical terminal sequencing receipt:
+
+```text
+<plan-bound-throughput-review-root>.pbr-sequenced-human-review-authority.json
+```
+
+with format `bodyrig-throughput-pbr-sequenced-human-review-authority`. It binds the exact PBR human-review gate, PBR human authority/review bytes, candidate-run-plan bytes and intermediate throughput plan-bound human-review authority/human-review bytes.
+
+The terminal sequencing receipt records both `pbr_human_visual_authority_recorded=true` and `human_visual_authority_recorded=true`, but keeps physical acceptance, promotion and production activation false. A human PASS remains comparison evidence only until a later explicit promotion decision exists.
+
+The low-level `record-recovery-throughput-human-review.ps1` and both `*-internal.ps1` wrappers **must not be invoked directly** as canonical #208 sequencing authority.
 
 ## Authority boundary
 
-This path is comparison-only. Persisted receipt validation, source-manifest parity and success-time source-file hash parity prove evidence integrity/comparability only; they do not create a physical PASS. Human visual review is explicit and create-only, but it still does not grant physical acceptance, promotion authority or production activation. This path does not merge the throughput candidate and it does not reinterpret historical physical evidence.
+This path is comparison-only. Persisted receipt validation, source-manifest parity, success-time source-file hash parity and PBR→throughput sequencing prove evidence integrity/comparability/order only; they do not create a physical PASS. Human visual review is explicit and create-only, but it still does not grant physical acceptance, promotion authority or production activation. This path does not merge the throughput candidate and it does not reinterpret historical physical evidence.
