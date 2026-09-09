@@ -11,6 +11,9 @@ from bodyrig.bridges.sith_basecolor_detail import (
 )
 from bodyrig.bridges.sith_pbr_material import (
     PNG_SIGNATURE,
+    PBR_METHOD,
+    PBR_NORMAL_SCALE,
+    PBR_ROUGHNESS_MIN,
     _read_glb,
     _write_glb,
     refine_glb_pbr,
@@ -58,11 +61,11 @@ def _pbr_avatar() -> bytes:
     normal = PNG_SIGNATURE + b"normal"
     roughness = PNG_SIGNATURE + b"roughness"
     metrics = {
-        "method": "source-basecolor-highpass-pbr-v1",
-        "normal_scale": 0.45,
-        "roughness_min": 0.46,
+        "method": PBR_METHOD,
+        "normal_scale": PBR_NORMAL_SCALE,
+        "roughness_min": PBR_ROUGHNESS_MIN,
         "roughness_max": 0.82,
-        "roughness_mean": 0.69,
+        "roughness_mean": 0.72,
         "normal_texture_sha256": hashlib.sha256(normal).hexdigest(),
         "metallic_roughness_texture_sha256": hashlib.sha256(roughness).hexdigest(),
     }
@@ -107,7 +110,7 @@ def test_basecolor_refinement_preserves_texture_indices_and_pbr_maps() -> None:
     ]
     assert document["extensions"]["VRMC_vrm"]["meta"]["thumbnailImage"] == 1
     assert document["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"] == {"index": 0}
-    assert document["materials"][0]["normalTexture"] == {"index": 1, "scale": 0.45}
+    assert document["materials"][0]["normalTexture"] == {"index": 1, "scale": PBR_NORMAL_SCALE}
     assert document["images"][0]["name"] == "BodyRigSourceDerivedBaseColorDetail"
     assert binary.startswith(b"basethmb")
     assert binary.endswith(refined_png)
