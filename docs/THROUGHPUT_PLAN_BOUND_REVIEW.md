@@ -43,15 +43,25 @@ Temporary output is removed on failure; incomplete evidence is not promoted to a
 
 ## Human review
 
-The launcher never records human review automatically. It prints the exact `record-recovery-throughput-human-review.ps1` command for the generated immutable bundle. Review all four canonical views and explicitly mark:
+The continuation never records a human decision automatically. Review all four canonical views and then use the **main-owned plan-bound wrapper** that the continuation prints:
 
-- identity shape;
-- face identity;
-- skin/texture alignment;
-- gross anatomy.
+```powershell
+.\record-throughput-human-review-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -CandidateJobId '<candidate-job>' `
+  -RunDir '<plan-bound-throughput-review-root>' `
+  -IdentityShape pass `
+  -FaceIdentity pass `
+  -SkinTextureAlignment pass `
+  -GrossAnatomy pass `
+  -Note '<actual visual assessment>' `
+  -ConfirmVisualReview
+```
 
-A human PASS is evidence only. It remains non-promoting and non-activating until a separate explicit promotion decision exists.
+The frozen candidate-owned `record-recovery-throughput-human-review.ps1` remains the low-level evidence recorder used internally by the wrapper and **must not be invoked directly** for plan-bound #208 authority. The wrapper consumes `continuation-authority.json`, revalidates the shared baseline plan and candidate-run plan, exact candidate checkout and remote refs, both persisted body-job receipt chains, source-manifest/source-file-hash parity, machine audit and immutable review-bundle bytes. It then runs the candidate-owned recorder in a separate `pwsh` process, verifies the resulting human receipt, replays the same receipt/ref authority again and finally publishes a create-only `bodyrig-throughput-plan-bound-human-review-authority` receipt.
+
+The terminal receipt records `human_visual_authority_recorded=true` but keeps physical acceptance, promotion and production activation false. A human PASS is evidence only until a later explicit promotion decision exists.
 
 ## Authority boundary
 
-This path is comparison-only. Persisted receipt validation, source-manifest parity and success-time source-file hash parity prove evidence integrity/comparability only; they do not create a physical PASS. This path does not grant physical acceptance, promotion authority or production activation. It does not merge the throughput candidate and it does not reinterpret historical physical evidence.
+This path is comparison-only. Persisted receipt validation, source-manifest parity and success-time source-file hash parity prove evidence integrity/comparability only; they do not create a physical PASS. Human visual review is explicit and create-only, but it still does not grant physical acceptance, promotion authority or production activation. This path does not merge the throughput candidate and it does not reinterpret historical physical evidence.
