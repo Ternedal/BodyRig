@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from bodyrig.repository_authority import REQUIRED_STATUS_CHECK_APP_ID, REQUIRED_STATUS_CHECKS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "codeql.yml"
@@ -61,3 +63,5 @@ def test_codeql_actions_are_exact_sha_pinned() -> None:
 def test_codeql_check_name_is_stable_for_repository_authority() -> None:
     text = _text()
     assert "name: analyze (python)" in text
+    assert "analyze (python)" in REQUIRED_STATUS_CHECKS
+    assert REQUIRED_STATUS_CHECK_APP_ID == 15368
