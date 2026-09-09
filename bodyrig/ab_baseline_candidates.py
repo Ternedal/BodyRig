@@ -13,7 +13,7 @@ from typing import Any
 FORMAT = "bodyrig-ab-baseline-candidate-contract"
 VERSION = 1
 CONTRACT_RELATIVE_PATH = Path("contracts/ab-baseline-candidates-v1.json")
-EXPECTED_CANDIDATES = {"pbr_v2", "recovery_throughput_v3"}
+EXPECTED_CANDIDATES = {"pbr_v3", "recovery_throughput_v3"}
 EXPECTED_TOP_LEVEL_FIELDS = {
     "format",
     "version",
@@ -129,7 +129,7 @@ def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
     candidates = value.get("candidates")
     if not isinstance(candidates, dict) or set(candidates) != EXPECTED_CANDIDATES:
-        raise AbBaselineCandidateError("A/B candidate contract must contain exactly the PBR v2 and throughput v3 candidates")
+        raise AbBaselineCandidateError("A/B candidate contract must contain exactly the PBR v3 and throughput v3 candidates")
 
     normalized: dict[str, dict[str, Any]] = {}
     for name in sorted(EXPECTED_CANDIDATES):
@@ -201,7 +201,7 @@ def inspect_candidate_authority(
         raise AbBaselineCandidateError("main revision moved after the A/B baseline preflight")
 
     expected_revisions = {
-        "pbr_v2": expected_pbr_revision,
+        "pbr_v3": expected_pbr_revision,
         "recovery_throughput_v3": expected_throughput_revision,
     }
     resolved: dict[str, Any] = {}

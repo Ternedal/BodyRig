@@ -1,6 +1,8 @@
-# PBR v2 physical A/B review
+# PBR v3 physical A/B review
 
-This runbook prepares a revision-bound visual comparison for the current source-derived skin PBR v2 candidate without granting physical, renderer, release, or production authority.
+This runbook prepares a revision-bound visual comparison for the current source-derived skin PBR v3 candidate without granting physical, renderer, release, or production authority.
+
+PBR v3 replaces the superseded PBR v2 comparison candidate. It preserves the conservative dielectric roughness/normal-strength policy while decoding base-color sRGB to linear light before luminance, high-pass, gradient and source-detail derivation. The active candidate is PR #258; PR #196 remains historical/superseded lineage and is not current shared-baseline authority.
 
 ## What the runner proves
 
@@ -12,7 +14,7 @@ Before it builds anything, it requires:
 - a clean local `main` checkout;
 - local `main` to equal current `origin/main`;
 - the candidate branch to resolve to exactly one commit ahead of `main`;
-- the candidate diff to contain only the three reviewed PBR-v2 files;
+- the candidate diff to contain only the three reviewed PBR-v3 files;
 - a verified safe-source convergence checkpoint **or** explicit baseline-clone + retained-identity-workspace paths;
 - current rig/SiTH setup authority;
 - a current `sith-input-v1/reconstruction.json` and `reconstruction-authority.json`.
@@ -156,8 +158,10 @@ If the retained reconstruction did not come from a convergence work root or a re
 The default candidate ref is:
 
 ```text
-candidate/skin-pbr-v2-current-main-20260908
+candidate/skin-pbr-v3-linear-light-20260909
 ```
+
+The shared candidate contract binds this ref to the three exact reviewed #258 blobs. The active authority key is `pbr_v3`; the superseded `pbr_v2` key is rejected by the current validator.
 
 The runner fetches and freezes the exact remote SHA at start, then fetches again before publishing terminal run authority. If either `origin/main` or the candidate ref moves during the run, the run fails closed and no terminal `run-authority.json` is published.
 

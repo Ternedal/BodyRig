@@ -24,11 +24,18 @@ def test_reviewed_contract_binds_every_active_candidate_blob() -> None:
     value = _contract()
     normalized = ab._validate_contract(value)
 
-    assert set(normalized) == {"pbr_v2", "recovery_throughput_v3"}
-    assert len(normalized["pbr_v2"]["files"]) == 3
+    assert set(normalized) == {"pbr_v3", "recovery_throughput_v3"}
+    assert len(normalized["pbr_v3"]["files"]) == 3
     assert len(normalized["recovery_throughput_v3"]["files"]) == 18
-    assert normalized["pbr_v2"]["files"]["bodyrig/bridges/sith_pbr_material.py"] == (
-        "ff79c39f66d44f6649a819da9d75adc35609d0da"
+    assert normalized["pbr_v3"]["ref"] == "candidate/skin-pbr-v3-linear-light-20260909"
+    assert normalized["pbr_v3"]["files"]["bodyrig/bridges/sith_pbr_material.py"] == (
+        "b7c3df91d65cab41ed9b3ed3123b21bb2ac8f7be"
+    )
+    assert normalized["pbr_v3"]["files"]["tests/test_sith_basecolor_detail.py"] == (
+        "be8ee63187efd595c1e80902d0002bb155f09e21"
+    )
+    assert normalized["pbr_v3"]["files"]["tests/test_sith_pbr_material.py"] == (
+        "085052f1a01818ab23fd01f628ce74bc484d7d56"
     )
     assert normalized["recovery_throughput_v3"]["files"]["bodyrig/bridges/hmr2_checkpoint_bridge.py"] == (
         "853414c46568cfeb8d00fbb00c51acf491d78dbd"
@@ -62,20 +69,27 @@ def test_contract_rejects_unknown_top_level_authority_field() -> None:
 
 def test_contract_rejects_unreviewed_candidate_or_unsafe_ref() -> None:
     value = _contract()
-    value["candidates"]["surprise"] = copy.deepcopy(value["candidates"]["pbr_v2"])
-    with pytest.raises(ab.AbBaselineCandidateError, match="exactly the PBR v2 and throughput v3"):
+    value["candidates"]["surprise"] = copy.deepcopy(value["candidates"]["pbr_v3"])
+    with pytest.raises(ab.AbBaselineCandidateError, match="exactly the PBR v3 and throughput v3"):
         ab._validate_contract(value)
 
     value = _contract()
-    value["candidates"]["pbr_v2"]["ref"] = "candidate/../wrong"
+    value["candidates"]["pbr_v3"]["ref"] = "candidate/../wrong"
     with pytest.raises(ab.AbBaselineCandidateError, match="safe candidate branch ref"):
+        ab._validate_contract(value)
+
+
+def test_contract_rejects_superseded_pbr_v2_authority_key() -> None:
+    value = _contract()
+    value["candidates"]["pbr_v2"] = value["candidates"].pop("pbr_v3")
+    with pytest.raises(ab.AbBaselineCandidateError, match="exactly the PBR v3 and throughput v3"):
         ab._validate_contract(value)
 
 
 def test_inspection_requires_clean_exact_main_and_one_commit_candidate_deltas(monkeypatch) -> None:
     contract = _contract()
     normalized = ab._validate_contract(contract)
-    revision_by_name = {"pbr_v2": PBR, "recovery_throughput_v3": THROUGHPUT}
+    revision_by_name = {"pbr_v3": PBR, "recovery_throughput_v3": THROUGHPUT}
     name_by_ref = {entry["ref"]: name for name, entry in normalized.items()}
 
     monkeypatch.setattr(ab, "_load_contract", lambda _repo: (contract, "d" * 64))
@@ -98,21 +112,21 @@ def test_inspection_requires_clean_exact_main_and_one_commit_candidate_deltas(mo
             return MAIN
         if len(args) == 6 and args[:3] == ("diff", "--name-only", "--no-renames"):
             revision = args[4]
-            name = "pbr_v2" if revision == PBR else "recovery_throughput_v3"
+            name = "pbr_v3" if revision == PBR else "recovery_throughput_v3"
             return "\n".join(normalized[name]["files"])
         raise AssertionError(f"unexpected git invocation: {args!r}")
 
     monkeypatch.setattr(ab, "_git", fake_git)
 
     def fake_tree_blob(_repo: Path, revision: str, path: str) -> str:
-        name = "pbr_v2" if revision == PBR else "recovery_throughput_v3"
+        name = "pbr_v3" if revision == PBR else "recovery_throughput_v3"
         return normalized[name]["files"][path]
 
     monkeypatch.setattr(ab, "_tree_blob", fake_tree_blob)
 
     result = ab.inspect_candidate_authority(repo_root=ROOT)
     assert result["main_revision"] == MAIN
-    assert result["candidates"]["pbr_v2"]["revision"] == PBR
+    assert result["candidates"]["pbr_v3"]["revision"] == PBR
     assert result["candidates"]["recovery_throughput_v3"]["revision"] == THROUGHPUT
     assert result["comparison_only"] is True
     assert result["physical_acceptance_authority"] is False
@@ -133,14 +147,14 @@ def test_post_enqueue_expected_revision_check_rejects_ref_drift(monkeypatch) -> 
             return ""
         if args == ("rev-parse", "HEAD") or args == ("rev-parse", "refs/remotes/origin/main"):
             return MAIN
-        if args == ("rev-parse", f"refs/remotes/origin/{normalized['pbr_v2']['ref']}"):
+        if args == ("rev-parse", f"refs/remotes/origin/{normalized['pbr_v3']['ref']}"):
             return PBR
         if args == ("rev-parse", f"refs/remotes/origin/{normalized['recovery_throughput_v3']['ref']}"):
             return THROUGHPUT
         raise AssertionError(f"unexpected git invocation before drift rejection: {args!r}")
 
     monkeypatch.setattr(ab, "_git", fake_git)
-    with pytest.raises(ab.AbBaselineCandidateError, match="candidate pbr_v2 ref moved"):
+    with pytest.raises(ab.AbBaselineCandidateError, match="candidate pbr_v3 ref moved"):
         ab.inspect_candidate_authority(
             repo_root=ROOT,
             expected_main_revision=MAIN,

@@ -4,7 +4,7 @@ param(
     [string]$IdentityWorkspace = "",
     [string]$RigSetupReport = "",
     [ValidatePattern('^[A-Za-z0-9._/-]{1,200}$')]
-    [string]$CandidateRef = "candidate/skin-pbr-v2-current-main-20260908",
+    [string]$CandidateRef = "candidate/skin-pbr-v3-linear-light-20260909",
     [string]$OutputDir = "",
     [string]$BodyRigPython = "",
     [string]$UnityExe = ""
@@ -183,7 +183,7 @@ $expectedChanged = @(
 )
 $actualChanged = @(Invoke-Git -Arguments @("-C",$repoRoot,"diff","--name-only",$baselineRevision,$candidateRevision,"--") -Step "Candidate diff boundary")
 if (($actualChanged -join "`n") -ne ($expectedChanged -join "`n")) {
-    throw "PBR candidate diff boundary changed. Expected only the canonical three PBR-v2 files; got: $($actualChanged -join ', ')"
+    throw "PBR candidate diff boundary changed. Expected only the canonical three PBR-v3 files; got: $($actualChanged -join ', ')"
 }
 
 $usingConvergence = -not [string]::IsNullOrWhiteSpace($ConvergenceWorkRoot)
@@ -370,7 +370,7 @@ print(json.dumps(validate_reconstruction_authority(sys.argv[1],expected_body_mod
         "--portable-identity",$portableIdentity,
         "--name",$name,
         "--out",$candidatePackage
-    ) -Step "Build exact PBR-v2 candidate package from retained reconstruction")
+    ) -Step "Build exact PBR-v3 candidate package from retained reconstruction")
     $treeAfterCandidate = Get-TreeDigest -Root $stage
     if ([string]$treeAfterCandidate.sha256 -ne [string]$treeBefore.sha256) { throw "Retained SiTH tree changed during candidate package build." }
     Assert-CleanCheckout -Root $candidateWorktree -ExpectedRevision $candidateRevision -Label "Candidate"

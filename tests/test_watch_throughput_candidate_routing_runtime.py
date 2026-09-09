@@ -111,7 +111,7 @@ def _write_fixture(
         "candidate_run_plan_sha256": run_plan_sha256,
         "candidate_contract_sha256": CONTRACT_SHA256,
         "baseline_revision": MAIN_REVISION,
-        "pbr_candidate_ref": "candidate/skin-pbr-v2-current-main-20260908",
+        "pbr_candidate_ref": "candidate/skin-pbr-v3-linear-light-20260909",
         "pbr_candidate_revision": PBR_REVISION,
         "throughput_candidate_ref": run_plan["throughput_candidate_ref"],
         "throughput_candidate_revision": THROUGHPUT_REVISION,

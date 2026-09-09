@@ -178,7 +178,7 @@ if ($preflightPersonId -notmatch '^person-[0-9a-f]{32}$' -or [string]::IsNullOrW
 Write-Host "Revalidating current main and both active A/B candidate byte contracts immediately before enqueue..."
 $preflight = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
 $mainRevision = [string]$preflight.main_revision
-$pbrRevision = [string]$preflight.candidates.pbr_v2.revision
+$pbrRevision = [string]$preflight.candidates.pbr_v3.revision
 $throughputRevision = [string]$preflight.candidates.recovery_throughput_v3.revision
 $contractSha256 = [string]$preflight.contract_sha256
 if (
@@ -274,7 +274,7 @@ $plan = [ordered]@{
     baseline_bodyrig_revision = $mainRevision
     candidate_contract_sha256 = $contractSha256
     pbr_candidate = [ordered]@{
-        ref = [string]$postflight.candidates.pbr_v2.ref
+        ref = [string]$postflight.candidates.pbr_v3.ref
         revision = $pbrRevision
         retained_reconstruction_reuse = $true
     }

@@ -218,8 +218,8 @@ if (
     [int]$candidateAuthority.version -ne 1 -or
     [string]$candidateAuthority.main_revision -ne $mainRevision -or
     [string]$candidateAuthority.contract_sha256 -ne ([string]$plan.candidate_contract_sha256).ToLowerInvariant() -or
-    [string]$candidateAuthority.candidates.pbr_v2.ref -ne $pbrRef -or
-    [string]$candidateAuthority.candidates.pbr_v2.revision -ne $pbrRevision -or
+    [string]$candidateAuthority.candidates.pbr_v3.ref -ne $pbrRef -or
+    [string]$candidateAuthority.candidates.pbr_v3.revision -ne $pbrRevision -or
     [string]$candidateAuthority.candidates.recovery_throughput_v3.ref -ne $throughputRef -or
     [string]$candidateAuthority.candidates.recovery_throughput_v3.revision -ne $throughputRevision -or
     $candidateAuthority.comparison_only -ne $true -or
