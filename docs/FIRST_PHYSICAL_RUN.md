@@ -22,7 +22,7 @@ If the goal is to collect fresh comparison evidence for the active plan-bound PB
 
 You may pass exactly one canonical `-PersonId` instead. The A/B launcher owns its own service-bound fail-fast preflight, validates the live frozen PBR/throughput candidate contract, requires the running BodyRig service revision to match the exact clean `main` checkout, binds the exact Person/Stash performer, forces retained baseline-workspace authority, revalidates candidate refs after enqueue and only then publishes the create-only shared baseline plan.
 
-A successful standalone `clone-body-from-stash-ready.ps1` run or a body-build started directly through `start-revision-bound-body-build.ps1` is **not** dual-candidate baseline-plan authority merely because it otherwise succeeded. Do not try to retrofit such a run into the #196/#208 comparison chain.
+A successful standalone `clone-body-from-stash-ready.ps1` run or a body-build started directly through `start-revision-bound-body-build.ps1` is **not** dual-candidate baseline-plan authority merely because it otherwise succeeded. Do not try to retrofit such a run into the #258/#208 comparison chain.
 
 Monitor the exact shared baseline with the job id printed by `start-ab-baseline.ps1`:
 
