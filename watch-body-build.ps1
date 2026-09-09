@@ -263,7 +263,7 @@ function Get-GpuSnapshot {
 function Get-Phase {
     param(
         [Parameter(Mandatory = $true)]$Job,
-        [Parameter(Mandatory = $true)][string]$LogText
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$LogText
     )
     $clone = [string]$Job.clone_output
     $acceptance = [string]$Job.acceptance_dir
