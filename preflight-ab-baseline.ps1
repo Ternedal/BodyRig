@@ -175,7 +175,7 @@ if ($resolvedPersonId -notmatch '^person-[0-9a-f]{32}$') {
 }
 
 $payload = @{ expected_bodyrig_revision = $mainRevision } | ConvertTo-Json -Depth 4 -Compress
-Write-Host "Running service-bound read-only rig/SiTH/CUDA/Stash/source preflight..."
+Write-Host "Running service-bound read-only renderer/rig/SiTH/CUDA/Stash/source preflight..."
 try {
     $physical = Invoke-RestMethod `
         -Method Post `
@@ -194,6 +194,7 @@ if (
     [string]$physical.person_id -ne $resolvedPersonId -or
     [string]$physical.performer_id -ne $resolvedPerformerId -or
     [string]$physical.bodyrig_revision -ne $mainRevision -or
+    $physical.renderer_ready -ne $true -or
     [string]$physical.decode_gate -ne "ffmpeg-one-frame-v1" -or
     [int]$physical.usable_source_count -lt 1 -or
     $physical.service_environment_bound -ne $true -or
@@ -224,6 +225,7 @@ Write-Host "BodyRig A/B baseline preflight: READY"
 Write-Host "Main:                $mainRevision"
 Write-Host "Person:              $resolvedPersonId"
 Write-Host "Stash performer:     $resolvedPerformerId"
+Write-Host "Renderer toolchain:  READY"
 Write-Host "Decodable sources:   $([int]$physical.usable_source_count)"
 Write-Host "PBR candidate:       $pbrRevision"
 Write-Host "Throughput candidate:$throughputRevision"
@@ -239,6 +241,7 @@ Write-Host "Authority: service-bound read-only pre-enqueue readiness; no physica
     candidate_contract_sha256 = $contractSha256
     pbr_candidate_revision = $pbrRevision
     throughput_candidate_revision = $throughputRevision
+    renderer_ready = $true
     decode_gate = [string]$physical.decode_gate
     usable_source_count = [int]$physical.usable_source_count
     service_environment_bound = $true
