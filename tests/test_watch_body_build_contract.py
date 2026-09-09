@@ -14,6 +14,7 @@ def test_monitor_is_read_only_and_never_controls_processes() -> None:
         "Move-Item",
         "Set-Content",
         "Add-Content",
+        "Invoke-Expression",
         "git checkout",
         "git reset",
     )
@@ -65,4 +66,31 @@ def test_monitor_surfaces_segment_and_gpu_progress_without_fake_eta() -> None:
 
 def test_monitor_has_once_mode_for_operator_checks() -> None:
     assert "[switch]$Once" in SCRIPT
-    assert 'if ($Once -or @("succeeded", "failed", "canceled", "interrupted")' in SCRIPT
+    assert '$terminal = @("succeeded", "failed", "canceled", "interrupted")' in SCRIPT
+    assert "if ($Once -or $terminal)" in SCRIPT
+
+
+def test_monitor_accepts_missing_or_empty_job_log_for_terminal_status() -> None:
+    assert '[Parameter(Mandatory = $true)][AllowEmptyString()][string]$LogText' in SCRIPT
+    assert 'if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }' in SCRIPT
+
+
+def test_monitor_routes_only_matching_succeeded_ab_baseline_to_plan_bound_pbr() -> None:
+    assert "function Get-AbBaselineContinuation" in SCRIPT
+    assert 'BodyRig\\ab-baseline-plans\\$jobId.json' in SCRIPT
+    assert 'bodyrig-dual-candidate-ab-baseline-plan' in SCRIPT
+    assert '[string]$plan.baseline_job_id -eq $jobId' in SCRIPT
+    assert '[string]$plan.person_id -eq [string]$Job.person_id' in SCRIPT
+    assert '[string]$plan.baseline_bodyrig_revision -eq [string]$Job.bodyrig_revision' in SCRIPT
+    assert 'bodyrig-ab-baseline-retention' in SCRIPT
+    assert '$retention.retain_private_workspace -eq $true' in SCRIPT
+    assert '$plan.comparison_only -eq $true' in SCRIPT
+    assert '$plan.human_visual_authority_required -eq $true' in SCRIPT
+    assert '$plan.physical_acceptance_authority -eq $false' in SCRIPT
+    assert '$plan.promotion_authority -eq $false' in SCRIPT
+    assert '$plan.production_activation -eq $false' in SCRIPT
+    assert '[string]$job.status -eq "succeeded"' in SCRIPT
+    assert ".\\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '$jobId'" in SCRIPT
+    assert "This monitor grants no authority" in SCRIPT
+    assert "downstream wrapper revalidates" in SCRIPT
+    assert "A/B BASELINE CONTINUATION BLOCKED" in SCRIPT

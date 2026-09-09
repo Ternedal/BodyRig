@@ -263,7 +263,7 @@ function Get-GpuSnapshot {
 function Get-Phase {
     param(
         [Parameter(Mandatory = $true)]$Job,
-        [Parameter(Mandatory = $true)][string]$LogText
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$LogText
     )
     $clone = [string]$Job.clone_output
     $acceptance = [string]$Job.acceptance_dir
@@ -280,6 +280,77 @@ function Get-Phase {
     if ($LogText -like "*Live readiness: PASS*") { return "readiness-complete" }
     if ($LogText -like "*BodyRig rig readiness: READY*") { return "readiness" }
     return [string]$Job.status
+}
+
+function Get-AbBaselineContinuation {
+    param([Parameter(Mandatory = $true)]$Job)
+
+    $result = [ordered]@{
+        State = "absent"
+        PlanPath = ""
+        Message = ""
+        NextCommand = ""
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$env:LOCALAPPDATA)) {
+        return [pscustomobject]$result
+    }
+
+    $jobId = [string]$Job.job_id
+    if ($jobId -notmatch '^job-[0-9a-f]{32}$') {
+        $result.State = "invalid"
+        $result.Message = "Terminal job has a non-canonical job id; no A/B continuation is emitted."
+        return [pscustomobject]$result
+    }
+
+    $planPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$jobId.json"
+    $result.PlanPath = $planPath
+    if (-not (Test-Path -LiteralPath $planPath -PathType Leaf)) {
+        return [pscustomobject]$result
+    }
+
+    try { $plan = Read-JsonFile -Path $planPath }
+    catch {
+        $result.State = "invalid"
+        $result.Message = "A/B baseline plan exists but is unreadable; no continuation is emitted."
+        return [pscustomobject]$result
+    }
+
+    $retention = $plan.ab_baseline_retention
+    $matches = (
+        [string]$plan.format -eq "bodyrig-dual-candidate-ab-baseline-plan" -and
+        [int]$plan.version -eq 1 -and
+        [string]$plan.baseline_job_id -eq $jobId -and
+        [string]$plan.person_id -match '^person-[0-9a-f]{32}$' -and
+        [string]$plan.person_id -eq [string]$Job.person_id -and
+        [string]$plan.baseline_bodyrig_revision -match '^[0-9a-f]{40}$' -and
+        [string]$plan.baseline_bodyrig_revision -eq [string]$Job.bodyrig_revision -and
+        [string]$plan.candidate_contract_sha256 -match '^[0-9a-f]{64}$' -and
+        [string]$plan.pbr_candidate.revision -match '^[0-9a-f]{40}$' -and
+        $plan.pbr_candidate.retained_reconstruction_reuse -eq $true -and
+        [string]$plan.throughput_candidate.revision -match '^[0-9a-f]{40}$' -and
+        $plan.throughput_candidate.separate_candidate_body_build_required -eq $true -and
+        $null -ne $retention -and
+        [string]$retention.format -eq "bodyrig-ab-baseline-retention" -and
+        [int]$retention.version -eq 1 -and
+        $retention.retain_private_workspace -eq $true -and
+        [string]$retention.job_id -eq $jobId -and
+        [string]$retention.expected_bodyrig_revision -eq [string]$Job.bodyrig_revision -and
+        $plan.comparison_only -eq $true -and
+        $plan.human_visual_authority_required -eq $true -and
+        $plan.physical_acceptance_authority -eq $false -and
+        $plan.promotion_authority -eq $false -and
+        $plan.production_activation -eq $false
+    )
+    if (-not $matches) {
+        $result.State = "invalid"
+        $result.Message = "A/B baseline plan exists but does not structurally match this exact job/revision; no continuation is emitted."
+        return [pscustomobject]$result
+    }
+
+    $result.State = "valid"
+    $result.Message = "Matching create-only dual-candidate baseline plan found. This monitor grants no authority; the downstream wrapper revalidates current main, candidate contract, source and run evidence before use."
+    $result.NextCommand = ".\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '$jobId'"
+    return [pscustomobject]$result
 }
 
 $dataRoot = Get-BodyRigDataRoot
@@ -364,7 +435,29 @@ while ($true) {
         $mainTail | ForEach-Object { Write-Host $_ }
     }
 
-    if ($Once -or @("succeeded", "failed", "canceled", "interrupted") -contains [string]$job.status) {
+    $terminal = @("succeeded", "failed", "canceled", "interrupted") -contains [string]$job.status
+    if ($terminal) {
+        $abContinuation = Get-AbBaselineContinuation -Job $job
+        if ([string]$job.status -eq "succeeded" -and [string]$abContinuation.State -eq "valid") {
+            Write-Host ""
+            Write-Host "=== A/B BASELINE CONTINUATION ==="
+            Write-Host $abContinuation.Message
+            Write-Host "Plan: $($abContinuation.PlanPath)"
+            Write-Host "Next command (downstream revalidates full authority):"
+            Write-Host "  $($abContinuation.NextCommand)"
+        } elseif ([string]$abContinuation.State -eq "invalid") {
+            Write-Host ""
+            Write-Host "=== A/B BASELINE CONTINUATION BLOCKED ==="
+            Write-Host $abContinuation.Message
+            Write-Host "Plan: $($abContinuation.PlanPath)"
+        } elseif ([string]$abContinuation.State -eq "valid") {
+            Write-Host ""
+            Write-Host "=== A/B BASELINE CONTINUATION BLOCKED ==="
+            Write-Host "A matching shared baseline plan exists, but job status is '$($job.status)'. A/B continuation requires the exact baseline job to succeed normally."
+        }
+    }
+
+    if ($Once -or $terminal) {
         break
     }
     Start-Sleep -Seconds $IntervalSeconds
