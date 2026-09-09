@@ -4,6 +4,8 @@ param(
 
     [string]$PerformerId = "",
 
+    [string]$ExpectedPerformerId = "",
+
     [switch]$RetainPrivateWorkspaceForAb,
 
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
@@ -60,12 +62,12 @@ if ($serviceRevision -ne $head) {
     throw "Running BodyRig service revision differs from the operator checkout: service=$serviceRevision, checkout=$head"
 }
 
+try {
+    $people = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/people" -TimeoutSec 10
+} catch {
+    throw "Could not resolve exact BodyRig Person/Stash performer source authority."
+}
 if ([string]::IsNullOrWhiteSpace($PersonId)) {
-    try {
-        $people = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/people" -TimeoutSec 10
-    } catch {
-        throw "Could not resolve BodyRig Person for Stash performer $PerformerId."
-    }
     $matches = @($people.people | Where-Object {
         $null -ne $_.source -and
         [string]$_.source.kind -eq "stash-performer" -and
@@ -78,9 +80,39 @@ if ([string]::IsNullOrWhiteSpace($PersonId)) {
         throw "Multiple BodyRig Persons are bound to Stash performer $PerformerId. Pass -PersonId explicitly."
     }
     $PersonId = [string]$matches[0].person_id
-    if ($PersonId -notmatch '^person-[0-9a-f]{32}$') {
-        throw "Resolved BodyRig Person id is not canonical: $PersonId"
+    $currentPerformerId = [string]$matches[0].source.performer_id
+} else {
+    $matches = @($people.people | Where-Object { [string]$_.person_id -eq $PersonId })
+    if ($matches.Count -ne 1) {
+        throw "BodyRig Person $PersonId did not resolve exactly once."
     }
+    $source = $matches[0].source
+    if ($null -eq $source -or [string]$source.kind -ne "stash-performer" -or [string]::IsNullOrWhiteSpace([string]$source.performer_id)) {
+        throw "BodyRig Person $PersonId is not bound to one canonical Stash performer source."
+    }
+    $currentPerformerId = [string]$source.performer_id
+}
+if ($PersonId -notmatch '^person-[0-9a-f]{32}$') {
+    throw "Resolved BodyRig Person id is not canonical: $PersonId"
+}
+$currentPerformerId = $currentPerformerId.Trim()
+if ([string]::IsNullOrWhiteSpace($currentPerformerId)) {
+    throw "Resolved BodyRig Person has no canonical Stash performer id."
+}
+
+$environmentPerformerId = [string]$env:BODYRIG_PINNED_STASH_PERFORMER_ID
+if (-not [string]::IsNullOrWhiteSpace($ExpectedPerformerId) -and -not [string]::IsNullOrWhiteSpace($environmentPerformerId) -and $ExpectedPerformerId.Trim() -ne $environmentPerformerId.Trim()) {
+    throw "Explicit expected performer differs from the inherited plan-bound performer authority."
+}
+$pinnedPerformerId = if (-not [string]::IsNullOrWhiteSpace($ExpectedPerformerId)) {
+    $ExpectedPerformerId.Trim()
+} elseif (-not [string]::IsNullOrWhiteSpace($environmentPerformerId)) {
+    $environmentPerformerId.Trim()
+} else {
+    $currentPerformerId
+}
+if ($currentPerformerId -ne $pinnedPerformerId) {
+    throw "BodyRig Person Stash performer differs from pinned revision-bound source authority: expected $pinnedPerformerId, current $currentPerformerId"
 }
 
 try {
@@ -97,6 +129,7 @@ if ($active.Count -gt 0) {
 
 $payload = @{
     expected_bodyrig_revision = $head
+    expected_stash_performer_id = $pinnedPerformerId
     retain_private_workspace_for_ab = [bool]$RetainPrivateWorkspaceForAb
 } | ConvertTo-Json -Depth 4 -Compress
 
@@ -122,6 +155,18 @@ if ([string]$started.kind -ne "body-build" -or [string]$started.person_id -ne $P
 if ($jobRevision -ne $head) {
     throw "BodyRig body-build enqueue revision differs from the bound checkout: job=$jobRevision, checkout=$head"
 }
+$sourceAuthority = $started.source_enqueue_authority
+if (
+    $null -eq $sourceAuthority -or
+    [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
+    [int]$sourceAuthority.version -ne 1 -or
+    [string]$sourceAuthority.job_id -ne $jobId -or
+    [string]$sourceAuthority.person_id -ne $PersonId -or
+    [string]$sourceAuthority.stash_performer_id -ne $pinnedPerformerId -or
+    ([string]$sourceAuthority.expected_bodyrig_revision).ToLowerInvariant() -ne $head
+) {
+    throw "BodyRig did not persist exact Person/Stash source enqueue authority on the queued revision-bound job."
+}
 if ($RetainPrivateWorkspaceForAb) {
     $retention = $started.ab_baseline_retention
     if ($null -eq $retention -or [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or [int]$retention.version -ne 1 -or
@@ -133,6 +178,7 @@ if ($RetainPrivateWorkspaceForAb) {
 
 Write-Host "BodyRig revision-bound body build: STARTED"
 Write-Host "Person:   $PersonId"
+Write-Host "Source:   Stash performer $pinnedPerformerId"
 Write-Host "Revision: $head"
 Write-Host "Job:      $jobId"
 Write-Host "A/B retained workspace: $([bool]$RetainPrivateWorkspaceForAb)"
@@ -141,7 +187,9 @@ Write-Host "Monitor:  .\watch-body-build.ps1 -JobId '$jobId'"
 [pscustomobject]@{
     job_id = $jobId
     person_id = $PersonId
+    stash_performer_id = $pinnedPerformerId
     bodyrig_revision = $head
     status = [string]$started.status
+    source_enqueue_authority = $started.source_enqueue_authority
     ab_baseline_retention = $(if ($RetainPrivateWorkspaceForAb) { $started.ab_baseline_retention } else { $null })
-} | ConvertTo-Json -Depth 8 -Compress
+} | ConvertTo-Json -Depth 10 -Compress
