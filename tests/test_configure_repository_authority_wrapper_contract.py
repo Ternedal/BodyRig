@@ -34,6 +34,7 @@ def test_admin_helper_writes_exact_classic_authority_policy() -> None:
         'test-windows-python',
         'acceptance-windows',
         'adapter-log-handle',
+        'analyze (python)',
     ):
         assert name in SCRIPT
     assert '$RequiredStatusCheckAppId = 15368' in SCRIPT
