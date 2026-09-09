@@ -4,6 +4,42 @@ This is the shortest canonical operator path for the first real local Stash → 
 
 It does **not** replace the hard evidence gates. It exists to remove operator guesswork around Stash performer ids, the local alias, the derived portable body identity and the exact next acceptance command.
 
+## Choose the physical run mode before creating evidence
+
+Before creating any physical session or body-build job, decide which authority path this run is meant to serve. The two valid modes share the same authenticated Stash discovery and exact-performer source probe, but they **must not** share the final launcher.
+
+### Standalone first clone / acceptance
+
+If the goal is an ordinary first real Stash → high-fidelity `.mrbody` clone and Windows/Quest acceptance, continue through sections 0–10 below. After the pre-session doctor is READY, use the exact `clone-body-from-stash-ready.ps1` command it prints. That path creates standalone physical clone/session authority.
+
+### Dual-candidate A/B baseline
+
+If the goal is to collect fresh comparison evidence for the active plan-bound PBR/throughput candidate chain, use sections 0–3 below to establish the exact clean checkout, authenticated Stash transport and intended decode-qualified performer, then **do not continue into the standalone clone path in sections 4–10**. The candidate-comparison baseline must instead be created from exact clean current `main` through:
+
+```powershell
+.\start-ab-baseline.ps1 -PerformerId "123"
+```
+
+You may pass exactly one canonical `-PersonId` instead. The A/B launcher owns its own service-bound fail-fast preflight, validates the live frozen PBR/throughput candidate contract, requires the running BodyRig service revision to match the exact clean `main` checkout, binds the exact Person/Stash performer, forces retained baseline-workspace authority, revalidates candidate refs after enqueue and only then publishes the create-only shared baseline plan.
+
+A successful standalone `clone-body-from-stash-ready.ps1` run or a body-build started directly through `start-revision-bound-body-build.ps1` is **not** dual-candidate baseline-plan authority merely because it otherwise succeeded. Do not try to retrofit such a run into the #196/#208 comparison chain.
+
+Monitor the exact shared baseline with the job id printed by `start-ab-baseline.ps1`:
+
+```powershell
+.\watch-body-build.ps1 -JobId '<baseline-job>'
+```
+
+Only when that exact retained baseline succeeds and the create-only baseline plan still matches will the watcher surface the canonical PBR continuation:
+
+```powershell
+.\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '<baseline-job>'
+```
+
+Complete the real plan-bound PBR human review before starting the throughput candidate. After the PBR sequencing gate permits throughput, follow the launcher-emitted plan-bound candidate watcher and then the canonical continuation described in `docs/THROUGHPUT_PLAN_BOUND_REVIEW.md`. Do not invoke candidate-owned low-level compare/bundle/review scripts directly for plan-bound evidence.
+
+Both modes remain fail-closed and human-review-bound. Neither a source probe, a successful baseline/candidate job nor CI alone grants physical acceptance, promotion authority or production activation.
+
 ## 0. Start from the verified operator checkout
 
 Use exact clean current `main` as the normal software authority. If a historical or frozen physical procedure explicitly names an exact BodyRig SHA, use that SHA only for that evidence path; never discover current authority through PR #1. The production physical path is intentionally standardized on **PowerShell 7+ (`pwsh`)**, matching the tested operator/CI runtime. Do not use Windows PowerShell 5.1 for the physical acceptance run.
