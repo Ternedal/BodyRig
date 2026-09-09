@@ -156,6 +156,24 @@ $physicalPreflightRaw | ForEach-Object { Write-Host $_ }
 if ($physicalPreflightExit -ne 0) {
     throw "BodyRig A/B baseline physical preflight failed with exit code $physicalPreflightExit. No baseline job was enqueued."
 }
+$physicalPreflight = $null
+for ($i = $physicalPreflightRaw.Count - 1; $i -ge 0; $i--) {
+    try {
+        $candidate = ([string]$physicalPreflightRaw[$i]) | ConvertFrom-Json
+        if ([string]$candidate.format -eq "bodyrig-ab-baseline-preflight" -and [int]$candidate.version -eq 1) {
+            $physicalPreflight = $candidate
+            break
+        }
+    } catch { }
+}
+if ($null -eq $physicalPreflight -or $physicalPreflight.ready -ne $true) {
+    throw "BodyRig A/B baseline physical preflight did not return its canonical machine-readable source authority. No baseline job was enqueued."
+}
+$preflightPersonId = [string]$physicalPreflight.person_id
+$preflightPerformerId = [string]$physicalPreflight.performer_id
+if ($preflightPersonId -notmatch '^person-[0-9a-f]{32}$' -or [string]::IsNullOrWhiteSpace($preflightPerformerId)) {
+    throw "BodyRig A/B baseline physical preflight returned invalid Person/Stash performer identity. No baseline job was enqueued."
+}
 
 Write-Host "Revalidating current main and both active A/B candidate byte contracts immediately before enqueue..."
 $preflight = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
@@ -163,11 +181,22 @@ $mainRevision = [string]$preflight.main_revision
 $pbrRevision = [string]$preflight.candidates.pbr_v2.revision
 $throughputRevision = [string]$preflight.candidates.recovery_throughput_v3.revision
 $contractSha256 = [string]$preflight.contract_sha256
+if (
+    [string]$physicalPreflight.main_revision -ne $mainRevision -or
+    [string]$physicalPreflight.candidate_contract_sha256 -ne $contractSha256 -or
+    [string]$physicalPreflight.pbr_candidate_revision -ne $pbrRevision -or
+    [string]$physicalPreflight.throughput_candidate_revision -ne $throughputRevision
+) {
+    throw "A/B candidate/main authority changed after physical preflight. No baseline job was enqueued."
+}
 
 $startScript = Need-File -Path (Join-Path $repoRoot "start-revision-bound-body-build.ps1") -Label "revision-bound body-build launcher"
-$startArgs = @("-RetainPrivateWorkspaceForAb", "-BaseUri", $BaseUri)
-if (-not [string]::IsNullOrWhiteSpace($PersonId)) { $startArgs += @("-PersonId", $PersonId) }
-else { $startArgs += @("-PerformerId", $PerformerId) }
+$startArgs = @(
+    "-RetainPrivateWorkspaceForAb",
+    "-BaseUri", $BaseUri,
+    "-PersonId", $preflightPersonId,
+    "-ExpectedPerformerId", $preflightPerformerId
+)
 
 $startedRaw = @(& $startScript @startArgs)
 if ($startedRaw.Count -ne 1) {
@@ -181,9 +210,26 @@ $resolvedPersonId = [string]$started.person_id
 if ($jobId -notmatch '^job-[0-9a-f]{32}$' -or $resolvedPersonId -notmatch '^person-[0-9a-f]{32}$') {
     throw "Retained baseline launcher returned non-canonical job/Person identity."
 }
+if ($resolvedPersonId -ne $preflightPersonId -or [string]$started.stash_performer_id -ne $preflightPerformerId) {
+    $cancelState = Try-CancelBaselineJob -JobId $jobId -UriBase $BaseUri
+    throw "Baseline enqueue source identity differs from the exact physical preflight; $cancelState. Job $jobId is NOT dual-candidate baseline authority."
+}
 if ([string]$started.bodyrig_revision -ne $mainRevision) {
     $cancelState = Try-CancelBaselineJob -JobId $jobId -UriBase $BaseUri
     throw "Baseline job revision does not match preflight main; $cancelState. Job $jobId is NOT dual-candidate baseline authority."
+}
+$sourceAuthority = $started.source_enqueue_authority
+if (
+    $null -eq $sourceAuthority -or
+    [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
+    [int]$sourceAuthority.version -ne 1 -or
+    [string]$sourceAuthority.job_id -ne $jobId -or
+    [string]$sourceAuthority.person_id -ne $preflightPersonId -or
+    [string]$sourceAuthority.stash_performer_id -ne $preflightPerformerId -or
+    [string]$sourceAuthority.expected_bodyrig_revision -ne $mainRevision
+) {
+    $cancelState = Try-CancelBaselineJob -JobId $jobId -UriBase $BaseUri
+    throw "Baseline job lacks exact preflight-bound source enqueue authority; $cancelState. Job $jobId is NOT dual-candidate baseline authority."
 }
 $retention = $started.ab_baseline_retention
 if (
@@ -257,6 +303,7 @@ Write-Host "Baseline main:       $mainRevision"
 Write-Host "PBR candidate:       $pbrRevision"
 Write-Host "Throughput candidate:$throughputRevision"
 Write-Host "Person:              $resolvedPersonId"
+Write-Host "Stash performer:     $preflightPerformerId"
 Write-Host "Baseline job:        $jobId"
 Write-Host "Plan:                $planPath"
 Write-Host "Monitor:             .\watch-body-build.ps1 -JobId '$jobId'"
