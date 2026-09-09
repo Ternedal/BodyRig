@@ -59,7 +59,13 @@ def test_internal_candidate_run_receipt_is_create_only_and_non_activating() -> N
     assert 'production_activation = $false' in INTERNAL
 
 
-def test_internal_launcher_prints_canonical_plan_bound_continuation_command() -> None:
+def test_internal_launcher_prints_plan_bound_watcher_and_canonical_continuation() -> None:
+    assert 'watch-throughput-candidate-from-ab-plan.ps1' in INTERNAL
+    assert (
+        'Write-Host "Monitor:            .\\watch-throughput-candidate-from-ab-plan.ps1 '
+        '-BaselineJobId \'$BaselineJobId\' -CandidateJobId \'$candidateJobId\'"'
+        in INTERNAL
+    )
     assert 'continue-throughput-review-from-ab-plan.ps1' in INTERNAL
     assert "-BaselineJobId '$BaselineJobId'" in INTERNAL
     assert "-CandidateJobId '$candidateJobId'" in INTERNAL
