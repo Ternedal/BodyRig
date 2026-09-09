@@ -350,9 +350,10 @@ Write-Host "Person:             $personId"
 Write-Host "Candidate job:      $candidateJobId"
 Write-Host "Candidate plan:     $receiptPath"
 Write-Host "Monitor:            .\watch-body-build.ps1 -JobId '$candidateJobId'"
-Write-Host "After the candidate succeeds, remain on this exact clean candidate checkout and run:"
-Write-Host "  .\compare-recovery-throughput.ps1 -BaselineJobId '$BaselineJobId' -CandidateJobId '$candidateJobId' -BaselineBodyRigRevision '$mainRevision' -Out '<create-only-audit.json>'"
-Write-Host "Then build the immutable review bundle and record the explicit human review."
+Write-Host "After the candidate succeeds, remain on this exact clean candidate checkout and run the canonical continuation:"
+Write-Host "  .\continue-throughput-review-from-ab-plan.ps1 -BaselineJobId '$BaselineJobId' -CandidateJobId '$candidateJobId'"
+Write-Host "The continuation builds and revalidates machine A/B evidence plus the immutable review bundle, then prints the canonical plan-bound human-review command."
+Write-Host "Do not invoke compare-recovery-throughput.ps1, build-recovery-throughput-review-bundle.ps1, or record-recovery-throughput-human-review.ps1 directly for plan-bound evidence."
 Write-Host "Authority: comparison-only; no physical acceptance, promotion or production activation."
 
 $receipt | ConvertTo-Json -Depth 20 -Compress
