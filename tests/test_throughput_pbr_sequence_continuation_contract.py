@@ -27,6 +27,27 @@ def test_continuation_replays_checkout_bound_pbr_human_review_authority() -> Non
     assert "PBR human-review evidence no longer matches the sequencing receipt" in SCRIPT
 
 
+def test_continuation_binds_exact_stash_performer_across_pbr_and_both_body_jobs() -> None:
+    assert '"stash_performer_id",' in SCRIPT
+    assert "$stashPerformerId = [string]$gateReceipt.stash_performer_id" in SCRIPT
+    assert "PBR-to-throughput sequencing gate receipt has no exact Stash performer identity." in SCRIPT
+    assert "[string]$live.stash_performer_id -ne $stashPerformerId" in SCRIPT
+    assert "stash_performer_id = $stashPerformerId" in SCRIPT
+    assert "[string]$baselineReceipts.stash_performer_id -ne $stashPerformerId" in SCRIPT
+    assert "[string]$candidateReceipts.stash_performer_id -ne $stashPerformerId" in SCRIPT
+    assert "PBR sequencing, baseline receipt and candidate receipt do not bind the same exact Stash performer." in SCRIPT
+    assert "[string]$baselineReceiptsAfter.stash_performer_id -ne $stashPerformerId" in SCRIPT
+    assert "[string]$candidateReceiptsAfter.stash_performer_id -ne $stashPerformerId" in SCRIPT
+    assert "source_performer_parity_verified = $true" in SCRIPT
+
+
+def test_performer_parity_is_proved_before_expensive_machine_evidence() -> None:
+    receipts = SCRIPT.index("$baselineReceipts = Invoke-ReceiptProbe")
+    performer = SCRIPT.index("PBR sequencing, baseline receipt and candidate receipt do not bind the same exact Stash performer.")
+    compare = SCRIPT.index("& $compareScript -BaselineJobId")
+    assert receipts < performer < compare
+
+
 def test_pbr_sequence_gate_runs_before_expensive_machine_evidence() -> None:
     gate = SCRIPT.index("$pbrSequencingGate = Invoke-PbrSequencingGateProbe")
     receipts = SCRIPT.index("$baselineReceipts = Invoke-ReceiptProbe")
@@ -45,10 +66,12 @@ def test_pbr_sequence_gate_is_replayed_before_continuation_publication() -> None
 
 def test_continuation_authority_binds_pbr_sequence_without_crossing_boundary() -> None:
     assert "pbr_to_throughput_sequence_verified = $true" in SCRIPT
+    assert "stash_performer_id = $stashPerformerId" in SCRIPT
     assert "pbr_gate_receipt_sha256 = [string]$pbrSequencingGate.gate_receipt_sha256" in SCRIPT
     assert "pbr_human_review_authority_sha256 = [string]$pbrSequencingGate.pbr_human_review_authority_sha256" in SCRIPT
     assert "pbr_human_review_sha256 = [string]$pbrSequencingGate.pbr_human_review_sha256" in SCRIPT
     assert "pbr_stable_evidence_fingerprint_sha256 = [string]$pbrSequencingGate.pbr_stable_evidence_fingerprint_sha256" in SCRIPT
+    assert "source_performer_parity_verified = $true" in SCRIPT
     assert "comparison_only = $true" in SCRIPT
     assert "human_visual_authority_required = $true" in SCRIPT
     assert "physical_acceptance_authority = $false" in SCRIPT

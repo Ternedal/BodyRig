@@ -102,6 +102,7 @@ function Assert-ReceiptProbeStable {
     foreach ($field in @(
         "body_job_id",
         "person_id",
+        "stash_performer_id",
         "bodyrig_revision",
         "body_revision",
         "canonical_body_id",
@@ -161,6 +162,8 @@ function Invoke-PbrSequencingGateProbe {
     ) {
         throw "PBR-to-throughput sequencing gate receipt does not exactly match the selected shared plan and candidate run."
     }
+    $stashPerformerId = [string]$gateReceipt.stash_performer_id
+    if ([string]::IsNullOrWhiteSpace($stashPerformerId)) { throw "PBR-to-throughput sequencing gate receipt has no exact Stash performer identity." }
     $pbrRunDir = [string]$gateReceipt.pbr_run_dir
     if ([string]::IsNullOrWhiteSpace($pbrRunDir)) { throw "PBR-to-throughput sequencing gate receipt has no exact PBR run directory." }
     $receiptPbrAuthoritySha = Need-Sha256 -Value ([string]$gateReceipt.pbr_human_review_authority_sha256) -Label "PBR gate human-review authority SHA"
@@ -198,6 +201,7 @@ function Invoke-PbrSequencingGateProbe {
         if (
             [string]$live.baseline_job_id -ne $BaselineJobId -or
             [string]$live.person_id -ne $ExpectedPersonId -or
+            [string]$live.stash_performer_id -ne $stashPerformerId -or
             [string]$live.baseline_plan_sha256 -ne $SharedPlanSha -or
             [string]$live.candidate_contract_sha256 -ne $ContractSha -or
             [string]$live.baseline_revision -ne $ExpectedMainRevision -or
@@ -213,6 +217,7 @@ function Invoke-PbrSequencingGateProbe {
         }
         return [pscustomobject]@{
             gate_receipt_sha256 = $gateReceiptSha
+            stash_performer_id = $stashPerformerId
             pbr_run_dir = $pbrRunDir
             pbr_human_review_authority_sha256 = $receiptPbrAuthoritySha
             pbr_human_review_sha256 = $receiptPbrReviewSha
@@ -230,6 +235,7 @@ function Assert-PbrSequencingGateStable {
     param([Parameter(Mandatory = $true)]$Before,[Parameter(Mandatory = $true)]$After)
     foreach ($field in @(
         "gate_receipt_sha256",
+        "stash_performer_id",
         "pbr_run_dir",
         "pbr_human_review_authority_sha256",
         "pbr_human_review_sha256",
@@ -408,6 +414,14 @@ if ([string]$baselineReceipts.job_json_sha256 -ne $baselineJobSha) {
 if ([string]$candidateReceipts.job_json_sha256 -ne $candidateJobSha) {
     throw "Candidate receipt authority does not bind the exact succeeded candidate job JSON."
 }
+$stashPerformerId = [string]$pbrSequencingGate.stash_performer_id
+if (
+    [string]::IsNullOrWhiteSpace($stashPerformerId) -or
+    [string]$baselineReceipts.stash_performer_id -ne $stashPerformerId -or
+    [string]$candidateReceipts.stash_performer_id -ne $stashPerformerId
+) {
+    throw "PBR sequencing, baseline receipt and candidate receipt do not bind the same exact Stash performer."
+}
 if (
     [string]$baselineReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
     [string]$candidateReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
@@ -490,6 +504,8 @@ try {
     Assert-ReceiptProbeStable -Before $baselineReceipts -After $baselineReceiptsAfter -Label "Baseline persisted body-job receipt authority"
     Assert-ReceiptProbeStable -Before $candidateReceipts -After $candidateReceiptsAfter -Label "Candidate persisted body-job receipt authority"
     if (
+        [string]$baselineReceiptsAfter.stash_performer_id -ne $stashPerformerId -or
+        [string]$candidateReceiptsAfter.stash_performer_id -ne $stashPerformerId -or
         [string]$baselineReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or
         [string]$candidateReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or
         [string]$baselineReceiptsAfter.source_files_sha256 -ne $sourceFilesSha -or
@@ -510,6 +526,7 @@ try {
         baseline_job_id = $BaselineJobId
         candidate_job_id = $CandidateJobId
         person_id = $personId
+        stash_performer_id = $stashPerformerId
         baseline_bodyrig_revision = $mainRevision
         throughput_candidate_ref = $throughputRef
         throughput_candidate_revision = $throughputRevision
@@ -532,6 +549,7 @@ try {
         source_evidence_kind = "stash-physical-source-manifest-v1"
         source_evidence_sha256 = $sourceManifestSha
         source_files_sha256 = $sourceFilesSha
+        source_performer_parity_verified = $true
         source_manifest_parity_verified = $true
         source_file_hashes_parity_verified = $true
         machine_audit_sha256 = (Get-FileHash -LiteralPath $machinePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -556,6 +574,7 @@ Write-Host "BodyRig throughput A/B: READY FOR EXPLICIT HUMAN REVIEW"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Candidate job:      $CandidateJobId"
 Write-Host "Candidate revision: $throughputRevision"
+Write-Host "Stash performer:    $stashPerformerId"
 Write-Host "PBR sequencing:     VERIFIED"
 Write-Host "Source manifest:    $sourceManifestSha"
 Write-Host "Source file hashes: $sourceFilesSha"
