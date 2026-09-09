@@ -85,6 +85,9 @@ function Invoke-PbrGateProbe {
         if ($value.comparison_only -ne $true -or $value.human_visual_authority_recorded -ne $true -or $value.physical_acceptance_authority -ne $false -or $value.promotion_authority -ne $false -or $value.production_activation -ne $false) {
             throw "PBR human-review gate crossed the comparison-only authority boundary."
         }
+        if ([string]::IsNullOrWhiteSpace([string]$value.stash_performer_id)) {
+            throw "PBR human-review gate did not bind an exact Stash performer source."
+        }
         return $value
     } finally {
         if ($null -eq $oldPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
@@ -95,7 +98,7 @@ function Invoke-PbrGateProbe {
 function Assert-GateProbeStable {
     param([Parameter(Mandatory = $true)]$Before,[Parameter(Mandatory = $true)]$After)
     foreach ($field in @(
-        "baseline_job_id","person_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
+        "baseline_job_id","person_id","stash_performer_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
         "pbr_candidate_ref","pbr_candidate_revision","throughput_candidate_ref","throughput_candidate_revision",
         "pbr_run_dir","pbr_human_review_authority_sha256","pbr_human_review_sha256","pbr_decision",
         "stable_evidence_fingerprint_sha256"
@@ -125,7 +128,13 @@ Write-Host "Plan-bound PBR human review is exact and recorded. Starting throughp
 
 $internal = Need-File -Path (Join-Path $repoRoot "start-throughput-candidate-from-ab-plan-internal.ps1") -Label "internal throughput candidate launcher"
 $internalParams = @{ BaselineJobId = $BaselineJobId; BaseUri = $BaseUri; BodyRigPython = $BodyRigPython }
-$raw = @(& $internal @internalParams)
+$oldPinnedPerformer = [Environment]::GetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", "Process")
+try {
+    [Environment]::SetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", [string]$gateBefore.stash_performer_id, "Process")
+    $raw = @(& $internal @internalParams)
+} finally {
+    [Environment]::SetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", $oldPinnedPerformer, "Process")
+}
 if ($raw.Count -ne 1) { throw "Internal throughput candidate launcher did not return exactly one machine-readable result." }
 try { $started = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
 catch { throw "Internal throughput candidate launcher returned unreadable JSON." }
@@ -139,6 +148,28 @@ if ([string]$started.person_id -ne [string]$gateBefore.person_id -or ([string]$s
 
 $runPlanPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$candidateJobId.json"
 $runPlanPath = Need-File -Path $runPlanPath -Label "throughput candidate run plan"
+try {
+    $candidateJob = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/jobs/$candidateJobId" -TimeoutSec 10
+    $sourceAuthority = $candidateJob.source_enqueue_authority
+    if (
+        [string]$candidateJob.job_id -ne $candidateJobId -or
+        [string]$candidateJob.person_id -ne [string]$gateBefore.person_id -or
+        ([string]$candidateJob.bodyrig_revision).ToLowerInvariant() -ne ([string]$gateBefore.throughput_candidate_revision).ToLowerInvariant() -or
+        $null -eq $sourceAuthority -or
+        [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
+        [int]$sourceAuthority.version -ne 1 -or
+        [string]$sourceAuthority.job_id -ne $candidateJobId -or
+        [string]$sourceAuthority.person_id -ne [string]$gateBefore.person_id -or
+        [string]$sourceAuthority.stash_performer_id -ne [string]$gateBefore.stash_performer_id -or
+        ([string]$sourceAuthority.expected_bodyrig_revision).ToLowerInvariant() -ne ([string]$gateBefore.throughput_candidate_revision).ToLowerInvariant()
+    ) {
+        throw "candidate job source enqueue authority differs from PBR-reviewed source identity"
+    }
+} catch {
+    $cancel = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
+    if (Test-Path -LiteralPath $runPlanPath -PathType Leaf) { Remove-Item -LiteralPath $runPlanPath -Force -ErrorAction SilentlyContinue }
+    throw "Throughput candidate did not preserve the PBR-reviewed Stash performer at enqueue; removed candidate-run authority when present. $cancel. $($_.Exception.Message)"
+}
 $runPlanSha = File-Sha256 -Path $runPlanPath
 
 try {
@@ -157,6 +188,7 @@ $gateReceipt = [ordered]@{
     baseline_job_id = $BaselineJobId
     candidate_job_id = $candidateJobId
     person_id = [string]$gateAfter.person_id
+    stash_performer_id = [string]$gateAfter.stash_performer_id
     baseline_plan_sha256 = [string]$gateAfter.baseline_plan_sha256
     candidate_run_plan_sha256 = $runPlanSha
     candidate_contract_sha256 = [string]$gateAfter.candidate_contract_sha256
@@ -184,6 +216,7 @@ catch {
 }
 
 Write-Host "PBR-to-throughput gate: RECORDED"
+Write-Host "Stash performer: $([string]$gateAfter.stash_performer_id)"
 Write-Host "Gate receipt: $gateReceiptPath"
 Write-Host "Authority: PBR human review recorded; no physical acceptance, promotion or production activation."
 [Console]::Out.WriteLine(([string]$raw[0]))
