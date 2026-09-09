@@ -34,10 +34,17 @@ def test_codeql_workflow_runs_on_main_pr_push_and_schedule() -> None:
 
 def test_codeql_workflow_permissions_are_minimal() -> None:
     text = _text()
-    permissions = re.search(r"(?ms)^permissions:\n(?P<body>(?:  .+\n)+?)\n", text)
-    assert permissions is not None
-    lines = {line.strip() for line in permissions.group("body").splitlines() if line.strip()}
-    assert lines == {"contents: read", "security-events: write"}
+    workflow_lines = text.splitlines()
+    start = workflow_lines.index("permissions:")
+    permission_lines: list[str] = []
+    for line in workflow_lines[start + 1 :]:
+        if not line.startswith("  "):
+            break
+        stripped = line.strip()
+        if stripped:
+            permission_lines.append(stripped)
+
+    assert set(permission_lines) == {"contents: read", "security-events: write"}
     assert "write-all" not in text
 
 
