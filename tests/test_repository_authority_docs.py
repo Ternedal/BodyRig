@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 
-DOC = (Path(__file__).resolve().parents[1] / "docs" / "REPOSITORY_AUTHORITY.md").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+DOC = (ROOT / "docs" / "REPOSITORY_AUTHORITY.md").read_text(encoding="utf-8")
+HANDOFF = (ROOT / "HANDOFF.md").read_text(encoding="utf-8")
 
 
 def test_runbook_names_canonical_verifier_and_current_fail_state() -> None:
@@ -57,3 +59,14 @@ def test_runbook_documents_explicit_admin_helper_and_safe_defaults() -> None:
     assert "strict=true" in DOC
     assert "refuses to compose over existing repository rulesets" in DOC
     assert "-ReplaceExistingProtection" in DOC
+
+
+def test_handoff_matches_landed_six_check_strict_repository_authority() -> None:
+    assert "exact six checks" in HANDOFF
+    assert "`analyze (python)`" in HANDOFF
+    assert "app_id=15368" in HANDOFF
+    assert "strict=true" in HANDOFF
+    assert "up to date before merge" in HANDOFF
+    assert "all six required checks" in HANDOFF
+    assert "all five required checks" not in HANDOFF
+    assert "exact five checks" not in HANDOFF
