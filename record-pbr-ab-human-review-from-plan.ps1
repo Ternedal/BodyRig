@@ -107,6 +107,66 @@ function Refresh-ExactRefs {
     if ($originPbr -ne $PbrRevision) { throw "PBR candidate ref moved after the shared A/B baseline plan was created." }
 }
 
+function Invoke-SourceProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$JobId,
+        [Parameter(Mandatory = $true)][string]$ExpectedRevision
+    )
+    $oldPythonPath = [string]$env:PYTHONPATH
+    $oldNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
+    try {
+        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" })
+        $env:PYTHONDONTWRITEBYTECODE = "1"
+        $moduleRaw = @(& $Python -c "import pathlib,bodyrig.pbr_ab_body_job_source as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not prove checkout-bound PBR body-job source validator during human review." }
+        $expectedModule = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\pbr_ab_body_job_source.py"))
+        $actualModule = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+        if (-not [string]::Equals($actualModule,$expectedModule,[StringComparison]::OrdinalIgnoreCase)) {
+            throw "PBR body-job source validator imported from wrong checkout during human review: $actualModule"
+        }
+        $raw = @(& $Python -m bodyrig.pbr_ab_body_job_source --job-id $JobId --repo-root $RepoRoot --expected-revision $ExpectedRevision 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR body-job source revalidation failed during human review: $($raw -join ' ')" }
+        try { return ([string]$raw[0]) | ConvertFrom-Json }
+        catch { throw "PBR body-job source revalidation returned unreadable JSON during human review." }
+    }
+    finally {
+        if ([string]::IsNullOrEmpty($oldPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $oldPythonPath }
+        if ([string]::IsNullOrEmpty($oldNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue } else { $env:PYTHONDONTWRITEBYTECODE = $oldNoBytecode }
+    }
+}
+
+function Assert-SourceProbeMatchesAuthority {
+    param(
+        [Parameter(Mandatory = $true)]$Probe,
+        [Parameter(Mandatory = $true)]$Authority
+    )
+    $pairs = @(
+        @("body_job_id","body_job_id"),
+        @("person_id","person_id"),
+        @("bodyrig_revision","bodyrig_revision"),
+        @("body_revision","body_revision"),
+        @("canonical_body_id","canonical_body_id"),
+        @("safe_source_floor_revision","safe_source_floor_revision"),
+        @("job_json_sha256","body_job_json_sha256"),
+        @("producer_log_sha256","producer_log_sha256"),
+        @("reconstruction_sha256","reconstruction_sha256"),
+        @("reconstruction_authority_sha256","reconstruction_authority_sha256"),
+        @("source_binding_sha256","source_binding_sha256"),
+        @("body_review_sha256","body_review_sha256"),
+        @("source_policy_sha256","source_policy_sha256")
+    )
+    foreach ($pair in $pairs) {
+        $probeField = [string]$pair[0]
+        $authorityField = [string]$pair[1]
+        if ([string]$Probe.$probeField -ne [string]$Authority.$authorityField) {
+            throw "Persisted PBR source evidence no longer matches source authority: $probeField"
+        }
+    }
+    if ($Probe.safe_source_lineage_passed -ne $true) { throw "Persisted PBR source lineage is no longer authoritative." }
+}
+
 function Write-CreateOnlyJson {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)]$Value)
     if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite plan-bound PBR human-review authority: $Path" }
@@ -127,6 +187,17 @@ if (-not $ConfirmVisualReview) { throw "Pass -ConfirmVisualReview only after vis
 if ([string]::IsNullOrWhiteSpace($QualityNote) -or $QualityNote.Trim() -match '^<[^>]+>$') { throw "QualityNote must contain the operator's actual visual A/B assessment." }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
+    $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython -PathType Leaf) { $BodyRigPython = $venvPython }
+    else {
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if ($null -eq $python) { throw "BodyRig Python not found." }
+        $BodyRigPython = $python.Source
+    }
+}
+$BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
+
 $RunDir = Need-Directory -Path $RunDir -Label "plan-bound PBR A/B run directory"
 $planPath = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId.json") -Label "shared A/B baseline plan"
 $contractPath = Need-File -Path (Join-Path $repoRoot "contracts\ab-baseline-candidates-v1.json") -Label "candidate byte contract"
@@ -171,10 +242,16 @@ if (
     [string]$sourceAuthority.format -ne "bodyrig-pbr-ab-body-job-source-authority" -or [int]$sourceAuthority.version -ne 1 -or
     [string]$sourceAuthority.body_job_id -ne $BaselineJobId -or [string]$sourceAuthority.person_id -ne [string]$plan.person_id -or
     (Need-Revision -Value ([string]$sourceAuthority.bodyrig_revision) -Label "PBR source authority revision") -ne $mainRevision -or
+    [string]$sourceAuthority.body_revision -notmatch '^body-r[0-9]{4}$' -or [string]::IsNullOrWhiteSpace([string]$sourceAuthority.canonical_body_id) -or
+    (Need-Sha256 -Value ([string]$sourceAuthority.source_binding_sha256) -Label "PBR source binding receipt SHA") -eq "" -or
+    (Need-Sha256 -Value ([string]$sourceAuthority.body_review_sha256) -Label "PBR body review receipt SHA") -eq "" -or
     (Need-Sha256 -Value ([string]$sourceAuthority.pbr_run_authority_sha256) -Label "PBR source run-authority SHA") -ne (File-Sha256 -Path $runAuthorityPath) -or
     $sourceAuthority.comparison_only -ne $true -or $sourceAuthority.human_visual_authority_required -ne $true -or
     $sourceAuthority.physical_acceptance_authority -ne $false -or $sourceAuthority.production_activation -ne $false
 ) { throw "PBR body-job source authority does not match this exact plan-bound run." }
+
+$sourceBeforeReview = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $mainRevision
+Assert-SourceProbeMatchesAuthority -Probe $sourceBeforeReview -Authority $sourceAuthority
 
 $planAuthority = Read-Json -Path $planAuthorityPath -Label "PBR body-job plan authority"
 if ([string]$planAuthority.format -ne "bodyrig-pbr-ab-body-job-plan-authority" -or [int]$planAuthority.version -ne 1) { throw "PBR body-job plan authority format/version mismatch." }
@@ -206,7 +283,7 @@ $recordParams = @{
     ConfirmVisualReview = $true
     Output = $humanReviewPath
 }
-if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $recordParams.BodyRigPython = $BodyRigPython }
+$recordParams.BodyRigPython = $BodyRigPython
 & $recorder @recordParams
 if ($LASTEXITCODE -ne 0) { throw "Canonical fidelity A/B human review recorder failed with exit code $LASTEXITCODE" }
 
@@ -218,6 +295,13 @@ foreach ($path in $stablePaths) {
         if (Test-Path -LiteralPath $humanReviewPath -PathType Leaf) { Remove-Item -LiteralPath $humanReviewPath -Force }
         throw "Plan-bound PBR evidence changed during human review; removed non-authoritative receipt: $path"
     }
+}
+try {
+    $sourceAfterReview = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $mainRevision
+    Assert-SourceProbeMatchesAuthority -Probe $sourceAfterReview -Authority $sourceAuthority
+} catch {
+    if (Test-Path -LiteralPath $humanReviewPath -PathType Leaf) { Remove-Item -LiteralPath $humanReviewPath -Force }
+    throw "Persisted PBR source evidence changed during human review; removed non-authoritative receipt: $($_.Exception.Message)"
 }
 
 $review = Read-Json -Path $humanReviewPath -Label "PBR human review receipt"
@@ -267,6 +351,8 @@ try {
     foreach ($path in $stablePaths) {
         if ((File-Sha256 -Path $path) -ne $stableHashes[$path]) { throw "Plan-bound PBR evidence changed before terminal human-review authority publication: $path" }
     }
+    $sourceBeforeTerminal = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $mainRevision
+    Assert-SourceProbeMatchesAuthority -Probe $sourceBeforeTerminal -Authority $sourceAuthority
     if ((File-Sha256 -Path $humanReviewPath) -ne [string]$authority.human_review_sha256) { throw "Human review receipt changed before terminal authority publication." }
 } catch {
     if (Test-Path -LiteralPath $humanAuthorityPath -PathType Leaf) { Remove-Item -LiteralPath $humanAuthorityPath -Force }
