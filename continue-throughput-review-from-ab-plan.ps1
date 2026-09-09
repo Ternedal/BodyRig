@@ -119,6 +119,129 @@ function Assert-ReceiptProbeStable {
     }
 }
 
+function Invoke-PbrSequencingGateProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$BaselineJobId,
+        [Parameter(Mandatory = $true)][string]$CandidateJobId,
+        [Parameter(Mandatory = $true)][string]$SharedPlanSha,
+        [Parameter(Mandatory = $true)][string]$RunPlanSha,
+        [Parameter(Mandatory = $true)][string]$ContractSha,
+        [Parameter(Mandatory = $true)][string]$ExpectedPersonId,
+        [Parameter(Mandatory = $true)][string]$ExpectedMainRevision,
+        [Parameter(Mandatory = $true)][string]$ExpectedThroughputRef,
+        [Parameter(Mandatory = $true)][string]$ExpectedThroughputRevision
+    )
+    $gateReceiptPath = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$CandidateJobId-pbr-gate.json") -Label "PBR-to-throughput sequencing gate receipt"
+    $gateReceiptSha = (Get-FileHash -LiteralPath $gateReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $gateReceipt = Read-Json -Path $gateReceiptPath -Label "PBR-to-throughput sequencing gate receipt"
+    if ([string]$gateReceipt.format -ne "bodyrig-throughput-pbr-human-review-gate" -or [int]$gateReceipt.version -ne 1) {
+        throw "PBR-to-throughput sequencing gate receipt format/version mismatch."
+    }
+    if (
+        $gateReceipt.comparison_only -ne $true -or
+        $gateReceipt.human_visual_authority_recorded -ne $true -or
+        $gateReceipt.physical_acceptance_authority -ne $false -or
+        $gateReceipt.promotion_authority -ne $false -or
+        $gateReceipt.production_activation -ne $false
+    ) {
+        throw "PBR-to-throughput sequencing gate receipt crossed the comparison-only authority boundary."
+    }
+    if (
+        [string]$gateReceipt.baseline_job_id -ne $BaselineJobId -or
+        [string]$gateReceipt.candidate_job_id -ne $CandidateJobId -or
+        [string]$gateReceipt.person_id -ne $ExpectedPersonId -or
+        (Need-Sha256 -Value ([string]$gateReceipt.baseline_plan_sha256) -Label "PBR gate baseline plan SHA") -ne $SharedPlanSha -or
+        (Need-Sha256 -Value ([string]$gateReceipt.candidate_run_plan_sha256) -Label "PBR gate candidate run plan SHA") -ne $RunPlanSha -or
+        (Need-Sha256 -Value ([string]$gateReceipt.candidate_contract_sha256) -Label "PBR gate candidate contract SHA") -ne $ContractSha -or
+        (Need-Revision -Value ([string]$gateReceipt.baseline_revision) -Label "PBR gate baseline revision") -ne $ExpectedMainRevision -or
+        [string]$gateReceipt.throughput_candidate_ref -ne $ExpectedThroughputRef -or
+        (Need-Revision -Value ([string]$gateReceipt.throughput_candidate_revision) -Label "PBR gate throughput revision") -ne $ExpectedThroughputRevision
+    ) {
+        throw "PBR-to-throughput sequencing gate receipt does not exactly match the selected shared plan and candidate run."
+    }
+    $pbrRunDir = [string]$gateReceipt.pbr_run_dir
+    if ([string]::IsNullOrWhiteSpace($pbrRunDir)) { throw "PBR-to-throughput sequencing gate receipt has no exact PBR run directory." }
+    $receiptPbrAuthoritySha = Need-Sha256 -Value ([string]$gateReceipt.pbr_human_review_authority_sha256) -Label "PBR gate human-review authority SHA"
+    $receiptPbrReviewSha = Need-Sha256 -Value ([string]$gateReceipt.pbr_human_review_sha256) -Label "PBR gate human-review SHA"
+    $receiptFingerprintSha = Need-Sha256 -Value ([string]$gateReceipt.pbr_stable_evidence_fingerprint_sha256) -Label "PBR gate evidence fingerprint SHA"
+
+    $oldPythonPath = [string]$env:PYTHONPATH
+    $oldNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
+    try {
+        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" })
+        $env:PYTHONDONTWRITEBYTECODE = "1"
+        $moduleRaw = @(& $Python -c "import pathlib,bodyrig.pbr_human_review_gate as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not prove checkout-bound PBR human-review gate validator." }
+        $expectedModule = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\pbr_human_review_gate.py"))
+        $actualModule = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+        if (-not [string]::Equals($actualModule, $expectedModule, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "PBR human-review gate validator imported from wrong checkout: $actualModule"
+        }
+        $raw = @(& $Python -m bodyrig.pbr_human_review_gate --repo-root $RepoRoot --baseline-job-id $BaselineJobId --pbr-run-dir $pbrRunDir 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR human-review gate replay failed: $($raw -join ' ')" }
+        try { $live = ([string]$raw[0]) | ConvertFrom-Json -Depth 40 }
+        catch { throw "PBR human-review gate replay returned unreadable JSON." }
+        if ([string]$live.format -ne "bodyrig-pbr-human-review-gate-context" -or [int]$live.version -ne 1) {
+            throw "PBR human-review gate replay returned wrong format/version."
+        }
+        if (
+            $live.comparison_only -ne $true -or
+            $live.human_visual_authority_recorded -ne $true -or
+            $live.physical_acceptance_authority -ne $false -or
+            $live.promotion_authority -ne $false -or
+            $live.production_activation -ne $false
+        ) {
+            throw "Replayed PBR human-review authority crossed the comparison-only authority boundary."
+        }
+        if (
+            [string]$live.baseline_job_id -ne $BaselineJobId -or
+            [string]$live.person_id -ne $ExpectedPersonId -or
+            [string]$live.baseline_plan_sha256 -ne $SharedPlanSha -or
+            [string]$live.candidate_contract_sha256 -ne $ContractSha -or
+            [string]$live.baseline_revision -ne $ExpectedMainRevision -or
+            [string]$live.throughput_candidate_ref -ne $ExpectedThroughputRef -or
+            [string]$live.throughput_candidate_revision -ne $ExpectedThroughputRevision -or
+            [string]$live.pbr_run_dir -ne $pbrRunDir -or
+            (Need-Sha256 -Value ([string]$live.pbr_human_review_authority_sha256) -Label "replayed PBR human-review authority SHA") -ne $receiptPbrAuthoritySha -or
+            (Need-Sha256 -Value ([string]$live.pbr_human_review_sha256) -Label "replayed PBR human-review SHA") -ne $receiptPbrReviewSha -or
+            [string]$live.pbr_decision -ne [string]$gateReceipt.pbr_decision -or
+            (Need-Sha256 -Value ([string]$live.stable_evidence_fingerprint_sha256) -Label "replayed PBR evidence fingerprint SHA") -ne $receiptFingerprintSha
+        ) {
+            throw "PBR human-review evidence no longer matches the sequencing receipt."
+        }
+        return [pscustomobject]@{
+            gate_receipt_sha256 = $gateReceiptSha
+            pbr_run_dir = $pbrRunDir
+            pbr_human_review_authority_sha256 = $receiptPbrAuthoritySha
+            pbr_human_review_sha256 = $receiptPbrReviewSha
+            pbr_decision = [string]$gateReceipt.pbr_decision
+            pbr_stable_evidence_fingerprint_sha256 = $receiptFingerprintSha
+        }
+    }
+    finally {
+        if ([string]::IsNullOrEmpty($oldPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $oldPythonPath }
+        if ([string]::IsNullOrEmpty($oldNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue } else { $env:PYTHONDONTWRITEBYTECODE = $oldNoBytecode }
+    }
+}
+
+function Assert-PbrSequencingGateStable {
+    param([Parameter(Mandatory = $true)]$Before,[Parameter(Mandatory = $true)]$After)
+    foreach ($field in @(
+        "gate_receipt_sha256",
+        "pbr_run_dir",
+        "pbr_human_review_authority_sha256",
+        "pbr_human_review_sha256",
+        "pbr_decision",
+        "pbr_stable_evidence_fingerprint_sha256"
+    )) {
+        if ([string]$Before.$field -ne [string]$After.$field) {
+            throw "PBR-to-throughput sequencing authority changed while generating throughput review evidence: $field"
+        }
+    }
+}
+
 function Write-CreateOnlyJson {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)]$Value)
     if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite continuation authority: $Path" }
@@ -230,6 +353,8 @@ $originMain = Need-Revision -Value ([string]$originMainRaw[0]) -Label "origin/ma
 $originCandidate = Need-Revision -Value ([string]$originCandidateRaw[0]) -Label "origin candidate"
 if ($originMain -ne $mainRevision) { throw "origin/main moved after the shared A/B baseline plan was created." }
 if ($originCandidate -ne $throughputRevision) { throw "Throughput candidate ref moved after candidate-run authority was created." }
+
+$pbrSequencingGate = Invoke-PbrSequencingGateProbe -RepoRoot $RepoRoot -Python $BodyRigPython -BaselineJobId $BaselineJobId -CandidateJobId $CandidateJobId -SharedPlanSha $sharedPlanSha -RunPlanSha $runPlanSha -ContractSha $contractSha -ExpectedPersonId $personId -ExpectedMainRevision $mainRevision -ExpectedThroughputRef $throughputRef -ExpectedThroughputRevision $throughputRevision
 
 if (-not [string]::IsNullOrWhiteSpace($env:BODYRIG_DATA_DIR)) {
     $dataRoot = [IO.Path]::GetFullPath($env:BODYRIG_DATA_DIR)
@@ -373,6 +498,9 @@ try {
         throw "Shared Stash physical source authority changed while generating throughput review evidence."
     }
 
+    $pbrSequencingGateAfter = Invoke-PbrSequencingGateProbe -RepoRoot $RepoRoot -Python $BodyRigPython -BaselineJobId $BaselineJobId -CandidateJobId $CandidateJobId -SharedPlanSha $sharedPlanSha -RunPlanSha $runPlanSha -ContractSha $contractSha -ExpectedPersonId $personId -ExpectedMainRevision $mainRevision -ExpectedThroughputRef $throughputRef -ExpectedThroughputRevision $throughputRevision
+    Assert-PbrSequencingGateStable -Before $pbrSequencingGate -After $pbrSequencingGateAfter
+
     $authority = [ordered]@{
         format = "bodyrig-throughput-plan-bound-review-continuation"
         version = 1
@@ -385,6 +513,12 @@ try {
         baseline_bodyrig_revision = $mainRevision
         throughput_candidate_ref = $throughputRef
         throughput_candidate_revision = $throughputRevision
+        pbr_to_throughput_sequence_verified = $true
+        pbr_gate_receipt_sha256 = [string]$pbrSequencingGate.gate_receipt_sha256
+        pbr_human_review_authority_sha256 = [string]$pbrSequencingGate.pbr_human_review_authority_sha256
+        pbr_human_review_sha256 = [string]$pbrSequencingGate.pbr_human_review_sha256
+        pbr_stable_evidence_fingerprint_sha256 = [string]$pbrSequencingGate.pbr_stable_evidence_fingerprint_sha256
+        pbr_decision = [string]$pbrSequencingGate.pbr_decision
         baseline_body_revision = [string]$baselineReceipts.body_revision
         candidate_body_revision = [string]$candidateReceipts.body_revision
         baseline_canonical_body_id = [string]$baselineReceipts.canonical_body_id
@@ -422,6 +556,7 @@ Write-Host "BodyRig throughput A/B: READY FOR EXPLICIT HUMAN REVIEW"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Candidate job:      $CandidateJobId"
 Write-Host "Candidate revision: $throughputRevision"
+Write-Host "PBR sequencing:     VERIFIED"
 Write-Host "Source manifest:    $sourceManifestSha"
 Write-Host "Source file hashes: $sourceFilesSha"
 Write-Host "Review bundle:      $finalBundle"
