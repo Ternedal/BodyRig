@@ -96,13 +96,34 @@ def run_ab_baseline_physical_preflight(
 
     stash_url, _ = _service_environment(environment)
     root = Path(__file__).resolve().parents[1]
+    renderer_readiness_script = root / "check-reference-renderer-ready.ps1"
     readiness_script = root / "check-rig-ready.ps1"
+    if not renderer_readiness_script.is_file():
+        raise AbBaselinePhysicalPreflightError("BodyRig reference-renderer readiness script is missing from the service checkout")
     if not readiness_script.is_file():
         raise AbBaselinePhysicalPreflightError("BodyRig rig readiness script is missing from the service checkout")
 
     pwsh = str(authority.get("powershell") or "").strip()
     if not pwsh:
         raise AbBaselinePhysicalPreflightError("BodyRig operator authority did not bind PowerShell 7")
+
+    renderer = _run_checked(
+        [
+            pwsh,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(renderer_readiness_script),
+        ],
+        runner=runner,
+        timeout=120,
+        step="BodyRig reference-renderer toolchain readiness",
+    )
+    if "BodyRig reference renderer toolchain: READY" not in str(renderer.stdout or ""):
+        raise AbBaselinePhysicalPreflightError(
+            "BodyRig reference-renderer readiness exited successfully without the canonical READY marker"
+        )
 
     readiness = _run_checked(
         [
@@ -183,6 +204,7 @@ def run_ab_baseline_physical_preflight(
         "person_id": person_id,
         "performer_id": performer_id,
         "bodyrig_revision": expected,
+        "renderer_ready": True,
         "decode_gate": "ffmpeg-one-frame-v1",
         "usable_source_count": usable_source_count,
         "service_environment_bound": True,
