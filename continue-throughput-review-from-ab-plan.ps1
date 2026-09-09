@@ -8,7 +8,8 @@ param(
     [string]$CandidateJobId,
 
     [string]$OutRoot = "",
-    [string]$RepoRoot = ""
+    [string]$RepoRoot = "",
+    [string]$BodyRigPython = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,6 +56,68 @@ function Require-AuthorityBoundary {
     }
 }
 
+function Invoke-ReceiptProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$JobId,
+        [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+        [Parameter(Mandatory = $true)][string]$ExpectedPersonId,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $oldPythonPath = [string]$env:PYTHONPATH
+    $oldNoBytecode = [string]$env:PYTHONDONTWRITEBYTECODE
+    try {
+        $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" })
+        $env:PYTHONDONTWRITEBYTECODE = "1"
+        $moduleRaw = @(& $Python -c "import pathlib,bodyrig.body_job_receipt_authority as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not prove checkout-bound $Label validator." }
+        $expectedModule = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\body_job_receipt_authority.py"))
+        $actualModule = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+        if (-not [string]::Equals($actualModule, $expectedModule, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "$Label validator imported from wrong checkout: $actualModule"
+        }
+        $raw = @(& $Python -m bodyrig.body_job_receipt_authority --job-id $JobId --expected-revision $ExpectedRevision --expected-person-id $ExpectedPersonId 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "$Label validation failed: $($raw -join ' ')" }
+        try { $value = ([string]$raw[0]) | ConvertFrom-Json }
+        catch { throw "$Label validator returned unreadable JSON." }
+        if ([string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or [int]$value.version -ne 1) {
+            throw "$Label validator returned wrong format/version."
+        }
+        Require-AuthorityBoundary -Value $value -Label $Label
+        return $value
+    }
+    finally {
+        if ([string]::IsNullOrEmpty($oldPythonPath)) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $oldPythonPath }
+        if ([string]::IsNullOrEmpty($oldNoBytecode)) { Remove-Item Env:PYTHONDONTWRITEBYTECODE -ErrorAction SilentlyContinue } else { $env:PYTHONDONTWRITEBYTECODE = $oldNoBytecode }
+    }
+}
+
+function Assert-ReceiptProbeStable {
+    param(
+        [Parameter(Mandatory = $true)]$Before,
+        [Parameter(Mandatory = $true)]$After,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    foreach ($field in @(
+        "body_job_id",
+        "person_id",
+        "bodyrig_revision",
+        "body_revision",
+        "canonical_body_id",
+        "package_sha256",
+        "job_json_sha256",
+        "source_binding_sha256",
+        "body_review_sha256",
+        "source_evidence_kind",
+        "source_evidence_sha256"
+    )) {
+        if ([string]$Before.$field -ne [string]$After.$field) {
+            throw "$Label changed while generating throughput review evidence: $field"
+        }
+    }
+}
+
 function Write-CreateOnlyJson {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)]$Value)
     if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite continuation authority: $Path" }
@@ -88,6 +151,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot ".git") -PathType Containe
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     throw "Git is required for revision-bound throughput review authority."
 }
+if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
+    $venvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython -PathType Leaf) { $BodyRigPython = $venvPython }
+    else {
+        $python = Get-Command python -ErrorAction SilentlyContinue
+        if ($null -eq $python) { throw "BodyRig Python not found." }
+        $BodyRigPython = $python.Source
+    }
+}
+$BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
 $sharedPlanPath = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId.json") -Label "shared A/B baseline plan"
 $runPlanPath = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$CandidateJobId.json") -Label "throughput candidate run plan"
@@ -167,6 +240,7 @@ $candidateJobPath = Need-File -Path (Join-Path $dataRoot "ui-jobs\$CandidateJobI
 $baselineJob = Read-Json -Path $baselineJobPath -Label "baseline body-build job"
 $candidateJob = Read-Json -Path $candidateJobPath -Label "candidate body-build job"
 $baselineJobSha = (Get-FileHash -LiteralPath $baselineJobPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$candidateJobSha = (Get-FileHash -LiteralPath $candidateJobPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ((Need-Sha256 -Value ([string]$runPlan.baseline_job_json_sha256) -Label "run plan baseline job SHA") -ne $baselineJobSha) {
     throw "Baseline job JSON changed after candidate-run authority was created."
 }
@@ -199,6 +273,23 @@ if (
 if ($candidateJob.PSObject.Properties.Name -contains "ab_baseline_retention" -and $null -ne $candidateJob.ab_baseline_retention) {
     throw "Candidate body-build unexpectedly carries baseline-retention authority."
 }
+
+$baselineReceipts = Invoke-ReceiptProbe -RepoRoot $RepoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $mainRevision -ExpectedPersonId $personId -Label "baseline body-job receipt authority"
+$candidateReceipts = Invoke-ReceiptProbe -RepoRoot $RepoRoot -Python $BodyRigPython -JobId $CandidateJobId -ExpectedRevision $throughputRevision -ExpectedPersonId $personId -Label "candidate body-job receipt authority"
+if ([string]$baselineReceipts.job_json_sha256 -ne $baselineJobSha) {
+    throw "Baseline receipt authority does not bind the exact candidate-run baseline job JSON."
+}
+if ([string]$candidateReceipts.job_json_sha256 -ne $candidateJobSha) {
+    throw "Candidate receipt authority does not bind the exact succeeded candidate job JSON."
+}
+if (
+    [string]$baselineReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
+    [string]$candidateReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
+    [string]$baselineReceipts.source_evidence_sha256 -ne [string]$candidateReceipts.source_evidence_sha256
+) {
+    throw "Baseline and candidate body jobs are not bound to the same exact Stash physical source manifest."
+}
+$sourceManifestSha = Need-Sha256 -Value ([string]$baselineReceipts.source_evidence_sha256) -Label "shared Stash physical source manifest SHA"
 
 if ([string]::IsNullOrWhiteSpace($OutRoot)) {
     $OutRoot = Join-Path $dataRoot "recovery-throughput-plan-bound\$BaselineJobId--$CandidateJobId"
@@ -266,6 +357,14 @@ try {
         throw "A/B refs moved while generating throughput review evidence. No continuation authority will be published."
     }
 
+    $baselineReceiptsAfter = Invoke-ReceiptProbe -RepoRoot $RepoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $mainRevision -ExpectedPersonId $personId -Label "post-review baseline body-job receipt authority"
+    $candidateReceiptsAfter = Invoke-ReceiptProbe -RepoRoot $RepoRoot -Python $BodyRigPython -JobId $CandidateJobId -ExpectedRevision $throughputRevision -ExpectedPersonId $personId -Label "post-review candidate body-job receipt authority"
+    Assert-ReceiptProbeStable -Before $baselineReceipts -After $baselineReceiptsAfter -Label "Baseline persisted body-job receipt authority"
+    Assert-ReceiptProbeStable -Before $candidateReceipts -After $candidateReceiptsAfter -Label "Candidate persisted body-job receipt authority"
+    if ([string]$baselineReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or [string]$candidateReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha) {
+        throw "Shared Stash physical source manifest authority changed while generating throughput review evidence."
+    }
+
     $authority = [ordered]@{
         format = "bodyrig-throughput-plan-bound-review-continuation"
         version = 1
@@ -278,6 +377,19 @@ try {
         baseline_bodyrig_revision = $mainRevision
         throughput_candidate_ref = $throughputRef
         throughput_candidate_revision = $throughputRevision
+        baseline_body_revision = [string]$baselineReceipts.body_revision
+        candidate_body_revision = [string]$candidateReceipts.body_revision
+        baseline_canonical_body_id = [string]$baselineReceipts.canonical_body_id
+        candidate_canonical_body_id = [string]$candidateReceipts.canonical_body_id
+        baseline_job_json_sha256 = [string]$baselineReceipts.job_json_sha256
+        candidate_job_json_sha256 = [string]$candidateReceipts.job_json_sha256
+        baseline_source_binding_sha256 = [string]$baselineReceipts.source_binding_sha256
+        candidate_source_binding_sha256 = [string]$candidateReceipts.source_binding_sha256
+        baseline_body_review_sha256 = [string]$baselineReceipts.body_review_sha256
+        candidate_body_review_sha256 = [string]$candidateReceipts.body_review_sha256
+        source_evidence_kind = "stash-physical-source-manifest-v1"
+        source_evidence_sha256 = $sourceManifestSha
+        source_manifest_parity_verified = $true
         machine_audit_sha256 = (Get-FileHash -LiteralPath $machinePath -Algorithm SHA256).Hash.ToLowerInvariant()
         review_bundle_receipt_sha256 = (Get-FileHash -LiteralPath $bundleReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
         comparison_only = $true
@@ -300,6 +412,7 @@ Write-Host "BodyRig throughput A/B: READY FOR EXPLICIT HUMAN REVIEW"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Candidate job:      $CandidateJobId"
 Write-Host "Candidate revision: $throughputRevision"
+Write-Host "Source manifest:    $sourceManifestSha"
 Write-Host "Review bundle:      $finalBundle"
 Write-Host "Open:               $(Join-Path $finalBundle 'index.html')"
 Write-Host "Continuation auth:  $finalAuthority"
