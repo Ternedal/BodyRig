@@ -67,7 +67,7 @@ def test_plan_bound_human_review_isolates_candidate_owned_recorder() -> None:
     assert 'record-recovery-throughput-human-review.ps1' in WRAPPER
     assert 'Get-Command pwsh' in WRAPPER
     assert '& $pwsh.Source @childArgs' in WRAPPER
-    assert 'candidate-owned throughput human review recorder failed' in WRAPPER
+    assert 'Candidate-owned throughput human review recorder failed' in WRAPPER
     assert 'human_visual_review_completed -ne $true' in WRAPPER
     assert 'removed non-authoritative human receipt when present' in WRAPPER
 
