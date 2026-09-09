@@ -116,6 +116,30 @@ function Assert-GateMatchesProbe {
     if ([string]$Gate.baseline_job_id -ne $BaselineJobId -or [string]$Gate.candidate_job_id -ne $CandidateJobId) { throw "PBR-to-throughput gate does not match selected jobs." }
 }
 
+function Assert-ContinuationMatchesGate {
+    param(
+        [Parameter(Mandatory = $true)]$Continuation,
+        [Parameter(Mandatory = $true)]$Gate,
+        [Parameter(Mandatory = $true)][string]$GateSha,
+        [Parameter(Mandatory = $true)][string]$RunPlanSha
+    )
+    if ([string]$Continuation.format -ne "bodyrig-throughput-plan-bound-review-continuation" -or [int]$Continuation.version -ne 1) { throw "Throughput continuation authority format/version mismatch at canonical human review." }
+    if ($Continuation.comparison_only -ne $true -or $Continuation.human_visual_authority_required -ne $true -or $Continuation.physical_acceptance_authority -ne $false -or $Continuation.promotion_authority -ne $false -or $Continuation.production_activation -ne $false) { throw "Throughput continuation authority crossed canonical comparison-only boundary." }
+    if ($Continuation.pbr_to_throughput_sequence_verified -ne $true -or $Continuation.source_performer_parity_verified -ne $true) { throw "Throughput continuation authority does not prove PBR sequencing and exact Stash performer parity." }
+    if (
+        [string]$Continuation.baseline_job_id -ne $BaselineJobId -or
+        [string]$Continuation.candidate_job_id -ne $CandidateJobId -or
+        [string]$Continuation.person_id -ne [string]$Gate.person_id -or
+        [string]$Continuation.stash_performer_id -ne [string]$Gate.stash_performer_id -or
+        [string]$Continuation.candidate_run_plan_sha256 -ne $RunPlanSha -or
+        [string]$Continuation.pbr_gate_receipt_sha256 -ne $GateSha -or
+        [string]$Continuation.pbr_human_review_authority_sha256 -ne [string]$Gate.pbr_human_review_authority_sha256 -or
+        [string]$Continuation.pbr_human_review_sha256 -ne [string]$Gate.pbr_human_review_sha256 -or
+        [string]$Continuation.pbr_stable_evidence_fingerprint_sha256 -ne [string]$Gate.pbr_stable_evidence_fingerprint_sha256 -or
+        [string]$Continuation.pbr_decision -ne [string]$Gate.pbr_decision
+    ) { throw "Throughput continuation authority no longer matches PBR-sequenced performer/evidence authority." }
+}
+
 if (-not $ConfirmVisualReview) { throw "Pass -ConfirmVisualReview only after visually comparing all four canonical baseline/candidate views." }
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig PBR-sequenced throughput human review is Windows-only." }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ (pwsh) is required." }
@@ -143,6 +167,10 @@ $gateSha = File-Sha256 -Path $gatePath
 $runPlanSha = File-Sha256 -Path $runPlanPath
 
 $RunDir = [IO.Path]::GetFullPath($RunDir)
+$continuationPath = Need-File -Path (Join-Path $RunDir "continuation-authority.json") -Label "throughput continuation authority"
+$continuation = Read-Json -Path $continuationPath -Label "throughput continuation authority"
+Assert-ContinuationMatchesGate -Continuation $continuation -Gate $gate -GateSha $gateSha -RunPlanSha $runPlanSha
+$continuationSha = File-Sha256 -Path $continuationPath
 $intermediateAuthorityPath = "$RunDir.plan-bound-human-review-authority.json"
 $sequencedAuthorityPath = "$RunDir.pbr-sequenced-human-review-authority.json"
 if (Test-Path -LiteralPath $sequencedAuthorityPath) { throw "PBR-sequenced throughput human-review authority already exists: $sequencedAuthorityPath" }
@@ -170,6 +198,9 @@ if (-not (Test-Path -LiteralPath $intermediateAuthorityPath -PathType Leaf)) {
     & $pwsh.Source @childArgs
     if ($LASTEXITCODE -ne 0) { throw "Internal plan-bound throughput human review recorder failed with exit code $LASTEXITCODE." }
 }
+if ((File-Sha256 -Path $continuationPath) -ne $continuationSha) { throw "Throughput continuation authority changed during internal human review." }
+$continuationAfter = Read-Json -Path $continuationPath -Label "post-human throughput continuation authority"
+Assert-ContinuationMatchesGate -Continuation $continuationAfter -Gate $gate -GateSha $gateSha -RunPlanSha $runPlanSha
 
 $intermediateAuthorityPath = Need-File -Path $intermediateAuthorityPath -Label "intermediate plan-bound throughput human-review authority"
 $intermediate = Read-Json -Path $intermediateAuthorityPath -Label "intermediate plan-bound throughput human-review authority"
@@ -182,7 +213,7 @@ $intermediateSha = File-Sha256 -Path $intermediateAuthorityPath
 
 $probeAfter = Invoke-PbrGateProbe -Python $BodyRigPython -RunPath ([string]$gate.pbr_run_dir)
 Assert-GateMatchesProbe -Gate $gate -Probe $probeAfter
-if ((File-Sha256 -Path $gatePath) -ne $gateSha -or (File-Sha256 -Path $runPlanPath) -ne $runPlanSha) { throw "PBR gate or candidate-run plan changed during throughput human review." }
+if ((File-Sha256 -Path $gatePath) -ne $gateSha -or (File-Sha256 -Path $runPlanPath) -ne $runPlanSha -or (File-Sha256 -Path $continuationPath) -ne $continuationSha) { throw "PBR gate, candidate-run plan or continuation authority changed during throughput human review." }
 
 $sequenced = [ordered]@{
     format = "bodyrig-throughput-pbr-sequenced-human-review-authority"
@@ -191,11 +222,13 @@ $sequenced = [ordered]@{
     candidate_job_id = $CandidateJobId
     person_id = [string]$gate.person_id
     stash_performer_id = [string]$gate.stash_performer_id
+    source_performer_parity_verified = $true
     pbr_gate_sha256 = $gateSha
     pbr_human_review_authority_sha256 = [string]$gate.pbr_human_review_authority_sha256
     pbr_human_review_sha256 = [string]$gate.pbr_human_review_sha256
     pbr_decision = [string]$gate.pbr_decision
     candidate_run_plan_sha256 = $runPlanSha
+    continuation_authority_sha256 = $continuationSha
     plan_bound_human_review_authority_sha256 = $intermediateSha
     throughput_human_review_sha256 = [string]$intermediate.human_review_sha256
     human_visual_review_completed = $true
@@ -213,7 +246,7 @@ try {
     Write-CreateOnlyJson -Path $sequencedAuthorityPath -Value $sequenced
     $terminalProbe = Invoke-PbrGateProbe -Python $BodyRigPython -RunPath ([string]$gate.pbr_run_dir)
     Assert-GateMatchesProbe -Gate $gate -Probe $terminalProbe
-    if ((File-Sha256 -Path $gatePath) -ne $gateSha -or (File-Sha256 -Path $runPlanPath) -ne $runPlanSha -or (File-Sha256 -Path $intermediateAuthorityPath) -ne $intermediateSha) { throw "Sequenced throughput authority inputs changed before terminal publication." }
+    if ((File-Sha256 -Path $gatePath) -ne $gateSha -or (File-Sha256 -Path $runPlanPath) -ne $runPlanSha -or (File-Sha256 -Path $continuationPath) -ne $continuationSha -or (File-Sha256 -Path $intermediateAuthorityPath) -ne $intermediateSha) { throw "Sequenced throughput authority inputs changed before terminal publication." }
 } catch {
     if (Test-Path -LiteralPath $sequencedAuthorityPath -PathType Leaf) { Remove-Item -LiteralPath $sequencedAuthorityPath -Force -ErrorAction SilentlyContinue }
     throw
