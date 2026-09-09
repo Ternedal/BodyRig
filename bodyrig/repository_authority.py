@@ -10,14 +10,23 @@ from typing import Any, Iterable
 FORMAT = "bodyrig-repository-authority"
 VERSION = 1
 REQUIRED_STATUS_CHECK_APP_ID = 15368
+REQUIRED_CODEQL_APP_ID = 57789
 REQUIRED_STATUS_CHECKS = (
     "test (3.11)",
     "test (3.12)",
     "test-windows-python",
     "acceptance-windows",
     "adapter-log-handle",
-    "analyze (python)",
+    "CodeQL",
 )
+
+
+def _expected_check_app_id(context: str) -> int:
+    return REQUIRED_CODEQL_APP_ID if context == "CodeQL" else REQUIRED_STATUS_CHECK_APP_ID
+
+
+def _required_check_sources() -> dict[str, int]:
+    return {name: _expected_check_app_id(name) for name in REQUIRED_STATUS_CHECKS}
 
 
 def _enabled(value: Any) -> bool:
@@ -51,8 +60,8 @@ def _classic_source_bound_checks(protection: dict[str, Any]) -> set[str]:
         context = check.get("context")
         if (
             isinstance(context, str)
-            and context
-            and check.get("app_id") == REQUIRED_STATUS_CHECK_APP_ID
+            and context in REQUIRED_STATUS_CHECKS
+            and check.get("app_id") == _expected_check_app_id(context)
         ):
             checks.add(context)
     return checks
@@ -109,9 +118,7 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
     if missing:
         errors.append("required exact-green status checks are incomplete")
     if wrong_source:
-        errors.append(
-            f"required status checks are not bound to GitHub Actions app {REQUIRED_STATUS_CHECK_APP_ID}"
-        )
+        errors.append("required status checks are not bound to their expected GitHub Apps")
     if not _enabled(protection.get("enforce_admins")):
         errors.append("administrators can bypass branch protection")
     if _enabled(protection.get("allow_force_pushes")):
@@ -133,6 +140,7 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
         "missing_checks": missing,
         "wrong_source_checks": wrong_source,
         "required_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
+        "required_check_sources": _required_check_sources(),
         "pull_request_bypass_categories": bypass_categories,
         "strict_required_status_checks": strict,
         "errors": errors,
@@ -203,7 +211,10 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
                     context = check.get("context")
                     if isinstance(context, str) and context:
                         required_checks.add(context)
-                        if check.get("integration_id") == REQUIRED_STATUS_CHECK_APP_ID:
+                        if (
+                            context in REQUIRED_STATUS_CHECKS
+                            and check.get("integration_id") == _expected_check_app_id(context)
+                        ):
                             source_bound_checks.add(context)
         elif rule_type == "pull_request":
             review_resolution = review_resolution or parameters.get("required_review_thread_resolution") is True
@@ -220,9 +231,7 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
     if missing:
         errors.append("required exact-green status checks are incomplete")
     if wrong_source:
-        errors.append(
-            f"required status checks are not bound to GitHub Actions app {REQUIRED_STATUS_CHECK_APP_ID}"
-        )
+        errors.append("required status checks are not bound to their expected GitHub Apps")
     if not review_resolution:
         errors.append("review conversation resolution is not required")
     if not strict:
@@ -237,6 +246,7 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
         "missing_checks": missing,
         "wrong_source_checks": wrong_source,
         "required_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
+        "required_check_sources": _required_check_sources(),
         "strict_required_status_checks": strict,
         "errors": errors,
         "warnings": warnings,
@@ -278,6 +288,7 @@ def evaluate_repository_authority(
         "authority_mode": selected["mode"] if selected else None,
         "required_status_checks": list(REQUIRED_STATUS_CHECKS),
         "required_status_check_app_id": REQUIRED_STATUS_CHECK_APP_ID,
+        "required_status_check_sources": _required_check_sources(),
         "passed": not errors,
         "errors": errors,
         "warnings": list(selected.get("warnings", [])) if selected else [],

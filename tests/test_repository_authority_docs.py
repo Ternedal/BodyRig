@@ -21,7 +21,7 @@ def test_runbook_lists_exact_required_checks_and_repository_boundaries() -> None
         "test-windows-python",
         "acceptance-windows",
         "adapter-log-handle",
-        "analyze (python)",
+        "CodeQL",
     ):
         assert name in DOC
     assert "all six required" in DOC.lower()
@@ -42,13 +42,15 @@ def test_runbook_records_the_observed_base_race_and_makes_strict_hard() -> None:
     assert "strict_required_status_checks_policy=true" in DOC
 
 
-def test_runbook_requires_github_actions_source_binding() -> None:
+def test_runbook_requires_per_check_source_binding() -> None:
     assert "GitHub Actions" in DOC
     assert "app/integration ID `15368`" in DOC
-    assert "app_id=15368" in DOC
-    assert "integration_id=15368" in DOC
-    assert "matching context name alone is not sufficient" in DOC
-    assert "separate GitHub Advanced Security bot/summary surface is not a substitute" in DOC
+    assert "GitHub Advanced Security" in DOC
+    assert "app/integration ID `57789`" in DOC
+    assert "`CodeQL` must be bound" in DOC
+    assert "matching context name alone is not sufficient" in DOC.lower()
+    assert "`analyze (python)`" in DOC
+    assert "merge-bound security check is that `CodeQL` result" in DOC
 
 
 def test_runbook_documents_explicit_admin_helper_and_safe_defaults() -> None:
@@ -61,12 +63,16 @@ def test_runbook_documents_explicit_admin_helper_and_safe_defaults() -> None:
     assert "-ReplaceExistingProtection" in DOC
 
 
-def test_handoff_matches_landed_six_check_strict_repository_authority() -> None:
+def test_handoff_matches_per_check_codeql_and_strict_repository_authority() -> None:
     assert "exact six checks" in HANDOFF
+    assert "`CodeQL`" in HANDOFF
+    assert "`57789`" in HANDOFF
+    assert "`15368`" in HANDOFF
     assert "`analyze (python)`" in HANDOFF
-    assert "app_id=15368" in HANDOFF
+    assert "not the merge-bound security result" in HANDOFF
     assert "strict=true" in HANDOFF
     assert "up to date before merge" in HANDOFF
     assert "all six required checks" in HANDOFF
+    assert "all six required checks to GitHub Actions" not in HANDOFF
     assert "all five required checks" not in HANDOFF
     assert "exact five checks" not in HANDOFF
