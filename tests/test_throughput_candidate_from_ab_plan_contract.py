@@ -59,12 +59,13 @@ def test_internal_candidate_run_receipt_is_create_only_and_non_activating() -> N
     assert 'production_activation = $false' in INTERNAL
 
 
-def test_internal_launcher_prints_exact_candidate_owned_machine_ab_command() -> None:
-    assert 'compare-recovery-throughput.ps1' in INTERNAL
+def test_internal_launcher_prints_canonical_plan_bound_continuation_command() -> None:
+    assert 'continue-throughput-review-from-ab-plan.ps1' in INTERNAL
     assert "-BaselineJobId '$BaselineJobId'" in INTERNAL
     assert "-CandidateJobId '$candidateJobId'" in INTERNAL
-    assert "-BaselineBodyRigRevision '$mainRevision'" in INTERNAL
-    assert 'build the immutable review bundle' in INTERNAL
+    assert 'canonical plan-bound human-review command' in INTERNAL
+    assert 'Write-Host "  .\\compare-recovery-throughput.ps1' not in INTERNAL
+    assert 'Do not invoke compare-recovery-throughput.ps1, build-recovery-throughput-review-bundle.ps1, or record-recovery-throughput-human-review.ps1 directly for plan-bound evidence.' in INTERNAL
 
 
 def test_canonical_launcher_requires_recorded_pbr_human_review_before_internal_launch() -> None:
