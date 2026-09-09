@@ -3,6 +3,9 @@ param(
     [ValidatePattern('^job-[0-9a-f]{32}$')]
     [string]$BaselineJobId,
 
+    [Parameter(Mandatory = $true)]
+    [string]$PbrRunDir,
+
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
     [string]$BaseUri = "http://127.0.0.1:8775",
 
@@ -201,6 +204,45 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
+$pbrPrerequisite = Invoke-CheckoutPythonJson `
+    -RepoRoot $repoRoot `
+    -Python $BodyRigPython `
+    -Module "bodyrig.pbr_plan_bound_human_review_authority" `
+    -ExpectedModulePath "bodyrig\pbr_plan_bound_human_review_authority.py" `
+    -Label "plan-bound PBR human-review prerequisite" `
+    -Arguments @(
+        "--baseline-job-id", $BaselineJobId,
+        "--run-dir", $PbrRunDir,
+        "--shared-plan", $planPath,
+        "--repo-root", $repoRoot
+    )
+if (
+    [string]$pbrPrerequisite.format -ne "bodyrig-pbr-human-review-prerequisite" -or
+    [int]$pbrPrerequisite.version -ne 1 -or
+    [string]$pbrPrerequisite.baseline_job_id -ne $BaselineJobId -or
+    [string]$pbrPrerequisite.person_id -ne $personId -or
+    ([string]$pbrPrerequisite.baseline_revision).ToLowerInvariant() -ne $mainRevision -or
+    [string]$pbrPrerequisite.pbr_candidate_ref -ne $pbrRef -or
+    ([string]$pbrPrerequisite.pbr_candidate_revision).ToLowerInvariant() -ne $pbrRevision -or
+    [string]$pbrPrerequisite.throughput_candidate_ref -ne $throughputRef -or
+    ([string]$pbrPrerequisite.throughput_candidate_revision).ToLowerInvariant() -ne $throughputRevision -or
+    ([string]$pbrPrerequisite.baseline_plan_sha256).ToLowerInvariant() -ne $planSha256 -or
+    ([string]$pbrPrerequisite.candidate_contract_sha256).ToLowerInvariant() -ne ([string]$plan.candidate_contract_sha256).ToLowerInvariant() -or
+    [string]$pbrPrerequisite.pbr_human_review_authority_sha256 -notmatch '^[0-9a-f]{64}$' -or
+    [string]$pbrPrerequisite.pbr_human_review_sha256 -notmatch '^[0-9a-f]{64}$' -or
+    $pbrPrerequisite.human_visual_authority_recorded -ne $true -or
+    $pbrPrerequisite.comparison_only -ne $true -or
+    $pbrPrerequisite.physical_acceptance_authority -ne $false -or
+    $pbrPrerequisite.promotion_authority -ne $false -or
+    $pbrPrerequisite.production_activation -ne $false
+) {
+    throw "Plan-bound PBR human review is not authoritative for this throughput transition."
+}
+$pbrRunDirBound = [string]$pbrPrerequisite.pbr_run_dir
+$pbrAuthoritySha = ([string]$pbrPrerequisite.pbr_human_review_authority_sha256).ToLowerInvariant()
+$pbrReviewSha = ([string]$pbrPrerequisite.pbr_human_review_sha256).ToLowerInvariant()
+$pbrDecision = [string]$pbrPrerequisite.decision
+
 $candidateAuthority = Invoke-CheckoutPythonJson `
     -RepoRoot $repoRoot `
     -Python $BodyRigPython `
@@ -253,7 +295,7 @@ if (
     throw "Succeeded retained baseline authority does not match the shared A/B plan."
 }
 
-Write-Host "Shared baseline is succeeded and exact. Switching BodyRig to throughput candidate $throughputRevision..."
+Write-Host "Shared baseline and plan-bound PBR human review are exact. Switching BodyRig to throughput candidate $throughputRevision..."
 $updateScript = Need-File -Path (Join-Path $repoRoot "update-windows.ps1") -Label "BodyRig updater"
 & $updateScript -Branch $throughputRef -NoBrowser -SkipPlan
 
@@ -309,6 +351,23 @@ try {
     if ($servicePost.ok -ne $true -or ([string]$servicePost.bodyrig_revision).ToLowerInvariant() -ne $throughputRevision) {
         throw "candidate service revision drifted after enqueue"
     }
+    $pbrAfterEnqueue = Invoke-CheckoutPythonJson `
+        -RepoRoot $repoRoot `
+        -Python $BodyRigPython `
+        -Module "bodyrig.pbr_plan_bound_human_review_authority" `
+        -ExpectedModulePath "bodyrig\pbr_plan_bound_human_review_authority.py" `
+        -Label "post-enqueue PBR human-review prerequisite replay" `
+        -Arguments @(
+            "--baseline-job-id", $BaselineJobId,
+            "--run-dir", $pbrRunDirBound,
+            "--shared-plan", $planPath,
+            "--repo-root", $repoRoot
+        )
+    if (
+        ([string]$pbrAfterEnqueue.pbr_human_review_authority_sha256).ToLowerInvariant() -ne $pbrAuthoritySha -or
+        ([string]$pbrAfterEnqueue.pbr_human_review_sha256).ToLowerInvariant() -ne $pbrReviewSha -or
+        [string]$pbrAfterEnqueue.pbr_run_dir -ne $pbrRunDirBound
+    ) { throw "plan-bound PBR human-review prerequisite changed after candidate enqueue" }
 }
 catch {
     $cancelState = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
@@ -326,6 +385,10 @@ $receipt = [ordered]@{
     baseline_job_json_sha256 = [string]$baselineSource.job_json_sha256
     baseline_bodyrig_revision = $mainRevision
     person_id = $personId
+    pbr_run_dir = $pbrRunDirBound
+    pbr_human_review_authority_sha256 = $pbrAuthoritySha
+    pbr_human_review_sha256 = $pbrReviewSha
+    pbr_human_review_decision = $pbrDecision
     throughput_candidate_ref = $throughputRef
     throughput_candidate_revision = $throughputRevision
     candidate_job_id = $candidateJobId
@@ -345,6 +408,8 @@ catch {
 Write-Host "BodyRig throughput A/B candidate: STARTED"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Baseline revision:  $mainRevision"
+Write-Host "PBR review run:     $pbrRunDirBound"
+Write-Host "PBR review SHA:     $pbrAuthoritySha"
 Write-Host "Candidate revision: $throughputRevision"
 Write-Host "Person:             $personId"
 Write-Host "Candidate job:      $candidateJobId"
