@@ -23,3 +23,11 @@ def test_handoff_keeps_generic_revision_bound_launcher_for_non_ab_builds() -> No
     assert "ordinary standalone fresh `body-build`" in HANDOFF
     assert "shared dual-candidate baseline-plan authority" in HANDOFF
     assert "merely because it otherwise succeeded" in HANDOFF
+
+
+def test_handoff_preserves_shared_baseline_context_through_terminal_monitoring() -> None:
+    assert ".\\watch-body-build.ps1 -JobId '<baseline-job>'" in HANDOFF
+    assert ".\\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '<baseline-job>'" in HANDOFF
+    assert "watcher remains read-only and grants no A/B, physical, promotion or production authority" in HANDOFF
+    assert "downstream plan-bound wrapper still revalidates full authority" in HANDOFF
+    assert "A/B BASELINE CONTINUATION BLOCKED" in HANDOFF
