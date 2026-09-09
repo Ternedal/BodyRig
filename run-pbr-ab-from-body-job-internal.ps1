@@ -120,8 +120,8 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
 $sourceBefore = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -ExpectedRevision $head
-if ([string]$sourceBefore.format -ne "bodyrig-pbr-ab-body-job-source" -or [int]$sourceBefore.version -ne 1 -or $sourceBefore.safe_source_lineage_passed -ne $true) {
-    throw "Body-job source validator did not return canonical safe-source authority."
+if ([string]$sourceBefore.format -ne "bodyrig-pbr-ab-body-job-source" -or [int]$sourceBefore.version -ne 1 -or $sourceBefore.safe_source_lineage_passed -ne $true -or [string]::IsNullOrWhiteSpace([string]$sourceBefore.stash_performer_id)) {
+    throw "Body-job source validator did not return canonical safe-source/performer authority."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
@@ -155,6 +155,7 @@ $sourceAfter = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPython -Jo
 foreach ($field in @(
     "body_job_id",
     "person_id",
+    "stash_performer_id",
     "bodyrig_revision",
     "body_revision",
     "canonical_body_id",
@@ -180,6 +181,7 @@ $sourceAuthority = [ordered]@{
     source_mode = "revision-bound-succeeded-body-build"
     body_job_id = [string]$sourceBefore.body_job_id
     person_id = [string]$sourceBefore.person_id
+    stash_performer_id = [string]$sourceBefore.stash_performer_id
     bodyrig_revision = [string]$sourceBefore.bodyrig_revision
     body_revision = [string]$sourceBefore.body_revision
     canonical_body_id = [string]$sourceBefore.canonical_body_id
@@ -203,6 +205,7 @@ Write-CreateOnlyJson -Path $sourceAuthorityPath -Value $sourceAuthority
 Write-Host "BodyRig PBR A/B from retained body job: READY FOR HUMAN REVIEW"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "BodyRig revision:   $head"
+Write-Host "Stash performer:    $([string]$sourceBefore.stash_performer_id)"
 Write-Host "Safe-source floor:  $([string]$sourceBefore.safe_source_floor_revision)"
 Write-Host "Run output:         $OutputDir"
 Write-Host "Source authority:   $sourceAuthorityPath"
