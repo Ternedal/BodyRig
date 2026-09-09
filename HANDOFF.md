@@ -1,6 +1,6 @@
 # BodyRig handoff
 
-_Last updated: 2026-09-08_
+_Last updated: 2026-09-09_
 
 ## Canonical repository authority
 
@@ -54,6 +54,7 @@ Operator hardening is also landed:
 - `/api/v1/operator-authority` exposes the exact running BodyRig service revision without leaking checkout-path authority;
 - `start-revision-bound-body-build.ps1` requires PowerShell 7+, exact clean local HEAD, healthy BodyRig service, service revision == checkout revision, one unambiguous Person and no competing active body-build before enqueue;
 - `start-ab-baseline.ps1` is the canonical wrapper when the active #196 PBR and #208 throughput candidates are both receiving fresh physical comparison evidence: it validates the live frozen candidate byte contract, forces baseline workspace retention, revalidates refs after enqueue and publishes the create-only shared baseline plan;
+- `watch-body-build.ps1` remains read-only while preserving that shared-baseline handoff after long-running monitoring: on a terminal job it may surface the plan-bound PBR continuation only when the local create-only baseline plan structurally matches the exact succeeded job, Person, revision, retention and non-activation semantics; unreadable/mismatched plans and non-succeeded baselines are blocked, and the downstream plan-bound wrapper still revalidates full authority;
 - revision-bound body-build enqueue carries `expected_bodyrig_revision` server-side; the manager lock covers authority-check → enqueue → returned-job revision validation, and a drifted queued job is cancelled before its physical subprocess can start;
 - interrupted body-build resume also requires running-service revision == clean checkout revision and verifies the resumed/enqueued job revision;
 - one exact-main succeeded body-build may deliberately retain its managed private identity workspace for comparison-only A/B reuse while default success cleanup, source-safety ancestry and production-activation boundaries remain unchanged;
@@ -123,6 +124,20 @@ When the active #196 PBR and #208 throughput candidates are both going to receiv
 
 You may instead pass exactly one canonical `-PersonId`. `start-ab-baseline.ps1` first validates current `main` plus the live 3/3 PBR and 18/18 throughput frozen-byte contract, then invokes the revision-bound launcher with retained private-workspace authority. After enqueue it revalidates `main`, both candidate refs and the contract hash; drift causes cancellation/fail-closed behavior. Only after that postflight does it publish the create-only shared baseline plan used by `run-pbr-ab-from-body-job-plan-bound.ps1` and the later throughput continuation. A body-build started directly through the generic launcher is **not** shared dual-candidate baseline-plan authority merely because it otherwise succeeded.
 
+Monitor that exact shared baseline with the job id returned by `start-ab-baseline.ps1`:
+
+```powershell
+.\watch-body-build.ps1 -JobId '<baseline-job>'
+```
+
+The watcher remains read-only and grants no A/B, physical, promotion or production authority. If the exact baseline reaches `succeeded` and the local create-only shared baseline plan structurally matches the job id, Person, BodyRig revision, retention contract and non-activation semantics, the terminal monitor output surfaces this canonical next command:
+
+```powershell
+.\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '<baseline-job>'
+```
+
+That printed command is advisory routing only. The plan-bound PBR wrapper is still the authority-bearing entrypoint and revalidates current `main`, live candidate contract/refs, source/run identity and evidence before use. If the plan is missing, unreadable or structurally mismatched, or if the baseline did not succeed normally, the watcher must not emit an authoritative-looking next command; a detected invalid plan is reported as `A/B BASELINE CONTINUATION BLOCKED`.
+
 As evidence is created, continue through the same router with the relevant selector:
 
 ```powershell
@@ -164,7 +179,7 @@ The open product backlog is intentionally physical/human:
 
 One separate repository-administration blocker remains:
 
-- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances and mandatory source binding of all five required checks to GitHub Actions app/integration ID `15368`; live GitHub verification on 2026-09-08 still reports `protected=false`. From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
+- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances and mandatory source binding of all five required checks to GitHub Actions app/integration ID `15368`; live GitHub verification on 2026-09-09 still reports `protected=false` with no active repository rulesets. From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
 
 Do not close the physical/human issues from CI, fixtures, generated screenshots or software-only evidence.
 
