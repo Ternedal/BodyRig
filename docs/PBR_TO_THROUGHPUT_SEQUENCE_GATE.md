@@ -44,9 +44,34 @@ A successful canonical launch writes a create-only receipt:
 
 with format `bodyrig-throughput-pbr-human-review-gate`. The receipt binds the exact candidate-run-plan bytes to the exact PBR human-review authority/review bytes and the stable PBR evidence fingerprint.
 
+## Throughput continuation
+
+After the exact candidate succeeds, remain on the exact clean plan-bound throughput candidate checkout and run:
+
+```powershell
+.\continue-throughput-review-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -CandidateJobId '<candidate-job>'
+```
+
+The continuation is itself sequencing-gated. Before persisted body-job receipt replay or any throughput machine A/B/bundle generation it requires the exact create-only `bodyrig-throughput-pbr-human-review-gate` receipt for that baseline/candidate pair and replays the checkout-bound `bodyrig.pbr_human_review_gate` validator against the exact PBR run recorded by the receipt.
+
+The continuation rejects any mismatch in shared-plan bytes, candidate-run-plan bytes, candidate contract, Person, baseline/candidate identity, revisions, refs, PBR human-review authority bytes, human-review bytes, decision or stable PBR evidence fingerprint. After machine evidence and bundle generation it replays the same PBR sequencing authority again. Drift prevents `continuation-authority.json` publication.
+
+A successful continuation authority binds:
+
+- `pbr_to_throughput_sequence_verified=true`;
+- the exact PBR-to-throughput gate-receipt SHA-256;
+- the exact PBR human-review authority and human-review SHA-256 values;
+- the stable PBR evidence fingerprint;
+- the PBR decision;
+- the existing exact source/job/revision/machine/bundle lineage.
+
+This does not mean that throughput human review has occurred. The continuation remains `comparison_only=true`, keeps `human_visual_authority_required=true`, and grants no physical acceptance, promotion or production activation.
+
 ## Throughput human review
 
-After the candidate succeeds, continue through the existing plan-bound continuation and use its canonical human-review command:
+After the candidate succeeds and the sequencing-gated continuation has produced its review bundle, use its canonical human-review command:
 
 ```powershell
 .\record-throughput-human-review-from-ab-plan.ps1 `
