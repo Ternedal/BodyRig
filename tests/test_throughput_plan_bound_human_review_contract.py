@@ -93,9 +93,18 @@ def test_canonical_human_review_requires_pbr_to_throughput_gate_and_replays_pbr_
     assert 'pbr_human_review_sha256' in WRAPPER
 
 
+def test_canonical_human_review_binds_exact_pbr_stash_performer_at_every_replay() -> None:
+    assert '"baseline_job_id","person_id","stash_performer_id","baseline_plan_sha256"' in WRAPPER
+    assert 'Assert-GateMatchesProbe -Gate $gate -Probe $probeBefore' in WRAPPER
+    assert 'Assert-GateMatchesProbe -Gate $gate -Probe $probeAfter' in WRAPPER
+    assert 'Assert-GateMatchesProbe -Gate $gate -Probe $terminalProbe' in WRAPPER
+    assert 'PBR-to-throughput gate no longer matches PBR authority: $field' in WRAPPER
+
+
 def test_canonical_human_review_publishes_pbr_sequenced_terminal_authority() -> None:
     assert 'format = "bodyrig-throughput-pbr-sequenced-human-review-authority"' in WRAPPER
     assert '$RunDir.pbr-sequenced-human-review-authority.json' in WRAPPER
+    assert 'stash_performer_id = [string]$gate.stash_performer_id' in WRAPPER
     assert 'plan_bound_human_review_authority_sha256 = $intermediateSha' in WRAPPER
     assert 'pbr_human_visual_authority_recorded = $true' in WRAPPER
     assert 'human_visual_authority_recorded = $true' in WRAPPER

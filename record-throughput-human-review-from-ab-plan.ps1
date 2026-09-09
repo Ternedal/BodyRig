@@ -105,7 +105,7 @@ function Assert-GateMatchesProbe {
     if ([string]$Gate.format -ne "bodyrig-throughput-pbr-human-review-gate" -or [int]$Gate.version -ne 1) { throw "PBR-to-throughput gate format/version mismatch." }
     if ($Gate.comparison_only -ne $true -or $Gate.human_visual_authority_recorded -ne $true -or $Gate.physical_acceptance_authority -ne $false -or $Gate.promotion_authority -ne $false -or $Gate.production_activation -ne $false) { throw "PBR-to-throughput gate crossed authority boundary." }
     foreach ($field in @(
-        "baseline_job_id","person_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
+        "baseline_job_id","person_id","stash_performer_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
         "pbr_candidate_ref","pbr_candidate_revision","throughput_candidate_ref","throughput_candidate_revision",
         "pbr_run_dir","pbr_human_review_authority_sha256","pbr_human_review_sha256","pbr_decision"
     )) {
@@ -190,6 +190,7 @@ $sequenced = [ordered]@{
     baseline_job_id = $BaselineJobId
     candidate_job_id = $CandidateJobId
     person_id = [string]$gate.person_id
+    stash_performer_id = [string]$gate.stash_performer_id
     pbr_gate_sha256 = $gateSha
     pbr_human_review_authority_sha256 = [string]$gate.pbr_human_review_authority_sha256
     pbr_human_review_sha256 = [string]$gate.pbr_human_review_sha256
@@ -221,6 +222,7 @@ try {
 Write-Host "BodyRig PBR-sequenced throughput human review: RECORDED"
 Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Candidate job:      $CandidateJobId"
+Write-Host "Stash performer:    $($gate.stash_performer_id)"
 Write-Host "PBR decision:       $($gate.pbr_decision)"
 Write-Host "Throughput decision:$($intermediate.decision)"
 Write-Host "Sequenced authority:$sequencedAuthorityPath"
