@@ -4,6 +4,11 @@
   "candidates": {
     "pbr_v3": {
       "ref": "candidate/skin-pbr-v3-linear-light-20260909",
+      "base_files": {
+        "bodyrig/bridges/sith_pbr_material.py": "c2505f3399ec08110f05c46235af8ade4aefa030",
+        "tests/test_sith_basecolor_detail.py": "0433e51788807edf232a916ccff103049c16746c",
+        "tests/test_sith_pbr_material.py": "4caf17c43d3fa0446d8d996ba264cfa4b379bf4c"
+      },
       "files": {
         "bodyrig/bridges/sith_pbr_material.py": "b7c3df91d65cab41ed9b3ed3123b21bb2ac8f7be",
         "tests/test_sith_basecolor_detail.py": "be8ee63187efd595c1e80902d0002bb155f09e21",
@@ -12,6 +17,26 @@
     },
     "recovery_throughput_v3": {
       "ref": "candidate/recovery-throughput-v3-current-main-20260908",
+      "base_files": {
+        "bodyrig/bridges/hmr2_checkpoint_bridge.py": "1ef739b7177ca30aa7fafc131bd45e3ff6d45d2f",
+        "bodyrig/bridges/hmr2_config.py": "086bff09bf3034fa6294749c2ce78e3ae0b64a35",
+        "bodyrig/bridges/hmr2_resume_bridge.py": "49d365e5042e665ee66ef4c16728e64aa2d3dfd1",
+        "bodyrig/recovery_throughput_human_review.py": null,
+        "bodyrig/recovery_throughput_review_bundle.py": null,
+        "bodyrig/recovery_throughput_sampling_audit.py": null,
+        "build-recovery-throughput-review-bundle.ps1": null,
+        "compare-recovery-throughput.ps1": null,
+        "docs/RECOVERY_THROUGHPUT_AB.md": null,
+        "record-recovery-throughput-human-review.ps1": null,
+        "tests/test_compare_recovery_throughput_script.py": null,
+        "tests/test_hmr2_cross_job_resume.py": "c367215d914270559a375557b052028c4639bfd6",
+        "tests/test_hmr2_recovery_checkpoints.py": "a7c10f76e02c3130220a3bf1395a4634bbbdd997",
+        "tests/test_observation_throughput.py": null,
+        "tests/test_recovery_throughput_ab_docs.py": null,
+        "tests/test_recovery_throughput_review_chain.py": null,
+        "tests/test_recovery_throughput_review_wrappers.py": null,
+        "tests/test_recovery_throughput_sampling_audit.py": null
+      },
       "files": {
         "bodyrig/bridges/hmr2_checkpoint_bridge.py": "853414c46568cfeb8d00fbb00c51acf491d78dbd",
         "bodyrig/bridges/hmr2_config.py": "d310d972b25edec83552babfd2e7e0626698be3e",

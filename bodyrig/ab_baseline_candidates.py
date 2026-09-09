@@ -134,18 +134,34 @@ def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
     normalized: dict[str, dict[str, Any]] = {}
     for name in sorted(EXPECTED_CANDIDATES):
         candidate = candidates.get(name)
-        if not isinstance(candidate, dict) or set(candidate) != {"ref", "files"}:
+        if not isinstance(candidate, dict) or set(candidate) != {"ref", "base_files", "files"}:
             raise AbBaselineCandidateError(f"candidate {name} has unexpected fields")
         ref = _safe_ref(candidate.get("ref"), f"candidate {name} ref")
+
         files = candidate.get("files")
         if not isinstance(files, dict) or not files:
             raise AbBaselineCandidateError(f"candidate {name} must bind at least one file")
         file_map: dict[str, str] = {}
         for raw_path, raw_sha in files.items():
             path = _safe_path(raw_path, f"candidate {name} file")
+            if path in file_map:
+                raise AbBaselineCandidateError(f"candidate {name} contains duplicate normalized file path {path}")
             sha = _revision(raw_sha, f"candidate {name} blob for {path}")
             file_map[path] = sha
-        normalized[name] = {"ref": ref, "files": file_map}
+
+        base_files = candidate.get("base_files")
+        if not isinstance(base_files, dict):
+            raise AbBaselineCandidateError(f"candidate {name} must bind reviewed base state for every file")
+        base_map: dict[str, str | None] = {}
+        for raw_path, raw_sha in base_files.items():
+            path = _safe_path(raw_path, f"candidate {name} base file")
+            if path in base_map:
+                raise AbBaselineCandidateError(f"candidate {name} contains duplicate normalized base path {path}")
+            base_map[path] = None if raw_sha is None else _revision(raw_sha, f"candidate {name} base blob for {path}")
+        if set(base_map) != set(file_map):
+            raise AbBaselineCandidateError(f"candidate {name} base_files must exactly match the reviewed candidate file set")
+
+        normalized[name] = {"ref": ref, "base_files": base_map, "files": file_map}
     return normalized
 
 
@@ -157,16 +173,25 @@ def _fetch_authority_refs(repo_root: Path, candidates: dict[str, dict[str, Any]]
     _git(repo_root, "fetch", "--no-tags", "origin", *refspecs)
 
 
-def _tree_blob(repo_root: Path, revision: str, path: str) -> str:
+def _tree_blob_or_none(repo_root: Path, revision: str, path: str) -> str | None:
     raw = _git(repo_root, "ls-tree", revision, "--", path)
     lines = [line for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return None
     if len(lines) != 1 or "\t" not in lines[0]:
-        raise AbBaselineCandidateError(f"candidate tree does not contain exactly one reviewed blob for {path}")
+        raise AbBaselineCandidateError(f"Git tree does not contain an unambiguous reviewed entry for {path}")
     metadata, actual_path = lines[0].split("\t", 1)
     parts = metadata.split()
     if len(parts) != 3 or parts[0] != "100644" or parts[1] != "blob" or actual_path != path:
-        raise AbBaselineCandidateError(f"candidate tree entry is not the canonical regular-file blob for {path}")
-    return _revision(parts[2], f"candidate blob for {path}")
+        raise AbBaselineCandidateError(f"Git tree entry is not the canonical regular-file blob for {path}")
+    return _revision(parts[2], f"Git blob for {path}")
+
+
+def _tree_blob(repo_root: Path, revision: str, path: str) -> str:
+    blob = _tree_blob_or_none(repo_root, revision, path)
+    if blob is None:
+        raise AbBaselineCandidateError(f"candidate tree does not contain exactly one reviewed blob for {path}")
+    return blob
 
 
 def inspect_candidate_authority(
@@ -230,6 +255,17 @@ def inspect_candidate_authority(
         expected_files = sorted(candidate["files"])
         if changed != expected_files:
             raise AbBaselineCandidateError(f"candidate {name} changed-file set differs from the reviewed byte contract")
+
+        for path in expected_files:
+            actual_base = _tree_blob_or_none(repo, main_revision, path)
+            expected_base = candidate["base_files"][path]
+            if actual_base != expected_base:
+                expected_label = expected_base if expected_base is not None else "<absent>"
+                actual_label = actual_base if actual_base is not None else "<absent>"
+                raise AbBaselineCandidateError(
+                    f"candidate {name} reviewed base state drifted for {path}: "
+                    f"expected={expected_label}, actual={actual_label}"
+                )
 
         verified_blobs: dict[str, str] = {}
         for path in expected_files:
