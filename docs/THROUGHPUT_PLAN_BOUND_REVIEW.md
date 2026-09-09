@@ -11,6 +11,7 @@ It exists to prevent an operator mix-up between multiple succeeded candidate job
 - the throughput candidate was started with the canonical `start-throughput-candidate-from-ab-plan.ps1`, not the internal launcher;
 - the PBR-to-throughput gate receipt still revalidates against the exact PBR run/review/plan/source/machine bytes;
 - that exact candidate job has succeeded;
+- the PBR-reviewed source, baseline succeeded-job source and candidate succeeded-job source resolve to the exact same Stash performer;
 - both succeeded jobs still have authoritative persisted Person source-binding and four-view body-review receipts matching the hashes recorded when each body job completed;
 - baseline and candidate source-bindings resolve to the exact same deterministic `stash-physical-source-manifest-v1` SHA;
 - the source-binding receipts also preserve the same success-time source-file hash list, so identical source selection cannot mask differing source bytes at body-job completion;
@@ -18,6 +19,30 @@ It exists to prevent an operator mix-up between multiple succeeded candidate job
 - the candidate branch still resolves to the same revision and `origin/main` is still the baseline revision frozen by the shared plan.
 
 The canonical wrappers fail closed if any of those conditions drift. `start-throughput-candidate-from-ab-plan-internal.ps1` and `record-throughput-human-review-from-ab-plan-internal.ps1` are implementation details, not operator entrypoints.
+
+## Monitor the long-running candidate
+
+The canonical launcher prints a plan-bound watcher immediately after the candidate job is enqueued. Use that watcher rather than falling back to the generic job monitor when you need to leave the physical run and return later:
+
+```powershell
+.\watch-throughput-candidate-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -CandidateJobId '<candidate-job>'
+```
+
+The watcher delegates the live progress display to `watch-body-build.ps1`, but it owns the terminal **routing** for this plan-bound candidate. When the job reaches a terminal state it requires the exact create-only candidate-run plan and exact PBR-to-throughput sequencing-gate receipt for the supplied baseline/candidate ids. It structurally checks the terminal job, Person, candidate revision, source enqueue performer, shared-plan/contract lineage, exact candidate-run-plan SHA and comparison-only authority boundary.
+
+The watcher is deliberately advisory. It does **not** reproduce the full continuation validator and it grants no physical, human, promotion or production authority. If routing evidence is missing/drifted or the candidate did not finish with normal `succeeded` status, it prints `THROUGHPUT CANDIDATE CONTINUATION BLOCKED` and emits no next command.
+
+Only an exact normally-succeeded candidate with matching routing evidence gets this canonical next command:
+
+```powershell
+.\continue-throughput-review-from-ab-plan.ps1 `
+  -BaselineJobId '<baseline-job>' `
+  -CandidateJobId '<candidate-job>'
+```
+
+The continuation wrapper below remains the authority-bearing validator and revalidates the full receipt/source/checkout/PBR chain before it may publish machine-review continuation authority.
 
 ## Build plan-bound machine evidence and immutable human-review bundle
 
@@ -31,15 +56,17 @@ From the exact candidate checkout:
 
 The launcher:
 
-1. validates the shared baseline plan and candidate-run plan receipt;
-2. validates the candidate byte-contract hash, exact branch/HEAD and remote refs;
-3. validates the exact succeeded baseline/candidate job identities and retention semantics;
-4. runs the checkout-bound `bodyrig.body_job_receipt_authority` validator for both jobs, revalidating their registered body revisions, persisted source-binding receipts and persisted four-view body-review chains;
-5. rehashes each retained source manifest and requires both jobs to bind the exact same deterministic `stash-physical-source-manifest-v1` SHA plus the same success-time source-file hash-list fingerprint before any machine comparison runs;
-6. runs `compare-recovery-throughput.ps1` and requires machine A/B PASS for those exact job ids/revisions;
-7. builds the immutable four-view review bundle;
-8. rechecks checkout/ref stability and replays both persisted receipt validators; any job/receipt/source-manifest/source-file-hash drift aborts publication;
-9. publishes a create-only `bodyrig-throughput-plan-bound-review-continuation` receipt binding the candidate-run plan, both exact job JSON hashes, body revision identities, source-binding hashes, body-review hashes, shared source-manifest SHA, shared success-time source-file hash-list SHA, machine audit and review-bundle receipt hash.
+1. validates the shared baseline plan, candidate-run plan receipt and exact PBR-to-throughput gate receipt;
+2. replays the checkout-bound PBR human-review gate and requires its exact reviewed Stash performer/source lineage;
+3. validates the candidate byte-contract hash, exact branch/HEAD and remote refs;
+4. validates the exact succeeded baseline/candidate job identities and retention semantics;
+5. runs the checkout-bound `bodyrig.body_job_receipt_authority` validator for both jobs, revalidating their registered body revisions, persisted enqueue/source-binding receipts and persisted four-view body-review chains;
+6. requires `PBR-reviewed performer == baseline succeeded-job performer == candidate succeeded-job performer` before expensive machine evidence is created;
+7. rehashes each retained source manifest and requires both jobs to bind the exact same deterministic `stash-physical-source-manifest-v1` SHA plus the same success-time source-file hash-list fingerprint before any machine comparison runs;
+8. runs `compare-recovery-throughput.ps1` and requires machine A/B PASS for those exact job ids/revisions;
+9. builds the immutable four-view review bundle;
+10. rechecks checkout/ref stability, replays the PBR gate and both persisted receipt validators, and rechecks performer/source parity; any gate/job/receipt/source-manifest/source-file-hash drift aborts publication;
+11. publishes a create-only `bodyrig-throughput-plan-bound-review-continuation` receipt binding the candidate-run plan, exact PBR gate/review lineage, verified Stash performer, both exact job JSON hashes, body revision identities, source-binding hashes, body-review hashes, shared source-manifest SHA, shared success-time source-file hash-list SHA, machine audit and review-bundle receipt hash.
 
 Temporary output is removed on failure; incomplete evidence is not promoted to a final continuation directory.
 
@@ -60,17 +87,17 @@ The continuation never records a human decision automatically. Review all four c
   -ConfirmVisualReview
 ```
 
-The canonical wrapper first requires the create-only `bodyrig-throughput-pbr-human-review-gate` for the selected baseline/candidate jobs and replays the checkout-bound `bodyrig.pbr_human_review_gate` validator against the exact reviewed PBR run. It also requires the gate to bind the exact current candidate-run-plan bytes.
+The canonical wrapper first requires the create-only `bodyrig-throughput-pbr-human-review-gate` for the selected baseline/candidate jobs and replays the checkout-bound `bodyrig.pbr_human_review_gate` validator against the exact reviewed PBR run. It also requires the gate to bind the exact current candidate-run-plan bytes. Before invoking the internal recorder it consumes `continuation-authority.json`, requires the continuation's PBR sequencing and source-performer parity flags, requires the same verified Stash performer as the live PBR gate, and hashes those exact continuation-authority bytes.
 
 The established plan-bound throughput review logic remains byte-identical in `record-throughput-human-review-from-ab-plan-internal.ps1`. That internal wrapper consumes `continuation-authority.json`, revalidates the shared baseline plan and candidate-run plan, exact candidate checkout and remote refs, both persisted body-job receipt chains, source-manifest/source-file-hash parity, machine audit and immutable review-bundle bytes. It invokes the frozen candidate-owned `record-recovery-throughput-human-review.ps1` in a separate `pwsh`, verifies the resulting human receipt, replays the same receipt/ref authority and publishes the **intermediate** create-only `bodyrig-throughput-plan-bound-human-review-authority` receipt.
 
-The canonical outer wrapper then replays the PBR gate again and publishes the canonical terminal sequencing receipt:
+The canonical outer wrapper then revalidates the exact continuation-authority bytes, replays the PBR gate again and publishes the canonical terminal sequencing receipt:
 
 ```text
 <plan-bound-throughput-review-root>.pbr-sequenced-human-review-authority.json
 ```
 
-with format `bodyrig-throughput-pbr-sequenced-human-review-authority`. It binds the exact PBR human-review gate, PBR human authority/review bytes, candidate-run-plan bytes and intermediate throughput plan-bound human-review authority/human-review bytes.
+with format `bodyrig-throughput-pbr-sequenced-human-review-authority`. It binds the exact PBR human-review gate, PBR human authority/review bytes, verified Stash performer, candidate-run-plan bytes, continuation-authority SHA and intermediate throughput plan-bound human-review authority/human-review bytes.
 
 The terminal sequencing receipt records both `pbr_human_visual_authority_recorded=true` and `human_visual_authority_recorded=true`, but keeps physical acceptance, promotion and production activation false. A human PASS remains comparison evidence only until a later explicit promotion decision exists.
 
@@ -78,4 +105,4 @@ The low-level `record-recovery-throughput-human-review.ps1` and both `*-internal
 
 ## Authority boundary
 
-This path is comparison-only. Persisted receipt validation, source-manifest parity, success-time source-file hash parity and PBR→throughput sequencing prove evidence integrity/comparability/order only; they do not create a physical PASS. Human visual review is explicit and create-only, but it still does not grant physical acceptance, promotion authority or production activation. This path does not merge the throughput candidate and it does not reinterpret historical physical evidence.
+This path is comparison-only. Persisted receipt validation, source-manifest parity, success-time source-file hash parity, exact Stash-performer parity and PBR→throughput sequencing prove evidence integrity/comparability/order only; they do not create a physical PASS. Human visual review is explicit and create-only, but it still does not grant physical acceptance, promotion authority or production activation. This path does not merge the throughput candidate and it does not reinterpret historical physical evidence.
