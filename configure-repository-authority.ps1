@@ -12,7 +12,8 @@ $RequiredStatusChecks = @(
     "test (3.12)",
     "test-windows-python",
     "acceptance-windows",
-    "adapter-log-handle"
+    "adapter-log-handle",
+    "analyze (python)"
 )
 
 function Need-Revision {
