@@ -7,12 +7,7 @@ param(
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
     [string]$BaseUri = "http://127.0.0.1:8775",
 
-    [string]$BodyRigPython = "",
-    [string]$RigSetupReport = "",
-    [string]$StashUrl = "",
-    [string]$ApiKeyEnv = "STASH_API_KEY",
-    [string]$WslExe = "wsl.exe",
-    [string]$Ffmpeg = ""
+    [string]$BodyRigPython = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,21 +19,6 @@ function Need-File {
         throw "$Label not found: $Path"
     }
     return (Resolve-Path -LiteralPath $Path).Path
-}
-
-function Resolve-Executable {
-    param(
-        [string]$Value,
-        [Parameter(Mandatory = $true)][string]$Fallback,
-        [Parameter(Mandatory = $true)][string]$Label
-    )
-    $candidate = $(if ([string]::IsNullOrWhiteSpace($Value)) { $Fallback } else { $Value })
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        return (Resolve-Path -LiteralPath $candidate).Path
-    }
-    $resolved = Get-Command $candidate -ErrorAction SilentlyContinue
-    if ($null -eq $resolved) { throw "$Label executable not found: $candidate" }
-    return $resolved.Source
 }
 
 function Invoke-CandidateAuthority {
@@ -149,13 +129,6 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     }
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
-$pwsh = Resolve-Executable -Value "" -Fallback "pwsh" -Label "PowerShell 7"
-$Ffmpeg = Resolve-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
-
-if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_URL }
-if ([string]::IsNullOrWhiteSpace($StashUrl)) {
-    throw "Stash URL is required via -StashUrl or STASH_URL for exact performer preflight."
-}
 
 Write-Host "Validating current main and both active A/B candidate byte contracts..."
 $pre = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
@@ -201,56 +174,35 @@ if ($resolvedPersonId -notmatch '^person-[0-9a-f]{32}$') {
     throw "Resolved BodyRig Person id is not canonical: $resolvedPersonId"
 }
 
+$payload = @{ expected_bodyrig_revision = $mainRevision } | ConvertTo-Json -Depth 4 -Compress
+Write-Host "Running service-bound read-only rig/SiTH/CUDA/Stash/source preflight..."
 try {
-    $jobs = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/jobs?person_id=$([uri]::EscapeDataString($resolvedPersonId))" -TimeoutSec 10
+    $physical = Invoke-RestMethod `
+        -Method Post `
+        -Uri "$BaseUri/api/v1/people/$resolvedPersonId/body/ab-baseline-preflight" `
+        -ContentType "application/json" `
+        -Body $payload `
+        -TimeoutSec 900
 }
 catch {
-    throw "Could not inspect existing BodyRig jobs for $resolvedPersonId."
+    throw "BodyRig service-bound A/B physical preflight failed: $($_.Exception.Message)"
 }
-$active = @($jobs.jobs | Where-Object {
-    [string]$_.kind -eq "body-build" -and [string]$_.status -in @("queued", "running", "cancelling")
-})
-if ($active.Count -gt 0) {
-    throw "A body-build is already active for ${resolvedPersonId}: $([string]$active[0].job_id) [$([string]$active[0].status)]"
-}
-
-$readinessScript = Need-File -Path (Join-Path $repoRoot "check-rig-ready.ps1") -Label "rig readiness script"
-$readinessArgs = @(
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $readinessScript,
-    "-BodyRigPython", $BodyRigPython,
-    "-StashUrl", $StashUrl,
-    "-ApiKeyEnv", $ApiKeyEnv,
-    "-WslExe", $WslExe
-)
-if (-not [string]::IsNullOrWhiteSpace($RigSetupReport)) {
-    $readinessArgs += @("-RigSetupReport", $RigSetupReport)
-}
-
-Write-Host "Running read-only rig/SiTH/CUDA/Stash readiness (no -Out; no physical evidence)..."
-$readinessRaw = @(& $pwsh @readinessArgs 2>&1)
-$readinessExit = $LASTEXITCODE
-$readinessRaw | ForEach-Object { Write-Host $_ }
-if ($readinessExit -ne 0) {
-    throw "BodyRig A/B baseline rig readiness failed with exit code $readinessExit. No baseline job was enqueued."
-}
-
-Write-Host "Probing exact Stash performer source pool with ffmpeg-one-frame-v1..."
-$probeRaw = @(& $BodyRigPython -m bodyrig.stash_cli probe --performer-id $resolvedPerformerId --url $StashUrl --api-key-env $ApiKeyEnv --ffmpeg $Ffmpeg 2>&1)
-if ($LASTEXITCODE -ne 0) {
-    throw "Selected Stash performer/source decode probe failed: $($probeRaw -join ' ')"
-}
-try { $probe = ($probeRaw -join "`n") | ConvertFrom-Json }
-catch { throw "Selected Stash performer/source decode probe returned unreadable JSON." }
-if ($probe.ok -ne $true -or [int]$probe.usable_source_count -lt 1) {
-    throw "Selected Stash performer/source decode probe did not prove at least one decodable local video."
-}
-if ([string]$probe.decode_gate -ne "ffmpeg-one-frame-v1") {
-    throw "Selected Stash performer/source probe did not use the canonical ffmpeg-one-frame-v1 decode gate."
-}
-if ([string]$probe.performer.id -ne $resolvedPerformerId) {
-    throw "Selected Stash performer/source probe returned a different performer id."
+if (
+    [string]$physical.format -ne "bodyrig-ab-baseline-physical-preflight" -or
+    [int]$physical.version -ne 1 -or
+    $physical.ready -ne $true -or
+    [string]$physical.person_id -ne $resolvedPersonId -or
+    [string]$physical.performer_id -ne $resolvedPerformerId -or
+    [string]$physical.bodyrig_revision -ne $mainRevision -or
+    [string]$physical.decode_gate -ne "ffmpeg-one-frame-v1" -or
+    [int]$physical.usable_source_count -lt 1 -or
+    $physical.service_environment_bound -ne $true -or
+    $physical.readiness_output_persisted -ne $false -or
+    $physical.physical_acceptance_authority -ne $false -or
+    $physical.promotion_authority -ne $false -or
+    $physical.production_activation -ne $false
+) {
+    throw "BodyRig service-bound A/B physical preflight returned unexpected readiness/authority semantics."
 }
 
 Write-Host "Revalidating candidate refs and exact service/main authority after live readiness..."
@@ -272,10 +224,10 @@ Write-Host "BodyRig A/B baseline preflight: READY"
 Write-Host "Main:                $mainRevision"
 Write-Host "Person:              $resolvedPersonId"
 Write-Host "Stash performer:     $resolvedPerformerId"
-Write-Host "Decodable sources:   $([int]$probe.usable_source_count)"
+Write-Host "Decodable sources:   $([int]$physical.usable_source_count)"
 Write-Host "PBR candidate:       $pbrRevision"
 Write-Host "Throughput candidate:$throughputRevision"
-Write-Host "Authority: read-only pre-enqueue readiness; no physical acceptance, promotion or production activation."
+Write-Host "Authority: service-bound read-only pre-enqueue readiness; no physical acceptance, promotion or production activation."
 
 [pscustomobject]@{
     format = "bodyrig-ab-baseline-preflight"
@@ -287,8 +239,9 @@ Write-Host "Authority: read-only pre-enqueue readiness; no physical acceptance, 
     candidate_contract_sha256 = $contractSha256
     pbr_candidate_revision = $pbrRevision
     throughput_candidate_revision = $throughputRevision
-    decode_gate = [string]$probe.decode_gate
-    usable_source_count = [int]$probe.usable_source_count
+    decode_gate = [string]$physical.decode_gate
+    usable_source_count = [int]$physical.usable_source_count
+    service_environment_bound = $true
     comparison_only = $true
     human_visual_authority_required = $true
     physical_acceptance_authority = $false
