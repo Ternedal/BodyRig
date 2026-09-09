@@ -18,9 +18,24 @@ cd C:\Users\admin\Desktop\BodyRig-git
 
 You may pass exactly one canonical `-PersonId` instead of `-PerformerId`.
 
-Before any physical job is enqueued, the launcher fetches current `origin/main` and both active candidate refs and validates `contracts/ab-baseline-candidates-v1.json` fail-closed. Each candidate must be exactly one commit ahead / zero behind current main, have exactly the reviewed changed-file set, and every candidate file must have its reviewed Git blob SHA. The PBR candidate is bound across all three reviewed files; the throughput candidate is bound across all 18 reviewed files.
+Before any physical job is enqueued, `start-ab-baseline.ps1` automatically runs the read-only `preflight-ab-baseline.ps1` path. The preflight first validates current `origin/main`, both active candidate refs and `contracts/ab-baseline-candidates-v1.json` fail-closed. Each candidate must be exactly one commit ahead / zero behind current main, have exactly the reviewed changed-file set, and every candidate file must have its reviewed Git blob SHA. The PBR candidate is bound across all three reviewed files; the throughput candidate is bound across all 18 reviewed files.
 
-Only after that preflight does the wrapper call `start-revision-bound-body-build.ps1` with `-RetainPrivateWorkspaceForAb`. The existing revision-bound launcher still independently requires clean local HEAD == running BodyRig service revision == enqueued job revision and persists the exact A/B retention marker before physical worker start.
+The physical part of that preflight executes **inside the running BodyRig service**, not merely in the operator shell. This deliberately binds the fail-fast checks to the same service checkout, BodyRig Python, process environment and default tool lookup that the later UI body-build uses. The service-side preflight requires:
+
+- exact clean service checkout revision == the candidate-authority `main` revision;
+- exactly one canonical Person → Stash performer binding;
+- no already-open BodyRig UI build for that Person;
+- configured service-side `STASH_URL` and `STASH_API_KEY`;
+- pinned reference-renderer readiness, including Unity/UniVRM and Android build support;
+- live `check-rig-ready.ps1` readiness for the Windows Python lock, rig setup, recovery/PHALP, SiTH/OpenPose, checkpoint/model hashes and Stash health;
+- an exact-performer `ffmpeg-one-frame-v1` probe with at least one locally decodable source;
+- unchanged exact checkout authority after those live checks.
+
+`check-reference-renderer-ready.ps1` does not open Unity or create renderer evidence. `check-rig-ready.ps1` is intentionally called without `-Out`, so the fail-fast preflight does not create session/readiness evidence. The source probe is metadata/decode readiness only. A successful preflight therefore means only that the expensive baseline is worth attempting; it grants no physical acceptance, human review, promotion or production activation.
+
+After the service-bound live checks, `preflight-ab-baseline.ps1` re-fetches and revalidates exact `main` plus both candidate revisions/contract bytes. `start-ab-baseline.ps1` then performs a fresh candidate-contract validation again immediately before enqueue. This duplication is intentional because the live renderer/rig/source checks can take time.
+
+Only after those fail-fast checks does the wrapper call `start-revision-bound-body-build.ps1` with `-RetainPrivateWorkspaceForAb`. The revision-bound launcher still independently requires clean local HEAD == running BodyRig service revision == enqueued job revision and persists the exact A/B retention marker before physical worker start. The physical clone itself continues to revalidate its rig/source/reconstruction authorities at point of use; the preflight is not a substitute for those evidence-producing gates.
 
 After enqueue, `start-ab-baseline.ps1` fetches main and both candidate refs again. If main or either candidate ref moved, it refuses to publish baseline-plan authority and attempts to cancel the newly created UI job through the canonical local job-cancel endpoint. A job for which this post-enqueue authority check failed must not be used as the shared dual-candidate baseline even if the physical process later finishes.
 
