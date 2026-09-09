@@ -6,6 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .ab_baseline_physical_preflight import (
+    AbBaselinePhysicalPreflightError,
+    run_ab_baseline_physical_preflight,
+)
 from .high_fidelity_anatomy_promotion import promotion_status as anatomy_promotion_status
 from .high_fidelity_component_review import review_status as component_review_status
 from .high_fidelity_hair_deformation_review import review_status as hair_deformation_review_status
@@ -36,6 +40,11 @@ class RevisionBoundBodyBuildRequest(BaseModel):
     retain_private_workspace_for_ab: bool = False
 
 
+class AbBaselinePhysicalPreflightRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_bodyrig_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
 def _canonical_revision(value: object) -> str | None:
     revision = str(value or "").strip().lower()
     if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
@@ -57,6 +66,17 @@ def get_operator_authority() -> dict:
         "bodyrig_revision": revision,
         "reason": reason,
     }
+
+
+@router.post("/api/v1/people/{person_id}/body/ab-baseline-preflight")
+def preflight_exact_revision_ab_baseline(person_id: str, request: AbBaselinePhysicalPreflightRequest) -> dict:
+    try:
+        return run_ab_baseline_physical_preflight(
+            person_id,
+            expected_bodyrig_revision=request.expected_bodyrig_revision,
+        )
+    except AbBaselinePhysicalPreflightError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/api/v1/people/{person_id}/body/build-revision-bound")
