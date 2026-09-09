@@ -69,7 +69,7 @@ if ([string]::IsNullOrWhiteSpace($PersonId)) {
     $matches = @($people.people | Where-Object {
         $null -ne $_.source -and
         [string]$_.source.kind -eq "stash-performer" -and
-        [string]$_.source.id -eq $PerformerId
+        [string]$_.source.performer_id -eq $PerformerId
     })
     if ($matches.Count -eq 0) {
         throw "No BodyRig Person is bound to Stash performer $PerformerId."
