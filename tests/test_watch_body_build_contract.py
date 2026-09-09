@@ -70,6 +70,11 @@ def test_monitor_has_once_mode_for_operator_checks() -> None:
     assert "if ($Once -or $terminal)" in SCRIPT
 
 
+def test_monitor_accepts_missing_or_empty_job_log_for_terminal_status() -> None:
+    assert '[Parameter(Mandatory = $true)][AllowEmptyString()][string]$LogText' in SCRIPT
+    assert 'if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "" }' in SCRIPT
+
+
 def test_monitor_routes_only_matching_succeeded_ab_baseline_to_plan_bound_pbr() -> None:
     assert "function Get-AbBaselineContinuation" in SCRIPT
     assert 'BodyRig\\ab-baseline-plans\\$jobId.json' in SCRIPT
