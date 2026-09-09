@@ -53,6 +53,27 @@ def _install_common(monkeypatch) -> None:
     monkeypatch.setattr(preflight_module.manager, "list", lambda *, person_id=None: [])
 
 
+def _successful_process(args, *, usable_source_count: int = 3) -> subprocess.CompletedProcess[str]:
+    joined = " ".join(str(item) for item in args)
+    if "check-reference-renderer-ready.ps1" in joined:
+        return subprocess.CompletedProcess(args, 0, "BodyRig reference renderer toolchain: READY\n", "")
+    if "check-rig-ready.ps1" in joined:
+        return subprocess.CompletedProcess(args, 0, "BodyRig rig readiness: READY\n", "")
+    return subprocess.CompletedProcess(
+        args,
+        0,
+        json.dumps(
+            {
+                "ok": True,
+                "performer": {"id": PERFORMER_ID, "name": "Example"},
+                "decode_gate": "ffmpeg-one-frame-v1",
+                "usable_source_count": usable_source_count,
+            }
+        ),
+        "",
+    )
+
+
 def test_service_bound_preflight_uses_service_environment_and_persists_nothing(monkeypatch) -> None:
     _install_common(monkeypatch)
     calls: list[list[str]] = []
@@ -63,21 +84,7 @@ def test_service_bound_preflight_uses_service_environment_and_persists_nothing(m
         assert capture_output is True
         assert text is True
         assert timeout > 0
-        if any(str(item).endswith("check-rig-ready.ps1") for item in args):
-            return subprocess.CompletedProcess(args, 0, "BodyRig rig readiness: READY\n", "")
-        return subprocess.CompletedProcess(
-            args,
-            0,
-            json.dumps(
-                {
-                    "ok": True,
-                    "performer": {"id": PERFORMER_ID, "name": "Example"},
-                    "decode_gate": "ffmpeg-one-frame-v1",
-                    "usable_source_count": 3,
-                }
-            ),
-            "",
-        )
+        return _successful_process(args)
 
     result = preflight_module.run_ab_baseline_physical_preflight(
         PERSON_ID,
@@ -93,6 +100,7 @@ def test_service_bound_preflight_uses_service_environment_and_persists_nothing(m
         "person_id": PERSON_ID,
         "performer_id": PERFORMER_ID,
         "bodyrig_revision": REVISION,
+        "renderer_ready": True,
         "decode_gate": "ffmpeg-one-frame-v1",
         "usable_source_count": 3,
         "service_environment_bound": True,
@@ -101,8 +109,9 @@ def test_service_bound_preflight_uses_service_environment_and_persists_nothing(m
         "promotion_authority": False,
         "production_activation": False,
     }
-    assert len(calls) == 2
-    readiness, probe = calls
+    assert len(calls) == 3
+    renderer, readiness, probe = calls
+    assert "check-reference-renderer-ready.ps1" in " ".join(renderer)
     assert "check-rig-ready.ps1" in " ".join(readiness)
     assert "-BodyRigPython" in readiness
     assert "-StashUrl" in readiness
@@ -146,13 +155,31 @@ def test_service_bound_preflight_rejects_open_job_before_physical_probe(monkeypa
         )
 
 
-def test_service_bound_preflight_rejects_missing_ready_marker(monkeypatch) -> None:
+def test_service_bound_preflight_rejects_missing_renderer_ready_marker(monkeypatch) -> None:
     _install_common(monkeypatch)
 
     def runner(args, **_kwargs):
         return subprocess.CompletedProcess(args, 0, "completed without canonical marker\n", "")
 
-    with pytest.raises(preflight_module.AbBaselinePhysicalPreflightError, match="READY marker"):
+    with pytest.raises(preflight_module.AbBaselinePhysicalPreflightError, match="reference-renderer.*READY marker"):
+        preflight_module.run_ab_baseline_physical_preflight(
+            PERSON_ID,
+            expected_bodyrig_revision=REVISION,
+            runner=runner,
+            environ=_environment(),
+        )
+
+
+def test_service_bound_preflight_rejects_missing_rig_ready_marker(monkeypatch) -> None:
+    _install_common(monkeypatch)
+
+    def runner(args, **_kwargs):
+        joined = " ".join(str(item) for item in args)
+        if "check-reference-renderer-ready.ps1" in joined:
+            return subprocess.CompletedProcess(args, 0, "BodyRig reference renderer toolchain: READY\n", "")
+        return subprocess.CompletedProcess(args, 0, "completed without canonical marker\n", "")
+
+    with pytest.raises(preflight_module.AbBaselinePhysicalPreflightError, match="live readiness.*READY marker"):
         preflight_module.run_ab_baseline_physical_preflight(
             PERSON_ID,
             expected_bodyrig_revision=REVISION,
@@ -165,21 +192,7 @@ def test_service_bound_preflight_rejects_no_decodable_source(monkeypatch) -> Non
     _install_common(monkeypatch)
 
     def runner(args, **_kwargs):
-        if any(str(item).endswith("check-rig-ready.ps1") for item in args):
-            return subprocess.CompletedProcess(args, 0, "BodyRig rig readiness: READY\n", "")
-        return subprocess.CompletedProcess(
-            args,
-            0,
-            json.dumps(
-                {
-                    "ok": True,
-                    "performer": {"id": PERFORMER_ID},
-                    "decode_gate": "ffmpeg-one-frame-v1",
-                    "usable_source_count": 0,
-                }
-            ),
-            "",
-        )
+        return _successful_process(args, usable_source_count=0)
 
     with pytest.raises(preflight_module.AbBaselinePhysicalPreflightError, match="no locally decodable source"):
         preflight_module.run_ab_baseline_physical_preflight(
@@ -198,21 +211,7 @@ def test_service_bound_preflight_rejects_checkout_drift_after_live_checks(monkey
     monkeypatch.setattr(preflight_module.manager, "list", lambda *, person_id=None: [])
 
     def runner(args, **_kwargs):
-        if any(str(item).endswith("check-rig-ready.ps1") for item in args):
-            return subprocess.CompletedProcess(args, 0, "BodyRig rig readiness: READY\n", "")
-        return subprocess.CompletedProcess(
-            args,
-            0,
-            json.dumps(
-                {
-                    "ok": True,
-                    "performer": {"id": PERFORMER_ID},
-                    "decode_gate": "ffmpeg-one-frame-v1",
-                    "usable_source_count": 1,
-                }
-            ),
-            "",
-        )
+        return _successful_process(args, usable_source_count=1)
 
     with pytest.raises(preflight_module.AbBaselinePhysicalPreflightError, match="moved during physical preflight"):
         preflight_module.run_ab_baseline_physical_preflight(
@@ -235,6 +234,7 @@ def test_ab_preflight_api_forwards_exact_revision(monkeypatch) -> None:
             "person_id": person_id,
             "performer_id": PERFORMER_ID,
             "bodyrig_revision": expected_bodyrig_revision,
+            "renderer_ready": True,
             "decode_gate": "ffmpeg-one-frame-v1",
             "usable_source_count": 1,
             "service_environment_bound": True,
@@ -252,6 +252,7 @@ def test_ab_preflight_api_forwards_exact_revision(monkeypatch) -> None:
     )
     assert response.status_code == 200
     assert response.json()["ready"] is True
+    assert response.json()["renderer_ready"] is True
     assert captured == {"person_id": PERSON_ID, "revision": REVISION}
 
 
@@ -268,6 +269,7 @@ def test_powershell_preflight_binds_candidates_to_service_side_physical_readines
     assert "bodyrig.ab_baseline_candidates" in PREFLIGHT_SCRIPT
     assert "/api/v1/operator-authority" in PREFLIGHT_SCRIPT
     assert "/api/v1/people/$resolvedPersonId/body/ab-baseline-preflight" in PREFLIGHT_SCRIPT
+    assert "renderer_ready -ne $true" in PREFLIGHT_SCRIPT
     assert "service_environment_bound -ne $true" in PREFLIGHT_SCRIPT
     assert "readiness_output_persisted -ne $false" in PREFLIGHT_SCRIPT
     assert "ffmpeg-one-frame-v1" in PREFLIGHT_SCRIPT
