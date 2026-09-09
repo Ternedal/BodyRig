@@ -20,6 +20,7 @@ def classic(
     enforce_admins: bool = True,
     bypass_category: str | None = None,
     wrong_source: str | None = None,
+    strict: bool = True,
 ) -> dict:
     checks = [name for name in REQUIRED_STATUS_CHECKS if name != missing]
     check_entries = [
@@ -37,7 +38,7 @@ def classic(
     elif bypass_category == "apps":
         bypass["apps"] = [{"slug": "release-app"}]
     return {
-        "required_status_checks": {"strict": True, "contexts": checks, "checks": check_entries},
+        "required_status_checks": {"strict": strict, "contexts": checks, "checks": check_entries},
         "required_pull_request_reviews": {"bypass_pull_request_allowances": bypass},
         "enforce_admins": {"enabled": enforce_admins},
         "allow_force_pushes": {"enabled": False},
@@ -51,6 +52,7 @@ def ruleset(
     bypass: bool = False,
     missing: str | None = None,
     wrong_source: str | None = None,
+    strict: bool = True,
 ) -> dict:
     checks = [
         {
@@ -76,12 +78,18 @@ def ruleset(
             {
                 "type": "required_status_checks",
                 "parameters": {
-                    "strict_required_status_checks_policy": True,
+                    "strict_required_status_checks_policy": strict,
                     "required_status_checks": checks,
                 },
             },
         ],
     }
+
+
+def test_required_checks_include_source_bound_codeql() -> None:
+    assert "analyze (python)" in REQUIRED_STATUS_CHECKS
+    assert len(REQUIRED_STATUS_CHECKS) == 6
+    assert REQUIRED_STATUS_CHECK_APP_ID == 15368
 
 
 def test_classic_branch_protection_can_satisfy_repository_authority() -> None:
@@ -92,6 +100,7 @@ def test_classic_branch_protection_can_satisfy_repository_authority() -> None:
     assert result["classic"]["source_bound_checks"] == sorted(REQUIRED_STATUS_CHECKS)
     assert result["classic"]["wrong_source_checks"] == []
     assert result["classic"]["pull_request_bypass_categories"] == []
+    assert result["classic"]["strict_required_status_checks"] is True
     assert result["physical_acceptance_authority"] is False
     assert result["production_activation"] is False
 
@@ -103,13 +112,20 @@ def test_unprotected_main_fails_even_if_policy_payload_looks_valid() -> None:
 
 
 def test_classic_requires_every_exact_green_check_and_admin_enforcement() -> None:
-    missing = evaluate_repository_authority(branch(), classic_protection=classic(missing="adapter-log-handle"))
+    missing = evaluate_repository_authority(branch(), classic_protection=classic(missing="analyze (python)"))
     assert missing["passed"] is False
-    assert missing["classic"]["missing_checks"] == ["adapter-log-handle"]
+    assert missing["classic"]["missing_checks"] == ["analyze (python)"]
 
     bypass = evaluate_repository_authority(branch(), classic_protection=classic(enforce_admins=False))
     assert bypass["passed"] is False
     assert "administrators can bypass branch protection" in bypass["classic"]["errors"]
+
+
+def test_classic_requires_up_to_date_branch_policy() -> None:
+    result = evaluate_repository_authority(branch(), classic_protection=classic(strict=False))
+    assert result["passed"] is False
+    assert result["classic"]["strict_required_status_checks"] is False
+    assert "required status checks do not require an up-to-date branch" in result["classic"]["errors"]
 
 
 def test_classic_fails_closed_on_pull_request_bypass_allowances() -> None:
@@ -126,10 +142,10 @@ def test_classic_fails_closed_on_pull_request_bypass_allowances() -> None:
 def test_classic_requires_github_actions_source_binding() -> None:
     result = evaluate_repository_authority(
         branch(),
-        classic_protection=classic(wrong_source="test (3.11)"),
+        classic_protection=classic(wrong_source="analyze (python)"),
     )
     assert result["passed"] is False
-    assert result["classic"]["wrong_source_checks"] == ["test (3.11)"]
+    assert result["classic"]["wrong_source_checks"] == ["analyze (python)"]
     assert "required status checks are not bound to GitHub Actions app 15368" in result["classic"]["errors"]
 
 
@@ -139,6 +155,7 @@ def test_active_ruleset_can_satisfy_equivalent_repository_authority() -> None:
     assert result["authority_mode"] == "ruleset"
     assert result["rulesets"]["source_bound_checks"] == sorted(REQUIRED_STATUS_CHECKS)
     assert result["rulesets"]["wrong_source_checks"] == []
+    assert result["rulesets"]["strict_required_status_checks"] is True
 
 
 def test_ruleset_fails_closed_on_bypass_actor_or_missing_check() -> None:
@@ -151,13 +168,20 @@ def test_ruleset_fails_closed_on_bypass_actor_or_missing_check() -> None:
     assert missing["rulesets"]["missing_checks"] == ["test-windows-python"]
 
 
+def test_ruleset_requires_up_to_date_branch_policy() -> None:
+    result = evaluate_repository_authority(branch(), rulesets=[ruleset(strict=False)])
+    assert result["passed"] is False
+    assert result["rulesets"]["strict_required_status_checks"] is False
+    assert "required status checks do not require an up-to-date branch" in result["rulesets"]["errors"]
+
+
 def test_ruleset_requires_github_actions_source_binding() -> None:
     result = evaluate_repository_authority(
         branch(),
-        rulesets=[ruleset(wrong_source="adapter-log-handle")],
+        rulesets=[ruleset(wrong_source="analyze (python)")],
     )
     assert result["passed"] is False
-    assert result["rulesets"]["wrong_source_checks"] == ["adapter-log-handle"]
+    assert result["rulesets"]["wrong_source_checks"] == ["analyze (python)"]
     assert "required status checks are not bound to GitHub Actions app 15368" in result["rulesets"]["errors"]
 
 
