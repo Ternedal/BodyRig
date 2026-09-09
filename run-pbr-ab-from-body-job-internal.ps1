@@ -156,11 +156,15 @@ foreach ($field in @(
     "body_job_id",
     "person_id",
     "bodyrig_revision",
+    "body_revision",
+    "canonical_body_id",
     "safe_source_floor_revision",
     "job_json_sha256",
     "producer_log_sha256",
     "reconstruction_sha256",
     "reconstruction_authority_sha256",
+    "source_binding_sha256",
+    "body_review_sha256",
     "source_policy_sha256"
 )) {
     if ([string]$sourceAfter.$field -ne [string]$sourceBefore.$field) {
@@ -177,12 +181,16 @@ $sourceAuthority = [ordered]@{
     body_job_id = [string]$sourceBefore.body_job_id
     person_id = [string]$sourceBefore.person_id
     bodyrig_revision = [string]$sourceBefore.bodyrig_revision
+    body_revision = [string]$sourceBefore.body_revision
+    canonical_body_id = [string]$sourceBefore.canonical_body_id
     safe_source_floor_revision = [string]$sourceBefore.safe_source_floor_revision
     safe_source_lineage_passed = $true
     body_job_json_sha256 = [string]$sourceBefore.job_json_sha256
     producer_log_sha256 = [string]$sourceBefore.producer_log_sha256
     reconstruction_sha256 = [string]$sourceBefore.reconstruction_sha256
     reconstruction_authority_sha256 = [string]$sourceBefore.reconstruction_authority_sha256
+    source_binding_sha256 = [string]$sourceBefore.source_binding_sha256
+    body_review_sha256 = [string]$sourceBefore.body_review_sha256
     source_policy_sha256 = [string]$sourceBefore.source_policy_sha256
     pbr_run_authority_sha256 = (Get-FileHash -LiteralPath $runAuthority -Algorithm SHA256).Hash.ToLowerInvariant()
     comparison_only = $true

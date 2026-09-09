@@ -8,9 +8,12 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from .storage import ui_jobs_dir
+from .person_body_review import PersonBodyReviewError, read_review
+from .person_profiles import PersonProfileError, load_profile
+from .person_source_alignment import PersonSourceAlignmentError, read_binding
+from .storage import person_library, ui_jobs_dir
 
 
 FORMAT = "bodyrig-pbr-ab-body-job-source"
@@ -18,6 +21,7 @@ VERSION = 1
 _WORKSPACE_MARKER = "Private identity workspace: "
 _JOB_RE = re.compile(r"^job-[0-9a-f]{32}$")
 _PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
+_BODY_REV_RE = re.compile(r"^body-r[0-9]{4}$")
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -130,6 +134,75 @@ def _workspace_from_log(job: dict[str, Any], log_path: Path) -> Path:
     return candidate
 
 
+def _body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
+    for item in profile.get("body_revisions", []):
+        if isinstance(item, Mapping) and item.get("revision_id") == revision_id:
+            return dict(item)
+    raise PbrAbBodyJobSourceError("succeeded body job references an unknown registered body revision")
+
+
+def _verify_persisted_receipts(
+    *,
+    job: dict[str, Any],
+    person_id: str,
+) -> dict[str, str]:
+    body_revision = str(job.get("body_revision") or "").strip()
+    if _BODY_REV_RE.fullmatch(body_revision) is None:
+        raise PbrAbBodyJobSourceError("succeeded A/B body job has no canonical body revision")
+    canonical_body_id = str(job.get("canonical_body_id") or "").strip()
+    if not canonical_body_id:
+        raise PbrAbBodyJobSourceError("succeeded A/B body job is missing canonical_body_id")
+
+    library = person_library().resolve()
+    try:
+        profile = load_profile(library, person_id)
+    except PersonProfileError as exc:
+        raise PbrAbBodyJobSourceError("succeeded A/B body job Person profile is no longer valid") from exc
+    registered = _body_revision(profile, body_revision)
+    if str(registered.get("body_id") or "").strip() != canonical_body_id:
+        raise PbrAbBodyJobSourceError("body job canonical body id no longer matches its registered body revision")
+
+    source_binding_path = (library / ".source-bindings" / person_id / f"{body_revision}.json").resolve()
+    try:
+        read_binding(library, profile, kind="body", revision_id=body_revision)
+    except PersonSourceAlignmentError as exc:
+        raise PbrAbBodyJobSourceError("registered body source binding is no longer authoritative") from exc
+    expected_source_binding_sha = _sha256(job.get("source_binding_sha256"), "body job source binding SHA-256")
+    try:
+        actual_source_binding_sha = _file_sha256(source_binding_path)
+    except OSError as exc:
+        raise PbrAbBodyJobSourceError("registered body source binding receipt is no longer readable") from exc
+    if actual_source_binding_sha != expected_source_binding_sha:
+        raise PbrAbBodyJobSourceError("registered body source binding receipt changed after body job success")
+
+    try:
+        review = read_review(library, profile, body_revision=body_revision)
+    except PersonBodyReviewError as exc:
+        raise PbrAbBodyJobSourceError("registered body fidelity review is no longer authoritative") from exc
+    package_sha = _sha256(registered.get("package_sha256"), "registered body revision package SHA-256")
+    expected_review_root = (library / ".body-reviews" / person_id / package_sha).resolve()
+    review_root = Path(str(review.get("root") or "")).expanduser().resolve()
+    if review_root != expected_review_root:
+        raise PbrAbBodyJobSourceError("registered body fidelity review is outside its canonical Person/package root")
+    review_path = review_root / "review.json"
+    expected_review_sha = _sha256(job.get("body_review_sha256"), "body job review SHA-256")
+    try:
+        actual_review_sha = _file_sha256(review_path)
+    except OSError as exc:
+        raise PbrAbBodyJobSourceError("registered body fidelity review receipt is no longer readable") from exc
+    if actual_review_sha != expected_review_sha:
+        raise PbrAbBodyJobSourceError("registered body fidelity review receipt changed after body job success")
+
+    return {
+        "body_revision": body_revision,
+        "canonical_body_id": canonical_body_id,
+        "source_binding": str(source_binding_path),
+        "source_binding_sha256": actual_source_binding_sha,
+        "body_review": str(review_path),
+        "body_review_sha256": actual_review_sha,
+    }
+
+
 def inspect_body_job_source(
     *,
     job_id: str,
@@ -199,11 +272,7 @@ def inspect_body_job_source(
     if not (fidelity_dir / "review.json").is_file():
         raise PbrAbBodyJobSourceError("succeeded A/B body job lacks fidelity review evidence")
 
-    for field in ("body_revision", "canonical_body_id"):
-        if not str(job.get(field) or "").strip():
-            raise PbrAbBodyJobSourceError(f"succeeded A/B body job is missing {field}")
-    _sha256(job.get("source_binding_sha256"), "body job source binding SHA-256")
-    _sha256(job.get("body_review_sha256"), "body job review SHA-256")
+    persisted = _verify_persisted_receipts(job=job, person_id=person_id)
 
     workspace = _workspace_from_log(job, log_path)
     sith_input = workspace / "sith-input-v1"
@@ -235,6 +304,8 @@ def inspect_body_job_source(
         "body_job_id": job_id,
         "person_id": person_id,
         "bodyrig_revision": job_revision,
+        "body_revision": persisted["body_revision"],
+        "canonical_body_id": persisted["canonical_body_id"],
         "safe_source_floor_revision": floor,
         "safe_source_lineage_passed": True,
         "job_json": str(job_path),
@@ -247,6 +318,10 @@ def inspect_body_job_source(
         "reconstruction_sha256": _file_sha256(reconstruction),
         "reconstruction_authority": str(reconstruction_authority),
         "reconstruction_authority_sha256": _file_sha256(reconstruction_authority),
+        "source_binding": persisted["source_binding"],
+        "source_binding_sha256": persisted["source_binding_sha256"],
+        "body_review": persisted["body_review"],
+        "body_review_sha256": persisted["body_review_sha256"],
         "source_policy_sha256": _file_sha256(policy_path),
         "comparison_only": True,
         "human_visual_authority_required": True,
