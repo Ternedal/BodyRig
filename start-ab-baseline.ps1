@@ -7,7 +7,12 @@ param(
     [ValidatePattern('^https?://(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?$')]
     [string]$BaseUri = "http://127.0.0.1:8775",
 
-    [string]$BodyRigPython = ""
+    [string]$BodyRigPython = "",
+    [string]$RigSetupReport = "",
+    [string]$StashUrl = "",
+    [string]$ApiKeyEnv = "STASH_API_KEY",
+    [string]$WslExe = "wsl.exe",
+    [string]$Ffmpeg = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -136,7 +141,33 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
-Write-Host "Validating current main and both active A/B candidate byte contracts..."
+$physicalPreflightScript = Need-File -Path (Join-Path $repoRoot "preflight-ab-baseline.ps1") -Label "A/B baseline physical preflight"
+$pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($null -eq $pwshCommand) { throw "PowerShell 7 executable (pwsh) was not found." }
+$physicalPreflightArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $physicalPreflightScript,
+    "-BaseUri", $BaseUri,
+    "-BodyRigPython", $BodyRigPython,
+    "-ApiKeyEnv", $ApiKeyEnv,
+    "-WslExe", $WslExe
+)
+if (-not [string]::IsNullOrWhiteSpace($PersonId)) { $physicalPreflightArgs += @("-PersonId", $PersonId) }
+else { $physicalPreflightArgs += @("-PerformerId", $PerformerId) }
+if (-not [string]::IsNullOrWhiteSpace($RigSetupReport)) { $physicalPreflightArgs += @("-RigSetupReport", $RigSetupReport) }
+if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $physicalPreflightArgs += @("-StashUrl", $StashUrl) }
+if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $physicalPreflightArgs += @("-Ffmpeg", $Ffmpeg) }
+
+Write-Host "Running read-only fail-fast rig/source preflight before A/B baseline enqueue..."
+$physicalPreflightRaw = @(& $pwshCommand.Source @physicalPreflightArgs 2>&1)
+$physicalPreflightExit = $LASTEXITCODE
+$physicalPreflightRaw | ForEach-Object { Write-Host $_ }
+if ($physicalPreflightExit -ne 0) {
+    throw "BodyRig A/B baseline physical preflight failed with exit code $physicalPreflightExit. No baseline job was enqueued."
+}
+
+Write-Host "Revalidating current main and both active A/B candidate byte contracts immediately before enqueue..."
 $preflight = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
 $mainRevision = [string]$preflight.main_revision
 $pbrRevision = [string]$preflight.candidates.pbr_v2.revision
