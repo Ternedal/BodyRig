@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -38,11 +39,87 @@ def _sha256(value: object, label: str) -> str:
     return text
 
 
-def _body_revision(profile_like: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
-    for item in profile_like.get("body_revisions", []):
-        if isinstance(item, Mapping) and item.get("revision_id") == revision_id:
-            return dict(item)
-    raise BodyJobReceiptAuthorityError("registered body revision disappeared while validating job receipts")
+def _canonical_json_sha256(value: object) -> str:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _verify_source_manifest(
+    *,
+    source_binding: Mapping[str, Any],
+    persisted_source_binding_sha256: str,
+    source_binding_path: Path,
+) -> dict[str, str]:
+    evidence = source_binding.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise BodyJobReceiptAuthorityError("registered body source binding has no canonical evidence object")
+    if evidence.get("kind") != _SOURCE_EVIDENCE_KIND:
+        raise BodyJobReceiptAuthorityError("registered body source binding is not backed by the canonical Stash physical source manifest")
+    source_evidence_sha256 = _sha256(evidence.get("sha256"), "body source manifest SHA-256")
+
+    evidence_ref = str(evidence.get("ref") or "").strip()
+    if not evidence_ref:
+        raise BodyJobReceiptAuthorityError("registered body source binding has no source manifest path")
+    manifest_path = Path(evidence_ref).expanduser()
+    if not manifest_path.is_absolute():
+        raise BodyJobReceiptAuthorityError("registered body source manifest path is not absolute")
+    manifest_path = manifest_path.resolve()
+    if not manifest_path.is_file():
+        raise BodyJobReceiptAuthorityError("registered body source manifest is no longer present")
+    try:
+        manifest_sha_before = _file_sha256(manifest_path)
+    except OSError as exc:
+        raise BodyJobReceiptAuthorityError("registered body source manifest is no longer readable") from exc
+    if manifest_sha_before != source_evidence_sha256:
+        raise BodyJobReceiptAuthorityError("registered body source manifest bytes changed after body job success")
+
+    try:
+        manifest = _read_json(manifest_path, "registered body source manifest")
+    except PbrAbBodyJobSourceError as exc:
+        raise _translate(exc) from exc
+    if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+        raise BodyJobReceiptAuthorityError("registered body source manifest format/version mismatch")
+    performer = manifest.get("performer")
+    source = source_binding.get("source")
+    if not isinstance(performer, Mapping) or not isinstance(source, Mapping):
+        raise BodyJobReceiptAuthorityError("registered body source manifest performer identity is malformed")
+    if str(performer.get("id") or "") != str(source.get("performer_id") or ""):
+        raise BodyJobReceiptAuthorityError("registered body source manifest performer no longer matches Person source authority")
+
+    selected = manifest.get("selected")
+    source_files = evidence.get("source_files")
+    if not isinstance(selected, list) or not selected or not isinstance(source_files, list) or len(source_files) != len(selected):
+        raise BodyJobReceiptAuthorityError("registered body source manifest/source-file receipt cardinality mismatch")
+    clean_source_files: list[dict[str, str]] = []
+    for selected_item, source_item in zip(selected, source_files, strict=True):
+        if not isinstance(selected_item, Mapping) or not isinstance(source_item, Mapping):
+            raise BodyJobReceiptAuthorityError("registered body source-file receipt entry is malformed")
+        selected_path = Path(str(selected_item.get("path") or "")).expanduser()
+        selected_name = selected_path.name
+        selected_scene = str(selected_item.get("scene_id") or "")
+        source_scene = str(source_item.get("scene_id") or "")
+        source_name = str(source_item.get("name") or "")
+        source_sha = _sha256(source_item.get("sha256"), "registered source-file SHA-256")
+        if not selected_name or selected_scene != source_scene or selected_name != source_name:
+            raise BodyJobReceiptAuthorityError("registered body source-file receipt no longer matches source manifest selection")
+        clean_source_files.append({"scene_id": source_scene, "name": source_name, "sha256": source_sha})
+
+    try:
+        manifest_sha_after = _file_sha256(manifest_path)
+        source_binding_sha_after = _file_sha256(source_binding_path)
+    except OSError as exc:
+        raise BodyJobReceiptAuthorityError("registered body source authority changed while being validated") from exc
+    if manifest_sha_after != source_evidence_sha256:
+        raise BodyJobReceiptAuthorityError("registered body source manifest changed while being validated")
+    if source_binding_sha_after != persisted_source_binding_sha256:
+        raise BodyJobReceiptAuthorityError("registered body source binding receipt changed while being validated")
+
+    return {
+        "source_evidence_kind": _SOURCE_EVIDENCE_KIND,
+        "source_evidence": str(manifest_path),
+        "source_evidence_sha256": source_evidence_sha256,
+        "source_files_sha256": _canonical_json_sha256(clean_source_files),
+    }
 
 
 def inspect_succeeded_body_job_receipts(
@@ -54,7 +131,8 @@ def inspect_succeeded_body_job_receipts(
     try:
         job_path = _canonical_job_path(job_id)
         job = _read_json(job_path, "succeeded body-build job")
-    except PbrAbBodyJobSourceError as exc:
+        job_sha_before = _file_sha256(job_path)
+    except (PbrAbBodyJobSourceError, OSError) as exc:
         raise _translate(exc) from exc
 
     if job.get("format") != "bodyrig-ui-job" or job.get("version") != 1:
@@ -94,17 +172,27 @@ def inspect_succeeded_body_job_receipts(
         source_binding = _read_json(source_binding_path, "registered body source binding receipt")
     except PbrAbBodyJobSourceError as exc:
         raise _translate(exc) from exc
-    evidence = source_binding.get("evidence")
-    if not isinstance(evidence, Mapping):
-        raise BodyJobReceiptAuthorityError("registered body source binding has no canonical evidence object")
-    if evidence.get("kind") != _SOURCE_EVIDENCE_KIND:
-        raise BodyJobReceiptAuthorityError("registered body source binding is not backed by the canonical Stash physical source manifest")
-    source_evidence_sha256 = _sha256(evidence.get("sha256"), "body source manifest SHA-256")
+    source_authority = _verify_source_manifest(
+        source_binding=source_binding,
+        persisted_source_binding_sha256=str(persisted["source_binding_sha256"]),
+        source_binding_path=source_binding_path,
+    )
 
     component = source_binding.get("component")
     if not isinstance(component, Mapping):
         raise BodyJobReceiptAuthorityError("registered body source binding has no canonical component object")
     package_sha256 = _sha256(component.get("artifact_sha256"), "registered body package SHA-256")
+
+    body_review_path = Path(persisted["body_review"]).expanduser().resolve()
+    try:
+        body_review_sha_after = _file_sha256(body_review_path)
+        job_sha_after = _file_sha256(job_path)
+    except OSError as exc:
+        raise BodyJobReceiptAuthorityError("body job receipt authority changed while being validated") from exc
+    if body_review_sha_after != str(persisted["body_review_sha256"]):
+        raise BodyJobReceiptAuthorityError("registered body fidelity review receipt changed while being validated")
+    if job_sha_after != job_sha_before:
+        raise BodyJobReceiptAuthorityError("body job JSON changed while persisted receipts were being validated")
 
     return {
         "format": FORMAT,
@@ -116,13 +204,12 @@ def inspect_succeeded_body_job_receipts(
         "canonical_body_id": persisted["canonical_body_id"],
         "package_sha256": package_sha256,
         "job_json": str(job_path),
-        "job_json_sha256": _file_sha256(job_path),
+        "job_json_sha256": job_sha_after,
         "source_binding": persisted["source_binding"],
         "source_binding_sha256": persisted["source_binding_sha256"],
         "body_review": persisted["body_review"],
         "body_review_sha256": persisted["body_review_sha256"],
-        "source_evidence_kind": _SOURCE_EVIDENCE_KIND,
-        "source_evidence_sha256": source_evidence_sha256,
+        **source_authority,
         "comparison_only": True,
         "human_visual_authority_required": True,
         "physical_acceptance_authority": False,
