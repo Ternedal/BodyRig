@@ -365,5 +365,8 @@ Write-Host "Baseline job:  $BaselineJobId"
 Write-Host "Decision:      $Decision"
 Write-Host "Human receipt: $humanReviewPath"
 Write-Host "Plan authority:$humanAuthorityPath"
+Write-Host "Next canonical shared-plan step:"
+Write-Host "  .\start-throughput-candidate-from-ab-plan.ps1 -BaselineJobId '$BaselineJobId'"
+Write-Host "Routing only: the throughput command is not executed automatically and grants no physical, promotion or production authority."
 Write-Host "Authority: comparison-only human preference; no physical acceptance, promotion or production activation."
 exit 0
