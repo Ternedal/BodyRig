@@ -34,7 +34,7 @@ To apply that policy explicitly:
 .\configure-repository-authority.ps1 -Apply
 ```
 
-The helper configures the exact six required checks with `app_id=15368`, `strict=true`, admin enforcement, required pull-request flow, `required_approving_review_count=0`, required conversation resolution, force-push blocking, and branch-deletion blocking. Zero required approving reviews is deliberate for the current solo repository: a pull request is still mandatory, while the repository is not made impossible to merge without another reviewer.
+The helper configures the exact six required checks with `strict=true`, admin enforcement, required pull-request flow, `required_approving_review_count=0`, required conversation resolution, force-push blocking, and branch-deletion blocking. The five normal CI/regression contexts are source-bound to GitHub Actions app `15368`; the security-result context `CodeQL` is source-bound to GitHub Advanced Security app `57789`. Zero required approving reviews is deliberate for the current solo repository: a pull request is still mandatory, while the repository is not made impossible to merge without another reviewer.
 
 The helper refuses to compose over existing repository rulesets because combining unknown rules with a new classic rule is not safe automation. If classic branch protection already exists, it also refuses replacement unless the administrator deliberately uses:
 
@@ -81,11 +81,14 @@ The effective policy must require all of the following status checks:
 - `test-windows-python`;
 - `acceptance-windows`;
 - `adapter-log-handle`;
-- `analyze (python)`.
+- `CodeQL`.
 
-All six checks must also be source-bound to the GitHub Actions GitHub App, app/integration ID `15368`. A matching context name alone is not sufficient repository authority: GitHub allows required status checks to be restricted to a specific GitHub App, and BodyRig deliberately requires that stronger binding so another integration cannot satisfy the exact-green boundary merely by emitting the same context name.
+Source binding is part of the authority contract, not an optional strengthening:
 
-`analyze (python)` is the stable check name emitted by BodyRig's pinned `.github/workflows/codeql.yml`. It is a GitHub Actions check from app ID `15368`; the separate GitHub Advanced Security bot/summary surface is not a substitute for this exact check.
+- the five CI/regression checks must be bound to GitHub Actions app/integration ID `15368`;
+- `CodeQL` must be bound to GitHub Advanced Security app/integration ID `57789`.
+
+A matching context name alone is not sufficient repository authority. BodyRig's pinned `.github/workflows/codeql.yml` emits the GitHub Actions job `analyze (python)` from app `15368`, proving the scanner ran. Live GitHub check-runs also publish a separate `CodeQL` result from GitHub Advanced Security app `57789`. The merge-bound security check is that `CodeQL` result; requiring only `analyze (python)` is not equivalent because scanner execution alone is not the code-scanning result boundary.
 
 The effective policy must also:
 
@@ -103,7 +106,7 @@ A passing classic policy requires:
 - `required_pull_request_reviews` present;
 - `required_pull_request_reviews.bypass_pull_request_allowances` empty for users, teams and apps;
 - all six required status checks;
-- every required check present in `required_status_checks.checks` with `app_id=15368`;
+- every required check present in `required_status_checks.checks` with its exact expected app id (`15368` for the five CI/regression contexts, `57789` for `CodeQL`);
 - `required_status_checks.strict=true`;
 - `enforce_admins.enabled=true`;
 - `allow_force_pushes.enabled=false`;
@@ -112,7 +115,7 @@ A passing classic policy requires:
 
 GitHub can explicitly allow selected users, teams, or apps to bypass required pull requests. Those `bypass_pull_request_allowances` are treated as a hard failure even when `enforce_admins` is enabled, because a named bypass actor would still make the exact-green PR boundary non-authoritative.
 
-GitHub's classic protection API also exposes each required check as a `checks` entry with an optional `app_id`. BodyRig requires `app_id=15368` for every one of the six required contexts. A contexts-only configuration, `app_id=-1`, `app_id=null`, or another app ID fails closed because the verifier cannot prove the check is restricted to GitHub Actions.
+GitHub's classic protection API exposes each required check as a `checks` entry with an optional `app_id`. BodyRig validates every required context against its expected producer. A contexts-only configuration, `app_id=-1`, `app_id=null`, or another app ID fails closed because the verifier cannot prove that the named check came from its expected GitHub App.
 
 ## Repository ruleset
 
@@ -120,11 +123,11 @@ A passing ruleset path requires one or more active branch rulesets whose combine
 
 - `pull_request`, with `required_review_thread_resolution=true`;
 - `required_status_checks`, containing all six exact contexts and `strict_required_status_checks_policy=true`;
-- every required status-check entry with `integration_id=15368`;
+- every required status-check entry with its expected integration ID (`15368` for the five CI/regression contexts, `57789` for `CodeQL`);
 - `non_fast_forward`;
 - `deletion`.
 
-Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, incomplete status-check lists, stale-branch-permitting status policy, or required checks not bound to GitHub Actions integration ID `15368` do not satisfy authority.
+Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, incomplete status-check lists, stale-branch-permitting status policy, or required checks not bound to their expected GitHub App do not satisfy authority.
 
 ## Boundary
 

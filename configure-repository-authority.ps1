@@ -7,13 +7,14 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RequiredStatusCheckAppId = 15368
+$RequiredCodeQlAppId = 57789
 $RequiredStatusChecks = @(
-    "test (3.11)",
-    "test (3.12)",
-    "test-windows-python",
-    "acceptance-windows",
-    "adapter-log-handle",
-    "analyze (python)"
+    [ordered]@{ context = "test (3.11)"; app_id = $RequiredStatusCheckAppId },
+    [ordered]@{ context = "test (3.12)"; app_id = $RequiredStatusCheckAppId },
+    [ordered]@{ context = "test-windows-python"; app_id = $RequiredStatusCheckAppId },
+    [ordered]@{ context = "acceptance-windows"; app_id = $RequiredStatusCheckAppId },
+    [ordered]@{ context = "adapter-log-handle"; app_id = $RequiredStatusCheckAppId },
+    [ordered]@{ context = "CodeQL"; app_id = $RequiredCodeQlAppId }
 )
 
 function Need-Revision {
@@ -96,10 +97,10 @@ if ($null -ne $classic -and -not $ReplaceExistingProtection) {
 }
 
 $checks = @()
-foreach ($name in $RequiredStatusChecks) {
+foreach ($required in $RequiredStatusChecks) {
     $checks += [ordered]@{
-        context = $name
-        app_id = $RequiredStatusCheckAppId
+        context = [string]$required.context
+        app_id = [int]$required.app_id
     }
 }
 
@@ -133,7 +134,8 @@ if (-not $Apply) {
     Write-Host "Branch:     main"
     Write-Host "Head:       $head"
     Write-Host "Mode:       classic branch protection"
-    Write-Host "Required check source: GitHub Actions app $RequiredStatusCheckAppId"
+    Write-Host "Required CI check source: GitHub Actions app $RequiredStatusCheckAppId"
+    Write-Host "Required CodeQL result source: GitHub Advanced Security app $RequiredCodeQlAppId"
     Write-Host "Required approving reviews: 0 (PR still required)"
     Write-Host "Payload:"
     Write-Host $payloadJson

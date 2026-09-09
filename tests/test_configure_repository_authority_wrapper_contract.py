@@ -34,11 +34,14 @@ def test_admin_helper_writes_exact_classic_authority_policy() -> None:
         'test-windows-python',
         'acceptance-windows',
         'adapter-log-handle',
-        'analyze (python)',
+        'CodeQL',
     ):
         assert name in SCRIPT
+    assert 'analyze (python)' not in SCRIPT
     assert '$RequiredStatusCheckAppId = 15368' in SCRIPT
-    assert 'app_id = $RequiredStatusCheckAppId' in SCRIPT
+    assert '$RequiredCodeQlAppId = 57789' in SCRIPT
+    assert 'context = "adapter-log-handle"; app_id = $RequiredStatusCheckAppId' in SCRIPT
+    assert 'context = "CodeQL"; app_id = $RequiredCodeQlAppId' in SCRIPT
     assert 'strict = $true' in SCRIPT
     assert 'enforce_admins = $true' in SCRIPT
     assert 'required_approving_review_count = 0' in SCRIPT

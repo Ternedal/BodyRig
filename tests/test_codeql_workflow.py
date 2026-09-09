@@ -3,7 +3,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from bodyrig.repository_authority import REQUIRED_STATUS_CHECK_APP_ID, REQUIRED_STATUS_CHECKS
+from bodyrig.repository_authority import (
+    REQUIRED_CODEQL_APP_ID,
+    REQUIRED_STATUS_CHECK_APP_ID,
+    REQUIRED_STATUS_CHECKS,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,8 +64,10 @@ def test_codeql_actions_are_exact_sha_pinned() -> None:
         assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", uses_target), uses_target
 
 
-def test_codeql_check_name_is_stable_for_repository_authority() -> None:
+def test_codeql_workflow_job_is_stable_but_security_result_owns_repository_authority() -> None:
     text = _text()
     assert "name: analyze (python)" in text
-    assert "analyze (python)" in REQUIRED_STATUS_CHECKS
+    assert "CodeQL" in REQUIRED_STATUS_CHECKS
+    assert "analyze (python)" not in REQUIRED_STATUS_CHECKS
     assert REQUIRED_STATUS_CHECK_APP_ID == 15368
+    assert REQUIRED_CODEQL_APP_ID == 57789
