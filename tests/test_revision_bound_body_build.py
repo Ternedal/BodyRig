@@ -10,6 +10,7 @@ import bodyrig.high_fidelity_preview_api as authority_api
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = (ROOT / "start-revision-bound-body-build.ps1").read_text(encoding="utf-8")
+PERFORMER_ID = "stash-performer-42"
 
 
 def _client(monkeypatch) -> TestClient:
@@ -54,7 +55,7 @@ def test_operator_authority_fails_closed_when_ready_revision_is_invalid(monkeypa
     assert "without an exact Git revision" in response.json()["reason"]
 
 
-def test_revision_bound_api_passes_exact_expected_revision(monkeypatch) -> None:
+def test_revision_bound_api_passes_exact_revision_and_stash_performer(monkeypatch) -> None:
     revision = "c" * 40
     captured: dict[str, object] = {}
 
@@ -62,10 +63,12 @@ def test_revision_bound_api_passes_exact_expected_revision(monkeypatch) -> None:
         person_id: str,
         *,
         expected_bodyrig_revision: str,
+        expected_stash_performer_id: str,
         retain_private_workspace_for_ab: bool,
     ) -> dict:
         captured["person_id"] = person_id
         captured["revision"] = expected_bodyrig_revision
+        captured["performer"] = expected_stash_performer_id
         captured["retain"] = retain_private_workspace_for_ab
         return {
             "job_id": "job-" + "1" * 32,
@@ -79,11 +82,19 @@ def test_revision_bound_api_passes_exact_expected_revision(monkeypatch) -> None:
     person_id = "person-" + "2" * 32
     response = _client(monkeypatch).post(
         f"/api/v1/people/{person_id}/body/build-revision-bound",
-        json={"expected_bodyrig_revision": revision},
+        json={
+            "expected_bodyrig_revision": revision,
+            "expected_stash_performer_id": PERFORMER_ID,
+        },
     )
     assert response.status_code == 200
     assert response.json()["bodyrig_revision"] == revision
-    assert captured == {"person_id": person_id, "revision": revision, "retain": False}
+    assert captured == {
+        "person_id": person_id,
+        "revision": revision,
+        "performer": PERFORMER_ID,
+        "retain": False,
+    }
 
 
 def test_revision_bound_api_forwards_explicit_ab_retention(monkeypatch) -> None:
@@ -94,9 +105,15 @@ def test_revision_bound_api_forwards_explicit_ab_retention(monkeypatch) -> None:
         person_id: str,
         *,
         expected_bodyrig_revision: str,
+        expected_stash_performer_id: str,
         retain_private_workspace_for_ab: bool,
     ) -> dict:
-        captured.update(person_id=person_id, revision=expected_bodyrig_revision, retain=retain_private_workspace_for_ab)
+        captured.update(
+            person_id=person_id,
+            revision=expected_bodyrig_revision,
+            performer=expected_stash_performer_id,
+            retain=retain_private_workspace_for_ab,
+        )
         return {
             "job_id": "job-" + "4" * 32,
             "kind": "body-build",
@@ -118,18 +135,35 @@ def test_revision_bound_api_forwards_explicit_ab_retention(monkeypatch) -> None:
         f"/api/v1/people/{person_id}/body/build-revision-bound",
         json={
             "expected_bodyrig_revision": revision,
+            "expected_stash_performer_id": PERFORMER_ID,
             "retain_private_workspace_for_ab": True,
         },
     )
     assert response.status_code == 200
     assert response.json()["ab_baseline_retention"]["retain_private_workspace"] is True
-    assert captured == {"person_id": person_id, "revision": revision, "retain": True}
+    assert captured == {
+        "person_id": person_id,
+        "revision": revision,
+        "performer": PERFORMER_ID,
+        "retain": True,
+    }
+
+
+def test_revision_bound_api_rejects_missing_expected_stash_performer(monkeypatch) -> None:
+    response = _client(monkeypatch).post(
+        "/api/v1/people/person-" + "3" * 32 + "/body/build-revision-bound",
+        json={"expected_bodyrig_revision": "e" * 40},
+    )
+    assert response.status_code == 422
 
 
 def test_revision_bound_api_rejects_noncanonical_expected_revision(monkeypatch) -> None:
     response = _client(monkeypatch).post(
         "/api/v1/people/person-" + "3" * 32 + "/body/build-revision-bound",
-        json={"expected_bodyrig_revision": "main"},
+        json={
+            "expected_bodyrig_revision": "main",
+            "expected_stash_performer_id": PERFORMER_ID,
+        },
     )
     assert response.status_code == 422
 
@@ -144,23 +178,31 @@ def test_revision_bound_launcher_requires_clean_local_and_matching_service_autho
     assert "Revision-bound body builds require exact clean authority" in LAUNCHER
 
 
-def test_revision_bound_launcher_resolves_person_and_rejects_competing_builds() -> None:
+def test_revision_bound_launcher_resolves_person_and_binds_current_source() -> None:
     assert "Pass exactly one of -PersonId or -PerformerId" in LAUNCHER
     assert '[string]$_.source.kind -eq "stash-performer"' in LAUNCHER
     assert '[string]$_.source.performer_id -eq $PerformerId' in LAUNCHER
     assert ".source.id" not in LAUNCHER
     assert "Multiple BodyRig Persons are bound to Stash performer" in LAUNCHER
+    assert "$currentPerformerId" in LAUNCHER
+    assert "$pinnedPerformerId" in LAUNCHER
+    assert "$env:BODYRIG_PINNED_STASH_PERFORMER_ID" in LAUNCHER
+    assert "expected_stash_performer_id = $pinnedPerformerId" in LAUNCHER
     assert '[string]$_.kind -eq "body-build"' in LAUNCHER
     assert '[string]$_.status -in @("queued", "running")' in LAUNCHER
 
 
-def test_revision_bound_launcher_binds_expected_revision_and_verifies_enqueued_job() -> None:
+def test_revision_bound_launcher_binds_expected_authority_and_verifies_enqueued_job() -> None:
     assert "expected_bodyrig_revision = $head" in LAUNCHER
+    assert "expected_stash_performer_id = $pinnedPerformerId" in LAUNCHER
     assert "retain_private_workspace_for_ab = [bool]$RetainPrivateWorkspaceForAb" in LAUNCHER
     assert '"$BaseUri/api/v1/people/$PersonId/body/build-revision-bound"' in LAUNCHER
     assert "$jobId -notmatch '^job-[0-9a-f]{32}$'" in LAUNCHER
     assert '[string]$started.kind -ne "body-build"' in LAUNCHER
     assert "$jobRevision -ne $head" in LAUNCHER
+    assert "$started.source_enqueue_authority" in LAUNCHER
+    assert '"bodyrig-body-build-source-enqueue-authority"' in LAUNCHER
+    assert '[string]$sourceAuthority.stash_performer_id -ne $pinnedPerformerId' in LAUNCHER
     assert '"Monitor:  .\\watch-body-build.ps1 -JobId \'$jobId\'"' in LAUNCHER
 
 

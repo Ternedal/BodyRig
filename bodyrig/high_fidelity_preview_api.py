@@ -37,6 +37,7 @@ class HighFidelityPreviewStartRequest(BaseModel):
 class RevisionBoundBodyBuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_bodyrig_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    expected_stash_performer_id: str = Field(min_length=1, max_length=256)
     retain_private_workspace_for_ab: bool = False
 
 
@@ -85,6 +86,7 @@ def start_exact_revision_body_build(person_id: str, request: RevisionBoundBodyBu
         return start_revision_bound_body_build(
             person_id,
             expected_bodyrig_revision=request.expected_bodyrig_revision,
+            expected_stash_performer_id=request.expected_stash_performer_id,
             retain_private_workspace_for_ab=request.retain_private_workspace_for_ab,
         )
     except RevisionBoundBodyBuildError as exc:

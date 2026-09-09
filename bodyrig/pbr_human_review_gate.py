@@ -220,6 +220,9 @@ def validate(
     }.items():
         if str(source_authority.get(field) or "") != expected:
             _fail(f"PBR source authority {field} mismatch")
+    stash_performer_id = str(source_authority.get("stash_performer_id") or "").strip()
+    if not stash_performer_id:
+        _fail("PBR source authority has no revision-bound Stash performer identity")
 
     run_authority = values["run_authority"]
     if run_authority.get("format") != "bodyrig-pbr-ab-run" or run_authority.get("version") != 1:
@@ -262,6 +265,7 @@ def validate(
         "version": 1,
         "baseline_job_id": baseline_job_id,
         "person_id": person_id,
+        "stash_performer_id": stash_performer_id,
         "baseline_plan_sha256": expected_identity["baseline_plan_sha256"],
         "candidate_contract_sha256": contract_sha,
         "baseline_revision": main_revision,

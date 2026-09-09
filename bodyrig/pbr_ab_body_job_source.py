@@ -24,6 +24,14 @@ _PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 _BODY_REV_RE = re.compile(r"^body-r[0-9]{4}$")
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SOURCE_ENQUEUE_FIELDS = {
+    "format",
+    "version",
+    "job_id",
+    "person_id",
+    "stash_performer_id",
+    "expected_bodyrig_revision",
+}
 
 
 class PbrAbBodyJobSourceError(ValueError):
@@ -141,6 +149,37 @@ def _body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, An
     raise PbrAbBodyJobSourceError("succeeded body job references an unknown registered body revision")
 
 
+def _verify_source_enqueue_authority(
+    *,
+    job: dict[str, Any],
+    person_id: str,
+    job_id: str,
+    job_revision: str,
+) -> str:
+    marker = job.get("source_enqueue_authority")
+    if not isinstance(marker, dict) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
+        raise PbrAbBodyJobSourceError("body job lacks canonical revision-bound source enqueue authority")
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+        raise PbrAbBodyJobSourceError("body job source enqueue authority format/version mismatch")
+    if str(marker.get("job_id") or "") != job_id or str(marker.get("person_id") or "") != person_id:
+        raise PbrAbBodyJobSourceError("body job source enqueue authority identity mismatch")
+    if _revision(marker.get("expected_bodyrig_revision"), "source enqueue expected revision") != job_revision:
+        raise PbrAbBodyJobSourceError("body job source enqueue authority revision mismatch")
+    performer_id = str(marker.get("stash_performer_id") or "").strip()
+    if not performer_id:
+        raise PbrAbBodyJobSourceError("body job source enqueue authority has no Stash performer id")
+    try:
+        profile = load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise PbrAbBodyJobSourceError("body job Person profile is no longer valid for source enqueue authority") from exc
+    source = profile.get("source")
+    if not isinstance(source, Mapping) or source.get("kind") != "stash-performer":
+        raise PbrAbBodyJobSourceError("Person is no longer bound to the body job's Stash performer")
+    if str(source.get("performer_id") or "").strip() != performer_id:
+        raise PbrAbBodyJobSourceError("Person Stash performer changed after the revision-bound body job")
+    return performer_id
+
+
 def _verify_persisted_receipts(
     *,
     job: dict[str, Any],
@@ -236,6 +275,12 @@ def inspect_body_job_source(
         raise PbrAbBodyJobSourceError(
             f"succeeded A/B baseline body job belongs to {job_revision}, not current main {head}"
         )
+    stash_performer_id = _verify_source_enqueue_authority(
+        job=job,
+        person_id=person_id,
+        job_id=job_id,
+        job_revision=job_revision,
+    )
 
     retention = job.get("ab_baseline_retention")
     if not isinstance(retention, dict):
@@ -303,6 +348,7 @@ def inspect_body_job_source(
         "source_mode": "revision-bound-succeeded-body-build",
         "body_job_id": job_id,
         "person_id": person_id,
+        "stash_performer_id": stash_performer_id,
         "bodyrig_revision": job_revision,
         "body_revision": persisted["body_revision"],
         "canonical_body_id": persisted["canonical_body_id"],

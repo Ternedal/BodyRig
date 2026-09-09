@@ -39,6 +39,14 @@ _FINAL = {"succeeded", "failed", "canceled", "interrupted"}
 _OPEN = {"uploading", "queued", "running", "needs_speaker", "needs_reference", "cancelling"}
 _ADJUSTMENT_ENV = "BODYRIG_BODYPRINT_ADJUSTMENT_REQUEST"
 _BODY_LOG_TAIL_BYTES = 128 * 1024
+_SOURCE_ENQUEUE_FIELDS = {
+    "format",
+    "version",
+    "job_id",
+    "person_id",
+    "stash_performer_id",
+    "expected_bodyrig_revision",
+}
 
 
 class UiJobError(RuntimeError):
@@ -84,6 +92,47 @@ def _read_job(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION:
         raise UiJobError(f"unsupported UI job state: {path}")
     return value
+
+
+def _bound_body_source(job: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
+    """Revalidate the exact Person→Stash identity bound at revision-bound enqueue.
+
+    Generic UI body builds created outside the revision-bound endpoint have no
+    source_enqueue_authority and retain their existing behavior. A revision-bound
+    job must keep the same exact Person/source identity until every physical child
+    process has crossed its point-of-use check.
+    """
+
+    marker = job.get("source_enqueue_authority")
+    if marker is None:
+        return None
+    if not isinstance(marker, dict) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
+        raise UiJobError("revision-bound body-build source enqueue authority is malformed")
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+        raise UiJobError("revision-bound body-build source enqueue authority format/version mismatch")
+    if str(marker.get("job_id") or "") != str(job.get("job_id") or ""):
+        raise UiJobError("revision-bound body-build source enqueue authority job identity mismatch")
+    person_id = str(job.get("person_id") or "")
+    if str(marker.get("person_id") or "") != person_id:
+        raise UiJobError("revision-bound body-build source enqueue authority Person identity mismatch")
+    expected_revision = str(job.get("bodyrig_revision") or "").strip().lower()
+    if str(marker.get("expected_bodyrig_revision") or "").strip().lower() != expected_revision:
+        raise UiJobError("revision-bound body-build source enqueue authority revision mismatch")
+    expected_performer = str(marker.get("stash_performer_id") or "").strip()
+    if not expected_performer:
+        raise UiJobError("revision-bound body-build source enqueue authority has no Stash performer id")
+
+    profile = load_profile(person_library(), person_id)
+    source = profile.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "stash-performer":
+        raise UiJobError("Person source changed after revision-bound body-build enqueue")
+    actual_performer = str(source.get("performer_id") or "").strip()
+    if actual_performer != expected_performer:
+        raise UiJobError(
+            "Person Stash performer changed after revision-bound body-build enqueue; "
+            f"expected {expected_performer}, got {actual_performer or '<missing>'}. Refusing physical subprocess start."
+        )
+    return profile, expected_performer
 
 
 def _read_log_tail(path_value: Any, *, maximum_bytes: int = _BODY_LOG_TAIL_BYTES) -> str:
@@ -749,6 +798,7 @@ class UiJobManager:
                         "BodyRig checkout revision changed after UI job enqueue; "
                         f"expected {expected_revision}, got {actual_revision}. Refusing physical subprocess start."
                     )
+                _bound_body_source(current)
                 process = subprocess.Popen(
                     args,
                     cwd=str(_repo_root()),
@@ -773,12 +823,17 @@ class UiJobManager:
                 job = _read_job(_job_path(job_id))
                 if job.get("status") != "queued":
                     return
+                bound = _bound_body_source(job)
                 job["status"] = "running"
                 job["started_utc"] = _now()
                 _write_job(job)
 
-            profile = load_profile(person_library(), job["person_id"])
-            source = profile["source"]
+            if bound is None:
+                profile = load_profile(person_library(), job["person_id"])
+                source = profile["source"]
+                performer_id = str(source["performer_id"])
+            else:
+                profile, performer_id = bound
             ps = _powershell()
             root = _repo_root()
             clone_args = [
@@ -789,7 +844,7 @@ class UiJobManager:
                 "-File",
                 str(root / "clone-body-from-stash-ready.ps1"),
                 "-PerformerId",
-                str(source["performer_id"]),
+                performer_id,
                 "-BodyId",
                 job["person_id"],
                 "-Name",
@@ -862,9 +917,10 @@ class UiJobManager:
                 raise UiJobError(f"fidelity review evidence is not authoritative: {exc}") from exc
             review_receipt_sha = file_sha256(Path(review["root"]) / "review.json")
 
+            _bound_body_source(job)
             manifest_path, source_files = _body_source_evidence(
                 job["clone_output"],
-                performer_id=str(source["performer_id"]),
+                performer_id=performer_id,
             )
             manifest_sha = file_sha256(manifest_path)
 
@@ -872,6 +928,7 @@ class UiJobManager:
                 current = _read_job(_job_path(job_id))
                 if current.get("status") != "running":
                     return
+                _bound_body_source(current)
                 installed = install_package(
                     package_path,
                     body_library(),
