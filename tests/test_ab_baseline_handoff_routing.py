@@ -10,12 +10,18 @@ AB_DOC = (ROOT / "docs" / "AB_BASELINE.md").read_text(encoding="utf-8")
 
 def test_handoff_routes_dual_candidate_baseline_through_plan_bound_wrapper() -> None:
     assert "start-ab-baseline.ps1" in HANDOFF
-    assert "#196" in HANDOFF
+    assert "#258" in HANDOFF
     assert "#208" in HANDOFF
     assert "shared" in HANDOFF.lower()
     assert "baseline plan" in HANDOFF.lower()
     assert "start-ab-baseline.ps1" in AB_DOC
     assert "canonical operator entrypoint" in AB_DOC
+
+
+def test_handoff_classifies_pbr_v3_current_and_v2_superseded() -> None:
+    assert "#258 — ACTIVE/DRAFT CURRENT-MAIN CANDIDATE" in HANDOFF
+    assert "#196 — SUPERSEDED PBR-V2 CANDIDATE" in HANDOFF
+    assert "#196 — ACTIVE/DRAFT CURRENT-MAIN CANDIDATE" not in HANDOFF
 
 
 def test_handoff_keeps_generic_revision_bound_launcher_for_non_ab_builds() -> None:

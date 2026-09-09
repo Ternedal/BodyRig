@@ -1,6 +1,6 @@
 # PBR → throughput sequencing gate
 
-This gate makes the existing shared #196/#208 operator order enforceable instead of advisory.
+This gate makes the existing shared #258/#208 operator order enforceable instead of advisory.
 
 ## Canonical transition
 
