@@ -14,6 +14,7 @@ OTHER_REVISION = "b" * 40
 FLOOR = "9" * 40
 JOB_ID = "job-" + "1" * 32
 PERSON_ID = "person-" + "2" * 32
+STASH_PERFORMER_ID = "42"
 BODY_REVISION = "body-r0001"
 PACKAGE_SHA = "e" * 64
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ def _setup_persisted_person_evidence(local: Path, clone_output: Path) -> tuple[P
     people = local / "BodyRig" / "people"
     source_value = {
         "kind": "stash-performer",
-        "performer_id": "42",
+        "performer_id": STASH_PERFORMER_ID,
         "performer_name": "Fixture Person",
         "disambiguation": "",
     }
@@ -171,6 +172,14 @@ def _setup(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict]:
         "person_id": PERSON_ID,
         "status": "succeeded",
         "bodyrig_revision": REVISION,
+        "source_enqueue_authority": {
+            "format": "bodyrig-body-build-source-enqueue-authority",
+            "version": 1,
+            "job_id": JOB_ID,
+            "person_id": PERSON_ID,
+            "stash_performer_id": STASH_PERFORMER_ID,
+            "expected_bodyrig_revision": REVISION,
+        },
         "session_report": str(job_root / "physical-session.json"),
         "clone_output": str(clone_output),
         "acceptance_dir": str(acceptance),
@@ -214,6 +223,7 @@ def test_valid_succeeded_revision_bound_body_job_is_safe_retained_source(tmp_pat
     assert result["source_mode"] == "revision-bound-succeeded-body-build"
     assert result["body_job_id"] == JOB_ID
     assert result["person_id"] == PERSON_ID
+    assert result["stash_performer_id"] == STASH_PERFORMER_ID
     assert result["bodyrig_revision"] == REVISION
     assert result["body_revision"] == BODY_REVISION
     assert result["canonical_body_id"] == "canonical-body"
@@ -227,6 +237,26 @@ def test_valid_succeeded_revision_bound_body_job_is_safe_retained_source(tmp_pat
     assert result["comparison_only"] is True
     assert result["physical_acceptance_authority"] is False
     assert result["production_activation"] is False
+
+
+def test_source_enqueue_performer_drift_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    repo, job_root, job = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(source, "_git", _git_ok)
+    job["source_enqueue_authority"]["stash_performer_id"] = "99"
+    _write_json(job_root / "job.json", job)
+
+    with pytest.raises(source.PbrAbBodyJobSourceError, match="Person Stash performer changed"):
+        source.inspect_body_job_source(job_id=JOB_ID, repo_root=repo)
+
+
+def test_missing_source_enqueue_authority_is_rejected(tmp_path: Path, monkeypatch) -> None:
+    repo, job_root, job = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(source, "_git", _git_ok)
+    job.pop("source_enqueue_authority")
+    _write_json(job_root / "job.json", job)
+
+    with pytest.raises(source.PbrAbBodyJobSourceError, match="lacks canonical revision-bound source enqueue authority"):
+        source.inspect_body_job_source(job_id=JOB_ID, repo_root=repo)
 
 
 def test_tampered_registered_source_binding_receipt_is_rejected(tmp_path: Path, monkeypatch) -> None:
@@ -356,6 +386,8 @@ def test_body_job_wrapper_revalidates_before_and_after_strict_runner() -> None:
     assert "bodyrig.pbr_ab_body_job_source" in WRAPPER
     assert "$sourceBefore = Invoke-SourceProbe" in WRAPPER
     assert "$sourceAfter = Invoke-SourceProbe" in WRAPPER
+    assert '"stash_performer_id"' in WRAPPER
+    assert "stash_performer_id = [string]$sourceBefore.stash_performer_id" in WRAPPER
     assert '"-BaselineCloneOutput", [string]$sourceBefore.baseline_clone_output' in WRAPPER
     assert '"-IdentityWorkspace", [string]$sourceBefore.identity_workspace' in WRAPPER
     assert '"run-pbr-ab-physical-review.ps1"' in WRAPPER
