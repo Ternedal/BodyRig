@@ -36,12 +36,25 @@ def _write_fixture(tmp_path: Path, *, plan_revision: str = MAIN_REVISION) -> tup
     plan_root.mkdir(parents=True)
 
     job = {
+        "format": "bodyrig-ui-job",
+        "version": 1,
         "job_id": JOB_ID,
         "kind": "body-build",
-        "status": "succeeded",
         "person_id": PERSON_ID,
+        "status": "succeeded",
+        "created_utc": "2026-09-09T04:00:00Z",
+        "started_utc": "2026-09-09T04:01:00Z",
+        "completed_utc": "2026-09-09T04:02:00Z",
+        "pid": None,
         "bodyrig_revision": MAIN_REVISION,
+        "session_report": str(job_root / "physical-session.json"),
+        "clone_output": str(job_root / "clone-output"),
+        "acceptance_dir": str(job_root / "acceptance"),
+        "fidelity_dir": str(job_root / "fidelity-review"),
+        # Deliberately leave this path absent. The monitor promises to tolerate
+        # an unavailable job log and still route terminal A/B evidence safely.
         "log_path": str(tmp_path / "missing-job.log"),
+        "adjustment_request": None,
     }
     (job_root / "job.json").write_text(json.dumps(job), encoding="utf-8")
 
