@@ -49,15 +49,19 @@ def test_plan_bound_continuation_revalidates_persisted_body_job_receipts() -> No
     assert '[string]$candidateReceipts.job_json_sha256 -ne $candidateJobSha' in SCRIPT
     assert 'source_binding_sha256' in SCRIPT
     assert 'body_review_sha256' in SCRIPT
+    assert 'source_files_sha256' in SCRIPT
 
 
-def test_plan_bound_continuation_requires_exact_source_manifest_parity() -> None:
+def test_plan_bound_continuation_requires_exact_source_manifest_and_file_hash_parity() -> None:
     assert '[string]$baselineReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1"' in SCRIPT
     assert '[string]$candidateReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1"' in SCRIPT
     assert '[string]$baselineReceipts.source_evidence_sha256 -ne [string]$candidateReceipts.source_evidence_sha256' in SCRIPT
-    assert 'not bound to the same exact Stash physical source manifest' in SCRIPT
+    assert '[string]$baselineReceipts.source_files_sha256 -ne [string]$candidateReceipts.source_files_sha256' in SCRIPT
+    assert 'same exact Stash physical source manifest and success-time source-file hashes' in SCRIPT
     assert 'source_manifest_parity_verified = $true' in SCRIPT
+    assert 'source_file_hashes_parity_verified = $true' in SCRIPT
     assert 'source_evidence_sha256 = $sourceManifestSha' in SCRIPT
+    assert 'source_files_sha256 = $sourceFilesSha' in SCRIPT
 
 
 def test_plan_bound_continuation_runs_machine_gate_before_bundle() -> None:
@@ -77,7 +81,9 @@ def test_plan_bound_continuation_runs_machine_gate_before_bundle() -> None:
 def test_plan_bound_continuation_replays_receipt_authority_before_publication() -> None:
     assert 'Assert-ReceiptProbeStable -Before $baselineReceipts -After $baselineReceiptsAfter' in SCRIPT
     assert 'Assert-ReceiptProbeStable -Before $candidateReceipts -After $candidateReceiptsAfter' in SCRIPT
-    assert 'Shared Stash physical source manifest authority changed while generating throughput review evidence.' in SCRIPT
+    assert 'Shared Stash physical source authority changed while generating throughput review evidence.' in SCRIPT
+    assert '[string]$baselineReceiptsAfter.source_files_sha256 -ne $sourceFilesSha' in SCRIPT
+    assert '[string]$candidateReceiptsAfter.source_files_sha256 -ne $sourceFilesSha' in SCRIPT
     for field in (
         'baseline_job_json_sha256',
         'candidate_job_json_sha256',
@@ -87,6 +93,7 @@ def test_plan_bound_continuation_replays_receipt_authority_before_publication() 
         'candidate_body_review_sha256',
         'baseline_body_revision',
         'candidate_body_revision',
+        'source_files_sha256',
     ):
         assert field in SCRIPT
 
