@@ -39,16 +39,56 @@ def test_plan_bound_continuation_requires_exact_succeeded_jobs() -> None:
     assert 'Candidate body-build unexpectedly carries baseline-retention authority' in SCRIPT
 
 
+def test_plan_bound_continuation_revalidates_persisted_body_job_receipts() -> None:
+    assert 'bodyrig.body_job_receipt_authority' in SCRIPT
+    assert 'bodyrig\\body_job_receipt_authority.py' in SCRIPT
+    assert 'bodyrig-succeeded-body-job-receipt-authority' in SCRIPT
+    assert '-JobId $BaselineJobId -ExpectedRevision $mainRevision -ExpectedPersonId $personId' in SCRIPT
+    assert '-JobId $CandidateJobId -ExpectedRevision $throughputRevision -ExpectedPersonId $personId' in SCRIPT
+    assert '[string]$baselineReceipts.job_json_sha256 -ne $baselineJobSha' in SCRIPT
+    assert '[string]$candidateReceipts.job_json_sha256 -ne $candidateJobSha' in SCRIPT
+    assert 'source_binding_sha256' in SCRIPT
+    assert 'body_review_sha256' in SCRIPT
+
+
+def test_plan_bound_continuation_requires_exact_source_manifest_parity() -> None:
+    assert '[string]$baselineReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1"' in SCRIPT
+    assert '[string]$candidateReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1"' in SCRIPT
+    assert '[string]$baselineReceipts.source_evidence_sha256 -ne [string]$candidateReceipts.source_evidence_sha256' in SCRIPT
+    assert 'not bound to the same exact Stash physical source manifest' in SCRIPT
+    assert 'source_manifest_parity_verified = $true' in SCRIPT
+    assert 'source_evidence_sha256 = $sourceManifestSha' in SCRIPT
+
+
 def test_plan_bound_continuation_runs_machine_gate_before_bundle() -> None:
+    receipt_probe = SCRIPT.index('$baselineReceipts = Invoke-ReceiptProbe')
     compare = SCRIPT.index('& $compareScript -BaselineJobId')
     machine_pass = SCRIPT.index('machine_evidence_pass -ne $true')
     bundle = SCRIPT.index('& $bundleScript -BaselineJobId')
+    replay = SCRIPT.index('$baselineReceiptsAfter = Invoke-ReceiptProbe')
     publish = SCRIPT.index('format = "bodyrig-throughput-plan-bound-review-continuation"')
-    assert compare < machine_pass < bundle < publish
+    assert receipt_probe < compare < machine_pass < bundle < replay < publish
     assert '[string]$machine.baseline_job_id -ne $BaselineJobId' in SCRIPT
     assert '[string]$machine.candidate_job_id -ne $CandidateJobId' in SCRIPT
     assert '[string]$bundle.baseline_job_id -ne $BaselineJobId' in SCRIPT
     assert '[string]$bundle.candidate_job_id -ne $CandidateJobId' in SCRIPT
+
+
+def test_plan_bound_continuation_replays_receipt_authority_before_publication() -> None:
+    assert 'Assert-ReceiptProbeStable -Before $baselineReceipts -After $baselineReceiptsAfter' in SCRIPT
+    assert 'Assert-ReceiptProbeStable -Before $candidateReceipts -After $candidateReceiptsAfter' in SCRIPT
+    assert 'Shared Stash physical source manifest authority changed while generating throughput review evidence.' in SCRIPT
+    for field in (
+        'baseline_job_json_sha256',
+        'candidate_job_json_sha256',
+        'baseline_source_binding_sha256',
+        'candidate_source_binding_sha256',
+        'baseline_body_review_sha256',
+        'candidate_body_review_sha256',
+        'baseline_body_revision',
+        'candidate_body_revision',
+    ):
+        assert field in SCRIPT
 
 
 def test_plan_bound_continuation_is_create_only_and_never_records_human_pass() -> None:
