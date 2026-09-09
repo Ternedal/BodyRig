@@ -15,6 +15,7 @@ PERSON_ID = "person-" + "2" * 32
 OTHER_PERSON_ID = "person-" + "3" * 32
 REVISION = "a" * 40
 OTHER_REVISION = "b" * 40
+STASH_PERFORMER_ID = "42"
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -39,7 +40,7 @@ def _setup(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict]:
         {
             "format": "bodyrig-stash-source-manifest",
             "version": 1,
-            "performer": {"id": "42", "name": "Fixture"},
+            "performer": {"id": STASH_PERFORMER_ID, "name": "Fixture"},
             "selected": [{"scene_id": "scene-1", "path": str(media)}],
         },
     )
@@ -48,7 +49,7 @@ def _setup(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict]:
     _write_json(
         source_binding,
         {
-            "source": {"performer_id": "42"},
+            "source": {"performer_id": STASH_PERFORMER_ID},
             "evidence": {
                 "kind": "stash-physical-source-manifest-v1",
                 "sha256": _file_sha(manifest),
@@ -72,6 +73,14 @@ def _setup(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path, dict]:
         "status": "succeeded",
         "person_id": PERSON_ID,
         "bodyrig_revision": REVISION,
+        "source_enqueue_authority": {
+            "format": "bodyrig-body-build-source-enqueue-authority",
+            "version": 1,
+            "job_id": JOB_ID,
+            "person_id": PERSON_ID,
+            "stash_performer_id": STASH_PERFORMER_ID,
+            "expected_bodyrig_revision": REVISION,
+        },
         "body_revision": "body-r0001",
         "canonical_body_id": "canonical-body",
         "source_binding_sha256": _file_sha(source_binding),
@@ -108,6 +117,7 @@ def test_succeeded_body_job_receipt_authority_binds_source_and_review(tmp_path: 
     assert result["canonical_body_id"] == "canonical-body"
     assert result["package_sha256"] == "f" * 64
     assert result["source_binding_sha256"] == _file_sha(source_binding)
+    assert result["stash_performer_id"] == STASH_PERFORMER_ID
     assert result["source_evidence_kind"] == "stash-physical-source-manifest-v1"
     assert result["source_evidence_sha256"] == _file_sha(manifest)
     assert len(result["source_files_sha256"]) == 64
@@ -118,6 +128,32 @@ def test_succeeded_body_job_receipt_authority_binds_source_and_review(tmp_path: 
     assert result["physical_acceptance_authority"] is False
     assert result["promotion_authority"] is False
     assert result["production_activation"] is False
+
+
+def test_receipt_authority_rejects_missing_source_enqueue_authority(tmp_path: Path, monkeypatch) -> None:
+    job_root, _source_binding, _manifest, job = _setup(tmp_path, monkeypatch)
+    job.pop("source_enqueue_authority")
+    _write_json(job_root / "job.json", job)
+
+    with pytest.raises(authority.BodyJobReceiptAuthorityError, match="lacks canonical revision-bound source enqueue authority"):
+        authority.inspect_succeeded_body_job_receipts(
+            job_id=JOB_ID,
+            expected_revision=REVISION,
+            expected_person_id=PERSON_ID,
+        )
+
+
+def test_receipt_authority_rejects_enqueue_performer_different_from_success_source(tmp_path: Path, monkeypatch) -> None:
+    job_root, _source_binding, _manifest, job = _setup(tmp_path, monkeypatch)
+    job["source_enqueue_authority"]["stash_performer_id"] = "84"
+    _write_json(job_root / "job.json", job)
+
+    with pytest.raises(authority.BodyJobReceiptAuthorityError, match="source binding performer differs from revision-bound source enqueue authority"):
+        authority.inspect_succeeded_body_job_receipts(
+            job_id=JOB_ID,
+            expected_revision=REVISION,
+            expected_person_id=PERSON_ID,
+        )
 
 
 def test_receipt_authority_rejects_wrong_expected_revision(tmp_path: Path, monkeypatch) -> None:

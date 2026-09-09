@@ -22,6 +22,14 @@ VERSION = 1
 _PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SOURCE_EVIDENCE_KIND = "stash-physical-source-manifest-v1"
+_SOURCE_ENQUEUE_FIELDS = {
+    "format",
+    "version",
+    "job_id",
+    "person_id",
+    "stash_performer_id",
+    "expected_bodyrig_revision",
+}
 
 
 class BodyJobReceiptAuthorityError(ValueError):
@@ -44,11 +52,38 @@ def _canonical_json_sha256(value: object) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _verify_source_enqueue_authority(
+    *,
+    job: Mapping[str, Any],
+    person_id: str,
+    job_id: str,
+    job_revision: str,
+) -> str:
+    marker = job.get("source_enqueue_authority")
+    if not isinstance(marker, Mapping) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
+        raise BodyJobReceiptAuthorityError("succeeded body job lacks canonical revision-bound source enqueue authority")
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+        raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority format/version mismatch")
+    if str(marker.get("job_id") or "") != job_id or str(marker.get("person_id") or "") != person_id:
+        raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority identity mismatch")
+    try:
+        marker_revision = _revision(marker.get("expected_bodyrig_revision"), "source enqueue expected revision")
+    except PbrAbBodyJobSourceError as exc:
+        raise _translate(exc) from exc
+    if marker_revision != job_revision:
+        raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority revision mismatch")
+    performer_id = str(marker.get("stash_performer_id") or "").strip()
+    if not performer_id:
+        raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority has no Stash performer id")
+    return performer_id
+
+
 def _verify_source_manifest(
     *,
     source_binding: Mapping[str, Any],
     persisted_source_binding_sha256: str,
     source_binding_path: Path,
+    expected_stash_performer_id: str,
 ) -> dict[str, str]:
     evidence = source_binding.get("evidence")
     if not isinstance(evidence, Mapping):
@@ -83,8 +118,13 @@ def _verify_source_manifest(
     source = source_binding.get("source")
     if not isinstance(performer, Mapping) or not isinstance(source, Mapping):
         raise BodyJobReceiptAuthorityError("registered body source manifest performer identity is malformed")
-    if str(performer.get("id") or "") != str(source.get("performer_id") or ""):
+    source_performer_id = str(source.get("performer_id") or "").strip()
+    if str(performer.get("id") or "") != source_performer_id:
         raise BodyJobReceiptAuthorityError("registered body source manifest performer no longer matches Person source authority")
+    if source_performer_id != expected_stash_performer_id:
+        raise BodyJobReceiptAuthorityError(
+            "registered body source binding performer differs from revision-bound source enqueue authority"
+        )
 
     selected = manifest.get("selected")
     source_files = evidence.get("source_files")
@@ -115,6 +155,7 @@ def _verify_source_manifest(
         raise BodyJobReceiptAuthorityError("registered body source binding receipt changed while being validated")
 
     return {
+        "stash_performer_id": expected_stash_performer_id,
         "source_evidence_kind": _SOURCE_EVIDENCE_KIND,
         "source_evidence": str(manifest_path),
         "source_evidence_sha256": source_evidence_sha256,
@@ -161,6 +202,12 @@ def inspect_succeeded_body_job_receipts(
         raise BodyJobReceiptAuthorityError(
             f"succeeded body job belongs to {job_revision}, not expected revision {expected_bodyrig_revision}"
         )
+    stash_performer_id = _verify_source_enqueue_authority(
+        job=job,
+        person_id=person_id,
+        job_id=job_id,
+        job_revision=job_revision,
+    )
 
     try:
         persisted = _verify_persisted_receipts(job=job, person_id=person_id)
@@ -176,6 +223,7 @@ def inspect_succeeded_body_job_receipts(
         source_binding=source_binding,
         persisted_source_binding_sha256=str(persisted["source_binding_sha256"]),
         source_binding_path=source_binding_path,
+        expected_stash_performer_id=stash_performer_id,
     )
 
     component = source_binding.get("component")
