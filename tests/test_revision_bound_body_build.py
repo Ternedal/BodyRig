@@ -147,7 +147,8 @@ def test_revision_bound_launcher_requires_clean_local_and_matching_service_autho
 def test_revision_bound_launcher_resolves_person_and_rejects_competing_builds() -> None:
     assert "Pass exactly one of -PersonId or -PerformerId" in LAUNCHER
     assert '[string]$_.source.kind -eq "stash-performer"' in LAUNCHER
-    assert '[string]$_.source.id -eq $PerformerId' in LAUNCHER
+    assert '[string]$_.source.performer_id -eq $PerformerId' in LAUNCHER
+    assert ".source.id" not in LAUNCHER
     assert "Multiple BodyRig Persons are bound to Stash performer" in LAUNCHER
     assert '[string]$_.kind -eq "body-build"' in LAUNCHER
     assert '[string]$_.status -in @("queued", "running")' in LAUNCHER

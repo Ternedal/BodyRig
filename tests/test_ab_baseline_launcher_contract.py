@@ -20,6 +20,9 @@ def test_launcher_runs_service_bound_physical_preflight_before_enqueue() -> None
     assert "No baseline job was enqueued" in SCRIPT
     assert SCRIPT.index("preflight-ab-baseline.ps1") < SCRIPT.index("start-revision-bound-body-build.ps1")
     assert "/api/v1/people/$resolvedPersonId/body/ab-baseline-preflight" in PREFLIGHT
+    assert '[string]$_.source.performer_id -eq $PerformerId' in PREFLIGHT
+    assert '[string]$source.performer_id' in PREFLIGHT
+    assert ".source.id" not in PREFLIGHT
     assert "renderer_ready -ne $true" in PREFLIGHT
     assert "service_environment_bound -ne $true" in PREFLIGHT
     assert "readiness_output_persisted -ne $false" in PREFLIGHT

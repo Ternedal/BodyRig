@@ -153,7 +153,7 @@ if (-not [string]::IsNullOrWhiteSpace($PerformerId)) {
     $matches = @($people.people | Where-Object {
         $null -ne $_.source -and
         [string]$_.source.kind -eq "stash-performer" -and
-        [string]$_.source.id -eq $PerformerId
+        [string]$_.source.performer_id -eq $PerformerId
     })
     if ($matches.Count -eq 0) { throw "No BodyRig Person is bound to Stash performer $PerformerId." }
     if ($matches.Count -gt 1) { throw "Multiple BodyRig Persons are bound to Stash performer $PerformerId. Pass -PersonId explicitly." }
@@ -164,11 +164,11 @@ else {
     $matches = @($people.people | Where-Object { [string]$_.person_id -eq $PersonId })
     if ($matches.Count -ne 1) { throw "BodyRig Person $PersonId did not resolve exactly once." }
     $source = $matches[0].source
-    if ($null -eq $source -or [string]$source.kind -ne "stash-performer" -or [string]::IsNullOrWhiteSpace([string]$source.id)) {
+    if ($null -eq $source -or [string]$source.kind -ne "stash-performer" -or [string]::IsNullOrWhiteSpace([string]$source.performer_id)) {
         throw "BodyRig Person $PersonId is not bound to one canonical Stash performer source."
     }
     $resolvedPersonId = $PersonId
-    $resolvedPerformerId = [string]$source.id
+    $resolvedPerformerId = [string]$source.performer_id
 }
 if ($resolvedPersonId -notmatch '^person-[0-9a-f]{32}$') {
     throw "Resolved BodyRig Person id is not canonical: $resolvedPersonId"
