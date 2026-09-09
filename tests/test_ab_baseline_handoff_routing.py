@@ -31,3 +31,13 @@ def test_handoff_preserves_shared_baseline_context_through_terminal_monitoring()
     assert "watcher remains read-only and grants no A/B, physical, promotion or production authority" in HANDOFF
     assert "downstream plan-bound wrapper still revalidates full authority" in HANDOFF
     assert "A/B BASELINE CONTINUATION BLOCKED" in HANDOFF
+
+
+def test_handoff_and_runbook_require_service_bound_fail_fast_physical_readiness() -> None:
+    for text in (HANDOFF, AB_DOC):
+        assert "service-bound" in text
+        assert "reference-renderer" in text
+        assert "ffmpeg-one-frame-v1" in text
+        assert "no physical" in text.lower()
+    assert "same service checkout/environment/Python/PATH" in HANDOFF
+    assert "does not create session/readiness evidence" in AB_DOC
