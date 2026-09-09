@@ -1,0 +1,26 @@
+# Static security analysis for BodyRig's Python implementation.
+# PowerShell is intentionally not listed: CodeQL does not provide a PowerShell extractor.
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 1" # weekly, Monday morning UTC
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze-python:
+    name: analyze (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: python
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
