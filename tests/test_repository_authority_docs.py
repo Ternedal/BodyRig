@@ -33,8 +33,8 @@ def test_runbook_lists_exact_required_checks_and_repository_boundaries() -> None
 
 
 def test_runbook_records_the_observed_base_race_and_makes_strict_hard() -> None:
-    assert "PR #252" in DOC
-    assert "PR #253" in DOC
+    assert "#252" in DOC
+    assert "#253" in DOC
     assert "advanced `main` immediately before #252 was squash-merged" in DOC
     assert "A stale PR is a repository-authority failure, not a warning" in DOC
     assert "strict_required_status_checks_policy=true" in DOC
