@@ -4,6 +4,12 @@ BodyRig's normal software/run authority is exact clean current `main`. That auth
 
 Issue #138 remains open until GitHub actually protects `main` with the required exact-green merge boundary.
 
+## Why up-to-date branch enforcement is mandatory
+
+On 9 September 2026, PR #252 was fully qualified on its exact head while another PR (#253) advanced `main` immediately before #252 was squash-merged. The resulting combined tree was requalified successfully after merge, but the race demonstrated that exact-head CI alone does not prove the tree that will land when `main` is allowed to move concurrently.
+
+Therefore repository authority requires GitHub's up-to-date-branch policy (`strict=true` for classic protection or `strict_required_status_checks_policy=true` for rulesets). A stale PR is a repository-authority failure, not a warning. This merge rule does not invalidate frozen physical-evidence workflows; it only governs whether a PR may update `main`.
+
 ## Canonical admin helper
 
 For this repository's current personal-repository layout, `configure-repository-authority.ps1` can apply the accepted **classic branch protection** policy using an authenticated GitHub CLI identity with repository `Administration: write`.
@@ -28,7 +34,7 @@ To apply that policy explicitly:
 .\configure-repository-authority.ps1 -Apply
 ```
 
-The helper configures the exact five required checks with `app_id=15368`, `strict=true`, admin enforcement, required pull-request flow, `required_approving_review_count=0`, required conversation resolution, force-push blocking, and branch-deletion blocking. Zero required approving reviews is deliberate for the current solo repository: a pull request is still mandatory, while the repository is not made impossible to merge without another reviewer.
+The helper configures the exact six required checks with `app_id=15368`, `strict=true`, admin enforcement, required pull-request flow, `required_approving_review_count=0`, required conversation resolution, force-push blocking, and branch-deletion blocking. Zero required approving reviews is deliberate for the current solo repository: a pull request is still mandatory, while the repository is not made impossible to merge without another reviewer.
 
 The helper refuses to compose over existing repository rulesets because combining unknown rules with a new classic rule is not safe automation. If classic branch protection already exists, it also refuses replacement unless the administrator deliberately uses:
 
@@ -74,19 +80,21 @@ The effective policy must require all of the following status checks:
 - `test (3.12)`;
 - `test-windows-python`;
 - `acceptance-windows`;
-- `adapter-log-handle`.
+- `adapter-log-handle`;
+- `analyze (python)`.
 
-All five checks must also be source-bound to the GitHub Actions GitHub App, app/integration ID `15368`. A matching context name alone is not sufficient repository authority: GitHub allows required status checks to be restricted to a specific GitHub App, and BodyRig deliberately requires that stronger binding so another integration cannot satisfy the exact-green boundary merely by emitting the same context name.
+All six checks must also be source-bound to the GitHub Actions GitHub App, app/integration ID `15368`. A matching context name alone is not sufficient repository authority: GitHub allows required status checks to be restricted to a specific GitHub App, and BodyRig deliberately requires that stronger binding so another integration cannot satisfy the exact-green boundary merely by emitting the same context name.
 
-It must also:
+`analyze (python)` is the stable check name emitted by BodyRig's pinned `.github/workflows/codeql.yml`. It is a GitHub Actions check from app ID `15368`; the separate GitHub Advanced Security bot/summary surface is not a substitute for this exact check.
+
+The effective policy must also:
 
 - require a pull request before merge;
+- require the branch to be up to date before merge;
 - require review-conversation/thread resolution;
 - prevent force/non-fast-forward pushes;
 - prevent deletion of `main`;
 - prevent administrators/bypass actors from bypassing the verified repository boundary.
-
-Requiring the branch to be up to date before merge is strongly recommended. The verifier reports this as a warning rather than a hard failure because BodyRig also uses deliberate exact-head/frozen-evidence workflows.
 
 ## Classic branch protection
 
@@ -94,8 +102,9 @@ A passing classic policy requires:
 
 - `required_pull_request_reviews` present;
 - `required_pull_request_reviews.bypass_pull_request_allowances` empty for users, teams and apps;
-- all five required status checks;
+- all six required status checks;
 - every required check present in `required_status_checks.checks` with `app_id=15368`;
+- `required_status_checks.strict=true`;
 - `enforce_admins.enabled=true`;
 - `allow_force_pushes.enabled=false`;
 - `allow_deletions.enabled=false`;
@@ -103,19 +112,19 @@ A passing classic policy requires:
 
 GitHub can explicitly allow selected users, teams, or apps to bypass required pull requests. Those `bypass_pull_request_allowances` are treated as a hard failure even when `enforce_admins` is enabled, because a named bypass actor would still make the exact-green PR boundary non-authoritative.
 
-GitHub's classic protection API also exposes each required check as a `checks` entry with an optional `app_id`. BodyRig requires `app_id=15368` for every one of the five required contexts. A contexts-only configuration, `app_id=-1`, `app_id=null`, or another app ID fails closed because the verifier cannot prove the check is restricted to GitHub Actions.
+GitHub's classic protection API also exposes each required check as a `checks` entry with an optional `app_id`. BodyRig requires `app_id=15368` for every one of the six required contexts. A contexts-only configuration, `app_id=-1`, `app_id=null`, or another app ID fails closed because the verifier cannot prove the check is restricted to GitHub Actions.
 
 ## Repository ruleset
 
 A passing ruleset path requires one or more active branch rulesets whose combined effective rules on `main` include:
 
 - `pull_request`, with `required_review_thread_resolution=true`;
-- `required_status_checks`, containing all five exact contexts;
+- `required_status_checks`, containing all six exact contexts and `strict_required_status_checks_policy=true`;
 - every required status-check entry with `integration_id=15368`;
 - `non_fast_forward`;
 - `deletion`.
 
-Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, incomplete status-check lists, or required checks not bound to GitHub Actions integration ID `15368` do not satisfy authority.
+Applicable rulesets must not expose bypass actors. Rules that do not actually target `main`, disabled/evaluate-only rulesets, incomplete status-check lists, stale-branch-permitting status policy, or required checks not bound to GitHub Actions integration ID `15368` do not satisfy authority.
 
 ## Boundary
 
