@@ -110,7 +110,8 @@ function Assert-ReceiptProbeStable {
         "source_binding_sha256",
         "body_review_sha256",
         "source_evidence_kind",
-        "source_evidence_sha256"
+        "source_evidence_sha256",
+        "source_files_sha256"
     )) {
         if ([string]$Before.$field -ne [string]$After.$field) {
             throw "$Label changed while generating throughput review evidence: $field"
@@ -285,11 +286,13 @@ if ([string]$candidateReceipts.job_json_sha256 -ne $candidateJobSha) {
 if (
     [string]$baselineReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
     [string]$candidateReceipts.source_evidence_kind -ne "stash-physical-source-manifest-v1" -or
-    [string]$baselineReceipts.source_evidence_sha256 -ne [string]$candidateReceipts.source_evidence_sha256
+    [string]$baselineReceipts.source_evidence_sha256 -ne [string]$candidateReceipts.source_evidence_sha256 -or
+    [string]$baselineReceipts.source_files_sha256 -ne [string]$candidateReceipts.source_files_sha256
 ) {
-    throw "Baseline and candidate body jobs are not bound to the same exact Stash physical source manifest."
+    throw "Baseline and candidate body jobs are not bound to the same exact Stash physical source manifest and success-time source-file hashes."
 }
 $sourceManifestSha = Need-Sha256 -Value ([string]$baselineReceipts.source_evidence_sha256) -Label "shared Stash physical source manifest SHA"
+$sourceFilesSha = Need-Sha256 -Value ([string]$baselineReceipts.source_files_sha256) -Label "shared success-time source-file hash-list SHA"
 
 if ([string]::IsNullOrWhiteSpace($OutRoot)) {
     $OutRoot = Join-Path $dataRoot "recovery-throughput-plan-bound\$BaselineJobId--$CandidateJobId"
@@ -361,8 +364,13 @@ try {
     $candidateReceiptsAfter = Invoke-ReceiptProbe -RepoRoot $RepoRoot -Python $BodyRigPython -JobId $CandidateJobId -ExpectedRevision $throughputRevision -ExpectedPersonId $personId -Label "post-review candidate body-job receipt authority"
     Assert-ReceiptProbeStable -Before $baselineReceipts -After $baselineReceiptsAfter -Label "Baseline persisted body-job receipt authority"
     Assert-ReceiptProbeStable -Before $candidateReceipts -After $candidateReceiptsAfter -Label "Candidate persisted body-job receipt authority"
-    if ([string]$baselineReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or [string]$candidateReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha) {
-        throw "Shared Stash physical source manifest authority changed while generating throughput review evidence."
+    if (
+        [string]$baselineReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or
+        [string]$candidateReceiptsAfter.source_evidence_sha256 -ne $sourceManifestSha -or
+        [string]$baselineReceiptsAfter.source_files_sha256 -ne $sourceFilesSha -or
+        [string]$candidateReceiptsAfter.source_files_sha256 -ne $sourceFilesSha
+    ) {
+        throw "Shared Stash physical source authority changed while generating throughput review evidence."
     }
 
     $authority = [ordered]@{
@@ -389,7 +397,9 @@ try {
         candidate_body_review_sha256 = [string]$candidateReceipts.body_review_sha256
         source_evidence_kind = "stash-physical-source-manifest-v1"
         source_evidence_sha256 = $sourceManifestSha
+        source_files_sha256 = $sourceFilesSha
         source_manifest_parity_verified = $true
+        source_file_hashes_parity_verified = $true
         machine_audit_sha256 = (Get-FileHash -LiteralPath $machinePath -Algorithm SHA256).Hash.ToLowerInvariant()
         review_bundle_receipt_sha256 = (Get-FileHash -LiteralPath $bundleReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
         comparison_only = $true
@@ -413,6 +423,7 @@ Write-Host "Baseline job:       $BaselineJobId"
 Write-Host "Candidate job:      $CandidateJobId"
 Write-Host "Candidate revision: $throughputRevision"
 Write-Host "Source manifest:    $sourceManifestSha"
+Write-Host "Source file hashes: $sourceFilesSha"
 Write-Host "Review bundle:      $finalBundle"
 Write-Host "Open:               $(Join-Path $finalBundle 'index.html')"
 Write-Host "Continuation auth:  $finalAuthority"
