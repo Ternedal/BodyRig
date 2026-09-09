@@ -101,10 +101,34 @@ def test_canonical_human_review_binds_exact_pbr_stash_performer_at_every_replay(
     assert 'PBR-to-throughput gate no longer matches PBR authority: $field' in WRAPPER
 
 
+def test_canonical_human_review_consumes_continuation_performer_parity_before_internal_recorder() -> None:
+    assert 'function Assert-ContinuationMatchesGate' in WRAPPER
+    assert 'source_performer_parity_verified -ne $true' in WRAPPER
+    assert '[string]$Continuation.stash_performer_id -ne [string]$Gate.stash_performer_id' in WRAPPER
+    assert '[string]$Continuation.pbr_gate_receipt_sha256 -ne $GateSha' in WRAPPER
+    assert 'Throughput continuation authority no longer matches PBR-sequenced performer/evidence authority.' in WRAPPER
+    continuation = WRAPPER.index('$continuationPath = Need-File -Path (Join-Path $RunDir "continuation-authority.json")')
+    assert_continuation = WRAPPER.index('Assert-ContinuationMatchesGate -Continuation $continuation -Gate $gate')
+    internal = WRAPPER.index('$internal = Need-File -Path (Join-Path $RepoRoot "record-throughput-human-review-from-ab-plan-internal.ps1")')
+    assert continuation < assert_continuation < internal
+
+
+def test_canonical_human_review_replays_exact_continuation_bytes_after_internal_and_at_terminal() -> None:
+    assert '$continuationSha = File-Sha256 -Path $continuationPath' in WRAPPER
+    assert 'Throughput continuation authority changed during internal human review.' in WRAPPER
+    assert 'Assert-ContinuationMatchesGate -Continuation $continuationAfter -Gate $gate' in WRAPPER
+    assert 'PBR gate, candidate-run plan or continuation authority changed during throughput human review.' in WRAPPER
+    assert 'continuation_authority_sha256 = $continuationSha' in WRAPPER
+    assert 'source_performer_parity_verified = $true' in WRAPPER
+    assert '(File-Sha256 -Path $continuationPath) -ne $continuationSha' in WRAPPER
+
+
 def test_canonical_human_review_publishes_pbr_sequenced_terminal_authority() -> None:
     assert 'format = "bodyrig-throughput-pbr-sequenced-human-review-authority"' in WRAPPER
     assert '$RunDir.pbr-sequenced-human-review-authority.json' in WRAPPER
     assert 'stash_performer_id = [string]$gate.stash_performer_id' in WRAPPER
+    assert 'source_performer_parity_verified = $true' in WRAPPER
+    assert 'continuation_authority_sha256 = $continuationSha' in WRAPPER
     assert 'plan_bound_human_review_authority_sha256 = $intermediateSha' in WRAPPER
     assert 'pbr_human_visual_authority_recorded = $true' in WRAPPER
     assert 'human_visual_authority_recorded = $true' in WRAPPER
