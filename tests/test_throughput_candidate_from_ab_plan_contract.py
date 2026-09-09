@@ -80,6 +80,24 @@ def test_canonical_launcher_requires_recorded_pbr_human_review_before_internal_l
     assert 'production_activation = $false' in WRAPPER
 
 
+def test_canonical_launcher_pins_candidate_enqueue_to_reviewed_stash_performer() -> None:
+    assert 'BODYRIG_PINNED_STASH_PERFORMER_ID' in WRAPPER
+    assert '[string]$gateBefore.stash_performer_id' in WRAPPER
+    assert '$candidateJob.source_enqueue_authority' in WRAPPER
+    assert 'bodyrig-body-build-source-enqueue-authority' in WRAPPER
+    assert '[string]$sourceAuthority.stash_performer_id -ne [string]$gateBefore.stash_performer_id' in WRAPPER
+    assert 'stash_performer_id = [string]$gateAfter.stash_performer_id' in WRAPPER
+    assert 'Throughput candidate did not preserve the PBR-reviewed Stash performer at enqueue' in WRAPPER
+
+
+def test_canonical_launcher_source_pin_is_scoped_around_frozen_internal_launcher() -> None:
+    set_index = WRAPPER.index('[Environment]::SetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", [string]$gateBefore.stash_performer_id')
+    launch_index = WRAPPER.index('& $internal @internalParams')
+    restore_index = WRAPPER.index('[Environment]::SetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", $oldPinnedPerformer')
+    assert set_index < launch_index < restore_index
+    assert 'BODYRIG_PINNED_STASH_PERFORMER_ID' not in INTERNAL
+
+
 def test_canonical_launcher_cancels_and_removes_run_authority_if_pbr_gate_drifts() -> None:
     assert 'Assert-GateProbeStable -Before $gateBefore -After $gateAfter' in WRAPPER
     assert 'Try-CancelCandidateJob -JobId $candidateJobId' in WRAPPER
