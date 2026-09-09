@@ -16,6 +16,7 @@ REQUIRED_STATUS_CHECKS = (
     "test-windows-python",
     "acceptance-windows",
     "adapter-log-handle",
+    "analyze (python)",
 )
 
 
@@ -122,7 +123,7 @@ def evaluate_classic(protection: dict[str, Any] | None) -> dict[str, Any]:
 
     strict = bool((protection.get("required_status_checks") or {}).get("strict"))
     if not strict:
-        warnings.append("required status checks do not require an up-to-date branch")
+        errors.append("required status checks do not require an up-to-date branch")
 
     return {
         "mode": "classic",
@@ -225,7 +226,7 @@ def evaluate_rulesets(rulesets: list[dict[str, Any]] | None) -> dict[str, Any]:
     if not review_resolution:
         errors.append("review conversation resolution is not required")
     if not strict:
-        warnings.append("required status checks do not require an up-to-date branch")
+        errors.append("required status checks do not require an up-to-date branch")
 
     return {
         "mode": "ruleset",
