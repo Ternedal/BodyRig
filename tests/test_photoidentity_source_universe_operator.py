@@ -25,7 +25,7 @@ def test_operator_refreshes_exact_path_map_and_uses_saved_dpapi_stash_secret() -
     assert '"configure-stash-path-map.ps1"' in lowered
     assert "-performerid $performerid -forcerefresh" in lowered
     assert "api_key_dpapi" in lowered
-    assert "converttosecurestring" in lowered
+    assert "convertto-securestring" in lowered
     assert "securestringtobstr" in lowered
     assert "zerofreebstr" in lowered
     assert "bodyrig.photoidentity_source_universe" in lowered
