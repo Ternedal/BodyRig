@@ -122,7 +122,8 @@ $temp = "$coldPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 [IO.File]::WriteAllText($temp, (($proof | ConvertTo-Json -Depth 8) + "`n"), [Text.UTF8Encoding]::new($false))
 Move-Item -LiteralPath $temp -Destination $coldPath -Force
 
-Write-Host "BodyRig persistent storage authentication: $($(if ($qualified) { 'QUALIFIED' } else { 'PARTIAL' }))"
+$state = if ($qualified) { "QUALIFIED" } else { "PARTIAL" }
+Write-Host "BodyRig persistent storage authentication: $state"
 Write-Host "Host:                 $($pre.host)"
 Write-Host "Cold boots passed:    $($successfulBoots.Count)/$required"
 Write-Host "Credential prompts:   0"
