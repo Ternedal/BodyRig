@@ -235,10 +235,15 @@ $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if (Test-Path -LiteralPath $OutputDir) { throw "PBR A/B output already exists: $OutputDir" }
 
 $internal = Need-File -Path (Join-Path $repoRoot "run-pbr-ab-from-body-job-internal.ps1") -Label "internal PBR body-job runner"
-$internalArgs = @("-BaselineJobId",$BaselineJobId,"-CandidateRef",$pbrRef,"-OutputDir",$OutputDir,"-BodyRigPython",$BodyRigPython)
-if (-not [string]::IsNullOrWhiteSpace($RigSetupReport)) { $internalArgs += @("-RigSetupReport",$RigSetupReport) }
-if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $internalArgs += @("-UnityExe",$UnityExe) }
-& $internal @internalArgs
+$internalParams = @{
+    BaselineJobId = $BaselineJobId
+    CandidateRef = $pbrRef
+    OutputDir = $OutputDir
+    BodyRigPython = $BodyRigPython
+}
+if (-not [string]::IsNullOrWhiteSpace($RigSetupReport)) { $internalParams.RigSetupReport = $RigSetupReport }
+if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $internalParams.UnityExe = $UnityExe }
+& $internal @internalParams
 if ($LASTEXITCODE -ne 0) { throw "Internal PBR body-job runner failed with exit code $LASTEXITCODE" }
 
 Assert-CleanMain -RepoRoot $repoRoot -ExpectedRevision $mainRevision

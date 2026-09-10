@@ -21,10 +21,23 @@ def test_candidate_byte_contract_is_validated_before_and_after_pbr_run() -> None
     assert '--expected-pbr-revision' in WRAPPER
     assert '--expected-throughput-revision' in WRAPPER
     before = WRAPPER.index('$before = Validate-CandidateAuthority')
-    invoke = WRAPPER.index('& $internal @internalArgs')
+    invoke = WRAPPER.index('& $internal @internalParams')
     after = WRAPPER.index('$after = Validate-CandidateAuthority')
     publish = WRAPPER.index('Write-CreateOnlyJson -Path $planAuthorityPath')
     assert before < invoke < after < publish
+
+
+def test_internal_script_uses_named_hashtable_splatting() -> None:
+    assert '$internalParams = @{' in WRAPPER
+    assert 'BaselineJobId = $BaselineJobId' in WRAPPER
+    assert 'CandidateRef = $pbrRef' in WRAPPER
+    assert 'OutputDir = $OutputDir' in WRAPPER
+    assert 'BodyRigPython = $BodyRigPython' in WRAPPER
+    assert '$internalParams.RigSetupReport = $RigSetupReport' in WRAPPER
+    assert '$internalParams.UnityExe = $UnityExe' in WRAPPER
+    assert '& $internal @internalParams' in WRAPPER
+    assert '$internalArgs = @(' not in WRAPPER
+    assert '& $internal @internalArgs' not in WRAPPER
 
 
 def test_existing_body_job_pbr_implementation_is_preserved_as_internal_step() -> None:
@@ -35,7 +48,7 @@ def test_existing_body_job_pbr_implementation_is_preserved_as_internal_step() ->
 
 
 def test_plan_bound_wrapper_forces_known_output_and_checks_run_revisions() -> None:
-    assert '"-OutputDir",$OutputDir' in WRAPPER
+    assert 'OutputDir = $OutputDir' in WRAPPER
     assert '[string]$runAuthority.format -ne "bodyrig-pbr-ab-run"' in WRAPPER
     assert '([string]$runAuthority.baseline_revision).ToLowerInvariant() -ne $mainRevision' in WRAPPER
     assert '([string]$runAuthority.candidate_revision).ToLowerInvariant() -ne $pbrRevision' in WRAPPER
