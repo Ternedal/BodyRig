@@ -81,22 +81,43 @@ Receipt publication is atomic no-clobber: a concurrent or pre-existing human rec
 
 A human track attestation resolves **which observed PHALP track is the requested performer for that exact source and review evidence**. It does not itself make the multi-person source safe for photoidentity analysis.
 
-## Next authority gate: target isolation
+## Target-isolated source authority
 
-The next required stage is to build target-isolated source evidence from the attested track, then review and bind that isolation result before it may enter the photoidentity evidence pool.
+`materialize-photoidentity-multiperformer-target-source.ps1` consumes the exact human-attested review root and creates a separate target-source artifact.
 
-Until target-isolated source authority exists, the human receipt explicitly keeps:
+It deliberately does **not** decode a fresh video frame and does not interpolate the PHALP track. For every sample that was already part of the human-reviewed track sheet, it:
 
-- `target_isolated_source_authority=false`;
+1. revalidates the exact source-media SHA-256;
+2. revalidates the human attestation, public/private review manifests and machine PHALP review hashes;
+3. reuses the exact source-frame PNG bytes that were shown during human identity review and verifies their stored SHA-256;
+4. finds the same timestamp in the exact observed PHALP sample list;
+5. crops only the clamped native PHALP `(x, y, width, height)` rectangle;
+6. performs no resize, interpolation, inpainting, occlusion removal or generative synthesis;
+7. publishes a path-free public manifest plus a private index of the exact source-frame/crop paths.
+
+A successful result may set `target_isolated_source_authority=true` because the crop identity is bound to the explicit human track decision and the exact machine-observed bounding box. This means only that these exact pixels belong to the selected source-local target track. It does **not** assert that occluded anatomy has been recovered or that another performer can never overlap the visible target pixels.
+
+The target-isolation result therefore still requires:
+
+- `bbox_interpolation_used=false`;
+- `source_pixels_resized=false`;
+- `occlusion_removal_used=false`;
+- `generative_pixels_used=false`;
+- `biometric_identity_inference_used=false`;
+- `generic_guessing_permitted=false`;
 - `photoidentity_source_evidence_authority=false`;
 - `reconstruction_permitted=false`;
 - `production_activation=false`.
 
-The original multi-performer video must never be routed directly into the single-person analyzer merely because a track id was human-attested.
+The original multi-performer video must never be routed directly into the single-person analyzer merely because a track id was human-attested. Downstream photoidentity analysis may consume only the separately hash-bound target-isolated source pixels and must continue to fail closed on occlusion or insufficient native detail.
+
+## Next authority gate
+
+Target isolation is not photoidentity sufficiency. The next stage is source-only detail enrichment over the exact target-isolated crops, followed by normal domain sufficiency rules. Missing detail must remain `source_missing`/insufficient; no analyzer may infer hidden identity-critical anatomy from a crop.
 
 ## Non-authority
 
-Track discovery, review and identity attestation are not:
+Track discovery, review, identity attestation and target-source materialization are not:
 
 - body reconstruction;
 - bodyprint recovery acceptance;
