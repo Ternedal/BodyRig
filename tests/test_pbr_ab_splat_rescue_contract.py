@@ -37,8 +37,8 @@ def test_rescue_calls_unchanged_baseline_internal_runner_with_named_splatting() 
     assert "CandidateRef = $pbrRef" in SCRIPT
     assert "OutputDir = $OutputDir" in SCRIPT
     assert "BodyRigPython = $BodyRigPython" in SCRIPT
-    assert "& $internal @internalParams" in SCRIPT
-    assert "@internalArgs" not in SCRIPT
+    invocations = [line.strip() for line in SCRIPT.splitlines() if line.strip().startswith("& $internal ")]
+    assert invocations == ["& $internal @internalParams"]
 
 
 def test_rescue_revalidates_plan_candidate_and_comparison_only_authority() -> None:
