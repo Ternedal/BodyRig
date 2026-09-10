@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+import bodyrig.photoidentity_multiperformer_track_attestation as attestation
 from bodyrig.photoidentity_multiperformer_review_prepare import (
     FORMAT as REVIEW_FORMAT,
     PRIVATE_FORMAT as REVIEW_PRIVATE_FORMAT,
@@ -172,3 +173,44 @@ def test_human_attestation_is_create_only(tmp_path: Path):
     record_multiperformer_track_attestation(**kwargs)
     with pytest.raises(PhotoIdentityMultiTrackAttestationError, match="already exists"):
         record_multiperformer_track_attestation(**kwargs)
+
+
+def test_human_attestation_publish_race_never_clobbers_other_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    root, candidate, _, _ = _fixture(tmp_path)
+    output = root / "photoidentity-multiperformer-track-attestation.json"
+
+    def competing_link(_source: Path | str, destination: Path | str) -> None:
+        Path(destination).write_bytes(b"other-writer-won")
+        raise FileExistsError("simulated create-only race")
+
+    monkeypatch.setattr(attestation.os, "link", competing_link)
+    with pytest.raises(PhotoIdentityMultiTrackAttestationError, match="already exists"):
+        record_multiperformer_track_attestation(
+            review_root=root,
+            track_candidate_id=candidate,
+            current_revision="b" * 40,
+            quality_note="I reviewed every shown source crop and this track is the requested performer.",
+            confirm_identity=True,
+        )
+    assert output.read_bytes() == b"other-writer-won"
+
+
+def test_human_attestation_rejects_declared_candidate_count_tamper(tmp_path: Path):
+    root, candidate, _, _ = _fixture(tmp_path)
+    public_path = root / "multiperformer-track-review-candidates.json"
+    public = json.loads(public_path.read_text(encoding="utf-8"))
+    public["track_candidate_count"] = 2
+    public_path.write_text(json.dumps(public, sort_keys=True) + "\n", encoding="utf-8")
+    private_path = root / "private-track-review" / "private-review-index.json"
+    private = json.loads(private_path.read_text(encoding="utf-8"))
+    private["public_review_manifest_sha256"] = _sha(public_path)
+    private_path.write_text(json.dumps(private, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(PhotoIdentityMultiTrackAttestationError, match="candidate count"):
+        record_multiperformer_track_attestation(
+            review_root=root,
+            track_candidate_id=candidate,
+            current_revision="b" * 40,
+            quality_note="I reviewed every shown source crop and this track is the requested performer.",
+            confirm_identity=True,
+        )
