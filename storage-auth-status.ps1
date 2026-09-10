@@ -11,6 +11,10 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 }
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required." }
 
+$nativeHelper = Join-Path $PSScriptRoot "storage-auth-native.ps1"
+if (-not (Test-Path -LiteralPath $nativeHelper -PathType Leaf)) { throw "BodyRig native storage credential helper is missing: $nativeHelper" }
+. $nativeHelper
+
 $configDir = Join-Path $env:LOCALAPPDATA "BodyRig\config"
 $storagePath = Join-Path $configDir "storage.json"
 $stashPath = Join-Path $configDir "stash.json"
@@ -45,9 +49,10 @@ function Emit-Status {
     if ($Json) {
         $result | ConvertTo-Json -Depth 5 -Compress
     } else {
+        $credentialText = if ($CredentialPresent) { "PRESENT" } else { "MISSING" }
         Write-Host "BodyRig storage auth: $($State.ToUpperInvariant())"
         if (-not [string]::IsNullOrWhiteSpace($Host)) { Write-Host "Host:       $Host" }
-        Write-Host "Credential: $($(if ($CredentialPresent) { 'PRESENT' } else { 'MISSING' }))"
+        Write-Host "Credential: $credentialText"
         Write-Host "Cold boots: $Passed/$Required"
         Write-Host $Message
         if ($null -ne $result.next_command) {
@@ -87,27 +92,12 @@ if (
     exit 0
 }
 
-if (-not ("BodyRig.NativeCredentialStatus" -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-namespace BodyRig {
-    public static class NativeCredentialStatus {
-        [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool CredRead(string target, UInt32 type, UInt32 flags, out IntPtr credentialPtr);
-        [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = false)]
-        private static extern void CredFree(IntPtr buffer);
-        public static bool Exists(string target) {
-            IntPtr ptr;
-            if (!CredRead(target, 2, 0, out ptr)) return false;
-            CredFree(ptr);
-            return true;
-        }
-    }
+$maxPersist = [int](Get-BodyRigDomainCredentialMaxPersist)
+if ($maxPersist -lt 2) {
+    Emit-Status -State "blocked" -Stage "windows-policy" -Host $hostName -Message "Windows policy permits persistence level $maxPersist for domain passwords; LOCAL_MACHINE (2) or stronger is required."
+    exit 0
 }
-'@
-}
-$credentialPresent = [BodyRig.NativeCredentialStatus]::Exists($target)
+$credentialPresent = Test-BodyRigDomainCredential -Target $target
 if (-not $credentialPresent) {
     Emit-Status -State "required" -Stage "credential-bootstrap" -Host $hostName -CredentialPresent $false -Message "Storage config exists, but the Windows Credential Manager credential is missing." -NextCommand ".\setup-storage-auth-windows.ps1 -ReplaceExisting"
     exit 0
@@ -127,7 +117,8 @@ if (
     [string]$pre.host -ne $hostName -or
     [string]$pre.credential_target -ne $target -or
     $pre.fresh_smb_session_proved -ne $true -or
-    $pre.real_stash_source_decode -ne $true
+    $pre.real_stash_source_decode -ne $true -or
+    [int]$pre.maximum_supported_persist -lt 2
 ) {
     Emit-Status -State "blocked" -Stage "pre-reboot-proof" -Host $hostName -CredentialPresent $true -Message "Pre-reboot proof does not match current storage authority."
     exit 0
