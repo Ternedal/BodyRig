@@ -119,7 +119,7 @@ def _candidate_maps(public: Mapping[str, Any], private: Mapping[str, Any]) -> tu
 
 
 def _track_candidate_id(*, source_candidate_id: str, track_id: str, source_sha256: str) -> str:
-    authority = f"{source_candidate_id}\0{track_id}\0{source_sha256}".encode("ascii")
+    authority = f"{source_candidate_id}\0{track_id}\0{source_sha256}".encode("utf-8")
     return TRACK_ID_PREFIX + hashlib.sha256(authority).hexdigest()[:32]
 
 
@@ -159,7 +159,6 @@ def _tile(frame: Image.Image, bbox: list[Any], *, label: str) -> Image.Image:
     crop_box = _clamped_box(bbox, width=width, height=height)
     context = _annotated_context(frame, bbox)
     crop = frame.crop(crop_box)
-
     tile = Image.new("RGB", (640, 640), "black")
     context_fit = ImageOps.contain(context, (640, 360))
     crop_fit = ImageOps.contain(crop, (640, 230))
@@ -192,6 +191,12 @@ def _build_review_sheet(
             raise PhotoIdentityMultiReviewPrepareError("track sample timestamp is invalid")
         if not isinstance(bbox, list):
             raise PhotoIdentityMultiReviewPrepareError("track sample bbox is invalid")
+        try:
+            confidence_value = float(confidence)
+        except (TypeError, ValueError) as exc:
+            raise PhotoIdentityMultiReviewPrepareError("track sample confidence is invalid") from exc
+        if not math.isfinite(confidence_value) or not 0.0 <= confidence_value <= 1.0:
+            raise PhotoIdentityMultiReviewPrepareError("track sample confidence is invalid")
         frame_path = private_sample_root / f"sample-{index:02d}-source-frame.png"
         _extract_frame(ffmpeg=ffmpeg, source=source, timestamp=timestamp_ms / 1000.0, output=frame_path)
         try:
@@ -200,7 +205,7 @@ def _build_review_sheet(
                 frame = opened.convert("RGB")
         except Exception as exc:
             raise PhotoIdentityMultiReviewPrepareError("extracted track review source frame is unreadable") from exc
-        label = f"{track_id} | {timestamp_ms / 1000.0:.3f}s | conf={float(confidence):.3f}"
+        label = f"{track_id} | {timestamp_ms / 1000.0:.3f}s | conf={confidence_value:.3f}"
         tile = _tile(frame, bbox, label=label)
         tile_path = private_sample_root / f"sample-{index:02d}-review-tile.png"
         tile.save(tile_path, format="PNG", optimize=False)
@@ -252,7 +257,6 @@ def prepare_multiperformer_track_review(
     private_source = private_map.get(source_candidate_id)
     if public_source is None or private_source is None:
         raise PhotoIdentityMultiReviewPrepareError(f"unknown multi-performer source candidate: {source_candidate_id}")
-
     source = Path(str(private_source.get("source_path") or "")).expanduser().resolve()
     if not source.is_file():
         raise PhotoIdentityMultiReviewPrepareError("selected multi-performer source file is no longer local")
@@ -323,7 +327,7 @@ def prepare_multiperformer_track_review(
                 {
                     "track_candidate_id": track_candidate_id,
                     "track_id": track_id,
-                    "review_sheet": str(sheet_path),
+                    "review_sheet": str(output_dir / "private-track-review" / track_candidate_id / "review-sheet.png"),
                 }
             )
 
