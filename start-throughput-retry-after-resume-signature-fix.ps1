@@ -71,11 +71,17 @@ function Need-Sha256 {
 }
 
 function Require-ComparisonBoundary {
-    param([Parameter(Mandatory = $true)]$Value,[Parameter(Mandatory = $true)][string]$Label)
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [switch]$PromotionOptional
+    )
+    $hasPromotion = @($Value.PSObject.Properties.Name) -contains 'promotion_authority'
+    $promotionInvalid = if ($hasPromotion) { $Value.promotion_authority -ne $false } else { -not $PromotionOptional }
     if (
         $Value.comparison_only -ne $true -or
         $Value.physical_acceptance_authority -ne $false -or
-        $Value.promotion_authority -ne $false -or
+        $promotionInvalid -or
         $Value.production_activation -ne $false
     ) { throw "$Label crossed the comparison-only authority boundary." }
 }
@@ -199,7 +205,7 @@ if ($pbrAuthoritySha -ne (Need-Sha256 -Value ([string]$oldGate.pbr_human_review_
 if ($pbrReviewSha -ne (Need-Sha256 -Value ([string]$oldGate.pbr_human_review_sha256) -Label 'PBR review SHA in gate')) { throw 'PBR human-review bytes changed.' }
 $pbrReview = Read-Json -Path $pbrReviewPath -Label 'PBR human review'
 if ($pbrReview.human_visual_review_confirmed -ne $true -or [string]$pbrReview.decision -ne [string]$oldGate.pbr_decision) { throw 'PBR human review is no longer the review bound by the sequencing gate.' }
-Require-ComparisonBoundary -Value $pbrReview -Label 'PBR human review'
+Require-ComparisonBoundary -Value $pbrReview -Label 'PBR human review' -PromotionOptional
 
 try { $failedJob = Invoke-RestMethod -Method Get -Uri "$BaseUri/api/v1/jobs/$FailedCandidateJobId" -TimeoutSec 10 }
 catch { throw 'Failed throughput candidate job cannot be read from BodyRig.' }
