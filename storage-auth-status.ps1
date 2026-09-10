@@ -94,6 +94,12 @@ if (
     exit 0
 }
 
+if ($storage.credential_write_completed -ne $true) {
+    $presentDuringInterruptedBootstrap = Test-BodyRigDomainCredential -Target $target
+    Emit-Status -State "blocked" -Stage "credential-bootstrap-incomplete" -Host $hostName -CredentialPresent $presentDuringInterruptedBootstrap -Message "The previous credential bootstrap did not complete its final authority publication. Re-run bootstrap before any storage proof can be accepted." -NextCommand ".\setup-storage-auth-windows.ps1 -ReplaceExisting"
+    exit 0
+}
+
 $maxPersist = [int](Get-BodyRigDomainCredentialMaxPersist)
 if ($maxPersist -lt 2) {
     Emit-Status -State "blocked" -Stage "windows-policy" -Host $hostName -Message "Windows policy permits persistence level $maxPersist for domain passwords; LOCAL_MACHINE (2) or stronger is required."
