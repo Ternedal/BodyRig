@@ -36,6 +36,7 @@ $storageConfigPath = Join-Path $configDir "storage.json"
 $stashConfigPath = Join-Path $configDir "stash.json"
 $sessionProofPath = Join-Path $configDir "storage-session-proof.json"
 $preRebootProofPath = Join-Path $configDir "storage-pre-reboot-proof.json"
+$coldProofPath = Join-Path $configDir "storage-cold-boot-proof.json"
 
 foreach ($required in @($storageConfigPath, $stashConfigPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required local BodyRig config is missing: $required" }
@@ -53,8 +54,12 @@ if ([string]$stash.format -ne "bodyrig-local-stash-config" -or [int]$stash.versi
 
 $storageHost = ([string]$storage.host).Trim()
 $credentialTarget = ([string]$storage.credential_target).Trim().ToLowerInvariant()
+$credentialGeneration = ([string]$storage.credential_generation).Trim().ToLowerInvariant()
 if ([string]::IsNullOrWhiteSpace($storageHost) -or [string]::IsNullOrWhiteSpace($credentialTarget)) {
     throw "Saved storage configuration lacks host/credential target."
+}
+if ($credentialGeneration -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+    throw "Saved storage configuration lacks a canonical credential generation. Re-run the storage bootstrap."
 }
 try { $stashUri = [Uri]([string]$stash.url) }
 catch { throw "Saved Stash URL is invalid." }
@@ -152,6 +157,7 @@ $proof = [ordered]@{
     bodyrig_revision = $head
     host = $storageHost
     credential_target = $credentialTarget
+    credential_generation = $credentialGeneration
     performer_id = [string]$PerformerId
     boot_utc = $boot
     tested_utc = [DateTime]::UtcNow.ToString("o")
@@ -169,12 +175,16 @@ $temp = "$sessionProofPath.tmp-$([Guid]::NewGuid().ToString('N'))"
 Move-Item -LiteralPath $temp -Destination $sessionProofPath -Force
 
 if ($MarkPreReboot) {
+    # A new baseline starts a new qualification cycle. Any prior cold-boot
+    # counter is invalid even if host/username happen to be unchanged.
+    Remove-Item -LiteralPath $coldProofPath -Force -ErrorAction SilentlyContinue
     $pre = [ordered]@{
         format = "bodyrig-storage-pre-reboot-proof"
         version = 1
         bodyrig_revision = $head
         host = $storageHost
         credential_target = $credentialTarget
+        credential_generation = $credentialGeneration
         performer_id = [string]$PerformerId
         baseline_boot_utc = $boot
         tested_utc = [DateTime]::UtcNow.ToString("o")
@@ -191,6 +201,7 @@ if ($MarkPreReboot) {
 
 Write-Host "BodyRig storage authentication: PASS"
 Write-Host "Host:                 $storageHost"
+Write-Host "Credential cycle:     $credentialGeneration"
 Write-Host "Fresh SMB session:    $([bool]$ResetConnections)"
 Write-Host "Stash path map:       PASS"
 Write-Host "Real source decode:   PASS ($([int]$probe.usable_source_count) usable source(s))"
