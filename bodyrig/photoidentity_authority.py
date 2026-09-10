@@ -131,15 +131,6 @@ def validate_authoritative_observation_evidence(value: Mapping[str, Any]) -> dic
                     f"{domain_name} requires {claim_adapter}@{claim_revision}, got "
                     f"{actual_adapter or 'empty'}@{actual_revision or 'empty'}"
                 )
-
-    # A claimed detail capability without any matching domain is not useful and
-    # risks broadening authority by friendly capability name alone. Require the
-    # domain to be present, even if it currently has zero qualifying claims.
-    for domain, (capability, _, _) in DETAIL_DOMAIN_AUTHORITY.items():
-        if capability in capabilities and domain not in details:
-            raise PhotoIdentityAuthorityError(
-                f"photoidentity capability has no explicit bound detail domain: {capability} -> {domain}"
-            )
     return dict(value)
 
 
