@@ -34,7 +34,9 @@ Before any throughput checkout switch or candidate enqueue, the wrapper uses the
 - the exact main/PBR/throughput revisions and refs recorded by that authority;
 - `human_visual_authority_recorded=true` while physical acceptance, promotion and production activation remain false.
 
-The established throughput launch logic remains byte-identical in `start-throughput-candidate-from-ab-plan-internal.ps1`. The canonical wrapper invokes it only after the PBR human-review gate passes. After enqueue it replays the PBR authority. Drift cancels the candidate job and removes candidate-run authority when present.
+It then replays the checkout-bound `bodyrig.body_job_receipt_authority` for the succeeded retained baseline before the throughput transition. The current baseline job, Person, Stash performer, body revision, canonical body id, exact job JSON SHA-256, source-binding SHA-256 and body-review SHA-256 must still match the source authority that the PBR review actually bound. This closes the same-performer receipt-drift window: rewriting baseline/source receipts after PBR review cannot be silently adopted as the source state for a later throughput candidate.
+
+The established throughput launch logic remains byte-identical in `start-throughput-candidate-from-ab-plan-internal.ps1`. The canonical wrapper invokes it only after both the PBR human-review gate and current baseline-receipt parity pass. After enqueue it replays both authorities; drift cancels the candidate job and removes candidate-run authority when present.
 
 A successful canonical launch writes a create-only receipt:
 

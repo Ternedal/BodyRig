@@ -80,13 +80,33 @@ def test_canonical_launcher_requires_recorded_pbr_human_review_before_internal_l
     assert 'bodyrig.pbr_human_review_gate' in WRAPPER
     assert 'bodyrig\\pbr_human_review_gate.py' in WRAPPER
     assert 'start-throughput-candidate-from-ab-plan-internal.ps1' in WRAPPER
-    assert 'Plan-bound PBR human review is exact and recorded.' in WRAPPER
+    assert 'Plan-bound PBR human review and current baseline source receipts are exact.' in WRAPPER
     assert '& $internal @internalParams' in WRAPPER
     assert 'bodyrig-throughput-pbr-human-review-gate' in WRAPPER
     assert 'human_visual_authority_recorded = $true' in WRAPPER
     assert 'physical_acceptance_authority = $false' in WRAPPER
     assert 'promotion_authority = $false' in WRAPPER
     assert 'production_activation = $false' in WRAPPER
+
+
+def test_canonical_launcher_replays_current_baseline_receipts_against_pbr_review_before_launch() -> None:
+    assert 'bodyrig.body_job_receipt_authority' in WRAPPER
+    assert 'bodyrig\\body_job_receipt_authority.py' in WRAPPER
+    assert '--expected-revision ([string]$Gate.baseline_revision)' in WRAPPER
+    assert '--expected-person-id ([string]$Gate.person_id)' in WRAPPER
+    assert 'bodyrig-succeeded-body-job-receipt-authority' in WRAPPER
+    assert 'PBR-reviewed baseline source authority' in WRAPPER
+    assert 'plan-bound-human-review-authority.json' in WRAPPER
+    assert '$humanAuthorityShaBefore -ne [string]$Gate.pbr_human_review_authority_sha256' in WRAPPER
+    assert '$sourceAuthorityShaBefore -ne $reviewedSourceSha' in WRAPPER
+    assert '$sourceAuthorityShaAfter -ne $reviewedSourceSha' in WRAPPER
+    assert '@("job_json_sha256", "body_job_json_sha256")' in WRAPPER
+    assert '@("source_binding_sha256", "source_binding_sha256")' in WRAPPER
+    assert '@("body_review_sha256", "body_review_sha256")' in WRAPPER
+    receipt_index = WRAPPER.index('$baselineReceiptBefore = Invoke-BaselineReceiptProbe')
+    source_match_index = WRAPPER.index('Assert-BaselineReceiptMatchesPbrSource -Receipt $baselineReceiptBefore')
+    launch_index = WRAPPER.index('& $internal @internalParams')
+    assert receipt_index < source_match_index < launch_index
 
 
 def test_canonical_launcher_pins_candidate_enqueue_to_reviewed_stash_performer() -> None:
@@ -107,9 +127,21 @@ def test_canonical_launcher_source_pin_is_scoped_around_frozen_internal_launcher
     assert 'BODYRIG_PINNED_STASH_PERFORMER_ID' not in INTERNAL
 
 
+def test_canonical_launcher_replays_baseline_receipts_after_enqueue_and_cancels_on_drift() -> None:
+    launch_index = WRAPPER.index('& $internal @internalParams')
+    gate_after_index = WRAPPER.index('$gateAfter = Invoke-PbrGateProbe')
+    receipt_after_index = WRAPPER.index('$baselineReceiptAfter = Invoke-BaselineReceiptProbe')
+    source_match_after_index = WRAPPER.index('Assert-BaselineReceiptMatchesPbrSource -Receipt $baselineReceiptAfter')
+    assert launch_index < gate_after_index < receipt_after_index < source_match_after_index
+    assert 'Baseline body-job receipt authority changed during throughput candidate launch' in WRAPPER
+    assert 'Try-CancelCandidateJob -JobId $candidateJobId' in WRAPPER
+    assert 'Remove-Item -LiteralPath $runPlanPath -Force' in WRAPPER
+    assert 'PBR/baseline source authority drifted while starting throughput candidate' in WRAPPER
+
+
 def test_canonical_launcher_cancels_and_removes_run_authority_if_pbr_gate_drifts() -> None:
     assert 'Assert-GateProbeStable -Before $gateBefore -After $gateAfter' in WRAPPER
     assert 'Try-CancelCandidateJob -JobId $candidateJobId' in WRAPPER
     assert 'Remove-Item -LiteralPath $runPlanPath -Force' in WRAPPER
-    assert 'PBR human-review authority drifted while starting throughput candidate' in WRAPPER
+    assert 'PBR/baseline source authority drifted while starting throughput candidate' in WRAPPER
     assert '$BaselineJobId-throughput-$candidateJobId-pbr-gate.json' in WRAPPER

@@ -95,6 +95,112 @@ function Invoke-PbrGateProbe {
     }
 }
 
+function Invoke-BaselineReceiptProbe {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$JobId,
+        [Parameter(Mandatory = $true)]$Gate
+    )
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldNoBytecode = [Environment]::GetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "Process")
+    try {
+        $bound = if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $RepoRoot } else { "$RepoRoot$([IO.Path]::PathSeparator)$oldPythonPath" }
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", $bound, "Process")
+        [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "1", "Process")
+        $moduleRaw = @(& $Python -c "import pathlib,bodyrig.body_job_receipt_authority as m; print(pathlib.Path(m.__file__).resolve())" 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $moduleRaw.Count -ne 1) { throw "Could not prove checkout-bound baseline body-job receipt validator." }
+        $expected = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\body_job_receipt_authority.py"))
+        $actual = [IO.Path]::GetFullPath(([string]$moduleRaw[0]).Trim())
+        if (-not [string]::Equals($actual, $expected, [StringComparison]::OrdinalIgnoreCase)) { throw "Baseline body-job receipt validator imported from wrong checkout: $actual" }
+        $raw = @(& $Python -m bodyrig.body_job_receipt_authority --job-id $JobId --expected-revision ([string]$Gate.baseline_revision) --expected-person-id ([string]$Gate.person_id) 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "Baseline body-job receipt validation failed: $($raw -join ' ')" }
+        try { $value = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
+        catch { throw "Baseline body-job receipt validator returned unreadable JSON." }
+        if (
+            [string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or
+            [int]$value.version -ne 1 -or
+            [string]$value.body_job_id -ne $JobId -or
+            [string]$value.person_id -ne [string]$Gate.person_id -or
+            [string]$value.bodyrig_revision -ne [string]$Gate.baseline_revision -or
+            [string]$value.stash_performer_id -ne [string]$Gate.stash_performer_id -or
+            $value.comparison_only -ne $true -or
+            $value.human_visual_authority_required -ne $true -or
+            $value.physical_acceptance_authority -ne $false -or
+            $value.promotion_authority -ne $false -or
+            $value.production_activation -ne $false
+        ) {
+            throw "Current baseline body-job receipt authority does not match the PBR-reviewed identity boundary."
+        }
+        return $value
+    } finally {
+        if ($null -eq $oldPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
+        if ($null -eq $oldNoBytecode) { [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", $oldNoBytecode, "Process") }
+    }
+}
+
+function Assert-BaselineReceiptMatchesPbrSource {
+    param(
+        [Parameter(Mandatory = $true)]$Receipt,
+        [Parameter(Mandatory = $true)]$Gate
+    )
+    $humanAuthorityPath = Need-File -Path (Join-Path ([string]$Gate.pbr_run_dir) "plan-bound-human-review-authority.json") -Label "PBR plan-bound human-review authority"
+    $sourceAuthorityPath = Need-File -Path (Join-Path ([string]$Gate.pbr_run_dir) "body-job-source-authority.json") -Label "PBR-reviewed baseline source authority"
+    $humanAuthorityShaBefore = File-Sha256 -Path $humanAuthorityPath
+    if ($humanAuthorityShaBefore -ne [string]$Gate.pbr_human_review_authority_sha256) {
+        throw "PBR plan-bound human-review authority changed after gate validation."
+    }
+    $humanAuthority = Read-Json -Path $humanAuthorityPath -Label "PBR plan-bound human-review authority"
+    if ([string]$humanAuthority.format -ne "bodyrig-pbr-plan-bound-human-review-authority" -or [int]$humanAuthority.version -ne 1) {
+        throw "PBR plan-bound human-review authority format/version mismatch."
+    }
+    $reviewedSourceSha = ([string]$humanAuthority.source_authority_sha256).Trim().ToLowerInvariant()
+    if ($reviewedSourceSha -notmatch '^[0-9a-f]{64}$') {
+        throw "PBR plan-bound human-review authority has no canonical source-authority SHA-256."
+    }
+    $sourceAuthorityShaBefore = File-Sha256 -Path $sourceAuthorityPath
+    if ($sourceAuthorityShaBefore -ne $reviewedSourceSha) {
+        throw "PBR-reviewed baseline source authority bytes no longer match the human-review authority."
+    }
+    $sourceAuthority = Read-Json -Path $sourceAuthorityPath -Label "PBR-reviewed baseline source authority"
+    $sourceAuthorityShaAfter = File-Sha256 -Path $sourceAuthorityPath
+    $humanAuthorityShaAfter = File-Sha256 -Path $humanAuthorityPath
+    if ($sourceAuthorityShaAfter -ne $reviewedSourceSha -or $humanAuthorityShaAfter -ne $humanAuthorityShaBefore) {
+        throw "PBR source/human-review authority changed while baseline receipts were being compared."
+    }
+    if (
+        [string]$sourceAuthority.format -ne "bodyrig-pbr-ab-body-job-source-authority" -or
+        [int]$sourceAuthority.version -ne 1 -or
+        [string]$sourceAuthority.body_job_id -ne [string]$Gate.baseline_job_id -or
+        [string]$sourceAuthority.person_id -ne [string]$Gate.person_id -or
+        [string]$sourceAuthority.stash_performer_id -ne [string]$Gate.stash_performer_id -or
+        [string]$sourceAuthority.bodyrig_revision -ne [string]$Gate.baseline_revision -or
+        $sourceAuthority.comparison_only -ne $true -or
+        $sourceAuthority.human_visual_authority_required -ne $true -or
+        $sourceAuthority.physical_acceptance_authority -ne $false -or
+        $sourceAuthority.production_activation -ne $false
+    ) {
+        throw "PBR-reviewed baseline source authority no longer matches the PBR gate identity boundary."
+    }
+    foreach ($pair in @(
+        @("body_job_id", "body_job_id"),
+        @("person_id", "person_id"),
+        @("stash_performer_id", "stash_performer_id"),
+        @("bodyrig_revision", "bodyrig_revision"),
+        @("body_revision", "body_revision"),
+        @("canonical_body_id", "canonical_body_id"),
+        @("job_json_sha256", "body_job_json_sha256"),
+        @("source_binding_sha256", "source_binding_sha256"),
+        @("body_review_sha256", "body_review_sha256")
+    )) {
+        $receiptField = [string]$pair[0]
+        $sourceField = [string]$pair[1]
+        if ([string]$Receipt.$receiptField -ne [string]$sourceAuthority.$sourceField) {
+            throw "Current baseline receipt differs from the PBR-reviewed source authority: $receiptField"
+        }
+    }
+}
+
 function Assert-GateProbeStable {
     param([Parameter(Mandatory = $true)]$Before,[Parameter(Mandatory = $true)]$After)
     foreach ($field in @(
@@ -124,7 +230,9 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
 $gateBefore = Invoke-PbrGateProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -RunDir $PbrRunDir
-Write-Host "Plan-bound PBR human review is exact and recorded. Starting throughput transition through internal launcher..."
+$baselineReceiptBefore = Invoke-BaselineReceiptProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -Gate $gateBefore
+Assert-BaselineReceiptMatchesPbrSource -Receipt $baselineReceiptBefore -Gate $gateBefore
+Write-Host "Plan-bound PBR human review and current baseline source receipts are exact. Starting throughput transition through internal launcher..."
 
 $internal = Need-File -Path (Join-Path $repoRoot "start-throughput-candidate-from-ab-plan-internal.ps1") -Label "internal throughput candidate launcher"
 $internalParams = @{ BaselineJobId = $BaselineJobId; BaseUri = $BaseUri; BodyRigPython = $BodyRigPython }
@@ -175,10 +283,17 @@ $runPlanSha = File-Sha256 -Path $runPlanPath
 try {
     $gateAfter = Invoke-PbrGateProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -RunDir ([string]$gateBefore.pbr_run_dir)
     Assert-GateProbeStable -Before $gateBefore -After $gateAfter
+    $baselineReceiptAfter = Invoke-BaselineReceiptProbe -RepoRoot $repoRoot -Python $BodyRigPython -JobId $BaselineJobId -Gate $gateAfter
+    Assert-BaselineReceiptMatchesPbrSource -Receipt $baselineReceiptAfter -Gate $gateAfter
+    foreach ($field in @("job_json_sha256","source_binding_sha256","body_review_sha256","body_revision","canonical_body_id","stash_performer_id")) {
+        if ([string]$baselineReceiptBefore.$field -ne [string]$baselineReceiptAfter.$field) {
+            throw "Baseline body-job receipt authority changed during throughput candidate launch: $field"
+        }
+    }
 } catch {
     $cancel = Try-CancelCandidateJob -JobId $candidateJobId -UriBase $BaseUri
     if (Test-Path -LiteralPath $runPlanPath -PathType Leaf) { Remove-Item -LiteralPath $runPlanPath -Force -ErrorAction SilentlyContinue }
-    throw "PBR human-review authority drifted while starting throughput candidate; removed candidate-run authority when present. $cancel. $($_.Exception.Message)"
+    throw "PBR/baseline source authority drifted while starting throughput candidate; removed candidate-run authority when present. $cancel. $($_.Exception.Message)"
 }
 
 $gateReceiptPath = Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$candidateJobId-pbr-gate.json"
