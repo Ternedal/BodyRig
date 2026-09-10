@@ -191,12 +191,12 @@ if (
 }
 
 $startScript = Need-File -Path (Join-Path $repoRoot "start-revision-bound-body-build.ps1") -Label "revision-bound body-build launcher"
-$startArgs = @(
-    "-RetainPrivateWorkspaceForAb",
-    "-BaseUri", $BaseUri,
-    "-PersonId", $preflightPersonId,
-    "-ExpectedPerformerId", $preflightPerformerId
-)
+$startArgs = @{
+    RetainPrivateWorkspaceForAb = $true
+    BaseUri = $BaseUri
+    PersonId = $preflightPersonId
+    ExpectedPerformerId = $preflightPerformerId
+}
 
 $startedRaw = @(& $startScript @startArgs)
 if ($startedRaw.Count -ne 1) {

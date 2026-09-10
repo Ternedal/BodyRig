@@ -9,9 +9,19 @@ PREFLIGHT = (ROOT / "preflight-ab-baseline.ps1").read_text(encoding="utf-8")
 def test_launcher_is_checkout_bound_and_forces_retention() -> None:
     assert "bodyrig.ab_baseline_candidates" in SCRIPT
     assert "bodyrig\\ab_baseline_candidates.py" in SCRIPT
-    assert "-RetainPrivateWorkspaceForAb" in SCRIPT
+    assert "RetainPrivateWorkspaceForAb = $true" in SCRIPT
     assert "start-revision-bound-body-build.ps1" in SCRIPT
     assert "Pass exactly one of -PersonId or -PerformerId" in SCRIPT
+
+
+def test_launcher_uses_named_splat_for_revision_bound_enqueue() -> None:
+    assert "$startArgs = @{" in SCRIPT
+    assert "RetainPrivateWorkspaceForAb = $true" in SCRIPT
+    assert "BaseUri = $BaseUri" in SCRIPT
+    assert "PersonId = $preflightPersonId" in SCRIPT
+    assert "ExpectedPerformerId = $preflightPerformerId" in SCRIPT
+    assert "$startedRaw = @(& $startScript @startArgs)" in SCRIPT
+    assert '$startArgs = @(\n    "-RetainPrivateWorkspaceForAb"' not in SCRIPT
 
 
 def test_launcher_runs_service_bound_physical_preflight_before_enqueue() -> None:
