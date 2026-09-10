@@ -93,7 +93,7 @@ Write-Host "Output:         $OutputDir"
 Write-Host "Policy:         no generic guessing; no reconstruction/render authority"
 Write-Host ""
 
-$args = @(
+$sweepArgs = @(
     "-m", "bodyrig.photoidentity_sweep",
     "--performer-id", $PerformerId,
     "--baseline-source-manifest", $sourceManifest,
@@ -108,7 +108,7 @@ $args = @(
     "--batch-size", [string]$BatchSize,
     "--decode-timeout", [string]$DecodeTimeout
 )
-& $BodyRigPython @args
+& $BodyRigPython @sweepArgs
 if ($LASTEXITCODE -ne 0) { throw "BodyRig photoidentity evidence sweep failed with exit code $LASTEXITCODE." }
 
 $reportPath = Need-File -Path (Join-Path $OutputDir "evidence\photoidentity-evidence.json") -Label "Photoidentity sufficiency report"
