@@ -163,7 +163,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, str, Path]:
     return root, track_candidate_id, source
 
 
-def test_target_isolation_materializes_only_reviewed_native_source_crops(tmp_path: Path) -> None:
+def test_target_isolation_materializes_only_reviewed_native_source_crop_candidates(tmp_path: Path) -> None:
     root, candidate, source = _fixture(tmp_path)
     out = tmp_path / "isolated"
     result = isolate_human_attested_track_source(
@@ -184,7 +184,8 @@ def test_target_isolation_materializes_only_reviewed_native_source_crops(tmp_pat
     assert result["generative_pixels_used"] is False
     assert result["biometric_identity_inference_used"] is False
     assert result["generic_guessing_permitted"] is False
-    assert result["target_isolated_source_authority"] is True
+    assert result["target_isolation_human_review_required"] is True
+    assert result["target_isolated_source_authority"] is False
     assert result["photoidentity_source_evidence_authority"] is False
     assert result["reconstruction_permitted"] is False
     assert result["production_activation"] is False
