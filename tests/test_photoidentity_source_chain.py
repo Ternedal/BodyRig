@@ -83,8 +83,8 @@ def _build_chain(
         for domain in base_detail_domains
     }
     nail_details["fingernails_detail"] = [
-        _claim("fingernails_detail", "fingernails-a", final_fingernail_quality),
-        _claim("fingernails_detail", "fingernails-b", 0.91),
+        _claim("fingernails_detail", "fingernails-a"),
+        _claim("fingernails_detail", "fingernails-b"),
     ]
     nail_details["toenails_detail"] = [
         _claim("toenails_detail", "toenails-a"),
@@ -119,7 +119,7 @@ def _build_chain(
     nail_observations, nail_report, _ = write_bundle(sweep / "nail-attested-evidence", nail_evidence)
 
     selected_fingernails = [
-        _selected(fingernail_regions[0], "fingernails-a", "finger-a", final_fingernail_quality),
+        _selected(fingernail_regions[0], "fingernails-a", "finger-a"),
         _selected(fingernail_regions[1], "fingernails-b", "finger-b"),
     ]
     selected_toenails = [
@@ -149,6 +149,7 @@ def _build_chain(
     nail_receipt_path.write_text(json.dumps(nail_receipt, sort_keys=True), encoding="utf-8")
 
     final_details = {domain: [dict(item) for item in claims] for domain, claims in nail_details.items()}
+    final_details["fingernails_detail"][0]["quality"] = final_fingernail_quality
     final_details.update(
         {
             "body_rear": [_claim("body_rear", "rear-a")],
