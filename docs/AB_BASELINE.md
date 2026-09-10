@@ -1,12 +1,12 @@
 > **A/B v1 lifecycle — completed 2026-09-10.** The PBR-v3 / recovery-throughput-v3 shared comparison cycle is finished and promoted under receipt SHA-256 `2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d`. `contracts/ab-baseline-candidates-v1.json` is now immutable historical evidence; it is not an active candidate contract. Repository immutability is bound by Git blob `703187fc8584cb3300f61d9ddb73eb886c27513f`; the original Windows run recorded checkout-byte SHA-256 `fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4`, which is retained as historical evidence rather than reused as a cross-platform file hash. `contracts/ab-baseline-cycle-state-v1.json` records that closure. `start-ab-baseline.ps1` and `preflight-ab-baseline.ps1` fail closed before physical work until a **new versioned candidate contract/lifecycle** is introduced. This retirement grants no physical acceptance, production activation, or release authority.
 
-# Shared physical A/B baseline
+# Historical shared physical A/B baseline v1
 
-`start-ab-baseline.ps1` is the canonical operator entrypoint when the active PBR-v3 and recovery-throughput-v3 draft candidates are both going to receive fresh physical comparison evidence.
+This document records the completed 2026-09-10 PBR-v3 / recovery-throughput-v3 evidence procedure. It is retained so the existing plan, review and promotion receipts remain interpretable.
 
-It exists to avoid paying for two identical expensive current-main baseline reconstructions while preserving exact revision and candidate-byte authority.
+**Do not execute this v1 procedure to create new evidence on current `main`.** `start-ab-baseline.ps1` now fails closed because the v1 lifecycle is `completed-promoted`. A future A/B cycle requires a new versioned candidate contract/lifecycle and fresh operator routing; it must not mutate or reactivate this historical authority.
 
-The active PBR comparison candidate is the linear-light v3 replacement in PR #258. PR #196 is superseded historical PBR-v2 lineage and is not current shared-baseline authority.
+PR #258 is promoted historical PBR-v3 lineage. PR #196 remains superseded PBR-v2 lineage.
 
 ## Start one retained current-main baseline
 
