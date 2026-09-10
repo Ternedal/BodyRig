@@ -101,8 +101,10 @@ namespace BodyRig {
                 }
             }
             finally {
-                for (int i = 0; i < bytes.Length; i++) bytes[i] = 0;
-                Marshal.ZeroFreeCoTaskMemUnicode(blob);
+                byte[] zeros = new byte[bytes.Length];
+                Marshal.Copy(zeros, 0, blob, zeros.Length);
+                Array.Clear(bytes, 0, bytes.Length);
+                Marshal.FreeCoTaskMem(blob);
             }
         }
     }
@@ -122,13 +124,14 @@ if ([string]::IsNullOrWhiteSpace($UserName)) {
 }
 if ($null -eq $credential) { throw "Storage credential entry was cancelled." }
 
+$plainPassword = $null
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password)
 try {
     $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     if ([string]::IsNullOrEmpty($plainPassword)) { throw "Storage password is empty." }
     [BodyRig.NativeCredentialStore]::WriteDomainPassword($target, $credential.UserName, $plainPassword)
 } finally {
-    if ($null -ne $plainPassword) { $plainPassword = $null }
+    $plainPassword = $null
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 }
 
@@ -154,4 +157,4 @@ Write-Host "BodyRig storage credential: SAVED"
 Write-Host "Host:              $StorageHost"
 Write-Host "Credential target: $target"
 Write-Host "Secret in config:  FALSE"
-Write-Host "Next: run .\test-storage-auth-windows.ps1 -ResetConnections to prove a fresh SMB session before reboot."
+Write-Host "Next: run .\test-storage-auth-windows.ps1 -PerformerId <id> -ResetConnections -MarkPreReboot to prove a fresh SMB session before reboot."
