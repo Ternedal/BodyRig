@@ -30,13 +30,16 @@ def test_review_operator_opens_only_private_source_closeups() -> None:
     assert "renderer" not in lowered
 
 
-def test_attestation_operator_requires_explicit_human_confirmation_and_note() -> None:
+def test_attestation_operator_requires_atomic_complete_human_confirmation_and_note() -> None:
     source = (ROOT / "record-photoidentity-nail-source-attestation.ps1").read_text(encoding="utf-8")
     lowered = source.lower()
     assert "[switch]$ConfirmFingernails" in source
     assert "[switch]$ConfirmToenails" in source
     assert "[Parameter(Mandatory = $true)][string]$QualityNote" in source
-    assert "if (-not $confirmfingernails -and -not $confirmtoenails)" in lowered
+    assert "if (-not $confirmfingernails -or -not $confirmtoenails)" in lowered
+    assert "canonical nail attestation is atomic" in lowered
+    assert "$fingernailref.count -lt 2 -or $toenailref.count -lt 2" in lowered
+    assert '"--confirm-fingernails", "--confirm-toenails"' in lowered
     assert "bodyrig.photoidentity_nail_source_attestation" in source
     assert "cross-revision human authority" in lowered
     assert "no avatar render" in lowered
