@@ -19,6 +19,10 @@ from .high_fidelity_release_readiness import (
     HighFidelityReleaseReadinessError,
     inspect_release_readiness,
 )
+from .photoidentity_registry import (
+    PhotoIdentityRegistryError,
+    require_body_job_photoidentity_evidence,
+)
 from .revision_bound_body_build import (
     RevisionBoundBodyBuildError,
     start_revision_bound_body_build,
@@ -96,12 +100,17 @@ def start_exact_revision_body_build(person_id: str, request: RevisionBoundBodyBu
 @router.post("/api/v1/people/{person_id}/body/high-fidelity-preview")
 def start_high_fidelity_preview(person_id: str, request: HighFidelityPreviewStartRequest) -> dict:
     try:
+        # A coarse body-build is not authority for another human-review render.
+        # Require a separately collected, exact-hash source-sufficiency receipt
+        # so missing identity-critical regions cannot be silently filled by a
+        # generic human prior and presented to the operator as a clone.
+        require_body_job_photoidentity_evidence(person_id, request.body_job_id)
         return manager.start(
             person_id,
             body_job_id=request.body_job_id,
             target_family=request.target_family,
         )
-    except HighFidelityPreviewError as exc:
+    except (PhotoIdentityRegistryError, HighFidelityPreviewError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
