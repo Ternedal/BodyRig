@@ -64,7 +64,7 @@ def _batch() -> dict:
     }
 
 
-def test_validator_accepts_exact_no-target_review_batch():
+def test_validator_accepts_exact_no_target_review_batch():
     value = validate_track_review_batch(_batch(), expected_source_count=1)
     assert value["adapter"] == ADAPTER_NAME
     assert value["revision"] == ADAPTER_REVISION
@@ -96,6 +96,18 @@ def test_validator_rejects_wrong_adapter_or_source_hash():
     value = _batch()
     value["sources"][0]["source_media_sha256"] = "not-a-sha"
     with pytest.raises(PhotoIdentityMultiTrackRunnerError, match="SHA-256"):
+        validate_track_review_batch(value, expected_source_count=1)
+
+
+def test_validator_rejects_non_finite_wire_values_and_out_of_range_samples():
+    value = _batch()
+    value["sources"][0]["review"]["tracks"][0]["samples"][0]["bbox_tlwh"][2] = float("inf")
+    with pytest.raises(PhotoIdentityMultiTrackRunnerError, match="finite"):
+        validate_track_review_batch(value, expected_source_count=1)
+
+    value = _batch()
+    value["sources"][0]["review"]["tracks"][0]["samples"][1]["timestamp_ms"] = 3000
+    with pytest.raises(PhotoIdentityMultiTrackRunnerError, match="timestamps"):
         validate_track_review_batch(value, expected_source_count=1)
 
 
