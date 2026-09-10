@@ -4,22 +4,42 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+NATIVE = (ROOT / "storage-auth-native.ps1").read_text(encoding="utf-8")
 SETUP = (ROOT / "setup-storage-auth-windows.ps1").read_text(encoding="utf-8")
 TEST = (ROOT / "test-storage-auth-windows.ps1").read_text(encoding="utf-8")
+STATUS = (ROOT / "storage-auth-status.ps1").read_text(encoding="utf-8")
 VERIFY = (ROOT / "verify-storage-auth-after-reboot.ps1").read_text(encoding="utf-8")
 
 
-def test_setup_uses_native_windows_credential_manager_without_cli_password() -> None:
-    lowered = SETUP.lower()
+def test_native_helper_uses_windows_credential_manager_domain_password() -> None:
+    lowered = NATIVE.lower()
     assert 'entrypoint = "credwritew"' in lowered
+    assert 'entrypoint = "credreadw"' in lowered
+    assert 'entrypoint = "credgetsessiontypes"' in lowered
     assert "credential.type = 2" in lowered
     assert "credential.persist = 2" in lowered
+    assert "values[2]" in lowered
+    assert "set-bodyrigdomaincredential" in lowered
+    assert "test-bodyrigdomaincredential" in lowered
+    assert "get-bodyrigdomaincredentialmaxpersist" in lowered
+    assert "cmdkey" not in lowered
+    assert "/pass:" not in lowered
+
+
+def test_setup_uses_shared_native_helper_without_cli_password() -> None:
+    lowered = SETUP.lower()
+    assert '"storage-auth-native.ps1"' in lowered
+    assert ". $nativehelper" in lowered
+    assert "get-bodyrigdomaincredentialmaxpersist" in lowered
+    assert "set-bodyrigdomaincredential" in lowered
+    assert "test-bodyrigdomaincredential" in lowered
     assert "get-credential" in lowered
     assert "cmdkey" not in lowered
     assert "/pass:" not in lowered
     assert "net use" not in lowered
     assert 'password_persisted_in_config = $false' in lowered
     assert 'credential_store = "windows-credential-manager-domain-password"' in lowered
+    assert 'requested_persist = "local-machine"' in lowered
 
 
 def test_setup_binds_credential_target_to_exact_saved_stash_host() -> None:
@@ -31,6 +51,10 @@ def test_setup_binds_credential_target_to_exact_saved_stash_host() -> None:
 
 def test_fresh_session_test_resets_smb_and_decodes_real_stash_source() -> None:
     lowered = TEST.lower()
+    assert '"storage-auth-native.ps1"' in lowered
+    assert ". $nativehelper" in lowered
+    assert "test-bodyrigdomaincredential" in lowered
+    assert "get-bodyrigdomaincredentialmaxpersist" in lowered
     assert "[switch]$resetconnections" in lowered
     assert "get-smbconnection" in lowered
     assert "net.exe" in lowered
@@ -55,6 +79,17 @@ def test_pre_reboot_mark_requires_fresh_smb_session() -> None:
     assert "if ($MarkPreReboot -and -not $ResetConnections)" in TEST
     assert "fresh_smb_session_proved = $true" in TEST
     assert "required_distinct_post_reboot_boots = 2" in TEST
+
+
+def test_status_uses_shared_native_helper_and_never_reads_secret() -> None:
+    lowered = STATUS.lower()
+    assert '"storage-auth-native.ps1"' in lowered
+    assert ". $nativehelper" in lowered
+    assert "test-bodyrigdomaincredential" in lowered
+    assert "get-bodyrigdomaincredentialmaxpersist" in lowered
+    assert "get-credential" not in lowered
+    assert "securestringtobstr" not in lowered
+    assert "cmdkey" not in lowered
 
 
 def test_post_reboot_verifier_requires_a_new_boot_and_two_unique_passes() -> None:
