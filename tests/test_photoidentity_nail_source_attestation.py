@@ -69,7 +69,7 @@ def test_ref_parser_keeps_domain_types_separate() -> None:
         )
 
 
-def test_fingernail_attestation_requires_two_scenes_and_both_sides(tmp_path: Path) -> None:
+def test_fingernail_attestation_accepts_two_scenes_with_both_sides(tmp_path: Path) -> None:
     sweep = tmp_path / "sweep"
     left_id = "nailcand-" + "a" * 32
     right_id = "nailcand-" + "b" * 32
@@ -94,12 +94,29 @@ def test_fingernail_attestation_requires_two_scenes_and_both_sides(tmp_path: Pat
     )
     assert {item["scene_id"] for item in selected} == {"scene-1", "scene-2"}
 
+
+def test_two_scenes_from_only_one_side_are_still_insufficient(tmp_path: Path) -> None:
+    sweep = tmp_path / "sweep"
+    first_id = "nailcand-" + "3" * 32
+    second_id = "nailcand-" + "4" * 32
+    first_public, first_private = _fixture_candidate(
+        sweep,
+        candidate_id=first_id,
+        scene_id="scene-1",
+        region="left_fingernails",
+    )
+    second_public, second_private = _fixture_candidate(
+        sweep,
+        candidate_id=second_id,
+        scene_id="scene-2",
+        region="left_fingernails",
+    )
     with pytest.raises(PhotoIdentityNailAttestationError, match="both left and right"):
         _verify_selected_refs(
             sweep_root=sweep,
-            public_map={left_id: left_public, right_id: right_public},
-            private_map={left_id: left_private, right_id: right_private},
-            refs=[(left_id, "left_fingernails")],
+            public_map={first_id: first_public, second_id: second_public},
+            private_map={first_id: first_private, second_id: second_private},
+            refs=[(first_id, "left_fingernails"), (second_id, "left_fingernails")],
             domain="fingernails_detail",
         )
 
@@ -158,7 +175,7 @@ def test_subthreshold_upscaled_candidate_cannot_be_attested(tmp_path: Path) -> N
         )
 
 
-def test_tampered_closeup_or_source_media_fails_closed(tmp_path: Path) -> None:
+def test_tampered_closeup_fails_closed(tmp_path: Path) -> None:
     sweep = tmp_path / "sweep"
     left_id = "nailcand-" + "1" * 32
     right_id = "nailcand-" + "2" * 32
