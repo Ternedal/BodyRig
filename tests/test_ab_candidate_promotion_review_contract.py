@@ -36,7 +36,7 @@ def test_promotion_is_bound_to_exact_reviewed_lineage() -> None:
     assert "Assert-Ancestor -Ancestor $ExpectedFailedThroughputRevision -Descendant $ExpectedFixedThroughputRevision" in SCRIPT
 
 
-def test_pbr_promotion_requires_the_real_human_right_decision() -> None:
+def test_pbr_promotion_requires_the_real_human_right_decision_and_gate_bytes() -> None:
     assert "Join-Path $PbrRunDir 'human-review.json'" in SCRIPT
     assert "Join-Path $PbrRunDir 'plan-bound-human-review-authority.json'" in SCRIPT
     assert "[string]$pbrReview.decision -ne 'right'" in SCRIPT
@@ -44,6 +44,8 @@ def test_pbr_promotion_requires_the_real_human_right_decision() -> None:
     assert "[string]$retry.pbr_decision -ne 'right'" in SCRIPT
     assert "retry.pbr_human_review_authority_sha256" in SCRIPT
     assert "retry.pbr_human_review_sha256" in SCRIPT
+    assert "original_pbr_to_throughput_gate_sha256" in SCRIPT
+    assert "$ExpectedFailedCandidateJobId-pbr-gate.json" in SCRIPT
 
 
 def test_throughput_promotion_requires_real_no_regression_human_review() -> None:
@@ -57,6 +59,21 @@ def test_throughput_promotion_requires_real_no_regression_human_review() -> None
     assert "continuation_authority_sha256" in SCRIPT
     assert "human_review_sha256" in SCRIPT
     assert "retry_authority_sha256" in SCRIPT
+
+
+def test_throughput_terminal_machine_and_bundle_bytes_are_rehashed() -> None:
+    assert "Join-Path $ThroughputRunDir 'machine-audit.json'" in SCRIPT
+    assert "Join-Path $ThroughputRunDir 'review-bundle\\review-bundle.json'" in SCRIPT
+    assert "machine_evidence_pass -ne $true" in SCRIPT
+    assert "frames.reduction_observed -ne $true" in SCRIPT
+    assert "source_authority_equal -ne $true" in SCRIPT
+    assert "observation_selection_equal -ne $true" in SCRIPT
+    assert "native_observation_segment_bytes_equal -ne $true" in SCRIPT
+    assert "recovery_track_equal -ne $true" in SCRIPT
+    assert "continuation.machine_audit_sha256" in SCRIPT
+    assert "throughputReview.machine_audit_sha256" in SCRIPT
+    assert "continuation.review_bundle_receipt_sha256" in SCRIPT
+    assert "throughputReview.review_bundle_receipt_sha256" in SCRIPT
 
 
 def test_candidate_diffs_are_closed_to_reviewed_file_sets() -> None:
@@ -92,11 +109,12 @@ def test_candidate_diffs_are_closed_to_reviewed_file_sets() -> None:
     assert "Assert-ExactFileSet -Base $ExpectedBaselineRevision -Head $ExpectedFixedThroughputRevision" in SCRIPT
 
 
-def test_promotion_refreshes_exact_remote_refs_and_rechecks_job_bytes() -> None:
-    assert "git -C $RepoRoot fetch --no-tags origin @fetchSpecs" in SCRIPT
+def test_promotion_refreshes_exact_remote_refs_twice_and_rechecks_job_bytes() -> None:
+    assert SCRIPT.count("git -C $RepoRoot fetch --no-tags origin @fetchSpecs") == 2
     assert "Assert-RemoteRef -Ref 'main' -Expected $ExpectedBaselineRevision" in SCRIPT
     assert "Assert-RemoteRef -Ref $ExpectedPbrRef -Expected $ExpectedPbrRevision" in SCRIPT
     assert "Assert-RemoteRef -Ref $ExpectedFailedThroughputRef -Expected $ExpectedFailedThroughputRevision" in SCRIPT
     assert "Assert-RemoteRef -Ref $ExpectedFixedThroughputRef -Expected $ExpectedFixedThroughputRevision" in SCRIPT
     assert "continuation.baseline_job_json_sha256" in SCRIPT
     assert "continuation.candidate_job_json_sha256" in SCRIPT
+    assert "post-review checkout HEAD" in SCRIPT
