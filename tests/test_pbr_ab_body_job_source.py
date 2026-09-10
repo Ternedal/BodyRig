@@ -213,7 +213,7 @@ def _git_ok(_repo: Path, *args: str) -> str:
 
 
 def test_valid_succeeded_revision_bound_body_job_is_safe_retained_source(tmp_path: Path, monkeypatch) -> None:
-    repo, _job_root, job = _setup(tmp_path, monkeypatch)
+    repo, job_root, job = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(source, "_git", _git_ok)
 
     assert not (job_root / "fidelity-review" / "review.json").exists()

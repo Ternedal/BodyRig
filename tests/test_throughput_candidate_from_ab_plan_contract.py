@@ -153,4 +153,4 @@ def test_canonical_launcher_ignores_diagnostics_and_selects_one_typed_machine_re
     assert 'exactly one canonical machine-readable result' in WRAPPER
     assert '$started = $machineResults[0]' in WRAPPER
     assert '[Console]::Out.WriteLine(($started | ConvertTo-Json -Depth 30 -Compress))' in WRAPPER
-    assert '$raw.Count -ne 1' not in WRAPPER
+    assert 'if ($raw.Count -ne 1) { throw "Internal throughput candidate launcher did not return exactly one machine-readable result." }' not in WRAPPER
