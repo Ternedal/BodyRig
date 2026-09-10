@@ -314,8 +314,9 @@ def inspect_body_job_source(
         raise PbrAbBodyJobSourceError("succeeded A/B body job lacks canonical SiTH fitter config")
     if not (acceptance_dir / "bodyrig-acceptance.json").is_file():
         raise PbrAbBodyJobSourceError("succeeded A/B body job lacks Gate A evidence")
-    if not (fidelity_dir / "review.json").is_file():
-        raise PbrAbBodyJobSourceError("succeeded A/B body job lacks fidelity review evidence")
+    # The authoritative body fidelity review is persisted under the Person Library
+    # and verified below against job.body_review_sha256. The per-job fidelity
+    # directory is renderer evidence only; no duplicate review.json mirror is required.
 
     persisted = _verify_persisted_receipts(job=job, person_id=person_id)
 

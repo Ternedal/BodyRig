@@ -153,7 +153,6 @@ def _setup(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict]:
         directory.mkdir(parents=True, exist_ok=True)
     _write_json(clone_output / "bodyrig-sith-fitter-config.json", {"format": "fixture"})
     _write_json(acceptance / "bodyrig-acceptance.json", {"format": "fixture"})
-    _write_json(fidelity / "review.json", {"format": "fixture"})
 
     binding_path, review_path = _setup_persisted_person_evidence(local, clone_output)
 
@@ -217,6 +216,7 @@ def test_valid_succeeded_revision_bound_body_job_is_safe_retained_source(tmp_pat
     repo, _job_root, job = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(source, "_git", _git_ok)
 
+    assert not (job_root / "fidelity-review" / "review.json").exists()
     result = source.inspect_body_job_source(job_id=JOB_ID, repo_root=repo, expected_revision=REVISION)
 
     assert result["format"] == source.FORMAT

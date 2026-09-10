@@ -243,9 +243,26 @@ try {
 } finally {
     [Environment]::SetEnvironmentVariable("BODYRIG_PINNED_STASH_PERFORMER_ID", $oldPinnedPerformer, "Process")
 }
-if ($raw.Count -ne 1) { throw "Internal throughput candidate launcher did not return exactly one machine-readable result." }
-try { $started = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
-catch { throw "Internal throughput candidate launcher returned unreadable JSON." }
+$machineResults = @(
+    foreach ($item in $raw) {
+        $text = [string]$item
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        try { $candidateResult = $text | ConvertFrom-Json -Depth 30 } catch { continue }
+        $fields = @($candidateResult.PSObject.Properties.Name)
+        if (
+            $fields -contains "format" -and
+            $fields -contains "version" -and
+            [string]$candidateResult.format -eq "bodyrig-throughput-candidate-run-plan" -and
+            [int]$candidateResult.version -eq 1
+        ) {
+            $candidateResult
+        }
+    }
+)
+if ($machineResults.Count -ne 1) {
+    throw "Internal throughput candidate launcher did not return exactly one canonical machine-readable result."
+}
+$started = $machineResults[0]
 $candidateJobId = [string]$started.candidate_job_id
 if ([string]::IsNullOrWhiteSpace($candidateJobId)) { $candidateJobId = [string]$started.job_id }
 if ($candidateJobId -notmatch '^job-[0-9a-f]{32}$') { throw "Internal throughput candidate launcher did not return a canonical candidate job id." }
@@ -334,4 +351,4 @@ Write-Host "PBR-to-throughput gate: RECORDED"
 Write-Host "Stash performer: $([string]$gateAfter.stash_performer_id)"
 Write-Host "Gate receipt: $gateReceiptPath"
 Write-Host "Authority: PBR human review recorded; no physical acceptance, promotion or production activation."
-[Console]::Out.WriteLine(([string]$raw[0]))
+[Console]::Out.WriteLine(($started | ConvertTo-Json -Depth 30 -Compress))
