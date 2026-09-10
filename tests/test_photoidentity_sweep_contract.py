@@ -57,8 +57,21 @@ def test_collection_operator_reuses_and_repreflights_exact_pinned_sith_openpose_
     assert "bodyrig.sith_preflight" in source
     assert "--openpose-repo" in source
     assert "bodyrig.photoidentity_detail_enrich" in source
-    assert '"detail-evidence\\photoidentity-evidence.json"' in source
-    assert "pinned OpenPose BODY_25 + face + hands" in source
+
+
+def test_collection_operator_provisions_and_preflights_isolated_schp_then_uses_final_bundle() -> None:
+    source = (ROOT / "collect-photoidentity-evidence.ps1").read_text(encoding="utf-8")
+    assert "[string]$SchpRuntimeRoot" in source
+    assert "setup-photoidentity-schp-windows.ps1" in source
+    assert "bodyrig.photoidentity_schp_preflight" in source
+    assert "bodyrig.photoidentity_schp_enrich" in source
+    assert '"human-parsing-evidence\\photoidentity-evidence.json"' in source
+    assert '"human-parsing-evidence\\photoidentity-observations.json"' in source
+    assert "SCHP proof:     hair/hairline + exposed source-skin observability" in source
+
+    final_report = source.index('"human-parsing-evidence\\photoidentity-evidence.json"')
+    status_table = source.index("PHOTOIDENTITY SOURCE SUFFICIENCY")
+    assert final_report < status_table
 
 
 def test_collection_operator_can_fail_closed_when_called_as_a_gate() -> None:

@@ -6,6 +6,7 @@ param(
     [string]$StashUrl = "",
     [string]$ApiKeyEnv = "STASH_API_KEY",
     [string]$Ffmpeg = "",
+    [string]$SchpRuntimeRoot = "",
     [ValidateRange(1, 1000)][int]$SceneLimit = 1000,
     [ValidateRange(1, 100)][int]$MaxSources = 50,
     [ValidateRange(1, 10)][int]$BatchSize = 10,
@@ -117,7 +118,7 @@ if ([string]::IsNullOrWhiteSpace($StashUrl)) { throw "Stash URL is required via 
 if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) { throw "ApiKeyEnv is required." }
 $Ffmpeg = Need-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
 
-Write-Host "BodyRig photoidentity detail runtime preflight"
+Write-Host "BodyRig photoidentity OpenPose detail runtime preflight"
 & $BodyRigPython -m bodyrig.sith_preflight `
   --distribution $SithDistribution `
   --repo $SithRepo `
@@ -126,6 +127,21 @@ Write-Host "BodyRig photoidentity detail runtime preflight"
   --openpose-repo $SithOpenPoseRepo `
   --wsl-exe $WslExe
 if ($LASTEXITCODE -ne 0) { throw "Pinned SiTH/OpenPose detail runtime preflight failed with exit code $LASTEXITCODE." }
+
+if ([string]::IsNullOrWhiteSpace($SchpRuntimeRoot)) {
+    $base = [string]$env:LOCALAPPDATA
+    if ([string]::IsNullOrWhiteSpace($base)) { throw "LOCALAPPDATA is required for the default isolated SCHP runtime." }
+    $SchpRuntimeRoot = Join-Path $base "BodyRig\runtimes\schp-atr18-v1"
+}
+$SchpRuntimeRoot = [IO.Path]::GetFullPath($SchpRuntimeRoot)
+$setupSchp = Need-File -Path (Join-Path $repoRoot "setup-photoidentity-schp-windows.ps1") -Label "SCHP provisioning operator"
+if (-not (Test-Path -LiteralPath $SchpRuntimeRoot -PathType Container)) {
+    Write-Host "BodyRig SCHP runtime is not provisioned; creating isolated pinned runtime."
+    & $setupSchp -RuntimeRoot $SchpRuntimeRoot -BodyRigPython $BodyRigPython
+    if ($LASTEXITCODE -ne 0) { throw "SCHP runtime provisioning failed with exit code $LASTEXITCODE." }
+}
+& $BodyRigPython -m bodyrig.photoidentity_schp_preflight --runtime-root $SchpRuntimeRoot
+if ($LASTEXITCODE -ne 0) { throw "Pinned SCHP runtime preflight failed with exit code $LASTEXITCODE." }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $base = [string]$env:LOCALAPPDATA
@@ -146,7 +162,8 @@ Write-Host "Revision:       $head"
 Write-Host "Performer:      $PerformerId"
 Write-Host "Scene limit:    $SceneLimit"
 Write-Host "Source budget:  $MaxSources (batches of $BatchSize)"
-Write-Host "Detail proof:   pinned OpenPose BODY_25 + face + hands (eyes/hands/feet only)"
+Write-Host "OpenPose proof: eyes + both hands + both feet"
+Write-Host "SCHP proof:     hair/hairline + exposed source-skin observability"
 Write-Host "Output:         $OutputDir"
 Write-Host "Policy:         no generic guessing; no reconstruction/render authority"
 Write-Host ""
@@ -180,11 +197,21 @@ $detailArgs = @(
 & $BodyRigPython @detailArgs
 if ($LASTEXITCODE -ne 0) { throw "BodyRig pinned OpenPose detail enrichment failed with exit code $LASTEXITCODE." }
 
-$reportPath = Need-File -Path (Join-Path $OutputDir "detail-evidence\photoidentity-evidence.json") -Label "Enriched photoidentity sufficiency report"
-$observationPath = Need-File -Path (Join-Path $OutputDir "detail-evidence\photoidentity-observations.json") -Label "Enriched photoidentity observation evidence"
+$schpArgs = @(
+    "-m", "bodyrig.photoidentity_schp_enrich",
+    "--sweep-root", $OutputDir,
+    "--runtime-root", $SchpRuntimeRoot,
+    "--ffmpeg", $Ffmpeg,
+    "--repo-root", $repoRoot
+)
+& $BodyRigPython @schpArgs
+if ($LASTEXITCODE -ne 0) { throw "BodyRig pinned SCHP enrichment failed with exit code $LASTEXITCODE." }
+
+$reportPath = Need-File -Path (Join-Path $OutputDir "human-parsing-evidence\photoidentity-evidence.json") -Label "Final photoidentity sufficiency report"
+$observationPath = Need-File -Path (Join-Path $OutputDir "human-parsing-evidence\photoidentity-observations.json") -Label "Final photoidentity observation evidence"
 $validateCode = "import json,sys; from bodyrig.photoidentity_evidence import validate_bundle; r=validate_bundle(sys.argv[1],sys.argv[2]); print(json.dumps(r,separators=(',',':')))"
 $validatedRaw = @(& $BodyRigPython -c $validateCode $reportPath $observationPath)
-if ($LASTEXITCODE -ne 0 -or $validatedRaw.Count -ne 1) { throw "Photoidentity enriched evidence bundle failed strict validation." }
+if ($LASTEXITCODE -ne 0 -or $validatedRaw.Count -ne 1) { throw "Photoidentity final evidence bundle failed strict validation." }
 try { $report = ([string]$validatedRaw[0]) | ConvertFrom-Json -Depth 30 }
 catch { throw "Photoidentity evidence validator returned unreadable JSON." }
 
