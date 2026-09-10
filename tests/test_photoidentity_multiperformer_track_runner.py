@@ -136,5 +136,6 @@ def test_runner_reuses_atomic_wsl_file_protocol_and_never_invokes_reconstruction
     assert "bodyrig-recovery-request" in text
     assert "sith" not in lowered
     assert "unity" not in lowered
-    assert "quest" not in lowered
+    assert "run-quest" not in lowered
+    assert "quest-renderer" not in lowered
     assert "production_activation" in lowered
