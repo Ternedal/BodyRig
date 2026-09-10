@@ -28,7 +28,7 @@ from .photoidentity_multiperformer_track_runner import (
     validate_track_review_batch,
 )
 
-FORMAT = "bodyrig-photoidentity-multiperformer-target-isolated-source"
+FORMAT = "bodyrig-photoidentity-multiperformer-target-isolation-candidates"
 VERSION = 1
 PRIVATE_FORMAT = "bodyrig-photoidentity-private-multiperformer-target-source-index"
 PRIVATE_VERSION = 1
@@ -228,7 +228,6 @@ def isolate_human_attested_track_source(
     selected_track_id = str(receipt["selected_track_id"])
     source_media_sha = str(receipt["source_media_sha256"])
 
-    # Exclusive top-level mkdir makes publication no-clobber even under races.
     out.mkdir(exist_ok=False)
     private_root = out / "private-target-source"
     private_root.mkdir()
@@ -295,36 +294,6 @@ def isolate_human_attested_track_source(
                 }
             )
 
-        public_manifest = {
-            "format": FORMAT,
-            "version": VERSION,
-            "bodyrig_revision": revision,
-            "performer_id": str(receipt["performer_id"]),
-            "scene_id": str(receipt["scene_id"]),
-            "source_candidate_id": str(receipt["source_candidate_id"]),
-            "source_media_sha256": source_media_sha,
-            "human_track_attestation_sha256": _sha256_file(receipt_path),
-            "public_review_manifest_sha256": str(receipt["public_review_manifest_sha256"]),
-            "private_review_index_sha256": str(receipt["private_review_index_sha256"]),
-            "machine_track_review_sha256": str(receipt["machine_track_review_sha256"]),
-            "track_candidate_id": track_candidate_id,
-            "selected_track_id": selected_track_id,
-            "sample_count": len(public_rows),
-            "samples": public_rows,
-            "target_track_identity_attested": True,
-            "source_frames_human_review_bound": True,
-            "all_samples_phalp_observed": True,
-            "bbox_interpolation_used": False,
-            "source_pixels_resized": False,
-            "occlusion_removal_used": False,
-            "generative_pixels_used": False,
-            "biometric_identity_inference_used": False,
-            "generic_guessing_permitted": False,
-            "target_isolated_source_authority": True,
-            "photoidentity_source_evidence_authority": False,
-            "reconstruction_permitted": False,
-            "production_activation": False,
-        }
         private_index = {
             "format": PRIVATE_FORMAT,
             "version": PRIVATE_VERSION,
@@ -332,6 +301,7 @@ def isolate_human_attested_track_source(
             "performer_id": str(receipt["performer_id"]),
             "scene_id": str(receipt["scene_id"]),
             "source_media_sha256": source_media_sha,
+            "review_root": str(root),
             "source_path": str(Path(str(private["source_path"])).expanduser().resolve()),
             "track_candidate_id": track_candidate_id,
             "selected_track_id": selected_track_id,
@@ -345,8 +315,39 @@ def isolate_human_attested_track_source(
             encoding="utf-8",
             newline="\n",
         )
-        public_manifest["private_target_source_index_sha256"] = _sha256_file(private_path)
-        public_path = out / "multiperformer-target-isolated-source.json"
+        public_manifest = {
+            "format": FORMAT,
+            "version": VERSION,
+            "bodyrig_revision": revision,
+            "performer_id": str(receipt["performer_id"]),
+            "scene_id": str(receipt["scene_id"]),
+            "source_candidate_id": str(receipt["source_candidate_id"]),
+            "source_media_sha256": source_media_sha,
+            "human_track_attestation_sha256": _sha256_file(receipt_path),
+            "public_review_manifest_sha256": str(receipt["public_review_manifest_sha256"]),
+            "private_review_index_sha256": str(receipt["private_review_index_sha256"]),
+            "machine_track_review_sha256": str(receipt["machine_track_review_sha256"]),
+            "private_target_source_index_sha256": _sha256_file(private_path),
+            "track_candidate_id": track_candidate_id,
+            "selected_track_id": selected_track_id,
+            "sample_count": len(public_rows),
+            "samples": public_rows,
+            "target_track_identity_attested": True,
+            "source_frames_human_review_bound": True,
+            "all_samples_phalp_observed": True,
+            "bbox_interpolation_used": False,
+            "source_pixels_resized": False,
+            "occlusion_removal_used": False,
+            "generative_pixels_used": False,
+            "biometric_identity_inference_used": False,
+            "generic_guessing_permitted": False,
+            "target_isolation_human_review_required": True,
+            "target_isolated_source_authority": False,
+            "photoidentity_source_evidence_authority": False,
+            "reconstruction_permitted": False,
+            "production_activation": False,
+        }
+        public_path = out / "multiperformer-target-isolation-candidates.json"
         public_path.write_text(
             json.dumps(public_manifest, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
             encoding="utf-8",
@@ -365,7 +366,7 @@ def isolate_human_attested_track_source(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Materialize only the exact human-reviewed PHALP track samples as native source crops."
+        description="Materialize native source-crop candidates for a human-attested PHALP track without granting isolation authority."
     )
     parser.add_argument("--review-root", required=True)
     parser.add_argument("--output-dir", required=True)
@@ -378,13 +379,13 @@ def main(argv: list[str] | None = None) -> int:
             current_revision=args.current_revision,
         )
         print(result["public_manifest"])
-        print(f"Target-isolated source samples: {result['sample_count']}")
-        print("Target-isolated source authority: TRUE")
+        print(f"Target-isolation source candidates: {result['sample_count']}")
+        print("Target-isolated source authority: FALSE (human isolation review required)")
         print("Photoidentity source sufficiency authority: FALSE")
         print("Reconstruction permitted: FALSE")
         return 0
     except (OSError, ValueError, PhotoIdentityMultiTargetIsolationError) as exc:
-        print(f"BodyRig multi-performer target isolation: FAIL: {exc}", file=sys.stderr)
+        print(f"BodyRig multi-performer target isolation candidate materialization: FAIL: {exc}", file=sys.stderr)
         return 1
 
 
