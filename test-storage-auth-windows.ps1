@@ -19,6 +19,10 @@ if ($MarkPreReboot -and -not $ResetConnections) {
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$nativeHelper = Join-Path $repoRoot "storage-auth-native.ps1"
+if (-not (Test-Path -LiteralPath $nativeHelper -PathType Leaf)) { throw "BodyRig native storage credential helper is missing: $nativeHelper" }
+. $nativeHelper
+
 $head = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or ([string]$head[0]).Trim() -notmatch '^[0-9a-fA-F]{40}$') {
     throw "Could not bind storage proof to exact BodyRig Git HEAD."
@@ -60,28 +64,11 @@ if (-not [string]::Equals($stashUri.Host, $storageHost, [StringComparison]::Ordi
 if (-not [string]::Equals($credentialTarget, $storageHost.ToLowerInvariant(), [StringComparison]::Ordinal)) {
     throw "Storage credential target does not exactly match the UNC host authority."
 }
-
-if (-not ("BodyRig.NativeCredentialProbe" -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-namespace BodyRig {
-    public static class NativeCredentialProbe {
-        [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool CredRead(string target, UInt32 type, UInt32 flags, out IntPtr credentialPtr);
-        [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = false)]
-        private static extern void CredFree(IntPtr buffer);
-        public static bool Exists(string target) {
-            IntPtr ptr;
-            if (!CredRead(target, 2, 0, out ptr)) return false;
-            CredFree(ptr);
-            return true;
-        }
-    }
+$maxPersist = [int](Get-BodyRigDomainCredentialMaxPersist)
+if ($maxPersist -lt 2) {
+    throw "Windows policy no longer permits LOCAL_MACHINE-or-stronger persistence for domain passwords."
 }
-'@
-}
-if (-not [BodyRig.NativeCredentialProbe]::Exists($credentialTarget)) {
+if (-not (Test-BodyRigDomainCredential -Target $credentialTarget)) {
     throw "Windows Credential Manager has no domain-password credential for '$credentialTarget'."
 }
 
@@ -174,6 +161,7 @@ $proof = [ordered]@{
     real_stash_source_decode = $true
     usable_source_count = [int]$probe.usable_source_count
     decode_gate = [string]$probe.decode_gate
+    maximum_supported_persist = $maxPersist
     secret_persisted_in_proof = $false
 }
 $temp = "$sessionProofPath.tmp-$([Guid]::NewGuid().ToString('N'))"
@@ -192,6 +180,7 @@ if ($MarkPreReboot) {
         tested_utc = [DateTime]::UtcNow.ToString("o")
         fresh_smb_session_proved = $true
         real_stash_source_decode = $true
+        maximum_supported_persist = $maxPersist
         required_distinct_post_reboot_boots = 2
         secret_persisted_in_proof = $false
     }
@@ -206,5 +195,6 @@ Write-Host "Fresh SMB session:    $([bool]$ResetConnections)"
 Write-Host "Stash path map:       PASS"
 Write-Host "Real source decode:   PASS ($([int]$probe.usable_source_count) usable source(s))"
 Write-Host "Credential prompt:    FALSE"
+Write-Host "Persist policy:       $maxPersist"
 Write-Host "Boot:                 $boot"
 if ($MarkPreReboot) { Write-Host "Pre-reboot baseline:  RECORDED" }
