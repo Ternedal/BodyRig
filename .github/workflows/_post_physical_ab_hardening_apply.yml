@@ -22,6 +22,19 @@ jobs:
       - name: Apply exact reviewed hardening transforms
         run: python tools/_post_physical_ab_hardening_patch.py
 
+      - name: Normalize test EOFs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in (
+              "tests/test_pbr_ab_physical_runner_contract.py",
+              "tests/test_throughput_candidate_from_ab_plan_contract.py",
+              "tests/test_watch_body_build_contract.py",
+          ):
+              path = Path(name)
+              path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          PY
+
       - name: Commit permanent fixes only
         run: |
           git config user.name "github-actions[bot]"
