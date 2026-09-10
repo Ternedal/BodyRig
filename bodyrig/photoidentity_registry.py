@@ -10,15 +10,20 @@ from typing import Any
 
 from .photoidentity_authority import validate_authoritative_bundle
 from .photoidentity_evidence import PhotoIdentityEvidenceError
+from .photoidentity_source_chain import POLICY_REVISION as SOURCE_CHAIN_POLICY_REVISION
+from .photoidentity_source_chain import validate_registration_source_chain
 from .storage import ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs
 
 FORMAT = "bodyrig-photoidentity-body-job-authority"
-VERSION = 1
+VERSION = 2
 DIRNAME = "photoidentity-evidence"
 RECEIPT_NAME = "photoidentity-authority.json"
 REPORT_NAME = "photoidentity-evidence.json"
 OBSERVATIONS_NAME = "photoidentity-observations.json"
+SOURCE_AUTHORITY_DIRNAME = "source-authority"
+NAIL_ATTESTATION_NAME = "nail-source-attestation.json"
+ANATOMY_ATTESTATION_NAME = "anatomy-source-attestation.json"
 
 
 class PhotoIdentityRegistryError(RuntimeError):
@@ -91,6 +96,25 @@ def _write_json_create_only(path: Path, value: dict[str, Any]) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _persisted_human_receipt(path: Path, *, expected_format: str, expected_sha: str, label: str) -> dict[str, Any]:
+    if _sha256(path) != expected_sha:
+        raise PhotoIdentityRegistryError(f"registered {label} receipt hash mismatch")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PhotoIdentityRegistryError(f"registered {label} receipt is invalid JSON") from exc
+    if not isinstance(value, dict) or (
+        value.get("format") != expected_format
+        or value.get("version") != 1
+        or value.get("operator_supplied") is not True
+        or value.get("source_grounded") is not True
+        or value.get("generic_guessing_permitted") is not False
+        or value.get("production_activation") is not False
+    ):
+        raise PhotoIdentityRegistryError(f"registered {label} receipt authority boundary is invalid")
+    return value
+
+
 def register_body_job_photoidentity_evidence(
     body_job_id: str,
     *,
@@ -105,14 +129,14 @@ def register_body_job_photoidentity_evidence(
         else report_source.with_name(OBSERVATIONS_NAME)
     )
     try:
-        report = validate_authoritative_bundle(
+        chain = validate_registration_source_chain(
             report_source,
             observations_source,
-            require_sufficient=True,
             expected_performer_id=performer_id,
             expected_bodyrig_revision=revision,
             expected_baseline_source_manifest_sha256=baseline_sha,
         )
+        report = chain["report"]
     except PhotoIdentityEvidenceError as exc:
         raise PhotoIdentityRegistryError(str(exc)) from exc
 
@@ -124,14 +148,22 @@ def register_body_job_photoidentity_evidence(
     root.mkdir(parents=True, exist_ok=False)
     destination_report = root / REPORT_NAME
     destination_observations = root / OBSERVATIONS_NAME
+    source_authority_root = root / SOURCE_AUTHORITY_DIRNAME
+    source_authority_root.mkdir()
+    destination_nail_receipt = source_authority_root / NAIL_ATTESTATION_NAME
+    destination_anatomy_receipt = source_authority_root / ANATOMY_ATTESTATION_NAME
     receipt_path = root / RECEIPT_NAME
     try:
         shutil.copyfile(report_source, destination_report)
         shutil.copyfile(observations_source, destination_observations)
+        shutil.copyfile(Path(str(chain["nail_attestation"])), destination_nail_receipt)
+        shutil.copyfile(Path(str(chain["anatomy_attestation"])), destination_anatomy_receipt)
         if _sha256(destination_report) != _sha256(report_source) or _sha256(destination_observations) != _sha256(observations_source):
-            raise PhotoIdentityRegistryError("photoidentity registry copy hash mismatch")
-        # Revalidate the persisted bytes, including exact adapter/domain authority,
-        # not just their source copies.
+            raise PhotoIdentityRegistryError("photoidentity registry evidence copy hash mismatch")
+        if _sha256(destination_nail_receipt) != str(chain["nail_attestation_sha256"]):
+            raise PhotoIdentityRegistryError("photoidentity registry nail receipt copy hash mismatch")
+        if _sha256(destination_anatomy_receipt) != str(chain["anatomy_attestation_sha256"]):
+            raise PhotoIdentityRegistryError("photoidentity registry anatomy receipt copy hash mismatch")
         persisted = validate_authoritative_bundle(
             destination_report,
             destination_observations,
@@ -139,6 +171,18 @@ def register_body_job_photoidentity_evidence(
             expected_performer_id=performer_id,
             expected_bodyrig_revision=revision,
             expected_baseline_source_manifest_sha256=baseline_sha,
+        )
+        _persisted_human_receipt(
+            destination_nail_receipt,
+            expected_format="bodyrig-photoidentity-nail-source-attestation",
+            expected_sha=str(chain["nail_attestation_sha256"]),
+            label="nail source attestation",
+        )
+        _persisted_human_receipt(
+            destination_anatomy_receipt,
+            expected_format="bodyrig-photoidentity-anatomy-source-attestation",
+            expected_sha=str(chain["anatomy_attestation_sha256"]),
+            label="anatomy source attestation",
         )
         receipt = {
             "format": FORMAT,
@@ -150,6 +194,9 @@ def register_body_job_photoidentity_evidence(
             "baseline_source_manifest_sha256": baseline_sha,
             "observation_evidence_sha256": _sha256(destination_observations),
             "sufficiency_report_sha256": _sha256(destination_report),
+            "source_chain_policy_revision": SOURCE_CHAIN_POLICY_REVISION,
+            "nail_attestation_sha256": _sha256(destination_nail_receipt),
+            "anatomy_attestation_sha256": _sha256(destination_anatomy_receipt),
             "source_evidence_sufficient": persisted["source_evidence_sufficient"],
             "reconstruction_permitted": persisted["reconstruction_permitted"],
             "human_review_render_permitted": persisted["human_review_render_permitted"],
@@ -171,9 +218,11 @@ def require_body_job_photoidentity_evidence(person_id: str, body_job_id: str) ->
     receipt_path = root / RECEIPT_NAME
     report_path = root / REPORT_NAME
     observations_path = root / OBSERVATIONS_NAME
-    if not receipt_path.is_file() or not report_path.is_file() or not observations_path.is_file():
+    nail_receipt_path = root / SOURCE_AUTHORITY_DIRNAME / NAIL_ATTESTATION_NAME
+    anatomy_receipt_path = root / SOURCE_AUTHORITY_DIRNAME / ANATOMY_ATTESTATION_NAME
+    if not all(path.is_file() for path in (receipt_path, report_path, observations_path, nail_receipt_path, anatomy_receipt_path)):
         raise PhotoIdentityRegistryError(
-            "photoidentity source sufficiency is not registered for this body-build; high-fidelity preview remains blocked"
+            "photoidentity source sufficiency is not fully registered for this body-build; high-fidelity preview remains blocked"
         )
     try:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -189,6 +238,9 @@ def require_body_job_photoidentity_evidence(person_id: str, body_job_id: str) ->
         "baseline_source_manifest_sha256",
         "observation_evidence_sha256",
         "sufficiency_report_sha256",
+        "source_chain_policy_revision",
+        "nail_attestation_sha256",
+        "anatomy_attestation_sha256",
         "source_evidence_sufficient",
         "reconstruction_permitted",
         "human_review_render_permitted",
@@ -205,6 +257,9 @@ def require_body_job_photoidentity_evidence(person_id: str, body_job_id: str) ->
         "baseline_source_manifest_sha256": baseline_sha,
         "observation_evidence_sha256": _sha256(observations_path),
         "sufficiency_report_sha256": _sha256(report_path),
+        "source_chain_policy_revision": SOURCE_CHAIN_POLICY_REVISION,
+        "nail_attestation_sha256": _sha256(nail_receipt_path),
+        "anatomy_attestation_sha256": _sha256(anatomy_receipt_path),
         "source_evidence_sufficient": True,
         "reconstruction_permitted": True,
         "human_review_render_permitted": True,
@@ -214,6 +269,18 @@ def require_body_job_photoidentity_evidence(person_id: str, body_job_id: str) ->
     for field, value in expected.items():
         if receipt.get(field) != value:
             raise PhotoIdentityRegistryError(f"photoidentity body-job authority mismatch: {field}")
+    _persisted_human_receipt(
+        nail_receipt_path,
+        expected_format="bodyrig-photoidentity-nail-source-attestation",
+        expected_sha=str(receipt["nail_attestation_sha256"]),
+        label="nail source attestation",
+    )
+    _persisted_human_receipt(
+        anatomy_receipt_path,
+        expected_format="bodyrig-photoidentity-anatomy-source-attestation",
+        expected_sha=str(receipt["anatomy_attestation_sha256"]),
+        label="anatomy source attestation",
+    )
     try:
         return validate_authoritative_bundle(
             report_path,
