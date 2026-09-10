@@ -28,13 +28,16 @@ def test_schp_cannot_claim_anatomy_rear_or_nails() -> None:
     } <= blocked
 
 
-def test_setup_does_not_vendor_model_bytes_and_requires_hash_verification() -> None:
+def test_setup_reads_single_source_contract_and_verifies_downloaded_model_hash() -> None:
     source = (ROOT / "setup-photoidentity-schp-windows.ps1").read_text(encoding="utf-8")
     lowered = source.lower()
-    assert contract.MODEL_SHA256 in source
+    assert "bodyrig.photoidentity_schp_contract import *" in source
+    assert '"model_sha256": MODEL_SHA256' in source
     assert "invoke-webrequest" in lowered
     assert "get-filehash" in lowered
-    assert "sha256" in lowered
+    assert "-algorithm sha256" in lowered
+    assert "contract.model_sha256" in lowered
+    assert "contract.model_size" in lowered
     assert ".onnx" in lowered
     assert "production_activation" not in lowered
 
