@@ -265,3 +265,42 @@ def test_post_enqueue_expected_revision_check_rejects_ref_drift(monkeypatch) -> 
             expected_pbr_revision="e" * 40,
             expected_throughput_revision=THROUGHPUT,
         )
+
+
+def test_completed_v1_cycle_blocks_new_baseline_without_rewriting_historical_contract() -> None:
+    lifecycle_path = ROOT / "contracts" / "ab-baseline-cycle-state-v1.json"
+    lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
+    contract_sha = __import__("hashlib").sha256(CONTRACT_PATH.read_bytes()).hexdigest()
+
+    assert lifecycle == {
+        "format": "bodyrig-ab-baseline-cycle-state",
+        "version": 1,
+        "cycle_id": "pbr-v3-throughput-v3-20260910",
+        "state": "completed-promoted",
+        "candidate_contract_path": "contracts/ab-baseline-candidates-v1.json",
+        "candidate_contract_sha256": "fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4",
+        "pbr_candidate_revision": "fe2db94b8ae3be51938a7b302361bcf5fdec5f48",
+        "throughput_candidate_revision": "5fa01deb08399fda64e83db1329d4d2e83ad1bc2",
+        "promotion_receipt_sha256": "2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d",
+        "historical_contract_immutable": True,
+        "future_cycle_requires_new_contract_version": True,
+        "comparison_only": True,
+        "physical_acceptance_authority": False,
+        "production_activation": False,
+        "release_authority": False,
+    }
+    assert contract_sha == lifecycle["candidate_contract_sha256"]
+    with pytest.raises(ab.AbBaselineCandidateError, match="completed/promoted and archived"):
+        ab._assert_cycle_open(ROOT, contract_sha)
+
+
+def test_new_baseline_lifecycle_check_rejects_historical_contract_tamper(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    contract = repo / "contracts" / "ab-baseline-candidates-v1.json"
+    state = repo / "contracts" / "ab-baseline-cycle-state-v1.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text("tampered", encoding="utf-8")
+    lifecycle = json.loads((ROOT / "contracts" / "ab-baseline-cycle-state-v1.json").read_text(encoding="utf-8"))
+    state.write_text(json.dumps(lifecycle), encoding="utf-8")
+    with pytest.raises(ab.AbBaselineCandidateError, match="historical A/B v1 candidate contract bytes changed"):
+        ab._assert_cycle_open(repo, "0" * 64)

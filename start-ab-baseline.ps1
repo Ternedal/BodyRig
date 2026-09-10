@@ -25,7 +25,8 @@ function Invoke-CandidateAuthority {
         [Parameter(Mandatory = $true)][string]$Python,
         [string]$ExpectedMainRevision = "",
         [string]$ExpectedPbrRevision = "",
-        [string]$ExpectedThroughputRevision = ""
+        [string]$ExpectedThroughputRevision = "",
+        [switch]$RequireOpen
     )
 
     $oldPythonPath = [string]$env:PYTHONPATH
@@ -45,6 +46,7 @@ function Invoke-CandidateAuthority {
         }
 
         $pythonArgs = @("-m", "bodyrig.ab_baseline_candidates", "--repo-root", $RepoRoot)
+        if ($RequireOpen) { $pythonArgs += "--require-open" }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedMainRevision)) {
             $pythonArgs += @("--expected-main-revision", $ExpectedMainRevision)
         }
@@ -136,6 +138,9 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
+Write-Host "Checking A/B lifecycle before any physical preflight or enqueue..."
+[void](Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython -RequireOpen)
+
 $physicalPreflightScript = Need-File -Path (Join-Path $repoRoot "preflight-ab-baseline.ps1") -Label "A/B baseline physical preflight"
 $pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
 if ($null -eq $pwshCommand) { throw "PowerShell 7 executable (pwsh) was not found." }
@@ -176,7 +181,7 @@ if ($preflightPersonId -notmatch '^person-[0-9a-f]{32}$' -or [string]::IsNullOrW
 }
 
 Write-Host "Revalidating current main and both active A/B candidate byte contracts immediately before enqueue..."
-$preflight = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
+$preflight = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython -RequireOpen
 $mainRevision = [string]$preflight.main_revision
 $pbrRevision = [string]$preflight.candidates.pbr_v3.revision
 $throughputRevision = [string]$preflight.candidates.recovery_throughput_v3.revision

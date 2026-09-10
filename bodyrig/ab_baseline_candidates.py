@@ -13,6 +13,25 @@ from typing import Any
 FORMAT = "bodyrig-ab-baseline-candidate-contract"
 VERSION = 1
 CONTRACT_RELATIVE_PATH = Path("contracts/ab-baseline-candidates-v1.json")
+CYCLE_STATE_RELATIVE_PATH = Path("contracts/ab-baseline-cycle-state-v1.json")
+CYCLE_STATE_FORMAT = "bodyrig-ab-baseline-cycle-state"
+CYCLE_STATE_FIELDS = {
+    "format",
+    "version",
+    "cycle_id",
+    "state",
+    "candidate_contract_path",
+    "candidate_contract_sha256",
+    "pbr_candidate_revision",
+    "throughput_candidate_revision",
+    "promotion_receipt_sha256",
+    "historical_contract_immutable",
+    "future_cycle_requires_new_contract_version",
+    "comparison_only",
+    "physical_acceptance_authority",
+    "production_activation",
+    "release_authority",
+}
 EXPECTED_CANDIDATES = {"pbr_v3", "recovery_throughput_v3"}
 EXPECTED_TOP_LEVEL_FIELDS = {
     "format",
@@ -25,6 +44,7 @@ EXPECTED_TOP_LEVEL_FIELDS = {
     "production_activation",
 }
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REF_RE = re.compile(r"^candidate/[A-Za-z0-9._/-]+$")
 _PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
@@ -109,6 +129,52 @@ def _load_contract(repo_root: Path) -> tuple[dict[str, Any], str]:
     if not isinstance(value, dict):
         raise AbBaselineCandidateError("A/B candidate contract must be a JSON object")
     return value, hashlib.sha256(raw).hexdigest()
+
+def _assert_cycle_open(repo_root: Path, contract_sha256: str) -> None:
+    path = repo_root / CYCLE_STATE_RELATIVE_PATH
+    if not path.is_file():
+        raise AbBaselineCandidateError(
+            "A/B lifecycle state is missing; current v1 candidate authority cannot be assumed active. "
+            "Create a new versioned candidate contract and lifecycle state before starting another A/B baseline."
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AbBaselineCandidateError("A/B lifecycle state is not valid UTF-8 JSON") from exc
+    if not isinstance(value, dict) or set(value) != CYCLE_STATE_FIELDS:
+        raise AbBaselineCandidateError("A/B lifecycle state fields do not match the canonical v1 lifecycle contract")
+    if value.get("format") != CYCLE_STATE_FORMAT or value.get("version") != 1:
+        raise AbBaselineCandidateError("A/B lifecycle state format/version mismatch")
+    if value.get("candidate_contract_path") != CONTRACT_RELATIVE_PATH.as_posix():
+        raise AbBaselineCandidateError("A/B lifecycle state does not bind the historical v1 candidate contract")
+    expected_contract_sha = str(value.get("candidate_contract_sha256") or "").strip().lower()
+    if _SHA256_RE.fullmatch(expected_contract_sha) is None or expected_contract_sha != contract_sha256:
+        raise AbBaselineCandidateError("historical A/B v1 candidate contract bytes changed after cycle completion")
+    _revision(value.get("pbr_candidate_revision"), "completed-cycle PBR candidate revision")
+    _revision(value.get("throughput_candidate_revision"), "completed-cycle throughput candidate revision")
+    promotion_sha = str(value.get("promotion_receipt_sha256") or "").strip().lower()
+    if _SHA256_RE.fullmatch(promotion_sha) is None:
+        raise AbBaselineCandidateError("completed A/B cycle lacks canonical promotion receipt SHA-256")
+    if (
+        value.get("historical_contract_immutable") is not True
+        or value.get("future_cycle_requires_new_contract_version") is not True
+        or value.get("comparison_only") is not True
+        or value.get("physical_acceptance_authority") is not False
+        or value.get("production_activation") is not False
+        or value.get("release_authority") is not False
+    ):
+        raise AbBaselineCandidateError("A/B lifecycle state crosses the historical comparison-only authority boundary")
+    state = str(value.get("state") or "").strip()
+    if state == "completed-promoted":
+        raise AbBaselineCandidateError(
+            "A/B candidate cycle v1 is completed/promoted and archived; historical contract "
+            f"{CONTRACT_RELATIVE_PATH.as_posix()} remains immutable at SHA-256 {contract_sha256}. "
+            "Create a new versioned candidate contract and lifecycle state before starting another A/B baseline."
+        )
+    raise AbBaselineCandidateError(
+        f"A/B lifecycle state '{state}' is not an open cycle supported by the v1 launcher; "
+        "create/wire a new versioned candidate contract before starting another A/B baseline."
+    )
 
 
 def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -200,6 +266,7 @@ def inspect_candidate_authority(
     expected_main_revision: str | None = None,
     expected_pbr_revision: str | None = None,
     expected_throughput_revision: str | None = None,
+    require_open: bool = False,
 ) -> dict[str, Any]:
     repo = Path(repo_root).expanduser().resolve()
     if not repo.is_dir():
@@ -207,6 +274,8 @@ def inspect_candidate_authority(
 
     contract, contract_sha256 = _load_contract(repo)
     candidates = _validate_contract(contract)
+    if require_open:
+        _assert_cycle_open(repo, contract_sha256)
 
     branch = _git(repo, "branch", "--show-current").strip()
     if branch != "main":
@@ -304,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-main-revision")
     parser.add_argument("--expected-pbr-revision")
     parser.add_argument("--expected-throughput-revision")
+    parser.add_argument("--require-open", action="store_true")
     args = parser.parse_args(argv)
     try:
         result = inspect_candidate_authority(
@@ -311,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_main_revision=args.expected_main_revision,
             expected_pbr_revision=args.expected_pbr_revision,
             expected_throughput_revision=args.expected_throughput_revision,
+            require_open=args.require_open,
         )
     except AbBaselineCandidateError as exc:
         print(str(exc), file=sys.stderr)

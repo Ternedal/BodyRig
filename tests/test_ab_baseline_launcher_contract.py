@@ -61,3 +61,13 @@ def test_launcher_keeps_throughput_candidate_build_separate() -> None:
     assert "Throughput A/B still requires a separate succeeded body-build" in SCRIPT
     assert "run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '$jobId'" in SCRIPT
     assert "run-pbr-ab-from-body-job.ps1 -BaselineJobId '$jobId'" not in SCRIPT
+
+
+def test_new_baseline_paths_require_open_versioned_cycle_before_physical_work() -> None:
+    for source in (SCRIPT, PREFLIGHT):
+        assert '[switch]$RequireOpen' in source
+        assert 'if ($RequireOpen) { $pythonArgs += "--require-open" }' in source
+    assert 'Checking A/B lifecycle before any physical preflight or enqueue' in SCRIPT
+    assert SCRIPT.index('-RequireOpen') < SCRIPT.index('preflight-ab-baseline.ps1')
+    assert 'Validating A/B lifecycle and current candidate authority' in PREFLIGHT
+    assert 'Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython -RequireOpen' in PREFLIGHT
