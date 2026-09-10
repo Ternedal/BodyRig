@@ -30,6 +30,9 @@ catch { throw "Pre-reboot storage proof is unreadable JSON." }
 if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
     throw "Saved storage configuration has an unexpected format/version."
 }
+if ($storage.credential_write_completed -ne $true) {
+    throw "Saved storage credential bootstrap is incomplete; cold-boot evidence cannot be recorded."
+}
 $credentialGeneration = ([string]$storage.credential_generation).Trim().ToLowerInvariant()
 if ($credentialGeneration -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
     throw "Saved storage configuration lacks a canonical credential generation."
