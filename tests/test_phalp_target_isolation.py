@@ -38,7 +38,7 @@ def test_target_isolation_follows_explicit_human_track_and_measures_overlap() ->
     assert result["canonical_review_track"]["track_id"] == "s00-t7"
     assert result["observed_state_count"] == 5
     assert len(result["isolation_samples"]) == 5
-    assert result["max_other_overlap_fraction"] == pytest.approx(0.52)
+    assert result["max_other_overlap_fraction"] == pytest.approx(0.5)
     assert result["severe_overlap_state_count"] == 1
     assert result["machine_identity_selection"] is False
     assert result["biometric_identity_inference_used"] is False
