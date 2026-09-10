@@ -172,14 +172,38 @@ Stop-VerifiedBodyRigService
 $statePath = Join-Path $env:LOCALAPPDATA "BodyRig\ui-service.json"
 Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
 
+# Move the worktree to the exact fetched commit first. Normal branch-mode updates
+# must then reattach HEAD to the requested branch at those exact bytes; explicit
+# historical revisions deliberately remain detached so old evidence cannot be
+# mistaken for current branch authority.
 & git checkout --detach $target
 if ($LASTEXITCODE -ne 0) {
     throw "Kunne ikke checkout exact target revision $target."
+}
+if ($targetMode -eq "branch") {
+    & git branch --force $Branch $target
+    if ($LASTEXITCODE -ne 0) {
+        throw "Kunne ikke opdatere lokal branch $Branch til exact $Remote/$Branch revision $target."
+    }
+    & git switch $Branch
+    if ($LASTEXITCODE -ne 0) {
+        throw "Kunne ikke attach checkout til lokal branch $Branch efter exact branch update."
+    }
 }
 
 $actual = (& git rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $actual -ne $target) {
     throw "Checkout mismatch: expected $target, got $actual."
+}
+$currentBranch = (& git branch --show-current).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Kunne ikke verificere checkout branch-mode efter update."
+}
+if ($targetMode -eq "branch" -and $currentBranch -ne $Branch) {
+    throw "Branch-mode update er ikke attached til expected branch $Branch."
+}
+if ($targetMode -eq "historical-revision" -and -not [string]::IsNullOrWhiteSpace($currentBranch)) {
+    throw "Historical revision update skal forblive detached, men checkout er attached til $currentBranch."
 }
 $dirtyAfter = @(& git status --porcelain)
 if ($LASTEXITCODE -ne 0 -or $dirtyAfter.Count -gt 0) {
