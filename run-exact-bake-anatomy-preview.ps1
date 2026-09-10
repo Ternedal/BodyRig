@@ -29,6 +29,12 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Read-Json {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
+    try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 40 }
+    catch { throw "$Label is not valid JSON: $Path" }
+}
 function Assert-CheckoutAuthority {
     param([Parameter(Mandatory = $true)][string]$RepoRoot,[string]$ExpectedHead = "")
     $headRaw = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
@@ -83,6 +89,19 @@ $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained id
 $EndpointRefitDir = Need-Directory -Path $EndpointRefitDir -Label "V3 endpoint refit directory"
 $LineSearchDir = Need-Directory -Path $LineSearchDir -Label "Exact-bake line-search directory"
 $lineSearchReceipt = Need-File -Path (Join-Path $LineSearchDir "line-search.json") -Label "Exact-bake line-search receipt"
+$lineDocument = Read-Json $lineSearchReceipt "Exact-bake line-search receipt"
+if ([string]$lineDocument.format -ne "bodyrig-subject-anatomy-exact-bake-line-search" -or [int]$lineDocument.version -ne 1 -or
+    [string]$lineDocument.method -ne "retained-to-v3-fit-parameter-line-search-exact-production-bake-v1" -or
+    $lineDocument.exactProductionBakePath -ne $true -or $lineDocument.comparisonOnly -ne $true -or
+    $lineDocument.humanFidelityPass -ne $false -or $lineDocument.productionReady -ne $false -or $lineDocument.reconstructionRerun -ne $false) {
+    throw "Exact-bake line-search receipt is not canonical comparison-only evidence."
+}
+$gender = [string]$lineDocument.gender
+if ($gender -notin @("female","male","neutral")) { throw "Exact-bake line-search gender is invalid." }
+$rows = @($lineDocument.rows | Where-Object { [math]::Abs(([double]$_.alpha) - $Alpha) -le 1e-12 })
+if ($rows.Count -ne 1) { throw "Requested alpha is not represented by exactly one exact-bake line-search row." }
+$selectedRow = $rows[0]
+
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if ([string]::Equals($OutputDir,$repoRoot,[StringComparison]::OrdinalIgnoreCase) -or $OutputDir.StartsWith($repoBoundary,[StringComparison]::OrdinalIgnoreCase)) {
     throw "Exact-bake anatomy preview output must be outside the BodyRig Git checkout."
@@ -104,7 +123,11 @@ try {
     $retainedReconstructionSha = Sha256 $retainedReconstruction
 
     $alphaText = $Alpha.ToString("0.####", [Globalization.CultureInfo]::InvariantCulture)
-    $workspace = Join-Path $OutputDir "candidate-workspace"
+    $alphaDirText = $Alpha.ToString("0.0000", [Globalization.CultureInfo]::InvariantCulture)
+    $selectedPointDir = Need-Directory -Path (Join-Path $LineSearchDir "alpha-$alphaDirText") -Label "Selected exact-bake line-search point"
+    $selectedDonor = Need-File -Path (Join-Path $selectedPointDir "subject_smplx.obj") -Label "Selected exact-bake donor OBJ"
+    $historicalScore = Need-File -Path (Join-Path $selectedPointDir "exact-bake-score.json") -Label "Selected exact-bake score"
+
     Write-Host "BodyRig exact-bake anatomy preview"
     Write-Host "Revision:       $head"
     Write-Host "Alpha:          $alphaText"
@@ -116,6 +139,43 @@ try {
     Write-Host "SiTH rerun:     FALSE"
     Write-Host ""
 
+    # Re-score exactly one selected donor with the current clean checkout. This
+    # closes the historical line-search/Git-revision gap without rerunning SiTH
+    # or the full nine-point search.
+    $currentScore = Join-Path $OutputDir "selected-current-exact-bake-score.json"
+    $scoreScript = Need-File -Path (Join-Path $repoRoot "score-exact-anatomy-bake.ps1") -Label "Current exact-bake scorer"
+    $scoreArgs = @{
+        IdentityWorkspace = $IdentityWorkspace
+        DonorObj = $selectedDonor
+        OutputFile = $currentScore
+        Gender = $gender
+    }
+    & $scoreScript @scoreArgs
+    if ($LASTEXITCODE -ne 0) { throw "Current-revision selected exact-bake score failed with exit code $LASTEXITCODE." }
+    $currentScore = Need-File -Path $currentScore -Label "Current-revision selected exact-bake score"
+    $currentScoreDoc = Read-Json $currentScore "Current-revision selected exact-bake score"
+    $historicalScoreDoc = Read-Json $historicalScore "Historical selected exact-bake score"
+    if ([string]$currentScoreDoc.donorSha256 -ne (Sha256 $selectedDonor) -or
+        [string]$currentScoreDoc.reconstructionSha256 -ne $retainedReconstructionSha -or
+        [string]$currentScoreDoc.format -ne "bodyrig-exact-anatomy-bake-score" -or [int]$currentScoreDoc.version -ne 1 -or
+        $currentScoreDoc.exactProductionBakePath -ne $true -or $currentScoreDoc.comparisonOnly -ne $true -or
+        $currentScoreDoc.humanFidelityPass -ne $false -or $currentScoreDoc.productionReady -ne $false) {
+        throw "Current-revision selected exact-bake score crossed its authority boundary."
+    }
+    foreach ($metric in @(
+        "surface_distance_p95_body_ratio","surface_distance_max_body_ratio","normal_alignment_mean",
+        "normal_alignment_p05","normal_low_alignment_ratio","normal_retry_texel_ratio"
+    )) {
+        $current = [double]$currentScoreDoc.metrics.$metric
+        $historical = [double]$historicalScoreDoc.metrics.$metric
+        $row = [double]$selectedRow.$metric
+        if ([math]::Abs($current - $historical) -gt 1e-12 -or [math]::Abs($current - $row) -gt 1e-12) {
+            throw "Current exact-bake metric '$metric' does not reproduce the selected historical line-search point."
+        }
+    }
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+
+    $workspace = Join-Path $OutputDir "candidate-workspace"
     Invoke-Checked -Executable $BodyRigPython -Arguments @(
         "-m", "bodyrig.exact_bake_anatomy_preview",
         "--identity-workspace", $IdentityWorkspace,
@@ -126,15 +186,14 @@ try {
     ) -Step "Stage exact-bake selected-alpha preview workspace"
 
     $workspaceReceipt = Need-File -Path (Join-Path $workspace "exact-bake-anatomy-preview-workspace.json") -Label "Exact-bake preview workspace receipt"
-    try { $workspaceEvidence = Get-Content -LiteralPath $workspaceReceipt -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
-    catch { throw "Exact-bake preview workspace receipt is unreadable." }
+    $workspaceEvidence = Read-Json $workspaceReceipt "Exact-bake preview workspace receipt"
     if ([string]$workspaceEvidence.format -ne "bodyrig-exact-bake-anatomy-preview-workspace" -or [int]$workspaceEvidence.version -ne 1 -or
         $workspaceEvidence.comparisonOnly -ne $true -or $workspaceEvidence.humanReviewRequired -ne $true -or
         $workspaceEvidence.promotionEligible -ne $false -or $workspaceEvidence.productionReady -ne $false -or
         $workspaceEvidence.reconstructionRerun -ne $false) {
         throw "Exact-bake preview workspace crossed its comparison-only authority boundary."
     }
-    if (-not [math]::IsClose([double]$workspaceEvidence.selectedAlpha,$Alpha,0.0,1e-12)) {
+    if ([math]::Abs(([double]$workspaceEvidence.selectedAlpha) - $Alpha) -gt 1e-12) {
         throw "Exact-bake preview workspace selected a different alpha."
     }
     if ([string]$workspaceEvidence.retainedReconstructionSha256 -ne $retainedReconstructionSha) {
@@ -194,12 +253,15 @@ try {
         selected_alpha = [double]$Alpha
         canonical_body_id = [string]$validated.body_id
         line_search_sha256 = Sha256 $lineSearchReceipt
+        historical_selected_score_sha256 = Sha256 $historicalScore
+        current_selected_score_sha256 = Sha256 $currentScore
         workspace_receipt_sha256 = Sha256 $workspaceReceipt
+        candidate_reconstruction_sha256 = [string]$workspaceEvidence.candidateReconstructionSha256
         package = $packagePath
         package_sha256 = [string]$validated.package_sha256
         render_manifest = $renderManifest
         render_manifest_sha256 = Sha256 $renderManifest
-        reconstruction_authority_sha256 = $retainedReconstructionSha
+        retained_reconstruction_sha256 = $retainedReconstructionSha
         reconstruction_rerun = $false
         exact_production_bake_selection = $true
         comparison_only = $true
