@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from bodyrig.photoidentity_authority import DETAIL_DOMAIN_AUTHORITY
 from bodyrig.photoidentity_evidence import DOMAIN_REQUIREMENTS, build_observation_evidence, write_bundle
 from bodyrig.photoidentity_registry import (
     PhotoIdentityRegistryError,
@@ -31,7 +32,12 @@ def _row(scene: str, view: str) -> dict[str, object]:
     }
 
 
-def _sufficient_bundle(tmp_path: Path) -> tuple[Path, Path]:
+def _sufficient_bundle(
+    tmp_path: Path,
+    *,
+    analyzer_adapter: str = "bodyrig-photoidentity-source-human-anatomy-composite",
+    claim_adapter_override: tuple[str, str] | None = None,
+) -> tuple[Path, Path]:
     capabilities = sorted({str(item["capability"]) for item in DOMAIN_REQUIREMENTS.values()})
     rows = [
         _row("scene1", "front"),
@@ -43,13 +49,16 @@ def _sufficient_bundle(tmp_path: Path) -> tuple[Path, Path]:
     for domain, requirement in DOMAIN_REQUIREMENTS.items():
         if requirement["capability"] in {"coarse-face-view", "coarse-full-body-view"}:
             continue
+        _, authority_adapter, authority_revision = DETAIL_DOMAIN_AUTHORITY[domain]
+        if claim_adapter_override is not None and domain == claim_adapter_override[0]:
+            authority_adapter = claim_adapter_override[1]
         details[domain] = [
             {
                 "scene_id": f"{domain}-{index}",
                 "quality": 0.97,
                 "source_derived": True,
-                "adapter": "fixture-detail",
-                "revision": "1",
+                "adapter": authority_adapter,
+                "revision": authority_revision,
             }
             for index in range(int(requirement["minimum_distinct_scenes"]))
         ]
@@ -57,7 +66,7 @@ def _sufficient_bundle(tmp_path: Path) -> tuple[Path, Path]:
         performer_id="42",
         bodyrig_revision="a" * 40,
         baseline_source_manifest_sha256="b" * 64,
-        analyzer_adapter="fixture-complete",
+        analyzer_adapter=analyzer_adapter,
         analyzer_revision="1",
         analyzer_capabilities=capabilities,
         candidate_scenes=80,
@@ -103,6 +112,60 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
     required = require_body_job_photoidentity_evidence("person-fixture", "job-" + "1" * 32)
     assert required["source_evidence_sufficient"] is True
     assert required["human_review_render_permitted"] is True
+
+
+def test_registry_rejects_forged_complete_analyzer_name(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    observations, report = _sufficient_bundle(tmp_path, analyzer_adapter="fixture-complete")
+    job_root = tmp_path / "job-root"
+    job_root.mkdir()
+    _patch_job_authority(monkeypatch, job_root)
+
+    with pytest.raises(PhotoIdentityRegistryError, match="analyzer is not registered authority"):
+        register_body_job_photoidentity_evidence(
+            "job-" + "5" * 32,
+            report_path=report,
+            observation_path=observations,
+        )
+    assert not (job_root / "photoidentity-evidence").exists()
+
+
+def test_registry_rejects_forged_human_nail_claim_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    observations, report = _sufficient_bundle(
+        tmp_path,
+        claim_adapter_override=("fingernails_detail", "generic-nail-prior"),
+    )
+    job_root = tmp_path / "job-root"
+    job_root.mkdir()
+    _patch_job_authority(monkeypatch, job_root)
+
+    with pytest.raises(PhotoIdentityRegistryError, match="fingernails_detail requires human-source-nail-detail-attestation@1"):
+        register_body_job_photoidentity_evidence(
+            "job-" + "6" * 32,
+            report_path=report,
+            observation_path=observations,
+        )
+    assert not (job_root / "photoidentity-evidence").exists()
+
+
+def test_registry_rejects_forged_human_anatomy_claim_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    observations, report = _sufficient_bundle(
+        tmp_path,
+        claim_adapter_override=("torso_chest", "generic-body-prior"),
+    )
+    job_root = tmp_path / "job-root"
+    job_root.mkdir()
+    _patch_job_authority(monkeypatch, job_root)
+
+    with pytest.raises(
+        PhotoIdentityRegistryError,
+        match="torso_chest requires human-source-anatomy-observability-attestation@1",
+    ):
+        register_body_job_photoidentity_evidence(
+            "job-" + "7" * 32,
+            report_path=report,
+            observation_path=observations,
+        )
+    assert not (job_root / "photoidentity-evidence").exists()
 
 
 def test_registry_is_create_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
