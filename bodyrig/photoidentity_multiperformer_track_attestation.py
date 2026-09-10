@@ -78,6 +78,8 @@ def _track_maps(public: Mapping[str, Any], private: Mapping[str, Any]) -> tuple[
         private_map[candidate_id] = dict(raw)
     if set(public_map) != set(private_map):
         raise PhotoIdentityMultiTrackAttestationError("public/private track candidate sets differ")
+    if public.get("track_candidate_count") != len(public_map):
+        raise PhotoIdentityMultiTrackAttestationError("public track candidate count does not match candidate set")
     return public_map, private_map
 
 
@@ -200,9 +202,14 @@ def record_multiperformer_track_attestation(
             encoding="utf-8",
             newline="\n",
         )
-        if output.exists():
-            raise PhotoIdentityMultiTrackAttestationError(f"human track attestation already exists: {output}")
-        os.replace(temp, output)
+        try:
+            # Hard-link publication is atomic and no-clobber on the same volume:
+            # unlike os.replace(), it cannot overwrite a receipt won by another writer.
+            os.link(temp, output)
+        except FileExistsError as exc:
+            raise PhotoIdentityMultiTrackAttestationError(f"human track attestation already exists: {output}") from exc
+        except OSError as exc:
+            raise PhotoIdentityMultiTrackAttestationError("could not atomically publish human track attestation") from exc
     finally:
         temp.unlink(missing_ok=True)
     return {**receipt, "receipt": str(output), "receipt_sha256": _sha256_file(output)}
