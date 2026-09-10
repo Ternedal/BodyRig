@@ -105,7 +105,9 @@ def test_workspace_canonical_cache_rejects_same_stride_with_different_fps(monkey
         tmp_path,
         source_index=0,
         source_sha256=source_sha,
+        source_fps=29.97,
         sampling_stride=SAMPLING_STRIDE,
+        effective_fps=14.985,
     ) is None
 
 
@@ -128,12 +130,16 @@ def test_workspace_raw_cache_forwards_only_after_timing_matches(monkeypatch, tmp
         tmp_path,
         source_index=3,
         source_sha256=source_sha,
+        source_fps=SOURCE_FPS,
         sampling_stride=SAMPLING_STRIDE,
+        effective_fps=EFFECTIVE_FPS,
     ) is None
     assert seen == {
         "source_index": 3,
         "source_sha256": source_sha,
+        "source_fps": SOURCE_FPS,
         "sampling_stride": SAMPLING_STRIDE,
+        "effective_fps": EFFECTIVE_FPS,
     }
 
 
@@ -153,7 +159,9 @@ def test_workspace_raw_cache_rejects_fps_drift_before_joblib_load(monkeypatch, t
         tmp_path,
         source_index=0,
         source_sha256="e" * 64,
+        source_fps=29.97,
         sampling_stride=SAMPLING_STRIDE,
+        effective_fps=14.985,
     ) is None
 
 
