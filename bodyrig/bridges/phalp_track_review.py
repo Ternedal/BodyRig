@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 FORMAT = "bodyrig-phalp-track-review"
@@ -17,18 +17,27 @@ class PhalpTrackReviewError(ValueError):
 
 
 def _finite(value: object, *, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, (bool, str, bytes)):
         raise PhalpTrackReviewError(f"{label} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)  # NumPy scalar values are expected from PHALP joblib output.
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise PhalpTrackReviewError(f"{label} must be numeric") from exc
     if not math.isfinite(result):
         raise PhalpTrackReviewError(f"{label} must be finite")
     return result
 
 
 def _bbox_tlwh(value: object) -> list[float]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 4:
+    if isinstance(value, (str, bytes)):
         raise PhalpTrackReviewError("PHALP bbox must contain exactly four values")
-    x, y, width, height = (_finite(item, label="PHALP bbox coordinate") for item in value)
+    try:
+        if len(value) != 4:  # type: ignore[arg-type]
+            raise PhalpTrackReviewError("PHALP bbox must contain exactly four values")
+        raw = [value[index] for index in range(4)]  # type: ignore[index]
+    except (TypeError, IndexError) as exc:
+        raise PhalpTrackReviewError("PHALP bbox must contain exactly four values") from exc
+    x, y, width, height = (_finite(item, label="PHALP bbox coordinate") for item in raw)
     if width <= 0.0 or height <= 0.0:
         raise PhalpTrackReviewError("PHALP bbox width/height must be positive")
     return [round(x, 4), round(y, 4), round(width, 4), round(height, 4)]
@@ -65,7 +74,7 @@ def canonicalize_phalp_track_review(
         raise PhalpTrackReviewError("invalid source fps")
     if isinstance(source_index, bool) or not isinstance(source_index, int) or not 0 <= source_index <= 9999:
         raise PhalpTrackReviewError("source_index must be an integer in 0..9999")
-    if not math.isfinite(min_confidence) or not 0.0 <= min_confidence <= 1.0:
+    if isinstance(min_confidence, bool) or not math.isfinite(min_confidence) or not 0.0 <= min_confidence <= 1.0:
         raise PhalpTrackReviewError("min_confidence must be in 0..1")
     if (
         isinstance(max_samples_per_track, bool)
@@ -78,30 +87,35 @@ def canonicalize_phalp_track_review(
 
     by_track: dict[str, list[dict[str, Any]]] = defaultdict(list)
     last_timestamp: dict[str, int] = {}
-    ordered = sorted(frame_results.values(), key=lambda frame: int(frame.get("time", -1)))
+    try:
+        ordered = sorted(frame_results.values(), key=lambda frame: int(frame.get("time", -1)))
+    except (TypeError, ValueError) as exc:
+        raise PhalpTrackReviewError("PHALP frame time is invalid") from exc
 
     for frame in ordered:
         try:
             frame_index = int(frame["time"])
-            tids: Sequence[Any] = frame["tid"]
-            tracked_time: Sequence[Any] = frame["tracked_time"]
-            bboxes: Sequence[Any] = frame["bbox"]
+            tids = frame["tid"]
+            tracked_time = frame["tracked_time"]
+            bboxes = frame["bbox"]
+            item_count = len(tids)
         except (KeyError, TypeError, ValueError) as exc:
             raise PhalpTrackReviewError("PHALP frame is missing required track-review fields") from exc
         if frame_index < 0:
             raise PhalpTrackReviewError("PHALP frame time must be non-negative")
-        if not (len(tids) == len(tracked_time) == len(bboxes)):
+        if not (item_count == len(tracked_time) == len(bboxes)):
             raise PhalpTrackReviewError("PHALP track-review arrays are misaligned")
-        confs: Sequence[Any] = frame.get("conf", [1.0] * len(tids))
+        confs = frame.get("conf", [1.0] * item_count)
 
         timestamp_ms = round(frame_index * 1000.0 / fps)
-        for index, raw_tid in enumerate(tids):
+        for index in range(item_count):
+            raw_tid = tids[index]
             try:
                 age = int(tracked_time[index])
-                confidence = float(confs[index]) if index < len(confs) else 1.0
-            except (TypeError, ValueError, IndexError):
+                confidence = _finite(confs[index], label="PHALP confidence") if index < len(confs) else 1.0
+            except (TypeError, ValueError, IndexError, PhalpTrackReviewError):
                 continue
-            if age != 0 or not math.isfinite(confidence) or confidence < min_confidence:
+            if age != 0 or confidence < min_confidence:
                 continue
             track_id = f"s{source_index:02d}-t{raw_tid}"
             if len(track_id) > 160:
