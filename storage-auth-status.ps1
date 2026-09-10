@@ -83,12 +83,14 @@ try { $stashUri = [Uri]([string]$stash.url) }
 catch { Emit-Status -State "blocked" -Stage "stash-config" -Message "Saved Stash URL is invalid."; exit 0 }
 $hostName = ([string]$storage.host).Trim()
 $target = ([string]$storage.credential_target).Trim().ToLowerInvariant()
+$credentialGeneration = ([string]$storage.credential_generation).Trim().ToLowerInvariant()
 if (
     [string]::IsNullOrWhiteSpace($hostName) -or
+    $credentialGeneration -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' -or
     -not [string]::Equals($stashUri.Host, $hostName, [StringComparison]::OrdinalIgnoreCase) -or
     -not [string]::Equals($target, $hostName.ToLowerInvariant(), [StringComparison]::Ordinal)
 ) {
-    Emit-Status -State "blocked" -Stage "host-authority" -Host $hostName -Message "Storage/Stash host authority differs. Re-bootstrap the exact UNC host rather than relying on aliases."
+    Emit-Status -State "blocked" -Stage "host-authority" -Host $hostName -Message "Storage config lacks a canonical credential generation or Storage/Stash host authority differs. Re-bootstrap the exact UNC host."
     exit 0
 }
 
@@ -116,11 +118,12 @@ if (
     [int]$pre.version -ne 1 -or
     [string]$pre.host -ne $hostName -or
     [string]$pre.credential_target -ne $target -or
+    [string]$pre.credential_generation -ne $credentialGeneration -or
     $pre.fresh_smb_session_proved -ne $true -or
     $pre.real_stash_source_decode -ne $true -or
     [int]$pre.maximum_supported_persist -lt 2
 ) {
-    Emit-Status -State "blocked" -Stage "pre-reboot-proof" -Host $hostName -CredentialPresent $true -Message "Pre-reboot proof does not match current storage authority."
+    Emit-Status -State "blocked" -Stage "pre-reboot-proof" -Host $hostName -CredentialPresent $true -Message "Pre-reboot proof does not match the current credential generation."
     exit 0
 }
 
@@ -136,9 +139,10 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
         [int]$cold.version -ne 1 -or
         [string]$cold.host -ne $hostName -or
         [string]$cold.credential_target -ne $target -or
+        [string]$cold.credential_generation -ne $credentialGeneration -or
         [string]$cold.baseline_boot_utc -ne [string]$pre.baseline_boot_utc
     ) {
-        Emit-Status -State "blocked" -Stage "cold-boot-proof" -Host $hostName -CredentialPresent $true -Message "Cold-boot proof does not match current storage authority."
+        Emit-Status -State "blocked" -Stage "cold-boot-proof" -Host $hostName -CredentialPresent $true -Message "Cold-boot proof does not match the current credential generation."
         exit 0
     }
     $passed = [int]$cold.successful_boot_count
