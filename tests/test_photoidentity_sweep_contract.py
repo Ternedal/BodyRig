@@ -46,6 +46,21 @@ def test_collection_operator_is_clean_checkout_bound_and_non_rendering() -> None
     assert "production_activation" not in lowered
 
 
+def test_collection_operator_reuses_and_repreflights_exact_pinned_sith_openpose_authority() -> None:
+    source = (ROOT / "collect-photoidentity-evidence.ps1").read_text(encoding="utf-8")
+    assert "bodyrig-sith-fitter-config.json" in source
+    assert 'Need-CommandArgument -Command $fitterCommand -Name "--distribution"' in source
+    assert 'Need-CommandArgument -Command $fitterCommand -Name "--sith-repo"' in source
+    assert 'Need-CommandArgument -Command $fitterCommand -Name "--sith-python"' in source
+    assert 'Need-CommandArgument -Command $fitterCommand -Name "--openpose"' in source
+    assert 'Need-CommandArgument -Command $fitterCommand -Name "--wsl-exe"' in source
+    assert "bodyrig.sith_preflight" in source
+    assert "--openpose-repo" in source
+    assert "bodyrig.photoidentity_detail_enrich" in source
+    assert '"detail-evidence\\photoidentity-evidence.json"' in source
+    assert "pinned OpenPose BODY_25 + face + hands" in source
+
+
 def test_collection_operator_can_fail_closed_when_called_as_a_gate() -> None:
     source = (ROOT / "collect-photoidentity-evidence.ps1").read_text(encoding="utf-8")
     assert "[switch]$RequireSufficient" in source
