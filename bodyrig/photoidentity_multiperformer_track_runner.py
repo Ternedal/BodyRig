@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -26,6 +27,18 @@ def _hex_sha256(value: object, *, label: str) -> str:
     if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
         raise PhotoIdentityMultiTrackRunnerError(f"{label} is not canonical SHA-256")
     return text
+
+
+def _finite_number(value: object, *, label: str) -> float:
+    if isinstance(value, (bool, str, bytes)):
+        raise PhotoIdentityMultiTrackRunnerError(f"{label} must be numeric")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise PhotoIdentityMultiTrackRunnerError(f"{label} must be numeric") from exc
+    if not math.isfinite(parsed):
+        raise PhotoIdentityMultiTrackRunnerError(f"{label} must be finite")
+    return parsed
 
 
 def _validate_review(review: object, *, expected_source_index: int) -> dict[str, Any]:
@@ -103,19 +116,23 @@ def _validate_review(review: object, *, expected_source_index: int) -> dict[str,
             if not isinstance(sample, Mapping) or set(sample) != {"timestamp_ms", "confidence", "bbox_tlwh"}:
                 raise PhotoIdentityMultiTrackRunnerError("PHALP track sample fields changed")
             timestamp = sample["timestamp_ms"]
-            confidence = sample["confidence"]
+            confidence = _finite_number(sample["confidence"], label="PHALP track sample confidence")
             bbox = sample["bbox_tlwh"]
-            if isinstance(timestamp, bool) or not isinstance(timestamp, int) or timestamp <= previous:
+            if (
+                isinstance(timestamp, bool)
+                or not isinstance(timestamp, int)
+                or timestamp <= previous
+                or timestamp < first
+                or timestamp > last
+            ):
                 raise PhotoIdentityMultiTrackRunnerError("PHALP track sample timestamps are invalid")
             previous = timestamp
-            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0.0 <= float(confidence) <= 1.0:
+            if not 0.0 <= confidence <= 1.0:
                 raise PhotoIdentityMultiTrackRunnerError("PHALP track sample confidence is invalid")
             if not isinstance(bbox, list) or len(bbox) != 4:
                 raise PhotoIdentityMultiTrackRunnerError("PHALP track sample bbox is invalid")
-            try:
-                _, _, width, height = (float(item) for item in bbox)
-            except (TypeError, ValueError) as exc:
-                raise PhotoIdentityMultiTrackRunnerError("PHALP track sample bbox is non-numeric") from exc
+            values = [_finite_number(item, label="PHALP track sample bbox coordinate") for item in bbox]
+            width, height = values[2], values[3]
             if width <= 0.0 or height <= 0.0:
                 raise PhotoIdentityMultiTrackRunnerError("PHALP track sample bbox has non-positive size")
     return dict(review)
