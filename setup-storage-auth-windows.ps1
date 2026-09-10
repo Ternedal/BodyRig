@@ -43,6 +43,35 @@ function Resolve-StorageHost {
     return [string]$uri.Host
 }
 
+function Write-StorageConfig {
+    param(
+        [Parameter(Mandatory = $true)][bool]$CredentialWriteCompleted,
+        [Parameter(Mandatory = $true)][string]$CredentialGeneration,
+        [Parameter(Mandatory = $true)][string]$CredentialUserName
+    )
+    $config = [ordered]@{
+        format = "bodyrig-local-storage-config"
+        version = 1
+        host = $StorageHost
+        credential_target = $target
+        credential_generation = $CredentialGeneration
+        username = $CredentialUserName
+        credential_store = "windows-credential-manager-domain-password"
+        requested_persist = "local-machine"
+        maximum_supported_persist = $maxPersist
+        credential_write_completed = $CredentialWriteCompleted
+        password_persisted_in_config = $false
+        updated_utc = [DateTime]::UtcNow.ToString("o")
+    }
+    $temp = "$storageConfigPath.tmp-$([Guid]::NewGuid().ToString('N'))"
+    try {
+        [IO.File]::WriteAllText($temp, (($config | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temp -Destination $storageConfigPath -Force
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $StorageHost = Resolve-StorageHost -Explicit $StorageHost
 $target = $StorageHost.ToLowerInvariant()
 $maxPersist = [int](Get-BodyRigDomainCredentialMaxPersist)
@@ -61,40 +90,35 @@ if ([string]::IsNullOrWhiteSpace($UserName)) {
     $credential = Get-Credential -UserName $UserName -Message "BodyRig SMB login for \\$StorageHost"
 }
 if ($null -eq $credential) { throw "Storage credential entry was cancelled." }
-Set-BodyRigDomainCredential -Target $target -UserName $credential.UserName -Password $credential.Password
-if (-not (Test-BodyRigDomainCredential -Target $target)) {
-    throw "Windows Credential Manager did not retain the SMB credential."
-}
 
-# A credential replacement invalidates every previous reboot qualification for
-# the same host. Clear proofs immediately after the native credential changes,
-# before writing the new generation metadata, so a partial config failure can
-# never leave an old QUALIFIED receipt attached to new secret bytes.
+# Publish a new unqualified generation before touching the secret. If any later
+# operation fails, canonical status sees credential_write_completed=false and
+# cannot reuse old qualification evidence against changed or uncertain bytes.
+$credentialGeneration = [Guid]::NewGuid().ToString("D").ToLowerInvariant()
+Write-StorageConfig -CredentialWriteCompleted $false -CredentialGeneration $credentialGeneration -CredentialUserName $credential.UserName
+
+# Old evidence must be invalidated before the native credential changes. A
+# failure to remove an existing proof is fatal; the secret remains untouched.
 foreach ($proofName in @(
     "storage-session-proof.json",
     "storage-pre-reboot-proof.json",
     "storage-cold-boot-proof.json"
 )) {
-    Remove-Item -LiteralPath (Join-Path $configDir $proofName) -Force -ErrorAction SilentlyContinue
+    $proofPath = Join-Path $configDir $proofName
+    if (Test-Path -LiteralPath $proofPath) {
+        Remove-Item -LiteralPath $proofPath -Force -ErrorAction Stop
+    }
 }
-$credentialGeneration = [Guid]::NewGuid().ToString("D").ToLowerInvariant()
 
-$config = [ordered]@{
-    format = "bodyrig-local-storage-config"
-    version = 1
-    host = $StorageHost
-    credential_target = $target
-    credential_generation = $credentialGeneration
-    username = $credential.UserName
-    credential_store = "windows-credential-manager-domain-password"
-    requested_persist = "local-machine"
-    maximum_supported_persist = $maxPersist
-    password_persisted_in_config = $false
-    updated_utc = [DateTime]::UtcNow.ToString("o")
+Set-BodyRigDomainCredential -Target $target -UserName $credential.UserName -Password $credential.Password
+if (-not (Test-BodyRigDomainCredential -Target $target)) {
+    throw "Windows Credential Manager did not retain the SMB credential."
 }
-$temp = "$storageConfigPath.tmp-$([Guid]::NewGuid().ToString('N'))"
-[IO.File]::WriteAllText($temp, (($config | ConvertTo-Json -Depth 4) + "`n"), [Text.UTF8Encoding]::new($false))
-Move-Item -LiteralPath $temp -Destination $storageConfigPath -Force
+
+# Only this final atomic metadata publication makes the new credential cycle
+# eligible for fresh-session testing. If it fails, the false state above stays
+# authoritative and the pipeline remains blocked.
+Write-StorageConfig -CredentialWriteCompleted $true -CredentialGeneration $credentialGeneration -CredentialUserName $credential.UserName
 
 Write-Host "BodyRig storage credential: SAVED"
 Write-Host "Host:              $StorageHost"
