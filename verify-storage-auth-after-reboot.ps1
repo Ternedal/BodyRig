@@ -14,14 +14,26 @@ if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." 
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required." }
 
 $configDir = Join-Path $env:LOCALAPPDATA "BodyRig\config"
+$storagePath = Join-Path $configDir "storage.json"
 $prePath = Join-Path $configDir "storage-pre-reboot-proof.json"
 $coldPath = Join-Path $configDir "storage-cold-boot-proof.json"
 $sessionPath = Join-Path $configDir "storage-session-proof.json"
-if (-not (Test-Path -LiteralPath $prePath -PathType Leaf)) {
-    throw "No pre-reboot storage proof exists. Run .\test-storage-auth-windows.ps1 -PerformerId '$PerformerId' -ResetConnections -MarkPreReboot before rebooting."
+foreach ($requiredPath in @($storagePath, $prePath)) {
+    if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+        throw "Required storage qualification state is missing: $requiredPath"
+    }
 }
+try { $storage = Get-Content -LiteralPath $storagePath -Raw -Encoding UTF8 | ConvertFrom-Json }
+catch { throw "Saved storage configuration is unreadable JSON." }
 try { $pre = Get-Content -LiteralPath $prePath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Pre-reboot storage proof is unreadable JSON." }
+if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
+    throw "Saved storage configuration has an unexpected format/version."
+}
+$credentialGeneration = ([string]$storage.credential_generation).Trim().ToLowerInvariant()
+if ($credentialGeneration -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+    throw "Saved storage configuration lacks a canonical credential generation."
+}
 if (
     [string]$pre.format -ne "bodyrig-storage-pre-reboot-proof" -or
     [int]$pre.version -ne 1 -or
@@ -30,6 +42,13 @@ if (
     $pre.secret_persisted_in_proof -ne $false
 ) {
     throw "Pre-reboot storage proof has an invalid authority boundary."
+}
+if (
+    [string]$pre.host -ne [string]$storage.host -or
+    [string]$pre.credential_target -ne [string]$storage.credential_target -or
+    [string]$pre.credential_generation -ne $credentialGeneration
+) {
+    throw "Pre-reboot storage proof belongs to a different credential generation. Re-run the fresh-session baseline."
 }
 if ([string]$pre.performer_id -ne [string]$PerformerId) {
     throw "Pre-reboot storage proof belongs to performer $($pre.performer_id), not $PerformerId."
@@ -58,13 +77,14 @@ if (
     [int]$session.version -ne 1 -or
     [string]$session.host -ne [string]$pre.host -or
     [string]$session.credential_target -ne [string]$pre.credential_target -or
+    [string]$session.credential_generation -ne $credentialGeneration -or
     [string]$session.performer_id -ne [string]$PerformerId -or
     $session.credential_prompt_used -ne $false -or
     $session.stash_path_map -ne $true -or
     $session.real_stash_source_decode -ne $true -or
     $session.secret_persisted_in_proof -ne $false
 ) {
-    throw "Post-reboot storage session proof did not preserve the pre-reboot authority."
+    throw "Post-reboot storage session proof did not preserve the pre-reboot credential authority."
 }
 if ([string]$session.boot_utc -ne $currentBootText) {
     throw "Post-reboot test was not recorded in the current Windows boot session."
@@ -79,6 +99,7 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
         [int]$cold.version -ne 1 -or
         [string]$cold.host -ne [string]$pre.host -or
         [string]$cold.credential_target -ne [string]$pre.credential_target -or
+        [string]$cold.credential_generation -ne $credentialGeneration -or
         [string]$cold.performer_id -ne [string]$PerformerId -or
         [string]$cold.baseline_boot_utc -ne [string]$pre.baseline_boot_utc
     ) {
@@ -107,6 +128,7 @@ $proof = [ordered]@{
     version = 1
     host = [string]$pre.host
     credential_target = [string]$pre.credential_target
+    credential_generation = $credentialGeneration
     performer_id = [string]$PerformerId
     baseline_boot_utc = [string]$pre.baseline_boot_utc
     required_distinct_post_reboot_boots = $required
@@ -125,6 +147,7 @@ Move-Item -LiteralPath $temp -Destination $coldPath -Force
 $state = if ($qualified) { "QUALIFIED" } else { "PARTIAL" }
 Write-Host "BodyRig persistent storage authentication: $state"
 Write-Host "Host:                 $($pre.host)"
+Write-Host "Credential cycle:     $credentialGeneration"
 Write-Host "Cold boots passed:    $($successfulBoots.Count)/$required"
 Write-Host "Credential prompts:   0"
 Write-Host "Real Stash decode:    PASS"
