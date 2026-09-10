@@ -1,0 +1,52 @@
+name: apply-pr275-platform-neutral-retirement-v2
+on:
+  push:
+    branches:
+      - chore/retire-ab-cycle-v1-20260910
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chore/retire-ab-cycle-v1-20260910
+          fetch-depth: 0
+      - name: Reuse reviewed patch body
+        shell: python
+        run: |
+          from pathlib import Path
+          import textwrap
+
+          source_path = Path('.github/workflows/_fix_pr275_platform_neutral_retirement.yml')
+          source = source_path.read_text(encoding='utf-8')
+          marker = '      - name: Patch lifecycle authority\n        shell: python\n        run: |\n'
+          tail = '      - name: Verify focused regression\n'
+          if marker not in source or tail not in source:
+              raise SystemExit('reviewed PR275 patch body could not be located')
+          block = source.split(marker, 1)[1].split(tail, 1)[0]
+          exec(textwrap.dedent(block), {})
+          Path('.github/workflows/_apply_pr275_platform_neutral_retirement_v2.yml').unlink()
+      - name: Syntax and diff QA
+        run: |
+          python -m compileall -q bodyrig tests
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path('contracts/ab-baseline-cycle-state-v1.json').read_text())
+          assert state['candidate_contract_git_blob'] == '703187fc8584cb3300f61d9ddb73eb886c27513f'
+          assert state['historical_windows_candidate_contract_sha256'] == 'fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4'
+          assert 'candidate_contract_sha256' not in state
+          assert Path('contracts/ab-baseline-candidates-v1.json').is_file()
+          PY
+          test "$(git rev-parse HEAD:contracts/ab-baseline-candidates-v1.json)" = "703187fc8584cb3300f61d9ddb73eb886c27513f"
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Make A/B v1 retirement identity platform-neutral'
+          git push origin HEAD:chore/retire-ab-cycle-v1-20260910
