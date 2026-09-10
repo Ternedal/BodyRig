@@ -33,6 +33,23 @@ function Need-Executable {
     if ($null -eq $command) { throw "$Label executable not found: $candidate" }
     return $command.Source
 }
+function Need-CommandArgument {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Command,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $indices = @()
+    for ($index = 0; $index -lt $Command.Count; $index++) {
+        if ([string]$Command[$index] -eq $Name) { $indices += $index }
+    }
+    if ($indices.Count -ne 1) { throw "$Label requires exactly one $Name binding in the retained fitter command." }
+    $valueIndex = [int]$indices[0] + 1
+    if ($valueIndex -ge $Command.Count) { throw "$Label has an incomplete $Name binding." }
+    $value = ([string]$Command[$valueIndex]).Trim()
+    if ([string]::IsNullOrWhiteSpace($value)) { throw "$Label has an empty $Name binding." }
+    return $value
+}
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig photoidentity source collection is Windows-only."
@@ -64,11 +81,51 @@ if (-not [string]::Equals($actualModule,$expectedModule,[StringComparison]::Ordi
 $BaselineCloneOutput = Need-Directory -Path $BaselineCloneOutput -Label "Baseline Stash clone output"
 $sourceManifest = Need-File -Path (Join-Path $BaselineCloneOutput "bodyrig-stash-source-manifest.json") -Label "Baseline Stash source manifest"
 $analyzerConfig = Need-File -Path (Join-Path $BaselineCloneOutput "bodyrig-observation-analyzer-config.json") -Label "Baseline observation analyzer config"
+$fitterConfig = Need-File -Path (Join-Path $BaselineCloneOutput "bodyrig-sith-fitter-config.json") -Label "Baseline pinned SiTH fitter config"
+try { $fitter = Get-Content -LiteralPath $fitterConfig -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
+catch { throw "Baseline pinned SiTH fitter config is unreadable JSON." }
+if (
+    [string]$fitter.format -ne "bodyrig-external-fitter-config" -or
+    [int]$fitter.version -ne 1 -or
+    [string]$fitter.adapter -ne "sith-smplx-vrm" -or
+    [string]$fitter.revision -ne "1"
+) {
+    throw "Photoidentity detail collection requires the exact built-in pinned SiTH fitter config."
+}
+$fitterCommand = @($fitter.command)
+if ($fitterCommand.Count -lt 8) { throw "Baseline pinned SiTH fitter command is incomplete." }
+$SithDistribution = Need-CommandArgument -Command $fitterCommand -Name "--distribution" -Label "SiTH detail runtime"
+$SithRepo = Need-CommandArgument -Command $fitterCommand -Name "--sith-repo" -Label "SiTH detail runtime"
+$SithPython = Need-CommandArgument -Command $fitterCommand -Name "--sith-python" -Label "SiTH detail runtime"
+$SithOpenPose = Need-CommandArgument -Command $fitterCommand -Name "--openpose" -Label "SiTH detail runtime"
+$WslExe = Need-CommandArgument -Command $fitterCommand -Name "--wsl-exe" -Label "SiTH detail runtime"
+$WslExe = Need-Executable -Value $WslExe -Fallback "wsl.exe" -Label "WSL"
+foreach ($linuxValue in @($SithRepo,$SithPython,$SithOpenPose)) {
+    if (-not $linuxValue.StartsWith("/")) { throw "Retained SiTH/OpenPose detail runtime must use absolute Linux paths." }
+}
+$openPoseSuffix = "/build/examples/openpose/openpose.bin"
+if (-not $SithOpenPose.EndsWith($openPoseSuffix,[StringComparison]::Ordinal)) {
+    throw "Retained OpenPose executable does not use the pinned standard repository layout."
+}
+$SithOpenPoseRepo = $SithOpenPose.Substring(0,$SithOpenPose.Length - $openPoseSuffix.Length)
+if ([string]::IsNullOrWhiteSpace($SithOpenPoseRepo) -or -not $SithOpenPoseRepo.StartsWith("/")) {
+    throw "Could not derive the pinned OpenPose repository from the retained fitter authority."
+}
 
 if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$env:STASH_URL }
 if ([string]::IsNullOrWhiteSpace($StashUrl)) { throw "Stash URL is required via -StashUrl or STASH_URL." }
 if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) { throw "ApiKeyEnv is required." }
 $Ffmpeg = Need-Executable -Value $Ffmpeg -Fallback "ffmpeg" -Label "FFmpeg"
+
+Write-Host "BodyRig photoidentity detail runtime preflight"
+& $BodyRigPython -m bodyrig.sith_preflight `
+  --distribution $SithDistribution `
+  --repo $SithRepo `
+  --python $SithPython `
+  --openpose $SithOpenPose `
+  --openpose-repo $SithOpenPoseRepo `
+  --wsl-exe $WslExe
+if ($LASTEXITCODE -ne 0) { throw "Pinned SiTH/OpenPose detail runtime preflight failed with exit code $LASTEXITCODE." }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $base = [string]$env:LOCALAPPDATA
@@ -89,6 +146,7 @@ Write-Host "Revision:       $head"
 Write-Host "Performer:      $PerformerId"
 Write-Host "Scene limit:    $SceneLimit"
 Write-Host "Source budget:  $MaxSources (batches of $BatchSize)"
+Write-Host "Detail proof:   pinned OpenPose BODY_25 + face + hands (eyes/hands/feet only)"
 Write-Host "Output:         $OutputDir"
 Write-Host "Policy:         no generic guessing; no reconstruction/render authority"
 Write-Host ""
@@ -111,11 +169,22 @@ $sweepArgs = @(
 & $BodyRigPython @sweepArgs
 if ($LASTEXITCODE -ne 0) { throw "BodyRig photoidentity evidence sweep failed with exit code $LASTEXITCODE." }
 
-$reportPath = Need-File -Path (Join-Path $OutputDir "evidence\photoidentity-evidence.json") -Label "Photoidentity sufficiency report"
-$observationPath = Need-File -Path (Join-Path $OutputDir "evidence\photoidentity-observations.json") -Label "Photoidentity observation evidence"
+$detailArgs = @(
+    "-m", "bodyrig.photoidentity_detail_enrich",
+    "--sweep-root", $OutputDir,
+    "--ffmpeg", $Ffmpeg,
+    "--distribution", $SithDistribution,
+    "--openpose", $SithOpenPose,
+    "--wsl-exe", $WslExe
+)
+& $BodyRigPython @detailArgs
+if ($LASTEXITCODE -ne 0) { throw "BodyRig pinned OpenPose detail enrichment failed with exit code $LASTEXITCODE." }
+
+$reportPath = Need-File -Path (Join-Path $OutputDir "detail-evidence\photoidentity-evidence.json") -Label "Enriched photoidentity sufficiency report"
+$observationPath = Need-File -Path (Join-Path $OutputDir "detail-evidence\photoidentity-observations.json") -Label "Enriched photoidentity observation evidence"
 $validateCode = "import json,sys; from bodyrig.photoidentity_evidence import validate_bundle; r=validate_bundle(sys.argv[1],sys.argv[2]); print(json.dumps(r,separators=(',',':')))"
 $validatedRaw = @(& $BodyRigPython -c $validateCode $reportPath $observationPath)
-if ($LASTEXITCODE -ne 0 -or $validatedRaw.Count -ne 1) { throw "Photoidentity evidence bundle failed strict validation." }
+if ($LASTEXITCODE -ne 0 -or $validatedRaw.Count -ne 1) { throw "Photoidentity enriched evidence bundle failed strict validation." }
 try { $report = ([string]$validatedRaw[0]) | ConvertFrom-Json -Depth 30 }
 catch { throw "Photoidentity evidence validator returned unreadable JSON." }
 
