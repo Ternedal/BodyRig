@@ -27,7 +27,8 @@ function Invoke-CandidateAuthority {
         [Parameter(Mandatory = $true)][string]$Python,
         [string]$ExpectedMainRevision = "",
         [string]$ExpectedPbrRevision = "",
-        [string]$ExpectedThroughputRevision = ""
+        [string]$ExpectedThroughputRevision = "",
+        [switch]$RequireOpen
     )
 
     $oldPythonPath = [string]$env:PYTHONPATH
@@ -47,6 +48,7 @@ function Invoke-CandidateAuthority {
         }
 
         $pythonArgs = @("-m", "bodyrig.ab_baseline_candidates", "--repo-root", $RepoRoot)
+        if ($RequireOpen) { $pythonArgs += "--require-open" }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedMainRevision)) {
             $pythonArgs += @("--expected-main-revision", $ExpectedMainRevision)
         }
@@ -130,8 +132,8 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 
-Write-Host "Validating current main and both active A/B candidate byte contracts..."
-$pre = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython
+Write-Host "Validating A/B lifecycle and current candidate authority..."
+$pre = Invoke-CandidateAuthority -RepoRoot $repoRoot -Python $BodyRigPython -RequireOpen
 $mainRevision = [string]$pre.main_revision
 $pbrRevision = [string]$pre.candidates.pbr_v3.revision
 $throughputRevision = [string]$pre.candidates.recovery_throughput_v3.revision
@@ -212,7 +214,8 @@ $post = Invoke-CandidateAuthority `
     -Python $BodyRigPython `
     -ExpectedMainRevision $mainRevision `
     -ExpectedPbrRevision $pbrRevision `
-    -ExpectedThroughputRevision $throughputRevision
+    -ExpectedThroughputRevision $throughputRevision `
+    -RequireOpen
 if ([string]$post.contract_sha256 -ne $contractSha256) {
     throw "A/B candidate contract hash changed during physical preflight."
 }

@@ -13,6 +13,32 @@ from typing import Any
 FORMAT = "bodyrig-ab-baseline-candidate-contract"
 VERSION = 1
 CONTRACT_RELATIVE_PATH = Path("contracts/ab-baseline-candidates-v1.json")
+CYCLE_STATE_RELATIVE_PATH = Path("contracts/ab-baseline-cycle-state-v1.json")
+CYCLE_STATE_FORMAT = "bodyrig-ab-baseline-cycle-state"
+HISTORICAL_V1_CYCLE_ID = "pbr-v3-throughput-v3-20260910"
+HISTORICAL_V1_CONTRACT_GIT_BLOB = "703187fc8584cb3300f61d9ddb73eb886c27513f"
+HISTORICAL_V1_WINDOWS_CONTRACT_SHA256 = "fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4"
+HISTORICAL_V1_PBR_REVISION = "fe2db94b8ae3be51938a7b302361bcf5fdec5f48"
+HISTORICAL_V1_THROUGHPUT_REVISION = "5fa01deb08399fda64e83db1329d4d2e83ad1bc2"
+HISTORICAL_V1_PROMOTION_RECEIPT_SHA256 = "2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d"
+CYCLE_STATE_FIELDS = {
+    "format",
+    "version",
+    "cycle_id",
+    "state",
+    "candidate_contract_path",
+    "candidate_contract_git_blob",
+    "historical_windows_candidate_contract_sha256",
+    "pbr_candidate_revision",
+    "throughput_candidate_revision",
+    "promotion_receipt_sha256",
+    "historical_contract_immutable",
+    "future_cycle_requires_new_contract_version",
+    "comparison_only",
+    "physical_acceptance_authority",
+    "production_activation",
+    "release_authority",
+}
 EXPECTED_CANDIDATES = {"pbr_v3", "recovery_throughput_v3"}
 EXPECTED_TOP_LEVEL_FIELDS = {
     "format",
@@ -25,6 +51,7 @@ EXPECTED_TOP_LEVEL_FIELDS = {
     "production_activation",
 }
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _REF_RE = re.compile(r"^candidate/[A-Za-z0-9._/-]+$")
 _PATH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
@@ -110,6 +137,66 @@ def _load_contract(repo_root: Path) -> tuple[dict[str, Any], str]:
         raise AbBaselineCandidateError("A/B candidate contract must be a JSON object")
     return value, hashlib.sha256(raw).hexdigest()
 
+def _assert_cycle_open(repo_root: Path) -> None:
+    path = repo_root / CYCLE_STATE_RELATIVE_PATH
+    if not path.is_file():
+        raise AbBaselineCandidateError(
+"A/B lifecycle state is missing; current v1 candidate authority cannot be assumed active. "
+"Create a new versioned candidate contract and lifecycle state before starting another A/B baseline."
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AbBaselineCandidateError("A/B lifecycle state is not valid UTF-8 JSON") from exc
+    if not isinstance(value, dict) or set(value) != CYCLE_STATE_FIELDS:
+        raise AbBaselineCandidateError("A/B lifecycle state fields do not match the canonical v1 lifecycle contract")
+    if value.get("format") != CYCLE_STATE_FORMAT or value.get("version") != 1:
+        raise AbBaselineCandidateError("A/B lifecycle state format/version mismatch")
+    if value.get("cycle_id") != HISTORICAL_V1_CYCLE_ID:
+        raise AbBaselineCandidateError("A/B lifecycle state cycle id differs from the completed v1 cycle")
+    if value.get("candidate_contract_path") != CONTRACT_RELATIVE_PATH.as_posix():
+        raise AbBaselineCandidateError("A/B lifecycle state does not bind the historical v1 candidate contract")
+
+    expected_blob = _revision(value.get("candidate_contract_git_blob"), "completed-cycle candidate contract Git blob")
+    if expected_blob != HISTORICAL_V1_CONTRACT_GIT_BLOB:
+        raise AbBaselineCandidateError("A/B lifecycle state does not bind the canonical historical v1 contract Git blob")
+    actual_blob = _tree_blob(repo_root, "HEAD", CONTRACT_RELATIVE_PATH.as_posix())
+    if actual_blob != expected_blob:
+        raise AbBaselineCandidateError("historical A/B v1 candidate contract Git blob changed after cycle completion")
+
+    windows_sha = str(value.get("historical_windows_candidate_contract_sha256") or "").strip().lower()
+    if _SHA256_RE.fullmatch(windows_sha) is None or windows_sha != HISTORICAL_V1_WINDOWS_CONTRACT_SHA256:
+        raise AbBaselineCandidateError("A/B lifecycle state lost the historical Windows candidate-contract evidence SHA-256")
+
+    pbr_revision = _revision(value.get("pbr_candidate_revision"), "completed-cycle PBR candidate revision")
+    throughput_revision = _revision(value.get("throughput_candidate_revision"), "completed-cycle throughput candidate revision")
+    if pbr_revision != HISTORICAL_V1_PBR_REVISION or throughput_revision != HISTORICAL_V1_THROUGHPUT_REVISION:
+        raise AbBaselineCandidateError("A/B lifecycle state candidate revisions differ from the completed reviewed cycle")
+
+    promotion_sha = str(value.get("promotion_receipt_sha256") or "").strip().lower()
+    if _SHA256_RE.fullmatch(promotion_sha) is None or promotion_sha != HISTORICAL_V1_PROMOTION_RECEIPT_SHA256:
+        raise AbBaselineCandidateError("completed A/B cycle promotion receipt SHA-256 differs from canonical authority")
+    if (
+        value.get("historical_contract_immutable") is not True
+        or value.get("future_cycle_requires_new_contract_version") is not True
+        or value.get("comparison_only") is not True
+        or value.get("physical_acceptance_authority") is not False
+        or value.get("production_activation") is not False
+        or value.get("release_authority") is not False
+    ):
+        raise AbBaselineCandidateError("A/B lifecycle state crosses the historical comparison-only authority boundary")
+    state = str(value.get("state") or "").strip()
+    if state == "completed-promoted":
+        raise AbBaselineCandidateError(
+"A/B candidate cycle v1 is completed/promoted and archived; historical contract "
+f"{CONTRACT_RELATIVE_PATH.as_posix()} remains immutable at Git blob {actual_blob}; "
+f"the original Windows evidence fingerprint remains SHA-256 {windows_sha}. "
+"Create a new versioned candidate contract and lifecycle state before starting another A/B baseline."
+        )
+    raise AbBaselineCandidateError(
+        f"A/B lifecycle state '{state}' is not an open cycle supported by the v1 launcher; "
+        "create/wire a new versioned candidate contract before starting another A/B baseline."
+    )
 
 def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if set(value) != EXPECTED_TOP_LEVEL_FIELDS:
@@ -200,6 +287,7 @@ def inspect_candidate_authority(
     expected_main_revision: str | None = None,
     expected_pbr_revision: str | None = None,
     expected_throughput_revision: str | None = None,
+    require_open: bool = False,
 ) -> dict[str, Any]:
     repo = Path(repo_root).expanduser().resolve()
     if not repo.is_dir():
@@ -207,6 +295,8 @@ def inspect_candidate_authority(
 
     contract, contract_sha256 = _load_contract(repo)
     candidates = _validate_contract(contract)
+    if require_open:
+        _assert_cycle_open(repo)
 
     branch = _git(repo, "branch", "--show-current").strip()
     if branch != "main":
@@ -304,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-main-revision")
     parser.add_argument("--expected-pbr-revision")
     parser.add_argument("--expected-throughput-revision")
+    parser.add_argument("--require-open", action="store_true")
     args = parser.parse_args(argv)
     try:
         result = inspect_candidate_authority(
@@ -311,6 +402,7 @@ def main(argv: list[str] | None = None) -> int:
             expected_main_revision=args.expected_main_revision,
             expected_pbr_revision=args.expected_pbr_revision,
             expected_throughput_revision=args.expected_throughput_revision,
+            require_open=args.require_open,
         )
     except AbBaselineCandidateError as exc:
         print(str(exc), file=sys.stderr)
