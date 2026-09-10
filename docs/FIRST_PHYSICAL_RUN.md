@@ -12,33 +12,11 @@ Before creating any physical session or body-build job, decide which authority p
 
 If the goal is an ordinary first real Stash → high-fidelity `.mrbody` clone and Windows/Quest acceptance, continue through sections 0–10 below. After the pre-session doctor is READY, use the exact `clone-body-from-stash-ready.ps1` command it prints. That path creates standalone physical clone/session authority.
 
-### Dual-candidate A/B baseline
+### Archived dual-candidate A/B v1
 
-If the goal is to collect fresh comparison evidence for the active plan-bound PBR/throughput candidate chain, use sections 0–3 below to establish the exact clean checkout, authenticated Stash transport and intended decode-qualified performer, then **do not continue into the standalone clone path in sections 4–10**. The candidate-comparison baseline must instead be created from exact clean current `main` through:
+The 2026-09-10 PBR-v3 / recovery-throughput-v3 shared candidate cycle is complete and promoted. **Do not use `start-ab-baseline.ps1` for a new physical run.** Current `main` intentionally blocks that launcher through the completed v1 lifecycle state.
 
-```powershell
-.\start-ab-baseline.ps1 -PerformerId "123"
-```
-
-You may pass exactly one canonical `-PersonId` instead. The A/B launcher owns its own service-bound fail-fast preflight, validates the live frozen PBR/throughput candidate contract, requires the running BodyRig service revision to match the exact clean `main` checkout, binds the exact Person/Stash performer, forces retained baseline-workspace authority, revalidates candidate refs after enqueue and only then publishes the create-only shared baseline plan.
-
-A successful standalone `clone-body-from-stash-ready.ps1` run or a body-build started directly through `start-revision-bound-body-build.ps1` is **not** dual-candidate baseline-plan authority merely because it otherwise succeeded. Do not try to retrofit such a run into the #258/#208 comparison chain.
-
-Monitor the exact shared baseline with the job id printed by `start-ab-baseline.ps1`:
-
-```powershell
-.\watch-body-build.ps1 -JobId '<baseline-job>'
-```
-
-Only when that exact retained baseline succeeds and the create-only baseline plan still matches will the watcher surface the canonical PBR continuation:
-
-```powershell
-.\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '<baseline-job>'
-```
-
-Complete the real plan-bound PBR human review before starting the throughput candidate. After the PBR sequencing gate permits throughput, follow the launcher-emitted plan-bound candidate watcher and then the canonical continuation described in `docs/THROUGHPUT_PLAN_BOUND_REVIEW.md`. Do not invoke candidate-owned low-level compare/bundle/review scripts directly for plan-bound evidence.
-
-Both modes remain fail-closed and human-review-bound. Neither a source probe, a successful baseline/candidate job nor CI alone grants physical acceptance, promotion authority or production activation.
+For new physical/high-fidelity evidence, continue with the standalone first clone / acceptance route below. If a future software candidate genuinely needs A/B comparison, create and review a new versioned candidate contract/lifecycle before adding a new comparison launcher path. The completed v1 commands remain only in `docs/AB_BASELINE.md` as historical evidence documentation.
 
 ## 0. Start from the verified operator checkout
 

@@ -1,10 +1,10 @@
 > **A/B v1 lifecycle — completed 2026-09-10.** The PBR-v3 / recovery-throughput-v3 shared comparison cycle is finished and promoted under receipt SHA-256 `2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d`. `contracts/ab-baseline-candidates-v1.json` is now immutable historical evidence; it is not an active candidate contract. `contracts/ab-baseline-cycle-state-v1.json` records that closure. `start-ab-baseline.ps1` and `preflight-ab-baseline.ps1` fail closed before physical work until a **new versioned candidate contract/lifecycle** is introduced. This retirement grants no physical acceptance, production activation, or release authority.
 
-# PBR v3 physical A/B review
+# Historical PBR v3 physical A/B review
 
-This runbook prepares a revision-bound visual comparison for the current source-derived skin PBR v3 candidate without granting physical, renderer, release, or production authority.
+This runbook records the revision-bound visual comparison used for the now-promoted source-derived skin PBR v3 candidate. It is historical evidence documentation and does not authorize a new v1 comparison run.
 
-PBR v3 replaces the superseded PBR v2 comparison candidate. It preserves the conservative dielectric roughness/normal-strength policy while decoding base-color sRGB to linear light before luminance, high-pass, gradient and source-detail derivation. The active candidate is PR #258; PR #196 remains historical/superseded lineage and is not current shared-baseline authority.
+PBR v3 replaces the superseded PBR v2 comparison candidate. It preserves the conservative dielectric roughness/normal-strength policy while decoding base-color sRGB to linear light before luminance, high-pass, gradient and source-detail derivation. PR #258 is promoted historical PBR-v3 lineage; PR #196 remains historical/superseded PBR-v2 lineage. Neither is current shared-baseline candidate authority.
 
 ## What the runner proves
 
@@ -42,7 +42,7 @@ For convergence mode, `run-authority.json` also records the retained-source mode
 
 A successful runner result still requires human visual review. It does not merge the PBR candidate and it writes no acceptance or production activation.
 
-## Canonical shared-baseline path
+## Historical shared-baseline path — completed v1
 
 When throughput A/B and PBR A/B are both planned, do **not** pay for two independent current-main reconstructions merely because their evidence consumers differ. Use the shared dual-candidate baseline plan so both candidates are frozen to exact reviewed bytes before physical work begins.
 

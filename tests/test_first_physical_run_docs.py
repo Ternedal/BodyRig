@@ -25,20 +25,16 @@ def test_first_physical_run_documents_stash_discovery_and_canonical_clone() -> N
         assert marker in text
 
 
-def test_first_physical_run_splits_standalone_and_dual_candidate_modes_before_clone() -> None:
+def test_first_physical_run_routes_new_work_away_from_archived_ab_v1() -> None:
     text = (ROOT / "docs" / "FIRST_PHYSICAL_RUN.md").read_text(encoding="utf-8")
 
-    assert "Choose the physical run mode before creating evidence" in text
     assert "Standalone first clone / acceptance" in text
-    assert "Dual-candidate A/B baseline" in text
-    assert '.\\start-ab-baseline.ps1 -PerformerId "123"' in text
-    assert "do not continue into the standalone clone path in sections 4–10" in text
-    assert "is **not** dual-candidate baseline-plan authority" in text
-    assert ".\\watch-body-build.ps1 -JobId '<baseline-job>'" in text
-    assert ".\\run-pbr-ab-from-body-job-plan-bound.ps1 -BaselineJobId '<baseline-job>'" in text
-    assert "docs/THROUGHPUT_PLAN_BOUND_REVIEW.md" in text
-    assert "physical acceptance, promotion authority or production activation" in text
-    assert text.index("Choose the physical run mode before creating evidence") < text.index("## 4. Choose a local operator alias")
+    assert "Archived dual-candidate A/B v1" in text
+    assert "Do not use `start-ab-baseline.ps1` for a new physical run" in text
+    assert "continue with the standalone first clone / acceptance route below" in text
+    assert "new versioned candidate contract/lifecycle" in text
+    assert '.\start-ab-baseline.ps1 -PerformerId "123"' not in text
+    assert text.index("Archived dual-candidate A/B v1") < text.index("## 4. Choose a local operator alias")
 
 
 def test_first_physical_run_requires_sith_v4_before_source_or_session_work() -> None:

@@ -1,8 +1,8 @@
 > **A/B v1 lifecycle — completed 2026-09-10.** The PBR-v3 / recovery-throughput-v3 shared comparison cycle is finished and promoted under receipt SHA-256 `2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d`. `contracts/ab-baseline-candidates-v1.json` is now immutable historical evidence; it is not an active candidate contract. `contracts/ab-baseline-cycle-state-v1.json` records that closure. `start-ab-baseline.ps1` and `preflight-ab-baseline.ps1` fail closed before physical work until a **new versioned candidate contract/lifecycle** is introduced. This retirement grants no physical acceptance, production activation, or release authority.
 
-# Plan-bound recovery throughput A/B continuation
+# Historical plan-bound recovery throughput A/B continuation
 
-This flow is for the physical throughput candidate created by the canonical `start-throughput-candidate-from-ab-plan.ps1` sequencing gate.
+This flow records the completed v1 physical throughput-candidate continuation. It is historical evidence documentation; `start-throughput-candidate-from-ab-plan.ps1` is not a current new-work entrypoint after promotion.
 
 It exists to prevent an operator mix-up between multiple succeeded candidate jobs **and** to enforce that the shared-plan PBR human review actually happened before throughput evaluation. The candidate-start step publishes a create-only `bodyrig-throughput-candidate-run-plan` plus a create-only `bodyrig-throughput-pbr-human-review-gate` receipt that binds that candidate run to the exact reviewed PBR evidence chain.
 
