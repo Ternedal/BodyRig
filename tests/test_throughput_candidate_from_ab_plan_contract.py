@@ -31,7 +31,7 @@ def test_internal_launcher_revalidates_exact_live_candidate_contract_before_swit
 
 def test_internal_launcher_switches_service_and_starts_exact_non_retained_candidate() -> None:
     assert 'update-windows.ps1' in INTERNAL
-    assert '& $updateScript -Branch $throughputRef -NoBrowser -SkipPlan' in INTERNAL
+    assert '$null = & $updateScript -Branch $throughputRef -NoBrowser -SkipPlan' in INTERNAL
     assert 'start-revision-bound-body-build.ps1' in INTERNAL
     assert '& $startScript -PersonId $personId -BaseUri $BaseUri' in INTERNAL
     assert 'started.ab_baseline_retention' in INTERNAL
@@ -145,3 +145,12 @@ def test_canonical_launcher_cancels_and_removes_run_authority_if_pbr_gate_drifts
     assert 'Remove-Item -LiteralPath $runPlanPath -Force' in WRAPPER
     assert 'PBR/baseline source authority drifted while starting throughput candidate' in WRAPPER
     assert '$BaselineJobId-throughput-$candidateJobId-pbr-gate.json' in WRAPPER
+
+def test_canonical_launcher_ignores_diagnostics_and_selects_one_typed_machine_result() -> None:
+    assert '$machineResults = @(' in WRAPPER
+    assert '$candidateResult.PSObject.Properties.Name' in WRAPPER
+    assert 'bodyrig-throughput-candidate-run-plan' in WRAPPER
+    assert 'exactly one canonical machine-readable result' in WRAPPER
+    assert '$started = $machineResults[0]' in WRAPPER
+    assert '[Console]::Out.WriteLine(($started | ConvertTo-Json -Depth 30 -Compress))' in WRAPPER
+    assert 'if ($raw.Count -ne 1) { throw "Internal throughput candidate launcher did not return exactly one machine-readable result." }' not in WRAPPER

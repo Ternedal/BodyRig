@@ -145,3 +145,9 @@ def test_review_wrapper_requires_explicit_human_confirmation_clean_checkout_and_
     assert '--confirm-visual-review' in REVIEW
     assert 'removed non-authoritative receipt' in REVIEW
     assert 'production activation=false' in REVIEW
+
+def test_runner_parenthesizes_both_fetch_array_concatenations() -> None:
+    good = 'Invoke-Git -Arguments (@("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs) -Step'
+    bad = 'Invoke-Git -Arguments @("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs -Step'
+    assert RUNNER.count(good) == 2
+    assert bad not in RUNNER

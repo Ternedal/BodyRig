@@ -168,7 +168,7 @@ $fetchSpecs = @(
     "+refs/heads/main:refs/remotes/origin/main",
     "+refs/heads/${CandidateRef}:refs/remotes/origin/${CandidateRef}"
 )
-[void](Invoke-Git -Arguments @("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs -Step "Fetch baseline/candidate refs")
+[void](Invoke-Git -Arguments (@("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs) -Step "Fetch baseline/candidate refs")
 $remoteMain = Need-Revision ((Invoke-Git -Arguments @("-C",$repoRoot,"rev-parse","refs/remotes/origin/main") -Step "Resolve origin/main") -join "") "origin/main"
 if ($remoteMain -ne $baselineRevision) { throw "Local main is not current origin/main. Run git pull --ff-only origin main before PBR A/B." }
 $candidateRevision = Need-Revision ((Invoke-Git -Arguments @("-C",$repoRoot,"rev-parse","refs/remotes/origin/$CandidateRef") -Step "Resolve candidate ref") -join "") "candidate revision"
@@ -400,7 +400,7 @@ print(json.dumps(validate_reconstruction_authority(sys.argv[1],expected_body_mod
     if ((Get-FileHash -LiteralPath $reconstruction -Algorithm SHA256).Hash.ToLowerInvariant() -ne $reconstructionShaBefore) { throw "reconstruction.json changed during PBR A/B." }
     if ((Get-FileHash -LiteralPath $reconstructionAuthority -Algorithm SHA256).Hash.ToLowerInvariant() -ne $reconstructionAuthorityShaBefore) { throw "reconstruction-authority.json changed during PBR A/B." }
 
-    [void](Invoke-Git -Arguments @("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs -Step "Recheck remote refs after A/B")
+    [void](Invoke-Git -Arguments (@("-C",$repoRoot,"fetch","--no-tags","origin") + $fetchSpecs) -Step "Recheck remote refs after A/B")
     $finalRemoteMain = Need-Revision ((Invoke-Git -Arguments @("-C",$repoRoot,"rev-parse","refs/remotes/origin/main") -Step "Recheck origin/main") -join "") "final origin/main"
     $finalCandidate = Need-Revision ((Invoke-Git -Arguments @("-C",$repoRoot,"rev-parse","refs/remotes/origin/$CandidateRef") -Step "Recheck candidate ref") -join "") "final candidate revision"
     if ($finalRemoteMain -ne $baselineRevision -or $finalCandidate -ne $candidateRevision) {

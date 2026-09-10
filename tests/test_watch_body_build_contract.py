@@ -94,3 +94,8 @@ def test_monitor_routes_only_matching_succeeded_ab_baseline_to_plan_bound_pbr() 
     assert "This monitor grants no authority" in SCRIPT
     assert "downstream wrapper revalidates" in SCRIPT
     assert "A/B BASELINE CONTINUATION BLOCKED" in SCRIPT
+
+def test_monitor_treats_checkpoint_detail_as_optional_under_strictmode() -> None:
+    assert '$value.PSObject.Properties.Name -contains "detail"' in SCRIPT
+    assert 'Detail = $detail' in SCRIPT
+    assert 'Detail = [string]$value.detail' not in SCRIPT

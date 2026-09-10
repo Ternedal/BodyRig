@@ -130,12 +130,16 @@ function Get-CheckpointProgress {
                     try { $value = Read-JsonFile -Path $_.FullName } catch { return }
                     if ([string]$value.format -ne "bodyrig-recovery-segment-status") { return }
                     if ($null -eq $value.source_index) { return }
+                    $detail = ""
+                    if ($value.PSObject.Properties.Name -contains "detail") {
+                        $detail = [string]$value.detail
+                    }
                     [pscustomobject]@{
                         Root = $root
                         Path = $_.FullName
                         SourceIndex = [int]$value.source_index
                         State = [string]$value.state
-                        Detail = [string]$value.detail
+                        Detail = $detail
                     }
                 }
         }

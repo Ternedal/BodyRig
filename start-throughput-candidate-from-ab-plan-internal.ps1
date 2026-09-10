@@ -255,7 +255,7 @@ if (
 
 Write-Host "Shared baseline is succeeded and exact. Switching BodyRig to throughput candidate $throughputRevision..."
 $updateScript = Need-File -Path (Join-Path $repoRoot "update-windows.ps1") -Label "BodyRig updater"
-& $updateScript -Branch $throughputRef -NoBrowser -SkipPlan
+$null = & $updateScript -Branch $throughputRef -NoBrowser -SkipPlan
 
 $afterHeadRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $afterHeadRaw.Count -ne 1 -or ([string]$afterHeadRaw[0]).Trim().ToLowerInvariant() -ne $throughputRevision) {
