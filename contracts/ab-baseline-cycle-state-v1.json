@@ -1,0 +1,17 @@
+{
+  "format": "bodyrig-ab-baseline-cycle-state",
+  "version": 1,
+  "cycle_id": "pbr-v3-throughput-v3-20260910",
+  "state": "completed-promoted",
+  "candidate_contract_path": "contracts/ab-baseline-candidates-v1.json",
+  "candidate_contract_sha256": "fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4",
+  "pbr_candidate_revision": "fe2db94b8ae3be51938a7b302361bcf5fdec5f48",
+  "throughput_candidate_revision": "5fa01deb08399fda64e83db1329d4d2e83ad1bc2",
+  "promotion_receipt_sha256": "2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d",
+  "historical_contract_immutable": true,
+  "future_cycle_requires_new_contract_version": true,
+  "comparison_only": true,
+  "physical_acceptance_authority": false,
+  "production_activation": false,
+  "release_authority": false
+}
