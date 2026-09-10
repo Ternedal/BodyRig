@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from bodyrig.photoidentity_authority import DETAIL_DOMAIN_AUTHORITY
+from bodyrig.photoidentity_authority import (
+    DETAIL_DOMAIN_AUTHORITY,
+    PhotoIdentityAuthorityError,
+    validate_authoritative_bundle,
+)
 from bodyrig.photoidentity_evidence import DOMAIN_REQUIREMENTS, build_observation_evidence, write_bundle
 from bodyrig.photoidentity_registry import (
     PhotoIdentityRegistryError,
@@ -13,6 +18,10 @@ from bodyrig.photoidentity_registry import (
     require_body_job_photoidentity_evidence,
 )
 import bodyrig.photoidentity_registry as registry
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _row(scene: str, view: str) -> dict[str, object]:
@@ -93,11 +102,51 @@ def _patch_job_authority(monkeypatch: pytest.MonkeyPatch, job_root: Path) -> Non
     )
 
 
+def _patch_valid_source_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    report: Path,
+) -> None:
+    receipt_root = tmp_path / "human-source-receipts"
+    receipt_root.mkdir(exist_ok=True)
+    nail = receipt_root / "nail.json"
+    anatomy = receipt_root / "anatomy.json"
+    boundary = {
+        "version": 1,
+        "operator_supplied": True,
+        "source_grounded": True,
+        "generic_guessing_permitted": False,
+        "production_activation": False,
+    }
+    nail.write_text(
+        json.dumps({**boundary, "format": "bodyrig-photoidentity-nail-source-attestation"}),
+        encoding="utf-8",
+    )
+    anatomy.write_text(
+        json.dumps({**boundary, "format": "bodyrig-photoidentity-anatomy-source-attestation"}),
+        encoding="utf-8",
+    )
+    report_value = json.loads(report.read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        registry,
+        "validate_registration_source_chain",
+        lambda *args, **kwargs: {
+            "report": report_value,
+            "policy_revision": "photoidentity-human-source-chain-v1",
+            "nail_attestation": str(nail),
+            "nail_attestation_sha256": _sha(nail),
+            "anatomy_attestation": str(anatomy),
+            "anatomy_attestation_sha256": _sha(anatomy),
+        },
+    )
+
+
 def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     observations, report = _sufficient_bundle(tmp_path)
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
+    _patch_valid_source_chain(monkeypatch, tmp_path, report)
 
     result = register_body_job_photoidentity_evidence(
         "job-" + "1" * 32,
@@ -105,6 +154,8 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
         observation_path=observations,
     )
 
+    assert result["version"] == 2
+    assert result["source_chain_policy_revision"] == "photoidentity-human-source-chain-v1"
     assert result["source_evidence_sufficient"] is True
     assert result["human_review_render_permitted"] is True
     assert result["generic_guessing_permitted"] is False
@@ -114,58 +165,34 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
     assert required["human_review_render_permitted"] is True
 
 
-def test_registry_rejects_forged_complete_analyzer_name(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authority_rejects_forged_complete_analyzer_name(tmp_path: Path) -> None:
     observations, report = _sufficient_bundle(tmp_path, analyzer_adapter="fixture-complete")
-    job_root = tmp_path / "job-root"
-    job_root.mkdir()
-    _patch_job_authority(monkeypatch, job_root)
-
-    with pytest.raises(PhotoIdentityRegistryError, match="analyzer is not registered authority"):
-        register_body_job_photoidentity_evidence(
-            "job-" + "5" * 32,
-            report_path=report,
-            observation_path=observations,
-        )
-    assert not (job_root / "photoidentity-evidence").exists()
+    with pytest.raises(PhotoIdentityAuthorityError, match="analyzer is not registered authority"):
+        validate_authoritative_bundle(report, observations, require_sufficient=True)
 
 
-def test_registry_rejects_forged_human_nail_claim_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authority_rejects_forged_human_nail_claim_adapter(tmp_path: Path) -> None:
     observations, report = _sufficient_bundle(
         tmp_path,
         claim_adapter_override=("fingernails_detail", "generic-nail-prior"),
     )
-    job_root = tmp_path / "job-root"
-    job_root.mkdir()
-    _patch_job_authority(monkeypatch, job_root)
-
-    with pytest.raises(PhotoIdentityRegistryError, match="fingernails_detail requires human-source-nail-detail-attestation@1"):
-        register_body_job_photoidentity_evidence(
-            "job-" + "6" * 32,
-            report_path=report,
-            observation_path=observations,
-        )
-    assert not (job_root / "photoidentity-evidence").exists()
+    with pytest.raises(
+        PhotoIdentityAuthorityError,
+        match="fingernails_detail requires human-source-nail-detail-attestation@1",
+    ):
+        validate_authoritative_bundle(report, observations, require_sufficient=True)
 
 
-def test_registry_rejects_forged_human_anatomy_claim_adapter(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_authority_rejects_forged_human_anatomy_claim_adapter(tmp_path: Path) -> None:
     observations, report = _sufficient_bundle(
         tmp_path,
         claim_adapter_override=("torso_chest", "generic-body-prior"),
     )
-    job_root = tmp_path / "job-root"
-    job_root.mkdir()
-    _patch_job_authority(monkeypatch, job_root)
-
     with pytest.raises(
-        PhotoIdentityRegistryError,
+        PhotoIdentityAuthorityError,
         match="torso_chest requires human-source-anatomy-observability-attestation@1",
     ):
-        register_body_job_photoidentity_evidence(
-            "job-" + "7" * 32,
-            report_path=report,
-            observation_path=observations,
-        )
-    assert not (job_root / "photoidentity-evidence").exists()
+        validate_authoritative_bundle(report, observations, require_sufficient=True)
 
 
 def test_registry_is_create_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -173,6 +200,7 @@ def test_registry_is_create_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
+    _patch_valid_source_chain(monkeypatch, tmp_path, report)
     job_id = "job-" + "2" * 32
 
     register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
@@ -185,6 +213,7 @@ def test_registry_fails_closed_if_registered_report_is_tampered(monkeypatch: pyt
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
+    _patch_valid_source_chain(monkeypatch, tmp_path, report)
     job_id = "job-" + "3" * 32
     register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
 
@@ -194,6 +223,24 @@ def test_registry_fails_closed_if_registered_report_is_tampered(monkeypatch: pyt
     stored.write_text(json.dumps(value), encoding="utf-8")
 
     with pytest.raises(PhotoIdentityRegistryError, match="mismatch|inconsistent"):
+        require_body_job_photoidentity_evidence("person-fixture", job_id)
+
+
+def test_registry_fails_closed_if_registered_human_receipt_is_tampered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observations, report = _sufficient_bundle(tmp_path)
+    job_root = tmp_path / "job-root"
+    job_root.mkdir()
+    _patch_job_authority(monkeypatch, job_root)
+    _patch_valid_source_chain(monkeypatch, tmp_path, report)
+    job_id = "job-" + "8" * 32
+    register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
+
+    stored = job_root / "photoidentity-evidence" / "source-authority" / "nail-source-attestation.json"
+    stored.write_text(stored.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    with pytest.raises(PhotoIdentityRegistryError, match="nail source attestation receipt hash mismatch"):
         require_body_job_photoidentity_evidence("person-fixture", job_id)
 
 
