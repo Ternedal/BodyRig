@@ -134,6 +134,10 @@ def _load_candidate(root: Path, current_revision: str) -> dict[str, Any]:
     if _sha256_file(upstream_machine) != str(public.get("machine_track_review_sha256") or ""):
         raise PhotoIdentityTargetIsolationAttestationError("upstream machine track review bytes changed")
 
+    source = Path(str(private.get("source_path") or "")).expanduser().resolve()
+    if not source.is_file() or _sha256_file(source) != str(public.get("source_media_sha256") or ""):
+        raise PhotoIdentityTargetIsolationAttestationError("original source media bytes changed after isolation preparation")
+
     public_samples = public.get("samples")
     private_samples = private.get("samples")
     if not isinstance(public_samples, list) or not isinstance(private_samples, list):
@@ -175,6 +179,7 @@ def _load_candidate(root: Path, current_revision: str) -> dict[str, Any]:
         "machine_path": machine_path,
         "contact_path": contact,
         "upstream_attestation": upstream_attestation,
+        "source": source,
         "samples": verified_samples,
     }
 
