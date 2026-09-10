@@ -16,9 +16,10 @@ def test_native_storage_credential_helper_loads_and_reports_session_policy() -> 
     pwsh = shutil.which("pwsh")
     assert pwsh is not None
     helper = ROOT / "storage-auth-native.ps1"
+    helper_ps = str(helper).replace("'", "''")
     command = (
         "$ErrorActionPreference='Stop'; "
-        f". '{str(helper).replace("'", "''")}'; "
+        f". '{helper_ps}'; "
         "$value=[int](Get-BodyRigDomainCredentialMaxPersist); "
         "if ($value -lt 0 -or $value -gt 3) { throw \"invalid persistence value: $value\" }; "
         "if (-not ('BodyRig.NativeCredentialStore' -as [type])) { throw 'native helper type missing' }; "
