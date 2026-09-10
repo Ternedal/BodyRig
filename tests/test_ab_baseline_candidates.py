@@ -270,7 +270,6 @@ def test_post_enqueue_expected_revision_check_rejects_ref_drift(monkeypatch) -> 
 def test_completed_v1_cycle_blocks_new_baseline_without_rewriting_historical_contract() -> None:
     lifecycle_path = ROOT / "contracts" / "ab-baseline-cycle-state-v1.json"
     lifecycle = json.loads(lifecycle_path.read_text(encoding="utf-8"))
-    contract_sha = __import__("hashlib").sha256(CONTRACT_PATH.read_bytes()).hexdigest()
 
     assert lifecycle == {
         "format": "bodyrig-ab-baseline-cycle-state",
@@ -278,7 +277,8 @@ def test_completed_v1_cycle_blocks_new_baseline_without_rewriting_historical_con
         "cycle_id": "pbr-v3-throughput-v3-20260910",
         "state": "completed-promoted",
         "candidate_contract_path": "contracts/ab-baseline-candidates-v1.json",
-        "candidate_contract_sha256": "fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4",
+        "candidate_contract_git_blob": "703187fc8584cb3300f61d9ddb73eb886c27513f",
+        "historical_windows_candidate_contract_sha256": "fa9ee08c715c216a4dce90e85a2bd699ed56f73eaad5f3fa444cd625110f6cf4",
         "pbr_candidate_revision": "fe2db94b8ae3be51938a7b302361bcf5fdec5f48",
         "throughput_candidate_revision": "5fa01deb08399fda64e83db1329d4d2e83ad1bc2",
         "promotion_receipt_sha256": "2daac171b018b0bdb813fb4698c17fa882ef8d130cd9df0ab7e87d7282c9850d",
@@ -289,18 +289,28 @@ def test_completed_v1_cycle_blocks_new_baseline_without_rewriting_historical_con
         "production_activation": False,
         "release_authority": False,
     }
-    assert contract_sha == lifecycle["candidate_contract_sha256"]
+    assert ab._tree_blob(ROOT, "HEAD", lifecycle["candidate_contract_path"]) == lifecycle["candidate_contract_git_blob"]
     with pytest.raises(ab.AbBaselineCandidateError, match="completed/promoted and archived"):
-        ab._assert_cycle_open(ROOT, contract_sha)
+        ab._assert_cycle_open(ROOT)
 
 
-def test_new_baseline_lifecycle_check_rejects_historical_contract_tamper(tmp_path: Path) -> None:
+def test_completed_cycle_ignores_platform_working_tree_line_endings(monkeypatch, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     contract = repo / "contracts" / "ab-baseline-candidates-v1.json"
     state = repo / "contracts" / "ab-baseline-cycle-state-v1.json"
     contract.parent.mkdir(parents=True)
-    contract.write_text("tampered", encoding="utf-8")
-    lifecycle = json.loads((ROOT / "contracts" / "ab-baseline-cycle-state-v1.json").read_text(encoding="utf-8"))
-    state.write_text(json.dumps(lifecycle), encoding="utf-8")
-    with pytest.raises(ab.AbBaselineCandidateError, match="historical A/B v1 candidate contract bytes changed"):
-        ab._assert_cycle_open(repo, "0" * 64)
+    contract.write_bytes(b"windows-style\r\nworking-tree\r\n")
+    state.write_text((ROOT / "contracts" / "ab-baseline-cycle-state-v1.json").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(ab, "_tree_blob", lambda _repo, revision, path: ab.HISTORICAL_V1_CONTRACT_GIT_BLOB)
+    with pytest.raises(ab.AbBaselineCandidateError, match="completed/promoted and archived"):
+        ab._assert_cycle_open(repo)
+
+
+def test_new_baseline_lifecycle_check_rejects_historical_contract_tamper(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    state = repo / "contracts" / "ab-baseline-cycle-state-v1.json"
+    state.parent.mkdir(parents=True)
+    state.write_text((ROOT / "contracts" / "ab-baseline-cycle-state-v1.json").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(ab, "_tree_blob", lambda _repo, revision, path: "0" * 40)
+    with pytest.raises(ab.AbBaselineCandidateError, match="historical A/B v1 candidate contract Git blob changed"):
+        ab._assert_cycle_open(repo)
