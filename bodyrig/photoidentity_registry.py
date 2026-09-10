@@ -8,7 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from .photoidentity_evidence import PhotoIdentityEvidenceError, validate_bundle
+from .photoidentity_authority import validate_authoritative_bundle
+from .photoidentity_evidence import PhotoIdentityEvidenceError
 from .storage import ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs
 
@@ -104,7 +105,7 @@ def register_body_job_photoidentity_evidence(
         else report_source.with_name(OBSERVATIONS_NAME)
     )
     try:
-        report = validate_bundle(
+        report = validate_authoritative_bundle(
             report_source,
             observations_source,
             require_sufficient=True,
@@ -129,8 +130,9 @@ def register_body_job_photoidentity_evidence(
         shutil.copyfile(observations_source, destination_observations)
         if _sha256(destination_report) != _sha256(report_source) or _sha256(destination_observations) != _sha256(observations_source):
             raise PhotoIdentityRegistryError("photoidentity registry copy hash mismatch")
-        # Revalidate the persisted bytes, not just their source copies.
-        persisted = validate_bundle(
+        # Revalidate the persisted bytes, including exact adapter/domain authority,
+        # not just their source copies.
+        persisted = validate_authoritative_bundle(
             destination_report,
             destination_observations,
             require_sufficient=True,
@@ -213,7 +215,7 @@ def require_body_job_photoidentity_evidence(person_id: str, body_job_id: str) ->
         if receipt.get(field) != value:
             raise PhotoIdentityRegistryError(f"photoidentity body-job authority mismatch: {field}")
     try:
-        return validate_bundle(
+        return validate_authoritative_bundle(
             report_path,
             observations_path,
             require_sufficient=True,
