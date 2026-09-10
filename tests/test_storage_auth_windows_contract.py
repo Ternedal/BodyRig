@@ -49,19 +49,26 @@ def test_setup_binds_credential_target_to_exact_saved_stash_host() -> None:
     assert 'credential_target = $target' in SETUP
 
 
-def test_new_or_replaced_credential_starts_a_new_qualification_generation() -> None:
+def test_new_or_replaced_credential_transaction_invalidates_before_secret_change() -> None:
     lowered = SETUP.lower()
     assert '$credentialgeneration = [guid]::newguid().tostring("d").tolowerinvariant()' in lowered
     assert "storage-session-proof.json" in lowered
     assert "storage-pre-reboot-proof.json" in lowered
     assert "storage-cold-boot-proof.json" in lowered
-    assert "remove-item" in lowered
     assert "credential_generation = $credentialgeneration" in lowered
+    assert "credential_write_completed = $credentialwritecompleted" in lowered
     assert "prior proofs:" in lowered
-    credential_write = lowered.index("set-bodyrigdomaincredential")
-    proof_clear = lowered.index("storage-session-proof.json", credential_write)
-    config_generation = lowered.index("credential_generation = $credentialgeneration", proof_clear)
-    assert credential_write < proof_clear < config_generation
+
+    first_unqualified_write = lowered.index(
+        "write-storageconfig -credentialwritecompleted $false"
+    )
+    proof_clear = lowered.index("storage-session-proof.json", first_unqualified_write)
+    credential_write = lowered.index("set-bodyrigdomaincredential", proof_clear)
+    final_qualified_write = lowered.index(
+        "write-storageconfig -credentialwritecompleted $true", credential_write
+    )
+    assert first_unqualified_write < proof_clear < credential_write < final_qualified_write
+    assert "remove-item -literalpath $proofpath -force -erroraction stop" in lowered
 
 
 def test_fresh_session_test_resets_smb_and_decodes_real_stash_source() -> None:
@@ -85,11 +92,13 @@ def test_fresh_session_test_resets_smb_and_decodes_real_stash_source() -> None:
     assert 'secret_persisted_in_proof = $false' in lowered
 
 
-def test_fresh_session_test_refuses_storage_host_alias_and_generation_drift() -> None:
+def test_fresh_session_test_refuses_storage_host_generation_and_incomplete_bootstrap() -> None:
     assert "does not match the host used by Stash" in TEST
     assert "Storage credential target does not exactly match the UNC host authority" in TEST
     assert "credential_generation" in TEST
     assert "canonical credential generation" in TEST
+    assert "$storage.credential_write_completed -ne $true" in TEST
+    assert "credential bootstrap is incomplete" in TEST
 
 
 def test_pre_reboot_mark_requires_fresh_smb_session_and_resets_old_cold_counter() -> None:
@@ -100,21 +109,24 @@ def test_pre_reboot_mark_requires_fresh_smb_session_and_resets_old_cold_counter(
     clear = TEST.index("Remove-Item -LiteralPath $coldProofPath", mark)
     write = TEST.index("storage-pre-reboot-proof", clear)
     assert mark < clear < write
+    assert "-ErrorAction Stop" in TEST[clear:write]
 
 
-def test_status_uses_shared_native_helper_and_never_reads_secret() -> None:
+def test_status_uses_shared_native_helper_and_blocks_incomplete_bootstrap() -> None:
     lowered = STATUS.lower()
     assert '"storage-auth-native.ps1"' in lowered
     assert ". $nativehelper" in lowered
     assert "test-bodyrigdomaincredential" in lowered
     assert "get-bodyrigdomaincredentialmaxpersist" in lowered
     assert "credential_generation" in lowered
+    assert "$storage.credential_write_completed -ne $true" in lowered
+    assert 'stage "credential-bootstrap-incomplete"' in lowered
     assert "get-credential" not in lowered
     assert "securestringtobstr" not in lowered
     assert "cmdkey" not in lowered
 
 
-def test_post_reboot_verifier_requires_new_boot_two_unique_passes_and_same_generation() -> None:
+def test_post_reboot_verifier_requires_new_boot_two_unique_passes_same_generation_and_completed_bootstrap() -> None:
     lowered = VERIFY.lower()
     assert "lastbootuptime" in lowered
     assert "windows has not rebooted since the pre-reboot proof" in lowered
@@ -124,13 +136,17 @@ def test_post_reboot_verifier_requires_new_boot_two_unique_passes_and_same_gener
     assert "qualified = [bool]$qualified" in lowered
     assert "credential_generation" in lowered
     assert "different credential generation" in lowered
+    assert "$storage.credential_write_completed -ne $true" in lowered
+    assert "credential bootstrap is incomplete" in lowered
     assert "credential_prompt_permitted = $false" in lowered
     assert "real_stash_source_decode_required = $true" in lowered
     assert "secret_persisted_in_proof = $false" in lowered
 
 
-def test_post_reboot_verifier_never_requests_credentials() -> None:
+def test_post_reboot_verifier_forces_fresh_smb_session_and_never_requests_credentials() -> None:
     lowered = VERIFY.lower()
+    assert '"-resetconnections"' in lowered
+    assert "existing_connections_reset -ne $true" in lowered
     assert "get-credential" not in lowered
     assert "cmdkey" not in lowered
     assert "/pass:" not in lowered
