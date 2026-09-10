@@ -63,7 +63,10 @@ if ($currentBoot -le $baselineBoot) {
 $currentBootText = $currentBoot.ToString("o")
 
 $testScript = Join-Path $PSScriptRoot "test-storage-auth-windows.ps1"
-$argsList = @("-PerformerId", $PerformerId)
+# Even after a cold boot, discard any SMB session Windows or another startup
+# process may already have created. The proof must force a new connection from
+# Credential Manager before the real Stash source is decoded.
+$argsList = @("-PerformerId", $PerformerId, "-ResetConnections")
 if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $argsList += @("-BodyRigPython", $BodyRigPython) }
 if (-not [string]::IsNullOrWhiteSpace($Ffmpeg)) { $argsList += @("-Ffmpeg", $Ffmpeg) }
 & $testScript @argsList
@@ -79,6 +82,7 @@ if (
     [string]$session.credential_target -ne [string]$pre.credential_target -or
     [string]$session.credential_generation -ne $credentialGeneration -or
     [string]$session.performer_id -ne [string]$PerformerId -or
+    $session.existing_connections_reset -ne $true -or
     $session.credential_prompt_used -ne $false -or
     $session.stash_path_map -ne $true -or
     $session.real_stash_source_decode -ne $true -or
@@ -114,6 +118,7 @@ if (@($successfulBoots | Where-Object { [string]$_.boot_utc -eq $currentBootText
 $successfulBoots += [ordered]@{
     boot_utc = $currentBootText
     tested_utc = [DateTime]::UtcNow.ToString("o")
+    smb_connections_reset = $true
     credential_prompt_used = $false
     stash_path_map = $true
     real_stash_source_decode = $true
@@ -135,6 +140,7 @@ $proof = [ordered]@{
     successful_boots = @($successfulBoots)
     successful_boot_count = $successfulBoots.Count
     qualified = [bool]$qualified
+    smb_reset_required_per_boot = $true
     credential_prompt_permitted = $false
     real_stash_source_decode_required = $true
     secret_persisted_in_proof = $false
@@ -149,6 +155,7 @@ Write-Host "BodyRig persistent storage authentication: $state"
 Write-Host "Host:                 $($pre.host)"
 Write-Host "Credential cycle:     $credentialGeneration"
 Write-Host "Cold boots passed:    $($successfulBoots.Count)/$required"
+Write-Host "SMB reset per boot:   TRUE"
 Write-Host "Credential prompts:   0"
 Write-Host "Real Stash decode:    PASS"
 if (-not $qualified) {
