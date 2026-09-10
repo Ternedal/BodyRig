@@ -48,6 +48,9 @@ catch { throw "Saved BodyRig Stash configuration is unreadable JSON." }
 if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
     throw "Saved storage configuration has an unexpected format/version."
 }
+if ($storage.credential_write_completed -ne $true) {
+    throw "Saved storage credential bootstrap is incomplete; re-run setup-storage-auth-windows.ps1 before collecting proof."
+}
 if ([string]$stash.format -ne "bodyrig-local-stash-config" -or [int]$stash.version -ne 1) {
     throw "Saved Stash configuration has an unexpected format/version."
 }
@@ -177,7 +180,9 @@ Move-Item -LiteralPath $temp -Destination $sessionProofPath -Force
 if ($MarkPreReboot) {
     # A new baseline starts a new qualification cycle. Any prior cold-boot
     # counter is invalid even if host/username happen to be unchanged.
-    Remove-Item -LiteralPath $coldProofPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $coldProofPath) {
+        Remove-Item -LiteralPath $coldProofPath -Force -ErrorAction Stop
+    }
     $pre = [ordered]@{
         format = "bodyrig-storage-pre-reboot-proof"
         version = 1
