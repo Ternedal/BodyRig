@@ -23,7 +23,8 @@ $highFidelityStatus = Join-Path $repoRoot "high-fidelity-physical-status.ps1"
 $digitalTwinStatus = Join-Path $repoRoot "digital-twin-status.ps1"
 $firstPhysicalRun = Join-Path $repoRoot "prepare-first-physical-run.ps1"
 $profiledFirstPhysicalRun = Join-Path $repoRoot "prepare-profiled-first-physical-run.ps1"
-foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun)) {
+$storageAuthStatus = Join-Path $repoRoot "storage-auth-status.ps1"
+foreach ($required in @($physicalStatus, $highFidelityStatus, $digitalTwinStatus, $firstPhysicalRun, $profiledFirstPhysicalRun, $storageAuthStatus)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Canonical BodyRig operator dependency is missing: $required"
     }
@@ -59,6 +60,30 @@ if ($hasPerformer -and $hasBodyId) {
     if ($Json) {
         throw "Physical preflight performer mode does not support -Json because the canonical rig/source doctor has human-readable output."
     }
+
+    $storageRaw = @(& $storageAuthStatus -PerformerId $PerformerId -Json 2>&1)
+    $storageCode = $LASTEXITCODE
+    if ($null -eq $storageCode) { $storageCode = 0 }
+    if ($storageCode -ne 0 -or $storageRaw.Count -ne 1) {
+        throw "Could not establish canonical persistent storage-auth status before physical preflight."
+    }
+    try { $storage = ([string]$storageRaw[0]) | ConvertFrom-Json -Depth 8 }
+    catch { throw "Persistent storage-auth status returned unreadable JSON." }
+    if ([string]$storage.format -ne "bodyrig-storage-auth-status" -or [int]$storage.version -ne 1) {
+        throw "Persistent storage-auth status returned an unexpected contract."
+    }
+    if ($storage.qualified -ne $true -or [string]$storage.state -ne "qualified") {
+        Write-Host "BodyRig physical preflight: BLOCKED | persistent storage authentication is not reboot-qualified"
+        Write-Host "Storage state: $([string]$storage.state) | cold-boots=$([int]$storage.cold_boots_passed)/$([int]$storage.cold_boots_required)"
+        Write-Host ([string]$storage.message)
+        if ($null -ne $storage.next_command -and -not [string]::IsNullOrWhiteSpace([string]$storage.next_command)) {
+            Write-Host "Next command:"
+            Write-Host ([string]$storage.next_command)
+        }
+        exit 3
+    }
+    Write-Host "BodyRig persistent storage authentication: QUALIFIED | cold-boots=$([int]$storage.cold_boots_passed)/$([int]$storage.cold_boots_required)"
+
     $parameters = @{
         PerformerId = $PerformerId
         BodyId = $BodyId
