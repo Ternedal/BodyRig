@@ -31,7 +31,9 @@ DOMAIN_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "torso_chest": {"capability": "torso-chest-detail", "minimum_distinct_scenes": 2},
     "waist_hips": {"capability": "waist-hips-detail", "minimum_distinct_scenes": 2},
     "hands": {"capability": "hands-detail", "minimum_distinct_scenes": 2},
+    "fingernails_detail": {"capability": "fingernails-detail", "minimum_distinct_scenes": 2},
     "feet": {"capability": "feet-detail", "minimum_distinct_scenes": 2},
+    "toenails_detail": {"capability": "toenails-detail", "minimum_distinct_scenes": 2},
 }
 
 COARSE_FACE_THRESHOLD = {
@@ -118,7 +120,7 @@ def _canonical_row(value: Mapping[str, Any]) -> dict[str, Any]:
     view = str(value.get("view") or "")
     if view not in {"front", "left_profile", "right_profile", "rear", "unknown"}:
         raise PhotoIdentityEvidenceError("photoidentity observation view is invalid")
-    result = {
+    return {
         "scene_id": scene_id,
         "source_ordinal": ordinal,
         "start_seconds": round(float(start), 3),
@@ -132,7 +134,6 @@ def _canonical_row(value: Mapping[str, Any]) -> dict[str, Any]:
         "motion": _finite(value.get("motion"), label="motion"),
         "view": view,
     }
-    return result
 
 
 def _canonical_detail_claim(domain: str, value: Mapping[str, Any]) -> dict[str, Any]:
@@ -203,11 +204,7 @@ def build_observation_evidence(
         "performer_id": performer,
         "bodyrig_revision": revision,
         "baseline_source_manifest_sha256": baseline_sha,
-        "analyzer": {
-            "adapter": adapter,
-            "revision": adapter_revision,
-            "capabilities": capabilities,
-        },
+        "analyzer": {"adapter": adapter, "revision": adapter_revision, "capabilities": capabilities},
         "candidate_scenes": candidate_scenes,
         "source_files_scanned": source_files_scanned,
         "scan_exhausted": scan_exhausted,
@@ -261,11 +258,7 @@ def validate_observation_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
 def _coarse_scene_ids(rows: Sequence[Mapping[str, Any]], domain: str) -> set[str]:
     if domain.startswith("face_"):
         expected_view = domain.removeprefix("face_")
-        view = {
-            "front": "front",
-            "left_profile": "left_profile",
-            "right_profile": "right_profile",
-        }.get(expected_view)
+        view = {"front": "front", "left_profile": "left_profile", "right_profile": "right_profile"}.get(expected_view)
         if view is None:
             return set()
         return {
@@ -279,11 +272,7 @@ def _coarse_scene_ids(rows: Sequence[Mapping[str, Any]], domain: str) -> set[str
         }
     if domain.startswith("body_") and domain != "body_rear":
         expected_view = domain.removeprefix("body_")
-        view = {
-            "front": "front",
-            "left_profile": "left_profile",
-            "right_profile": "right_profile",
-        }.get(expected_view)
+        view = {"front": "front", "left_profile": "left_profile", "right_profile": "right_profile"}.get(expected_view)
         if view is None:
             return set()
         return {
@@ -327,9 +316,8 @@ def evaluate_sufficiency(observation_evidence: Mapping[str, Any]) -> dict[str, A
                 for item in claims
                 if float(item["quality"]) >= DETAIL_QUALITY_THRESHOLD and item.get("source_derived") is True
             }
-        status = "pass" if len(scenes) >= minimum else "source_missing"
         domains[domain] = {
-            "status": status,
+            "status": "pass" if len(scenes) >= minimum else "source_missing",
             "required_capability": capability,
             "minimum_distinct_scenes": minimum,
             "qualifying_distinct_scenes": len(scenes),
@@ -433,10 +421,7 @@ def validate_bundle(
         raise PhotoIdentityEvidenceError("photoidentity observation evidence is invalid JSON") from exc
     if not isinstance(raw_observations, dict):
         raise PhotoIdentityEvidenceError("photoidentity observation evidence must be an object")
-    expected_report = {
-        **evaluate_sufficiency(raw_observations),
-        "observation_evidence_sha256": _sha256(observations_file),
-    }
+    expected_report = {**evaluate_sufficiency(raw_observations), "observation_evidence_sha256": _sha256(observations_file)}
     if report != expected_report:
         raise PhotoIdentityEvidenceError("photoidentity sufficiency report is inconsistent with bound observation evidence")
     if expected_performer_id is not None and report["performer_id"] != str(expected_performer_id):
