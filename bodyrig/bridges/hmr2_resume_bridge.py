@@ -129,17 +129,36 @@ def _current_timing(sampling_stride: int) -> tuple[float, int, float] | None:
     return timing
 
 
+def _explicit_timing_matches_current(
+    *,
+    source_fps: float,
+    sampling_stride: int,
+    effective_fps: float,
+) -> bool:
+    timing = _current_timing(sampling_stride)
+    if timing is None:
+        return False
+    current_source_fps, _, current_effective_fps = timing
+    return _float_matches(source_fps, current_source_fps) and _float_matches(
+        effective_fps, current_effective_fps
+    )
+
+
 def _load_canonical_checkpoint(
     root: Path,
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
     sampling_stride: int,
+    effective_fps: float,
 ):
-    timing = _current_timing(sampling_stride)
-    if timing is None:
+    if not _explicit_timing_matches_current(
+        source_fps=source_fps,
+        sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
+    ):
         return None
-    source_fps, _, effective_fps = timing
     meta = checkpoint._read_json(checkpoint._canonical_path(root, source_index))
     if not _timing_meta_matches(
         meta,
@@ -152,7 +171,9 @@ def _load_canonical_checkpoint(
         root,
         source_index=source_index,
         source_sha256=source_sha256,
+        source_fps=source_fps,
         sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
     )
 
 
@@ -359,12 +380,16 @@ def _load_raw_checkpoint(
     *,
     source_index: int,
     source_sha256: str,
+    source_fps: float,
     sampling_stride: int,
+    effective_fps: float,
 ):
-    timing = _current_timing(sampling_stride)
-    if timing is None:
+    if not _explicit_timing_matches_current(
+        source_fps=source_fps,
+        sampling_stride=sampling_stride,
+        effective_fps=effective_fps,
+    ):
         return None
-    source_fps, _, effective_fps = timing
 
     local_meta = checkpoint._read_json(checkpoint._raw_meta_path(root, source_index))
     current = None
@@ -378,7 +403,9 @@ def _load_raw_checkpoint(
             root,
             source_index=source_index,
             source_sha256=source_sha256,
+            source_fps=source_fps,
             sampling_stride=sampling_stride,
+            effective_fps=effective_fps,
         )
     if current is not None:
         raw_path = checkpoint._raw_path(root, source_index)
