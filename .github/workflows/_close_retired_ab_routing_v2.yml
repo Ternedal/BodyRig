@@ -1,0 +1,26 @@
+name: close-retired-ab-routing-v2
+on:
+  push:
+    branches: [docs/close-retired-ab-routing-20260910]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: docs/close-retired-ab-routing-20260910
+          fetch-depth: 0
+      - run: python tools/_close_retired_ab_routing.py
+      - run: |
+          python -m compileall -q tests
+          git diff --check
+          test "$(git rev-parse HEAD:contracts/ab-baseline-candidates-v1.json)" = "703187fc8584cb3300f61d9ddb73eb886c27513f"
+      - run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Remove stale active A/B routing after retirement'
+          git push origin HEAD:docs/close-retired-ab-routing-20260910
