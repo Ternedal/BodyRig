@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 from .photoidentity_evidence import DETAIL_QUALITY_THRESHOLD
 from .photoidentity_openpose_runner import _extract_frame, select_detail_frame_candidates
+from .photoidentity_schp_contract import ADAPTER, ADAPTER_REVISION
 
 SUPPORTED_DOMAINS = {"hair_hairline", "skin_detail"}
 
@@ -19,10 +21,17 @@ class PhotoIdentitySchpRunnerError(RuntimeError):
 def _merge_best(
     destination: dict[str, list[dict[str, object]]],
     incoming: Mapping[str, Sequence[Mapping[str, object]]],
+    *,
+    expected_scene_id: str,
 ) -> None:
+    expected_scene = str(expected_scene_id or "").strip()
+    if not expected_scene:
+        raise PhotoIdentitySchpRunnerError("SCHP expected scene id is missing")
     for domain, raw_claims in incoming.items():
         if domain not in SUPPORTED_DOMAINS:
             raise PhotoIdentitySchpRunnerError(f"SCHP inference overclaimed unsupported domain: {domain}")
+        if not isinstance(raw_claims, Sequence) or isinstance(raw_claims, (str, bytes, bytearray)):
+            raise PhotoIdentitySchpRunnerError(f"SCHP claims for {domain} must be an array")
         by_scene = {
             str(item.get("scene_id") or ""): dict(item)
             for item in destination.get(domain, [])
@@ -33,12 +42,26 @@ def _merge_best(
                 raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} is not an object")
             claim = dict(raw)
             scene = str(claim.get("scene_id") or "").strip()
+            if scene != expected_scene:
+                raise PhotoIdentitySchpRunnerError(
+                    f"SCHP claim for {domain} is bound to unexpected scene {scene or 'missing'}"
+                )
+            if claim.get("source_derived") is not True:
+                raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} is not source-derived")
+            if claim.get("adapter") != ADAPTER or claim.get("revision") != ADAPTER_REVISION:
+                raise PhotoIdentitySchpRunnerError(
+                    f"SCHP claim for {domain} does not match pinned adapter authority"
+                )
+            quality_raw = claim.get("quality")
+            if isinstance(quality_raw, bool):
+                raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} has invalid quality")
             try:
-                quality = float(claim.get("quality"))
+                quality = float(quality_raw)
             except (TypeError, ValueError) as exc:
                 raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} has invalid quality") from exc
-            if not scene or claim.get("source_derived") is not True:
-                raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} is not source-derived")
+            if not math.isfinite(quality) or not 0.0 <= quality <= 1.0:
+                raise PhotoIdentitySchpRunnerError(f"SCHP claim for {domain} quality is outside 0..1")
+            claim["quality"] = quality
             current = by_scene.get(scene)
             if current is None or quality > float(current.get("quality", 0.0)):
                 by_scene[scene] = claim
@@ -108,7 +131,15 @@ def _run_inference(
         raise PhotoIdentitySchpRunnerError("SCHP private inference returned invalid JSON") from exc
     if not isinstance(value, dict):
         raise PhotoIdentitySchpRunnerError("SCHP private inference result must be an object")
-    return {str(key): list(raw) for key, raw in value.items() if isinstance(raw, list)}
+    normalized: dict[str, list[dict[str, object]]] = {}
+    for key, raw in value.items():
+        domain = str(key)
+        if domain not in SUPPORTED_DOMAINS:
+            raise PhotoIdentitySchpRunnerError(f"SCHP inference overclaimed unsupported domain: {domain}")
+        if not isinstance(raw, list):
+            raise PhotoIdentitySchpRunnerError(f"SCHP inference claims for {domain} must be an array")
+        normalized[domain] = raw
+    return normalized
 
 
 def collect_schp_detail_evidence(
@@ -157,15 +188,16 @@ def collect_schp_detail_evidence(
             encoding="utf-8",
             newline="\n",
         )
+        scene_id = str(row["scene_id"])
         claims = _run_inference(
             runtime_python=runtime_python,
             repo_root=repo_root,
             model_path=model_path,
             frame=frame,
             observation_path=observation_path,
-            scene_id=str(row["scene_id"]),
+            scene_id=scene_id,
         )
-        _merge_best(evidence, claims)
+        _merge_best(evidence, claims, expected_scene_id=scene_id)
         if all(_qualified_scene_count(evidence, domain) >= 2 for domain in SUPPORTED_DOMAINS):
             break
 
