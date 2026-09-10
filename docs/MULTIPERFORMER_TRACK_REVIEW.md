@@ -2,7 +2,7 @@
 
 BodyRig does not infer that the strongest, largest or longest PHALP track in a scene is the requested Stash performer.
 
-A multi-performer source therefore needs a separate identity-attestation chain before any target-isolated source segment can contribute photoidentity evidence.
+A multi-performer source therefore needs a separate identity-attestation chain before any target-isolated source sample can contribute photoidentity evidence.
 
 ## Source discovery
 
@@ -10,121 +10,60 @@ A multi-performer source therefore needs a separate identity-attestation chain b
 
 It publishes a path-free public candidate manifest plus a private exact-source index. Discovery does not hash source media yet, choose a person, render human evidence or grant reconstruction authority.
 
-The discovery result explicitly keeps:
-
-- `source_paths_persisted=false` in public evidence;
-- `source_media_hashed_at_discovery=false`;
-- `target_track_selected=false`;
-- `biometric_identity_inference_used=false`;
-- `generic_guessing_permitted=false`;
-- `reconstruction_permitted=false`;
-- `human_review_render_permitted=false`;
-- `production_activation=false`.
+The discovery result explicitly keeps `target_track_selected=false`, `biometric_identity_inference_used=false`, `generic_guessing_permitted=false`, `reconstruction_permitted=false`, `human_review_render_permitted=false` and `production_activation=false`.
 
 ## Machine track stage
 
 `bodyrig.photoidentity_multiperformer_track_runner` invokes the exact pinned 4D-Humans/PHALP/NMR recovery environment through BodyRig's existing atomic WSL file protocol.
 
-The dedicated bridge reuses the same repository, package, CUDA/cuDNN and licensed SMPL preflight as production recovery, but emits a separate review-only contract.
+For each source it may expose only the exact source-media SHA-256, source-local PHALP track ids, actual observed timestamps (`tracked_time == 0` only), detector confidence and PHALP bounding boxes in upstream `(x, y, width, height)` form.
 
-For each source it may expose only:
+The machine never selects the requested performer. Appearance embeddings remain private to PHALP and are not BodyRig identity authority.
 
-- the exact source-media SHA-256;
-- source-local PHALP track ids;
-- actual observed track timestamps (`tracked_time == 0` only);
-- detector confidence;
-- PHALP bounding boxes in upstream `(x, y, width, height)` form.
+## Source-frame review and human identity attestation
 
-The result explicitly states:
+`prepare-photoidentity-multiperformer-track-review.ps1` accepts one discovery candidate, runs pinned PHALP review, verifies the exact source SHA-256 and materializes real source-frame review sheets.
 
-- `target_track_selected=false`;
-- `human_identity_attestation_required=true`;
-- `appearance_embeddings_exported=false`;
-- `source_paths_exported=false`;
-- `biometric_identity_inference_used=false`;
-- `generic_guessing_permitted=false`;
-- `reconstruction_permitted=false`;
-- `production_activation=false`.
+After inspecting those source-derived sheets, an operator may run `record-photoidentity-multiperformer-track-attestation.ps1` with one listed `TrackCandidateId`, a deliberate `QualityNote`, and explicit `-ConfirmIdentity`.
 
-PHALP appearance features remain inside the private pinned tracker process and are not part of BodyRig's review contract.
+The create-only receipt binds exact BodyRig revision, Stash performer/scene, source SHA-256, machine PHALP review SHA-256, selected source-local track id, review-sheet SHA-256 and the public/private review hashes.
 
-## Source-frame review stage
+This receipt proves **which observed track is the requested performer**. It does not prove that every PHALP rectangle contains only that performer.
 
-`prepare-photoidentity-multiperformer-track-review.ps1` accepts exactly one candidate from the revision-bound discovery result, runs the pinned source-only PHALP review, verifies the same source SHA-256 on both Windows and WSL sides, and materializes source-derived review sheets.
+## Target-isolation candidate materialization
 
-Each track review sheet contains multiple actual source timestamps with an annotated full-frame context and a padded source crop derived from the PHALP TLWH box. The public review manifest stores hashes and source-local track ids only; exact media paths and review-sheet paths remain in the private index.
+`materialize-photoidentity-multiperformer-target-source.ps1` consumes the exact human-attested review root and creates native source-crop candidates.
 
-The machine still does not select the target performer. The prepared review remains:
+For each already reviewed observed PHALP sample it reuses the exact source-frame PNG bytes, verifies the stored frame hash, applies only the clamped native PHALP TLWH rectangle and writes the resulting PNG crop. It performs no bbox interpolation, resize, inpainting, occlusion removal or generative synthesis.
 
-- `target_track_selected=false`;
+Crucially, this machine stage remains:
+
+- `target_isolation_human_review_required=true`;
 - `target_isolated_source_authority=false`;
 - `photoidentity_source_evidence_authority=false`;
 - `reconstruction_permitted=false`;
 - `production_activation=false`.
 
-## Human identity attestation
+A PHALP bbox is a locator, not proof that another performer does not overlap the crop.
 
-After reviewing the listed source-derived review sheet, an operator may run `record-photoidentity-multiperformer-track-attestation.ps1` with exactly one listed `TrackCandidateId`, a deliberate `QualityNote`, and explicit `-ConfirmIdentity`.
+## Human target-isolation attestation
 
-The create-only receipt binds:
+The operator reviews the actual source crops printed by the materializer and records only the samples that contain the requested performer without visible cross-person contamination:
 
-- exact BodyRig Git revision;
-- Stash performer and scene ids;
-- source candidate id and exact source-media SHA-256;
-- machine track-review SHA-256;
-- selected PHALP source-local track id;
-- review-sheet SHA-256 and sample count;
-- public/private review manifest hashes;
-- the human identity note and UTC attestation time.
+`record-photoidentity-multiperformer-target-isolation.ps1 -CandidateRoot <root> -SampleId <one-or-more ids> -ConfirmTargetIsolation -QualityNote <note>`
 
-Receipt publication is atomic no-clobber: a concurrent or pre-existing human receipt cannot be silently overwritten.
+The create-only receipt revalidates every selected source-frame and crop SHA-256 and grants `target_isolated_source_authority=true` **only with `authority_scope=accepted-samples-only`**.
 
-A human track attestation resolves **which observed PHALP track is the requested performer for that exact source and review evidence**. It does not itself make the multi-person source safe for photoidentity analysis.
+Unselected samples receive no authority. The receipt still requires `photoidentity_source_evidence_authority=false`, `reconstruction_permitted=false`, `production_activation=false`, `bbox_interpolation_used=false`, `source_pixels_resized=false`, `occlusion_removal_used=false`, `generative_pixels_used=false`, `biometric_identity_inference_used=false` and `generic_guessing_permitted=false`.
 
-## Target-isolated source authority
-
-`materialize-photoidentity-multiperformer-target-source.ps1` consumes the exact human-attested review root and creates a separate target-source artifact.
-
-It deliberately does **not** decode a fresh video frame and does not interpolate the PHALP track. For every sample that was already part of the human-reviewed track sheet, it:
-
-1. revalidates the exact source-media SHA-256;
-2. revalidates the human attestation, public/private review manifests and machine PHALP review hashes;
-3. reuses the exact source-frame PNG bytes that were shown during human identity review and verifies their stored SHA-256;
-4. finds the same timestamp in the exact observed PHALP sample list;
-5. crops only the clamped native PHALP `(x, y, width, height)` rectangle;
-6. performs no resize, interpolation, inpainting, occlusion removal or generative synthesis;
-7. publishes a path-free public manifest plus a private index of the exact source-frame/crop paths.
-
-A successful result may set `target_isolated_source_authority=true` because the crop identity is bound to the explicit human track decision and the exact machine-observed bounding box. This means only that these exact pixels belong to the selected source-local target track. It does **not** assert that occluded anatomy has been recovered or that another performer can never overlap the visible target pixels.
-
-The target-isolation result therefore still requires:
-
-- `bbox_interpolation_used=false`;
-- `source_pixels_resized=false`;
-- `occlusion_removal_used=false`;
-- `generative_pixels_used=false`;
-- `biometric_identity_inference_used=false`;
-- `generic_guessing_permitted=false`;
-- `photoidentity_source_evidence_authority=false`;
-- `reconstruction_permitted=false`;
-- `production_activation=false`.
-
-The original multi-performer video must never be routed directly into the single-person analyzer merely because a track id was human-attested. Downstream photoidentity analysis may consume only the separately hash-bound target-isolated source pixels and must continue to fail closed on occlusion or insufficient native detail.
+The original multi-performer video must never be routed directly into the single-person analyzer merely because a track id was human-attested.
 
 ## Next authority gate
 
-Target isolation is not photoidentity sufficiency. The next stage is source-only detail enrichment over the exact target-isolated crops, followed by normal domain sufficiency rules. Missing detail must remain `source_missing`/insufficient; no analyzer may infer hidden identity-critical anatomy from a crop.
+Target-isolated sample authority is not photoidentity sufficiency. The next stage is source-only detail enrichment over only the accepted exact crops, followed by the normal domain sufficiency rules. Missing detail remains insufficient; no analyzer may infer hidden identity-critical anatomy.
 
 ## Non-authority
 
-Track discovery, review, identity attestation and target-source materialization are not:
+Discovery, track review, identity attestation, candidate materialization and target-isolation attestation are not body reconstruction, bodyprint recovery acceptance, photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
 
-- body reconstruction;
-- bodyprint recovery acceptance;
-- photoidentity source sufficiency;
-- human visual fidelity acceptance;
-- Gate A;
-- Windows or Quest acceptance;
-- production activation.
-
-The existing recovery/bodyprint wire contract is intentionally unchanged.
+The existing recovery/bodyprint wire contract remains unchanged.
