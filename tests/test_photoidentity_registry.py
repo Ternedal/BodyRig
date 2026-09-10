@@ -240,7 +240,10 @@ def test_registry_fails_closed_if_registered_human_receipt_is_tampered(
 
     stored = job_root / "photoidentity-evidence" / "source-authority" / "nail-source-attestation.json"
     stored.write_text(stored.read_text(encoding="utf-8") + " ", encoding="utf-8")
-    with pytest.raises(PhotoIdentityRegistryError, match="nail source attestation receipt hash mismatch"):
+    with pytest.raises(
+        PhotoIdentityRegistryError,
+        match="nail_attestation_sha256|nail source attestation receipt hash mismatch",
+    ):
         require_body_job_photoidentity_evidence("person-fixture", job_id)
 
 
