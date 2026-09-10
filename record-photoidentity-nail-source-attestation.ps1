@@ -33,8 +33,11 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig source-only nail attestation is Windows-only."
 }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." }
-if (-not $ConfirmFingernails -and -not $ConfirmToenails) {
-    throw "Confirm at least one real source domain: -ConfirmFingernails and/or -ConfirmToenails."
+if (-not $ConfirmFingernails -or -not $ConfirmToenails) {
+    throw "Canonical nail attestation is atomic: confirm both -ConfirmFingernails and -ConfirmToenails after reviewing sufficient real source closeups."
+}
+if ($FingernailRef.Count -lt 2 -or $ToenailRef.Count -lt 2) {
+    throw "Canonical nail attestation requires selected source refs for both fingernails and toenails from at least two source scenes each."
 }
 $note = $QualityNote.Trim()
 if ($note.Length -lt 12 -or ($note.StartsWith("<") -and $note.EndsWith(">"))) {
@@ -83,13 +86,12 @@ foreach ($reference in $FingernailRef) {
 foreach ($reference in $ToenailRef) {
     if (-not [string]::IsNullOrWhiteSpace($reference)) { $argsList += @("--toenail-ref", $reference.Trim()) }
 }
-if ($ConfirmFingernails) { $argsList += "--confirm-fingernails" }
-if ($ConfirmToenails) { $argsList += "--confirm-toenails" }
+$argsList += @("--confirm-fingernails", "--confirm-toenails")
 
 Write-Host "BodyRig source-only nail attestation"
 Write-Host "Revision: $head"
 Write-Host "Sweep:    $SweepRoot"
-Write-Host "Policy:   explicit human source review; no avatar render; no generic guessing"
+Write-Host "Policy:   atomic complete human nail review; no avatar render; no generic guessing"
 Write-Host ""
 
 & $BodyRigPython @argsList
