@@ -1,6 +1,6 @@
 from pathlib import Path
 
-repo = Path(__file__).resolve().parents[1]
+repo = Path.cwd()
 shim = repo / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigJsonUtility.cs"
 source = shim.read_text(encoding="utf-8")
 
