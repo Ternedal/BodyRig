@@ -735,7 +735,8 @@ namespace BodyRig.ReferenceRenderer
             string pattern)
         {
             var value = RequireStringMember(members, field, context);
-            if (value.Length < minimumLength || value.Length > maximumLength)
+            var scalarLength = UnicodeScalarLength(value, context + "." + field);
+            if (scalarLength < minimumLength || scalarLength > maximumLength)
             {
                 throw new ArgumentOutOfRangeException(
                     context + "." + field,
@@ -746,6 +747,29 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException($"Motor State {context}.{field} violates the canonical string pattern");
             }
             return value;
+        }
+
+        private static int UnicodeScalarLength(string value, string context)
+        {
+            var count = 0;
+            for (var index = 0; index < value.Length; index++)
+            {
+                var current = value[index];
+                if (char.IsHighSurrogate(current))
+                {
+                    if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
+                    {
+                        throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
+                    }
+                    index++;
+                }
+                else if (char.IsLowSurrogate(current))
+                {
+                    throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
+                }
+                count++;
+            }
+            return count;
         }
 
         private static void RequireNumericMember(
