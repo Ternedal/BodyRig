@@ -1,0 +1,46 @@
+name: tmp-rebase-pr372-current-main
+
+on:
+  push:
+    branches:
+      - staging/rebase-pr372-current-main-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  rebase-and-validate:
+    if: contains(github.event.head_commit.message, '[run-rebase-pr372]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Reset to exact current-main authority
+        run: git checkout --detach 46dbbfd588fe7f14da71738ea9dd23568f41ada3
+      - name: Cherry-pick exact validated PR commit
+        run: git cherry-pick 719ebd2c204d4821ba6772b5cf4960ddaac04a68
+      - name: Assert exact five-file patch
+        shell: bash
+        run: |
+          actual="$(git diff --name-only 46dbbfd588fe7f14da71738ea9dd23568f41ada3...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_integer_schema_parity.py' \
+            'tests/test_reference_renderer_json_utility_guard.py' \
+            'tests/test_reference_renderer_json_whitespace_guard.py' \
+            'tests/test_reference_renderer_raw_numeric_ranges.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected rebased files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --check 46dbbfd588fe7f14da71738ea9dd23568f41ada3...HEAD
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check 46dbbfd588fe7f14da71738ea9dd23568f41ada3...HEAD
+      - name: Publish rebased PR head
+        run: |
+          git push --force-with-lease=refs/heads/fix/integer-schema-parity-20260911:719ebd2c204d4821ba6772b5cf4960ddaac04a68 origin HEAD:refs/heads/fix/integer-schema-parity-20260911
