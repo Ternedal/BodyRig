@@ -434,13 +434,21 @@ namespace BodyRig.ReferenceRenderer
             return false;
         }
 
-        private static bool GestureOwnsRightUpperArm(GestureState gesture)
+        private bool GestureOwnsRightUpperArm(GestureState gesture)
         {
             if (gesture == null || !IsSupportedGestureId(gesture.id))
             {
                 return false;
             }
-            return gesture.id == "present" || gesture.id == "neutral";
+            if (gesture.id == "present")
+            {
+                // Present writes the right upper arm only as part of the full
+                // upper/lower-arm gesture. On an incomplete humanoid rig it
+                // must not steal the upper arm from locomotion if ApplyGesture
+                // will immediately fail without a lower arm.
+                return _rightUpperArm != null && _rightLowerArm != null;
+            }
+            return gesture.id == "neutral" && _rightUpperArm != null;
         }
 
         private bool HasSourceDerivedNaturalPosture()

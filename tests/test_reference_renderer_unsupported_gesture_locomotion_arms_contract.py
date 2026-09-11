@@ -10,7 +10,7 @@ DRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDrive
 def test_unsupported_gesture_does_not_steal_locomotion_arm_ownership() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     right = source[
-        source.index("private static bool GestureOwnsRightUpperArm") :
+        source.index("private bool GestureOwnsRightUpperArm") :
         source.index("private bool HasSourceDerivedNaturalPosture")
     ]
     locomotion = source[
@@ -34,14 +34,16 @@ def test_supported_gesture_arm_precedence_matches_actual_bone_ownership() -> Non
 
     left = source[
         source.index("private static bool GestureOwnsLeftUpperArm") :
-        source.index("private static bool GestureOwnsRightUpperArm")
+        source.index("private bool GestureOwnsRightUpperArm")
     ]
     right = source[
-        source.index("private static bool GestureOwnsRightUpperArm") :
+        source.index("private bool GestureOwnsRightUpperArm") :
         source.index("private bool HasSourceDerivedNaturalPosture")
     ]
 
     assert 'gesture.id == "small_shrug"' not in left
     assert 'gesture.id == "small_shrug"' not in right
     assert 'gesture.id == "present"' in right
+    assert 'return _rightUpperArm != null && _rightLowerArm != null;' in right
     assert 'gesture.id == "neutral"' in right
+    assert 'return gesture.id == "neutral" && _rightUpperArm != null;' in right
