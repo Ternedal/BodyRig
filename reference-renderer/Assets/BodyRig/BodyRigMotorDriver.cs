@@ -828,6 +828,32 @@ namespace BodyRig.ReferenceRenderer
             if (_state.expression == null || avatarLoader == null || avatarLoader.Active == null) return false;
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
             if (expression == null) return false;
+
+            // Affect is one semantic channel. Validate that BodyRig understands
+            // the requested emotion before touching any renderer weights.
+            switch (_state.expression.emotion)
+            {
+                case "neutral":
+                case "happy":
+                case "angry":
+                case "sad":
+                case "relaxed":
+                case "surprised":
+                    break;
+                default:
+                    return false;
+            }
+
+            // A previous affect must not leak into the next performed emotion.
+            // Only affect keys are cleared here; speech visemes are a separate
+            // simultaneously-owned channel and remain untouched.
+            expression.SetWeight(ExpressionKey.Neutral, 0.0f);
+            expression.SetWeight(ExpressionKey.Happy, 0.0f);
+            expression.SetWeight(ExpressionKey.Angry, 0.0f);
+            expression.SetWeight(ExpressionKey.Sad, 0.0f);
+            expression.SetWeight(ExpressionKey.Relaxed, 0.0f);
+            expression.SetWeight(ExpressionKey.Surprised, 0.0f);
+
             var weight = Mathf.Clamp01(_state.expression.intensity);
             switch (_state.expression.emotion)
             {
