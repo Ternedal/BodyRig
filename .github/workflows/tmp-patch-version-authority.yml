@@ -1,0 +1,51 @@
+name: tmp-patch-version-authority
+
+on:
+  push:
+    branches:
+      - staging/version-authority-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[run-version-authority]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Preserve patch generator
+        run: cp tools/tmp_patch_version_authority.py /tmp/version-authority-patch.py
+      - name: Reset to exact current-main authority
+        run: git checkout --detach f02ddb0c48fc08fc7a424d7b2db93fc306c95d94
+      - name: Apply semantic version authority fix
+        run: python /tmp/version-authority-patch.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Publish clean candidate
+        shell: bash
+        run: |
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
+            reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
+            tests/test_reference_renderer_version_authority.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_version_authority.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Preserve raw semantic version authority through renderer"
+          git push origin HEAD:fix/version-authority-20260911
