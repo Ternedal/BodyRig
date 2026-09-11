@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .models import BodyCue, SpeechTiming
+from .models import BodyCueAny, BodyCueV2, SpeechTiming
+from .movement_identity import MovementIdentityError, require_movement_identity
 
 
 def _clamp01(value: float) -> float:
@@ -93,17 +94,15 @@ def resolve_motor_state(
     *,
     body_id: str,
     bodyprint: Mapping[str, Any],
-    cue: BodyCue,
+    cue: BodyCueAny,
     speech: SpeechTiming | None = None,
 ) -> dict[str, Any]:
-    """Resolve a semantic ModelRig cue through one body's observed style.
+    """Resolve common performed state through one body's observed style.
 
-    This is intentionally renderer-neutral: it resolves personal amplitudes and
-    behaviour strengths, not Unity bone rotations. A renderer may map the
-    resulting gesture/posture ids onto its own animation system.
-
-    This function is the frozen Motor State v1 behavior. Keep it backwards
-    compatible; richer observed embodiment belongs in ``resolve_motor_state_v2``.
+    BodyCue v1 remains the public compatibility input for Motor State v1. The
+    broader internal cue type lets Motor State v3 reuse these unchanged common
+    semantics for a v2 cue without fabricating a fake v1 semantic field.
+    Runtime routing still rejects BodyCue v2 from the public v1/v2 motor paths.
     """
 
     motion = bodyprint.get("motion") if isinstance(bodyprint.get("motion"), dict) else {}
@@ -178,7 +177,7 @@ def resolve_motor_state_v2(
     *,
     body_id: str,
     bodyprint: Mapping[str, Any],
-    cue: BodyCue,
+    cue: BodyCueAny,
     speech: SpeechTiming | None = None,
 ) -> dict[str, Any]:
     """Resolve Motor State v2 without changing v1 performance semantics.
@@ -202,4 +201,80 @@ def resolve_motor_state_v2(
             "source": "modelrig-bodyprint-v1",
             "observed": observed,
         }
+    return result
+
+
+def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> dict[str, Any] | None:
+    request = cue.locomotion
+    if request is None:
+        return None
+    try:
+        require_movement_identity(bodyprint)
+    except MovementIdentityError as exc:
+        raise ValueError(f"explicit locomotion requires complete source-derived Movement Identity: {exc}") from exc
+
+    motion = bodyprint.get("motion")
+    if not isinstance(motion, Mapping):
+        raise ValueError("explicit locomotion requires a source-derived motion section")
+
+    effort = 0.5 if request.effort is None else float(request.effort)
+    pace_factor = 0.75 + 0.5 * effort
+    amplitude_factor = 0.85 + 0.3 * effort
+    transition = float(motion["transition_intensity"])
+
+    result: dict[str, Any] = {
+        "action": request.action,
+        "effort": round(effort, 4),
+        "transition_intensity": round(transition, 4),
+    }
+    if request.action == "walk":
+        cadence = max(30.0, min(240.0, float(motion["walk_cadence_spm"]) * pace_factor))
+        result.update(
+            {
+                "cadence_spm": round(cadence, 3),
+                "stride_length_to_height": round(min(2.0, float(motion["stride_length_to_height"]) * amplitude_factor), 4),
+                "stance_width_to_height": round(float(motion["stance_width_to_height"]), 4),
+                "vertical_bounce_to_height": round(min(1.0, float(motion["vertical_bounce_to_height"]) * amplitude_factor), 4),
+                "arm_swing_to_height": round(min(2.0, float(motion["arm_swing_to_height"]) * amplitude_factor), 4),
+            }
+        )
+    elif request.action in {"turn_left", "turn_right"}:
+        observed_turn = float(motion["turn_speed_degrees_per_second"])
+        if observed_turn <= 0.0:
+            raise ValueError("explicit turn requires non-zero source-derived turn-speed evidence")
+        performed_turn = min(720.0, observed_turn * pace_factor)
+        rounded_turn = round(performed_turn, 4)
+        if rounded_turn <= 0.0:
+            raise ValueError(
+                "explicit turn requires source-derived turn-speed evidence above Motor State v3 precision"
+            )
+        result["turn_speed_degrees_per_second"] = rounded_turn
+    return result
+
+
+def resolve_motor_state_v3(
+    *,
+    body_id: str,
+    bodyprint: Mapping[str, Any],
+    cue: BodyCueAny,
+    speech: SpeechTiming | None = None,
+) -> dict[str, Any]:
+    """Resolve explicit locomotion without changing v1/v2 semantics.
+
+    BodyCue v2 is the first cue contract that can request locomotion. Movement
+    Identity evidence never creates that action by itself: only an explicit
+    ``locomotion`` cue can produce the performed v3 locomotion section.
+    """
+
+    result = resolve_motor_state_v2(
+        body_id=body_id,
+        bodyprint=bodyprint,
+        cue=cue,
+        speech=speech,
+    )
+    result["version"] = 3
+    if isinstance(cue, BodyCueV2):
+        locomotion = _performed_locomotion(bodyprint=bodyprint, cue=cue)
+        if locomotion is not None:
+            result["locomotion"] = locomotion
     return result

@@ -6,8 +6,8 @@ from threading import RLock
 from time import time
 from typing import Any, Mapping
 
-from .models import BodyCue, SpeechTiming
-from .motor import resolve_motor_state, resolve_motor_state_v2
+from .models import BodyCue, BodyCueAny, BodyCueV2, SpeechTiming
+from .motor import resolve_motor_state, resolve_motor_state_v2, resolve_motor_state_v3
 
 
 @dataclass
@@ -37,7 +37,7 @@ class BodyRuntime:
             self._state.updated_at = time()
             return self.snapshot()
 
-    def apply_cue(self, cue: BodyCue) -> RuntimeState:
+    def apply_cue(self, cue: BodyCueAny) -> RuntimeState:
         with self._lock:
             if cue.body_id is not None and self._state.active_body_id is not None and cue.body_id != self._state.active_body_id:
                 raise ValueError("BodyCue body_id does not match active body")
@@ -57,14 +57,26 @@ class BodyRuntime:
                 self._state.utterance_id = None
             return self.snapshot()
 
-    def _motor_inputs(self) -> tuple[str, dict[str, Any], BodyCue, SpeechTiming | None]:
+    def _motor_inputs(self) -> tuple[str, dict[str, Any], BodyCueAny, SpeechTiming | None]:
         if self._state.active_body_id is None or self._bodyprint is None:
             raise ValueError("no active body with BodyPrint")
         if self._state.cue is None:
             raise ValueError("no active BodyCue")
-        cue = BodyCue.model_validate(self._state.cue)
+        version = self._state.cue.get("version", 1)
+        if version == 1:
+            cue: BodyCueAny = BodyCue.model_validate(self._state.cue)
+        elif version == 2:
+            cue = BodyCueV2.model_validate(self._state.cue)
+        else:
+            raise ValueError("unsupported active BodyCue version")
         speech = SpeechTiming.model_validate(self._state.speech) if self._state.speech is not None else None
         return self._state.active_body_id, self._bodyprint, cue, speech
+
+    @staticmethod
+    def _legacy_motor_cue(cue: BodyCueAny) -> BodyCue:
+        if isinstance(cue, BodyCueV2):
+            raise ValueError("BodyCue v2 requires Motor State v3; older motor contracts may not drop locomotion semantics")
+        return cue
 
     def motor_state(self) -> dict[str, Any]:
         """Return the backwards-compatible BodyRig Motor State v1 contract."""
@@ -74,7 +86,7 @@ class BodyRuntime:
             return resolve_motor_state(
                 body_id=body_id,
                 bodyprint=bodyprint,
-                cue=cue,
+                cue=self._legacy_motor_cue(cue),
                 speech=speech,
             )
 
@@ -84,6 +96,18 @@ class BodyRuntime:
         with self._lock:
             body_id, bodyprint, cue, speech = self._motor_inputs()
             return resolve_motor_state_v2(
+                body_id=body_id,
+                bodyprint=bodyprint,
+                cue=self._legacy_motor_cue(cue),
+                speech=speech,
+            )
+
+    def motor_state_v3(self) -> dict[str, Any]:
+        """Return Motor State v3 with explicit performed locomotion when requested."""
+
+        with self._lock:
+            body_id, bodyprint, cue, speech = self._motor_inputs()
+            return resolve_motor_state_v3(
                 body_id=body_id,
                 bodyprint=bodyprint,
                 cue=cue,
