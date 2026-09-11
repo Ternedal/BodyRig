@@ -1,0 +1,57 @@
+name: tmp-integer-schema-parity-post373
+
+on:
+  push:
+    branches: [staging/integer-schema-parity-post373-20260911]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Apply validated integer-parity patch
+        run: git cherry-pick --no-commit 719ebd2c204d4821ba6772b5cf4960ddaac04a68
+      - name: Assert version authority survived combination
+        run: |
+          grep -F 'internal static int ValidateMotorStateJson(string json)' reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs
+          grep -F 'ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);' reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs
+          grep -F 'public int version { get; set; }' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+          grep -F 'next.version = validatedVersion;' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+      - name: Install locked test environment
+        run: |
+          python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+          python -m pip check
+      - name: Validate full suite and clean diff
+        run: |
+          python -m compileall -q bodyrig tests
+          python -m pytest -q
+          git diff --check
+      - name: Publish validated candidate tree
+        shell: bash
+        run: |
+          expected=$(cat <<'EOF'
+          reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs
+          tests/test_reference_renderer_integer_schema_parity.py
+          tests/test_reference_renderer_json_utility_guard.py
+          tests/test_reference_renderer_json_whitespace_guard.py
+          tests/test_reference_renderer_raw_numeric_ranges.py
+          EOF
+          )
+          actual="$(git status --porcelain | sed -E 's/^.. //' | grep -v '^\.github/workflows/tmp-integer-schema-parity-post373.yml$' | sort)"
+          test "$actual" = "$(printf '%s\n' "$expected" | sort)" || { echo 'Unexpected product diff:'; git status --short; exit 1; }
+          rm .github/workflows/tmp-integer-schema-parity-post373.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Align integer number semantics with Motor State schemas'
+          git push origin HEAD:staging/integer-schema-parity-post373-20260911
