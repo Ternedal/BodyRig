@@ -263,7 +263,7 @@ namespace BodyRig.ReferenceRenderer
         {
             if (root.TryGetValue("duration_ms", out var raw))
             {
-                RequireIntegerToken(raw, "duration_ms");
+                RequireIntegerToken(raw, 0L, 120000L, "duration_ms");
             }
         }
 
@@ -276,9 +276,21 @@ namespace BodyRig.ReferenceRenderer
 
             var fields = ParseObjectMembers(raw, "speech");
             RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
-            RequireStringMember(fields, "state", "speech");
-            RequireIntegerMember(fields, "elapsed_ms", "speech");
-            if (fields.ContainsKey("viseme")) RequireStringMember(fields, "viseme", "speech");
+            var state = RequireStringMember(fields, "state", "speech");
+            if (state != "start" && state != "update" && state != "stop")
+            {
+                throw new ArgumentException("Motor State speech state must be start, update, or stop");
+            }
+            RequireIntegerMember(fields, "elapsed_ms", 0L, 3600000L, "speech");
+            if (fields.ContainsKey("viseme"))
+            {
+                var viseme = RequireStringMember(fields, "viseme", "speech");
+                if (viseme.Length < 1 || viseme.Length > 32 ||
+                    !Regex.IsMatch(viseme, "^[A-Za-z0-9._-]+$", RegexOptions.CultureInvariant))
+                {
+                    throw new ArgumentException("Motor State speech viseme violates schema constraints");
+                }
+            }
             if (fields.ContainsKey("amplitude")) RequireNumericMember(fields, "amplitude", "speech");
         }
 
@@ -649,13 +661,15 @@ namespace BodyRig.ReferenceRenderer
         private static void RequireIntegerMember(
             Dictionary<string, string> members,
             string field,
+            long minimum,
+            long maximum,
             string context)
         {
             if (!members.TryGetValue(field, out var raw))
             {
                 throw new ArgumentException($"Motor State {context} is missing required field: {field}");
             }
-            RequireIntegerToken(raw, context + "." + field);
+            RequireIntegerToken(raw, minimum, maximum, context + "." + field);
         }
 
         private static void RequireNumericToken(string raw, string context)
@@ -666,11 +680,20 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
-        private static void RequireIntegerToken(string raw, string context)
+        private static void RequireIntegerToken(
+            string raw,
+            long minimum,
+            long maximum,
+            string context)
         {
-            if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
+            var token = raw.Trim();
+            if (!Regex.IsMatch(token, "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant) ||
+                !long.TryParse(token, out var value) ||
+                value < minimum ||
+                value > maximum)
             {
-                throw new ArgumentException($"Motor State {context} requires an integer JSON token");
+                throw new ArgumentException(
+                    $"Motor State {context} requires an integer JSON token in range [{minimum}, {maximum}]");
             }
         }
 

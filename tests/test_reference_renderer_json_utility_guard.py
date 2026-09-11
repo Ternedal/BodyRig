@@ -134,11 +134,14 @@ def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> N
     assert 'RequireStringMember(root, "body_id", "root")' in validate
     assert 'RequireStringMember(root, "utterance_id", "root")' in validate
     assert 'ValidateDuration(root);' in validate
-    assert 'RequireIntegerToken(raw, "duration_ms")' in validate
+    assert 'RequireIntegerToken(raw, 0L, 120000L, "duration_ms")' in validate
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
-    assert 'RequireStringMember(fields, "state", "speech")' in speech
-    assert 'RequireIntegerMember(fields, "elapsed_ms", "speech")' in speech
-    assert 'RequireStringMember(fields, "viseme", "speech")' in speech
+    assert 'var state = RequireStringMember(fields, "state", "speech")' in speech
+    assert 'state != "start" && state != "update" && state != "stop"' in speech
+    assert 'RequireIntegerMember(fields, "elapsed_ms", 0L, 3600000L, "speech")' in speech
+    assert 'var viseme = RequireStringMember(fields, "viseme", "speech")' in speech
+    assert 'viseme.Length > 32' in speech
+    assert '^[A-Za-z0-9._-]+$' in speech
     assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
 
 
