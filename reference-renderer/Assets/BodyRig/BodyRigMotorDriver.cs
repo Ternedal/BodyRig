@@ -315,7 +315,7 @@ namespace BodyRig.ReferenceRenderer
             }
             if (next.gaze != null)
             {
-                if (string.IsNullOrWhiteSpace(next.gaze.target)) throw new ArgumentException("Gaze target is required", nameof(json));
+                if (string.IsNullOrEmpty(next.gaze.target)) throw new ArgumentException("Gaze target is required", nameof(json));
                 Validate01(next.gaze.strength, "gaze.strength");
             }
             if (next.posture != null)
