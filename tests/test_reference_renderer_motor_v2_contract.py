@@ -167,3 +167,18 @@ def test_reference_renderer_viseme_transition_clears_previous_shape_without_touc
     assert regular_clear < weight < apply_switch
     for viseme, key in (("AA", "Aa"), ("IH", "Ih"), ("OU", "Ou"), ("EE", "Ee"), ("OH", "Oh")):
         assert f'case "{viseme}": expression.SetWeight(ExpressionKey.{key}, weight); return true;' in apply_speech
+
+
+def test_reference_renderer_zero_head_motion_releases_head_without_bind_pose_write() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_head = source[source.index("private bool ApplyHeadMotion") : source.index("private bool ApplyGaze")]
+
+    guard = apply_head.index("if (_state.motion.head_motion <= 0.0f)")
+    head_write = apply_head.index("_head.localRotation = Quaternion.Slerp(")
+    assert guard < head_write
+
+    release = apply_head[guard:head_write]
+    assert "_headMotion = 0.0f;" in release
+    assert "return false;" in release
+    assert "_head.localRotation" not in release
+    assert "_headBaseRotation" not in release

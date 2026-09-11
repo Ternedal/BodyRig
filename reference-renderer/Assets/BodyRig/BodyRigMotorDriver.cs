@@ -719,6 +719,14 @@ namespace BodyRig.ReferenceRenderer
         private bool ApplyHeadMotion()
         {
             if (_head == null || _state.motion == null) return false;
+            if (_state.motion.head_motion <= 0.0f)
+            {
+                // A zero performed head-motion signal releases the head back to
+                // Animator/VRMA. Do not restore the captured bind rotation in
+                // LateUpdate, because that would overwrite external animation.
+                _headMotion = 0.0f;
+                return false;
+            }
             var t = Time.unscaledTime;
             var speechBoost = 1.0f + 0.35f * _speechAmplitude;
             var microYaw = Mathf.Sin(t * 1.13f) * 2.0f * _headMotion * speechBoost;
