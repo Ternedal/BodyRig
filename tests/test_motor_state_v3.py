@@ -139,6 +139,29 @@ def test_v3_brisk_walk_scales_both_anatomical_arms_without_flattening_asymmetry(
     assert locomotion["transition_intensity"] == 0.31
 
 
+def test_v3_arm_saturation_uses_one_scale_and_preserves_source_ratio() -> None:
+    saturated = deepcopy(FULL_MOVEMENT)
+    saturated["motion"]["left_arm_swing_to_height"] = 2.0
+    saturated["motion"]["right_arm_swing_to_height"] = 1.8
+    saturated["motion"]["arm_swing_to_height"] = 1.9
+    saturated["motion"]["arm_swing_asymmetry"] = 0.1
+
+    runtime = BodyRuntime()
+    runtime.activate("person-a", saturated)
+    runtime.apply_cue(
+        BodyCueV2(
+            utterance_id="u-saturated-arms",
+            locomotion=LocomotionCue(action="walk", effort=1.0),
+        )
+    )
+
+    locomotion = runtime.motor_state_v3()["locomotion"]
+    assert locomotion["left_arm_swing_to_height"] == 2.0
+    assert locomotion["right_arm_swing_to_height"] == 1.8
+    assert locomotion["arm_swing_to_height"] == 1.9
+    assert locomotion["left_arm_swing_to_height"] / locomotion["right_arm_swing_to_height"] == pytest.approx(2.0 / 1.8)
+
+
 def test_v3_turn_uses_observed_turn_speed_and_explicit_direction() -> None:
     runtime = BodyRuntime()
     runtime.activate("person-a", FULL_MOVEMENT)
