@@ -316,20 +316,38 @@ class BodyprintExtractor:
                     right_hip = joints["right_hip"]
                     shoulder_mid = _midpoint(left_shoulder, right_shoulder)
                     hip_mid = _midpoint(left_hip, right_hip)
-                    torso_horizontal = math.hypot(shoulder_mid[0] - hip_mid[0], shoulder_mid[2] - hip_mid[2])
-                    torso_vertical = abs(shoulder_mid[1] - hip_mid[1])
-                    shoulder_horizontal = math.hypot(right_shoulder[0] - left_shoulder[0], right_shoulder[2] - left_shoulder[2])
-                    hip_horizontal = math.hypot(right_hip[0] - left_hip[0], right_hip[2] - left_hip[2])
-                    head_horizontal = math.hypot(joints["head"][0] - shoulder_mid[0], joints["head"][2] - shoulder_mid[2])
-                    posture_rows.append({
-                        "segment": segment_id,
-                        "timestamp_ms": float(frame.timestamp_ms),
-                        "torso_lean": math.degrees(math.atan2(torso_horizontal, max(torso_vertical, 1e-6))),
-                        "shoulder_tilt": math.degrees(math.atan2(abs(right_shoulder[1] - left_shoulder[1]), max(shoulder_horizontal, 1e-6))),
-                        "hip_tilt": math.degrees(math.atan2(abs(right_hip[1] - left_hip[1]), max(hip_horizontal, 1e-6))),
-                        "head_offset": min(1.0, head_horizontal / height),
-                        "torso_offset": min(1.0, torso_horizontal / height),
-                    })
+                    lateral_x = right_shoulder[0] - left_shoulder[0]
+                    lateral_z = right_shoulder[2] - left_shoulder[2]
+                    lateral_norm = math.hypot(lateral_x, lateral_z)
+                    if lateral_norm > 1e-6:
+                        lateral = (lateral_x / lateral_norm, lateral_z / lateral_norm)
+                        forward = (-lateral[1], lateral[0])
+                        torso_delta = (shoulder_mid[0] - hip_mid[0], shoulder_mid[2] - hip_mid[2])
+                        head_delta = (joints["head"][0] - shoulder_mid[0], joints["head"][2] - shoulder_mid[2])
+                        torso_horizontal = math.hypot(torso_delta[0], torso_delta[1])
+                        torso_vertical = abs(shoulder_mid[1] - hip_mid[1])
+                        shoulder_horizontal = lateral_norm
+                        hip_horizontal = math.hypot(right_hip[0] - left_hip[0], right_hip[2] - left_hip[2])
+                        head_horizontal = math.hypot(head_delta[0], head_delta[1])
+                        torso_forward = torso_delta[0] * forward[0] + torso_delta[1] * forward[1]
+                        torso_right = torso_delta[0] * lateral[0] + torso_delta[1] * lateral[1]
+                        head_forward = head_delta[0] * forward[0] + head_delta[1] * forward[1]
+                        head_right = head_delta[0] * lateral[0] + head_delta[1] * lateral[1]
+                        posture_rows.append({
+                            "segment": segment_id,
+                            "timestamp_ms": float(frame.timestamp_ms),
+                            "torso_lean": math.degrees(math.atan2(torso_horizontal, max(torso_vertical, 1e-6))),
+                            "torso_forward_lean": math.degrees(math.atan2(torso_forward, max(torso_vertical, 1e-6))),
+                            "torso_right_lean": math.degrees(math.atan2(torso_right, max(torso_vertical, 1e-6))),
+                            "shoulder_tilt": math.degrees(math.atan2(abs(right_shoulder[1] - left_shoulder[1]), max(shoulder_horizontal, 1e-6))),
+                            "shoulder_roll": math.degrees(math.atan2(right_shoulder[1] - left_shoulder[1], max(shoulder_horizontal, 1e-6))),
+                            "hip_tilt": math.degrees(math.atan2(abs(right_hip[1] - left_hip[1]), max(hip_horizontal, 1e-6))),
+                            "hip_roll": math.degrees(math.atan2(right_hip[1] - left_hip[1], max(hip_horizontal, 1e-6))),
+                            "head_offset": min(1.0, head_horizontal / height),
+                            "head_forward_offset": max(-1.0, min(1.0, head_forward / height)),
+                            "head_right_offset": max(-1.0, min(1.0, head_right / height)),
+                            "torso_offset": min(1.0, torso_horizontal / height),
+                        })
 
                 if self.GAIT_JOINTS <= set(joints):
                     left_shoulder = joints["left_shoulder"]
@@ -360,9 +378,15 @@ class BodyprintExtractor:
 
         if len(posture_rows) >= 3:
             out["posture_torso_lean_degrees"] = round(_median([float(row["torso_lean"]) for row in posture_rows]), 4)
+            out["posture_torso_forward_lean_degrees"] = round(_median([float(row["torso_forward_lean"]) for row in posture_rows]), 4)
+            out["posture_torso_right_lean_degrees"] = round(_median([float(row["torso_right_lean"]) for row in posture_rows]), 4)
             out["posture_shoulder_tilt_degrees"] = round(_median([float(row["shoulder_tilt"]) for row in posture_rows]), 4)
+            out["posture_shoulder_roll_degrees"] = round(_median([float(row["shoulder_roll"]) for row in posture_rows]), 4)
             out["posture_hip_tilt_degrees"] = round(_median([float(row["hip_tilt"]) for row in posture_rows]), 4)
+            out["posture_hip_roll_degrees"] = round(_median([float(row["hip_roll"]) for row in posture_rows]), 4)
             out["posture_head_offset_to_height"] = round(_median([float(row["head_offset"]) for row in posture_rows]), 4)
+            out["posture_head_forward_offset_to_height"] = round(_median([float(row["head_forward_offset"]) for row in posture_rows]), 4)
+            out["posture_head_right_offset_to_height"] = round(_median([float(row["head_right_offset"]) for row in posture_rows]), 4)
 
         if len(gait_rows) >= 2:
             turn_speeds: list[float] = []
