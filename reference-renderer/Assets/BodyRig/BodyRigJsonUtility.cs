@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -263,7 +264,7 @@ namespace BodyRig.ReferenceRenderer
         {
             if (root.TryGetValue("duration_ms", out var raw))
             {
-                RequireIntegerToken(raw, "duration_ms");
+                RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L);
             }
         }
 
@@ -277,7 +278,7 @@ namespace BodyRig.ReferenceRenderer
             var fields = ParseObjectMembers(raw, "speech");
             RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
             RequireStringMember(fields, "state", "speech");
-            RequireIntegerMember(fields, "elapsed_ms", "speech");
+            RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);
             if (fields.ContainsKey("viseme")) RequireStringMember(fields, "viseme", "speech");
             if (fields.ContainsKey("amplitude")) RequireNumericMember(fields, "amplitude", "speech");
         }
@@ -658,6 +659,20 @@ namespace BodyRig.ReferenceRenderer
             RequireIntegerToken(raw, context + "." + field);
         }
 
+        private static void RequireIntegerRangeMember(
+            Dictionary<string, string> members,
+            string field,
+            string context,
+            long minimum,
+            long maximum)
+        {
+            if (!members.TryGetValue(field, out var raw))
+            {
+                throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+            }
+            RequireIntegerRangeToken(raw, context + "." + field, minimum, maximum);
+        }
+
         private static void RequireNumericToken(string raw, string context)
         {
             if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonNumberPattern + ")$", RegexOptions.CultureInvariant))
@@ -671,6 +686,26 @@ namespace BodyRig.ReferenceRenderer
             if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
             {
                 throw new ArgumentException($"Motor State {context} requires an integer JSON token");
+            }
+        }
+
+        private static void RequireIntegerRangeToken(
+            string raw,
+            string context,
+            long minimum,
+            long maximum)
+        {
+            RequireIntegerToken(raw, context);
+            if (!long.TryParse(
+                    raw.Trim(),
+                    NumberStyles.AllowLeadingSign,
+                    CultureInfo.InvariantCulture,
+                    out var value) ||
+                value < minimum || value > maximum)
+            {
+                throw new ArgumentOutOfRangeException(
+                    context,
+                    $"Motor State integer value must be in {minimum}..{maximum}");
             }
         }
 
