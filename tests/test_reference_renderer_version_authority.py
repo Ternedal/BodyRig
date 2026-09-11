@@ -43,6 +43,13 @@ def test_generic_json_utility_paths_keep_optional_motor_state_guard_behavior() -
 
 def test_driver_uses_raw_semantic_version_after_unity_deserialization() -> None:
     source = DRIVER.read_text(encoding="utf-8")
+    motor_state = source[
+        source.index("private sealed class MotorState") :
+        source.index("[SerializeField] private BodyRigAvatarLoader")
+    ]
+    assert "public int version { get; set; }" in motor_state
+    assert "public int version;" not in motor_state
+
     apply = source[
         source.index("public void ApplyMotorJson") :
         source.index("private static void ValidatePosture")
