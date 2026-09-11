@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply root and decoded string constraint patch
-        run: python tools/_tmp_apply_motor_string_root_constraints.py
+        run: |
+          python tools/_tmp_apply_motor_string_root_constraints.py
+          python tools/_tmp_fix_motor_string_root_test_contract.py
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e '.[test]'
       - name: Run focused renderer trust-boundary regressions
