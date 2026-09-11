@@ -5,18 +5,30 @@ from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
 # 4D-Humans' HMR2 SMPL wrapper maps its first 25 returned joints to the
-# OpenPose BODY_25 order. BodyRig only consumes the stable subset needed for
-# portable proportions/motion features.
+# OpenPose BODY_25 order. BodyRig consumes only observed joints and keeps the
+# names explicit so movement identity never depends on PHALP's predicted states.
 OPENPOSE25_TO_BODYRIG = {
     "head": 0,            # Nose is used as the head reference, not absolute head top.
+    "neck": 1,
     "right_shoulder": 2,
+    "right_elbow": 3,
     "right_wrist": 4,
     "left_shoulder": 5,
+    "left_elbow": 6,
     "left_wrist": 7,
+    "mid_hip": 8,
     "right_hip": 9,
+    "right_knee": 10,
     "right_ankle": 11,
     "left_hip": 12,
+    "left_knee": 13,
     "left_ankle": 14,
+    "left_big_toe": 19,
+    "left_small_toe": 20,
+    "left_heel": 21,
+    "right_big_toe": 22,
+    "right_small_toe": 23,
+    "right_heel": 24,
 }
 
 
