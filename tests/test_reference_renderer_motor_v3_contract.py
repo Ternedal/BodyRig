@@ -108,6 +108,12 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert "locomotion.arm_swing_to_height" not in realization
     assert "leftArmDegrees" in realization
     assert "rightArmDegrees" in realization
+    assert "var maxArmSwing = Mathf.Max(" in realization
+    assert "45.0f / maxArmSwing" in realization
+    assert "left_arm_swing_to_height * armDegreesPerHeight" in realization
+    assert "right_arm_swing_to_height * armDegreesPerHeight" in realization
+    assert "Mathf.Clamp(locomotion.left_arm_swing_to_height * 90.0f" not in realization
+    assert "Mathf.Clamp(locomotion.right_arm_swing_to_height * 90.0f" not in realization
     assert "_state.gesture == null" in realization
     assert "locomotion.turn_speed_degrees_per_second * dt" in realization
 
