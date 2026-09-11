@@ -110,7 +110,6 @@ if test_source.count(old_allowlist) != 1:
 test_source = test_source.replace(old_allowlist, new_allowlist)
 
 addition = r'''
-
 def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() -> None:
     shim = SHIM.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
@@ -144,4 +143,7 @@ def test_generic_jsonutility_surfaces_remain_non_motor_compatible() -> None:
 '''
 if "test_motor_driver_requires_raw_discriminator_before_unity_deserialization" in test_source:
     raise SystemExit("discriminator regression tests already present")
-test.write_text((test_source.rstrip() + addition).rstrip() + "\n", encoding="utf-8")
+rendered_test = test_source.rstrip("\r\n") + "\n\n" + addition.strip("\r\n") + "\n"
+if rendered_test.endswith("\n\n"):
+    raise SystemExit("generated regression test has a blank line at EOF")
+test.write_text(rendered_test, encoding="utf-8")
