@@ -10,8 +10,8 @@ namespace BodyRig.ReferenceRenderer
     /// It consumes already-personalized performed values from BodyRig. It does
     /// not reinterpret ModelRig semantics, read BodyPrint itself, or multiply
     /// observed embodiment evidence into performed values a second time.
-    /// Motor State v3 locomotion and natural posture are realized only when
-    /// explicit performed objects are present.
+    /// Motor State v3 locomotion and source-marked natural posture are realized
+    /// only when explicit performed objects are present.
     /// </summary>
     public sealed class BodyRigMotorDriver : MonoBehaviour
     {
@@ -49,6 +49,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class PostureState
         {
             public string id;
+            public string source;
             public float intensity;
             public float torso_forward_lean_degrees;
             public float torso_right_lean_degrees;
@@ -287,12 +288,17 @@ namespace BodyRig.ReferenceRenderer
             if (posture == null || string.IsNullOrWhiteSpace(posture.id))
                 throw new ArgumentException("Posture id is required");
             Validate01(posture.intensity, "posture.intensity");
-            if (posture.id != "natural")
+
+            // Frozen legacy/generic posture ids carry no source marker. Even an
+            // old id literally named "natural" remains generic and must not be
+            // reinterpreted as Movement Identity authority.
+            if (string.IsNullOrWhiteSpace(posture.source))
             {
                 return;
             }
-            if (version != 3)
-                throw new ArgumentException("Natural source-derived posture requires Motor State v3");
+            if (version != 3 || posture.id != "natural" || posture.source != ObservedEmbodimentSource)
+                throw new ArgumentException("Source-derived natural posture requires Motor State v3 and modelrig-bodyprint-v1 authority");
+
             ValidateRange(posture.torso_forward_lean_degrees, -90.0f, 90.0f, "posture.torso_forward_lean_degrees");
             ValidateRange(posture.torso_right_lean_degrees, -90.0f, 90.0f, "posture.torso_right_lean_degrees");
             ValidateRange(posture.shoulder_roll_degrees, -90.0f, 90.0f, "posture.shoulder_roll_degrees");
@@ -689,7 +695,8 @@ namespace BodyRig.ReferenceRenderer
                     0.35f);
                 return true;
             }
-            if (_state.posture.id != "natural" || _state.version != 3 || _boundAnimator == null || _avatarHeight <= 0.0001f)
+            if (_state.posture.source != ObservedEmbodimentSource || _state.posture.id != "natural" ||
+                _state.version != 3 || _boundAnimator == null || _avatarHeight <= 0.0001f)
             {
                 return false;
             }
