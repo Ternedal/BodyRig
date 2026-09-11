@@ -37,11 +37,15 @@ jobs:
           git add \
             reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
             reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
+            tests/test_reference_renderer_json_utility_guard.py \
+            tests/test_reference_renderer_motor_v2_contract.py \
             tests/test_reference_renderer_version_authority.py
           actual="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
             'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
             'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_json_utility_guard.py' \
+            'tests/test_reference_renderer_motor_v2_contract.py' \
             'tests/test_reference_renderer_version_authority.py' | sort)"
           test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
           git diff --cached --check
