@@ -47,7 +47,7 @@ def payload(frames): return {"format":"bodyrig-recovery","version":1,"adapter":"
 
 
 def test_parse_and_extract_observed_bodyprint():
-    result=parse_recovery_result(payload([frame(0),frame(500,0.08),frame(1000,0.16)])); bodyprint=BodyprintExtractor().extract(result.tracks[0])
+    result=parse_recovery_result(payload([frame(0),frame(100,0.08),frame(200,0.16)])); bodyprint=BodyprintExtractor().extract(result.tracks[0])
     assert 0.20 < bodyprint["shape"]["shoulder_to_height"] < 0.30
     assert 0.0 <= bodyprint["motion"]["energy"] <= 1.0
     assert "height_scale" not in bodyprint["shape"]
@@ -69,6 +69,17 @@ def test_extracts_complete_source_derived_movement_identity():
     assert "posture_torso_lean_degrees" in motion
     assert "turn_speed_degrees_per_second" in motion
     assert "idle_sway_to_height" in motion
+
+
+def test_unobserved_timestamp_gaps_do_not_count_as_movement_or_idle_coverage():
+    sparse = [frame(index * 1000) for index in range(24)]
+    result = parse_recovery_result(payload(sparse))
+    bodyprint = BodyprintExtractor().extract(result.tracks[0])
+    motion = bodyprint["motion"]
+    assert "movement_observed_frames" not in motion
+    assert "movement_observed_seconds" not in motion
+    assert motion["idle_observed_seconds"] == 0.0
+    assert "idle_sway_to_height" not in motion
 
 
 def test_nonwalking_track_does_not_gain_gait_authority():
