@@ -232,14 +232,6 @@ def test_version_boundaries_reject_v1_embodiment_and_pre_v3_locomotion() -> None
 
 def test_optional_action_objects_remain_optional() -> None:
     source = SHIM.read_text(encoding="utf-8")
-    for method, property_name, end in (
-        ("ValidateSpeech", "SpeechPropertyPattern", "ValidatePosture"),
-        ("ValidatePosture", "PosturePropertyPattern", "ValidateEmbodiment"),
-        ("ValidateEmbodiment", "EmbodimentPropertyPattern", "ValidateLocomotion"),
-        ("ValidateLocomotion", "LocomotionPropertyPattern", "ExtractObjectBody"),
-    ):
-        block = source[source.index(f"private static void {method}") : source.index(f"private static", source.index(f"private static void {end}") if end.startswith("Validate") else source.index(f"private static string {end}"))] if False else ""
-
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
     posture = source[source.index("private static void ValidatePosture") : source.index("private static void ValidateEmbodiment")]
     embodiment = source[source.index("private static void ValidateEmbodiment") : source.index("private static void ValidateLocomotion")]
