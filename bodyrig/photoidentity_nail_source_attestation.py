@@ -22,6 +22,7 @@ from .photoidentity_evidence import (
 )
 from .photoidentity_nail_source_discovery import FORMAT as DISCOVERY_FORMAT
 from .photoidentity_nail_source_discovery import VERSION as DISCOVERY_VERSION
+from .photoidentity_prior import PhotoIdentityPriorError, resolve_pre_nail_bundle
 
 FORMAT = "bodyrig-photoidentity-nail-source-attestation"
 VERSION = 1
@@ -277,21 +278,35 @@ def record_attestation(
 
     public_path, public, private_path, private = _load_discovery(sweep_root)
     public_map, private_map = _candidate_maps(public, private)
-    prior_observations_path = sweep_root / "human-parsing-evidence" / "photoidentity-observations.json"
-    prior_report_path = sweep_root / "human-parsing-evidence" / "photoidentity-evidence.json"
+
+    # Nail discovery is intentionally produced from the canonical single-person
+    # human-parsing pool. Validate that immutable discovery binding separately
+    # from the later evidence stage that receives the nail claims.
+    base_observations_path = sweep_root / "human-parsing-evidence" / "photoidentity-observations.json"
+    base_report_path = sweep_root / "human-parsing-evidence" / "photoidentity-evidence.json"
     try:
-        prior_report = validate_bundle(prior_report_path, prior_observations_path)
+        base_report = validate_bundle(base_report_path, base_observations_path)
     except PhotoIdentityEvidenceError as exc:
-        raise PhotoIdentityNailAttestationError(f"prior photoidentity evidence is invalid: {exc}") from exc
-    prior_observations = _read_json(prior_observations_path, label="Prior photoidentity observations")
-    if str(public.get("performer_id") or "") != str(prior_report["performer_id"]):
-        raise PhotoIdentityNailAttestationError("nail discovery performer no longer matches prior evidence")
-    if str(public.get("bodyrig_revision") or "") != str(prior_report["bodyrig_revision"]):
-        raise PhotoIdentityNailAttestationError("nail discovery revision no longer matches prior evidence")
-    if public.get("input_observation_evidence_sha256") != _sha256_file(prior_observations_path):
-        raise PhotoIdentityNailAttestationError("nail discovery is not bound to current prior observation evidence")
-    if public.get("input_sufficiency_report_sha256") != _sha256_file(prior_report_path):
-        raise PhotoIdentityNailAttestationError("nail discovery is not bound to current prior sufficiency evidence")
+        raise PhotoIdentityNailAttestationError(f"base photoidentity evidence is invalid: {exc}") from exc
+    if str(public.get("performer_id") or "") != str(base_report["performer_id"]):
+        raise PhotoIdentityNailAttestationError("nail discovery performer no longer matches base evidence")
+    if str(public.get("bodyrig_revision") or "") != str(base_report["bodyrig_revision"]):
+        raise PhotoIdentityNailAttestationError("nail discovery revision no longer matches base evidence")
+    if public.get("input_observation_evidence_sha256") != _sha256_file(base_observations_path):
+        raise PhotoIdentityNailAttestationError("nail discovery is not bound to current base observation evidence")
+    if public.get("input_sufficiency_report_sha256") != _sha256_file(base_report_path):
+        raise PhotoIdentityNailAttestationError("nail discovery is not bound to current base sufficiency evidence")
+
+    try:
+        prior_observations_path, prior_report_path, prior_observations, prior_report, prior_stage = resolve_pre_nail_bundle(sweep_root)
+    except PhotoIdentityPriorError as exc:
+        raise PhotoIdentityNailAttestationError(f"pre-nail photoidentity prior is invalid: {exc}") from exc
+    if (
+        str(prior_report["performer_id"]) != str(base_report["performer_id"])
+        or str(prior_report["bodyrig_revision"]) != str(base_report["bodyrig_revision"])
+        or str(prior_report["baseline_source_manifest_sha256"]) != str(base_report["baseline_source_manifest_sha256"])
+    ):
+        raise PhotoIdentityNailAttestationError("pre-nail prior changed base performer/revision/source authority")
 
     selected_fingernails: list[dict[str, Any]] = []
     selected_toenails: list[dict[str, Any]] = []
@@ -361,6 +376,9 @@ def record_attestation(
         "bodyrig_revision": str(report["bodyrig_revision"]),
         "discovery_manifest_sha256": _sha256_file(public_path),
         "private_candidate_index_sha256": _sha256_file(private_path),
+        "base_observation_evidence_sha256": _sha256_file(base_observations_path),
+        "base_sufficiency_report_sha256": _sha256_file(base_report_path),
+        "prior_stage": prior_stage,
         "prior_observation_evidence_sha256": _sha256_file(prior_observations_path),
         "prior_sufficiency_report_sha256": _sha256_file(prior_report_path),
         "adapter": ADAPTER,
