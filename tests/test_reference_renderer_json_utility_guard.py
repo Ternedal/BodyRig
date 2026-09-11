@@ -34,6 +34,14 @@ def _schema_required_by_action() -> dict[str, set[str]]:
     return result
 
 
+def _schema_posture_required() -> tuple[set[str], set[str]]:
+    contract = json.loads(MOTOR_V3.read_text(encoding="utf-8"))
+    variants = contract["properties"]["posture"]["oneOf"]
+    natural = next(item for item in variants if item["properties"]["id"].get("const") == "natural")
+    generic = next(item for item in variants if item is not natural)
+    return set(generic["required"]), set(natural["required"])
+
+
 def test_renderer_json_shim_preserves_all_jsonutility_surfaces_used_in_namespace() -> None:
     source = SHIM.read_text(encoding="utf-8")
     used: set[str] = set()
@@ -57,11 +65,14 @@ def test_renderer_json_shim_preserves_all_jsonutility_surfaces_used_in_namespace
 def test_v3_presence_guard_required_sets_are_derived_from_canonical_schema() -> None:
     source = SHIM.read_text(encoding="utf-8")
     required = _schema_required_by_action()
+    generic_posture, natural_posture = _schema_posture_required()
 
     assert _array_fields(source, "WalkLocomotionFields") == required["walk"]
     assert _array_fields(source, "TurnLocomotionFields") == required["turn_left"]
     assert _array_fields(source, "TurnLocomotionFields") == required["turn_right"]
     assert _array_fields(source, "StopLocomotionFields") == required["stop"]
+    assert _array_fields(source, "GenericPostureFields") == generic_posture
+    assert _array_fields(source, "NaturalPostureFields") == natural_posture
 
 
 def test_v3_presence_guard_rejects_missing_extra_duplicate_and_wrong_type_fields() -> None:
@@ -71,19 +82,23 @@ def test_v3_presence_guard_rejects_missing_extra_duplicate_and_wrong_type_fields
     assert "!VersionThreePattern.IsMatch(json)" in source
     assert "LocomotionPropertyPattern.IsMatch(json)" in source
     assert "LocomotionObjectPattern.Match(json)" in source
-    assert "if (!fields.Add(key))" in source
+    assert "PosturePropertyPattern.IsMatch(json)" in source
+    assert "PostureObjectPattern.Match(json)" in source
+    assert "CollectUniqueFields" in source
     assert "actual.Count != expected.Length" in source
     assert "if (!actual.Contains(field))" in source
     assert "contains duplicate field" in source
     assert "is missing required field" in source
 
     # Unity can erase both absence and structural type mismatches into numeric
-    # zero. The raw guard therefore also requires every non-action field to be
+    # zero. The raw guard therefore also requires every non-string field to be
     # an actual JSON number token before deserialization.
     assert "JsonNumberPattern" in source
-    assert "RequireNumericFields(body, WalkLocomotionFields, action);" in source
-    assert "RequireNumericFields(body, TurnLocomotionFields, action);" in source
-    assert "RequireNumericFields(body, StopLocomotionFields, action);" in source
+    assert 'RequireNumericFields(body, WalkLocomotionFields, action, "action");' in source
+    assert 'RequireNumericFields(body, TurnLocomotionFields, action, "action");' in source
+    assert 'RequireNumericFields(body, StopLocomotionFields, action, "action");' in source
+    assert 'RequireNumericFields(body, NaturalPostureFields, "posture natural", "id");' in source
+    assert 'RequireNumericFields(body, GenericPostureFields' in source
     assert "Regex.Escape(field)" in source
     assert "requires numeric field" in source
 
@@ -104,7 +119,14 @@ def test_v3_presence_guard_runs_before_unity_erases_missing_numeric_presence() -
     assert "JsonUtility.FromJson<MotorState>(json)" in driver
 
 
-def test_v3_without_locomotion_remains_valid_for_v1_cue_routed_through_v3() -> None:
+def test_v3_optional_action_objects_remain_optional() -> None:
     source = SHIM.read_text(encoding="utf-8")
-    assert "if (!hasLocomotionProperty)" in source
-    assert "return;" in source[source.index("if (!hasLocomotionProperty)") : source.index("var objectMatch")]
+    validate = source[source.index("private static void ValidateMotorStateV3PresenceAndTypes") :]
+    assert "ValidatePosture(json);" in validate
+    assert "ValidateLocomotion(json);" in validate
+    posture = source[source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")]
+    locomotion = source[source.index("private static void ValidateLocomotion") : source.index("private static HashSet<string>")]
+    assert "if (!PosturePropertyPattern.IsMatch(json))" in posture
+    assert "return;" in posture
+    assert "if (!LocomotionPropertyPattern.IsMatch(json))" in locomotion
+    assert "return;" in locomotion
