@@ -68,7 +68,7 @@ def test_shared_v1_v2_v3_numeric_ranges_are_identical_and_guarded_raw() -> None:
             assert _bounds(property_schema["properties"][field]) == bounds
 
     validate = source[
-        source.index("private static void ValidateMotorStatePresenceAndTypes") :
+        source.index("private static int ValidateMotorStatePresenceAndTypes") :
         source.index("private static string[] RootFieldsForVersion")
     ]
     assert 'ValidateObjectNumericRange(root, "motion", "energy", "motion", 0L, 1L);' in validate

@@ -42,7 +42,7 @@ def test_non_rfc_unicode_whitespace_cannot_bypass_root_probe() -> None:
     source = SHIM.read_text(encoding="utf-8")
     validate = _slice(
         source,
-        "private static void ValidateMotorStatePresenceAndTypes",
+        "private static int ValidateMotorStatePresenceAndTypes",
         "private static string[] RootFieldsForVersion",
     )
     assert "string.IsNullOrEmpty(json)" in validate
@@ -56,7 +56,7 @@ def test_raw_version_and_number_tokens_are_not_broadly_trimmed() -> None:
     source = SHIM.read_text(encoding="utf-8")
     validate = _slice(
         source,
-        "private static void ValidateMotorStatePresenceAndTypes",
+        "private static int ValidateMotorStatePresenceAndTypes",
         "private static string[] RootFieldsForVersion",
     )
     assert "var version = RequireMotorStateVersion(root);" in validate
