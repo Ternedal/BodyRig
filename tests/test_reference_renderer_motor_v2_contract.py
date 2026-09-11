@@ -182,3 +182,20 @@ def test_reference_renderer_zero_head_motion_releases_head_without_bind_pose_wri
     assert "return false;" in release
     assert "_head.localRotation" not in release
     assert "_headBaseRotation" not in release
+
+
+def test_reference_renderer_zero_gaze_strength_releases_head_without_residual_write() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_gaze = source[source.index("private bool ApplyGaze") : source.index("private void RestorePostureOffsetsForFrame")]
+
+    target_guard = apply_gaze.index('if (_state.gaze.target != "user") return false;')
+    zero_guard = apply_gaze.index("if (_state.gaze.strength <= 0.0f)")
+    release_end = apply_gaze.index("if (_head == null", zero_guard)
+    head_write = apply_gaze.index("_head.localRotation = Quaternion.Slerp(")
+    assert target_guard < zero_guard < release_end < head_write
+
+    release = apply_gaze[zero_guard:release_end]
+    assert "_gazeStrength = 0.0f;" in release
+    assert "return false;" in release
+    assert "_head.localRotation" not in release
+    assert "userGazeTarget" not in release
