@@ -9,26 +9,39 @@ DRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDrive
 
 def test_unsupported_gesture_does_not_steal_locomotion_arm_ownership() -> None:
     source = DRIVER.read_text(encoding="utf-8")
+    right = source[
+        source.index("private static bool GestureOwnsRightUpperArm") :
+        source.index("private bool HasSourceDerivedNaturalPosture")
+    ]
     locomotion = source[
         source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")
     ]
 
-    expected = (
-        "var locomotionOwnsArms = (_state.gesture == null || "
-        "!IsSupportedGestureId(_state.gesture.id)) && _leftUpperArm != null && _rightUpperArm != null;"
-    )
-    assert expected in locomotion
+    assert "gesture == null || !IsSupportedGestureId(gesture.id)" in right
+    assert "return false;" in right
+    assert "!GestureOwnsLeftUpperArm(_state.gesture)" in locomotion
+    assert "!GestureOwnsRightUpperArm(_state.gesture)" in locomotion
 
 
-def test_supported_gesture_ids_still_have_arm_precedence_over_walk() -> None:
+def test_supported_gesture_arm_precedence_matches_actual_bone_ownership() -> None:
     source = DRIVER.read_text(encoding="utf-8")
-    helper = source[
-        source.index("private static bool IsSupportedGestureId") : source.index("private bool HasSourceDerivedNaturalPosture")
+    supported = source[
+        source.index("private static bool IsSupportedGestureId") :
+        source.index("private static bool GestureOwnsLeftUpperArm")
     ]
     for gesture_id in ("small_shrug", "present", "neutral"):
-        assert f'id == "{gesture_id}"' in helper
+        assert f'id == "{gesture_id}"' in supported
 
-    locomotion = source[
-        source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")
+    left = source[
+        source.index("private static bool GestureOwnsLeftUpperArm") :
+        source.index("private static bool GestureOwnsRightUpperArm")
     ]
-    assert "!IsSupportedGestureId(_state.gesture.id)" in locomotion
+    right = source[
+        source.index("private static bool GestureOwnsRightUpperArm") :
+        source.index("private bool HasSourceDerivedNaturalPosture")
+    ]
+
+    assert 'gesture.id == "small_shrug"' not in left
+    assert 'gesture.id == "small_shrug"' not in right
+    assert 'gesture.id == "present"' in right
+    assert 'gesture.id == "neutral"' in right
