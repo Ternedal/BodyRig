@@ -191,6 +191,7 @@ namespace BodyRig.ReferenceRenderer
         private bool _postureOwnedPoseLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private bool _locomotionPoseOwnedLastFrame;
+        private bool _locomotionArmPoseOwnedLastFrame;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -496,6 +497,7 @@ namespace BodyRig.ReferenceRenderer
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
+            _locomotionArmPoseOwnedLastFrame = false;
             _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
@@ -559,15 +561,18 @@ namespace BodyRig.ReferenceRenderer
             return 1.0f - Mathf.Exp(-Mathf.Max(dt, 0.0001f) / seconds);
         }
 
-        private void BlendLocomotionPoseToBase(float blend)
+        private void BlendLocomotionPoseToBase(float blend, bool includeArms)
         {
             if (_hips != null) _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition, blend);
             if (_leftUpperLeg != null) _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, _leftUpperLegBaseRotation, blend);
             if (_rightUpperLeg != null) _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, _rightUpperLegBaseRotation, blend);
             if (_leftLowerLeg != null) _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, _leftLowerLegBaseRotation, blend);
             if (_rightLowerLeg != null) _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, _rightLowerLegBaseRotation, blend);
-            if (_leftUpperArm != null) _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
-            if (_rightUpperArm != null) _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
+            if (includeArms)
+            {
+                if (_leftUpperArm != null) _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
+                if (_rightUpperArm != null) _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
+            }
         }
 
         private bool ApplyLocomotion(float dt)
@@ -579,6 +584,7 @@ namespace BodyRig.ReferenceRenderer
                 // Animator/VRMA has already evaluated before LateUpdate, so a
                 // bind-pose restore here would overwrite its current frame.
                 _locomotionPoseOwnedLastFrame = false;
+                _locomotionArmPoseOwnedLastFrame = false;
                 return false;
             }
 
@@ -587,10 +593,11 @@ namespace BodyRig.ReferenceRenderer
             {
                 // Stop only settles a pose that BodyRig actually owns. A stop
                 // cue arriving over an external Animator pose must not pull it
-                // toward BodyRig's captured bind pose.
+                // toward BodyRig's captured bind pose. Arms are included only
+                // if the preceding gait frame actually owned them.
                 if (_locomotionPoseOwnedLastFrame)
                 {
-                    BlendLocomotionPoseToBase(locomotionBlend);
+                    BlendLocomotionPoseToBase(locomotionBlend, _locomotionArmPoseOwnedLastFrame);
                 }
                 return true;
             }
@@ -600,6 +607,7 @@ namespace BodyRig.ReferenceRenderer
                 // Turning owns root heading only. Releasing any preceding gait
                 // is a bookkeeping change, not a bind-pose write over Animator.
                 _locomotionPoseOwnedLastFrame = false;
+                _locomotionArmPoseOwnedLastFrame = false;
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
                 _boundAnimator.transform.Rotate(
@@ -650,7 +658,8 @@ namespace BodyRig.ReferenceRenderer
             // anatomical arm follows its own already-performed v3 amplitude.
             // One shared safety scale bounds the larger arm to 45 degrees while
             // preserving the anatomical left/right ordering and ratio.
-            if (_state.gesture == null && _leftUpperArm != null && _rightUpperArm != null)
+            var locomotionOwnsArms = _state.gesture == null && _leftUpperArm != null && _rightUpperArm != null;
+            if (locomotionOwnsArms)
             {
                 var maxArmSwing = Mathf.Max(
                     locomotion.left_arm_swing_to_height,
@@ -666,6 +675,7 @@ namespace BodyRig.ReferenceRenderer
                 _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
             }
             _locomotionPoseOwnedLastFrame = true;
+            _locomotionArmPoseOwnedLastFrame = locomotionOwnsArms;
             return true;
         }
 
@@ -885,6 +895,7 @@ namespace BodyRig.ReferenceRenderer
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
+            _locomotionArmPoseOwnedLastFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;
