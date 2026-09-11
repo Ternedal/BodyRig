@@ -134,3 +134,36 @@ def test_reference_renderer_affect_transition_clears_previous_emotion_without_to
         ("surprised", "Surprised"),
     ):
         assert f'case "{emotion}": expression.SetWeight(ExpressionKey.{key}, weight); return true;' in apply_expression
+
+
+def test_reference_renderer_viseme_transition_clears_previous_shape_without_touching_affect() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_speech = source[source.index("private bool ApplySpeech") : source.index("private void RestoreGesturePose")]
+
+    # An explicit speech stop owns the viseme channel even when viseme is omitted.
+    stop_start = apply_speech.index('if (_state.speech.state == "stop")')
+    blank_guard = apply_speech.index("if (string.IsNullOrWhiteSpace(_state.speech.viseme))")
+    stop = apply_speech[stop_start:blank_guard]
+    assert stop_start < blank_guard
+    for key in ("Aa", "Ih", "Ou", "Ee", "Oh"):
+        assert f"expression.SetWeight(ExpressionKey.{key}, 0.0f);" in stop
+    assert "return true;" in stop
+
+    # Affect is a separate simultaneously-owned channel and must not be reset by speech.
+    for affect in ("Neutral", "Happy", "Angry", "Sad", "Relaxed", "Surprised"):
+        assert f"ExpressionKey.{affect}" not in apply_speech
+
+    assert "var viseme = _state.speech.viseme.ToUpperInvariant();" in apply_speech
+    support_switch = apply_speech.index("switch (viseme)")
+    regular_clear = apply_speech.index("expression.SetWeight(ExpressionKey.Aa, 0.0f);", support_switch)
+    assert support_switch < regular_clear
+    assert "default:\n                    return false;" in apply_speech[support_switch:regular_clear]
+
+    # A supported start/update clears stale shapes before setting exactly one new shape.
+    for key in ("Aa", "Ih", "Ou", "Ee", "Oh"):
+        assert f"expression.SetWeight(ExpressionKey.{key}, 0.0f);" in apply_speech[regular_clear:]
+    weight = apply_speech.index("var weight = Mathf.Clamp01(_speechAmplitude);")
+    apply_switch = apply_speech.index("switch (viseme)", support_switch + 1)
+    assert regular_clear < weight < apply_switch
+    for viseme, key in (("AA", "Aa"), ("IH", "Ih"), ("OU", "Ou"), ("EE", "Ee"), ("OH", "Oh")):
+        assert f'case "{viseme}": expression.SetWeight(ExpressionKey.{key}, weight); return true;' in apply_speech
