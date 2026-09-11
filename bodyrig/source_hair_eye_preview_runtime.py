@@ -150,11 +150,19 @@ def materialize(
     except AvatarError as exc:
         raise SourceHairEyePreviewRuntimeError(f"hair+eye review artifact is not valid VRM 1.0: {exc}") from exc
 
+    payload_names = tuple(validated.payload_names)
+    package_payloads: dict[str, bytes] = {}
     try:
         with zipfile.ZipFile(package, "r") as archive:
-            bodyprint = archive.read("bodyprint.json")
+            for name in payload_names:
+                if name == "avatar.vrm":
+                    continue
+                package_payloads[name] = archive.read(name)
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
-        raise SourceHairEyePreviewRuntimeError("candidate package bodyprint.json is unavailable") from exc
+        raise SourceHairEyePreviewRuntimeError("candidate package runtime payloads are unavailable") from exc
+    bodyprint = package_payloads.get("bodyprint.json")
+    if bodyprint is None:
+        raise SourceHairEyePreviewRuntimeError("candidate package bodyprint.json is unavailable")
     bodyprint_sha = _sha256_bytes(bodyprint)
 
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +173,10 @@ def materialize(
         manifest_path = temp / "runtime-manifest.json"
         authority_path = temp / "review-runtime-authority.json"
         _write_bytes(avatar_path, review_vrm)
-        _write_bytes(bodyprint_path, bodyprint)
+        for name, raw in package_payloads.items():
+            payload_path = temp.joinpath(*name.split("/"))
+            payload_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_bytes(payload_path, raw)
         runtime_manifest = {
             "format": RUNTIME_FORMAT,
             "version": RUNTIME_VERSION,
@@ -176,7 +187,7 @@ def materialize(
             "avatar_sha256": review_vrm_sha,
             "bodyprint": "bodyprint.json",
             "bodyprint_sha256": bodyprint_sha,
-            "payloads": ["avatar.vrm", "bodyprint.json"],
+            "payloads": list(payload_names),
         }
         _write_json(manifest_path, runtime_manifest)
         runtime_manifest_sha = _sha256(manifest_path)
