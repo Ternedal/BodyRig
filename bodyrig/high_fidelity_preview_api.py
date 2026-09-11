@@ -19,6 +19,7 @@ from .high_fidelity_release_readiness import (
     HighFidelityReleaseReadinessError,
     inspect_release_readiness,
 )
+from .motor_v3_api import router as motor_v3_router
 from .photoidentity_registry import (
     PhotoIdentityRegistryError,
     require_body_job_photoidentity_evidence,
@@ -30,6 +31,7 @@ from .revision_bound_body_build import (
 from .ui_jobs import operator_checkout_status
 
 router = APIRouter()
+router.include_router(motor_v3_router)
 
 
 class HighFidelityPreviewStartRequest(BaseModel):
