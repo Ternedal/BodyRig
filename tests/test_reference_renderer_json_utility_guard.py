@@ -156,7 +156,7 @@ def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> N
     assert 'RequireStringMember(fields, "state", "speech")' in speech
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in speech
     assert 'RequireConstrainedStringMember(fields, "viseme", "speech", 1, 32, VisemePattern)' in speech
-    assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
+    assert 'RequireNumericRangeMember(fields, "amplitude", "speech", 0L, 1L)' in speech
 
 
 def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -> None:
