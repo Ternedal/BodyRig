@@ -121,9 +121,13 @@ def test_v3_presence_guard_keeps_legacy_natural_posture_generic_without_source_m
         source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")
     ]
 
-    assert 'if (fields.Contains("source"))' in posture
-    assert 'RequireExactFields(fields, GenericPostureFields, $"posture {id}");' in posture
-    assert 'old id literally named "natural" is not source authority' in posture
+    source_branch = posture.index('if (fields.Contains("source"))')
+    source_authority = posture.index("RequireExactFields(fields, NaturalPostureFields", source_branch)
+    generic_authority = posture.index('RequireExactFields(fields, GenericPostureFields, $"posture {id}");')
+
+    assert source_branch < source_authority < generic_authority
+    assert 'id != "natural" || !PostureSourcePattern.IsMatch(body)' in posture
+    assert 'RequireNumericFields(body, GenericPostureFields, $"posture {id}", "id");' in posture
 
 
 def test_v3_presence_guard_runs_before_unity_erases_missing_numeric_presence() -> None:
