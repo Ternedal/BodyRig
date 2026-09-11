@@ -69,6 +69,8 @@ namespace BodyRig.ReferenceRenderer
             public float stride_length_to_height;
             public float stance_width_to_height;
             public float vertical_bounce_to_height;
+            public float left_arm_swing_to_height;
+            public float right_arm_swing_to_height;
             public float arm_swing_to_height;
             public float turn_speed_degrees_per_second;
         }
@@ -104,6 +106,8 @@ namespace BodyRig.ReferenceRenderer
             public float stride_length_to_height;
             public float stance_width_to_height;
             public float vertical_bounce_to_height;
+            public float left_arm_swing_to_height;
+            public float right_arm_swing_to_height;
             public float arm_swing_to_height;
             public float arm_swing_asymmetry;
             public float turn_speed_degrees_per_second;
@@ -322,6 +326,8 @@ namespace BodyRig.ReferenceRenderer
                     ValidateRange(locomotion.stride_length_to_height, 0.0f, 2.0f, "locomotion.stride_length_to_height");
                     Validate01(locomotion.stance_width_to_height, "locomotion.stance_width_to_height");
                     Validate01(locomotion.vertical_bounce_to_height, "locomotion.vertical_bounce_to_height");
+                    ValidateRange(locomotion.left_arm_swing_to_height, 0.0f, 2.0f, "locomotion.left_arm_swing_to_height");
+                    ValidateRange(locomotion.right_arm_swing_to_height, 0.0f, 2.0f, "locomotion.right_arm_swing_to_height");
                     ValidateRange(locomotion.arm_swing_to_height, 0.0f, 2.0f, "locomotion.arm_swing_to_height");
                     return;
                 case "turn_left":
@@ -356,6 +362,8 @@ namespace BodyRig.ReferenceRenderer
             ValidateRange(observed.stride_length_to_height, 0.0f, 2.0f, "embodiment.observed.stride_length_to_height");
             Validate01(observed.stance_width_to_height, "embodiment.observed.stance_width_to_height");
             Validate01(observed.vertical_bounce_to_height, "embodiment.observed.vertical_bounce_to_height");
+            ValidateRange(observed.left_arm_swing_to_height, 0.0f, 2.0f, "embodiment.observed.left_arm_swing_to_height");
+            ValidateRange(observed.right_arm_swing_to_height, 0.0f, 2.0f, "embodiment.observed.right_arm_swing_to_height");
             ValidateRange(observed.arm_swing_to_height, 0.0f, 2.0f, "embodiment.observed.arm_swing_to_height");
             Validate01(observed.arm_swing_asymmetry, "embodiment.observed.arm_swing_asymmetry");
             ValidateRange(observed.turn_speed_degrees_per_second, 0.0f, 720.0f, "embodiment.observed.turn_speed_degrees_per_second");
@@ -625,13 +633,14 @@ namespace BodyRig.ReferenceRenderer
                 _hipsBasePosition + Vector3.up * bounceOffset,
                 locomotionBlend);
 
-            // A simultaneous explicit gesture owns the arms. Otherwise gait arm
-            // swing follows the already-performed v3 amplitude.
+            // A simultaneous explicit gesture owns the arms. Otherwise each
+            // anatomical arm follows its own already-performed v3 amplitude.
             if (_state.gesture == null && _leftUpperArm != null && _rightUpperArm != null)
             {
-                var armDegrees = Mathf.Clamp(locomotion.arm_swing_to_height * 90.0f, 0.0f, 45.0f);
-                var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * armDegrees, 0.0f, 0.0f);
-                var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * armDegrees, 0.0f, 0.0f);
+                var leftArmDegrees = Mathf.Clamp(locomotion.left_arm_swing_to_height * 90.0f, 0.0f, 45.0f);
+                var rightArmDegrees = Mathf.Clamp(locomotion.right_arm_swing_to_height * 90.0f, 0.0f, 45.0f);
+                var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * leftArmDegrees, 0.0f, 0.0f);
+                var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * rightArmDegrees, 0.0f, 0.0f);
                 _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
                 _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
             }

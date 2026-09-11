@@ -73,6 +73,8 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
         (motion, "stride_length_to_height", 0.0, 2.0),
         (motion, "stance_width_to_height", 0.0, 1.0),
         (motion, "vertical_bounce_to_height", 0.0, 1.0),
+        (motion, "left_arm_swing_to_height", 0.0, 2.0),
+        (motion, "right_arm_swing_to_height", 0.0, 2.0),
         (motion, "arm_swing_to_height", 0.0, 2.0),
         (motion, "arm_swing_asymmetry", 0.0, 1.0),
         (motion, "turn_speed_degrees_per_second", 0.0, 720.0),
@@ -241,6 +243,8 @@ def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> di
                 "stride_length_to_height": round(min(2.0, float(motion["stride_length_to_height"]) * amplitude_factor), 4),
                 "stance_width_to_height": round(float(motion["stance_width_to_height"]), 4),
                 "vertical_bounce_to_height": round(min(1.0, float(motion["vertical_bounce_to_height"]) * amplitude_factor), 4),
+                "left_arm_swing_to_height": round(min(2.0, float(motion["left_arm_swing_to_height"]) * amplitude_factor), 4),
+                "right_arm_swing_to_height": round(min(2.0, float(motion["right_arm_swing_to_height"]) * amplitude_factor), 4),
                 "arm_swing_to_height": round(min(2.0, float(motion["arm_swing_to_height"]) * amplitude_factor), 4),
             }
         )

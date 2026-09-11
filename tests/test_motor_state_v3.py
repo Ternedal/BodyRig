@@ -34,8 +34,10 @@ FULL_MOVEMENT = {
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
+        "left_arm_swing_to_height": 0.20,
+        "right_arm_swing_to_height": 0.18,
         "arm_swing_to_height": 0.19,
-        "arm_swing_asymmetry": 0.07,
+        "arm_swing_asymmetry": 0.10,
         "turn_speed_degrees_per_second": 79.2,
         "transition_intensity": 0.31,
         "idle_sway_to_height": 0.012,
@@ -105,13 +107,17 @@ def test_v3_natural_walk_uses_source_derived_movement_identity() -> None:
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
+        "left_arm_swing_to_height": 0.20,
+        "right_arm_swing_to_height": 0.18,
         "arm_swing_to_height": 0.19,
     }
     assert state["embodiment"]["observed"]["walk_cadence_spm"] == 116.0
     assert state["embodiment"]["observed"]["stride_length_to_height"] == 0.34
+    assert state["embodiment"]["observed"]["left_arm_swing_to_height"] == 0.20
+    assert state["embodiment"]["observed"]["right_arm_swing_to_height"] == 0.18
 
 
-def test_v3_brisk_walk_scales_around_observed_identity_not_generic_defaults() -> None:
+def test_v3_brisk_walk_scales_both_anatomical_arms_without_flattening_asymmetry() -> None:
     runtime = BodyRuntime()
     runtime.activate("person-a", FULL_MOVEMENT)
     runtime.apply_cue(
@@ -126,7 +132,10 @@ def test_v3_brisk_walk_scales_around_observed_identity_not_generic_defaults() ->
     assert locomotion["stride_length_to_height"] == 0.391
     assert locomotion["stance_width_to_height"] == 0.13
     assert locomotion["vertical_bounce_to_height"] == 0.0276
+    assert locomotion["left_arm_swing_to_height"] == 0.23
+    assert locomotion["right_arm_swing_to_height"] == 0.207
     assert locomotion["arm_swing_to_height"] == 0.2185
+    assert locomotion["left_arm_swing_to_height"] > locomotion["right_arm_swing_to_height"]
     assert locomotion["transition_intensity"] == 0.31
 
 
@@ -201,6 +210,18 @@ def test_v3_locomotion_fails_closed_without_complete_movement_identity() -> None
     runtime = BodyRuntime()
     runtime.activate("person-a", incomplete)
     runtime.apply_cue(BodyCueV2(utterance_id="u-walk", locomotion=LocomotionCue(action="walk")))
+
+    with pytest.raises(ValueError, match="requires complete source-derived Movement Identity"):
+        runtime.motor_state_v3()
+
+
+def test_v3_walk_fails_closed_without_anatomical_arm_direction_authority() -> None:
+    incomplete = deepcopy(FULL_MOVEMENT)
+    del incomplete["motion"]["left_arm_swing_to_height"]
+    del incomplete["motion"]["right_arm_swing_to_height"]
+    runtime = BodyRuntime()
+    runtime.activate("person-a", incomplete)
+    runtime.apply_cue(BodyCueV2(utterance_id="u-walk-arm-direction", locomotion=LocomotionCue(action="walk")))
 
     with pytest.raises(ValueError, match="requires complete source-derived Movement Identity"):
         runtime.motor_state_v3()

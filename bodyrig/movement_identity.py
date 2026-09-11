@@ -25,6 +25,8 @@ GAIT_FIELDS = (
     "stride_length_to_height",
     "stance_width_to_height",
     "vertical_bounce_to_height",
+    "left_arm_swing_to_height",
+    "right_arm_swing_to_height",
     "arm_swing_to_height",
     "arm_swing_asymmetry",
 )
@@ -61,6 +63,8 @@ FIELD_RANGES: dict[str, tuple[float, float]] = {
     "stride_length_to_height": (0.0, 2.0),
     "stance_width_to_height": (0.0, 1.0),
     "vertical_bounce_to_height": (0.0, 1.0),
+    "left_arm_swing_to_height": (0.0, 2.0),
+    "right_arm_swing_to_height": (0.0, 2.0),
     "arm_swing_to_height": (0.0, 2.0),
     "arm_swing_asymmetry": (0.0, 1.0),
     "turn_speed": (0.0, 1.0),
