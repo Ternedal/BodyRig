@@ -742,6 +742,14 @@ namespace BodyRig.ReferenceRenderer
         {
             if (_state.gaze == null) return false;
             if (_state.gaze.target != "user") return false;
+            if (_state.gaze.strength <= 0.0f)
+            {
+                // Explicit zero gaze releases the head immediately instead of
+                // letting a smoothed residual keep steering after BodyRig's
+                // performed gaze authority has ended.
+                _gazeStrength = 0.0f;
+                return false;
+            }
             if (_head == null || _head.parent == null || userGazeTarget == null) return false;
             var direction = userGazeTarget.position - _head.position;
             if (direction.sqrMagnitude <= 0.000001f) return false;
