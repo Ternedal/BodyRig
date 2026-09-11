@@ -61,9 +61,15 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
         (motion, "turn_speed", 0.0, 1.0),
         (motion, "walk_cadence_spm", 0.0, 300.0),
         (motion, "posture_torso_lean_degrees", 0.0, 90.0),
+        (motion, "posture_torso_forward_lean_degrees", -90.0, 90.0),
+        (motion, "posture_torso_right_lean_degrees", -90.0, 90.0),
         (motion, "posture_shoulder_tilt_degrees", 0.0, 90.0),
+        (motion, "posture_shoulder_roll_degrees", -90.0, 90.0),
         (motion, "posture_hip_tilt_degrees", 0.0, 90.0),
+        (motion, "posture_hip_roll_degrees", -90.0, 90.0),
         (motion, "posture_head_offset_to_height", 0.0, 1.0),
+        (motion, "posture_head_forward_offset_to_height", -1.0, 1.0),
+        (motion, "posture_head_right_offset_to_height", -1.0, 1.0),
         (motion, "stride_length_to_height", 0.0, 2.0),
         (motion, "stance_width_to_height", 0.0, 1.0),
         (motion, "vertical_bounce_to_height", 0.0, 1.0),
@@ -252,6 +258,34 @@ def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> di
     return result
 
 
+def _performed_natural_posture(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> dict[str, Any] | None:
+    if cue.posture != "natural":
+        return None
+    try:
+        require_movement_identity(bodyprint)
+    except MovementIdentityError as exc:
+        raise ValueError(f"natural posture requires complete source-derived Movement Identity: {exc}") from exc
+
+    motion = bodyprint.get("motion")
+    if not isinstance(motion, Mapping):
+        raise ValueError("natural posture requires a source-derived motion section")
+
+    # No requested intensity means the subject's full observed posture. An
+    # explicit lower intensity intentionally blends that performed posture
+    # toward the neutral rig pose; the renderer does not rescale it again.
+    intensity = 1.0 if cue.intensity is None else float(cue.intensity)
+    return {
+        "id": "natural",
+        "intensity": round(intensity, 4),
+        "torso_forward_lean_degrees": round(float(motion["posture_torso_forward_lean_degrees"]) * intensity, 4),
+        "torso_right_lean_degrees": round(float(motion["posture_torso_right_lean_degrees"]) * intensity, 4),
+        "shoulder_roll_degrees": round(float(motion["posture_shoulder_roll_degrees"]) * intensity, 4),
+        "hip_roll_degrees": round(float(motion["posture_hip_roll_degrees"]) * intensity, 4),
+        "head_forward_offset_to_height": round(float(motion["posture_head_forward_offset_to_height"]) * intensity, 4),
+        "head_right_offset_to_height": round(float(motion["posture_head_right_offset_to_height"]) * intensity, 4),
+    }
+
+
 def resolve_motor_state_v3(
     *,
     body_id: str,
@@ -259,11 +293,11 @@ def resolve_motor_state_v3(
     cue: BodyCueAny,
     speech: SpeechTiming | None = None,
 ) -> dict[str, Any]:
-    """Resolve explicit locomotion without changing v1/v2 semantics.
+    """Resolve explicit locomotion/natural posture without changing v1/v2 semantics.
 
-    BodyCue v2 is the first cue contract that can request locomotion. Movement
-    Identity evidence never creates that action by itself: only an explicit
-    ``locomotion`` cue can produce the performed v3 locomotion section.
+    BodyCue v2 is the first cue contract that can request source-derived natural
+    posture or locomotion. Movement Identity evidence never creates either
+    action by itself: an explicit v2 semantic request is required.
     """
 
     result = resolve_motor_state_v2(
@@ -274,6 +308,9 @@ def resolve_motor_state_v3(
     )
     result["version"] = 3
     if isinstance(cue, BodyCueV2):
+        natural_posture = _performed_natural_posture(bodyprint=bodyprint, cue=cue)
+        if natural_posture is not None:
+            result["posture"] = natural_posture
         locomotion = _performed_locomotion(bodyprint=bodyprint, cue=cue)
         if locomotion is not None:
             result["locomotion"] = locomotion
