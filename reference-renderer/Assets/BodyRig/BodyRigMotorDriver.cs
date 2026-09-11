@@ -134,7 +134,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class MotorState
         {
             public string type;
-            public int version;
+            public int version { get; set; }
             public string body_id;
             public string utterance_id;
             public MotionState motion;
