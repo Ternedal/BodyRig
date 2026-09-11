@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$SweepRoot,
     [Parameter(Mandatory = $true)][string[]]$QualityReceipt,
+    [Parameter(Mandatory = $true)][string[]]$CandidateRoot,
     [string]$BodyRigPython = ""
 )
 
@@ -23,6 +24,9 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." }
 if ($QualityReceipt.Count -lt 1) { throw "At least one -QualityReceipt is required." }
+if ($CandidateRoot.Count -ne $QualityReceipt.Count) {
+    throw "Each -QualityReceipt requires one corresponding -CandidateRoot in the same position."
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
@@ -55,8 +59,13 @@ if (-not [string]::Equals($actualModule, $expectedModule, [StringComparison]::Or
 }
 
 $resolvedReceipts = @()
-foreach ($value in $QualityReceipt) {
-    $resolvedReceipts += Need-File -Path $value -Label "Target-crop source-detail quality receipt"
+$resolvedCandidateRoots = @()
+for ($i = 0; $i -lt $QualityReceipt.Count; $i++) {
+    $receipt = Need-File -Path $QualityReceipt[$i] -Label "Target-crop source-detail quality receipt"
+    $candidate = Need-Directory -Path $CandidateRoot[$i] -Label "Human-reviewed target-isolation candidate root"
+    $null = Need-File -Path (Join-Path $candidate "photoidentity-multiperformer-target-isolation-attestation.json") -Label "Human target-isolation receipt"
+    $resolvedReceipts += $receipt
+    $resolvedCandidateRoots += $candidate
 }
 if (($resolvedReceipts | Sort-Object -Unique).Count -ne $resolvedReceipts.Count) {
     throw "Duplicate -QualityReceipt paths are not allowed."
@@ -66,14 +75,16 @@ Write-Host "BodyRig multi-performer detail aggregation"
 Write-Host "Revision: $head"
 Write-Host "Sweep root: $SweepRoot"
 Write-Host "Quality receipts: $($resolvedReceipts.Count)"
+Write-Host "Candidate roots: $($resolvedCandidateRoots.Count)"
 Write-Host "Base observations: $baseEvidence"
 Write-Host "Base report: $baseReport"
 Write-Host "Renderer/reconstruction: NOT INVOKED"
 Write-Host ""
 
 $args = @("-m", "bodyrig.photoidentity_multiperformer_detail_aggregate", "--sweep-root", $SweepRoot)
-foreach ($receipt in $resolvedReceipts) {
-    $args += @("--quality-receipt", [string]$receipt)
+for ($i = 0; $i -lt $resolvedReceipts.Count; $i++) {
+    $args += @("--quality-receipt", [string]$resolvedReceipts[$i])
+    $args += @("--candidate-root", [string]$resolvedCandidateRoots[$i])
 }
 & $BodyRigPython @args
 if ($LASTEXITCODE -ne 0) { throw "Multi-performer detail aggregation failed with exit code $LASTEXITCODE." }
