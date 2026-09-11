@@ -72,8 +72,8 @@ def _number(value: object, *, field: str) -> float:
     lo, hi = FIELD_RANGES[field]
     if not lo <= number <= hi:
         raise MovementIdentityError(f"movement identity field is outside {lo}..{hi}: {field}")
-    if field in INTEGER_FIELDS and (not isinstance(value, int) or isinstance(value, bool)):
-        raise MovementIdentityError(f"movement identity field must be an integer: {field}")
+    if field in INTEGER_FIELDS and not number.is_integer():
+        raise MovementIdentityError(f"movement identity observation count must be integral: {field}")
     return number
 
 
