@@ -86,6 +86,8 @@ namespace BodyRig.ReferenceRenderer
             "stride_length_to_height",
             "stance_width_to_height",
             "vertical_bounce_to_height",
+            "left_arm_swing_to_height",
+            "right_arm_swing_to_height",
             "arm_swing_to_height",
         };
 

@@ -47,8 +47,10 @@ def _movement_identity() -> dict:
         "stride_length_to_height": 0.33,
         "stance_width_to_height": 0.14,
         "vertical_bounce_to_height": 0.024,
+        "left_arm_swing_to_height": 0.20,
+        "right_arm_swing_to_height": 0.18,
         "arm_swing_to_height": 0.19,
-        "arm_swing_asymmetry": 0.07,
+        "arm_swing_asymmetry": 0.10,
         "turn_speed": 0.21,
         "turn_speed_degrees_per_second": 37.8,
         "transition_intensity": 0.28,
@@ -152,6 +154,24 @@ def test_promoted_release_lineage_rejects_bodyprint_drift(monkeypatch, tmp_path:
 
 def test_promoted_release_rejects_generic_motion_without_gait_identity(monkeypatch, tmp_path: Path) -> None:
     incomplete = _bodyprint(omit_movement_field="walk_cadence_spm")
+    source_dir, promoted, gate = _arrange(
+        monkeypatch,
+        tmp_path,
+        source_bodyprint=incomplete,
+        promoted_bodyprint=incomplete,
+    )
+
+    with pytest.raises(release_gate.HighFidelityReleaseGateError, match="Movement Identity"):
+        release_gate.validate_promoted_release_lineage(
+            promoted,
+            source_dir=source_dir,
+            source_gate=gate,
+            source_report=_source_report(),
+        )
+
+
+def test_promoted_release_rejects_unsigned_arm_swing_identity(monkeypatch, tmp_path: Path) -> None:
+    incomplete = _bodyprint(omit_movement_field="left_arm_swing_to_height")
     source_dir, promoted, gate = _arrange(
         monkeypatch,
         tmp_path,

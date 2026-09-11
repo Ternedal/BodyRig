@@ -434,6 +434,8 @@ class BodyprintExtractor:
                     right_arm = [float(row["right_arm"]) for row in gait_rows]
                     left_amp = max(0.0, _percentile(left_arm, 0.9) - _percentile(left_arm, 0.1))
                     right_amp = max(0.0, _percentile(right_arm, 0.9) - _percentile(right_arm, 0.1))
+                    out["left_arm_swing_to_height"] = round(min(2.0, left_amp), 4)
+                    out["right_arm_swing_to_height"] = round(min(2.0, right_amp), 4)
                     out["arm_swing_to_height"] = round(min(2.0, (left_amp + right_amp) / 2.0), 4)
                     denominator = max(left_amp, right_amp, 1e-6)
                     out["arm_swing_asymmetry"] = round(_clamp01(abs(left_amp - right_amp) / denominator), 4)

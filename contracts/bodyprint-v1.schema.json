@@ -39,6 +39,8 @@
       "stride_length_to_height": {"type": "number", "minimum": 0, "maximum": 2},
       "stance_width_to_height": {"type": "number", "minimum": 0, "maximum": 1},
       "vertical_bounce_to_height": {"type": "number", "minimum": 0, "maximum": 1},
+      "left_arm_swing_to_height": {"type": "number", "minimum": 0, "maximum": 2},
+      "right_arm_swing_to_height": {"type": "number", "minimum": 0, "maximum": 2},
       "arm_swing_to_height": {"type": "number", "minimum": 0, "maximum": 2},
       "arm_swing_asymmetry": {"type": "number", "minimum": 0, "maximum": 1},
       "turn_speed_degrees_per_second": {"type": "number", "minimum": 0, "maximum": 720},

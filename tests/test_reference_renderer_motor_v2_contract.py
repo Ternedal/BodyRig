@@ -57,6 +57,8 @@ def test_reference_renderer_keeps_v1_v2_compatibility_without_repersonalizing_pe
         "posture_head_offset_to_height",
         "posture_head_forward_offset_to_height",
         "posture_head_right_offset_to_height",
+        "left_arm_swing_to_height",
+        "right_arm_swing_to_height",
         "arm_swing_asymmetry",
         "idle_sway_to_height",
     ):
@@ -93,6 +95,8 @@ def test_reference_renderer_validates_every_v2_observed_range_but_does_not_inven
     assert 'ValidateRange(observed.posture_head_forward_offset_to_height, -1.0f, 1.0f' in validation
     assert 'ValidateRange(observed.posture_head_right_offset_to_height, -1.0f, 1.0f' in validation
     assert 'ValidateRange(observed.stride_length_to_height, 0.0f, 2.0f' in validation
+    assert 'ValidateRange(observed.left_arm_swing_to_height, 0.0f, 2.0f' in validation
+    assert 'ValidateRange(observed.right_arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(observed.arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(observed.turn_speed_degrees_per_second, 0.0f, 720.0f' in validation
     assert 'ValidateRange(observed.blink_rate_per_min, 0.0f, 120.0f' in validation

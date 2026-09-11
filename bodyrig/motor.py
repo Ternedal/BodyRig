@@ -73,6 +73,8 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
         (motion, "stride_length_to_height", 0.0, 2.0),
         (motion, "stance_width_to_height", 0.0, 1.0),
         (motion, "vertical_bounce_to_height", 0.0, 1.0),
+        (motion, "left_arm_swing_to_height", 0.0, 2.0),
+        (motion, "right_arm_swing_to_height", 0.0, 2.0),
         (motion, "arm_swing_to_height", 0.0, 2.0),
         (motion, "arm_swing_asymmetry", 0.0, 1.0),
         (motion, "turn_speed_degrees_per_second", 0.0, 720.0),
@@ -235,13 +237,22 @@ def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> di
     }
     if request.action == "walk":
         cadence = max(30.0, min(240.0, float(motion["walk_cadence_spm"]) * pace_factor))
+        left_arm = float(motion["left_arm_swing_to_height"])
+        right_arm = float(motion["right_arm_swing_to_height"])
+        max_arm = max(left_arm, right_arm)
+        arm_scale = amplitude_factor if max_arm <= 0.0 else min(amplitude_factor, 2.0 / max_arm)
+        performed_left_arm = left_arm * arm_scale
+        performed_right_arm = right_arm * arm_scale
+        performed_arm_average = (performed_left_arm + performed_right_arm) / 2.0
         result.update(
             {
                 "cadence_spm": round(cadence, 3),
                 "stride_length_to_height": round(min(2.0, float(motion["stride_length_to_height"]) * amplitude_factor), 4),
                 "stance_width_to_height": round(float(motion["stance_width_to_height"]), 4),
                 "vertical_bounce_to_height": round(min(1.0, float(motion["vertical_bounce_to_height"]) * amplitude_factor), 4),
-                "arm_swing_to_height": round(min(2.0, float(motion["arm_swing_to_height"]) * amplitude_factor), 4),
+                "left_arm_swing_to_height": round(performed_left_arm, 4),
+                "right_arm_swing_to_height": round(performed_right_arm, 4),
+                "arm_swing_to_height": round(performed_arm_average, 4),
             }
         )
     elif request.action in {"turn_left", "turn_right"}:

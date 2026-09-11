@@ -87,13 +87,15 @@ Motor State v2 preserves the performed state and adds an optional `embodiment` r
     "observed": {
       "gesture_frequency": 0.57,
       "turn_speed": 0.42,
-      "walk_cadence_spm": 112.0
+      "walk_cadence_spm": 112.0,
+      "left_arm_swing_to_height": 0.20,
+      "right_arm_swing_to_height": 0.18
     }
   }
 }
 ```
 
-The receipt is evidence, not a second personalization pass. A renderer must not multiply `embodiment.observed.gesture_amplitude`, `head_motion`, `gaze_strength`, `speech_motion`, posture descriptors, or other observations into the already-resolved performed values again. It must also not create a gesture, gait event, posture, expression, or semantic action solely because an observed BodyPrint field exists.
+The receipt is evidence, not a second personalization pass. A renderer must not multiply `embodiment.observed.gesture_amplitude`, `head_motion`, `gaze_strength`, `speech_motion`, posture descriptors, gait descriptors, or other observations into the already-resolved performed values again. It must also not create a gesture, gait event, posture, expression, or semantic action solely because an observed BodyPrint field exists.
 
 The reference Unity renderer accepts Motor State v1, v2 and v3. It validates v2/v3 embodiment evidence when present, but all animation is driven from already-performed fields. Raw `embodiment.observed` values are never consumed in the render loop.
 
@@ -119,7 +121,7 @@ Supported locomotion actions are `walk`, `turn_left`, `turn_right`, and `stop`. 
 
 Motor State v3 is the first performed contract allowed to contain locomotion. It resolves the explicit action through complete source-derived Movement Identity:
 
-- `walk` uses the subject's observed cadence, relative stride length, stance width, vertical bounce, arm swing, and transition style;
+- `walk` uses the subject's observed cadence, relative stride length, stance width, vertical bounce, anatomical left/right arm swing, and transition style;
 - `turn_left` / `turn_right` use the requested direction plus the subject's observed turn-speed magnitude and transition style;
 - `stop` carries the explicit stop semantic and the subject's observed transition style;
 - effort may vary pace/amplitude within bounded limits around the observed identity; it never replaces the identity with generic defaults.
@@ -144,23 +146,44 @@ Example natural walk output:
     "stride_length_to_height": 0.34,
     "stance_width_to_height": 0.13,
     "vertical_bounce_to_height": 0.024,
+    "left_arm_swing_to_height": 0.20,
+    "right_arm_swing_to_height": 0.18,
     "arm_swing_to_height": 0.19
   },
   "embodiment": {
     "source": "modelrig-bodyprint-v1",
     "observed": {
       "walk_cadence_spm": 116.0,
-      "stride_length_to_height": 0.34
+      "stride_length_to_height": 0.34,
+      "left_arm_swing_to_height": 0.20,
+      "right_arm_swing_to_height": 0.18,
+      "arm_swing_to_height": 0.19,
+      "arm_swing_asymmetry": 0.10
     }
   }
 }
 ```
 
-This is fail-closed. An explicit locomotion cue requires complete Movement Identity. Missing gait/posture/dynamics/idle evidence is an error; BodyRig does not substitute a generic walk. Explicit turns additionally require a positive, representable observed turn-speed.
+This is fail-closed. An explicit locomotion cue requires complete Movement Identity. Missing gait/posture/dynamics/idle evidence, including either anatomical arm-swing amplitude, is an error; BodyRig does not substitute a generic walk. Explicit turns additionally require a positive, representable observed turn-speed.
 
 A BodyCue v2 must never be requested through Motor State v1 or v2 because doing so would silently drop its v2 semantics. The runtime rejects that downgrade and requires Motor State v3.
 
 Movement Identity observations alone still cannot produce a `locomotion` section. A BodyCue v1 routed through v3 remains non-locomoting unless an explicit v2 locomotion cue exists.
+
+## Directional anatomical arm swing
+
+The compatibility Movement Identity fields `arm_swing_to_height` and `arm_swing_asymmetry` are intentionally retained, but they are insufficient by themselves for high-fidelity gait. `arm_swing_asymmetry` is an unsigned magnitude; it can say that the arms differ, but it cannot say which anatomical arm has the larger swing.
+
+High-fidelity Movement Identity therefore also requires:
+
+- `left_arm_swing_to_height`
+- `right_arm_swing_to_height`
+
+Recovery derives both directly from the recovered left/right wrist tracks in the body's own forward basis. BodyRig does not reconstruct these sides from the unsigned compatibility asymmetry later.
+
+For an explicit v3 `walk`, both anatomical amplitudes are copied into performed locomotion and scaled by the same effort-dependent amplitude factor. That preserves which side is larger and preserves the subject's left/right ratio instead of flattening the gait to an average. `arm_swing_to_height` remains as an aggregate compatibility value; it is not used to infer the two anatomical sides.
+
+The Unity reference renderer applies the performed left and right amplitudes independently. If an explicit gesture is active at the same time, the gesture owns the arms and gait arm swing yields, preserving the existing action-precedence rule. Raw `embodiment.observed.left_arm_swing_to_height` and `right_arm_swing_to_height` remain evidence only and never drive the render loop directly.
 
 ## Signed body-relative posture
 
@@ -214,7 +237,7 @@ The word `natural` itself is **not** an authority marker. BodyCue v1 is frozen a
 
 The reference Unity renderer consumes only performed Motor State v3 action objects. It never reads `embodiment.observed` in the animation loop.
 
-`walk` is deliberately realized as an **in-place gait cycle**. Cadence controls cycle timing; stride and stance control leg motion; vertical bounce controls hips displacement relative to avatar height; and arm swing controls the upper arms unless an explicit gesture is simultaneously active. The renderer does not translate the avatar through world space because BodyCue v2 does not specify a destination, heading, or distance. Inventing those values would exceed the semantic contract.
+`walk` is deliberately realized as an **in-place gait cycle**. Cadence controls cycle timing; stride and stance control leg motion; vertical bounce controls hips displacement relative to avatar height; and the performed left/right arm-swing amplitudes independently control the corresponding upper arms unless an explicit gesture is simultaneously active. The aggregate arm-swing compatibility value is not used to invent side information. The renderer does not translate the avatar through world space because BodyCue v2 does not specify a destination, heading, or distance. Inventing those values would exceed the semantic contract.
 
 `turn_left` and `turn_right` are different: direction is explicit in the cue, so the renderer may rotate the avatar using the already-performed turn rate. `stop` blends the gait pose back toward the bound neutral pose while preserving the avatar's world orientation.
 
