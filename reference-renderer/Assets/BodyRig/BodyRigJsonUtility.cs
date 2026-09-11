@@ -54,6 +54,10 @@ namespace BodyRig.ReferenceRenderer
             "\\\"id\\\"\\s*:\\s*\\\"(?<id>[a-z0-9_-]+)\\\"(?=\\s*(?:,|$))",
             RegexOptions.CultureInvariant);
 
+        private static readonly Regex PostureSourcePattern = new Regex(
+            "\\\"source\\\"\\s*:\\s*\\\"modelrig-bodyprint-v1\\\"(?=\\s*(?:,|$))",
+            RegexOptions.CultureInvariant);
+
         private static readonly string[] GenericPostureFields =
         {
             "id",
@@ -63,6 +67,7 @@ namespace BodyRig.ReferenceRenderer
         private static readonly string[] NaturalPostureFields =
         {
             "id",
+            "source",
             "intensity",
             "torso_forward_lean_degrees",
             "torso_right_lean_degrees",
@@ -162,13 +167,20 @@ namespace BodyRig.ReferenceRenderer
 
             var fields = CollectUniqueFields(body, "posture");
             var id = idMatch.Groups["id"].Value;
-            if (id == "natural")
+            if (fields.Contains("source"))
             {
-                RequireExactFields(fields, NaturalPostureFields, "posture natural");
-                RequireNumericFields(body, NaturalPostureFields, "posture natural", "id");
+                if (id != "natural" || !PostureSourcePattern.IsMatch(body))
+                {
+                    throw new ArgumentException("Motor State v3 source-derived posture requires natural id and modelrig-bodyprint-v1 source");
+                }
+                RequireExactFields(fields, NaturalPostureFields, "source-derived natural posture");
+                RequireNumericFields(body, NaturalPostureFields, "source-derived natural posture", "id", "source");
                 return;
             }
 
+            // Legacy/generic posture ids remain frozen. In particular, an old
+            // id literally named "natural" is not source authority unless the
+            // explicit source marker and signed fields are present.
             RequireExactFields(fields, GenericPostureFields, $"posture {id}");
             RequireNumericFields(body, GenericPostureFields, $"posture {id}", "id");
         }
@@ -256,11 +268,11 @@ namespace BodyRig.ReferenceRenderer
             string body,
             string[] expected,
             string context,
-            string stringField)
+            params string[] stringFields)
         {
             foreach (var field in expected)
             {
-                if (field == stringField)
+                if (Array.IndexOf(stringFields, field) >= 0)
                 {
                     continue;
                 }
