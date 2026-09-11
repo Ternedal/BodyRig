@@ -10,11 +10,16 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .photoidentity_authority import validate_authoritative_bundle
+from .photoidentity_authority import (
+    validate_authoritative_bundle,
+    validate_authoritative_observation_evidence,
+)
 from .photoidentity_evidence import (
     DETAIL_QUALITY_THRESHOLD,
+    DOMAIN_REQUIREMENTS,
     PhotoIdentityEvidenceError,
     build_observation_evidence,
+    evaluate_sufficiency,
     write_bundle,
 )
 from .photoidentity_multiperformer_target_attestation import (
@@ -34,7 +39,10 @@ from .photoidentity_target_crop_quality_attestation import (
     ADAPTER_REVISION as QUALITY_ADAPTER_REVISION,
     DOMAIN_MACHINE_AUTHORITY,
     FORMAT as QUALITY_FORMAT,
+    HUMAN_ONLY_DOMAINS,
+    HUMAN_QUALITY_BASIS,
     POLICY as QUALITY_POLICY,
+    SUPPORTED_QUALITY_DOMAINS,
     VERSION as QUALITY_VERSION,
 )
 
@@ -48,7 +56,7 @@ EVIDENCE_DIRNAME = "multiperformer-detail-evidence"
 AUTHORITY_DIRNAME = "multiperformer-detail-source-authority"
 RECEIPT_NAME = "photoidentity-multiperformer-detail-aggregation.json"
 QUALITY_RECEIPT_NAME = "photoidentity-target-crop-detail-quality-attestation.json"
-SUPPORTED_DOMAINS = frozenset(DOMAIN_MACHINE_AUTHORITY)
+SUPPORTED_DOMAINS = frozenset(SUPPORTED_QUALITY_DOMAINS)
 
 
 class PhotoIdentityMultiDetailAggregateError(RuntimeError):
@@ -162,6 +170,20 @@ def _candidate_map(sample: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _validate_human_only_claim(raw: Mapping[str, Any], *, domain: str) -> float:
+    if domain not in HUMAN_ONLY_DOMAINS:
+        raise PhotoIdentityMultiDetailAggregateError(f"human-only claim used for non-human domain: {domain}")
+    if (
+        raw.get("quality_basis") != HUMAN_QUALITY_BASIS
+        or raw.get("human_visibility_attested") is not True
+        or raw.get("machine_observability_used") is not False
+    ):
+        raise PhotoIdentityMultiDetailAggregateError(f"human-only hair claim authority boundary is invalid: {domain}")
+    if "machine_adapter" in raw or "machine_revision" in raw:
+        raise PhotoIdentityMultiDetailAggregateError(f"human-only hair claim must not carry machine authority: {domain}")
+    return _quality(raw.get("quality"), label=f"{domain} human-reviewed source quality")
+
+
 def _replay_quality_lineage(
     *,
     receipt_path: Path,
@@ -231,6 +253,8 @@ def _replay_quality_lineage(
             raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim is invalid")
         sample_id = str(raw.get("sample_id") or "")
         domain = str(raw.get("domain") or "")
+        if domain not in SUPPORTED_DOMAINS:
+            raise PhotoIdentityMultiDetailAggregateError(f"target-crop quality claim domain is unsupported: {domain}")
         public_sample = public_samples.get(sample_id)
         private_sample = private_samples.get(sample_id)
         accepted_sample = accepted_samples.get(sample_id)
@@ -250,6 +274,11 @@ def _replay_quality_lineage(
             raise PhotoIdentityMultiDetailAggregateError("selected source-detail crop escaped private enrichment root") from exc
         if _sha256(crop) != expected_sha:
             raise PhotoIdentityMultiDetailAggregateError("selected source-detail crop bytes changed after enrichment")
+
+        if domain in HUMAN_ONLY_DOMAINS:
+            _validate_human_only_claim(raw, domain=domain)
+            continue
+
         candidate = _candidate_map(public_sample).get(domain)
         if candidate is None:
             raise PhotoIdentityMultiDetailAggregateError(
@@ -332,14 +361,18 @@ def _validate_quality_receipt(
             raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim is not source-derived")
         if str(raw.get("adapter") or "") != QUALITY_ADAPTER or str(raw.get("revision") or "") != QUALITY_ADAPTER_REVISION:
             raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim human adapter/revision changed")
-        machine_adapter, machine_revision = DOMAIN_MACHINE_AUTHORITY[domain]
-        if str(raw.get("machine_adapter") or "") != machine_adapter or str(raw.get("machine_revision") or "") != machine_revision:
-            raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim machine provenance changed")
+        if domain in HUMAN_ONLY_DOMAINS:
+            quality = _validate_human_only_claim(raw, domain=domain)
+        else:
+            machine_adapter, machine_revision = DOMAIN_MACHINE_AUTHORITY[domain]
+            if str(raw.get("machine_adapter") or "") != machine_adapter or str(raw.get("machine_revision") or "") != machine_revision:
+                raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim machine provenance changed")
+            quality = _quality(raw.get("quality"), label=f"{domain} quality")
         _canonical_sha(raw.get("target_crop_sha256"), label="target-crop SHA-256")
         claims.append(
             {
                 "scene_id": scene_id,
-                "quality": _quality(raw.get("quality"), label=f"{domain} quality"),
+                "quality": quality,
                 "source_derived": True,
                 "adapter": QUALITY_ADAPTER,
                 "revision": QUALITY_ADAPTER_REVISION,
@@ -420,19 +453,46 @@ def _expected_enriched(
     if not isinstance(analyzer, Mapping) or not isinstance(details, Mapping):
         raise PhotoIdentityMultiDetailAggregateError("base photoidentity analyzer/detail evidence is invalid")
     merged = _merge_details(details, new_claims, prior_rows=list(prior_observations.get("rows") or []))
+    capabilities = {str(item) for item in analyzer.get("capabilities", [])}
+    for raw in new_claims:
+        domain = str(raw.get("domain") or "")
+        if domain in HUMAN_ONLY_DOMAINS:
+            capabilities.add(str(DOMAIN_REQUIREMENTS[domain]["capability"]))
     return build_observation_evidence(
         performer_id=str(prior_observations["performer_id"]),
         bodyrig_revision=str(prior_observations["bodyrig_revision"]),
         baseline_source_manifest_sha256=str(prior_observations["baseline_source_manifest_sha256"]),
         analyzer_adapter=COMPOSITE_ADAPTER,
         analyzer_revision=COMPOSITE_REVISION,
-        analyzer_capabilities=list(analyzer.get("capabilities") or []),
+        analyzer_capabilities=sorted(capabilities),
         candidate_scenes=int(prior_observations["candidate_scenes"]),
         source_files_scanned=int(prior_observations["source_files_scanned"]),
         scan_exhausted=bool(prior_observations["scan_exhausted"]),
         rows=list(prior_observations["rows"]),
         detail_evidence=merged,
     )
+
+
+def _require_target_detail_complete(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        validate_authoritative_observation_evidence(evidence)
+        report = evaluate_sufficiency(evidence)
+    except PhotoIdentityEvidenceError as exc:
+        raise PhotoIdentityMultiDetailAggregateError(f"candidate aggregate authority is invalid: {exc}") from exc
+    incomplete = {
+        domain: report["domains"][domain]
+        for domain in sorted(SUPPORTED_DOMAINS)
+        if report["domains"][domain]["status"] != "pass"
+    }
+    if incomplete:
+        detail = ", ".join(
+            f"{domain}={item['qualifying_distinct_scenes']}/{item['minimum_distinct_scenes']} ({item['status']})"
+            for domain, item in incomplete.items()
+        )
+        raise PhotoIdentityMultiDetailAggregateError(
+            "multi-performer detail aggregation would publish incomplete create-only target-detail evidence: " + detail
+        )
+    return report
 
 
 def aggregate_multiperformer_detail_evidence(
@@ -471,6 +531,11 @@ def aggregate_multiperformer_detail_evidence(
         parsed_receipts.append((path, receipt, claims, digest))
         all_claims.extend(claims)
     expected = _expected_enriched(prior_observations, all_claims)
+
+    # Aggregation is create-only. Prove the entire target-detail scope in memory
+    # before creating any output path, otherwise a partial publication would
+    # permanently prevent adding the missing source scenes later.
+    _require_target_detail_complete(expected)
 
     evidence_root = sweep_root / EVIDENCE_DIRNAME
     authority_root = sweep_root / AUTHORITY_DIRNAME
@@ -619,6 +684,7 @@ def validate_multiperformer_detail_aggregation(sweep_root: Path) -> dict[str, An
         raise PhotoIdentityMultiDetailAggregateError("multi-performer quality receipt manifest ordering/content is non-canonical")
 
     expected = _expected_enriched(base_observations, all_claims)
+    _require_target_detail_complete(expected)
     enriched_observations = _read_json(observations_path, label="Aggregated multi-performer photoidentity observations")
     if enriched_observations != expected:
         raise PhotoIdentityMultiDetailAggregateError("aggregated multi-performer observations do not match quality receipts")

@@ -26,7 +26,13 @@ DOMAIN_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "body_right_profile": {"capability": "coarse-full-body-view", "minimum_distinct_scenes": 1},
     "body_rear": {"capability": "rear-body-view", "minimum_distinct_scenes": 1},
     "eyes_detail": {"capability": "eyes-detail", "minimum_distinct_scenes": 2},
+    # `hair_hairline` is intentionally scalp/head hair + facial hairline only.
+    # Eyebrows, facial hair and body hair are separate identity domains because
+    # SCHP/ATR's generic Hair class cannot honestly prove them.
     "hair_hairline": {"capability": "hair-detail", "minimum_distinct_scenes": 2},
+    "eyebrows_detail": {"capability": "eyebrows-detail", "minimum_distinct_scenes": 2},
+    "facial_hair_detail": {"capability": "facial-hair-detail", "minimum_distinct_scenes": 2},
+    "body_hair_detail": {"capability": "body-hair-detail", "minimum_distinct_scenes": 2},
     "skin_detail": {"capability": "skin-detail", "minimum_distinct_scenes": 2},
     "torso_chest": {"capability": "torso-chest-detail", "minimum_distinct_scenes": 2},
     "waist_hips": {"capability": "waist-hips-detail", "minimum_distinct_scenes": 2},

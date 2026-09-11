@@ -14,6 +14,8 @@ from bodyrig.photoidentity_authority import (
 from bodyrig.photoidentity_evidence import build_observation_evidence, write_bundle
 from bodyrig.photoidentity_multiperformer_detail_aggregate import (
     AUTHORITY_DIRNAME,
+    EVIDENCE_DIRNAME,
+    RECEIPT_NAME,
     PhotoIdentityMultiDetailAggregateError,
     aggregate_multiperformer_detail_evidence,
     validate_multiperformer_detail_aggregation,
@@ -35,11 +37,16 @@ from bodyrig.photoidentity_target_crop_quality_attestation import (
     ADAPTER_REVISION as QUALITY_ADAPTER_REVISION,
     DOMAIN_MACHINE_AUTHORITY,
     FORMAT as QUALITY_FORMAT,
+    HUMAN_ONLY_DOMAINS,
+    HUMAN_QUALITY_BASIS,
     POLICY as QUALITY_POLICY,
 )
 
 REVISION = "a" * 40
 BASELINE_SHA = "b" * 64
+MACHINE_TARGET_DOMAINS = tuple(sorted(DOMAIN_MACHINE_AUTHORITY))
+HUMAN_TARGET_DOMAINS = tuple(sorted(HUMAN_ONLY_DOMAINS))
+ALL_TARGET_DOMAINS = (*MACHINE_TARGET_DOMAINS, *HUMAN_TARGET_DOMAINS)
 
 
 def _sha(path: Path) -> str:
@@ -100,7 +107,10 @@ def _base_sweep(tmp_path: Path) -> Path:
         source_files_scanned=1,
         scan_exhausted=True,
         rows=[_row("single-1")],
-        detail_evidence={"eyes_detail": [_claim("single-1", "eyes_detail")]},
+        detail_evidence={
+            domain: [_claim("single-1", domain)]
+            for domain in MACHINE_TARGET_DOMAINS
+        },
     )
     write_bundle(sweep / "human-parsing-evidence", evidence)
     return sweep
@@ -110,17 +120,17 @@ def _quality_lineage(
     tmp_path: Path,
     *,
     scene: str = "multi-1",
-    domain: str = "eyes_detail",
+    domains: tuple[str, ...] = ALL_TARGET_DOMAINS,
     quality: float = 0.93,
 ) -> tuple[Path, Path]:
-    candidate_root = tmp_path / f"candidate-{scene}-{domain}"
+    candidate_root = tmp_path / f"candidate-{scene}"
     enrichment_root = candidate_root / "target-crop-detail-enrichment"
     private_root = enrichment_root / "private-analysis"
     sample_id = "targetsample-0001"
 
     crop = private_root / "crop.png"
     crop.parent.mkdir(parents=True, exist_ok=True)
-    crop.write_bytes(b"real-source-crop-bytes")
+    crop.write_bytes(f"real-source-crop-bytes-{scene}".encode("utf-8"))
     crop_sha = _sha(crop)
 
     isolation_path = candidate_root / "photoidentity-multiperformer-target-isolation-attestation.json"
@@ -151,7 +161,54 @@ def _quality_lineage(
     }
     _write(private_path, private)
 
-    machine_adapter, machine_revision = DOMAIN_MACHINE_AUTHORITY[domain]
+    machine_candidates: list[dict[str, object]] = []
+    selected_claims: list[dict[str, object]] = []
+    for domain in domains:
+        if domain in DOMAIN_MACHINE_AUTHORITY:
+            machine_adapter, machine_revision = DOMAIN_MACHINE_AUTHORITY[domain]
+            machine_candidates.append(
+                {
+                    "domain": domain,
+                    "machine_observability_score": quality,
+                    "source_derived": True,
+                    "adapter": machine_adapter,
+                    "revision": machine_revision,
+                    "source_detail_quality_authority": False,
+                    "photoidentity_sufficiency_authority": False,
+                }
+            )
+            selected_claims.append(
+                {
+                    "sample_id": sample_id,
+                    "domain": domain,
+                    "scene_id": scene,
+                    "target_crop_sha256": crop_sha,
+                    "quality": quality,
+                    "machine_adapter": machine_adapter,
+                    "machine_revision": machine_revision,
+                    "source_derived": True,
+                    "adapter": QUALITY_ADAPTER,
+                    "revision": QUALITY_ADAPTER_REVISION,
+                }
+            )
+        else:
+            assert domain in HUMAN_ONLY_DOMAINS
+            selected_claims.append(
+                {
+                    "sample_id": sample_id,
+                    "domain": domain,
+                    "scene_id": scene,
+                    "target_crop_sha256": crop_sha,
+                    "quality": quality,
+                    "quality_basis": HUMAN_QUALITY_BASIS,
+                    "human_visibility_attested": True,
+                    "machine_observability_used": False,
+                    "source_derived": True,
+                    "adapter": QUALITY_ADAPTER,
+                    "revision": QUALITY_ADAPTER_REVISION,
+                }
+            )
+
     public_path = enrichment_root / "target-crop-detail-enrichment.json"
     public = {
         "format": ENRICHMENT_FORMAT,
@@ -170,17 +227,7 @@ def _quality_lineage(
             {
                 "sample_id": sample_id,
                 "target_crop_sha256": crop_sha,
-                "candidates": [
-                    {
-                        "domain": domain,
-                        "machine_observability_score": quality,
-                        "source_derived": True,
-                        "adapter": machine_adapter,
-                        "revision": machine_revision,
-                        "source_detail_quality_authority": False,
-                        "photoidentity_sufficiency_authority": False,
-                    }
-                ],
+                "candidates": machine_candidates,
             }
         ],
     }
@@ -199,21 +246,10 @@ def _quality_lineage(
         "private_analysis_index_sha256": _sha(private_path),
         "adapter": QUALITY_ADAPTER,
         "adapter_revision": QUALITY_ADAPTER_REVISION,
-        "selected_domains": [domain],
-        "selected_claims": [{
-            "sample_id": sample_id,
-            "domain": domain,
-            "scene_id": scene,
-            "target_crop_sha256": crop_sha,
-            "quality": quality,
-            "machine_adapter": machine_adapter,
-            "machine_revision": machine_revision,
-            "source_derived": True,
-            "adapter": QUALITY_ADAPTER,
-            "revision": QUALITY_ADAPTER_REVISION,
-        }],
+        "selected_domains": sorted(domains),
+        "selected_claims": selected_claims,
         "human_source_detail_quality_attested": True,
-        "quality_note": "The real isolated source crop was reviewed and has sufficient native source detail.",
+        "quality_note": "The real isolated source crop was reviewed and has sufficient native source detail for every selected domain.",
         "reviewed_utc": "2026-09-11T00:00:00Z",
         "source_detail_quality_authority": True,
         "photoidentity_source_evidence_authority": False,
@@ -225,30 +261,78 @@ def _quality_lineage(
     return candidate_root, receipt_path
 
 
-def test_aggregate_adds_distinct_human_reviewed_scene_without_mutating_base_rows(tmp_path: Path) -> None:
+def _complete_lineages(tmp_path: Path) -> tuple[list[Path], list[Path]]:
+    first_root, first_receipt = _quality_lineage(tmp_path, scene="multi-1")
+    second_root, second_receipt = _quality_lineage(tmp_path, scene="multi-2")
+    return [first_root, second_root], [first_receipt, second_receipt]
+
+
+def test_aggregate_requires_complete_target_detail_scope_and_adds_human_hair_authority(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    candidate_root, receipt = _quality_lineage(tmp_path)
+    candidate_roots, receipts = _complete_lineages(tmp_path)
     result = aggregate_multiperformer_detail_evidence(
         sweep_root=sweep,
-        quality_receipts=[receipt],
-        candidate_roots=[candidate_root],
+        quality_receipts=receipts,
+        candidate_roots=candidate_roots,
     )
     observations = json.loads(Path(result["enriched_observation_evidence"]).read_text(encoding="utf-8"))
     report = result["report"]
     assert observations["rows"] == [_row("single-1")]
-    claims = observations["detail_evidence"]["eyes_detail"]
-    assert [item["scene_id"] for item in claims] == ["multi-1", "single-1"]
-    assert {item["adapter"] for item in claims} == {
+    eyes = observations["detail_evidence"]["eyes_detail"]
+    assert [item["scene_id"] for item in eyes] == ["multi-1", "multi-2", "single-1"]
+    assert {item["adapter"] for item in eyes} == {
         "openpose-body25-face-hand-detail",
         QUALITY_ADAPTER,
     }
-    assert report["domains"]["eyes_detail"]["qualifying_distinct_scenes"] == 2
-    assert report["domains"]["eyes_detail"]["status"] == "pass"
+    for domain in ALL_TARGET_DOMAINS:
+        assert report["domains"][domain]["status"] == "pass"
+    for domain in HUMAN_TARGET_DOMAINS:
+        claims = observations["detail_evidence"][domain]
+        assert [item["scene_id"] for item in claims] == ["multi-1", "multi-2"]
+        assert {item["adapter"] for item in claims} == {QUALITY_ADAPTER}
+        capability = report["domains"][domain]["required_capability"]
+        assert capability in observations["analyzer"]["capabilities"]
     validated = validate_multiperformer_detail_aggregation(sweep)
     assert validated is not None
     _, _, _, prior_report, stage = resolve_pre_nail_bundle(sweep)
     assert stage == "multiperformer-detail"
-    assert prior_report["domains"]["eyes_detail"]["qualifying_distinct_scenes"] == 2
+    assert prior_report["domains"]["body_hair_detail"]["qualifying_distinct_scenes"] == 2
+
+
+def test_incomplete_create_only_aggregation_writes_nothing(tmp_path: Path) -> None:
+    sweep = _base_sweep(tmp_path)
+    candidate_root, receipt = _quality_lineage(tmp_path, scene="multi-1")
+    with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="incomplete create-only target-detail evidence") as raised:
+        aggregate_multiperformer_detail_evidence(
+            sweep_root=sweep,
+            quality_receipts=[receipt],
+            candidate_roots=[candidate_root],
+        )
+    assert "eyebrows_detail=1/2" in str(raised.value)
+    assert "facial_hair_detail=1/2" in str(raised.value)
+    assert "body_hair_detail=1/2" in str(raised.value)
+    assert not (sweep / EVIDENCE_DIRNAME).exists()
+    assert not (sweep / AUTHORITY_DIRNAME).exists()
+    assert not (sweep / RECEIPT_NAME).exists()
+
+
+def test_machine_only_claim_cannot_impersonate_human_hair_authority(tmp_path: Path) -> None:
+    sweep = _base_sweep(tmp_path)
+    candidate_root, receipt = _quality_lineage(tmp_path, scene="multi-1", domains=("eyebrows_detail",))
+    value = json.loads(receipt.read_text(encoding="utf-8"))
+    claim = value["selected_claims"][0]
+    claim.pop("quality_basis")
+    claim.pop("human_visibility_attested")
+    claim.pop("machine_observability_used")
+    claim["machine_adapter"] = "schp-atr18-source-observability"
+    claim["machine_revision"] = "1"
+    _write(receipt, value)
+    with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="human-only hair claim"):
+        aggregate_multiperformer_detail_evidence(
+            sweep_root=sweep,
+            quality_receipts=[receipt],
+            candidate_roots=[candidate_root],
+        )
 
 
 def test_aggregate_rejects_overlap_with_single_person_observation_pool(tmp_path: Path) -> None:
@@ -264,11 +348,11 @@ def test_aggregate_rejects_overlap_with_single_person_observation_pool(tmp_path:
 
 def test_aggregate_prior_fails_closed_when_persisted_quality_receipt_is_tampered(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    candidate_root, receipt = _quality_lineage(tmp_path)
+    candidate_roots, receipts = _complete_lineages(tmp_path)
     aggregate_multiperformer_detail_evidence(
         sweep_root=sweep,
-        quality_receipts=[receipt],
-        candidate_roots=[candidate_root],
+        quality_receipts=receipts,
+        candidate_roots=candidate_roots,
     )
     authority = sweep / AUTHORITY_DIRNAME
     stored = next(authority.glob("quality-*.json"))
@@ -279,15 +363,15 @@ def test_aggregate_prior_fails_closed_when_persisted_quality_receipt_is_tampered
 
 def test_aggregate_rejects_detached_quality_receipt_with_fabricated_source_hash(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    candidate_root, receipt = _quality_lineage(tmp_path)
-    value = json.loads(receipt.read_text(encoding="utf-8"))
+    candidate_roots, receipts = _complete_lineages(tmp_path)
+    value = json.loads(receipts[0].read_text(encoding="utf-8"))
     value["human_target_isolation_attestation_sha256"] = "0" * 64
-    _write(receipt, value)
+    _write(receipts[0], value)
     with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="not bound to current isolation receipt"):
         aggregate_multiperformer_detail_evidence(
             sweep_root=sweep,
-            quality_receipts=[receipt],
-            candidate_roots=[candidate_root],
+            quality_receipts=receipts,
+            candidate_roots=candidate_roots,
         )
 
 
@@ -316,6 +400,9 @@ def test_human_target_detail_adapter_is_not_authority_for_nails_or_anatomy() -> 
             "hands-detail",
             "feet-detail",
             "hair-detail",
+            "eyebrows-detail",
+            "facial-hair-detail",
+            "body-hair-detail",
             "skin-detail",
             "fingernails-detail",
             "toenails-detail",

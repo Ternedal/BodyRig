@@ -23,7 +23,10 @@ from .photoidentity_target_crop_quality_attestation import (
     ADAPTER_REVISION as TARGET_DETAIL_REVISION,
     DOMAIN_MACHINE_AUTHORITY as TARGET_DETAIL_MACHINE_AUTHORITY,
     FORMAT as TARGET_DETAIL_FORMAT,
+    HUMAN_ONLY_DOMAINS as TARGET_DETAIL_HUMAN_ONLY_DOMAINS,
+    HUMAN_QUALITY_BASIS as TARGET_DETAIL_HUMAN_QUALITY_BASIS,
     POLICY as TARGET_DETAIL_POLICY,
+    SUPPORTED_QUALITY_DOMAINS as TARGET_DETAIL_SUPPORTED_DOMAINS,
     VERSION as TARGET_DETAIL_VERSION,
 )
 from .storage import ui_jobs_dir
@@ -231,7 +234,7 @@ def _quality_receipt_claims(path: Path, *, performer_id: str, revision: str) -> 
         if not isinstance(raw, Mapping):
             raise PhotoIdentityRegistryError("registered multi-performer quality claim is invalid")
         domain = str(raw.get("domain") or "")
-        if domain not in TARGET_DETAIL_MACHINE_AUTHORITY or domain in domains:
+        if domain not in TARGET_DETAIL_SUPPORTED_DOMAINS or domain in domains:
             raise PhotoIdentityRegistryError("registered multi-performer quality claim domain is invalid/duplicate")
         domains.add(domain)
         if str(raw.get("scene_id") or "") != scene_id:
@@ -240,12 +243,22 @@ def _quality_receipt_claims(path: Path, *, performer_id: str, revision: str) -> 
             raise PhotoIdentityRegistryError("registered multi-performer quality claim is not source-derived")
         if str(raw.get("adapter") or "") != TARGET_DETAIL_ADAPTER or str(raw.get("revision") or "") != TARGET_DETAIL_REVISION:
             raise PhotoIdentityRegistryError("registered multi-performer quality claim adapter/revision changed")
-        expected_machine_adapter, expected_machine_revision = TARGET_DETAIL_MACHINE_AUTHORITY[domain]
-        if (
-            str(raw.get("machine_adapter") or "") != expected_machine_adapter
-            or str(raw.get("machine_revision") or "") != expected_machine_revision
-        ):
-            raise PhotoIdentityRegistryError("registered multi-performer quality claim machine provenance changed")
+        if domain in TARGET_DETAIL_HUMAN_ONLY_DOMAINS:
+            if (
+                raw.get("quality_basis") != TARGET_DETAIL_HUMAN_QUALITY_BASIS
+                or raw.get("human_visibility_attested") is not True
+                or raw.get("machine_observability_used") is not False
+                or "machine_adapter" in raw
+                or "machine_revision" in raw
+            ):
+                raise PhotoIdentityRegistryError("registered human-only hair claim authority boundary changed")
+        else:
+            expected_machine_adapter, expected_machine_revision = TARGET_DETAIL_MACHINE_AUTHORITY[domain]
+            if (
+                str(raw.get("machine_adapter") or "") != expected_machine_adapter
+                or str(raw.get("machine_revision") or "") != expected_machine_revision
+            ):
+                raise PhotoIdentityRegistryError("registered multi-performer quality claim machine provenance changed")
         _canonical_sha(raw.get("target_crop_sha256"), label="registered target-crop SHA-256")
         quality = raw.get("quality")
         if isinstance(quality, bool) or not isinstance(quality, (int, float)):

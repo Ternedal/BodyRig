@@ -12,6 +12,7 @@ from .photoidentity_evidence import PhotoIdentityEvidenceError, validate_bundle
 COARSE_CAPABILITIES = {"coarse-face-view", "coarse-full-body-view"}
 OPENPOSE_CAPABILITIES = {"eyes-detail", "hands-detail", "feet-detail"}
 SCHP_CAPABILITIES = {"hair-detail", "skin-detail"}
+HUMAN_HAIR_CAPABILITIES = {"eyebrows-detail", "facial-hair-detail", "body-hair-detail"}
 NAIL_CAPABILITIES = {"fingernails-detail", "toenails-detail"}
 ANATOMY_CAPABILITIES = {"rear-body-view", "torso-chest-detail", "waist-hips-detail"}
 
@@ -24,15 +25,16 @@ ANALYZER_AUTHORITY: dict[tuple[str, str], frozenset[str]] = {
         COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES
     ),
     ("bodyrig-photoidentity-coarse-openpose-schp-human-target-detail-composite", "1"): frozenset(
-        COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES
+        COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES | HUMAN_HAIR_CAPABILITIES
     ),
     ("bodyrig-photoidentity-coarse-openpose-schp-human-nails-composite", "1"): frozenset(
-        COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES | NAIL_CAPABILITIES
+        COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES | HUMAN_HAIR_CAPABILITIES | NAIL_CAPABILITIES
     ),
     ("bodyrig-photoidentity-source-human-anatomy-composite", "1"): frozenset(
         COARSE_CAPABILITIES
         | OPENPOSE_CAPABILITIES
         | SCHP_CAPABILITIES
+        | HUMAN_HAIR_CAPABILITIES
         | NAIL_CAPABILITIES
         | ANATOMY_CAPABILITIES
     ),
@@ -46,6 +48,9 @@ DETAIL_DOMAIN_AUTHORITY: dict[str, tuple[str, str, str]] = {
     "hands": ("hands-detail", "openpose-body25-face-hand-detail", "1"),
     "feet": ("feet-detail", "openpose-body25-face-hand-detail", "1"),
     "hair_hairline": ("hair-detail", "schp-atr18-source-observability", "1"),
+    "eyebrows_detail": ("eyebrows-detail", "human-reviewed-target-crop-detail-quality", "1"),
+    "facial_hair_detail": ("facial-hair-detail", "human-reviewed-target-crop-detail-quality", "1"),
+    "body_hair_detail": ("body-hair-detail", "human-reviewed-target-crop-detail-quality", "1"),
     "skin_detail": ("skin-detail", "schp-atr18-source-observability", "1"),
     "fingernails_detail": ("fingernails-detail", "human-source-nail-detail-attestation", "1"),
     "toenails_detail": ("toenails-detail", "human-source-nail-detail-attestation", "1"),

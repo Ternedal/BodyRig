@@ -36,7 +36,12 @@ VERSION = 1
 POLICY = "human-source-target-crop-detail-quality-v1"
 ADAPTER = "human-reviewed-target-crop-detail-quality"
 ADAPTER_REVISION = "1"
-REF_RE = re.compile(r"^(targetsample-[A-Za-z0-9._-]{1,80}):(eyes_detail|hands|feet|hair_hairline|skin_detail)$")
+SAMPLE_RE = re.compile(r"^targetsample-[A-Za-z0-9._-]{1,80}$")
+REF_RE = re.compile(
+    r"^(targetsample-[A-Za-z0-9._-]{1,80}):"
+    r"(eyes_detail|hands|feet|hair_hairline|skin_detail|eyebrows_detail|facial_hair_detail|body_hair_detail)"
+    r"(?::([0-9]+(?:\.[0-9]+)?))?$"
+)
 DOMAIN_MACHINE_AUTHORITY = {
     "eyes_detail": (OPENPOSE_ADAPTER, OPENPOSE_REVISION),
     "hands": (OPENPOSE_ADAPTER, OPENPOSE_REVISION),
@@ -44,6 +49,9 @@ DOMAIN_MACHINE_AUTHORITY = {
     "hair_hairline": (SCHP_ADAPTER, SCHP_REVISION),
     "skin_detail": (SCHP_ADAPTER, SCHP_REVISION),
 }
+HUMAN_ONLY_DOMAINS = frozenset({"eyebrows_detail", "facial_hair_detail", "body_hair_detail"})
+SUPPORTED_QUALITY_DOMAINS = frozenset(DOMAIN_MACHINE_AUTHORITY) | HUMAN_ONLY_DOMAINS
+HUMAN_QUALITY_BASIS = "explicit-human-source-review"
 
 
 class PhotoIdentityTargetCropQualityAttestationError(RuntimeError):
@@ -137,19 +145,43 @@ def _candidate_map(sample: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _parse_refs(values: Sequence[str]) -> list[tuple[str, str]]:
-    parsed: list[tuple[str, str]] = []
+def _parse_refs(values: Sequence[str]) -> list[tuple[str, str, float | None]]:
+    parsed: list[tuple[str, str, float | None]] = []
     domains: set[str] = set()
     for raw in values:
         text = str(raw or "").strip()
         match = REF_RE.fullmatch(text)
         if not match:
             raise PhotoIdentityTargetCropQualityAttestationError(f"invalid source-detail reference: {text or 'empty'}")
-        sample_id, domain = match.groups()
+        sample_id, domain, quality_text = match.groups()
+        if not SAMPLE_RE.fullmatch(sample_id) or domain not in SUPPORTED_QUALITY_DOMAINS:
+            raise PhotoIdentityTargetCropQualityAttestationError(f"invalid source-detail reference: {text}")
         if domain in domains:
             raise PhotoIdentityTargetCropQualityAttestationError(f"source-detail attestation allows one selected crop per domain: {domain}")
         domains.add(domain)
-        parsed.append((sample_id, domain))
+        if domain in HUMAN_ONLY_DOMAINS:
+            if quality_text is None:
+                raise PhotoIdentityTargetCropQualityAttestationError(
+                    f"human-only detail reference requires explicit reviewed quality: {sample_id}:{domain}:<0..1>"
+                )
+            try:
+                human_quality = _finite_quality(float(quality_text), label=f"{domain} human-reviewed source quality")
+            except ValueError as exc:
+                raise PhotoIdentityTargetCropQualityAttestationError(
+                    f"human-only detail quality is invalid: {sample_id}:{domain}"
+                ) from exc
+            if human_quality < DETAIL_QUALITY_THRESHOLD:
+                raise PhotoIdentityTargetCropQualityAttestationError(
+                    f"human-reviewed source detail is below canonical quality threshold: "
+                    f"{sample_id}:{domain} quality={human_quality:.4f}"
+                )
+            parsed.append((sample_id, domain, round(human_quality, 4)))
+        else:
+            if quality_text is not None:
+                raise PhotoIdentityTargetCropQualityAttestationError(
+                    f"machine-assisted detail reference must not supply a human override score: {sample_id}:{domain}"
+                )
+            parsed.append((sample_id, domain, None))
     if not parsed:
         raise PhotoIdentityTargetCropQualityAttestationError("source-detail attestation requires at least one selected sample/domain")
     return parsed
@@ -212,7 +244,7 @@ def record_target_crop_quality_attestation(
     accepted_samples = _rows_by_id(isolation.get("accepted_samples"), label="human-isolated")
     selected: list[dict[str, Any]] = []
     private_root = (enrichment_root / "private-analysis").resolve()
-    for sample_id, domain in _parse_refs(selected_refs):
+    for sample_id, domain, human_quality in _parse_refs(selected_refs):
         public_sample = public_samples.get(sample_id)
         private_sample = private_samples.get(sample_id)
         accepted_sample = accepted_samples.get(sample_id)
@@ -228,6 +260,25 @@ def record_target_crop_quality_attestation(
             raise PhotoIdentityTargetCropQualityAttestationError("selected source-detail crop escaped private enrichment root") from exc
         if _sha256_file(crop) != expected_sha:
             raise PhotoIdentityTargetCropQualityAttestationError("selected source-detail crop bytes changed after enrichment")
+
+        if domain in HUMAN_ONLY_DOMAINS:
+            assert human_quality is not None
+            selected.append(
+                {
+                    "sample_id": sample_id,
+                    "domain": domain,
+                    "scene_id": str(public["scene_id"]),
+                    "target_crop_sha256": expected_sha,
+                    "quality": human_quality,
+                    "quality_basis": HUMAN_QUALITY_BASIS,
+                    "human_visibility_attested": True,
+                    "machine_observability_used": False,
+                    "source_derived": True,
+                    "adapter": ADAPTER,
+                    "revision": ADAPTER_REVISION,
+                }
+            )
+            continue
 
         candidate = _candidate_map(public_sample).get(domain)
         if candidate is None:
@@ -292,7 +343,13 @@ def record_target_crop_quality_attestation(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Record human source-detail quality authority for human-isolated target crops.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Record human source-detail quality authority for human-isolated target crops. "
+            "Machine-assisted refs use <sample>:<domain>; human-only hair refs require "
+            "<sample>:<domain>:<reviewed-quality>."
+        )
+    )
     parser.add_argument("--candidate-root", required=True)
     parser.add_argument("--enrichment-root", required=True)
     parser.add_argument("--detail-ref", action="append", default=[])
