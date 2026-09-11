@@ -1,17 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "contracts" / "bodyrig-runtime-assets-v1.schema.json"
-TEST = ROOT / "tests" / "test_runtime_manifest_body_name_unicode_schema.py"
-
-text = SCHEMA.read_text(encoding="utf-8")
-old = '    "body_name": {"type": "string", "minLength": 1, "maxLength": 160},\n'
-new = '    "body_name": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?:[^\\\\uD800-\\\\uDFFF]|[\\\\uD800-\\\\uDBFF][\\\\uDC00-\\\\uDFFF])+$"},\n'
-if text.count(old) != 1:
-    raise SystemExit(f"expected one body_name schema line, got {text.count(old)}")
-SCHEMA.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-TEST.write_text(r'''from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -59,4 +46,3 @@ def test_runtime_manifest_guard_keeps_fail_closed_scalar_count_for_body_name() -
     ]
     assert "unpaired high surrogate" in helper
     assert "unpaired low surrogate" in helper
-''', encoding="utf-8")
