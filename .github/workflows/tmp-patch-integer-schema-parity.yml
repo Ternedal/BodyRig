@@ -29,6 +29,41 @@ jobs:
               raise SystemExit(f"generated assertion anchor count={text.count(old)}")
           path.write_text(text.replace(old, '    assert "long.TryParse(" not in range_guard\n', 1), encoding="utf-8")
           PY
+      - name: Update legacy lexical integer source contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_reference_renderer_json_utility_guard.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    assert "long.TryParse(" in helper
+          assert "NumberStyles.AllowLeadingSign" in helper
+          assert "CultureInfo.InvariantCulture" in helper
+          assert "value < minimum || value > maximum" in helper
+          '''
+          new = '''    assert "RequireIntegerToken(raw, context);" in helper
+          assert "CompareJsonNumberToInteger(raw, minimum) < 0" in helper
+          assert "CompareJsonNumberToInteger(raw, maximum) > 0" in helper
+          assert "long.TryParse(" not in helper
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"json utility integer contract anchor count={text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          path = Path("tests/test_reference_renderer_raw_numeric_ranges.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    assert "long.TryParse(" in integer
+          assert "value < minimum || value > maximum" in integer
+          '''
+          new = '''    assert "RequireIntegerToken(raw, context);" in integer
+          assert "CompareJsonNumberToInteger(raw, minimum) < 0" in integer
+          assert "CompareJsonNumberToInteger(raw, maximum) > 0" in integer
+          assert "long.TryParse(" not in integer
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"raw numeric integer contract anchor count={text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Validate full locked Python suite
@@ -39,6 +74,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_whitespace_guard.py tests/test_reference_renderer_integer_schema_parity.py
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_whitespace_guard.py tests/test_reference_renderer_integer_schema_parity.py tests/test_reference_renderer_json_utility_guard.py tests/test_reference_renderer_raw_numeric_ranges.py
           git commit -m "Align integer number semantics with Motor State schemas"
           git push origin HEAD:staging/integer-schema-parity-20260911
