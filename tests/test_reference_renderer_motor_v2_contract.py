@@ -107,7 +107,9 @@ def test_reference_renderer_validates_every_v2_observed_range_but_does_not_inven
 
 def test_reference_renderer_affect_transition_clears_previous_emotion_without_touching_visemes() -> None:
     source = DRIVER.read_text(encoding="utf-8")
-    apply_expression = source[source.index("private bool ApplyExpression") : source.index("private bool ApplySpeech")]
+    apply_expression = source[
+        source.index("private bool ApplyExpression") : source.index("private void ReleaseOwnedSpeechViseme")
+    ]
 
     # Unsupported semantic ids fail before any renderer channel is mutated.
     support_switch = apply_expression.index("switch (_state.expression.emotion)")
