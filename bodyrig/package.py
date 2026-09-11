@@ -84,8 +84,8 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
         for key, item in obj.items():
             lo, hi = section_rules[key]
             _num(item, lo, hi, f"{section}.{key}")
-            if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and (isinstance(item, bool) or not isinstance(item, int)):
-                raise MRBodyError(f"bodyprint.motion.{key}: expected integer observation count")
+            if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and not float(item).is_integer():
+                raise MRBodyError(f"bodyprint.motion.{key}: expected integral observation count")
             observed += 1
     if observed == 0:
         raise MRBodyError("bodyprint.json: no observed fields")
