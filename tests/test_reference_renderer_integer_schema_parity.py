@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SHIM = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigJsonUtility.cs"
+DRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDriver.cs"
 SCHEMAS = [
     REPO / "contracts" / "bodyrig-motor-state-v1.schema.json",
     REPO / "contracts" / "bodyrig-motor-state-v2.schema.json",
@@ -79,3 +80,31 @@ def test_integer_fields_route_through_value_semantic_range_guard() -> None:
     ]
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L);' in duration
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);' in speech
+
+
+def test_unity_integer_wire_transport_accepts_schema_number_spellings_exactly() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    speech = source[
+        source.index("private sealed class SpeechState") :
+        source.index("private sealed class ObservedEmbodimentState")
+    ]
+    motor = source[
+        source.index("private sealed class MotorState") :
+        source.index("[SerializeField] private BodyRigAvatarLoader")
+    ]
+    assert "public float elapsed_ms;" in speech
+    assert "public int elapsed_ms;" not in speech
+    assert "public float duration_ms;" in motor
+    assert "public int duration_ms;" not in motor
+
+    contracts = [_integer_contracts(path) for path in SCHEMAS]
+    duration, elapsed = contracts[0]
+    assert duration["maximum"] < 2**24
+    assert elapsed["maximum"] < 2**24
+
+    apply = source[
+        source.index("public void ApplyMotorJson") :
+        source.index("private static void ValidatePosture")
+    ]
+    assert 'ValidateRange(next.duration_ms, 0.0f, 120000.0f, "duration_ms")' in apply
+    assert "next.speech.elapsed_ms < 0 || next.speech.elapsed_ms > 3600000" in apply
