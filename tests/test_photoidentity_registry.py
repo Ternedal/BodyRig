@@ -27,7 +27,10 @@ from bodyrig.photoidentity_target_crop_quality_attestation import (
     ADAPTER_REVISION as TARGET_DETAIL_REVISION,
     DOMAIN_MACHINE_AUTHORITY as TARGET_DETAIL_MACHINE_AUTHORITY,
     FORMAT as TARGET_DETAIL_FORMAT,
+    HUMAN_ONLY_DOMAINS as TARGET_DETAIL_HUMAN_ONLY_DOMAINS,
+    HUMAN_QUALITY_BASIS as TARGET_DETAIL_HUMAN_QUALITY_BASIS,
     POLICY as TARGET_DETAIL_POLICY,
+    SUPPORTED_QUALITY_DOMAINS as TARGET_DETAIL_SUPPORTED_DOMAINS,
     VERSION as TARGET_DETAIL_VERSION,
 )
 import bodyrig.photoidentity_registry as registry
@@ -151,31 +154,26 @@ def _human_receipts(
     return nail, anatomy
 
 
-def _patch_valid_source_chain(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    report: Path,
-) -> None:
-    nail, anatomy = _human_receipts(tmp_path)
-    report_value = json.loads(report.read_text(encoding="utf-8"))
-    monkeypatch.setattr(
-        registry,
-        "validate_registration_source_chain",
-        lambda *args, **kwargs: {
-            "report": report_value,
-            "policy_revision": "photoidentity-human-source-chain-v2",
-            "nail_attestation": str(nail),
-            "nail_attestation_sha256": _sha(nail),
-            "anatomy_attestation": str(anatomy),
-            "anatomy_attestation_sha256": _sha(anatomy),
-            "multiperformer_detail": None,
-        },
-    )
+def _target_claims(observations: Path) -> dict[str, list[dict[str, object]]]:
+    value = json.loads(observations.read_text(encoding="utf-8"))
+    details = value["detail_evidence"]
+    result: dict[str, list[dict[str, object]]] = {}
+    for domain, claims in details.items():
+        selected = [
+            dict(claim)
+            for claim in claims
+            if claim.get("adapter") == TARGET_DETAIL_ADAPTER
+            and claim.get("revision") == TARGET_DETAIL_REVISION
+        ]
+        if selected:
+            result[domain] = selected
+    return result
 
 
 def _patch_valid_multiperformer_source_chain(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    observations: Path,
     report: Path,
 ) -> None:
     aggregation_observations_sha = "c" * 64
@@ -190,12 +188,48 @@ def _patch_valid_multiperformer_source_chain(
     )
     authority_root = tmp_path / "live-multiperformer-authority"
     authority_root.mkdir()
-    machine_adapter, machine_revision = TARGET_DETAIL_MACHINE_AUTHORITY["eyes_detail"]
+
+    target_claims = _target_claims(observations)
+    by_scene: dict[str, list[tuple[str, dict[str, object]]]] = {}
+    for domain, claims in target_claims.items():
+        for claim in claims:
+            by_scene.setdefault(str(claim["scene_id"]), []).append((domain, claim))
+
     quality_entries: list[dict[str, object]] = []
     quality_paths: list[Path] = []
-    for index in range(2):
-        scene = f"eyes_detail-{index}"
+    for index, (scene, scene_claims) in enumerate(sorted(by_scene.items())):
+        selected_claims: list[dict[str, object]] = []
+        for domain, claim in sorted(scene_claims, key=lambda item: item[0]):
+            selected: dict[str, object] = {
+                "sample_id": f"targetsample-{index:04d}",
+                "domain": domain,
+                "scene_id": scene,
+                "target_crop_sha256": hashlib.sha256(f"crop-{scene}-{domain}".encode()).hexdigest(),
+                "quality": float(claim["quality"]),
+                "source_derived": True,
+                "adapter": TARGET_DETAIL_ADAPTER,
+                "revision": TARGET_DETAIL_REVISION,
+            }
+            if domain in TARGET_DETAIL_HUMAN_ONLY_DOMAINS:
+                selected.update(
+                    {
+                        "quality_basis": TARGET_DETAIL_HUMAN_QUALITY_BASIS,
+                        "human_visibility_attested": True,
+                        "machine_observability_used": False,
+                    }
+                )
+            else:
+                machine_adapter, machine_revision = TARGET_DETAIL_MACHINE_AUTHORITY[domain]
+                selected.update(
+                    {
+                        "machine_adapter": machine_adapter,
+                        "machine_revision": machine_revision,
+                    }
+                )
+            selected_claims.append(selected)
+
         path = authority_root / f"source-quality-{index}.json"
+        domains = sorted(domain for domain, _ in scene_claims)
         quality = {
             "format": TARGET_DETAIL_FORMAT,
             "version": TARGET_DETAIL_VERSION,
@@ -208,21 +242,10 @@ def _patch_valid_multiperformer_source_chain(
             "private_analysis_index_sha256": hashlib.sha256(f"private-{index}".encode()).hexdigest(),
             "adapter": TARGET_DETAIL_ADAPTER,
             "adapter_revision": TARGET_DETAIL_REVISION,
-            "selected_domains": ["eyes_detail"],
-            "selected_claims": [{
-                "sample_id": f"targetsample-{index:04d}",
-                "domain": "eyes_detail",
-                "scene_id": scene,
-                "target_crop_sha256": hashlib.sha256(f"crop-{index}".encode()).hexdigest(),
-                "quality": 0.97,
-                "machine_adapter": machine_adapter,
-                "machine_revision": machine_revision,
-                "source_derived": True,
-                "adapter": TARGET_DETAIL_ADAPTER,
-                "revision": TARGET_DETAIL_REVISION,
-            }],
+            "selected_domains": domains,
+            "selected_claims": selected_claims,
             "human_source_detail_quality_attested": True,
-            "quality_note": "Reviewed the exact isolated target crop and confirmed strong native eye detail.",
+            "quality_note": "Reviewed the exact isolated target crop and confirmed sufficient native source detail for the selected identity domain.",
             "source_detail_quality_authority": True,
             "photoidentity_source_evidence_authority": False,
             "generic_guessing_permitted": False,
@@ -231,15 +254,21 @@ def _patch_valid_multiperformer_source_chain(
         }
         _write(path, quality)
         quality_paths.append(path)
-        quality_entries.append({
-            "receipt_sha256": _sha(path),
-            "stored_name": f"quality-{_sha(path)}.json",
-            "scene_id": scene,
-            "domains": ["eyes_detail"],
-        })
+        quality_entries.append(
+            {
+                "receipt_sha256": _sha(path),
+                "stored_name": f"quality-{_sha(path)}.json",
+                "scene_id": scene,
+                "domains": domains,
+            }
+        )
 
     quality_entries.sort(key=lambda item: str(item["receipt_sha256"]))
     quality_paths_by_hash = sorted(quality_paths, key=_sha)
+    added_counts = {
+        domain: len(target_claims.get(domain, []))
+        for domain in sorted(TARGET_DETAIL_SUPPORTED_DOMAINS)
+    }
     aggregation = {
         "format": MULTIPERFORMER_DETAIL_FORMAT,
         "version": MULTIPERFORMER_DETAIL_VERSION,
@@ -252,13 +281,7 @@ def _patch_valid_multiperformer_source_chain(
         "prior_sufficiency_report_sha256": "f" * 64,
         "quality_receipts": quality_entries,
         "quality_receipt_count": len(quality_entries),
-        "added_claim_counts": {
-            "eyes_detail": 2,
-            "feet": 0,
-            "hair_hairline": 0,
-            "hands": 0,
-            "skin_detail": 0,
-        },
+        "added_claim_counts": added_counts,
         "composite_analyzer": {
             "adapter": "bodyrig-photoidentity-coarse-openpose-schp-human-target-detail-composite",
             "revision": "1",
@@ -301,7 +324,7 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
-    _patch_valid_source_chain(monkeypatch, tmp_path, report)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, observations, report)
 
     result = register_body_job_photoidentity_evidence(
         "job-" + "1" * 32,
@@ -311,7 +334,7 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
 
     assert result["version"] == 3
     assert result["source_chain_policy_revision"] == "photoidentity-human-source-chain-v2"
-    assert result["multiperformer_detail"] is None
+    assert result["multiperformer_detail"] is not None
     assert result["source_evidence_sufficient"] is True
     assert result["human_review_render_permitted"] is True
     assert result["generic_guessing_permitted"] is False
@@ -356,7 +379,7 @@ def test_registry_is_create_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
-    _patch_valid_source_chain(monkeypatch, tmp_path, report)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, observations, report)
     job_id = "job-" + "2" * 32
 
     register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
@@ -369,7 +392,7 @@ def test_registry_fails_closed_if_registered_report_is_tampered(monkeypatch: pyt
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
-    _patch_valid_source_chain(monkeypatch, tmp_path, report)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, observations, report)
     job_id = "job-" + "3" * 32
     register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
 
@@ -390,7 +413,7 @@ def test_registry_fails_closed_if_registered_human_receipt_is_tampered(
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
-    _patch_valid_source_chain(monkeypatch, tmp_path, report)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, observations, report)
     job_id = "job-" + "8" * 32
     register_body_job_photoidentity_evidence(job_id, report_path=report, observation_path=observations)
 
@@ -414,7 +437,7 @@ def test_registry_persists_and_requires_multiperformer_lineage(
     job_root = tmp_path / "job-root"
     job_root.mkdir()
     _patch_job_authority(monkeypatch, job_root)
-    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, report)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, observations, report)
     job_id = "job-" + "9" * 32
 
     result = register_body_job_photoidentity_evidence(
@@ -436,6 +459,49 @@ def test_registry_persists_and_requires_multiperformer_lineage(
     next(quality_root.glob("quality-*.json")).unlink()
     with pytest.raises(PhotoIdentityRegistryError, match="quality receipt set changed"):
         require_body_job_photoidentity_evidence("person-fixture", job_id)
+
+
+def test_registry_human_only_quality_receipt_rejects_machine_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "quality.json"
+    domain = "eyebrows_detail"
+    receipt = {
+        "format": TARGET_DETAIL_FORMAT,
+        "version": TARGET_DETAIL_VERSION,
+        "policy": TARGET_DETAIL_POLICY,
+        "bodyrig_revision": "a" * 40,
+        "performer_id": "42",
+        "scene_id": "eyebrows_detail-0",
+        "human_target_isolation_attestation_sha256": "1" * 64,
+        "target_crop_detail_enrichment_sha256": "2" * 64,
+        "private_analysis_index_sha256": "3" * 64,
+        "adapter": TARGET_DETAIL_ADAPTER,
+        "adapter_revision": TARGET_DETAIL_REVISION,
+        "selected_domains": [domain],
+        "selected_claims": [{
+            "sample_id": "targetsample-0000",
+            "domain": domain,
+            "scene_id": "eyebrows_detail-0",
+            "target_crop_sha256": "4" * 64,
+            "quality": 0.97,
+            "quality_basis": TARGET_DETAIL_HUMAN_QUALITY_BASIS,
+            "human_visibility_attested": True,
+            "machine_observability_used": False,
+            "machine_adapter": "schp-atr18-source-observability",
+            "source_derived": True,
+            "adapter": TARGET_DETAIL_ADAPTER,
+            "revision": TARGET_DETAIL_REVISION,
+        }],
+        "human_source_detail_quality_attested": True,
+        "quality_note": "Reviewed the exact isolated eyebrow crop with sufficient source visibility.",
+        "source_detail_quality_authority": True,
+        "photoidentity_source_evidence_authority": False,
+        "generic_guessing_permitted": False,
+        "reconstruction_permitted": False,
+        "production_activation": False,
+    }
+    _write(path, receipt)
+    with pytest.raises(PhotoIdentityRegistryError, match="human-only hair claim authority boundary changed"):
+        registry._quality_receipt_claims(path, performer_id="42", revision="a" * 40)
 
 
 def test_missing_registry_blocks_preview_authority(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
