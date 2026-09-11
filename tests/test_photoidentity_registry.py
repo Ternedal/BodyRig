@@ -12,16 +12,34 @@ from bodyrig.photoidentity_authority import (
     validate_authoritative_bundle,
 )
 from bodyrig.photoidentity_evidence import DOMAIN_REQUIREMENTS, build_observation_evidence, write_bundle
+from bodyrig.photoidentity_multiperformer_detail_aggregate import (
+    FORMAT as MULTIPERFORMER_DETAIL_FORMAT,
+    POLICY_REVISION as MULTIPERFORMER_DETAIL_POLICY_REVISION,
+    VERSION as MULTIPERFORMER_DETAIL_VERSION,
+)
 from bodyrig.photoidentity_registry import (
     PhotoIdentityRegistryError,
     register_body_job_photoidentity_evidence,
     require_body_job_photoidentity_evidence,
+)
+from bodyrig.photoidentity_target_crop_quality_attestation import (
+    ADAPTER as TARGET_DETAIL_ADAPTER,
+    ADAPTER_REVISION as TARGET_DETAIL_REVISION,
+    DOMAIN_MACHINE_AUTHORITY as TARGET_DETAIL_MACHINE_AUTHORITY,
+    FORMAT as TARGET_DETAIL_FORMAT,
+    POLICY as TARGET_DETAIL_POLICY,
+    VERSION as TARGET_DETAIL_VERSION,
 )
 import bodyrig.photoidentity_registry as registry
 
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _row(scene: str, view: str) -> dict[str, object]:
@@ -102,11 +120,11 @@ def _patch_job_authority(monkeypatch: pytest.MonkeyPatch, job_root: Path) -> Non
     )
 
 
-def _patch_valid_source_chain(
-    monkeypatch: pytest.MonkeyPatch,
+def _human_receipts(
     tmp_path: Path,
-    report: Path,
-) -> None:
+    *,
+    nail_extra: dict[str, object] | None = None,
+) -> tuple[Path, Path]:
     receipt_root = tmp_path / "human-source-receipts"
     receipt_root.mkdir(exist_ok=True)
     nail = receipt_root / "nail.json"
@@ -118,25 +136,162 @@ def _patch_valid_source_chain(
         "generic_guessing_permitted": False,
         "production_activation": False,
     }
-    nail.write_text(
-        json.dumps({**boundary, "format": "bodyrig-photoidentity-nail-source-attestation"}),
-        encoding="utf-8",
+    _write(
+        nail,
+        {
+            **boundary,
+            "format": "bodyrig-photoidentity-nail-source-attestation",
+            **(nail_extra or {}),
+        },
     )
-    anatomy.write_text(
-        json.dumps({**boundary, "format": "bodyrig-photoidentity-anatomy-source-attestation"}),
-        encoding="utf-8",
+    _write(
+        anatomy,
+        {**boundary, "format": "bodyrig-photoidentity-anatomy-source-attestation"},
     )
+    return nail, anatomy
+
+
+def _patch_valid_source_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    report: Path,
+) -> None:
+    nail, anatomy = _human_receipts(tmp_path)
     report_value = json.loads(report.read_text(encoding="utf-8"))
     monkeypatch.setattr(
         registry,
         "validate_registration_source_chain",
         lambda *args, **kwargs: {
             "report": report_value,
-            "policy_revision": "photoidentity-human-source-chain-v1",
+            "policy_revision": "photoidentity-human-source-chain-v2",
             "nail_attestation": str(nail),
             "nail_attestation_sha256": _sha(nail),
             "anatomy_attestation": str(anatomy),
             "anatomy_attestation_sha256": _sha(anatomy),
+            "multiperformer_detail": None,
+        },
+    )
+
+
+def _patch_valid_multiperformer_source_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    report: Path,
+) -> None:
+    aggregation_observations_sha = "c" * 64
+    aggregation_report_sha = "d" * 64
+    nail, anatomy = _human_receipts(
+        tmp_path,
+        nail_extra={
+            "prior_stage": "multiperformer-detail",
+            "prior_observation_evidence_sha256": aggregation_observations_sha,
+            "prior_sufficiency_report_sha256": aggregation_report_sha,
+        },
+    )
+    authority_root = tmp_path / "live-multiperformer-authority"
+    authority_root.mkdir()
+    machine_adapter, machine_revision = TARGET_DETAIL_MACHINE_AUTHORITY["eyes_detail"]
+    quality_entries: list[dict[str, object]] = []
+    quality_paths: list[Path] = []
+    for index in range(2):
+        scene = f"eyes_detail-{index}"
+        path = authority_root / f"source-quality-{index}.json"
+        quality = {
+            "format": TARGET_DETAIL_FORMAT,
+            "version": TARGET_DETAIL_VERSION,
+            "policy": TARGET_DETAIL_POLICY,
+            "bodyrig_revision": "a" * 40,
+            "performer_id": "42",
+            "scene_id": scene,
+            "human_target_isolation_attestation_sha256": hashlib.sha256(f"isolation-{index}".encode()).hexdigest(),
+            "target_crop_detail_enrichment_sha256": hashlib.sha256(f"enrichment-{index}".encode()).hexdigest(),
+            "private_analysis_index_sha256": hashlib.sha256(f"private-{index}".encode()).hexdigest(),
+            "adapter": TARGET_DETAIL_ADAPTER,
+            "adapter_revision": TARGET_DETAIL_REVISION,
+            "selected_domains": ["eyes_detail"],
+            "selected_claims": [{
+                "sample_id": f"targetsample-{index:04d}",
+                "domain": "eyes_detail",
+                "scene_id": scene,
+                "target_crop_sha256": hashlib.sha256(f"crop-{index}".encode()).hexdigest(),
+                "quality": 0.97,
+                "machine_adapter": machine_adapter,
+                "machine_revision": machine_revision,
+                "source_derived": True,
+                "adapter": TARGET_DETAIL_ADAPTER,
+                "revision": TARGET_DETAIL_REVISION,
+            }],
+            "human_source_detail_quality_attested": True,
+            "quality_note": "Reviewed the exact isolated target crop and confirmed strong native eye detail.",
+            "source_detail_quality_authority": True,
+            "photoidentity_source_evidence_authority": False,
+            "generic_guessing_permitted": False,
+            "reconstruction_permitted": False,
+            "production_activation": False,
+        }
+        _write(path, quality)
+        quality_paths.append(path)
+        quality_entries.append({
+            "receipt_sha256": _sha(path),
+            "stored_name": f"quality-{_sha(path)}.json",
+            "scene_id": scene,
+            "domains": ["eyes_detail"],
+        })
+
+    quality_entries.sort(key=lambda item: str(item["receipt_sha256"]))
+    quality_paths_by_hash = sorted(quality_paths, key=_sha)
+    aggregation = {
+        "format": MULTIPERFORMER_DETAIL_FORMAT,
+        "version": MULTIPERFORMER_DETAIL_VERSION,
+        "policy_revision": MULTIPERFORMER_DETAIL_POLICY_REVISION,
+        "performer_id": "42",
+        "bodyrig_revision": "a" * 40,
+        "baseline_source_manifest_sha256": "b" * 64,
+        "prior_stage": "human-parsing",
+        "prior_observation_evidence_sha256": "e" * 64,
+        "prior_sufficiency_report_sha256": "f" * 64,
+        "quality_receipts": quality_entries,
+        "quality_receipt_count": len(quality_entries),
+        "added_claim_counts": {
+            "eyes_detail": 2,
+            "feet": 0,
+            "hair_hairline": 0,
+            "hands": 0,
+            "skin_detail": 0,
+        },
+        "composite_analyzer": {
+            "adapter": "bodyrig-photoidentity-coarse-openpose-schp-human-target-detail-composite",
+            "revision": "1",
+            "capabilities": [],
+        },
+        "enriched_observation_evidence_sha256": aggregation_observations_sha,
+        "enriched_sufficiency_report_sha256": aggregation_report_sha,
+        "source_grounded": True,
+        "generic_guessing_permitted": False,
+        "production_activation": False,
+    }
+    aggregation_path = authority_root / "aggregation.json"
+    _write(aggregation_path, aggregation)
+
+    report_value = json.loads(report.read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        registry,
+        "validate_registration_source_chain",
+        lambda *args, **kwargs: {
+            "report": report_value,
+            "policy_revision": "photoidentity-human-source-chain-v2",
+            "nail_attestation": str(nail),
+            "nail_attestation_sha256": _sha(nail),
+            "anatomy_attestation": str(anatomy),
+            "anatomy_attestation_sha256": _sha(anatomy),
+            "multiperformer_detail": {
+                "receipt": str(aggregation_path),
+                "receipt_sha256": _sha(aggregation_path),
+                "quality_receipts": [str(path) for path in quality_paths_by_hash],
+                "quality_receipt_sha256s": [_sha(path) for path in quality_paths_by_hash],
+                "observation_evidence_sha256": aggregation_observations_sha,
+                "sufficiency_report_sha256": aggregation_report_sha,
+            },
         },
     )
 
@@ -154,8 +309,9 @@ def test_register_and_require_bind_exact_sufficient_bytes(monkeypatch: pytest.Mo
         observation_path=observations,
     )
 
-    assert result["version"] == 2
-    assert result["source_chain_policy_revision"] == "photoidentity-human-source-chain-v1"
+    assert result["version"] == 3
+    assert result["source_chain_policy_revision"] == "photoidentity-human-source-chain-v2"
+    assert result["multiperformer_detail"] is None
     assert result["source_evidence_sufficient"] is True
     assert result["human_review_render_permitted"] is True
     assert result["generic_guessing_permitted"] is False
@@ -244,6 +400,41 @@ def test_registry_fails_closed_if_registered_human_receipt_is_tampered(
         PhotoIdentityRegistryError,
         match="nail_attestation_sha256|nail source attestation receipt hash mismatch",
     ):
+        require_body_job_photoidentity_evidence("person-fixture", job_id)
+
+
+def test_registry_persists_and_requires_multiperformer_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observations, report = _sufficient_bundle(
+        tmp_path,
+        claim_adapter_override=("eyes_detail", TARGET_DETAIL_ADAPTER),
+    )
+    job_root = tmp_path / "job-root"
+    job_root.mkdir()
+    _patch_job_authority(monkeypatch, job_root)
+    _patch_valid_multiperformer_source_chain(monkeypatch, tmp_path, report)
+    job_id = "job-" + "9" * 32
+
+    result = register_body_job_photoidentity_evidence(
+        job_id,
+        report_path=report,
+        observation_path=observations,
+    )
+    assert result["multiperformer_detail"] is not None
+    required = require_body_job_photoidentity_evidence("person-fixture", job_id)
+    assert required["source_evidence_sufficient"] is True
+
+    quality_root = (
+        job_root
+        / "photoidentity-evidence"
+        / "source-authority"
+        / "multiperformer-detail"
+        / "quality-receipts"
+    )
+    next(quality_root.glob("quality-*.json")).unlink()
+    with pytest.raises(PhotoIdentityRegistryError, match="quality receipt set changed"):
         require_body_job_photoidentity_evidence("person-fixture", job_id)
 
 
