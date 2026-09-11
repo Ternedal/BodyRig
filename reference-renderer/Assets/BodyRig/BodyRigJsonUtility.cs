@@ -735,12 +735,12 @@ namespace BodyRig.ReferenceRenderer
             string pattern)
         {
             var value = RequireStringMember(members, field, context);
-            var scalarLength = CountUnicodeScalars(value, context + "." + field);
-            if (scalarLength < minimumLength || scalarLength > maximumLength)
+            var codePointLength = CountJsonCodePoints(value);
+            if (codePointLength < minimumLength || codePointLength > maximumLength)
             {
                 throw new ArgumentOutOfRangeException(
                     context + "." + field,
-                    $"Motor State string length must be in {minimumLength}..{maximumLength} Unicode scalars");
+                    $"Motor State string length must be in {minimumLength}..{maximumLength} JSON code points");
             }
             if (pattern != null && !Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant))
             {
@@ -749,25 +749,16 @@ namespace BodyRig.ReferenceRenderer
             return value;
         }
 
-        private static int CountUnicodeScalars(string value, string context)
+        private static int CountJsonCodePoints(string value)
         {
             var count = 0;
             for (var index = 0; index < value.Length; index++)
             {
-                var current = value[index];
-                if (char.IsHighSurrogate(current))
+                if (char.IsHighSurrogate(value[index]) &&
+                    index + 1 < value.Length &&
+                    char.IsLowSurrogate(value[index + 1]))
                 {
-                    if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
-                    {
-                        throw new ArgumentException($"Motor State {context} contains an unpaired high surrogate");
-                    }
                     index++;
-                    count++;
-                    continue;
-                }
-                if (char.IsLowSurrogate(current))
-                {
-                    throw new ArgumentException($"Motor State {context} contains an unpaired low surrogate");
                 }
                 count++;
             }
