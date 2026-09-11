@@ -396,6 +396,11 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
+        private static bool IsSupportedGestureId(string id)
+        {
+            return id == "small_shrug" || id == "present" || id == "neutral";
+        }
+
         private bool HasSourceDerivedNaturalPosture()
         {
             return _state != null && _state.version == 3 && _state.posture != null &&
@@ -447,12 +452,20 @@ namespace BodyRig.ReferenceRenderer
 
             // These fields are already performed values resolved by BodyRig.
             // Raw embodiment evidence is never consumed here.
-            var targetGesture = _state.gesture != null ? _state.gesture.amplitude : 0.0f;
+            var supportedGesture = _state.gesture != null && IsSupportedGestureId(_state.gesture.id);
+            var targetGesture = supportedGesture ? _state.gesture.amplitude : 0.0f;
             var targetHead = _state.motion != null ? _state.motion.head_motion : 0.0f;
             var targetGaze = _state.gaze != null ? _state.gaze.strength : 0.0f;
             var targetSpeech = _state.speech != null ? _state.speech.amplitude : 0.0f;
 
-            _gestureAmplitude = Mathf.Lerp(_gestureAmplitude, targetGesture, blend);
+            if (_state.gesture != null && !supportedGesture)
+            {
+                _gestureAmplitude = 0.0f;
+            }
+            else
+            {
+                _gestureAmplitude = Mathf.Lerp(_gestureAmplitude, targetGesture, blend);
+            }
             _headMotion = Mathf.Lerp(_headMotion, targetHead, blend);
             _gazeStrength = Mathf.Lerp(_gazeStrength, targetGaze, blend);
             if (_state.speech == null || _state.speech.state == "stop")
@@ -695,6 +708,7 @@ namespace BodyRig.ReferenceRenderer
         private bool ApplyGesture()
         {
             if (_state.gesture == null) return false;
+            if (!IsSupportedGestureId(_state.gesture.id)) return false;
             if (_state.gesture.id == "small_shrug")
             {
                 // This gesture owns shoulder translation only. Do not reset an
