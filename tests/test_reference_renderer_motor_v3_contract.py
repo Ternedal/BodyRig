@@ -65,6 +65,8 @@ def test_reference_renderer_v3_validates_action_specific_performed_ranges() -> N
     assert 'ValidateRange(locomotion.stride_length_to_height, 0.0f, 2.0f' in validation
     assert 'Validate01(locomotion.stance_width_to_height' in validation
     assert 'Validate01(locomotion.vertical_bounce_to_height' in validation
+    assert 'ValidateRange(locomotion.left_arm_swing_to_height, 0.0f, 2.0f' in validation
+    assert 'ValidateRange(locomotion.right_arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(locomotion.arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f' in validation
 
@@ -101,7 +103,12 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert "locomotion.stride_length_to_height" in realization
     assert "locomotion.stance_width_to_height" in realization
     assert "locomotion.vertical_bounce_to_height" in realization
-    assert "locomotion.arm_swing_to_height" in realization
+    assert "locomotion.left_arm_swing_to_height" in realization
+    assert "locomotion.right_arm_swing_to_height" in realization
+    assert "locomotion.arm_swing_to_height" not in realization
+    assert "leftArmDegrees" in realization
+    assert "rightArmDegrees" in realization
+    assert "_state.gesture == null" in realization
     assert "locomotion.turn_speed_degrees_per_second * dt" in realization
 
     # A walk cue has no destination/distance. The reference gait is therefore
