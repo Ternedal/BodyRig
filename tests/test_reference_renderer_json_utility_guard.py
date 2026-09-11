@@ -116,6 +116,7 @@ def test_raw_guard_runs_for_v1_v2_v3_before_unity_erases_types() -> None:
 
     assert "VersionPattern" in shim
     assert 'Groups["version"].Value' in shim
+    assert "Motor State requires integer version 1, 2, or 3" in shim
     generic = shim.index("public static T FromJson<T>(string json)")
     validate = shim.index("ValidateMotorStatePresenceAndTypes(json);", generic)
     deserialize = shim.index("UnityEngine.JsonUtility.FromJson<T>(json)", generic)

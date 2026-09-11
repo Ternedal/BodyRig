@@ -243,9 +243,10 @@ namespace BodyRig.ReferenceRenderer
             var versionMatch = VersionPattern.Match(json);
             if (!versionMatch.Success)
             {
-                // ApplyMotorJson will reject an unsupported or malformed version.
-                // Do not guess a schema version at the raw boundary.
-                return;
+                // Once a payload identifies itself as Motor State, do not let a
+                // malformed version bypass the raw guard and rely on JsonUtility
+                // coercion. The canonical contracts expose integer versions 1..3.
+                throw new ArgumentException("Motor State requires integer version 1, 2, or 3");
             }
             var version = int.Parse(versionMatch.Groups["version"].Value);
 
