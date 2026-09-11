@@ -51,6 +51,14 @@ def _loads_json(data: bytes, name: str) -> Any:
         raise MRBodyError(f"{name}: invalid canonical JSON") from exc
 
 
+def _is_strict_utf8_text(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _num(value: Any, lo: float, hi: float, field: str) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not lo <= float(value) <= hi:
         raise MRBodyError(f"bodyprint.{field}: invalid number")
@@ -100,7 +108,11 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         raise MRBodyError("manifest.json: unsupported format/version")
     if not isinstance(value["id"], str) or not SLUG_RE.fullmatch(value["id"]):
         raise MRBodyError("manifest.json: invalid id")
-    if not isinstance(value["name"], str) or not 1 <= len(value["name"]) <= 160:
+    if (
+        not isinstance(value["name"], str)
+        or not 1 <= len(value["name"]) <= 160
+        or not _is_strict_utf8_text(value["name"])
+    ):
         raise MRBodyError("manifest.json: invalid name")
     if value["avatar"] != {"format": "vrm", "version": "1.0", "path": "avatar.vrm"}:
         raise MRBodyError("manifest.json: invalid avatar descriptor")
