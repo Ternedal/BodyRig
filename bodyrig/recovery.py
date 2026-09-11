@@ -171,6 +171,39 @@ def _axis_delta(a: float, b: float) -> float:
     return (b - a + math.pi / 2.0) % math.pi - math.pi / 2.0
 
 
+def _continuous_segments(frames: Sequence[RecoveryFrame]) -> list[list[RecoveryFrame]]:
+    """Split actual observations at gaps so missing PHALP frames never become coverage."""
+    if len(frames) < 2:
+        return []
+    deltas = [
+        curr.timestamp_ms - prev.timestamp_ms
+        for prev, curr in zip(frames, frames[1:])
+        if curr.timestamp_ms > prev.timestamp_ms
+    ]
+    if not deltas:
+        return []
+    nominal_ms = _percentile([float(value) for value in deltas], 0.25)
+    # Normal video should provide substantially denser observations than 4 Hz.
+    # The hard 250 ms ceiling keeps sparse/occluded endpoints fail-closed even
+    # when every remaining delta is large and would otherwise define itself as
+    # the apparent sampling cadence.
+    maximum_gap_ms = min(250.0, max(100.0, nominal_ms * 2.5))
+
+    segments: list[list[RecoveryFrame]] = []
+    current = [frames[0]]
+    for prev, curr in zip(frames, frames[1:]):
+        delta_ms = curr.timestamp_ms - prev.timestamp_ms
+        if 0 < delta_ms <= maximum_gap_ms:
+            current.append(curr)
+        else:
+            if len(current) >= 2:
+                segments.append(current)
+            current = [curr]
+    if len(current) >= 2:
+        segments.append(current)
+    return segments
+
+
 class BodyprintExtractor:
     SHAPE_JOINTS = {"head", "left_shoulder", "right_shoulder", "left_hip", "right_hip", "left_wrist", "right_wrist", "left_ankle", "right_ankle"}
     POSTURE_JOINTS = {"head", "left_shoulder", "right_shoulder", "left_hip", "right_hip", "left_ankle", "right_ankle"}
@@ -213,40 +246,46 @@ class BodyprintExtractor:
         return {"shoulder_to_height": _clamp01(middle[0]), "hip_to_height": _clamp01(middle[1]), "arm_to_height": _clamp01(middle[2]), "leg_to_height": _clamp01(middle[3])}
 
     def _motion(self, track: RecoveredTrack) -> dict[str, float | int]:
-        usable_frames = [frame for frame in track.frames if frame.confidence >= 0.5 and self._height(frame) not in (None, 0.0)]
-        velocities: list[tuple[int, float, float]] = []
+        usable_frames = [
+            frame
+            for frame in track.frames
+            if frame.confidence >= 0.5 and self._height(frame) not in (None, 0.0)
+        ]
+        segments = _continuous_segments(usable_frames)
+        velocities: list[tuple[int, int, float, float]] = []
         heads: list[float] = []
         wrists: list[float] = []
         gestures = 0
-        active = False
         usable_ms = 0
-        for prev, curr in zip(usable_frames, usable_frames[1:]):
-            dt = (curr.timestamp_ms - prev.timestamp_ms) / 1000.0
-            if dt <= 0:
-                continue
-            height = self._height(curr)
-            shared = set(prev.joints) & set(curr.joints)
-            if height is None or height <= 1e-6 or not shared:
-                continue
-            delta_ms = curr.timestamp_ms - prev.timestamp_ms
-            usable_ms += delta_ms
-            speed = sum(_distance(prev.joints[n], curr.joints[n]) / dt / height for n in shared) / len(shared)
-            velocities.append((curr.timestamp_ms, speed, dt))
-            if "head" in shared:
-                heads.append(_distance(prev.joints["head"], curr.joints["head"]) / dt / height)
-            if {"left_shoulder", "right_shoulder"} <= set(curr.joints):
-                shoulder_mid = _midpoint(curr.joints["left_shoulder"], curr.joints["right_shoulder"])
-                vals = [_distance(curr.joints[w], shoulder_mid) / height for w in ("left_wrist", "right_wrist") if w in curr.joints]
-                if vals:
-                    amp = sum(vals) / len(vals)
-                    wrists.append(amp)
-                    now = amp > 0.35 and speed > 0.15
-                    if now and not active:
-                        gestures += 1
-                    active = now
+        for segment_id, segment in enumerate(segments):
+            active = False
+            for prev, curr in zip(segment, segment[1:]):
+                dt = (curr.timestamp_ms - prev.timestamp_ms) / 1000.0
+                if dt <= 0:
+                    continue
+                height = self._height(curr)
+                shared = set(prev.joints) & set(curr.joints)
+                if height is None or height <= 1e-6 or not shared:
+                    continue
+                delta_ms = curr.timestamp_ms - prev.timestamp_ms
+                usable_ms += delta_ms
+                speed = sum(_distance(prev.joints[n], curr.joints[n]) / dt / height for n in shared) / len(shared)
+                velocities.append((segment_id, curr.timestamp_ms, speed, dt))
+                if "head" in shared:
+                    heads.append(_distance(prev.joints["head"], curr.joints["head"]) / dt / height)
+                if {"left_shoulder", "right_shoulder"} <= set(curr.joints):
+                    shoulder_mid = _midpoint(curr.joints["left_shoulder"], curr.joints["right_shoulder"])
+                    vals = [_distance(curr.joints[w], shoulder_mid) / height for w in ("left_wrist", "right_wrist") if w in curr.joints]
+                    if vals:
+                        amp = sum(vals) / len(vals)
+                        wrists.append(amp)
+                        now = amp > 0.35 and speed > 0.15
+                        if now and not active:
+                            gestures += 1
+                        active = now
 
         out: dict[str, float | int] = {}
-        speed_values = [item[1] for item in velocities]
+        speed_values = [item[2] for item in velocities]
         if speed_values:
             out["energy"] = _clamp01(sum(speed_values) / len(speed_values))
         if wrists:
@@ -256,130 +295,148 @@ class BodyprintExtractor:
         if heads:
             out["head_motion"] = _clamp01((sum(heads) / len(heads)) / 0.5)
 
-        if usable_frames:
-            out["movement_observed_frames"] = len(usable_frames)
+        observed_frames = sum(len(segment) for segment in segments)
+        if observed_frames:
+            out["movement_observed_frames"] = observed_frames
         if usable_ms > 0:
             out["movement_observed_seconds"] = round(usable_ms / 1000.0, 3)
 
-        posture_rows: list[dict[str, float]] = []
-        gait_rows: list[dict[str, float]] = []
-        for frame in usable_frames:
-            height = self._height(frame)
-            if height is None or height <= 1e-6:
-                continue
-            joints = frame.joints
-            if self.POSTURE_JOINTS <= set(joints):
-                left_shoulder = joints["left_shoulder"]
-                right_shoulder = joints["right_shoulder"]
-                left_hip = joints["left_hip"]
-                right_hip = joints["right_hip"]
-                shoulder_mid = _midpoint(left_shoulder, right_shoulder)
-                hip_mid = _midpoint(left_hip, right_hip)
-                torso_horizontal = math.hypot(shoulder_mid[0] - hip_mid[0], shoulder_mid[2] - hip_mid[2])
-                torso_vertical = abs(shoulder_mid[1] - hip_mid[1])
-                shoulder_horizontal = math.hypot(right_shoulder[0] - left_shoulder[0], right_shoulder[2] - left_shoulder[2])
-                hip_horizontal = math.hypot(right_hip[0] - left_hip[0], right_hip[2] - left_hip[2])
-                head_horizontal = math.hypot(joints["head"][0] - shoulder_mid[0], joints["head"][2] - shoulder_mid[2])
-                posture_rows.append({
-                    "timestamp_ms": float(frame.timestamp_ms),
-                    "torso_lean": math.degrees(math.atan2(torso_horizontal, max(torso_vertical, 1e-6))),
-                    "shoulder_tilt": math.degrees(math.atan2(abs(right_shoulder[1] - left_shoulder[1]), max(shoulder_horizontal, 1e-6))),
-                    "hip_tilt": math.degrees(math.atan2(abs(right_hip[1] - left_hip[1]), max(hip_horizontal, 1e-6))),
-                    "head_offset": min(1.0, head_horizontal / height),
-                    "torso_offset": min(1.0, torso_horizontal / height),
-                })
-
-            if self.GAIT_JOINTS <= set(joints):
-                left_shoulder = joints["left_shoulder"]
-                right_shoulder = joints["right_shoulder"]
-                lateral_x = right_shoulder[0] - left_shoulder[0]
-                lateral_z = right_shoulder[2] - left_shoulder[2]
-                lateral_norm = math.hypot(lateral_x, lateral_z)
-                if lateral_norm <= 1e-6:
+        posture_rows: list[dict[str, float | int]] = []
+        gait_rows: list[dict[str, float | int]] = []
+        for segment_id, segment in enumerate(segments):
+            for frame in segment:
+                height = self._height(frame)
+                if height is None or height <= 1e-6:
                     continue
-                lateral = (lateral_x / lateral_norm, lateral_z / lateral_norm)
-                forward = (-lateral[1], lateral[0])
-                left_ankle = joints["left_ankle"]
-                right_ankle = joints["right_ankle"]
-                ankle_delta = (left_ankle[0] - right_ankle[0], left_ankle[2] - right_ankle[2])
-                left_wrist_delta = (joints["left_wrist"][0] - left_shoulder[0], joints["left_wrist"][2] - left_shoulder[2])
-                right_wrist_delta = (joints["right_wrist"][0] - right_shoulder[0], joints["right_wrist"][2] - right_shoulder[2])
-                hip_mid = _midpoint(joints["left_hip"], joints["right_hip"])
-                gait_rows.append({
-                    "timestamp_ms": float(frame.timestamp_ms),
-                    "forward_gap": (ankle_delta[0] * forward[0] + ankle_delta[1] * forward[1]) / height,
-                    "stance_width": abs(ankle_delta[0] * lateral[0] + ankle_delta[1] * lateral[1]) / height,
-                    "hip_y": hip_mid[1] / height,
-                    "left_arm": (left_wrist_delta[0] * forward[0] + left_wrist_delta[1] * forward[1]) / height,
-                    "right_arm": (right_wrist_delta[0] * forward[0] + right_wrist_delta[1] * forward[1]) / height,
-                    "orientation": math.atan2(lateral[1], lateral[0]),
-                })
+                joints = frame.joints
+                if self.POSTURE_JOINTS <= set(joints):
+                    left_shoulder = joints["left_shoulder"]
+                    right_shoulder = joints["right_shoulder"]
+                    left_hip = joints["left_hip"]
+                    right_hip = joints["right_hip"]
+                    shoulder_mid = _midpoint(left_shoulder, right_shoulder)
+                    hip_mid = _midpoint(left_hip, right_hip)
+                    torso_horizontal = math.hypot(shoulder_mid[0] - hip_mid[0], shoulder_mid[2] - hip_mid[2])
+                    torso_vertical = abs(shoulder_mid[1] - hip_mid[1])
+                    shoulder_horizontal = math.hypot(right_shoulder[0] - left_shoulder[0], right_shoulder[2] - left_shoulder[2])
+                    hip_horizontal = math.hypot(right_hip[0] - left_hip[0], right_hip[2] - left_hip[2])
+                    head_horizontal = math.hypot(joints["head"][0] - shoulder_mid[0], joints["head"][2] - shoulder_mid[2])
+                    posture_rows.append({
+                        "segment": segment_id,
+                        "timestamp_ms": float(frame.timestamp_ms),
+                        "torso_lean": math.degrees(math.atan2(torso_horizontal, max(torso_vertical, 1e-6))),
+                        "shoulder_tilt": math.degrees(math.atan2(abs(right_shoulder[1] - left_shoulder[1]), max(shoulder_horizontal, 1e-6))),
+                        "hip_tilt": math.degrees(math.atan2(abs(right_hip[1] - left_hip[1]), max(hip_horizontal, 1e-6))),
+                        "head_offset": min(1.0, head_horizontal / height),
+                        "torso_offset": min(1.0, torso_horizontal / height),
+                    })
+
+                if self.GAIT_JOINTS <= set(joints):
+                    left_shoulder = joints["left_shoulder"]
+                    right_shoulder = joints["right_shoulder"]
+                    lateral_x = right_shoulder[0] - left_shoulder[0]
+                    lateral_z = right_shoulder[2] - left_shoulder[2]
+                    lateral_norm = math.hypot(lateral_x, lateral_z)
+                    if lateral_norm <= 1e-6:
+                        continue
+                    lateral = (lateral_x / lateral_norm, lateral_z / lateral_norm)
+                    forward = (-lateral[1], lateral[0])
+                    left_ankle = joints["left_ankle"]
+                    right_ankle = joints["right_ankle"]
+                    ankle_delta = (left_ankle[0] - right_ankle[0], left_ankle[2] - right_ankle[2])
+                    left_wrist_delta = (joints["left_wrist"][0] - left_shoulder[0], joints["left_wrist"][2] - left_shoulder[2])
+                    right_wrist_delta = (joints["right_wrist"][0] - right_shoulder[0], joints["right_wrist"][2] - right_shoulder[2])
+                    hip_mid = _midpoint(joints["left_hip"], joints["right_hip"])
+                    gait_rows.append({
+                        "segment": segment_id,
+                        "timestamp_ms": float(frame.timestamp_ms),
+                        "forward_gap": (ankle_delta[0] * forward[0] + ankle_delta[1] * forward[1]) / height,
+                        "stance_width": abs(ankle_delta[0] * lateral[0] + ankle_delta[1] * lateral[1]) / height,
+                        "hip_y": hip_mid[1] / height,
+                        "left_arm": (left_wrist_delta[0] * forward[0] + left_wrist_delta[1] * forward[1]) / height,
+                        "right_arm": (right_wrist_delta[0] * forward[0] + right_wrist_delta[1] * forward[1]) / height,
+                        "orientation": math.atan2(lateral[1], lateral[0]),
+                    })
 
         if len(posture_rows) >= 3:
-            out["posture_torso_lean_degrees"] = round(_median([row["torso_lean"] for row in posture_rows]), 4)
-            out["posture_shoulder_tilt_degrees"] = round(_median([row["shoulder_tilt"] for row in posture_rows]), 4)
-            out["posture_hip_tilt_degrees"] = round(_median([row["hip_tilt"] for row in posture_rows]), 4)
-            out["posture_head_offset_to_height"] = round(_median([row["head_offset"] for row in posture_rows]), 4)
+            out["posture_torso_lean_degrees"] = round(_median([float(row["torso_lean"]) for row in posture_rows]), 4)
+            out["posture_shoulder_tilt_degrees"] = round(_median([float(row["shoulder_tilt"]) for row in posture_rows]), 4)
+            out["posture_hip_tilt_degrees"] = round(_median([float(row["hip_tilt"]) for row in posture_rows]), 4)
+            out["posture_head_offset_to_height"] = round(_median([float(row["head_offset"]) for row in posture_rows]), 4)
 
         if len(gait_rows) >= 2:
             turn_speeds: list[float] = []
-            for prev, curr in zip(gait_rows, gait_rows[1:]):
-                dt = (curr["timestamp_ms"] - prev["timestamp_ms"]) / 1000.0
-                if dt > 0:
-                    turn_speeds.append(abs(math.degrees(_axis_delta(prev["orientation"], curr["orientation"]))) / dt)
+            gait_intervals: list[float] = []
+            total_events = 0
+            for segment_id in range(len(segments)):
+                rows = [row for row in gait_rows if row["segment"] == segment_id]
+                for prev, curr in zip(rows, rows[1:]):
+                    dt = (float(curr["timestamp_ms"]) - float(prev["timestamp_ms"])) / 1000.0
+                    if dt > 0:
+                        turn_speeds.append(abs(math.degrees(_axis_delta(float(prev["orientation"]), float(curr["orientation"])))) / dt)
+
+                states: list[tuple[int, int]] = []
+                for row in rows:
+                    signal = float(row["forward_gap"])
+                    state = 1 if signal >= 0.025 else (-1 if signal <= -0.025 else 0)
+                    if state:
+                        states.append((int(float(row["timestamp_ms"])), state))
+                events: list[int] = []
+                last_state = 0
+                last_event = -10_000
+                for timestamp, state in states:
+                    if last_state and state != last_state and timestamp - last_event >= 200:
+                        events.append(timestamp)
+                        last_event = timestamp
+                    last_state = state
+                total_events += len(events)
+                gait_intervals.extend((b - a) / 1000.0 for a, b in zip(events, events[1:]) if b > a)
+
             if turn_speeds:
                 turn_dps = min(720.0, _percentile(turn_speeds, 0.5))
                 out["turn_speed_degrees_per_second"] = round(turn_dps, 4)
                 out["turn_speed"] = round(_clamp01(turn_dps / 180.0), 4)
 
-            states: list[tuple[int, int]] = []
-            for row in gait_rows:
-                signal = row["forward_gap"]
-                state = 1 if signal >= 0.025 else (-1 if signal <= -0.025 else 0)
-                if state:
-                    states.append((int(row["timestamp_ms"]), state))
-            events: list[int] = []
-            last_state = 0
-            last_event = -10_000
-            for timestamp, state in states:
-                if last_state and state != last_state and timestamp - last_event >= 200:
-                    events.append(timestamp)
-                    last_event = timestamp
-                last_state = state
-            out["gait_step_events"] = len(events)
-            if len(events) >= 2:
-                intervals = [(b - a) / 1000.0 for a, b in zip(events, events[1:]) if b > a]
-                if intervals:
-                    cadence = 60.0 / _median(intervals)
-                    if 30.0 <= cadence <= 240.0:
-                        out["walk_cadence_spm"] = round(cadence, 3)
-                        out["stride_length_to_height"] = round(min(2.0, _percentile([abs(row["forward_gap"]) for row in gait_rows], 0.9)), 4)
-                        out["stance_width_to_height"] = round(min(1.0, _median([row["stance_width"] for row in gait_rows])), 4)
-                        hip_y = [row["hip_y"] for row in gait_rows]
-                        out["vertical_bounce_to_height"] = round(min(1.0, max(0.0, _percentile(hip_y, 0.9) - _percentile(hip_y, 0.1))), 4)
-                        left_arm = [row["left_arm"] for row in gait_rows]
-                        right_arm = [row["right_arm"] for row in gait_rows]
-                        left_amp = max(0.0, _percentile(left_arm, 0.9) - _percentile(left_arm, 0.1))
-                        right_amp = max(0.0, _percentile(right_arm, 0.9) - _percentile(right_arm, 0.1))
-                        out["arm_swing_to_height"] = round(min(2.0, (left_amp + right_amp) / 2.0), 4)
-                        denominator = max(left_amp, right_amp, 1e-6)
-                        out["arm_swing_asymmetry"] = round(_clamp01(abs(left_amp - right_amp) / denominator), 4)
-        else:
+            out["gait_step_events"] = total_events
+            if total_events >= 2 and gait_intervals:
+                cadence = 60.0 / _median(gait_intervals)
+                if 30.0 <= cadence <= 240.0:
+                    out["walk_cadence_spm"] = round(cadence, 3)
+                    out["stride_length_to_height"] = round(min(2.0, _percentile([abs(float(row["forward_gap"])) for row in gait_rows], 0.9)), 4)
+                    out["stance_width_to_height"] = round(min(1.0, _median([float(row["stance_width"]) for row in gait_rows])), 4)
+                    hip_y = [float(row["hip_y"]) for row in gait_rows]
+                    out["vertical_bounce_to_height"] = round(min(1.0, max(0.0, _percentile(hip_y, 0.9) - _percentile(hip_y, 0.1))), 4)
+                    left_arm = [float(row["left_arm"]) for row in gait_rows]
+                    right_arm = [float(row["right_arm"]) for row in gait_rows]
+                    left_amp = max(0.0, _percentile(left_arm, 0.9) - _percentile(left_arm, 0.1))
+                    right_amp = max(0.0, _percentile(right_arm, 0.9) - _percentile(right_arm, 0.1))
+                    out["arm_swing_to_height"] = round(min(2.0, (left_amp + right_amp) / 2.0), 4)
+                    denominator = max(left_amp, right_amp, 1e-6)
+                    out["arm_swing_asymmetry"] = round(_clamp01(abs(left_amp - right_amp) / denominator), 4)
+        elif segments:
             out["gait_step_events"] = 0
 
-        if len(speed_values) >= 2:
-            transitions = [abs(curr - prev) for prev, curr in zip(speed_values, speed_values[1:])]
-            out["transition_intensity"] = round(_clamp01(_median(transitions) / 0.5), 4)
+        transition_values: list[float] = []
+        for segment_id in range(len(segments)):
+            segment_speeds = [item[2] for item in velocities if item[0] == segment_id]
+            transition_values.extend(abs(curr - prev) for prev, curr in zip(segment_speeds, segment_speeds[1:]))
+        if transition_values:
+            out["transition_intensity"] = round(_clamp01(_median(transition_values) / 0.5), 4)
 
-        speed_by_timestamp = {timestamp: (speed, dt) for timestamp, speed, dt in velocities}
+        speed_by_key = {(segment_id, timestamp): (speed, dt) for segment_id, timestamp, speed, dt in velocities}
         idle_rows = [
-            row for row in posture_rows
-            if int(row["timestamp_ms"]) in speed_by_timestamp and speed_by_timestamp[int(row["timestamp_ms"])][0] <= 0.12
+            row
+            for row in posture_rows
+            if (int(row["segment"]), int(float(row["timestamp_ms"]))) in speed_by_key
+            and speed_by_key[(int(row["segment"]), int(float(row["timestamp_ms"])) )][0] <= 0.12
         ]
-        idle_seconds = sum(speed_by_timestamp[int(row["timestamp_ms"])][1] for row in idle_rows)
+        idle_seconds = sum(
+            speed_by_key[(int(row["segment"]), int(float(row["timestamp_ms"])) )][1]
+            for row in idle_rows
+        )
         out["idle_observed_seconds"] = round(idle_seconds, 3)
         if idle_seconds >= 0.5 and len(idle_rows) >= 2:
-            offsets = [row["torso_offset"] for row in idle_rows]
+            offsets = [float(row["torso_offset"]) for row in idle_rows]
             out["idle_sway_to_height"] = round(min(1.0, max(0.0, _percentile(offsets, 0.9) - _percentile(offsets, 0.1))), 4)
         return out
 
