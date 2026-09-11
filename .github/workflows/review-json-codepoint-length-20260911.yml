@@ -1,0 +1,35 @@
+name: review-json-codepoint-length-20260911
+
+on:
+  push:
+    branches:
+      - fix/motor-json-codepoint-length-review-stage-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Apply JSON code-point length refinement
+        run: python tools/_tmp_refine_json_codepoint_length.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e '.[test]'
+      - name: Run focused renderer JSON and ownership regressions
+        run: |
+          python -m pytest -q tests/test_reference_renderer_json_utility_guard.py tests/test_reference_renderer_locomotion_release_ownership.py tests/test_reference_renderer_expression_release_contract.py tests/test_reference_renderer_speech_release_contract.py tests/test_reference_renderer_motor_v3_contract.py
+          git diff --check
+      - name: Commit validated product refinement
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_utility_guard.py
+          git diff --cached --check
+          git commit -m 'Count Motor State lengths by JSON code point'
+          git push origin HEAD:fix/motor-json-codepoint-length-review-stage-20260911
