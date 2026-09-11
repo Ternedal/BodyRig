@@ -163,7 +163,9 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     source = SHIM.read_text(encoding="utf-8")
     helper = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static void RequireNumericMember")]
     assert "var value = RequireStringMember(members, field, context);" in helper
-    assert "value.Length < minimumLength || value.Length > maximumLength" in helper
+    assert 'CountUnicodeScalars(value, context + "." + field)' in helper
+    assert "scalarLength < minimumLength || scalarLength > maximumLength" in helper
+    assert "value.Length < minimumLength" not in helper
     assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in helper
     assert 'private const string BodyIdPattern = @"\\A[a-z0-9æøå_-]+\\z";' in source
     assert 'private const string LowerIdentifierPattern = @"\\A[a-z0-9_-]+\\z";' in source
@@ -177,6 +179,22 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     assert 'fields, "id", "posture", 1, 80, LowerIdentifierPattern' in posture
     assert "TryParseStringToken(raw, out var value)" in source
     assert "ReadJsonString(raw, ref index" in source
+
+
+def test_schema_string_length_counts_unicode_scalars_and_rejects_unpaired_surrogates() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[source.index("private static int CountUnicodeScalars") : source.index("private static void RequireNumericMember")]
+    assert "for (var index = 0; index < value.Length; index++)" in helper
+    assert "char.IsHighSurrogate(current)" in helper
+    assert "char.IsLowSurrogate(value[index + 1])" in helper
+    assert "index++;" in helper
+    assert "count++;" in helper
+    assert "unpaired high surrogate" in helper
+    assert "char.IsLowSurrogate(current)" in helper
+    assert "unpaired low surrogate" in helper
+    constrained = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static int CountUnicodeScalars")]
+    assert "var scalarLength = CountUnicodeScalars(value" in constrained
+    assert "Unicode scalars" in constrained
 
 
 def test_schema_string_limits_match_guard_constants_and_calls() -> None:
