@@ -1,0 +1,46 @@
+name: validate-motor-json-speech-state-after-unicode
+
+on:
+  push:
+    branches:
+      - staging/motor-json-speech-state-after-unicode-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: contains(github.event.head_commit.message, '[run-speech-state-after-unicode]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Apply speech state enum guard
+        run: python .github/scripts/apply_motor_json_speech_state_enum.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Run full Python regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Commit validated product blobs
+        shell: bash
+        run: |
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_speech_state_guard.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_speech_state_guard.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Enforce Motor State speech state enum"
+          git push origin HEAD:staging/motor-json-speech-state-after-unicode-20260911
