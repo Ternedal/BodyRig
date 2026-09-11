@@ -13,6 +13,7 @@ from bodyrig.photoidentity_target_crop_detail import OPENPOSE_ADAPTER, OPENPOSE_
 from bodyrig.photoidentity_target_crop_enrich import FORMAT as ENRICHMENT_FORMAT
 from bodyrig.photoidentity_target_crop_enrich import PRIVATE_FORMAT as PRIVATE_ENRICHMENT_FORMAT
 from bodyrig.photoidentity_target_crop_quality_attestation import (
+    HUMAN_QUALITY_BASIS,
     PhotoIdentityTargetCropQualityAttestationError,
     record_target_crop_quality_attestation,
 )
@@ -127,6 +128,68 @@ def test_quality_attestation_binds_human_isolation_crop_and_stays_pre_sufficienc
     assert receipt["selected_claims"][0]["target_crop_sha256"] == _sha(crop)
     assert receipt["selected_claims"][0]["quality"] == pytest.approx(0.91)
     assert str(crop.resolve()) not in Path(result["receipt"]).read_text(encoding="utf-8")
+
+
+def test_human_only_hair_attestation_uses_explicit_review_not_machine_authority(tmp_path: Path) -> None:
+    candidate_root, enrichment_root, sample_id, crop = _fixture(tmp_path)
+    result = record_target_crop_quality_attestation(
+        candidate_root=candidate_root,
+        enrichment_root=enrichment_root,
+        selected_refs=[f"{sample_id}:eyebrows_detail:0.92"],
+        current_revision="a" * 40,
+        quality_note=(
+            "The exact isolated source crop clearly exposes the subject's eyebrow state; "
+            "this is an explicit human source review, including a valid no-hair state if observed."
+        ),
+        confirm_quality=True,
+    )
+    receipt = json.loads(Path(result["receipt"]).read_text(encoding="utf-8"))
+    claim = receipt["selected_claims"][0]
+    assert receipt["selected_domains"] == ["eyebrows_detail"]
+    assert claim["target_crop_sha256"] == _sha(crop)
+    assert claim["quality"] == pytest.approx(0.92)
+    assert claim["quality_basis"] == HUMAN_QUALITY_BASIS
+    assert claim["human_visibility_attested"] is True
+    assert claim["machine_observability_used"] is False
+    assert "machine_adapter" not in claim
+    assert "machine_revision" not in claim
+
+
+def test_human_only_hair_requires_explicit_quality_and_canonical_threshold(tmp_path: Path) -> None:
+    candidate_root, enrichment_root, sample_id, _ = _fixture(tmp_path / "missing")
+    with pytest.raises(PhotoIdentityTargetCropQualityAttestationError, match="requires explicit reviewed quality"):
+        record_target_crop_quality_attestation(
+            candidate_root=candidate_root,
+            enrichment_root=enrichment_root,
+            selected_refs=[f"{sample_id}:facial_hair_detail"],
+            current_revision="a" * 40,
+            quality_note="The reviewer must provide an explicit source quality for human-only hair evidence.",
+            confirm_quality=True,
+        )
+
+    candidate_root, enrichment_root, sample_id, _ = _fixture(tmp_path / "low")
+    with pytest.raises(PhotoIdentityTargetCropQualityAttestationError, match="below canonical quality threshold"):
+        record_target_crop_quality_attestation(
+            candidate_root=candidate_root,
+            enrichment_root=enrichment_root,
+            selected_refs=[f"{sample_id}:body_hair_detail:0.79"],
+            current_revision="a" * 40,
+            quality_note="The crop is source-derived but does not expose enough body-hair detail for identity authority.",
+            confirm_quality=True,
+        )
+
+
+def test_machine_assisted_domain_rejects_human_override_score(tmp_path: Path) -> None:
+    candidate_root, enrichment_root, sample_id, _ = _fixture(tmp_path)
+    with pytest.raises(PhotoIdentityTargetCropQualityAttestationError, match="must not supply a human override score"):
+        record_target_crop_quality_attestation(
+            candidate_root=candidate_root,
+            enrichment_root=enrichment_root,
+            selected_refs=[f"{sample_id}:eyes_detail:0.95"],
+            current_revision="a" * 40,
+            quality_note="Machine-assisted eye observability must retain exact machine provenance without score override.",
+            confirm_quality=True,
+        )
 
 
 def test_quality_attestation_requires_explicit_human_confirmation(tmp_path: Path) -> None:
