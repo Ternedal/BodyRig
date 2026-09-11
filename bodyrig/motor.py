@@ -276,6 +276,7 @@ def _performed_natural_posture(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) 
     intensity = 1.0 if cue.intensity is None else float(cue.intensity)
     return {
         "id": "natural",
+        "source": "modelrig-bodyprint-v1",
         "intensity": round(intensity, 4),
         "torso_forward_lean_degrees": round(float(motion["posture_torso_forward_lean_degrees"]) * intensity, 4),
         "torso_right_lean_degrees": round(float(motion["posture_torso_right_lean_degrees"]) * intensity, 4),
