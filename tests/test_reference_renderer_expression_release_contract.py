@@ -22,15 +22,16 @@ def test_new_cue_without_emotion_produces_current_state_without_expression() -> 
     assert motor["gaze"]["target"] == "user"
 
 
-def test_missing_expression_releases_only_last_bodyrig_owned_affect() -> None:
+def test_missing_expression_releases_only_if_last_bodyrig_weight_is_still_present() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     release = source[
         source.index("private void ReleaseOwnedExpression") : source.index("private bool ApplyExpression")
     ]
 
     assert "_lastOwnedExpressionEmotion" in release
+    assert "_lastOwnedExpressionWeight" in release
     assert "_state.expression != null" in release
-    assert "return;" in release
+    assert "SameExpressionWeight" in release
     for emotion, key in (
         ("neutral", "Neutral"),
         ("happy", "Happy"),
@@ -39,10 +40,13 @@ def test_missing_expression_releases_only_last_bodyrig_owned_affect() -> None:
         ("relaxed", "Relaxed"),
         ("surprised", "Surprised"),
     ):
-        assert f'case "{emotion}": expression.SetWeight(ExpressionKey.{key}, 0.0f); break;' in release
+        assert f'case "{emotion}":' in release
+        assert f"expression.GetWeight(ExpressionKey.{key})" in release
+        assert f"expression.SetWeight(ExpressionKey.{key}, 0.0f);" in release
     for viseme in ("Aa", "Ih", "Ou", "Ee", "Oh"):
         assert f"ExpressionKey.{viseme}" not in release
     assert "_lastOwnedExpressionEmotion = null;" in release
+    assert "_lastOwnedExpressionWeight = 0.0f;" in release
 
 
 def test_expression_realization_tracks_bodyrig_owned_affect_for_later_release() -> None:
@@ -51,12 +55,13 @@ def test_expression_realization_tracks_bodyrig_owned_affect_for_later_release() 
         source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")
     ]
     apply_expression = source[
-        source.index("private bool ApplyExpression") : source.index("private bool ApplySpeech")
+        source.index("private bool ApplyExpression") : source.index("private void ReleaseOwnedSpeechViseme")
     ]
 
     assert "ReleaseOwnedExpression();" in late_update
     assert late_update.index("ReleaseOwnedExpression();") < late_update.index("ExpressionRealized = ApplyExpression();")
     assert "_lastOwnedExpressionEmotion = _state.expression.emotion;" in apply_expression
+    assert "_lastOwnedExpressionWeight = weight;" in apply_expression
 
 
 def test_expression_ownership_is_cleared_at_avatar_and_neutral_session_boundaries() -> None:
@@ -67,4 +72,6 @@ def test_expression_ownership_is_cleared_at_avatar_and_neutral_session_boundarie
     neutral = source[source.index("public void RestoreNeutralPose()") :]
 
     assert "_lastOwnedExpressionEmotion = null;" in bind
+    assert "_lastOwnedExpressionWeight = 0.0f;" in bind
     assert "_lastOwnedExpressionEmotion = null;" in neutral
+    assert "_lastOwnedExpressionWeight = 0.0f;" in neutral
