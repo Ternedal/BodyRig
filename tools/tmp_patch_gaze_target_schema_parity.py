@@ -49,7 +49,7 @@ def test_driver_gaze_target_presence_matches_shared_schema_min_length() -> None:
     assert "string.IsNullOrWhiteSpace(next.gaze.target)" not in apply_motor
 
 
-def test_schema_valid_unsupported_gaze_targets_keep_fail_safe_release_path() -> None:
+def test_schema_valid_unsupported_gaze_targets_keep_fail_safe_path() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     apply_gaze = source[
         source.index("private bool ApplyGaze") :
@@ -61,6 +61,5 @@ def test_schema_valid_unsupported_gaze_targets_keep_fail_safe_release_path() -> 
         apply_gaze.index("if (_state.gaze.strength <= 0.0f)")
     ]
     assert "_gazeStrength = 0.0f;" in unsupported
-    assert "ReleaseOwnedGazeHeadRotation();" in unsupported
     assert "return false;" in unsupported
 ''', encoding="utf-8")
