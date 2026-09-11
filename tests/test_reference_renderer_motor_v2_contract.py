@@ -1,10 +1,27 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
 DRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDriver.cs"
+MOTOR_V2 = REPO / "contracts" / "bodyrig-motor-state-v2.schema.json"
+
+
+def _observed_schema_fields() -> set[str]:
+    contract = json.loads(MOTOR_V2.read_text(encoding="utf-8"))
+    return set(
+        contract["properties"]["embodiment"]["properties"]["observed"]["properties"]
+    )
+
+
+def _observed_driver_fields(source: str) -> set[str]:
+    start = source.index("private sealed class ObservedEmbodimentState")
+    end = source.index("private sealed class EmbodimentState", start)
+    block = source[start:end]
+    return set(re.findall(r"public float ([A-Za-z0-9_]+);", block))
 
 
 def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_state() -> None:
@@ -22,39 +39,58 @@ def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_
     assert "_state.gaze.strength" in source
     assert "_state.speech.amplitude" in source
 
-    # Observed v2 evidence is provenance/capability data, not another multiplier.
+    # Observed v2 evidence is provenance/capability data, not another multiplier
+    # and, critically, must never create an unsolicited movement action.
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     assert "_state.embodiment" not in late_update
-    assert "gesture_frequency" not in late_update
-    assert "gesture_amplitude" not in late_update
-    assert "gaze_smoothing" not in late_update
-    assert "walk_cadence_spm" not in late_update
+    assert ".embodiment.observed" not in late_update
+    for field in (
+        "walk_cadence_spm",
+        "posture_torso_lean_degrees",
+        "posture_shoulder_tilt_degrees",
+        "posture_hip_tilt_degrees",
+        "posture_head_offset_to_height",
+        "stride_length_to_height",
+        "stance_width_to_height",
+        "vertical_bounce_to_height",
+        "arm_swing_to_height",
+        "arm_swing_asymmetry",
+        "turn_speed_degrees_per_second",
+        "transition_intensity",
+        "idle_sway_to_height",
+    ):
+        assert field not in late_update
 
 
-def test_reference_renderer_validates_v2_observed_ranges_but_does_not_invent_actions() -> None:
+def test_reference_renderer_deserializes_every_v2_observed_embodiment_field() -> None:
     source = DRIVER.read_text(encoding="utf-8")
 
-    for field in (
-        "energy",
-        "gesture_frequency",
-        "gesture_amplitude",
-        "head_motion",
-        "turn_speed",
-        "gaze_strength",
-        "head_tilt",
-        "speech_motion",
-        "idle_strength",
-        "gaze_smoothing",
-        "gesture_intensity",
-        "breathing_strength",
-    ):
-        assert f'embodiment.observed.{field}' in source
+    # JsonUtility silently ignores unknown JSON members. Keep the C# DTO in
+    # exact parity with the canonical schema so newly recovered movement
+    # identity evidence cannot disappear at the renderer boundary.
+    assert _observed_driver_fields(source) == _observed_schema_fields()
 
-    assert 'embodiment.observed.walk_cadence_spm' in source
-    assert '300.0f' in source
-    assert 'embodiment.observed.blink_rate_per_min' in source
-    assert '120.0f' in source
+
+def test_reference_renderer_validates_every_v2_observed_range_but_does_not_invent_actions() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    start = source.index("private static void ValidateObservedEmbodiment")
+    end = source.index("private static void Validate01", start)
+    validation = source[start:end]
+
+    for field in sorted(_observed_schema_fields()):
+        assert f"observed.{field}" in validation
+        assert f'embodiment.observed.{field}' in validation
+
+    # Non-0..1 movement ranges stay explicit rather than being accidentally
+    # clamped into generic style values.
+    assert 'ValidateRange(observed.walk_cadence_spm, 0.0f, 300.0f' in validation
+    assert 'ValidateRange(observed.posture_torso_lean_degrees, 0.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_shoulder_tilt_degrees, 0.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_hip_tilt_degrees, 0.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.stride_length_to_height, 0.0f, 2.0f' in validation
+    assert 'ValidateRange(observed.arm_swing_to_height, 0.0f, 2.0f' in validation
+    assert 'ValidateRange(observed.turn_speed_degrees_per_second, 0.0f, 720.0f' in validation
+    assert 'ValidateRange(observed.blink_rate_per_min, 0.0f, 120.0f' in validation
 
     # Gesture semantics still come only from the performed Motor State gesture id.
     assert '_state.gesture.id == "small_shrug"' in source
-    assert 'observed.gesture_frequency' not in source[source.index("private void LateUpdate()") :]
