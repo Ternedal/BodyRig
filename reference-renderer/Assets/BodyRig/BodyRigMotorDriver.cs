@@ -326,6 +326,15 @@ namespace BodyRig.ReferenceRenderer
             if (next.locomotion != null)
             {
                 if (next.version != 3) throw new ArgumentException("Locomotion requires Motor State v3", nameof(json));
+                if ((next.locomotion.action == "turn_left" || next.locomotion.action == "turn_right") &&
+                    next.locomotion.turn_speed_degrees_per_second == 0.0f)
+                {
+                    // The raw validator already proved the original JSON value is
+                    // strictly > 0. A zero here can therefore only be float transport
+                    // underflow; preserve schema acceptance with the smallest positive
+                    // runtime representation before the ordinary runtime range check.
+                    next.locomotion.turn_speed_degrees_per_second = float.Epsilon;
+                }
                 ValidateLocomotion(next.locomotion);
             }
             if (next.speech != null)

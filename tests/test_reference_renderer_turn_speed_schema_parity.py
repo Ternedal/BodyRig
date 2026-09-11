@@ -49,3 +49,37 @@ def test_raw_json_guard_keeps_original_token_exclusive_minimum_authority() -> No
         source.index("private static Dictionary<string, string> ParseObjectMembers")
     ]
     assert 'fields, "turn_speed_degrees_per_second", "locomotion", 0L, 720L, true' in locomotion
+
+
+def test_schema_valid_positive_turn_speed_transport_underflow_is_normalized_after_raw_validation() -> None:
+    turn_speed = _turn_speed_schema()
+    assert turn_speed["exclusiveMinimum"] == 0.0
+    assert turn_speed["maximum"] == 720.0
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    apply = driver[
+        driver.index("public void ApplyMotorJson") :
+        driver.index("private static void ValidatePosture")
+    ]
+    raw_validation = "var validatedVersion = JsonUtility.ValidateMotorStateJson(json);"
+    deserialize = "var next = JsonUtility.FromJson<MotorState>(json);"
+    underflow_guard = 'next.locomotion.turn_speed_degrees_per_second == 0.0f'
+    normalize = "next.locomotion.turn_speed_degrees_per_second = float.Epsilon;"
+    runtime_validation = "ValidateLocomotion(next.locomotion);"
+
+    assert raw_validation in apply
+    assert deserialize in apply
+    assert '(next.locomotion.action == "turn_left" || next.locomotion.action == "turn_right")' in apply
+    assert underflow_guard in apply
+    assert normalize in apply
+    assert apply.index(raw_validation) < apply.index(deserialize)
+    assert apply.index(deserialize) < apply.index(underflow_guard) < apply.index(normalize)
+    assert apply.index(normalize) < apply.index(runtime_validation)
+    assert "0.0001f" not in apply[apply.index("if (next.locomotion != null)") : apply.index(runtime_validation) + len(runtime_validation)]
+
+    shim = SHIM.read_text(encoding="utf-8")
+    raw = shim[
+        shim.index("private static void ValidateLocomotion") :
+        shim.index("private static Dictionary<string, string> ParseObjectMembers")
+    ]
+    assert 'fields, "turn_speed_degrees_per_second", "locomotion", 0L, 720L, true' in raw
