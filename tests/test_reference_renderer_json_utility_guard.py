@@ -163,7 +163,7 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     source = SHIM.read_text(encoding="utf-8")
     helper = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static void RequireNumericMember")]
     assert "var value = RequireStringMember(members, field, context);" in helper
-    assert 'var scalarLength = UnicodeScalarLength(value, context + "." + field);' in helper
+    assert "var scalarLength = JsonCodePointLength(value);" in helper
     assert "scalarLength < minimumLength || scalarLength > maximumLength" in helper
     assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in helper
     assert 'private const string BodyIdPattern = @"\\A[a-z0-9æøå_-]+\\z";' in source
@@ -256,21 +256,34 @@ def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
     assert "ArgumentOutOfRangeException" in helper
 
 
-def test_canonical_string_length_counts_unicode_scalars_not_utf16_units() -> None:
+def test_canonical_string_length_counts_json_code_points_not_utf16_units() -> None:
     source = SHIM.read_text(encoding="utf-8")
     helper = source[
         source.index("private static string RequireConstrainedStringMember") :
         source.index("private static void RequireNumericMember")
     ]
-    assert 'var scalarLength = UnicodeScalarLength(value, context + "." + field);' in helper
+    assert "var scalarLength = JsonCodePointLength(value);" in helper
     assert "value.Length < minimumLength" not in helper
-    assert "char.IsHighSurrogate(current)" in helper
+    assert "char.IsHighSurrogate(value[index])" in helper
     assert "char.IsLowSurrogate(value[index + 1])" in helper
-    assert "else if (char.IsLowSurrogate(current))" in helper
     assert "index++;" in helper
     assert "count++;" in helper
-    assert "contains an unpaired surrogate" in helper
+    assert "unpaired surrogate" not in helper
     gaze = _contract(MOTOR_V3)["properties"]["gaze"]["properties"]["target"]
     assert gaze["minLength"] == 1
     assert gaze["maxLength"] == 127
     assert "pattern" not in gaze
+
+
+def test_json_code_point_length_combines_pairs_but_counts_lone_surrogates() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[
+        source.index("private static int JsonCodePointLength") :
+        source.index("private static void RequireNumericMember")
+    ]
+    assert "index + 1 < value.Length" in helper
+    assert "char.IsHighSurrogate(value[index])" in helper
+    assert "char.IsLowSurrogate(value[index + 1])" in helper
+    assert "index++;" in helper
+    assert "count++;" in helper
+    assert "throw" not in helper

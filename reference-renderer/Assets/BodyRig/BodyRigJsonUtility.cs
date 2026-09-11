@@ -735,7 +735,7 @@ namespace BodyRig.ReferenceRenderer
             string pattern)
         {
             var value = RequireStringMember(members, field, context);
-            var scalarLength = UnicodeScalarLength(value, context + "." + field);
+            var scalarLength = JsonCodePointLength(value);
             if (scalarLength < minimumLength || scalarLength > maximumLength)
             {
                 throw new ArgumentOutOfRangeException(
@@ -749,23 +749,16 @@ namespace BodyRig.ReferenceRenderer
             return value;
         }
 
-        private static int UnicodeScalarLength(string value, string context)
+        private static int JsonCodePointLength(string value)
         {
             var count = 0;
             for (var index = 0; index < value.Length; index++)
             {
-                var current = value[index];
-                if (char.IsHighSurrogate(current))
+                if (char.IsHighSurrogate(value[index]) &&
+                    index + 1 < value.Length &&
+                    char.IsLowSurrogate(value[index + 1]))
                 {
-                    if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
-                    {
-                        throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
-                    }
                     index++;
-                }
-                else if (char.IsLowSurrogate(current))
-                {
-                    throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
                 }
                 count++;
             }
