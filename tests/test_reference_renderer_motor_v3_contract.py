@@ -114,11 +114,9 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert "right_arm_swing_to_height * armDegreesPerHeight" in realization
     assert "Mathf.Clamp(locomotion.left_arm_swing_to_height * 90.0f" not in realization
     assert "Mathf.Clamp(locomotion.right_arm_swing_to_height * 90.0f" not in realization
-    assert "_state.gesture == null" in realization
+    assert "locomotionOwnsArms" in realization
     assert "locomotion.turn_speed_degrees_per_second * dt" in realization
 
-    # A walk cue has no destination/distance. The reference gait is therefore
-    # in-place; only explicit turn actions are allowed to mutate root heading.
     assert ".Translate(" not in realization
     assert ".position +=" not in realization
     assert "transform.Rotate(" in realization
@@ -131,11 +129,13 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     apply_locomotion = source[source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")]
 
     assert "private bool _locomotionPoseOwnedLastFrame;" in source
+    assert "private bool _locomotionArmPoseOwnedLastFrame;" in source
 
     no_locomotion = apply_locomotion[
         apply_locomotion.index("if (locomotion == null)") : apply_locomotion.index("var locomotionBlend")
     ]
     assert "_locomotionPoseOwnedLastFrame = false;" in no_locomotion
+    assert "_locomotionArmPoseOwnedLastFrame = false;" in no_locomotion
     assert "RestoreLocomotionPose();" not in no_locomotion
     assert "BlendLocomotionPoseToBase" not in no_locomotion
 
@@ -145,7 +145,7 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
         )
     ]
     assert "if (_locomotionPoseOwnedLastFrame)" in stop
-    assert "BlendLocomotionPoseToBase(locomotionBlend);" in stop
+    assert "BlendLocomotionPoseToBase(locomotionBlend, _locomotionArmPoseOwnedLastFrame);" in stop
 
     turn = apply_locomotion[
         apply_locomotion.index('if (locomotion.action == "turn_left"') : apply_locomotion.index(
@@ -153,22 +153,30 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
         )
     ]
     assert "_locomotionPoseOwnedLastFrame = false;" in turn
+    assert "_locomotionArmPoseOwnedLastFrame = false;" in turn
     assert "RestoreLocomotionPose();" not in turn
     assert "BlendLocomotionPoseToBase" not in turn
     assert "transform.Rotate(" in turn
 
-    # Ordinary frame processing must never force a locomotion bind-pose restore.
-    # Explicit RestoreNeutralPose remains the only full reset authority.
     assert "RestoreLocomotionPose();" not in apply_locomotion
 
     walk = apply_locomotion[apply_locomotion.index('if (locomotion.action != "walk")') :]
+    assert "var locomotionOwnsArms = _state.gesture == null" in walk
+    assert "if (locomotionOwnsArms)" in walk
     assert "_locomotionPoseOwnedLastFrame = true;" in walk
+    assert "_locomotionArmPoseOwnedLastFrame = locomotionOwnsArms;" in walk
+
+    blend = source[source.index("private void BlendLocomotionPoseToBase") : source.index("private bool ApplyLocomotion")]
+    assert "bool includeArms" in blend
+    assert "if (includeArms)" in blend
 
     bind = source[source.index("private void BindAvatarIfNeeded()") : source.index("private float LocomotionBlend")]
     assert "_locomotionPoseOwnedLastFrame = false;" in bind
+    assert "_locomotionArmPoseOwnedLastFrame = false;" in bind
     neutral = source[source.index("public void RestoreNeutralPose()") :]
     assert "RestoreLocomotionPose();" in neutral
     assert "_locomotionPoseOwnedLastFrame = false;" in neutral
+    assert "_locomotionArmPoseOwnedLastFrame = false;" in neutral
 
 
 def test_reference_renderer_realizes_only_source_marked_performed_natural_posture() -> None:
@@ -193,8 +201,6 @@ def test_reference_renderer_realizes_only_source_marked_performed_natural_postur
     ):
         assert f"posture.{field}" in realization
 
-    # Body-relative directions are mapped through the avatar root orientation,
-    # not through global camera/world X/Z assumptions.
     assert "_boundAnimator.transform.forward" in realization
     assert "_boundAnimator.transform.right" in realization
 
@@ -203,9 +209,6 @@ def test_reference_renderer_preserves_recovered_hip_roll_sign() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     realization = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
 
-    # Recovery defines the signed roll from rightHip.y - leftHip.y. Unity local
-    # Z uses the matching right/up convention, so the performed value must not
-    # be negated or the pelvis would be mirrored.
     assert "Quaternion.Euler(0.0f, 0.0f, posture.hip_roll_degrees)" in realization
     assert "Quaternion.Euler(0.0f, 0.0f, -posture.hip_roll_degrees)" not in realization
 
@@ -215,8 +218,6 @@ def test_reference_renderer_does_not_overwrite_animator_pose_when_posture_is_abs
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     apply_posture = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
 
-    # Bind restoration is conditional on applying/clearing posture ownership;
-    # it is not an unconditional per-frame LateUpdate reset.
     restore_call = late_update.index("RestorePostureOffsetsForFrame();")
     ownership_guard = late_update.index("if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)")
     assert ownership_guard < restore_call
