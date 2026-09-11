@@ -68,6 +68,8 @@ def test_renderer_json_shim_preserves_all_jsonutility_surfaces_used_in_namespace
 def test_shared_raw_guard_field_sets_follow_all_motor_schemas() -> None:
     source = SHIM.read_text(encoding="utf-8")
     contracts = [_contract(path) for path in (MOTOR_V1, MOTOR_V2, MOTOR_V3)]
+    for name, contract in zip(("RootV1Fields", "RootV2Fields", "RootV3Fields"), contracts, strict=True):
+        assert _array_fields(source, name) == set(contract["properties"])
     for name, schema_name in (
         ("MotionFields", "motion"),
         ("ExpressionFields", "expression"),
@@ -91,18 +93,33 @@ def test_raw_guard_uses_decoded_root_scoped_members_not_document_wide_regex_matc
     source = SHIM.read_text(encoding="utf-8")
     validate = source[
         source.index("private static void ValidateMotorStatePresenceAndTypes") :
-        source.index("private static void ValidateRequiredExactObject")
+        source.index("private static string[] RootFieldsForVersion")
     ]
     assert 'var root = ParseObjectMembers(json, "root");' in validate
     assert 'root.TryGetValue("type", out var rawType)' in validate
     assert 'TryParseStringToken(rawType, out var type)' in validate
     assert 'type != "bodyrig-motor-state"' in validate
     assert 'root.TryGetValue("version", out var rawVersion)' in validate
+    assert 'RequireAllowedFields(root, RootFieldsForVersion(version), $"root v{version}");' in validate
     assert 'ValidateRequiredExactObject(root, "motion"' in validate
     assert 'ValidateOptionalExactObject(root, "gaze"' in validate
     assert "MotorTypePattern" not in source
     assert "FlatObjectPattern" not in source
     assert "PropertyPattern" not in source
+
+
+def test_root_field_sets_are_version_specific_and_fail_closed() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    chooser = source[source.index("private static string[] RootFieldsForVersion") : source.index("private static void ValidateRequiredExactObject")]
+    assert "case 1: return RootV1Fields;" in chooser
+    assert "case 2: return RootV2Fields;" in chooser
+    assert "case 3: return RootV3Fields;" in chooser
+    assert "RequireAllowedFields(root, RootFieldsForVersion(version)" in source
+    assert "embodiment" not in _array_fields(source, "RootV1Fields")
+    assert "locomotion" not in _array_fields(source, "RootV1Fields")
+    assert "embodiment" in _array_fields(source, "RootV2Fields")
+    assert "locomotion" not in _array_fields(source, "RootV2Fields")
+    assert "locomotion" in _array_fields(source, "RootV3Fields")
 
 
 def test_structural_scanner_is_string_aware_and_decodes_json_escapes() -> None:
@@ -131,15 +148,59 @@ def test_gaze_string_cannot_spoof_missing_strength_and_braces_remain_legal_strin
 def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> None:
     source = SHIM.read_text(encoding="utf-8")
     validate = source[source.index("private static void ValidateMotorStatePresenceAndTypes") :]
-    assert 'RequireStringMember(root, "body_id", "root")' in validate
-    assert 'RequireStringMember(root, "utterance_id", "root")' in validate
+    assert 'RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern)' in validate
+    assert 'RequireConstrainedStringMember(root, "utterance_id", "root", 1, 160, UtteranceIdPattern)' in validate
     assert 'ValidateDuration(root);' in validate
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L)' in validate
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
     assert 'RequireStringMember(fields, "state", "speech")' in speech
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in speech
-    assert 'RequireStringMember(fields, "viseme", "speech")' in speech
+    assert 'RequireConstrainedStringMember(fields, "viseme", "speech", 1, 32, VisemePattern)' in speech
     assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
+
+
+def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static void RequireNumericMember")]
+    assert "var value = RequireStringMember(members, field, context);" in helper
+    assert "value.Length < minimumLength || value.Length > maximumLength" in helper
+    assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in helper
+    assert 'private const string BodyIdPattern = @"\\A[a-z0-9æøå_-]+\\z";' in source
+    assert 'private const string LowerIdentifierPattern = @"\\A[a-z0-9_-]+\\z";' in source
+    assert 'private const string UtteranceIdPattern = @"\\A[A-Za-z0-9._:-]+\\z";' in source
+    assert 'private const string VisemePattern = @"\\A[A-Za-z0-9._-]+\\z";' in source
+    validate = source[source.index("private static void ValidateMotorStatePresenceAndTypes") : source.index("private static string[] RootFieldsForVersion")]
+    assert 'root, "expression", "emotion", "expression", 1, 64, LowerIdentifierPattern' in validate
+    assert 'root, "gesture", "id", "gesture", 1, 80, LowerIdentifierPattern' in validate
+    assert 'root, "gaze", "target", "gaze", 1, 127, null' in validate
+    posture = source[source.index("private static void ValidatePosture") : source.index("private static void ValidateEmbodiment")]
+    assert 'fields, "id", "posture", 1, 80, LowerIdentifierPattern' in posture
+    assert "TryParseStringToken(raw, out var value)" in source
+    assert "ReadJsonString(raw, ref index" in source
+
+
+def test_schema_string_limits_match_guard_constants_and_calls() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    v3 = _contract(MOTOR_V3)
+    body = v3["properties"]["body_id"]
+    utterance = v3["properties"]["utterance_id"]
+    expression = v3["properties"]["expression"]["properties"]["emotion"]
+    gesture = v3["properties"]["gesture"]["properties"]["id"]
+    gaze = v3["properties"]["gaze"]["properties"]["target"]
+    viseme = v3["properties"]["speech"]["properties"]["viseme"]
+    assert (body["minLength"], body["maxLength"], body["pattern"]) == (1, 160, "^[a-z0-9æøå_-]+$")
+    assert (utterance["minLength"], utterance["maxLength"], utterance["pattern"]) == (1, 160, "^[A-Za-z0-9._:-]+$")
+    assert (expression["minLength"], expression["maxLength"], expression["pattern"]) == (1, 64, "^[a-z0-9_-]+$")
+    assert (gesture["minLength"], gesture["maxLength"], gesture["pattern"]) == (1, 80, "^[a-z0-9_-]+$")
+    assert (gaze["minLength"], gaze["maxLength"]) == (1, 127)
+    assert (viseme["minLength"], viseme["maxLength"], viseme["pattern"]) == (1, 32, "^[A-Za-z0-9._-]+$")
+    assert 'RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern)' in source
+    assert 'RequireConstrainedStringMember(root, "utterance_id", "root", 1, 160, UtteranceIdPattern)' in source
+    assert 'root, "expression", "emotion", "expression", 1, 64, LowerIdentifierPattern' in source
+    assert 'root, "gesture", "id", "gesture", 1, 80, LowerIdentifierPattern' in source
+    assert 'root, "gaze", "target", "gaze", 1, 127, null' in source
+    assert 'fields, "id", "posture", 1, 80, LowerIdentifierPattern' in source
+    assert 'RequireConstrainedStringMember(fields, "viseme", "speech", 1, 32, VisemePattern)' in source
 
 
 def test_embodiment_observed_is_root_scoped_nonempty_known_and_numeric() -> None:
