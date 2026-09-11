@@ -260,14 +260,19 @@ namespace BodyRig.ReferenceRenderer
             RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern);
             RequireConstrainedStringMember(root, "utterance_id", "root", 1, 160, UtteranceIdPattern);
             ValidateRequiredExactObject(root, "motion", MotionFields, "motion", Array.Empty<string>());
+            ValidateObjectNumericRange(root, "motion", "energy", "motion", 0L, 1L);
+            ValidateObjectNumericRange(root, "motion", "head_motion", "motion", 0L, 1L);
             ValidateOptionalExactObject(root, "expression", ExpressionFields, "expression", new[] { "emotion" });
             ValidateOptionalObjectStringConstraint(
                 root, "expression", "emotion", "expression", 1, 64, LowerIdentifierPattern);
+            ValidateObjectNumericRange(root, "expression", "intensity", "expression", 0L, 1L);
             ValidateOptionalExactObject(root, "gesture", GestureFields, "gesture", new[] { "id" });
             ValidateOptionalObjectStringConstraint(
                 root, "gesture", "id", "gesture", 1, 80, LowerIdentifierPattern);
+            ValidateObjectNumericRange(root, "gesture", "amplitude", "gesture", 0L, 1L);
             ValidateOptionalExactObject(root, "gaze", GazeFields, "gaze", new[] { "target" });
             ValidateOptionalObjectStringConstraint(root, "gaze", "target", "gaze", 1, 127, null);
+            ValidateObjectNumericRange(root, "gaze", "strength", "gaze", 0L, 1L);
             ValidateDuration(root);
             ValidateSpeech(root);
             ValidatePosture(root, version);
@@ -332,6 +337,23 @@ namespace BodyRig.ReferenceRenderer
                 fields, field, context, minimumLength, maximumLength, pattern);
         }
 
+        private static void ValidateObjectNumericRange(
+            Dictionary<string, string> parent,
+            string propertyName,
+            string field,
+            string context,
+            long minimum,
+            long maximum,
+            bool exclusiveMinimum = false)
+        {
+            if (!parent.TryGetValue(propertyName, out var raw))
+            {
+                return;
+            }
+            var fields = ParseObjectMembers(raw, context);
+            RequireNumericRangeMember(fields, field, context, minimum, maximum, exclusiveMinimum);
+        }
+
         private static void ValidateExactObject(
             string raw,
             string[] expected,
@@ -370,7 +392,10 @@ namespace BodyRig.ReferenceRenderer
             {
                 RequireConstrainedStringMember(fields, "viseme", "speech", 1, 32, VisemePattern);
             }
-            if (fields.ContainsKey("amplitude")) RequireNumericMember(fields, "amplitude", "speech");
+            if (fields.ContainsKey("amplitude"))
+            {
+                RequireNumericRangeMember(fields, "amplitude", "speech", 0L, 1L);
+            }
         }
 
         private static void ValidatePosture(Dictionary<string, string> root, int version)
@@ -383,6 +408,7 @@ namespace BodyRig.ReferenceRenderer
             var fields = ParseObjectMembers(raw, "posture");
             var id = RequireConstrainedStringMember(
                 fields, "id", "posture", 1, 80, LowerIdentifierPattern);
+            RequireNumericRangeMember(fields, "intensity", "posture", 0L, 1L);
             if (fields.ContainsKey("source"))
             {
                 var source = RequireStringMember(fields, "source", "posture");
@@ -394,6 +420,12 @@ namespace BodyRig.ReferenceRenderer
                 RequireExactFields(fields, NaturalPostureFields, "source-derived natural posture");
                 RequireNumericFields(
                     fields, NaturalPostureFields, "source-derived natural posture", "id", "source");
+                RequireNumericRangeMember(fields, "torso_forward_lean_degrees", "posture", -90L, 90L);
+                RequireNumericRangeMember(fields, "torso_right_lean_degrees", "posture", -90L, 90L);
+                RequireNumericRangeMember(fields, "shoulder_roll_degrees", "posture", -90L, 90L);
+                RequireNumericRangeMember(fields, "hip_roll_degrees", "posture", -90L, 90L);
+                RequireNumericRangeMember(fields, "head_forward_offset_to_height", "posture", -1L, 1L);
+                RequireNumericRangeMember(fields, "head_right_offset_to_height", "posture", -1L, 1L);
                 return;
             }
 
@@ -429,6 +461,69 @@ namespace BodyRig.ReferenceRenderer
             foreach (var field in observed.Keys)
             {
                 RequireNumericMember(observed, field, "embodiment.observed");
+                ValidateObservedEmbodimentNumericRange(observed, field);
+            }
+        }
+
+        private static void ValidateObservedEmbodimentNumericRange(
+            Dictionary<string, string> observed,
+            string field)
+        {
+            switch (field)
+            {
+                case "energy":
+                case "gesture_frequency":
+                case "gesture_amplitude":
+                case "head_motion":
+                case "turn_speed":
+                case "posture_head_offset_to_height":
+                case "stance_width_to_height":
+                case "vertical_bounce_to_height":
+                case "arm_swing_asymmetry":
+                case "transition_intensity":
+                case "idle_sway_to_height":
+                case "gaze_strength":
+                case "head_tilt":
+                case "speech_motion":
+                case "idle_strength":
+                case "gaze_smoothing":
+                case "gesture_intensity":
+                case "breathing_strength":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 1L);
+                    return;
+                case "walk_cadence_spm":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 300L);
+                    return;
+                case "posture_torso_lean_degrees":
+                case "posture_shoulder_tilt_degrees":
+                case "posture_hip_tilt_degrees":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 90L);
+                    return;
+                case "posture_torso_forward_lean_degrees":
+                case "posture_torso_right_lean_degrees":
+                case "posture_shoulder_roll_degrees":
+                case "posture_hip_roll_degrees":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", -90L, 90L);
+                    return;
+                case "posture_head_forward_offset_to_height":
+                case "posture_head_right_offset_to_height":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", -1L, 1L);
+                    return;
+                case "stride_length_to_height":
+                case "left_arm_swing_to_height":
+                case "right_arm_swing_to_height":
+                case "arm_swing_to_height":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 2L);
+                    return;
+                case "turn_speed_degrees_per_second":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 720L);
+                    return;
+                case "blink_rate_per_min":
+                    RequireNumericRangeMember(observed, field, "embodiment.observed", 0L, 120L);
+                    return;
+                default:
+                    throw new ArgumentException(
+                        $"Motor State embodiment.observed has no canonical numeric range for field: {field}");
             }
         }
 
@@ -450,15 +545,30 @@ namespace BodyRig.ReferenceRenderer
                 case "walk":
                     RequireExactFields(fields, WalkLocomotionFields, action);
                     RequireNumericFields(fields, WalkLocomotionFields, action, "action");
+                    RequireNumericRangeMember(fields, "effort", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "transition_intensity", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "cadence_spm", "locomotion", 30L, 240L);
+                    RequireNumericRangeMember(fields, "stride_length_to_height", "locomotion", 0L, 2L);
+                    RequireNumericRangeMember(fields, "stance_width_to_height", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "vertical_bounce_to_height", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "left_arm_swing_to_height", "locomotion", 0L, 2L);
+                    RequireNumericRangeMember(fields, "right_arm_swing_to_height", "locomotion", 0L, 2L);
+                    RequireNumericRangeMember(fields, "arm_swing_to_height", "locomotion", 0L, 2L);
                     return;
                 case "turn_left":
                 case "turn_right":
                     RequireExactFields(fields, TurnLocomotionFields, action);
                     RequireNumericFields(fields, TurnLocomotionFields, action, "action");
+                    RequireNumericRangeMember(fields, "effort", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "transition_intensity", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(
+                        fields, "turn_speed_degrees_per_second", "locomotion", 0L, 720L, true);
                     return;
                 case "stop":
                     RequireExactFields(fields, StopLocomotionFields, action);
                     RequireNumericFields(fields, StopLocomotionFields, action, "action");
+                    RequireNumericRangeMember(fields, "effort", "locomotion", 0L, 1L);
+                    RequireNumericRangeMember(fields, "transition_intensity", "locomotion", 0L, 1L);
                     return;
                 default:
                     throw new ArgumentException($"Unsupported Motor State v3 locomotion action: {action}");
@@ -786,6 +896,22 @@ namespace BodyRig.ReferenceRenderer
             RequireNumericToken(raw, context + "." + field);
         }
 
+        private static void RequireNumericRangeMember(
+            Dictionary<string, string> members,
+            string field,
+            string context,
+            long minimum,
+            long maximum,
+            bool exclusiveMinimum = false)
+        {
+            if (!members.TryGetValue(field, out var raw))
+            {
+                throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+            }
+            RequireNumericRangeToken(
+                raw, context + "." + field, minimum, maximum, exclusiveMinimum);
+        }
+
         private static void RequireIntegerMember(
             Dictionary<string, string> members,
             string field,
@@ -818,6 +944,128 @@ namespace BodyRig.ReferenceRenderer
             {
                 throw new ArgumentException($"Motor State {context} requires a numeric JSON token");
             }
+        }
+
+        private static void RequireNumericRangeToken(
+            string raw,
+            string context,
+            long minimum,
+            long maximum,
+            bool exclusiveMinimum)
+        {
+            RequireNumericToken(raw, context);
+            var lowerComparison = CompareJsonNumberToInteger(raw, minimum);
+            var upperComparison = CompareJsonNumberToInteger(raw, maximum);
+            if (lowerComparison < 0 ||
+                (exclusiveMinimum && lowerComparison == 0) ||
+                upperComparison > 0)
+            {
+                var lowerOperator = exclusiveMinimum ? ">" : ">=";
+                throw new ArgumentOutOfRangeException(
+                    context,
+                    $"Motor State numeric value must be {lowerOperator} {minimum} and <= {maximum}");
+            }
+        }
+
+        private static int CompareJsonNumberToInteger(string raw, long integer)
+        {
+            var token = raw.Trim();
+            var cursor = 0;
+            var sign = 1;
+            if (token[cursor] == '-')
+            {
+                sign = -1;
+                cursor++;
+            }
+
+            var exponentIndex = token.IndexOf('e', cursor);
+            if (exponentIndex < 0)
+            {
+                exponentIndex = token.IndexOf('E', cursor);
+            }
+            var mantissaEnd = exponentIndex >= 0 ? exponentIndex : token.Length;
+            var dotIndex = token.IndexOf('.', cursor, mantissaEnd - cursor);
+            var fractionalDigits = dotIndex >= 0 ? mantissaEnd - dotIndex - 1 : 0;
+
+            var digitsBuilder = new StringBuilder(mantissaEnd - cursor);
+            for (var index = cursor; index < mantissaEnd; index++)
+            {
+                if (token[index] != '.') digitsBuilder.Append(token[index]);
+            }
+            var digits = digitsBuilder.ToString().TrimStart('0');
+            if (digits.Length == 0)
+            {
+                if (integer == 0L) return 0;
+                return integer > 0L ? -1 : 1;
+            }
+
+            long explicitExponent = 0L;
+            if (exponentIndex >= 0)
+            {
+                var exponentToken = token.Substring(exponentIndex + 1);
+                if (!long.TryParse(
+                        exponentToken,
+                        NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture,
+                        out explicitExponent))
+                {
+                    explicitExponent = exponentToken[0] == '-' ? long.MinValue : long.MaxValue;
+                }
+            }
+            var exponent10 = SaturatingSubtract(explicitExponent, fractionalDigits);
+
+            var integerSign = integer == 0L ? 0 : integer < 0L ? -1 : 1;
+            if (sign != integerSign)
+            {
+                return sign.CompareTo(integerSign);
+            }
+            if (integerSign == 0)
+            {
+                return 0;
+            }
+
+            var integerDigits = integer == long.MinValue
+                ? "9223372036854775808"
+                : Math.Abs(integer).ToString(CultureInfo.InvariantCulture);
+            var magnitudeComparison = CompareDecimalMagnitude(digits, exponent10, integerDigits);
+            return sign > 0 ? magnitudeComparison : -magnitudeComparison;
+        }
+
+        private static int CompareDecimalMagnitude(
+            string digits,
+            long exponent10,
+            string integerDigits)
+        {
+            var leftOrder = SaturatingAdd(exponent10, digits.Length);
+            var rightOrder = (long)integerDigits.Length;
+            if (leftOrder != rightOrder)
+            {
+                return leftOrder < rightOrder ? -1 : 1;
+            }
+
+            var maximumDigits = Math.Max(digits.Length, integerDigits.Length);
+            for (var index = 0; index < maximumDigits; index++)
+            {
+                var left = index < digits.Length ? digits[index] : '0';
+                var right = index < integerDigits.Length ? integerDigits[index] : '0';
+                if (left == right) continue;
+                return left < right ? -1 : 1;
+            }
+            return 0;
+        }
+
+        private static long SaturatingAdd(long value, int addend)
+        {
+            if (value > long.MaxValue - addend) return long.MaxValue;
+            if (value < long.MinValue + addend) return long.MinValue;
+            return value + addend;
+        }
+
+        private static long SaturatingSubtract(long value, int subtrahend)
+        {
+            if (value < long.MinValue + subtrahend) return long.MinValue;
+            if (value > long.MaxValue - subtrahend) return long.MaxValue;
+            return value - subtrahend;
         }
 
         private static void RequireIntegerToken(string raw, string context)
