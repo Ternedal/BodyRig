@@ -242,7 +242,13 @@ def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> di
         observed_turn = float(motion["turn_speed_degrees_per_second"])
         if observed_turn <= 0.0:
             raise ValueError("explicit turn requires non-zero source-derived turn-speed evidence")
-        result["turn_speed_degrees_per_second"] = round(min(720.0, observed_turn * pace_factor), 4)
+        performed_turn = min(720.0, observed_turn * pace_factor)
+        rounded_turn = round(performed_turn, 4)
+        if rounded_turn <= 0.0:
+            raise ValueError(
+                "explicit turn requires source-derived turn-speed evidence above Motor State v3 precision"
+            )
+        result["turn_speed_degrees_per_second"] = rounded_turn
     return result
 
 
