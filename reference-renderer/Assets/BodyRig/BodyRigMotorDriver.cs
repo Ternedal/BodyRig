@@ -575,14 +575,10 @@ namespace BodyRig.ReferenceRenderer
             var locomotion = _state != null ? _state.locomotion : null;
             if (locomotion == null)
             {
-                // Clear BodyRig's previous gait pose exactly once. With no
-                // locomotion ownership before or now, Animator/VRMA keeps full
-                // authority over hips, legs and arms.
-                if (_locomotionPoseOwnedLastFrame)
-                {
-                    RestoreLocomotionPose();
-                    _locomotionPoseOwnedLastFrame = false;
-                }
+                // Releasing locomotion ownership means stopping BodyRig writes.
+                // Animator/VRMA has already evaluated before LateUpdate, so a
+                // bind-pose restore here would overwrite its current frame.
+                _locomotionPoseOwnedLastFrame = false;
                 return false;
             }
 
@@ -601,14 +597,9 @@ namespace BodyRig.ReferenceRenderer
 
             if (locomotion.action == "turn_left" || locomotion.action == "turn_right")
             {
-                // Turning owns root heading, not leg/hip/arm animation. Clear a
-                // preceding BodyRig gait once, then leave those bones to the
-                // Animator while the explicit turn continues.
-                if (_locomotionPoseOwnedLastFrame)
-                {
-                    RestoreLocomotionPose();
-                    _locomotionPoseOwnedLastFrame = false;
-                }
+                // Turning owns root heading only. Releasing any preceding gait
+                // is a bookkeeping change, not a bind-pose write over Animator.
+                _locomotionPoseOwnedLastFrame = false;
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
                 _boundAnimator.transform.Rotate(
