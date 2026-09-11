@@ -364,7 +364,11 @@ namespace BodyRig.ReferenceRenderer
 
             var fields = ParseObjectMembers(raw, "speech");
             RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
-            RequireStringMember(fields, "state", "speech");
+            var state = RequireStringMember(fields, "state", "speech");
+            if (state != "start" && state != "update" && state != "stop")
+            {
+                throw new ArgumentException("Motor State speech state must be start, update, or stop");
+            }
             RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);
             if (fields.ContainsKey("viseme"))
             {
