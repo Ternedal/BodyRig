@@ -19,7 +19,6 @@ namespace BodyRig.ReferenceRenderer
     {
         private const string JsonNumberPattern =
             "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
-        private const string JsonIntegerPattern = "-?(?:0|[1-9][0-9]*)";
         private const string BodyIdPattern = @"\A[a-z0-9æøå_-]+\z";
         private const string LowerIdentifierPattern = @"\A[a-z0-9_-]+\z";
         private const string UtteranceIdPattern = @"\A[A-Za-z0-9._:-]+\z";
@@ -1130,11 +1129,60 @@ namespace BodyRig.ReferenceRenderer
             return value - subtrahend;
         }
 
+        private static bool IsIntegralJsonNumber(string raw)
+        {
+            var cursor = raw[0] == '-' ? 1 : 0;
+            var exponentIndex = raw.IndexOf('e', cursor);
+            if (exponentIndex < 0)
+            {
+                exponentIndex = raw.IndexOf('E', cursor);
+            }
+            var mantissaEnd = exponentIndex >= 0 ? exponentIndex : raw.Length;
+            var dotIndex = raw.IndexOf('.', cursor, mantissaEnd - cursor);
+            var fractionalDigits = dotIndex >= 0 ? mantissaEnd - dotIndex - 1 : 0;
+
+            long explicitExponent = 0L;
+            if (exponentIndex >= 0)
+            {
+                var exponentToken = raw.Substring(exponentIndex + 1);
+                if (!long.TryParse(
+                        exponentToken,
+                        NumberStyles.AllowLeadingSign,
+                        CultureInfo.InvariantCulture,
+                        out explicitExponent))
+                {
+                    explicitExponent = exponentToken[0] == '-' ? long.MinValue : long.MaxValue;
+                }
+            }
+            var exponent10 = SaturatingSubtract(explicitExponent, fractionalDigits);
+
+            var hasNonZeroDigit = false;
+            var trailingZeroDigits = 0;
+            for (var index = cursor; index < mantissaEnd; index++)
+            {
+                var digit = raw[index];
+                if (digit == '.') continue;
+                if (digit == '0')
+                {
+                    if (hasNonZeroDigit) trailingZeroDigits++;
+                    continue;
+                }
+                hasNonZeroDigit = true;
+                trailingZeroDigits = 0;
+            }
+
+            if (!hasNonZeroDigit) return true;
+            if (exponent10 >= 0L) return true;
+            if (exponent10 == long.MinValue) return false;
+            return -exponent10 <= trailingZeroDigits;
+        }
+
         private static void RequireIntegerToken(string raw, string context)
         {
-            if (!Regex.IsMatch(raw, "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
+            RequireNumericToken(raw, context);
+            if (!IsIntegralJsonNumber(raw))
             {
-                throw new ArgumentException($"Motor State {context} requires an integer JSON token");
+                throw new ArgumentException($"Motor State {context} requires an integer-valued JSON number");
             }
         }
 
@@ -1145,12 +1193,8 @@ namespace BodyRig.ReferenceRenderer
             long maximum)
         {
             RequireIntegerToken(raw, context);
-            if (!long.TryParse(
-                    raw,
-                    NumberStyles.AllowLeadingSign,
-                    CultureInfo.InvariantCulture,
-                    out var value) ||
-                value < minimum || value > maximum)
+            if (CompareJsonNumberToInteger(raw, minimum) < 0 ||
+                CompareJsonNumberToInteger(raw, maximum) > 0)
             {
                 throw new ArgumentOutOfRangeException(
                     context,
