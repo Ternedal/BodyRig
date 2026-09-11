@@ -144,4 +144,4 @@ def test_generic_jsonutility_surfaces_remain_non_motor_compatible() -> None:
 '''
 if "test_motor_driver_requires_raw_discriminator_before_unity_deserialization" in test_source:
     raise SystemExit("discriminator regression tests already present")
-test.write_text(test_source.rstrip() + addition + "\n", encoding="utf-8")
+test.write_text((test_source.rstrip() + addition).rstrip() + "\n", encoding="utf-8")
