@@ -18,6 +18,17 @@ jobs:
           fetch-depth: 0
       - name: Apply integer schema parity fix
         run: python tools/tmp_patch_integer_schema_parity.py
+      - name: Correct generated regression assertion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_reference_renderer_integer_schema_parity.py")
+          text = path.read_text(encoding="utf-8")
+          old = '    assert "long.TryParse(\n                    raw," not in range_guard\n'
+          if text.count(old) != 1:
+              raise SystemExit(f"generated assertion anchor count={text.count(old)}")
+          path.write_text(text.replace(old, '    assert "long.TryParse(" not in range_guard\n', 1), encoding="utf-8")
+          PY
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Validate full locked Python suite
