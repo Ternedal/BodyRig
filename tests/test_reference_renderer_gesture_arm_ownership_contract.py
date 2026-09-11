@@ -29,7 +29,11 @@ def test_gesture_arm_authority_matches_bones_each_action_actually_writes() -> No
         source.index("private static bool GestureOwnsLeftUpperArm") :
         source.index("private static bool GestureOwnsRightUpperArm")
     ]
-    right = source[
+    right_pose = source[
+        source.index("private static bool GestureOwnsRightArmPose") :
+        source.index("private static bool GestureOwnsLeftUpperArm")
+    ]
+    right_adapter = source[
         source.index("private static bool GestureOwnsRightUpperArm") :
         source.index("private bool HasSourceDerivedNaturalPosture")
     ]
@@ -42,9 +46,11 @@ def test_gesture_arm_authority_matches_bones_each_action_actually_writes() -> No
     # Present and neutral write/reset the right arm. Small shrug owns only
     # shoulder translation, and unsupported ids must fail closed without
     # stealing either locomotion arm.
-    assert 'gesture.id == "present"' in right
-    assert 'gesture.id == "neutral"' in right
-    assert 'gesture.id == "small_shrug"' not in right
+    assert "gesture == null || !IsSupportedGestureId(gesture.id)" in right_pose
+    assert 'gesture.id == "present"' in right_pose
+    assert 'gesture.id == "neutral"' in right_pose
+    assert 'gesture.id == "small_shrug"' not in right_pose
+    assert "return GestureOwnsRightArmPose(gesture);" in right_adapter
 
 
 def test_stop_only_blends_back_the_locomotion_arms_walk_actually_owned() -> None:
