@@ -905,18 +905,17 @@ namespace BodyRig.ReferenceRenderer
             expression.SetWeight(ExpressionKey.Surprised, 0.0f);
 
             var weight = Mathf.Clamp01(_state.expression.intensity);
+            _lastOwnedExpressionEmotion = _state.expression.emotion;
             switch (_state.expression.emotion)
             {
-                case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); break;
-                case "happy": expression.SetWeight(ExpressionKey.Happy, weight); break;
-                case "angry": expression.SetWeight(ExpressionKey.Angry, weight); break;
-                case "sad": expression.SetWeight(ExpressionKey.Sad, weight); break;
-                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, weight); break;
-                case "surprised": expression.SetWeight(ExpressionKey.Surprised, weight); break;
+                case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); return true;
+                case "happy": expression.SetWeight(ExpressionKey.Happy, weight); return true;
+                case "angry": expression.SetWeight(ExpressionKey.Angry, weight); return true;
+                case "sad": expression.SetWeight(ExpressionKey.Sad, weight); return true;
+                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, weight); return true;
+                case "surprised": expression.SetWeight(ExpressionKey.Surprised, weight); return true;
                 default: return false;
             }
-            _lastOwnedExpressionEmotion = _state.expression.emotion;
-            return true;
         }
 
         private bool ApplySpeech()
