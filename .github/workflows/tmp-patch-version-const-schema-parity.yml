@@ -36,10 +36,12 @@ jobs:
         run: |
           git add \
             reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
+            tests/test_reference_renderer_json_whitespace_guard.py \
             tests/test_reference_renderer_version_schema_parity.py
           actual="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
             'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_json_whitespace_guard.py' \
             'tests/test_reference_renderer_version_schema_parity.py' | sort)"
           test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
           git diff --cached --check
