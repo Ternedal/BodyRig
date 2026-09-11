@@ -163,7 +163,11 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     source = SHIM.read_text(encoding="utf-8")
     helper = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static void RequireNumericMember")]
     assert "var value = RequireStringMember(members, field, context);" in helper
-    assert "value.Length < minimumLength || value.Length > maximumLength" in helper
+    assert 'var scalarLength = UnicodeScalarLength(value, context + "." + field);' in helper
+    assert "scalarLength < minimumLength || scalarLength > maximumLength" in helper
+    assert "char.IsHighSurrogate" in helper
+    assert "char.IsLowSurrogate" in helper
+    assert "contains an unpaired surrogate" in helper
     assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in helper
     assert 'private const string BodyIdPattern = @"\\A[a-z0-9æøå_-]+\\z";' in source
     assert 'private const string LowerIdentifierPattern = @"\\A[a-z0-9_-]+\\z";' in source
@@ -253,3 +257,18 @@ def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
     assert "CultureInfo.InvariantCulture" in helper
     assert "value < minimum || value > maximum" in helper
     assert "ArgumentOutOfRangeException" in helper
+
+
+def test_schema_string_length_uses_unicode_scalars_not_utf16_code_units() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    block = source[
+        source.index("private static string RequireConstrainedStringMember") :
+        source.index("private static void RequireNumericMember")
+    ]
+    assert 'var scalarLength = UnicodeScalarLength(value, context + "." + field);' in block
+    assert "value.Length < minimumLength" not in block
+    assert "char.IsHighSurrogate(current)" in block
+    assert "char.IsLowSurrogate(value[index + 1])" in block
+    assert "char.IsLowSurrogate(current)" in block
+    assert "index++;" in block
+    assert "count++;" in block
