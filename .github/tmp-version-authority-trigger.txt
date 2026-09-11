@@ -1,1 +1,1 @@
-run version authority staging validation
+run version authority staging validation r2
