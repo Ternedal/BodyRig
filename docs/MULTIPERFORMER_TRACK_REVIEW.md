@@ -58,12 +58,43 @@ Unselected samples receive no authority. The receipt still requires `photoidenti
 
 The original multi-performer video must never be routed directly into the single-person analyzer merely because a track id was human-attested.
 
+## Source-only detail enrichment
+
+`enrich-photoidentity-multiperformer-target-crops.ps1` analyzes only the exact human-accepted target crops. It uses the pinned OpenPose and SCHP runtimes and may produce machine observability candidates only for:
+
+- `eyes_detail`;
+- `hands`;
+- `feet`;
+- `hair_hairline`;
+- `skin_detail`.
+
+The enrichment stage is deliberately not source-detail-quality authority. Its candidate score cannot by itself become photoidentity evidence. It remains `machine_observability_only=true`, `source_detail_quality_authority=false`, `photoidentity_source_evidence_authority=false`, `reconstruction_permitted=false` and `production_activation=false`.
+
+It has no authority for torso/chest, waist/hips, rear-body orientation, fingernails or toenails.
+
+## Human source-detail quality attestation
+
+After reviewing the actual human-isolated source crop, an operator may attest only a domain/sample pair that already has machine observability at or above the canonical `DETAIL_QUALITY_THRESHOLD` (currently `0.80`):
+
+`record-photoidentity-target-crop-detail-quality.ps1 -CandidateRoot <root> -DetailRef <targetsample-id:domain> -ConfirmQuality -QualityNote <note>`
+
+The receipt revalidates the exact target-isolation receipt, enrichment receipt, private analysis index and crop SHA-256. The selected machine adapter must match the pinned OpenPose/SCHP domain authority. A human note cannot rescue a sub-threshold crop or an unregistered analyzer.
+
+This stage grants `source_detail_quality_authority=true` for the explicitly selected source-domain claims, but still requires:
+
+- `photoidentity_source_evidence_authority=false`;
+- `generic_guessing_permitted=false`;
+- `reconstruction_permitted=false`;
+- `production_activation=false`.
+
+The receipt is create-only and public/path-free. At most one crop per domain is attested for a given scene receipt.
+
 ## Next authority gate
 
-Target-isolated sample authority is not photoidentity sufficiency. The next stage is source-only detail enrichment over only the accepted exact crops, followed by the normal domain sufficiency rules. Missing detail remains insufficient; no analyzer may infer hidden identity-critical anatomy.
+Source-detail-quality authority is still not photoidentity sufficiency. The next separate gate must aggregate quality-attested claims across distinct source scenes, bind them into the central photoidentity authority table and apply the normal per-domain scene-count requirements. Until that composite bundle validates, missing detail remains insufficient and avatar/reconstruction work stays blocked.
 
 ## Non-authority
 
-Discovery, track review, identity attestation, candidate materialization and target-isolation attestation are not body reconstruction, bodyprint recovery acceptance, photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
+Discovery, track review, identity attestation, candidate materialization, target-isolation attestation, machine detail enrichment and source-detail-quality attestation are not body reconstruction, bodyprint recovery acceptance, final photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
 
 The existing recovery/bodyprint wire contract remains unchanged.
