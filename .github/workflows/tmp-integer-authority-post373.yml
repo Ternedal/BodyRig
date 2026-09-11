@@ -1,0 +1,33 @@
+name: tmp-integer-authority-post373
+
+on:
+  push:
+    branches:
+      - staging/integer-authority-post373-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: staging/integer-authority-post373-20260911
+          fetch-depth: 0
+      - name: Apply raw-authoritative integer transport patch
+        run: python tools/tmp_patch_integer_authority_post373.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full locked Python suite
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Commit real patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs tests/test_reference_renderer_integer_schema_parity.py tests/test_reference_renderer_json_utility_guard.py tests/test_reference_renderer_json_whitespace_guard.py tests/test_reference_renderer_raw_numeric_ranges.py tests/test_reference_renderer_version_authority.py tests/test_reference_renderer_integer_transport_authority.py
+          git commit -m "Make Motor State integer timing raw authoritative"
+          git push origin HEAD:staging/integer-authority-post373-20260911
