@@ -64,7 +64,7 @@ def test_v3_presence_guard_required_sets_are_derived_from_canonical_schema() -> 
     assert _array_fields(source, "StopLocomotionFields") == required["stop"]
 
 
-def test_v3_presence_guard_rejects_missing_extra_and_duplicate_locomotion_fields() -> None:
+def test_v3_presence_guard_rejects_missing_extra_duplicate_and_wrong_type_fields() -> None:
     source = SHIM.read_text(encoding="utf-8")
 
     assert "!MotorTypePattern.IsMatch(json)" in source
@@ -77,13 +77,23 @@ def test_v3_presence_guard_rejects_missing_extra_and_duplicate_locomotion_fields
     assert "contains duplicate field" in source
     assert "is missing required field" in source
 
+    # Unity can erase both absence and structural type mismatches into numeric
+    # zero. The raw guard therefore also requires every non-action field to be
+    # an actual JSON number token before deserialization.
+    assert "JsonNumberPattern" in source
+    assert "RequireNumericFields(body, WalkLocomotionFields, action);" in source
+    assert "RequireNumericFields(body, TurnLocomotionFields, action);" in source
+    assert "RequireNumericFields(body, StopLocomotionFields, action);" in source
+    assert "Regex.Escape(field)" in source
+    assert "requires numeric field" in source
+
 
 def test_v3_presence_guard_runs_before_unity_erases_missing_numeric_presence() -> None:
     shim = SHIM.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
 
     generic = shim.index("public static T FromJson<T>(string json)")
-    validate = shim.index("ValidateMotorStateV3Presence(json);", generic)
+    validate = shim.index("ValidateMotorStateV3PresenceAndTypes(json);", generic)
     deserialize = shim.index("UnityEngine.JsonUtility.FromJson<T>(json)", generic)
     assert validate < deserialize
 
