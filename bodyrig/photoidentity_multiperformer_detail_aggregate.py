@@ -17,6 +17,18 @@ from .photoidentity_evidence import (
     build_observation_evidence,
     write_bundle,
 )
+from .photoidentity_multiperformer_target_attestation import (
+    FORMAT as ISOLATION_FORMAT,
+    POLICY as ISOLATION_POLICY,
+    VERSION as ISOLATION_VERSION,
+)
+from .photoidentity_target_crop_detail import SUPPORTED_DOMAINS as TARGET_SUPPORTED_DOMAINS
+from .photoidentity_target_crop_enrich import (
+    FORMAT as ENRICHMENT_FORMAT,
+    PRIVATE_FORMAT as PRIVATE_ENRICHMENT_FORMAT,
+    PRIVATE_VERSION as PRIVATE_ENRICHMENT_VERSION,
+    VERSION as ENRICHMENT_VERSION,
+)
 from .photoidentity_target_crop_quality_attestation import (
     ADAPTER as QUALITY_ADAPTER,
     ADAPTER_REVISION as QUALITY_ADAPTER_REVISION,
@@ -35,6 +47,7 @@ BASE_ANALYZER = ("bodyrig-photoidentity-coarse-openpose-schp-composite", "1")
 EVIDENCE_DIRNAME = "multiperformer-detail-evidence"
 AUTHORITY_DIRNAME = "multiperformer-detail-source-authority"
 RECEIPT_NAME = "photoidentity-multiperformer-detail-aggregation.json"
+QUALITY_RECEIPT_NAME = "photoidentity-target-crop-detail-quality-attestation.json"
 SUPPORTED_DOMAINS = frozenset(DOMAIN_MACHINE_AUTHORITY)
 
 
@@ -120,7 +133,155 @@ def _base_bundle(sweep_root: Path) -> tuple[Path, Path, dict[str, Any], dict[str
     return observations_path, report_path, observations, report
 
 
-def _validate_quality_receipt(path: Path, *, performer_id: str, bodyrig_revision: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _rows_by_id(rows: object, *, label: str) -> dict[str, dict[str, Any]]:
+    if not isinstance(rows, list) or not rows:
+        raise PhotoIdentityMultiDetailAggregateError(f"{label} rows are invalid")
+    result: dict[str, dict[str, Any]] = {}
+    for raw in rows:
+        if not isinstance(raw, Mapping):
+            raise PhotoIdentityMultiDetailAggregateError(f"{label} row is invalid")
+        sample_id = str(raw.get("sample_id") or "")
+        if not sample_id.startswith("targetsample-") or sample_id in result:
+            raise PhotoIdentityMultiDetailAggregateError(f"{label} sample id is invalid/duplicate")
+        result[sample_id] = dict(raw)
+    return result
+
+
+def _candidate_map(sample: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    raw_candidates = sample.get("candidates")
+    if not isinstance(raw_candidates, list):
+        raise PhotoIdentityMultiDetailAggregateError("target-crop machine candidate list is invalid")
+    result: dict[str, dict[str, Any]] = {}
+    for raw in raw_candidates:
+        if not isinstance(raw, Mapping):
+            raise PhotoIdentityMultiDetailAggregateError("target-crop machine candidate is invalid")
+        domain = str(raw.get("domain") or "")
+        if domain not in TARGET_SUPPORTED_DOMAINS or domain in result:
+            raise PhotoIdentityMultiDetailAggregateError("target-crop machine domain is invalid/duplicate")
+        result[domain] = dict(raw)
+    return result
+
+
+def _replay_quality_lineage(
+    *,
+    receipt_path: Path,
+    candidate_root: Path,
+    receipt: Mapping[str, Any],
+    bodyrig_revision: str,
+) -> None:
+    candidate_root = candidate_root.expanduser().resolve()
+    enrichment_root = receipt_path.parent.resolve()
+    if receipt_path.name != QUALITY_RECEIPT_NAME:
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt filename is not canonical")
+    if not candidate_root.is_dir() or not enrichment_root.is_dir():
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality source roots are missing")
+
+    isolation_path = candidate_root / "photoidentity-multiperformer-target-isolation-attestation.json"
+    public_path = enrichment_root / "target-crop-detail-enrichment.json"
+    private_path = enrichment_root / "private-analysis" / "private-analysis-index.json"
+    isolation = _read_json(isolation_path, label="Human target-isolation attestation")
+    public = _read_json(public_path, label="Target-crop detail enrichment")
+    private = _read_json(private_path, label="Private target-crop detail enrichment")
+
+    if (
+        isolation.get("format") != ISOLATION_FORMAT
+        or isolation.get("version") != ISOLATION_VERSION
+        or isolation.get("policy") != ISOLATION_POLICY
+    ):
+        raise PhotoIdentityMultiDetailAggregateError("target-isolation authority format/version/policy is invalid")
+    if public.get("format") != ENRICHMENT_FORMAT or public.get("version") != ENRICHMENT_VERSION:
+        raise PhotoIdentityMultiDetailAggregateError("target-crop enrichment format/version is invalid")
+    if private.get("format") != PRIVATE_ENRICHMENT_FORMAT or private.get("version") != PRIVATE_ENRICHMENT_VERSION:
+        raise PhotoIdentityMultiDetailAggregateError("private target-crop enrichment format/version is invalid")
+    for item in (isolation, public, private):
+        if str(item.get("bodyrig_revision") or "") != bodyrig_revision:
+            raise PhotoIdentityMultiDetailAggregateError("target-crop source lineage belongs to a different BodyRig revision")
+    for field in ("performer_id", "scene_id"):
+        if isolation.get(field) != public.get(field) or private.get(field) != public.get(field):
+            raise PhotoIdentityMultiDetailAggregateError(f"target-crop source lineage differs on {field}")
+        if str(receipt.get(field) or "") != str(public.get(field) or ""):
+            raise PhotoIdentityMultiDetailAggregateError(f"target-crop quality receipt differs from source lineage on {field}")
+    if receipt.get("human_target_isolation_attestation_sha256") != _sha256(isolation_path):
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt is not bound to current isolation receipt")
+    if receipt.get("target_crop_detail_enrichment_sha256") != _sha256(public_path):
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt is not bound to current enrichment receipt")
+    if receipt.get("private_analysis_index_sha256") != _sha256(private_path):
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt is not bound to current private analysis index")
+    if public.get("human_target_isolation_attestation_sha256") != _sha256(isolation_path):
+        raise PhotoIdentityMultiDetailAggregateError("target-crop enrichment is not bound to current human isolation receipt")
+    if public.get("private_analysis_index_sha256") != _sha256(private_path):
+        raise PhotoIdentityMultiDetailAggregateError("public/private target-crop enrichment binding changed")
+    if isolation.get("target_isolated_source_authority") is not True or isolation.get("authority_scope") != "accepted-samples-only":
+        raise PhotoIdentityMultiDetailAggregateError("target-crop lineage lacks accepted-samples-only target-isolation authority")
+    if public.get("machine_observability_only") is not True or public.get("source_detail_quality_authority") is not False:
+        raise PhotoIdentityMultiDetailAggregateError("target-crop enrichment crossed machine/source-quality authority boundary")
+    for field in ("photoidentity_source_evidence_authority", "reconstruction_permitted", "production_activation"):
+        if isolation.get(field) is not False or public.get(field) is not False:
+            raise PhotoIdentityMultiDetailAggregateError(f"target-crop source lineage crossed downstream boundary: {field}")
+
+    public_samples = _rows_by_id(public.get("samples"), label="public enrichment")
+    private_samples = _rows_by_id(private.get("rows"), label="private enrichment")
+    accepted_samples = _rows_by_id(isolation.get("accepted_samples"), label="human-isolated")
+    raw_claims = receipt.get("selected_claims")
+    if not isinstance(raw_claims, list) or not raw_claims:
+        raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt contains no selected claims")
+    private_root = (enrichment_root / "private-analysis").resolve()
+    for raw in raw_claims:
+        if not isinstance(raw, Mapping):
+            raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim is invalid")
+        sample_id = str(raw.get("sample_id") or "")
+        domain = str(raw.get("domain") or "")
+        public_sample = public_samples.get(sample_id)
+        private_sample = private_samples.get(sample_id)
+        accepted_sample = accepted_samples.get(sample_id)
+        if public_sample is None or private_sample is None or accepted_sample is None:
+            raise PhotoIdentityMultiDetailAggregateError(
+                f"selected source-detail sample is not in the human-isolated evidence chain: {sample_id}"
+            )
+        expected_sha = str(public_sample.get("target_crop_sha256") or "")
+        if expected_sha != str(accepted_sample.get("target_crop_sha256") or ""):
+            raise PhotoIdentityMultiDetailAggregateError("selected source-detail crop hash differs from human isolation authority")
+        if str(raw.get("target_crop_sha256") or "") != expected_sha:
+            raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim hash differs from current source crop")
+        crop = Path(str(private_sample.get("analysis_crop") or "")).expanduser().resolve()
+        try:
+            crop.relative_to(private_root)
+        except ValueError as exc:
+            raise PhotoIdentityMultiDetailAggregateError("selected source-detail crop escaped private enrichment root") from exc
+        if _sha256(crop) != expected_sha:
+            raise PhotoIdentityMultiDetailAggregateError("selected source-detail crop bytes changed after enrichment")
+        candidate = _candidate_map(public_sample).get(domain)
+        if candidate is None:
+            raise PhotoIdentityMultiDetailAggregateError(
+                f"selected domain has no machine observability candidate: {sample_id}:{domain}"
+            )
+        expected_adapter, expected_revision = DOMAIN_MACHINE_AUTHORITY[domain]
+        score = _quality(candidate.get("machine_observability_score"), label=f"{domain} machine observability score")
+        if (
+            candidate.get("source_derived") is not True
+            or str(candidate.get("adapter") or "") != expected_adapter
+            or str(candidate.get("revision") or "") != expected_revision
+            or candidate.get("source_detail_quality_authority") is not False
+            or candidate.get("photoidentity_sufficiency_authority") is not False
+        ):
+            raise PhotoIdentityMultiDetailAggregateError(f"selected machine candidate has invalid source authority: {domain}")
+        if round(float(raw.get("quality", -1.0)), 4) != score:
+            raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim score differs from current machine candidate")
+        if (
+            str(raw.get("machine_adapter") or "") != expected_adapter
+            or str(raw.get("machine_revision") or "") != expected_revision
+        ):
+            raise PhotoIdentityMultiDetailAggregateError("target-crop quality claim machine provenance changed")
+
+
+def _validate_quality_receipt(
+    path: Path,
+    *,
+    performer_id: str,
+    bodyrig_revision: str,
+    candidate_root: Path | None = None,
+    replay_source: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     receipt = _read_json(path, label="Target-crop source-detail quality receipt")
     if (
         receipt.get("format") != QUALITY_FORMAT
@@ -187,6 +348,15 @@ def _validate_quality_receipt(path: Path, *, performer_id: str, bodyrig_revision
         )
     if set(receipt.get("selected_domains") or []) != domains:
         raise PhotoIdentityMultiDetailAggregateError("target-crop quality receipt selected-domain summary changed")
+    if replay_source:
+        if candidate_root is None:
+            raise PhotoIdentityMultiDetailAggregateError("target-crop quality aggregation requires the corresponding candidate root")
+        _replay_quality_lineage(
+            receipt_path=path,
+            candidate_root=candidate_root,
+            receipt=receipt,
+            bodyrig_revision=bodyrig_revision,
+        )
     return receipt, sorted(claims, key=lambda item: item["domain"])
 
 
@@ -200,7 +370,12 @@ def _claim_without_domain(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _merge_details(prior: Mapping[str, Any], new_claims: Sequence[Mapping[str, Any]], *, prior_rows: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def _merge_details(
+    prior: Mapping[str, Any],
+    new_claims: Sequence[Mapping[str, Any]],
+    *,
+    prior_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
     merged: dict[str, list[dict[str, Any]]] = {
         str(domain): [dict(item) for item in claims if isinstance(item, Mapping)]
         for domain, claims in prior.items()
@@ -226,11 +401,20 @@ def _merge_details(prior: Mapping[str, Any], new_claims: Sequence[Mapping[str, A
             )
         existing.append(_claim_without_domain(raw))
     for claims in merged.values():
-        claims.sort(key=lambda item: (str(item.get("scene_id") or ""), str(item.get("adapter") or ""), str(item.get("revision") or "")))
+        claims.sort(
+            key=lambda item: (
+                str(item.get("scene_id") or ""),
+                str(item.get("adapter") or ""),
+                str(item.get("revision") or ""),
+            )
+        )
     return merged
 
 
-def _expected_enriched(prior_observations: Mapping[str, Any], new_claims: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _expected_enriched(
+    prior_observations: Mapping[str, Any],
+    new_claims: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
     analyzer = prior_observations.get("analyzer")
     details = prior_observations.get("detail_evidence")
     if not isinstance(analyzer, Mapping) or not isinstance(details, Mapping):
@@ -251,23 +435,34 @@ def _expected_enriched(prior_observations: Mapping[str, Any], new_claims: Sequen
     )
 
 
-def aggregate_multiperformer_detail_evidence(*, sweep_root: Path, quality_receipts: Sequence[Path]) -> dict[str, Any]:
+def aggregate_multiperformer_detail_evidence(
+    *,
+    sweep_root: Path,
+    quality_receipts: Sequence[Path],
+    candidate_roots: Sequence[Path] | None = None,
+) -> dict[str, Any]:
     sweep_root = sweep_root.expanduser().resolve()
     if not sweep_root.is_dir():
         raise PhotoIdentityMultiDetailAggregateError("photoidentity sweep root is missing")
     if not quality_receipts:
         raise PhotoIdentityMultiDetailAggregateError("at least one target-crop quality receipt is required")
+    if candidate_roots is None or len(candidate_roots) != len(quality_receipts):
+        raise PhotoIdentityMultiDetailAggregateError(
+            "each target-crop quality receipt requires its corresponding human-isolation candidate root"
+        )
     observations_path, report_path, prior_observations, prior_report = _base_bundle(sweep_root)
 
     parsed_receipts: list[tuple[Path, dict[str, Any], list[dict[str, Any]], str]] = []
     all_claims: list[dict[str, Any]] = []
     receipt_hashes: set[str] = set()
-    for raw_path in quality_receipts:
+    for raw_path, raw_candidate_root in zip(quality_receipts, candidate_roots):
         path = raw_path.expanduser().resolve()
         receipt, claims = _validate_quality_receipt(
             path,
             performer_id=str(prior_report["performer_id"]),
             bodyrig_revision=str(prior_report["bodyrig_revision"]),
+            candidate_root=raw_candidate_root,
+            replay_source=True,
         )
         digest = _sha256(path)
         if digest in receipt_hashes:
@@ -406,12 +601,18 @@ def validate_multiperformer_detail_aggregation(sweep_root: Path) -> dict[str, An
             stored_path,
             performer_id=str(base_report["performer_id"]),
             bodyrig_revision=str(base_report["bodyrig_revision"]),
+            replay_source=False,
         )
         domains = sorted(str(item["domain"]) for item in claims)
         if str(raw.get("scene_id") or "") != str(quality_receipt["scene_id"]) or list(raw.get("domains") or []) != domains:
             raise PhotoIdentityMultiDetailAggregateError("multi-performer quality receipt manifest metadata changed")
         normalized_entries.append(
-            {"receipt_sha256": digest, "stored_name": expected_name, "scene_id": str(quality_receipt["scene_id"]), "domains": domains}
+            {
+                "receipt_sha256": digest,
+                "stored_name": expected_name,
+                "scene_id": str(quality_receipt["scene_id"]),
+                "domains": domains,
+            }
         )
         all_claims.extend(claims)
     if normalized_entries != raw_entries:
@@ -456,14 +657,18 @@ def validate_multiperformer_detail_aggregation(sweep_root: Path) -> dict[str, An
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aggregate human-quality-attested multi-performer target-crop claims into photoidentity evidence.")
+    parser = argparse.ArgumentParser(
+        description="Aggregate human-quality-attested multi-performer target-crop claims into photoidentity evidence."
+    )
     parser.add_argument("--sweep-root", required=True)
     parser.add_argument("--quality-receipt", action="append", default=[])
+    parser.add_argument("--candidate-root", action="append", default=[])
     args = parser.parse_args(argv)
     try:
         result = aggregate_multiperformer_detail_evidence(
             sweep_root=Path(args.sweep_root),
             quality_receipts=[Path(value) for value in args.quality_receipt],
+            candidate_roots=[Path(value) for value in args.candidate_root],
         )
     except (OSError, PhotoIdentityMultiDetailAggregateError) as exc:
         print(f"BodyRig multi-performer detail aggregation: FAIL: {exc}", file=sys.stderr)
