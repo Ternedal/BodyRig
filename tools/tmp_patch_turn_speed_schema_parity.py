@@ -89,3 +89,16 @@ def test_raw_json_guard_keeps_original_token_exclusive_minimum_authority() -> No
     ]
     assert 'fields, "turn_speed_degrees_per_second", "locomotion", 0L, 720L, true' in locomotion
 ''', encoding="utf-8")
+
+contract = Path("tests/test_reference_renderer_motor_v3_contract.py")
+contract_source = contract.read_text(encoding="utf-8")
+old_assert = '''    assert 'ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f' in validation
+'''
+new_assert = '''    assert "ValidateExclusivePositiveRange(" in validation
+    assert "locomotion.turn_speed_degrees_per_second" in validation
+    assert "720.0f" in validation
+    assert "0.0001f" not in validation
+'''
+if contract_source.count(old_assert) != 1:
+    raise SystemExit(f"motor v3 turn-speed assertion anchor count={contract_source.count(old_assert)}")
+contract.write_text(contract_source.replace(old_assert, new_assert, 1), encoding="utf-8")
