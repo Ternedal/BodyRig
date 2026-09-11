@@ -29,16 +29,28 @@ def test_new_cue_replaces_active_speech_and_omits_speech_from_motor_state() -> N
     assert "speech" not in runtime.motor_state()
 
 
-def test_missing_speech_releases_only_last_viseme_if_bodyrig_still_owns_its_weight() -> None:
+def test_speech_timing_allows_update_without_viseme() -> None:
+    timing = SpeechTiming(
+        utterance_id="u-speech",
+        state="update",
+        elapsed_ms=240,
+        amplitude=0.4,
+    )
+    assert timing.viseme is None
+
+
+def test_missing_or_unrealizable_speech_releases_only_last_viseme_if_bodyrig_still_owns_its_weight() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     release = source[
         source.index("private void ReleaseOwnedSpeechViseme") : source.index("private bool ApplySpeech")
     ]
 
+    assert "private static bool IsSupportedSpeechViseme" in source
     assert "_speechVisemeOwned" in release
     assert "_lastOwnedSpeechViseme" in release
     assert "_lastOwnedSpeechVisemeWeight" in release
-    assert "_state.speech != null" in release
+    assert '_state.speech.state != "stop"' in release
+    assert "IsSupportedSpeechViseme(_state.speech.viseme)" in release
     assert "SameExpressionWeight" in release
     for viseme, key in (
         ("AA", "Aa"),
@@ -57,6 +69,28 @@ def test_missing_speech_releases_only_last_viseme_if_bodyrig_still_owns_its_weig
     assert "_lastOwnedSpeechVisemeWeight = 0.0f;" in release
 
 
+def test_supported_viseme_keeps_ownership_but_missing_or_unsupported_viseme_does_not() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    helper = source[
+        source.index("private static bool IsSupportedSpeechViseme") :
+        source.index("private void PrepareHeadRotationOwnershipForFrame")
+    ]
+    release = source[
+        source.index("private void ReleaseOwnedSpeechViseme") : source.index("private bool ApplySpeech")
+    ]
+
+    assert "string.IsNullOrWhiteSpace(viseme)" in helper
+    assert "viseme.ToUpperInvariant()" in helper
+    for viseme in ("AA", "IH", "OU", "EE", "OH"):
+        assert f'case "{viseme}":' in helper
+    assert "return true;" in helper
+    assert "default:" in helper
+    assert "return false;" in helper
+    assert '_state.speech.state != "stop"' in release
+    assert "IsSupportedSpeechViseme(_state.speech.viseme)" in release
+    assert "if (_state.speech != null ||" not in release
+
+
 def test_speech_realization_tracks_and_releases_viseme_ownership() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     late_update = source[
@@ -73,6 +107,22 @@ def test_speech_realization_tracks_and_releases_viseme_ownership() -> None:
     assert "_lastOwnedSpeechVisemeWeight = weight;" in apply_speech
     assert "_speechVisemeOwned = false;" in apply_speech
     assert "_lastOwnedSpeechViseme = null;" in apply_speech
+
+
+def test_explicit_speech_stop_keeps_full_viseme_reset_authority() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_speech = source[
+        source.index("private bool ApplySpeech") : source.index("private void RestoreGesturePose")
+    ]
+    stop = apply_speech[
+        apply_speech.index('if (_state.speech.state == "stop")') :
+        apply_speech.index("if (string.IsNullOrWhiteSpace(_state.speech.viseme))")
+    ]
+    for key in ("Aa", "Ih", "Ou", "Ee", "Oh"):
+        assert f"expression.SetWeight(ExpressionKey.{key}, 0.0f);" in stop
+    assert "_speechVisemeOwned = false;" in stop
+    assert "_lastOwnedSpeechViseme = null;" in stop
+    assert "return true;" in stop
 
 
 def test_speech_viseme_ownership_is_cleared_at_session_boundaries() -> None:

@@ -22,15 +22,16 @@ def test_new_cue_without_emotion_produces_current_state_without_expression() -> 
     assert motor["gaze"]["target"] == "user"
 
 
-def test_missing_expression_releases_only_if_last_bodyrig_weight_is_still_present() -> None:
+def test_missing_or_unrealizable_expression_releases_only_if_last_bodyrig_weight_is_still_present() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     release = source[
         source.index("private void ReleaseOwnedExpression") : source.index("private bool ApplyExpression")
     ]
 
+    assert "private static bool IsSupportedExpressionEmotion" in source
     assert "_lastOwnedExpressionEmotion" in release
     assert "_lastOwnedExpressionWeight" in release
-    assert "_state.expression != null" in release
+    assert "_state.expression != null && IsSupportedExpressionEmotion(_state.expression.emotion)" in release
     assert "SameExpressionWeight" in release
     for emotion, key in (
         ("neutral", "Neutral"),
@@ -47,6 +48,25 @@ def test_missing_expression_releases_only_if_last_bodyrig_weight_is_still_presen
         assert f"ExpressionKey.{viseme}" not in release
     assert "_lastOwnedExpressionEmotion = null;" in release
     assert "_lastOwnedExpressionWeight = 0.0f;" in release
+
+
+def test_supported_expression_state_keeps_ownership_but_unsupported_state_does_not() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    helper = source[
+        source.index("private static bool IsSupportedExpressionEmotion") :
+        source.index("private static bool IsSupportedSpeechViseme")
+    ]
+    release = source[
+        source.index("private void ReleaseOwnedExpression") : source.index("private bool ApplyExpression")
+    ]
+
+    for emotion in ("neutral", "happy", "angry", "sad", "relaxed", "surprised"):
+        assert f'case "{emotion}":' in helper
+    assert "return true;" in helper
+    assert "default:" in helper
+    assert "return false;" in helper
+    assert "_state.expression != null && IsSupportedExpressionEmotion(_state.expression.emotion)" in release
+    assert "if (_state.expression != null ||" not in release
 
 
 def test_expression_realization_tracks_bodyrig_owned_affect_for_later_release() -> None:
