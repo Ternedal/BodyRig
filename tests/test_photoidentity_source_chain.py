@@ -12,6 +12,10 @@ from bodyrig.photoidentity_source_chain import (
     PhotoIdentitySourceChainError,
     validate_registration_source_chain,
 )
+from bodyrig.photoidentity_target_crop_quality_attestation import (
+    ADAPTER as TARGET_DETAIL_ADAPTER,
+    ADAPTER_REVISION as TARGET_DETAIL_REVISION,
+)
 
 
 def _sha(path: Path) -> str:
@@ -64,6 +68,7 @@ def _build_chain(
     *,
     fingernail_regions: tuple[str, str] = ("left_fingernails", "right_fingernails"),
     final_fingernail_quality: float = 0.91,
+    inject_target_detail_without_lineage: bool = False,
 ) -> tuple[Path, Path, Path]:
     sweep = tmp_path / "sweep"
     sweep.mkdir()
@@ -132,6 +137,7 @@ def _build_chain(
         "policy_revision": "photoidentity-nail-source-attestation-v1",
         "performer_id": "42",
         "bodyrig_revision": "a" * 40,
+        "prior_stage": "human-parsing",
         "adapter": "human-source-nail-detail-attestation",
         "adapter_revision": "1",
         "attested_domains": ["fingernails_detail", "toenails_detail"],
@@ -150,6 +156,9 @@ def _build_chain(
 
     final_details = {domain: [dict(item) for item in claims] for domain, claims in nail_details.items()}
     final_details["fingernails_detail"][0]["quality"] = final_fingernail_quality
+    if inject_target_detail_without_lineage:
+        final_details["eyes_detail"][0]["adapter"] = TARGET_DETAIL_ADAPTER
+        final_details["eyes_detail"][0]["revision"] = TARGET_DETAIL_REVISION
     final_details.update(
         {
             "body_rear": [_claim("body_rear", "rear-a")],
@@ -229,7 +238,8 @@ def test_valid_registration_chain_requires_both_human_receipts(tmp_path: Path) -
         expected_baseline_source_manifest_sha256="b" * 64,
     )
     assert result["report"]["source_evidence_sufficient"] is True
-    assert result["policy_revision"] == "photoidentity-human-source-chain-v1"
+    assert result["policy_revision"] == "photoidentity-human-source-chain-v2"
+    assert result["multiperformer_detail"] is None
 
 
 def test_tampered_nail_receipt_binding_fails_closed(tmp_path: Path) -> None:
@@ -254,4 +264,13 @@ def test_fingernail_attestation_requires_left_and_right_source_coverage(tmp_path
         fingernail_regions=("left_fingernails", "left_fingernails"),
     )
     with pytest.raises(PhotoIdentitySourceChainError, match="Fingernail attestation source coverage is incomplete"):
+        validate_registration_source_chain(report, observations)
+
+
+def test_target_detail_claims_without_aggregation_lineage_fail_closed(tmp_path: Path) -> None:
+    _, observations, report = _build_chain(tmp_path, inject_target_detail_without_lineage=True)
+    with pytest.raises(
+        PhotoIdentitySourceChainError,
+        match="target-detail claims exist without persisted multi-performer aggregation lineage",
+    ):
         validate_registration_source_chain(report, observations)

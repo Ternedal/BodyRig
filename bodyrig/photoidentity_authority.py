@@ -23,6 +23,9 @@ ANALYZER_AUTHORITY: dict[tuple[str, str], frozenset[str]] = {
     ("bodyrig-photoidentity-coarse-openpose-schp-composite", "1"): frozenset(
         COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES
     ),
+    ("bodyrig-photoidentity-coarse-openpose-schp-human-target-detail-composite", "1"): frozenset(
+        COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES
+    ),
     ("bodyrig-photoidentity-coarse-openpose-schp-human-nails-composite", "1"): frozenset(
         COARSE_CAPABILITIES | OPENPOSE_CAPABILITIES | SCHP_CAPABILITIES | NAIL_CAPABILITIES
     ),
@@ -35,6 +38,9 @@ ANALYZER_AUTHORITY: dict[tuple[str, str], frozenset[str]] = {
     ),
 }
 
+# The tuple remains the canonical single-performer authority and is intentionally
+# kept stable because several tests/operators use it to build fixtures. Additional
+# authority is opt-in per domain below; it never replaces the original source path.
 DETAIL_DOMAIN_AUTHORITY: dict[str, tuple[str, str, str]] = {
     "eyes_detail": ("eyes-detail", "openpose-body25-face-hand-detail", "1"),
     "hands": ("hands-detail", "openpose-body25-face-hand-detail", "1"),
@@ -46,6 +52,15 @@ DETAIL_DOMAIN_AUTHORITY: dict[str, tuple[str, str, str]] = {
     "body_rear": ("rear-body-view", "human-source-anatomy-observability-attestation", "1"),
     "torso_chest": ("torso-chest-detail", "human-source-anatomy-observability-attestation", "1"),
     "waist_hips": ("waist-hips-detail", "human-source-anatomy-observability-attestation", "1"),
+}
+
+HUMAN_TARGET_DETAIL_AUTHORITY = ("human-reviewed-target-crop-detail-quality", "1")
+DETAIL_DOMAIN_ADDITIONAL_AUTHORITIES: dict[str, frozenset[tuple[str, str]]] = {
+    "eyes_detail": frozenset({HUMAN_TARGET_DETAIL_AUTHORITY}),
+    "hands": frozenset({HUMAN_TARGET_DETAIL_AUTHORITY}),
+    "feet": frozenset({HUMAN_TARGET_DETAIL_AUTHORITY}),
+    "hair_hairline": frozenset({HUMAN_TARGET_DETAIL_AUTHORITY}),
+    "skin_detail": frozenset({HUMAN_TARGET_DETAIL_AUTHORITY}),
 }
 
 COARSE_DOMAINS = {
@@ -118,6 +133,8 @@ def validate_authoritative_observation_evidence(value: Mapping[str, Any]) -> dic
             )
         if not isinstance(raw_claims, list):
             raise PhotoIdentityAuthorityError(f"photoidentity detail claims are not a list: {domain_name}")
+        additional_authorities = DETAIL_DOMAIN_ADDITIONAL_AUTHORITIES.get(domain_name, frozenset())
+        allowed_claim_authorities = {(claim_adapter, claim_revision), *additional_authorities}
         for raw in raw_claims:
             if not isinstance(raw, Mapping):
                 raise PhotoIdentityAuthorityError(f"photoidentity detail claim is invalid: {domain_name}")
@@ -125,11 +142,19 @@ def validate_authoritative_observation_evidence(value: Mapping[str, Any]) -> dic
                 raise PhotoIdentityAuthorityError(f"photoidentity detail claim is not source-derived: {domain_name}")
             actual_adapter = str(raw.get("adapter") or "")
             actual_revision = str(raw.get("revision") or "")
-            if (actual_adapter, actual_revision) != (claim_adapter, claim_revision):
+            if (actual_adapter, actual_revision) not in allowed_claim_authorities:
+                if not additional_authorities:
+                    # Preserve the long-standing exact failure contract for domains
+                    # that still have one and only one registered source authority.
+                    raise PhotoIdentityAuthorityError(
+                        f"photoidentity detail claim does not match registered domain authority: "
+                        f"{domain_name} requires {claim_adapter}@{claim_revision}, got "
+                        f"{actual_adapter or 'empty'}@{actual_revision or 'empty'}"
+                    )
+                allowed = ", ".join(f"{item[0]}@{item[1]}" for item in sorted(allowed_claim_authorities))
                 raise PhotoIdentityAuthorityError(
                     f"photoidentity detail claim does not match registered domain authority: "
-                    f"{domain_name} requires {claim_adapter}@{claim_revision}, got "
-                    f"{actual_adapter or 'empty'}@{actual_revision or 'empty'}"
+                    f"{domain_name} allows {allowed}, got {actual_adapter or 'empty'}@{actual_revision or 'empty'}"
                 )
     return dict(value)
 
