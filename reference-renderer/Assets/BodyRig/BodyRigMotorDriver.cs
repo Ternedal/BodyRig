@@ -190,8 +190,6 @@ namespace BodyRig.ReferenceRenderer
         private float _speechAmplitude;
         private string _lastOwnedExpressionEmotion;
         private bool _speechVisemeOwned;
-        private bool _postureOwnedPoseLastFrame;
-        private bool _sourcePostureOffsetsOwnedLastFrame;
         private bool _locomotionPoseOwnedLastFrame;
         private bool _locomotionLeftArmPoseOwnedLastFrame;
         private bool _locomotionRightArmPoseOwnedLastFrame;
@@ -300,9 +298,6 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException("Posture id is required");
             Validate01(posture.intensity, "posture.intensity");
 
-            // Frozen legacy/generic posture ids carry no source marker. Even an
-            // old id literally named "natural" remains generic and must not be
-            // reinterpreted as Movement Identity authority.
             if (string.IsNullOrWhiteSpace(posture.source))
             {
                 return;
@@ -404,9 +399,6 @@ namespace BodyRig.ReferenceRenderer
 
         private static bool GestureOwnsLeftUpperArm(GestureState gesture)
         {
-            // None of the currently supported performed gestures writes the
-            // left upper arm. Keep this explicit so future gesture additions
-            // must opt into left-arm ownership deliberately.
             return false;
         }
 
@@ -425,23 +417,6 @@ namespace BodyRig.ReferenceRenderer
                 _state.posture.id == "natural" && _state.posture.source == ObservedEmbodimentSource;
         }
 
-        private bool HasSupportedPerformedPosture()
-        {
-            if (_state == null || _state.posture == null)
-            {
-                return false;
-            }
-            if (HasSourceDerivedNaturalPosture())
-            {
-                return true;
-            }
-            if (!string.IsNullOrWhiteSpace(_state.posture.source))
-            {
-                return false;
-            }
-            return _state.posture.id == "neutral" || _state.posture.id == "upright";
-        }
-
         private void LateUpdate()
         {
             BindAvatarIfNeeded();
@@ -453,23 +428,16 @@ namespace BodyRig.ReferenceRenderer
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
             var sourceNaturalPosture = HasSourceDerivedNaturalPosture();
-            var performedPosture = HasSupportedPerformedPosture();
 
-            // Only posture owns these bind-relative offsets. Reset them while a
-            // source posture is being recomposed, or once while clearing the
-            // previous source posture. With no posture before or now, Animator/
-            // VRMA bone transforms are left untouched.
-            if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)
+            // Source-derived natural posture owns these bind-relative offsets
+            // only while it is actively performed. Recompose from bind while
+            // that authority is active; once posture is absent, stop writing so
+            // Animator/VRMA keeps the pose it evaluated for the current frame.
+            if (sourceNaturalPosture)
             {
                 RestorePostureOffsetsForFrame();
             }
-            if (_postureOwnedPoseLastFrame && !performedPosture && _spine != null)
-            {
-                _spine.localRotation = _spineBaseRotation;
-            }
 
-            // These fields are already performed values resolved by BodyRig.
-            // Raw embodiment evidence is never consumed here.
             var supportedGesture = _state.gesture != null && IsSupportedGestureId(_state.gesture.id);
             var targetGesture = supportedGesture ? _state.gesture.amplitude : 0.0f;
             var targetHead = _state.motion != null ? _state.motion.head_motion : 0.0f;
@@ -507,8 +475,6 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
             PostureRealized = ApplyPosture();
-            _postureOwnedPoseLastFrame = PostureRealized;
-            _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;
             ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
             ReleaseOwnedSpeechViseme();
@@ -545,8 +511,6 @@ namespace BodyRig.ReferenceRenderer
             _speechAmplitude = 0.0f;
             _lastOwnedExpressionEmotion = null;
             _speechVisemeOwned = false;
-            _postureOwnedPoseLastFrame = false;
-            _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
@@ -635,9 +599,6 @@ namespace BodyRig.ReferenceRenderer
             var locomotion = _state != null ? _state.locomotion : null;
             if (locomotion == null)
             {
-                // Releasing locomotion ownership means stopping BodyRig writes.
-                // Animator/VRMA has already evaluated before LateUpdate, so a
-                // bind-pose restore here would overwrite its current frame.
                 _locomotionPoseOwnedLastFrame = false;
                 _locomotionLeftArmPoseOwnedLastFrame = false;
                 _locomotionRightArmPoseOwnedLastFrame = false;
@@ -647,10 +608,6 @@ namespace BodyRig.ReferenceRenderer
             var locomotionBlend = LocomotionBlend(dt, locomotion.transition_intensity);
             if (locomotion.action == "stop")
             {
-                // Stop only settles a pose that BodyRig actually owns. A stop
-                // cue arriving over an external Animator pose must not pull it
-                // toward BodyRig's captured bind pose. Each arm is included only
-                // if the preceding gait frame actually owned that anatomical side.
                 if (_locomotionPoseOwnedLastFrame)
                 {
                     BlendLocomotionPoseToBase(
@@ -663,18 +620,12 @@ namespace BodyRig.ReferenceRenderer
 
             if (locomotion.action == "turn_left" || locomotion.action == "turn_right")
             {
-                // Turning owns root heading only. Releasing any preceding gait
-                // is a bookkeeping change, not a bind-pose write over Animator.
                 _locomotionPoseOwnedLastFrame = false;
                 _locomotionLeftArmPoseOwnedLastFrame = false;
                 _locomotionRightArmPoseOwnedLastFrame = false;
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
-                _boundAnimator.transform.Rotate(
-                    0.0f,
-                    direction * locomotion.turn_speed_degrees_per_second * dt,
-                    0.0f,
-                    Space.Self);
+                _boundAnimator.transform.Rotate(0.0f, direction * locomotion.turn_speed_degrees_per_second * dt, 0.0f, Space.Self);
                 return true;
             }
 
@@ -685,22 +636,16 @@ namespace BodyRig.ReferenceRenderer
                 return false;
             }
 
-            // cadence_spm is steps/minute. One full left/right cycle contains
-            // two steps, hence cadence / 120 cycles per second.
             var phase = Time.unscaledTime * (locomotion.cadence_spm / 120.0f) * Mathf.PI * 2.0f;
             var legWave = Mathf.Sin(phase);
             var strideDegrees = Mathf.Clamp(locomotion.stride_length_to_height * 90.0f, 0.0f, 45.0f);
             var stanceDegrees = Mathf.Clamp(locomotion.stance_width_to_height * 80.0f, 0.0f, 20.0f);
             var kneeDegrees = Mathf.Clamp(locomotion.stride_length_to_height * 70.0f, 0.0f, 35.0f);
 
-            var leftUpperTarget = _leftUpperLegBaseRotation * Quaternion.Euler(
-                legWave * strideDegrees, 0.0f, stanceDegrees);
-            var rightUpperTarget = _rightUpperLegBaseRotation * Quaternion.Euler(
-                -legWave * strideDegrees, 0.0f, -stanceDegrees);
-            var leftLowerTarget = _leftLowerLegBaseRotation * Quaternion.Euler(
-                Mathf.Max(0.0f, -legWave) * kneeDegrees, 0.0f, 0.0f);
-            var rightLowerTarget = _rightLowerLegBaseRotation * Quaternion.Euler(
-                Mathf.Max(0.0f, legWave) * kneeDegrees, 0.0f, 0.0f);
+            var leftUpperTarget = _leftUpperLegBaseRotation * Quaternion.Euler(legWave * strideDegrees, 0.0f, stanceDegrees);
+            var rightUpperTarget = _rightUpperLegBaseRotation * Quaternion.Euler(-legWave * strideDegrees, 0.0f, -stanceDegrees);
+            var leftLowerTarget = _leftLowerLegBaseRotation * Quaternion.Euler(Mathf.Max(0.0f, -legWave) * kneeDegrees, 0.0f, 0.0f);
+            var rightLowerTarget = _rightLowerLegBaseRotation * Quaternion.Euler(Mathf.Max(0.0f, legWave) * kneeDegrees, 0.0f, 0.0f);
 
             _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, leftUpperTarget, locomotionBlend);
             _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, rightUpperTarget, locomotionBlend);
@@ -709,27 +654,16 @@ namespace BodyRig.ReferenceRenderer
 
             var bounceRange = locomotion.vertical_bounce_to_height * _avatarHeight;
             var bounceOffset = Mathf.Sin(phase * 2.0f) * bounceRange * 0.5f;
-            _hips.localPosition = Vector3.Lerp(
-                _hips.localPosition,
-                _hipsBasePosition + Vector3.up * bounceOffset,
-                locomotionBlend);
+            _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition + Vector3.up * bounceOffset, locomotionBlend);
 
-            // Gesture precedence is anatomical, not all-or-nothing. A shrug
-            // owns shoulder translation only, while present/neutral own the
-            // right arm. Unsupported ids fail closed and own neither arm.
             var locomotionOwnsLeftArm = _leftUpperArm != null && !GestureOwnsLeftUpperArm(_state.gesture);
             var locomotionOwnsRightArm = _rightUpperArm != null && !GestureOwnsRightUpperArm(_state.gesture);
             if (locomotionOwnsLeftArm || locomotionOwnsRightArm)
             {
-                // Bound only the arm swings BodyRig will actually realize this
-                // frame. When both are owned, the shared scale preserves the
-                // recovered anatomical left/right ratio.
                 var maxArmSwing = Mathf.Max(
                     locomotionOwnsLeftArm ? locomotion.left_arm_swing_to_height : 0.0f,
                     locomotionOwnsRightArm ? locomotion.right_arm_swing_to_height : 0.0f);
-                var armDegreesPerHeight = maxArmSwing > 0.0001f
-                    ? Mathf.Min(90.0f, 45.0f / maxArmSwing)
-                    : 90.0f;
+                var armDegreesPerHeight = maxArmSwing > 0.0001f ? Mathf.Min(90.0f, 45.0f / maxArmSwing) : 90.0f;
                 var leftArmDegrees = locomotion.left_arm_swing_to_height * armDegreesPerHeight;
                 var rightArmDegrees = locomotion.right_arm_swing_to_height * armDegreesPerHeight;
                 if (locomotionOwnsLeftArm)
@@ -755,8 +689,6 @@ namespace BodyRig.ReferenceRenderer
             if (!IsSupportedGestureId(_state.gesture.id)) return false;
             if (_state.gesture.id == "small_shrug")
             {
-                // This gesture owns shoulder translation only. Do not reset an
-                // Animator/VRMA arm pose simply because a shrug is active.
                 var lift = 0.025f * _gestureAmplitude;
                 if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
                 if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
@@ -764,23 +696,13 @@ namespace BodyRig.ReferenceRenderer
             }
             if (_state.gesture.id == "present")
             {
-                // Present owns only the right upper/lower arm. Shoulders remain
-                // under Animator/VRMA/posture ownership for this frame.
                 if (_rightUpperArm == null || _rightLowerArm == null) return false;
-                _rightUpperArm.localRotation = _rightUpperArmBaseRotation * Quaternion.Euler(
-                    -18.0f * _gestureAmplitude,
-                    4.0f * _gestureAmplitude,
-                    -34.0f * _gestureAmplitude);
-                _rightLowerArm.localRotation = _rightLowerArmBaseRotation * Quaternion.Euler(
-                    0.0f,
-                    0.0f,
-                    -28.0f * _gestureAmplitude);
+                _rightUpperArm.localRotation = _rightUpperArmBaseRotation * Quaternion.Euler(-18.0f * _gestureAmplitude, 4.0f * _gestureAmplitude, -34.0f * _gestureAmplitude);
+                _rightLowerArm.localRotation = _rightLowerArmBaseRotation * Quaternion.Euler(0.0f, 0.0f, -28.0f * _gestureAmplitude);
                 return true;
             }
             if (_state.gesture.id == "neutral")
             {
-                // Neutral is an explicit reset request, so it may deliberately
-                // restore the gesture-owned bind-relative pose.
                 RestoreGesturePose();
                 return true;
             }
@@ -792,9 +714,6 @@ namespace BodyRig.ReferenceRenderer
             if (_head == null || _state.motion == null) return false;
             if (_state.motion.head_motion <= 0.0f)
             {
-                // A zero performed head-motion signal releases the head back to
-                // Animator/VRMA. Do not restore the captured bind rotation in
-                // LateUpdate, because that would overwrite external animation.
                 _headMotion = 0.0f;
                 return false;
             }
@@ -802,10 +721,7 @@ namespace BodyRig.ReferenceRenderer
             var speechBoost = 1.0f + 0.35f * _speechAmplitude;
             var microYaw = Mathf.Sin(t * 1.13f) * 2.0f * _headMotion * speechBoost;
             var microPitch = Mathf.Sin(t * 1.71f + 0.7f) * 1.2f * _headMotion * speechBoost;
-            _head.localRotation = Quaternion.Slerp(
-                _head.localRotation,
-                _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f),
-                0.35f);
+            _head.localRotation = Quaternion.Slerp(_head.localRotation, _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f), 0.35f);
             return true;
         }
 
@@ -814,16 +730,11 @@ namespace BodyRig.ReferenceRenderer
             if (_state.gaze == null) return false;
             if (_state.gaze.target != "user")
             {
-                // Unsupported targets fail closed and must not seed the
-                // smoothing accumulator used by a later supported user gaze.
                 _gazeStrength = 0.0f;
                 return false;
             }
             if (_state.gaze.strength <= 0.0f)
             {
-                // Explicit zero gaze releases the head immediately instead of
-                // letting a smoothed residual keep steering after BodyRig's
-                // performed gaze authority has ended.
                 _gazeStrength = 0.0f;
                 return false;
             }
@@ -832,10 +743,7 @@ namespace BodyRig.ReferenceRenderer
             if (direction.sqrMagnitude <= 0.000001f) return false;
             var worldLook = Quaternion.LookRotation(direction.normalized, Vector3.up);
             var localLook = Quaternion.Inverse(_head.parent.rotation) * worldLook;
-            _head.localRotation = Quaternion.Slerp(
-                _head.localRotation,
-                localLook,
-                Mathf.Clamp01(_gazeStrength * 0.65f));
+            _head.localRotation = Quaternion.Slerp(_head.localRotation, localLook, Mathf.Clamp01(_gazeStrength * 0.65f));
             return true;
         }
 
@@ -849,20 +757,14 @@ namespace BodyRig.ReferenceRenderer
 
         private Vector3 LocalOffsetForWorldVector(Transform target, Vector3 worldOffset)
         {
-            if (target == null || target.parent == null)
-            {
-                return worldOffset;
-            }
+            if (target == null || target.parent == null) return worldOffset;
             return target.parent.InverseTransformVector(worldOffset);
         }
 
         private bool ApplyPosture()
         {
             if (_spine == null) return false;
-            if (_state.posture == null)
-            {
-                return false;
-            }
+            if (_state.posture == null) return false;
             if (_state.posture.id == "neutral")
             {
                 _spine.localRotation = Quaternion.Slerp(_spine.localRotation, _spineBaseRotation, 0.35f);
@@ -870,30 +772,20 @@ namespace BodyRig.ReferenceRenderer
             }
             if (_state.posture.id == "upright")
             {
-                _spine.localRotation = Quaternion.Slerp(
-                    _spine.localRotation,
-                    _spineBaseRotation * Quaternion.Euler(-4.0f * _state.posture.intensity, 0.0f, 0.0f),
-                    0.35f);
+                _spine.localRotation = Quaternion.Slerp(_spine.localRotation, _spineBaseRotation * Quaternion.Euler(-4.0f * _state.posture.intensity, 0.0f, 0.0f), 0.35f);
                 return true;
             }
-            if (_state.posture.source != ObservedEmbodimentSource || _state.posture.id != "natural" ||
-                _state.version != 3 || _boundAnimator == null || _avatarHeight <= 0.0001f)
+            if (_state.posture.source != ObservedEmbodimentSource || _state.posture.id != "natural" || _state.version != 3 || _boundAnimator == null || _avatarHeight <= 0.0001f)
             {
                 return false;
             }
 
             var posture = _state.posture;
-            var torsoTarget = _spineBaseRotation * Quaternion.Euler(
-                posture.torso_forward_lean_degrees,
-                0.0f,
-                -posture.torso_right_lean_degrees);
+            var torsoTarget = _spineBaseRotation * Quaternion.Euler(posture.torso_forward_lean_degrees, 0.0f, -posture.torso_right_lean_degrees);
             _spine.localRotation = Quaternion.Slerp(_spine.localRotation, torsoTarget, 0.35f);
 
             if (_hips != null)
             {
-                // Recovery defines hip roll as rightHip.y - leftHip.y. Unity
-                // positive local Z raises the avatar's right side, so preserve
-                // that recovered sign rather than mirroring it.
                 _hips.localRotation = _hipsBaseRotation * Quaternion.Euler(0.0f, 0.0f, posture.hip_roll_degrees);
             }
 
@@ -918,17 +810,9 @@ namespace BodyRig.ReferenceRenderer
 
         private void ReleaseOwnedExpression()
         {
-            if (_state.expression != null || string.IsNullOrWhiteSpace(_lastOwnedExpressionEmotion) ||
-                avatarLoader == null || avatarLoader.Active == null)
-            {
-                return;
-            }
+            if (_state.expression != null || string.IsNullOrWhiteSpace(_lastOwnedExpressionEmotion) || avatarLoader == null || avatarLoader.Active == null) return;
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
-            if (expression == null)
-            {
-                return;
-            }
-
+            if (expression == null) return;
             switch (_lastOwnedExpressionEmotion)
             {
                 case "neutral": expression.SetWeight(ExpressionKey.Neutral, 0.0f); break;
@@ -946,9 +830,6 @@ namespace BodyRig.ReferenceRenderer
             if (_state.expression == null || avatarLoader == null || avatarLoader.Active == null) return false;
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
             if (expression == null) return false;
-
-            // Affect is one semantic channel. Validate that BodyRig understands
-            // the requested emotion before touching any renderer weights.
             switch (_state.expression.emotion)
             {
                 case "neutral":
@@ -961,17 +842,12 @@ namespace BodyRig.ReferenceRenderer
                 default:
                     return false;
             }
-
-            // A previous affect must not leak into the next performed emotion.
-            // Only affect keys are cleared here; speech visemes are a separate
-            // simultaneously-owned channel and remain untouched.
             expression.SetWeight(ExpressionKey.Neutral, 0.0f);
             expression.SetWeight(ExpressionKey.Happy, 0.0f);
             expression.SetWeight(ExpressionKey.Angry, 0.0f);
             expression.SetWeight(ExpressionKey.Sad, 0.0f);
             expression.SetWeight(ExpressionKey.Relaxed, 0.0f);
             expression.SetWeight(ExpressionKey.Surprised, 0.0f);
-
             var weight = Mathf.Clamp01(_state.expression.intensity);
             _lastOwnedExpressionEmotion = _state.expression.emotion;
             switch (_state.expression.emotion)
@@ -988,16 +864,9 @@ namespace BodyRig.ReferenceRenderer
 
         private void ReleaseOwnedSpeechViseme()
         {
-            if (_state.speech != null || !_speechVisemeOwned || avatarLoader == null || avatarLoader.Active == null)
-            {
-                return;
-            }
+            if (_state.speech != null || !_speechVisemeOwned || avatarLoader == null || avatarLoader.Active == null) return;
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
-            if (expression == null)
-            {
-                return;
-            }
-
+            if (expression == null) return;
             expression.SetWeight(ExpressionKey.Aa, 0.0f);
             expression.SetWeight(ExpressionKey.Ih, 0.0f);
             expression.SetWeight(ExpressionKey.Ou, 0.0f);
@@ -1011,10 +880,6 @@ namespace BodyRig.ReferenceRenderer
             if (_state.speech == null || avatarLoader == null || avatarLoader.Active == null) return false;
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
             if (expression == null) return false;
-
-            // Speech stop owns the viseme channel even when no specific viseme
-            // is supplied. Clear every mouth-shape weight so the last phoneme
-            // cannot remain stuck after the utterance ends.
             if (_state.speech.state == "stop")
             {
                 expression.SetWeight(ExpressionKey.Aa, 0.0f);
@@ -1025,12 +890,8 @@ namespace BodyRig.ReferenceRenderer
                 _speechVisemeOwned = false;
                 return true;
             }
-
             if (string.IsNullOrWhiteSpace(_state.speech.viseme)) return false;
             var viseme = _state.speech.viseme.ToUpperInvariant();
-
-            // Validate before mutating the viseme channel. Unsupported mouth
-            // shapes fail closed without erasing the currently valid shape.
             switch (viseme)
             {
                 case "AA":
@@ -1042,15 +903,11 @@ namespace BodyRig.ReferenceRenderer
                 default:
                     return false;
             }
-
-            // Visemes are one mutually-exclusive speech channel. Affect keys
-            // remain untouched so emotion and speech can coexist.
             expression.SetWeight(ExpressionKey.Aa, 0.0f);
             expression.SetWeight(ExpressionKey.Ih, 0.0f);
             expression.SetWeight(ExpressionKey.Ou, 0.0f);
             expression.SetWeight(ExpressionKey.Ee, 0.0f);
             expression.SetWeight(ExpressionKey.Oh, 0.0f);
-
             _speechVisemeOwned = true;
             var weight = Mathf.Clamp01(_speechAmplitude);
             switch (viseme)
@@ -1108,8 +965,6 @@ namespace BodyRig.ReferenceRenderer
             _state = null;
             _lastOwnedExpressionEmotion = null;
             _speechVisemeOwned = false;
-            _postureOwnedPoseLastFrame = false;
-            _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
