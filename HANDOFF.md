@@ -2,7 +2,7 @@
 
 # BodyRig handoff
 
-_Last updated: 2026-09-09_
+_Last updated: 2026-09-11_
 
 ## Canonical repository authority
 
@@ -16,7 +16,7 @@ Repository-setting verification is now also landed on `main`: `verify-repository
 
 `configure-repository-authority.ps1` is the canonical explicit administrator mutation helper for the current classic-protection path. From exact clean current `main`, run `./configure-repository-authority.ps1` first as a dry run; it proves local/GitHub `main` agreement, refuses unsafe composition over existing rulesets/protection and prints the exact policy. An authorized administrator may then run `./configure-repository-authority.ps1 -Apply`; the helper writes the exact six checks with per-check source binding: the five CI/regression checks use `app_id=15368`, while `CodeQL` uses `app_id=57789`. It requires `strict=true` so the branch must be up to date before merge, requires PR flow with zero mandatory approving reviewers for this solo repository, enforces admins and conversation resolution, blocks force pushes/deletion, and automatically runs `verify-repository-authority.ps1` afterward. The pinned workflow job remains `analyze (python)` and proves the scanner ran, but it is not the merge-bound security result; that authority belongs to the separate `CodeQL` result check. A successful API write without a verifier PASS is not repository authority.
 
-Repository-level enforcement itself is **not** complete: issue #138 remains open because live GitHub still reports `main` as `protected=false`. The landed admin helper does not create authority merely by existing on trunk; an authorized repository administrator must execute the apply path and obtain a live `./verify-repository-authority.ps1` PASS from exact clean current `main`. Software, CI or physical evidence cannot substitute for that administration boundary, and repository administration does not create physical/human PASS.
+Repository-level enforcement itself is **not** complete: issue #138 remains open because live GitHub still reports `main` as `protected=false` on 2026-09-11. The landed admin helper does not create authority merely by existing on trunk; an authorized repository administrator must execute the apply path and obtain a live `./verify-repository-authority.ps1` PASS from exact clean current `main`. Software, CI or physical evidence cannot substitute for that administration boundary, and repository administration does not create physical/human PASS.
 
 ## Product definition: full digital twin
 
@@ -33,10 +33,12 @@ A released digital twin is one auditable Person Revision that binds the same rea
 - VoiceRig-owned voice;
 - source-derived personality;
 - ModelRig + VoiceRig audition/review;
-- Motor State v2 motion/expression/gesture/gaze/posture/speech realization;
+- Motor State v2 motion/expression/gesture/gaze/posture/speech realization for the canonical M4/M5 digital-twin acceptance probe;
 - exact WindowsPlayer and Quest-class realization evidence.
 
 Every identity-bearing component requires explicit provenance/review authority. A component is not complete merely because it is visible in a texture or preview.
+
+**Runtime evolution after the M4 contract was frozen:** current `main` also supports BodyCue v2 + Motor State v3 for explicit source-derived locomotion (`walk`, `turn_left`, `turn_right`, `stop`). Motor State v3 requires complete Movement Identity (gait/posture/dynamics/idle) and the reference renderer fails closed on missing/malformed/type-invalid locomotion JSON. This does **not** retroactively rewrite M4's deterministic Motor State v2 acceptance probe; it is a newer runtime capability with its own compatibility boundary. See `docs/MOTOR_STATE.md` and `docs/ARCHITECTURE.md`.
 
 ## Full digital-twin software status
 
@@ -48,6 +50,8 @@ The **M1–M6 software chain is landed on `main`**. The remaining product blocke
 - **M4 — Person Revision composition:** create-only authority binding exact Person assembly/audition, M2, M3, promoted `.mrbody`, BodyPrint and deterministic Motor State v2 embodiment evidence.
 - **M5 — Windows/Quest realization:** exact-M4-bound WindowsPlayer + Quest-class realization with renderer/deformation/human-attestation lineage.
 - **M6 — canonical release:** create-only final digital-twin release; only valid M6 may set `digital_twin_ready=true` and `production_activation=true`.
+
+Current source/movement hardening on `main` additionally requires source-derived Movement Identity before high-fidelity release and carries BodyCue v2/Motor State v3 through the runtime/renderer boundary without allowing generic locomotion fallback.
 
 Operator hardening is also landed:
 
@@ -74,14 +78,16 @@ Operator hardening is also landed:
 
 The trunk contains the full high-fidelity body/avatar continuation:
 
-`Stash/source → decode-qualified + projection-safe observation → mandatory face/full-body coverage → retained reconstruction → subject anatomy candidate/audit → anatomy promotion → source hair review/deformation/promotion → eye/iris review/fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → promoted .mrbody → package-bound human review → fresh Gate A → Windows → Quest → final body release`.
+`Stash/source → source-universe + projection-safe/detail-sufficiency audit → performer isolation → retained reconstruction → subject anatomy candidate/audit → anatomy promotion → source hair review/deformation/promotion → eye/iris review/fingerprint/rebuild/promotion → face-secondary runtime/review/promotion → source-derived Movement Identity → promoted .mrbody → package-bound human review → fresh Gate A → Windows → Quest → final body release`.
+
+Source sufficiency is fail-closed. Required identity/detail views must be proved from the source universe; `source_missing` and `analyzer_cannot_prove` are blocking states, not invitations to infer the missing body detail. Multi-performer material also requires explicit track isolation/attestation before detail evidence can become authoritative.
 
 Recent anatomy work on `main` includes source/appearance diagnostics, improved texture correspondence, normal-aware subject-anatomy fitting and exact-bake bounded scoring/line search. Those machine metrics remain comparison/selection evidence; they do not manufacture a human anatomy or visual-fidelity PASS.
 
 Important boundaries:
 
 - projection-ambiguous VR/panoramic material must fail closed rather than being treated as flat-camera evidence;
-- mandatory face/full-body observation coverage must be feasible before reconstruction; bypassing the source-quality gate is not a valid production path;
+- mandatory face/full-body and detail observation coverage must be feasible before reconstruction; bypassing the source-quality gate is not a valid production path;
 - retained reconstruction must not be rerun merely to manufacture cleaner evidence;
 - preview/review artifacts are not component authority by themselves;
 - promotion does not silently mutate baseline source evidence;
@@ -162,7 +168,7 @@ The open product backlog is intentionally physical/human:
 
 One separate repository-administration blocker remains:
 
-- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances, mandatory per-check source binding for all six required checks (the five CI/regression checks to GitHub Actions app/integration ID `15368`, and `CodeQL` to GitHub Advanced Security app/integration ID `57789`), and `strict=true` so the branch must be up to date before merge. The pinned workflow job `analyze (python)` remains scanner-execution evidence but is not the merge-bound security result. Live GitHub verification on 2026-09-09 still reports `protected=false` with no active repository rulesets. From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
+- #138 protect `main` with required exact-green CI / PR-before-merge / no-force-push / no-delete / no-bypass repository rules. The read-only verifier and explicit admin helper are landed, including rejection of classic user/team/app PR-bypass allowances, mandatory per-check source binding for all six required checks (the five CI/regression checks to GitHub Actions app/integration ID `15368`, and `CodeQL` to GitHub Advanced Security app/integration ID `57789`), and `strict=true` so the branch must be up to date before merge. The pinned workflow job `analyze (python)` remains scanner-execution evidence but is not the merge-bound security result. Live GitHub verification on 2026-09-11 still reports `protected=false`. From exact clean current `main`, use `./configure-repository-authority.ps1` for the dry run and `./configure-repository-authority.ps1 -Apply` with an authorized GitHub admin identity. Mark #138 complete only after that apply path makes `./verify-repository-authority.ps1` PASS.
 
 Do not close the physical/human issues from CI, fixtures, generated screenshots or software-only evidence.
 
