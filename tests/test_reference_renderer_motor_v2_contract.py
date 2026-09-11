@@ -43,7 +43,22 @@ def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_
     # and, critically, must never create an unsolicited movement action.
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     assert "_state.embodiment" not in late_update
-    for field in _observed_schema_fields():
+    assert ".embodiment.observed" not in late_update
+    for field in (
+        "walk_cadence_spm",
+        "posture_torso_lean_degrees",
+        "posture_shoulder_tilt_degrees",
+        "posture_hip_tilt_degrees",
+        "posture_head_offset_to_height",
+        "stride_length_to_height",
+        "stance_width_to_height",
+        "vertical_bounce_to_height",
+        "arm_swing_to_height",
+        "arm_swing_asymmetry",
+        "turn_speed_degrees_per_second",
+        "transition_intensity",
+        "idle_sway_to_height",
+    ):
         assert field not in late_update
 
 
