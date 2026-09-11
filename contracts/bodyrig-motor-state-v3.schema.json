@@ -42,7 +42,7 @@
       "additionalProperties": false,
       "required": ["target", "strength"],
       "properties": {
-        "target": {"type": "string", "minLength": 1, "maxLength": 127},
+        "target": {"type": "string", "minLength": 1, "maxLength": 127, "pattern": "^(?:[^\\uD800-\\uDFFF]|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF])+$"},
         "strength": {"type": "number", "minimum": 0.0, "maximum": 1.0}
       }
     },
