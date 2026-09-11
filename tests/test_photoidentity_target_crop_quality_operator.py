@@ -18,5 +18,16 @@ def test_target_crop_quality_operator_requires_exact_human_source_review_boundar
     assert "reconstruction_permitted -ne $false" in text
     assert "production_activation -ne $false" in text
     assert "remove-item -literalpath $receiptpath" in text
-    for forbidden in ("unity", "run-windows", "quest", "reconstruct", "manager.start"):
+    # Authority reporting is expected to mention that reconstruction/production
+    # remain false. Guard only against concrete downstream operator/runtime
+    # invocations, not the descriptive word "reconstruction" itself.
+    for forbidden in (
+        "run-windows",
+        "run-quest",
+        "unity",
+        "manager.start",
+        "clone-body",
+        "run-subject-anatomy",
+        "start-revision-bound-body-build",
+    ):
         assert forbidden not in text
