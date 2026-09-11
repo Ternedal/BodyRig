@@ -74,7 +74,8 @@ def test_raw_version_and_number_tokens_are_not_broadly_trimmed() -> None:
     assert "var token = raw;" in numeric
     assert "Regex.IsMatch(raw.Trim()" not in numeric
     assert "var token = raw.Trim()" not in numeric
-    assert "Regex.IsMatch(raw, \"^(?:\" + JsonIntegerPattern" in numeric
+    assert "RequireNumericToken(raw, context);" in numeric
+    assert "JsonIntegerPattern" not in numeric
     assert "raw.Trim()," not in numeric
     # Decimal digit normalization is intentional and unrelated to JSON whitespace.
     assert "TrimStart('0')" in numeric

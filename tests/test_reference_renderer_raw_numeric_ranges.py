@@ -165,5 +165,7 @@ def test_integer_range_guard_remains_separate_from_raw_number_range_guard() -> N
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L)' in source
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in source
     integer = source[source.index("private static void RequireIntegerRangeToken") :]
-    assert "long.TryParse(" in integer
-    assert "value < minimum || value > maximum" in integer
+    assert "RequireIntegerToken(raw, context);" in integer
+    assert "CompareJsonNumberToInteger(raw, minimum) < 0" in integer
+    assert "CompareJsonNumberToInteger(raw, maximum) > 0" in integer
+    assert "long.TryParse(" not in integer

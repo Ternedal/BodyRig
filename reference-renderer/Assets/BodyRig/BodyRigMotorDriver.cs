@@ -79,7 +79,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class SpeechState
         {
             public string state;
-            public int elapsed_ms;
+            public float elapsed_ms;
             public string viseme;
             public float amplitude;
         }
@@ -143,7 +143,7 @@ namespace BodyRig.ReferenceRenderer
             public GazeState gaze;
             public PostureState posture;
             public LocomotionState locomotion;
-            public int duration_ms;
+            public float duration_ms;
             public SpeechState speech;
             public EmbodimentState embodiment;
         }
