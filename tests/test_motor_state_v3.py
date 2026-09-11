@@ -165,6 +165,18 @@ def test_v3_turn_fails_closed_when_observed_turn_speed_is_zero() -> None:
         runtime.motor_state_v3()
 
 
+def test_v3_turn_rejects_positive_speed_that_rounds_to_zero() -> None:
+    tiny_turn = deepcopy(FULL_MOVEMENT)
+    tiny_turn["motion"]["turn_speed_degrees_per_second"] = 0.00001
+    tiny_turn["motion"]["turn_speed"] = 0.00001
+    runtime = BodyRuntime()
+    runtime.activate("person-a", tiny_turn)
+    runtime.apply_cue(BodyCueV2(utterance_id="u-turn-tiny", locomotion=LocomotionCue(action="turn_left")))
+
+    with pytest.raises(ValueError, match="Motor State v3 precision"):
+        runtime.motor_state_v3()
+
+
 def test_v3_never_creates_locomotion_from_movement_identity_alone() -> None:
     runtime = BodyRuntime()
     runtime.activate("person-a", FULL_MOVEMENT)
