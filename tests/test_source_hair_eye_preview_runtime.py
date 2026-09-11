@@ -23,7 +23,10 @@ def _sha(raw: bytes) -> str:
 
 def _write_package(path: Path, bodyprint: bytes) -> Path:
     with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("avatar.vrm", b"package-avatar")
         archive.writestr("bodyprint.json", bodyprint)
+        archive.writestr("provenance.json", b"{\"pipeline\":[]}\n")
+        archive.writestr("thumbnail.png", b"thumbnail-bytes")
     return path
 
 
@@ -78,7 +81,10 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     monkeypatch.setattr(
         preview,
         "validate_package",
-        lambda path: SimpleNamespace(manifest={"id": "test-body", "name": "Test Body"}),
+        lambda path: SimpleNamespace(
+            manifest={"id": "test-body", "name": "Test Body"},
+            payload_names=("avatar.vrm", "bodyprint.json", "provenance.json", "thumbnail.png"),
+        ),
     )
     monkeypatch.setattr(preview, "validate_vrm1", lambda raw: None)
     return package, review_root, review_vrm, bodyprint
@@ -102,6 +108,8 @@ def test_materialize_binds_exact_review_avatar_and_stays_review_only(
     assert result["production_activation"] is False
     assert (destination / "avatar.vrm").read_bytes() == review_vrm
     assert (destination / "bodyprint.json").read_bytes() == bodyprint
+    assert (destination / "provenance.json").read_bytes() == b"{\"pipeline\":[]}\n"
+    assert (destination / "thumbnail.png").read_bytes() == b"thumbnail-bytes"
 
     manifest = json.loads((destination / "runtime-manifest.json").read_text(encoding="utf-8"))
     assert manifest == {
@@ -114,7 +122,7 @@ def test_materialize_binds_exact_review_avatar_and_stays_review_only(
         "avatar_sha256": _sha(review_vrm),
         "bodyprint": "bodyprint.json",
         "bodyprint_sha256": _sha(bodyprint),
-        "payloads": ["avatar.vrm", "bodyprint.json"],
+        "payloads": ["avatar.vrm", "bodyprint.json", "provenance.json", "thumbnail.png"],
     }
 
     authority = json.loads((destination / "review-runtime-authority.json").read_text(encoding="utf-8"))
@@ -131,6 +139,28 @@ def test_materialize_binds_exact_review_avatar_and_stays_review_only(
     assert authority["humanReviewRequired"] is True
     assert authority["physicalAcceptanceAuthority"] is False
     assert authority["productionActivation"] is False
+
+
+def test_preview_runtime_payload_shape_matches_canonical_renderer_contract() -> None:
+    source = Path(preview.__file__).read_text(encoding="utf-8")
+    schema = json.loads((ROOT / "contracts" / "bodyrig-runtime-assets-v1.schema.json").read_text(encoding="utf-8"))
+    payloads = schema["properties"]["payloads"]
+    assert payloads["minItems"] == 4
+    assert payloads["maxItems"] == 10
+    assert 'payload_names = tuple(validated.payload_names)' in source
+    assert '"payloads": list(payload_names)' in source
+    fidelity = FIDELITY_WRAPPER.read_text(encoding="utf-8")
+    assert '$payloads.Count -lt 4 -or $payloads.Count -gt 10' in fidelity
+    assert '$payloads.Count -ne 2' not in fidelity
+    canonical_block = fidelity[
+        fidelity.index('$canonicalPayloads = @(') :
+        fidelity.index('$seenPayloads =', fidelity.index('$canonicalPayloads = @('))
+    ]
+    import re
+    assert set(re.findall(r'"([^"]+)"', canonical_block)) == set(payloads["items"]["enum"])
+    assert '[System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)' in fidelity
+    assert '$canonicalPayloads -cnotcontains $payload' in fidelity
+    assert '$hasDuplicatePayload -or $hasUnsupportedPayload' in fidelity
 
 
 @pytest.mark.parametrize(

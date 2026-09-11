@@ -201,7 +201,21 @@ try {
             throw "Hair+eye review runtime manifest does not bind the exact review avatar/bodyprint authority."
         }
         $payloads = @($runtime.payloads | ForEach-Object { [string]$_ })
-        if ($payloads.Count -ne 2 -or ($payloads -notcontains "avatar.vrm") -or ($payloads -notcontains "bodyprint.json")) {
+        $canonicalPayloads = @(
+            "avatar.vrm","bodyprint.json","provenance.json","thumbnail.png",
+            "motions/idle.vrma","motions/walk.vrma","motions/talk.vrma",
+            "motions/gesture_01.vrma","motions/gesture_02.vrma","motions/gesture_03.vrma"
+        )
+        $seenPayloads = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $hasDuplicatePayload = $false
+        $hasUnsupportedPayload = $false
+        foreach ($payload in $payloads) {
+            if (-not $seenPayloads.Add($payload)) { $hasDuplicatePayload = $true }
+            if ($canonicalPayloads -cnotcontains $payload) { $hasUnsupportedPayload = $true }
+        }
+        if ($payloads.Count -lt 4 -or $payloads.Count -gt 10 -or
+            ($payloads -cnotcontains "avatar.vrm") -or ($payloads -cnotcontains "bodyprint.json") -or
+            $hasDuplicatePayload -or $hasUnsupportedPayload) {
             throw "Hair+eye review runtime manifest payload set is not canonical."
         }
         $reviewRuntimeAuthoritySha = (Get-FileHash -LiteralPath $reviewAuthorityPath -Algorithm SHA256).Hash.ToLowerInvariant()
