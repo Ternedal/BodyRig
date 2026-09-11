@@ -870,11 +870,49 @@ namespace BodyRig.ReferenceRenderer
         private bool ApplySpeech()
         {
             if (_state.speech == null || avatarLoader == null || avatarLoader.Active == null) return false;
-            if (string.IsNullOrWhiteSpace(_state.speech.viseme)) return _state.speech.state == "stop";
             var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
             if (expression == null) return false;
-            var weight = _state.speech.state == "stop" ? 0.0f : Mathf.Clamp01(_speechAmplitude);
-            switch (_state.speech.viseme.ToUpperInvariant())
+
+            // Speech stop owns the viseme channel even when no specific viseme
+            // is supplied. Clear every mouth-shape weight so the last phoneme
+            // cannot remain stuck after the utterance ends.
+            if (_state.speech.state == "stop")
+            {
+                expression.SetWeight(ExpressionKey.Aa, 0.0f);
+                expression.SetWeight(ExpressionKey.Ih, 0.0f);
+                expression.SetWeight(ExpressionKey.Ou, 0.0f);
+                expression.SetWeight(ExpressionKey.Ee, 0.0f);
+                expression.SetWeight(ExpressionKey.Oh, 0.0f);
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(_state.speech.viseme)) return false;
+            var viseme = _state.speech.viseme.ToUpperInvariant();
+
+            // Validate before mutating the viseme channel. Unsupported mouth
+            // shapes fail closed without erasing the currently valid shape.
+            switch (viseme)
+            {
+                case "AA":
+                case "IH":
+                case "OU":
+                case "EE":
+                case "OH":
+                    break;
+                default:
+                    return false;
+            }
+
+            // Visemes are one mutually-exclusive speech channel. Affect keys
+            // remain untouched so emotion and speech can coexist.
+            expression.SetWeight(ExpressionKey.Aa, 0.0f);
+            expression.SetWeight(ExpressionKey.Ih, 0.0f);
+            expression.SetWeight(ExpressionKey.Ou, 0.0f);
+            expression.SetWeight(ExpressionKey.Ee, 0.0f);
+            expression.SetWeight(ExpressionKey.Oh, 0.0f);
+
+            var weight = Mathf.Clamp01(_speechAmplitude);
+            switch (viseme)
             {
                 case "AA": expression.SetWeight(ExpressionKey.Aa, weight); return true;
                 case "IH": expression.SetWeight(ExpressionKey.Ih, weight); return true;
