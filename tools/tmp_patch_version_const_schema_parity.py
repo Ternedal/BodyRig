@@ -38,6 +38,22 @@ if source.count(anchor) != 1:
 source = source.replace(anchor, helper + anchor, 1)
 shim.write_text(source, encoding="utf-8")
 
+whitespace_test = repo / "tests" / "test_reference_renderer_json_whitespace_guard.py"
+whitespace = whitespace_test.read_text(encoding="utf-8")
+old_whitespace = '''    assert 'Regex.IsMatch(rawVersion, "^[123]$"' in validate
+    assert "rawVersion.Trim()" not in validate
+    assert "int.Parse(rawVersion)" in validate
+'''
+new_whitespace = '''    assert "var version = RequireMotorStateVersion(root);" in validate
+    assert "rawVersion.Trim()" not in validate
+    assert 'Regex.IsMatch(rawVersion, "^[123]$"' not in validate
+    assert "int.Parse(rawVersion)" not in validate
+    assert 'RequireNumericToken(rawVersion, "version");' in validate
+'''
+if whitespace.count(old_whitespace) != 1:
+    raise SystemExit(f"whitespace version anchor count={whitespace.count(old_whitespace)}")
+whitespace_test.write_text(whitespace.replace(old_whitespace, new_whitespace, 1), encoding="utf-8")
+
 test = repo / "tests" / "test_reference_renderer_version_schema_parity.py"
 if test.exists():
     raise SystemExit("version schema parity regression already exists")
