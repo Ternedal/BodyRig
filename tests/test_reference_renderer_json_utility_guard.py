@@ -58,7 +58,7 @@ def test_renderer_json_shim_preserves_all_jsonutility_surfaces_used_in_namespace
         if path == SHIM:
             continue
         used.update(re.findall(r"\bJsonUtility\.([A-Za-z0-9_]+)", path.read_text(encoding="utf-8")))
-    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson", "ValidateMotorStateJson"}
+    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson", "ValidateMotorStateJson", "ValidateRuntimeManifestJson"}
     generic = source.index("public static T FromJson<T>(string json)")
     assert source.index("ValidateMotorStatePresenceAndTypes(json);", generic) < source.index(
         "UnityEngine.JsonUtility.FromJson<T>(json)", generic
