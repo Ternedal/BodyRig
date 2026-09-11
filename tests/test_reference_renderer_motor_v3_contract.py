@@ -161,7 +161,10 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     assert "RestoreLocomotionPose();" not in apply_locomotion
 
     walk = apply_locomotion[apply_locomotion.index('if (locomotion.action != "walk")') :]
-    assert "var locomotionOwnsArms = _state.gesture == null" in walk
+    assert (
+        "var locomotionOwnsArms = (_state.gesture == null || !IsSupportedGestureId(_state.gesture.id))"
+        in walk
+    )
     assert "if (locomotionOwnsArms)" in walk
     assert "_locomotionPoseOwnedLastFrame = true;" in walk
     assert "_locomotionArmPoseOwnedLastFrame = locomotionOwnsArms;" in walk
