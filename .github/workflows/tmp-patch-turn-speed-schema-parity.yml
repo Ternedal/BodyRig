@@ -10,32 +10,42 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: contains(github.event.head_commit.message, '[run-turn-speed-current]')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: staging/turn-speed-schema-parity-20260911
+          ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Preserve patch generator
+        run: cp tools/tmp_patch_turn_speed_schema_parity.py /tmp/turn-speed-patch.py
+      - name: Reset to exact current-main authority
+        run: git checkout --detach 375a65e32317b1a936f842c6b51369ad04a3bfa8
       - name: Apply turn-speed schema parity fix
-        run: python tools/tmp_patch_turn_speed_schema_parity.py
+        run: python /tmp/turn-speed-patch.py
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
-      - name: Validate focused contracts
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          python -m pytest -q \
-            tests/test_reference_renderer_turn_speed_schema_parity.py \
-            tests/test_reference_renderer_raw_numeric_ranges.py \
-            tests/test_reference_renderer_motor_v3_contract.py \
-            tests/test_reference_renderer_gesture_arm_ownership_contract.py
+          python -m pytest -q
           git diff --check
-      - name: Commit real patch
+      - name: Publish clean candidate
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
             tests/test_reference_renderer_turn_speed_schema_parity.py \
             tests/test_reference_renderer_motor_v3_contract.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_turn_speed_schema_parity.py' \
+            'tests/test_reference_renderer_motor_v3_contract.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Align renderer turn-speed range with Motor State v3"
-          git push origin HEAD:staging/turn-speed-schema-parity-20260911
+          git push origin HEAD:fix/turn-speed-schema-parity-current-20260911
