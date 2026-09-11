@@ -718,12 +718,15 @@ namespace BodyRig.ReferenceRenderer
             // Release only transforms that still equal BodyRig's last applied
             // value. If Animator/VRMA already rewrote a channel this frame, its
             // value becomes the latest release baseline and is left untouched.
-            PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+            // Gesture release must happen before posture ownership observes
+            // overlapping shoulder channels. Otherwise a natural posture can
+            // retain a released shrug as its later release baseline.
             PrepareGestureOwnershipForFrame(
                 gestureOwnsLeftShoulder,
                 gestureOwnsRightShoulder,
                 gestureOwnsRightUpperArm,
                 gestureOwnsRightLowerArm);
+            PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
 
             if (sourceNaturalPosture)
             {
