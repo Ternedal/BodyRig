@@ -27,8 +27,10 @@ FULL_STYLE = {
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
+        "left_arm_swing_to_height": 0.18,
+        "right_arm_swing_to_height": 0.20,
         "arm_swing_to_height": 0.19,
-        "arm_swing_asymmetry": 0.07,
+        "arm_swing_asymmetry": 0.10,
         "turn_speed_degrees_per_second": 79.2,
         "transition_intensity": 0.31,
         "idle_sway_to_height": 0.012,
@@ -99,8 +101,10 @@ def test_v2_preserves_v1_performed_state_and_adds_observed_receipt() -> None:
             "stride_length_to_height": 0.34,
             "stance_width_to_height": 0.13,
             "vertical_bounce_to_height": 0.024,
+            "left_arm_swing_to_height": 0.18,
+            "right_arm_swing_to_height": 0.20,
             "arm_swing_to_height": 0.19,
-            "arm_swing_asymmetry": 0.07,
+            "arm_swing_asymmetry": 0.10,
             "turn_speed_degrees_per_second": 79.2,
             "transition_intensity": 0.31,
             "idle_sway_to_height": 0.012,
@@ -136,6 +140,8 @@ def test_v2_never_turns_v1_defaults_into_personal_observations() -> None:
     assert "gesture_frequency" not in v2["embodiment"]["observed"]
     assert "walk_cadence_spm" not in v2["embodiment"]["observed"]
     assert "stride_length_to_height" not in v2["embodiment"]["observed"]
+    assert "left_arm_swing_to_height" not in v2["embodiment"]["observed"]
+    assert "right_arm_swing_to_height" not in v2["embodiment"]["observed"]
     assert "posture_torso_forward_lean_degrees" not in v2["embodiment"]["observed"]
     assert "blink_rate_per_min" not in v2["embodiment"]["observed"]
 
