@@ -50,11 +50,13 @@ def test_driver_uses_raw_semantic_version_after_unity_deserialization() -> None:
     raw_call = "var validatedVersion = JsonUtility.ValidateMotorStateJson(json);"
     unity_call = "var next = JsonUtility.FromJson<MotorState>(json);"
     assign = "next.version = validatedVersion;"
+    posture_call = "ValidatePosture(next.posture, validatedVersion);"
     assert raw_call in apply
     assert unity_call in apply
     assert assign in apply
+    assert posture_call in apply
     assert apply.index(raw_call) < apply.index(unity_call) < apply.index(assign)
     assert "next.version != 1" not in apply
     assert apply.index(assign) < apply.index("if (next.version == 1 && next.embodiment != null)")
     assert apply.index(assign) < apply.index("if (next.version < 3 && next.locomotion != null)")
-    assert apply.index(assign) < apply.index("ValidatePosture(next.posture, next.version);")
+    assert apply.index(assign) < apply.index(posture_call)
