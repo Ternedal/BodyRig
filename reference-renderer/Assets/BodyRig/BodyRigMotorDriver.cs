@@ -680,11 +680,13 @@ namespace BodyRig.ReferenceRenderer
                 _hipsBasePosition + Vector3.up * bounceOffset,
                 locomotionBlend);
 
-            // A simultaneous explicit gesture owns the arms. Otherwise each
-            // anatomical arm follows its own already-performed v3 amplitude.
-            // One shared safety scale bounds the larger arm to 45 degrees while
-            // preserving the anatomical left/right ordering and ratio.
-            var locomotionOwnsArms = _state.gesture == null && _leftUpperArm != null && _rightUpperArm != null;
+            // A simultaneous explicit supported gesture owns the arms.
+            // Unsupported gesture ids fail closed and therefore do not steal
+            // arm ownership from otherwise valid performed walk locomotion.
+            // Otherwise each anatomical arm follows its own already-performed
+            // v3 amplitude. One shared safety scale bounds the larger arm to
+            // 45 degrees while preserving the anatomical left/right ratio.
+            var locomotionOwnsArms = (_state.gesture == null || !IsSupportedGestureId(_state.gesture.id)) && _leftUpperArm != null && _rightUpperArm != null;
             if (locomotionOwnsArms)
             {
                 var maxArmSwing = Mathf.Max(
