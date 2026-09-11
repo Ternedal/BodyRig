@@ -163,8 +163,8 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     source = SHIM.read_text(encoding="utf-8")
     helper = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static void RequireNumericMember")]
     assert "var value = RequireStringMember(members, field, context);" in helper
-    assert 'CountUnicodeScalars(value, context + "." + field)' in helper
-    assert "scalarLength < minimumLength || scalarLength > maximumLength" in helper
+    assert "CountJsonCodePoints(value)" in helper
+    assert "codePointLength < minimumLength || codePointLength > maximumLength" in helper
     assert "value.Length < minimumLength" not in helper
     assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in helper
     assert 'private const string BodyIdPattern = @"\\A[a-z0-9æøå_-]+\\z";' in source
@@ -181,20 +181,33 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     assert "ReadJsonString(raw, ref index" in source
 
 
-def test_schema_string_length_counts_unicode_scalars_and_rejects_unpaired_surrogates() -> None:
+def test_schema_string_length_counts_json_code_points_including_lone_surrogates() -> None:
     source = SHIM.read_text(encoding="utf-8")
-    helper = source[source.index("private static int CountUnicodeScalars") : source.index("private static void RequireNumericMember")]
+    helper = source[source.index("private static int CountJsonCodePoints") : source.index("private static void RequireNumericMember")]
     assert "for (var index = 0; index < value.Length; index++)" in helper
-    assert "char.IsHighSurrogate(current)" in helper
+    assert "char.IsHighSurrogate(value[index])" in helper
+    assert "index + 1 < value.Length" in helper
     assert "char.IsLowSurrogate(value[index + 1])" in helper
     assert "index++;" in helper
     assert "count++;" in helper
-    assert "unpaired high surrogate" in helper
-    assert "char.IsLowSurrogate(current)" in helper
-    assert "unpaired low surrogate" in helper
-    constrained = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static int CountUnicodeScalars")]
-    assert "var scalarLength = CountUnicodeScalars(value" in constrained
-    assert "Unicode scalars" in constrained
+    assert "throw" not in helper
+    assert "unpaired" not in helper
+    constrained = source[source.index("private static string RequireConstrainedStringMember") : source.index("private static int CountJsonCodePoints")]
+    assert "var codePointLength = CountJsonCodePoints(value);" in constrained
+    assert "JSON code points" in constrained
+
+
+def test_json_code_point_counter_combines_valid_pairs_without_rejecting_lone_surrogates() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[source.index("private static int CountJsonCodePoints") : source.index("private static void RequireNumericMember")]
+    assert "char.IsHighSurrogate(value[index])" in helper
+    assert "char.IsLowSurrogate(value[index + 1])" in helper
+    assert "index++;" in helper
+    assert "count++;" in helper
+    assert "throw" not in helper
+    # RFC 8259 grammar permits escaped lone surrogate code points; the length
+    # boundary must count them rather than invent a scalar-only restriction.
+    assert "IsLowSurrogate(value[index])" not in helper
 
 
 def test_schema_string_limits_match_guard_constants_and_calls() -> None:
