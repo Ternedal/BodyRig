@@ -134,10 +134,10 @@ def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> N
     assert 'RequireStringMember(root, "body_id", "root")' in validate
     assert 'RequireStringMember(root, "utterance_id", "root")' in validate
     assert 'ValidateDuration(root);' in validate
-    assert 'RequireIntegerToken(raw, "duration_ms")' in validate
+    assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L)' in validate
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
     assert 'RequireStringMember(fields, "state", "speech")' in speech
-    assert 'RequireIntegerMember(fields, "elapsed_ms", "speech")' in speech
+    assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in speech
     assert 'RequireStringMember(fields, "viseme", "speech")' in speech
     assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
 
@@ -182,3 +182,13 @@ def test_driver_still_routes_motor_state_through_guard_and_preserves_post_merge_
     assert "next.speech.elapsed_ms > 3600000" in driver
     assert "IsSupportedExpressionEmotion" in driver
     assert "IsSupportedSpeechViseme" in driver
+
+
+def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[source.index("private static void RequireIntegerRangeToken") :]
+    assert "long.TryParse(" in helper
+    assert "NumberStyles.AllowLeadingSign" in helper
+    assert "CultureInfo.InvariantCulture" in helper
+    assert "value < minimum || value > maximum" in helper
+    assert "ArgumentOutOfRangeException" in helper
