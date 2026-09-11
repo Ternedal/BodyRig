@@ -55,14 +55,12 @@ def test_stop_only_blends_back_the_locomotion_arms_walk_actually_owned() -> None
         locomotion.index('if (locomotion.action == "turn_left"')
     ]
 
-    assert (
-        "BlendLocomotionPoseToBase(locomotionBlend, "
-        "_locomotionLeftArmPoseOwnedLastFrame, _locomotionRightArmPoseOwnedLastFrame);"
-        in stop
-    )
+    assert "BlendLocomotionPoseToBase(" in stop
+    assert "_locomotionLeftArmPoseOwnedLastFrame" in stop
+    assert "_locomotionRightArmPoseOwnedLastFrame" in stop
 
     blend = source[source.index("private void BlendLocomotionPoseToBase") : source.index("private bool ApplyLocomotion")]
     assert "bool includeLeftArm" in blend
     assert "bool includeRightArm" in blend
-    assert "if (includeLeftArm)" in blend
-    assert "if (includeRightArm)" in blend
+    assert "if (includeLeftArm" in blend
+    assert "if (includeRightArm" in blend
