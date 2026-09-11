@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from bodyrig.movement_identity import MovementIdentityError, inspect_movement_identity, require_movement_identity
+from bodyrig.package import MRBodyError, validate_bodyprint
 
 
 def _bodyprint() -> dict:
@@ -38,6 +39,22 @@ def test_complete_source_derived_movement_identity_passes() -> None:
     assert result["complete"] is True
     assert result["missing_fields"] == []
     assert result["coverage"]["gait_step_events"] == 6
+
+
+def test_integral_float_counts_from_multisource_aggregation_remain_valid() -> None:
+    bodyprint = _bodyprint()
+    bodyprint["motion"]["movement_observed_frames"] = 48.0
+    bodyprint["motion"]["gait_step_events"] = 6.0
+    validate_bodyprint(bodyprint)
+    assert require_movement_identity(bodyprint)["complete"] is True
+
+
+def test_fractional_observation_counts_are_rejected() -> None:
+    bodyprint = _bodyprint()
+    bodyprint["motion"]["gait_step_events"] = 6.5
+    with pytest.raises(MRBodyError, match="integral observation count"):
+        validate_bodyprint(bodyprint)
+    assert inspect_movement_identity(bodyprint)["complete"] is False
 
 
 def test_missing_gait_cannot_be_called_complete() -> None:
