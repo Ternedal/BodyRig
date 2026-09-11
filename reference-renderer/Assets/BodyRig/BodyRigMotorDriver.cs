@@ -455,7 +455,14 @@ namespace BodyRig.ReferenceRenderer
             _gestureAmplitude = Mathf.Lerp(_gestureAmplitude, targetGesture, blend);
             _headMotion = Mathf.Lerp(_headMotion, targetHead, blend);
             _gazeStrength = Mathf.Lerp(_gazeStrength, targetGaze, blend);
-            _speechAmplitude = Mathf.Lerp(_speechAmplitude, targetSpeech, blend);
+            if (_state.speech == null || _state.speech.state == "stop")
+            {
+                _speechAmplitude = 0.0f;
+            }
+            else
+            {
+                _speechAmplitude = Mathf.Lerp(_speechAmplitude, targetSpeech, blend);
+            }
 
             LocomotionRealized = ApplyLocomotion(dt);
             MotionRealized = ApplyHeadMotion();
