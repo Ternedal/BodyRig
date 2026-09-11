@@ -16,8 +16,10 @@ def test_new_cue_without_emotion_produces_current_state_without_expression() -> 
     runtime.apply_cue(BodyCue(utterance_id="u-emotion", emotion="happy"))
     assert runtime.motor_state()["expression"]["emotion"] == "happy"
 
-    runtime.apply_cue(BodyCue(utterance_id="u-no-emotion"))
-    assert "expression" not in runtime.motor_state()
+    runtime.apply_cue(BodyCue(utterance_id="u-no-emotion", gaze="user"))
+    motor = runtime.motor_state()
+    assert "expression" not in motor
+    assert motor["gaze"]["target"] == "user"
 
 
 def test_missing_expression_releases_only_last_bodyrig_owned_affect() -> None:
