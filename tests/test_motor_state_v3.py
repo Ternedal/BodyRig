@@ -156,6 +156,7 @@ def test_v3_explicit_natural_posture_uses_signed_source_identity() -> None:
     state = runtime.motor_state_v3()
     assert state["posture"] == {
         "id": "natural",
+        "source": "modelrig-bodyprint-v1",
         "intensity": 1.0,
         "torso_forward_lean_degrees": 4.8,
         "torso_right_lean_degrees": -1.2,
@@ -174,6 +175,7 @@ def test_v3_natural_posture_intensity_blends_performed_values_toward_neutral() -
     runtime.apply_cue(BodyCueV2(utterance_id="u-posture-half", posture="natural", intensity=0.5))
 
     posture = runtime.motor_state_v3()["posture"]
+    assert posture["source"] == "modelrig-bodyprint-v1"
     assert posture["intensity"] == 0.5
     assert posture["torso_forward_lean_degrees"] == 2.4
     assert posture["torso_right_lean_degrees"] == -0.6
@@ -181,6 +183,16 @@ def test_v3_natural_posture_intensity_blends_performed_values_toward_neutral() -
     assert posture["hip_roll_degrees"] == -0.4
     assert posture["head_forward_offset_to_height"] == 0.018
     assert posture["head_right_offset_to_height"] == 0.0095
+
+
+def test_v1_natural_posture_id_remains_generic_when_routed_through_v3() -> None:
+    runtime = BodyRuntime()
+    runtime.activate("person-a", FULL_MOVEMENT)
+    runtime.apply_cue(BodyCue(utterance_id="u-legacy-natural", posture="natural", intensity=0.6))
+
+    state = runtime.motor_state_v3()
+    assert state["posture"] == {"id": "natural", "intensity": 0.6}
+    assert "source" not in state["posture"]
 
 
 def test_v3_locomotion_fails_closed_without_complete_movement_identity() -> None:
