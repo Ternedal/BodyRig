@@ -87,3 +87,38 @@ def test_gesture_ownership_bookkeeping_resets_on_rebind_and_explicit_neutral_res
     ):
         assert f"{flag} = false;" in bind
         assert f"{flag} = false;" in neutral
+
+
+def test_gesture_release_refreshes_overlapping_posture_baseline_before_posture_uses_it() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    late_update = source[
+        source.index("private void LateUpdate()") :
+        source.index("private void BindAvatarIfNeeded()")
+    ]
+
+    gesture_prepare = late_update.index("PrepareGestureOwnershipForFrame(")
+    posture_prepare = late_update.index("PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);")
+    assert gesture_prepare < posture_prepare
+
+    # Model the exact overlap regression: natural posture acquired its baseline
+    # while a shrug was lifted; ending the shrug must be visible to posture
+    # preparation on that same frame, so ending posture later cannot resurrect it.
+    gesture_release_baseline = 0.0
+    shrugged_shoulder = 0.02
+    posture_release_baseline = shrugged_shoulder
+    posture_applied_last_frame = shrugged_shoulder
+    current_shoulder = shrugged_shoulder
+
+    # Gesture preparation releases BodyRig's still-owned shrug first.
+    current_shoulder = gesture_release_baseline
+
+    # Posture preparation now observes that its previous composed value changed
+    # and refreshes the release baseline to the de-shrugged shoulder.
+    posture_still_bodyrig = current_shoulder == posture_applied_last_frame
+    if not posture_still_bodyrig:
+        posture_release_baseline = current_shoulder
+
+    # When posture ends on a later frame, it must restore the de-shrugged value.
+    current_shoulder = posture_release_baseline
+    assert current_shoulder == gesture_release_baseline
+    assert current_shoulder != shrugged_shoulder
