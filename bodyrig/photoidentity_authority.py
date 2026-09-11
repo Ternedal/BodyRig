@@ -133,10 +133,8 @@ def validate_authoritative_observation_evidence(value: Mapping[str, Any]) -> dic
             )
         if not isinstance(raw_claims, list):
             raise PhotoIdentityAuthorityError(f"photoidentity detail claims are not a list: {domain_name}")
-        allowed_claim_authorities = {
-            (claim_adapter, claim_revision),
-            *DETAIL_DOMAIN_ADDITIONAL_AUTHORITIES.get(domain_name, frozenset()),
-        }
+        additional_authorities = DETAIL_DOMAIN_ADDITIONAL_AUTHORITIES.get(domain_name, frozenset())
+        allowed_claim_authorities = {(claim_adapter, claim_revision), *additional_authorities}
         for raw in raw_claims:
             if not isinstance(raw, Mapping):
                 raise PhotoIdentityAuthorityError(f"photoidentity detail claim is invalid: {domain_name}")
@@ -145,6 +143,14 @@ def validate_authoritative_observation_evidence(value: Mapping[str, Any]) -> dic
             actual_adapter = str(raw.get("adapter") or "")
             actual_revision = str(raw.get("revision") or "")
             if (actual_adapter, actual_revision) not in allowed_claim_authorities:
+                if not additional_authorities:
+                    # Preserve the long-standing exact failure contract for domains
+                    # that still have one and only one registered source authority.
+                    raise PhotoIdentityAuthorityError(
+                        f"photoidentity detail claim does not match registered domain authority: "
+                        f"{domain_name} requires {claim_adapter}@{claim_revision}, got "
+                        f"{actual_adapter or 'empty'}@{actual_revision or 'empty'}"
+                    )
                 allowed = ", ".join(f"{item[0]}@{item[1]}" for item in sorted(allowed_claim_authorities))
                 raise PhotoIdentityAuthorityError(
                     f"photoidentity detail claim does not match registered domain authority: "
