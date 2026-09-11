@@ -37,7 +37,11 @@ def _schema_required_by_action() -> dict[str, set[str]]:
 def _schema_posture_required() -> tuple[set[str], set[str]]:
     contract = json.loads(MOTOR_V3.read_text(encoding="utf-8"))
     variants = contract["properties"]["posture"]["oneOf"]
-    natural = next(item for item in variants if item["properties"]["id"].get("const") == "natural")
+    natural = next(
+        item
+        for item in variants
+        if item["properties"].get("source", {}).get("const") == "modelrig-bodyprint-v1"
+    )
     generic = next(item for item in variants if item is not natural)
     return set(generic["required"]), set(natural["required"])
 
@@ -84,6 +88,9 @@ def test_v3_presence_guard_rejects_missing_extra_duplicate_and_wrong_type_fields
     assert "LocomotionObjectPattern.Match(json)" in source
     assert "PosturePropertyPattern.IsMatch(json)" in source
     assert "PostureObjectPattern.Match(json)" in source
+    assert "PostureSourcePattern" in source
+    assert 'fields.Contains("source")' in source
+    assert 'id != "natural" || !PostureSourcePattern.IsMatch(body)' in source
     assert "CollectUniqueFields" in source
     assert "actual.Count != expected.Length" in source
     assert "if (!actual.Contains(field))" in source
@@ -92,15 +99,31 @@ def test_v3_presence_guard_rejects_missing_extra_duplicate_and_wrong_type_fields
 
     # Unity can erase both absence and structural type mismatches into numeric
     # zero. The raw guard therefore also requires every non-string field to be
-    # an actual JSON number token before deserialization.
+    # an actual JSON number token before deserialization. The source marker is
+    # separately pinned to the exact BodyPrint authority string.
     assert "JsonNumberPattern" in source
     assert 'RequireNumericFields(body, WalkLocomotionFields, action, "action");' in source
     assert 'RequireNumericFields(body, TurnLocomotionFields, action, "action");' in source
     assert 'RequireNumericFields(body, StopLocomotionFields, action, "action");' in source
-    assert 'RequireNumericFields(body, NaturalPostureFields, "posture natural", "id");' in source
+    assert (
+        'RequireNumericFields(body, NaturalPostureFields, "source-derived natural posture", "id", "source");'
+        in source
+    )
     assert 'RequireNumericFields(body, GenericPostureFields' in source
+    assert "Array.IndexOf(stringFields, field) >= 0" in source
     assert "Regex.Escape(field)" in source
     assert "requires numeric field" in source
+
+
+def test_v3_presence_guard_keeps_legacy_natural_posture_generic_without_source_marker() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    posture = source[
+        source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")
+    ]
+
+    assert 'if (fields.Contains("source"))' in posture
+    assert 'RequireExactFields(fields, GenericPostureFields, $"posture {id}");' in posture
+    assert 'old id literally named "natural" is not source authority' in posture
 
 
 def test_v3_presence_guard_runs_before_unity_erases_missing_numeric_presence() -> None:
@@ -124,8 +147,12 @@ def test_v3_optional_action_objects_remain_optional() -> None:
     validate = source[source.index("private static void ValidateMotorStateV3PresenceAndTypes") :]
     assert "ValidatePosture(json);" in validate
     assert "ValidateLocomotion(json);" in validate
-    posture = source[source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")]
-    locomotion = source[source.index("private static void ValidateLocomotion") : source.index("private static HashSet<string>")]
+    posture = source[
+        source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")
+    ]
+    locomotion = source[
+        source.index("private static void ValidateLocomotion") : source.index("private static HashSet<string>")
+    ]
     assert "if (!PosturePropertyPattern.IsMatch(json))" in posture
     assert "return;" in posture
     assert "if (!LocomotionPropertyPattern.IsMatch(json))" in locomotion
