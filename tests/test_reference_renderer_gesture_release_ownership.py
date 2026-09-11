@@ -84,41 +84,64 @@ def test_gesture_ownership_bookkeeping_resets_on_rebind_and_explicit_neutral_res
         "_gestureRightShoulderOwnedLastFrame",
         "_gestureRightUpperArmOwnedLastFrame",
         "_gestureRightLowerArmOwnedLastFrame",
+        "_shoulderOwnershipOrderKnown",
+        "_gestureShoulderLayerPrecedesPosture",
     ):
         assert f"{flag} = false;" in bind
         assert f"{flag} = false;" in neutral
 
 
-def test_gesture_release_refreshes_overlapping_posture_baseline_before_posture_uses_it() -> None:
+def test_overlapping_shoulder_release_preserves_layer_acquisition_order() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     late_update = source[
         source.index("private void LateUpdate()") :
         source.index("private void BindAvatarIfNeeded()")
     ]
 
-    gesture_prepare = late_update.index("PrepareGestureOwnershipForFrame(")
-    posture_prepare = late_update.index("PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);")
-    assert gesture_prepare < posture_prepare
+    assert "var gestureShouldersOwnedLastFrame =" in late_update
+    assert "_gestureLeftShoulderOwnedLastFrame || _gestureRightShoulderOwnedLastFrame" in late_update
+    assert "var postureShouldersOwnedLastFrame = _sourcePostureOffsetsOwnedLastFrame;" in late_update
+    assert "var gestureOwnsShoulders = gestureOwnsLeftShoulder || gestureOwnsRightShoulder;" in late_update
+    assert "var postureOwnsShoulders = sourceNaturalPosture &&" in late_update
+    assert "if (gestureOwnsShoulders && postureOwnsShoulders && !_shoulderOwnershipOrderKnown)" in late_update
+    assert "gestureShouldersOwnedLastFrame && !postureShouldersOwnedLastFrame" in late_update
+    assert "postureShouldersOwnedLastFrame && !gestureShouldersOwnedLastFrame" in late_update
+    assert "_gestureShoulderLayerPrecedesPosture = true;" in late_update
+    assert "_gestureShoulderLayerPrecedesPosture = false;" in late_update
+    assert "_shoulderOwnershipOrderKnown = true;" in late_update
+    assert "if (_shoulderOwnershipOrderKnown && !_gestureShoulderLayerPrecedesPosture)" in late_update
+    assert "PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);" in late_update
+    assert "PrepareGestureOwnershipForFrame(" in late_update
+    assert "if (!(gestureShouldersOwnedAfterCommit && postureShouldersOwnedAfterCommit))" in late_update
+    assert "_shoulderOwnershipOrderKnown = false;" in late_update
 
-    # Model the exact overlap regression: natural posture acquired its baseline
-    # while a shrug was lifted; ending the shrug must be visible to posture
-    # preparation on that same frame, so ending posture later cannot resurrect it.
-    gesture_release_baseline = 0.0
-    shrugged_shoulder = 0.02
-    posture_release_baseline = shrugged_shoulder
-    posture_applied_last_frame = shrugged_shoulder
-    current_shoulder = shrugged_shoulder
+    # Gesture-first acquisition: release shrug before posture observes the shared
+    # shoulder, so posture refreshes its release baseline to the de-shrugged pose.
+    external = 0.0
+    shrugged = 0.02
+    gesture_release = external
+    posture_release = shrugged
+    composed_last_frame = shrugged
+    current = shrugged
+    current = gesture_release
+    if current != composed_last_frame:
+        posture_release = current
+    assert posture_release == external
 
-    # Gesture preparation releases BodyRig's still-owned shrug first.
-    current_shoulder = gesture_release_baseline
-
-    # Posture preparation now observes that its previous composed value changed
-    # and refreshes the release baseline to the de-shrugged shoulder.
-    posture_still_bodyrig = current_shoulder == posture_applied_last_frame
+    # Posture-first acquisition: posture must inspect its still-composed value
+    # before gesture release restores the posture-applied baseline. Otherwise
+    # posture would mistake the gesture release for an external rewrite and keep
+    # the posture offset forever.
+    external = 0.0
+    postured = 0.01
+    posture_release = external
+    posture_applied_last_frame = postured
+    gesture_release = postured
+    current = postured
+    posture_still_bodyrig = current == posture_applied_last_frame
     if not posture_still_bodyrig:
-        posture_release_baseline = current_shoulder
-
-    # When posture ends on a later frame, it must restore the de-shrugged value.
-    current_shoulder = posture_release_baseline
-    assert current_shoulder == gesture_release_baseline
-    assert current_shoulder != shrugged_shoulder
+        posture_release = current
+    current = gesture_release
+    assert current == postured
+    current = posture_release
+    assert current == external
