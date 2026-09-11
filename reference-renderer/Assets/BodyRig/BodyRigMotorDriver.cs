@@ -189,6 +189,7 @@ namespace BodyRig.ReferenceRenderer
         private float _gazeStrength;
         private float _speechAmplitude;
         private string _lastOwnedExpressionEmotion;
+        private bool _speechVisemeOwned;
         private bool _postureOwnedPoseLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private bool _locomotionPoseOwnedLastFrame;
@@ -465,6 +466,7 @@ namespace BodyRig.ReferenceRenderer
             _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;
             ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
+            ReleaseOwnedSpeechViseme();
             SpeechTimingRealized = ApplySpeech();
             RealizationFrameCount++;
         }
@@ -497,6 +499,7 @@ namespace BodyRig.ReferenceRenderer
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
             _lastOwnedExpressionEmotion = null;
+            _speechVisemeOwned = false;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
@@ -918,6 +921,26 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
+        private void ReleaseOwnedSpeechViseme()
+        {
+            if (_state.speech != null || !_speechVisemeOwned || avatarLoader == null || avatarLoader.Active == null)
+            {
+                return;
+            }
+            var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
+            if (expression == null)
+            {
+                return;
+            }
+
+            expression.SetWeight(ExpressionKey.Aa, 0.0f);
+            expression.SetWeight(ExpressionKey.Ih, 0.0f);
+            expression.SetWeight(ExpressionKey.Ou, 0.0f);
+            expression.SetWeight(ExpressionKey.Ee, 0.0f);
+            expression.SetWeight(ExpressionKey.Oh, 0.0f);
+            _speechVisemeOwned = false;
+        }
+
         private bool ApplySpeech()
         {
             if (_state.speech == null || avatarLoader == null || avatarLoader.Active == null) return false;
@@ -934,6 +957,7 @@ namespace BodyRig.ReferenceRenderer
                 expression.SetWeight(ExpressionKey.Ou, 0.0f);
                 expression.SetWeight(ExpressionKey.Ee, 0.0f);
                 expression.SetWeight(ExpressionKey.Oh, 0.0f);
+                _speechVisemeOwned = false;
                 return true;
             }
 
@@ -962,6 +986,7 @@ namespace BodyRig.ReferenceRenderer
             expression.SetWeight(ExpressionKey.Ee, 0.0f);
             expression.SetWeight(ExpressionKey.Oh, 0.0f);
 
+            _speechVisemeOwned = true;
             var weight = Mathf.Clamp01(_speechAmplitude);
             switch (viseme)
             {
@@ -1017,6 +1042,7 @@ namespace BodyRig.ReferenceRenderer
             }
             _state = null;
             _lastOwnedExpressionEmotion = null;
+            _speechVisemeOwned = false;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
