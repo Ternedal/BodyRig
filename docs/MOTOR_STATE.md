@@ -2,22 +2,19 @@
 
 ModelRig owns **what** the assistant means to express. BodyRig owns **how this body performs it**.
 
-The boundary is deliberately two-stage:
+The boundary is deliberately two-stage and renderer-neutral:
 
-```text
-ModelRig BodyCue
-    semantic: thoughtful + small_shrug + gaze=user
-                     |
-                     v
-               BodyRig runtime
-               + active BodyPrint
-                     |
-                     v
-BodyRig Motor State
-    performed gesture amplitude, head motion, gaze strength, speech motion
-                     |
-                     v
-              renderer / Kaliv / VR
+```mermaid
+flowchart LR
+    C["ModelRig BodyCue\nsemantic expression / gesture / gaze\nBodyCue v2 may add explicit locomotion"]
+    BP["Active BodyPrint\n+ source-derived Movement Identity"]
+    BR["BodyRig runtime\nsemantic → performed resolution"]
+    MS["BodyRig Motor State\nv1/v2/v3\nperformed values"]
+    R["renderer / Kaliv / VR\nengine-specific realization only"]
+
+    C --> BR
+    BP --> BR
+    BR --> MS --> R
 ```
 
 A renderer must not need the original recovery model or source videos.
@@ -172,6 +169,8 @@ The reference Unity renderer consumes only the performed `locomotion` object fro
 `walk` is deliberately realized as an **in-place gait cycle**. Cadence controls cycle timing; stride and stance control leg motion; vertical bounce controls hips displacement relative to avatar height; and arm swing controls the upper arms unless an explicit gesture is simultaneously active. The renderer does not translate the avatar through world space because BodyCue v2 does not specify a destination, heading, or distance. Inventing those values would exceed the semantic contract.
 
 `turn_left` and `turn_right` are different: direction is explicit in the cue, so the renderer may rotate the avatar using the already-performed turn rate. `stop` blends the gait pose back toward the bound neutral pose while preserving the avatar's world orientation.
+
+The v3 renderer/runtime boundary is strict about JSON shape as well as semantics. A missing `locomotion` object, a malformed object, missing required fields or type-invalid locomotion values fail closed. The renderer does not repair the payload with defaults, because that would turn transport corruption into invented body behavior.
 
 ## VoiceRig synchronization
 
