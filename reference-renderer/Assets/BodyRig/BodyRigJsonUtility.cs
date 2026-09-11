@@ -227,13 +227,17 @@ namespace BodyRig.ReferenceRenderer
 
         private static void ValidateMotorStatePresenceAndTypes(string json)
         {
-            if (string.IsNullOrWhiteSpace(json))
+            if (string.IsNullOrEmpty(json))
             {
                 return;
             }
 
             var probeIndex = 0;
             SkipWhitespace(json, ref probeIndex);
+            if (probeIndex < json.Length && IsNonJsonWhitespace(json[probeIndex]))
+            {
+                throw new ArgumentException("Motor State JSON contains non-RFC whitespace");
+            }
             if (probeIndex >= json.Length || json[probeIndex] != '{')
             {
                 return;
@@ -250,11 +254,11 @@ namespace BodyRig.ReferenceRenderer
             }
 
             if (!root.TryGetValue("version", out var rawVersion) ||
-                !Regex.IsMatch(rawVersion.Trim(), "^[123]$", RegexOptions.CultureInvariant))
+                !Regex.IsMatch(rawVersion, "^[123]$", RegexOptions.CultureInvariant))
             {
                 throw new ArgumentException("Motor State requires integer version 1, 2, or 3");
             }
-            var version = int.Parse(rawVersion.Trim());
+            var version = int.Parse(rawVersion);
 
             RequireAllowedFields(root, RootFieldsForVersion(version), $"root v{version}");
             RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern);
@@ -661,7 +665,7 @@ namespace BodyRig.ReferenceRenderer
 
             var start = index;
             while (index < json.Length &&
-                   !char.IsWhiteSpace(json[index]) &&
+                   !IsJsonWhitespace(json[index]) &&
                    json[index] != ',' && json[index] != '}' && json[index] != ']')
             {
                 index++;
@@ -791,14 +795,24 @@ namespace BodyRig.ReferenceRenderer
             return -1;
         }
 
+        private static bool IsJsonWhitespace(char value)
+        {
+            return value == ' ' || value == '\t' || value == '\n' || value == '\r';
+        }
+
+        private static bool IsNonJsonWhitespace(char value)
+        {
+            return char.IsWhiteSpace(value) && !IsJsonWhitespace(value);
+        }
+
         private static void SkipWhitespace(string json, ref int index)
         {
-            while (index < json.Length && char.IsWhiteSpace(json[index])) index++;
+            while (index < json.Length && IsJsonWhitespace(json[index])) index++;
         }
 
         private static void EnsureOnlyTrailingWhitespace(string json, int index, string context)
         {
-            while (index < json.Length && char.IsWhiteSpace(json[index])) index++;
+            while (index < json.Length && IsJsonWhitespace(json[index])) index++;
             if (index != json.Length)
             {
                 throw new ArgumentException($"Motor State {context} has trailing JSON content");
@@ -944,7 +958,7 @@ namespace BodyRig.ReferenceRenderer
 
         private static void RequireNumericToken(string raw, string context)
         {
-            if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonNumberPattern + ")$", RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(raw, "^(?:" + JsonNumberPattern + ")$", RegexOptions.CultureInvariant))
             {
                 throw new ArgumentException($"Motor State {context} requires a numeric JSON token");
             }
@@ -973,7 +987,7 @@ namespace BodyRig.ReferenceRenderer
 
         private static int CompareJsonNumberToInteger(string raw, long integer)
         {
-            var token = raw.Trim();
+            var token = raw;
             var cursor = 0;
             var sign = 1;
             if (token[cursor] == '-')
@@ -1074,7 +1088,7 @@ namespace BodyRig.ReferenceRenderer
 
         private static void RequireIntegerToken(string raw, string context)
         {
-            if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(raw, "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
             {
                 throw new ArgumentException($"Motor State {context} requires an integer JSON token");
             }
@@ -1088,7 +1102,7 @@ namespace BodyRig.ReferenceRenderer
         {
             RequireIntegerToken(raw, context);
             if (!long.TryParse(
-                    raw.Trim(),
+                    raw,
                     NumberStyles.AllowLeadingSign,
                     CultureInfo.InvariantCulture,
                     out var value) ||
