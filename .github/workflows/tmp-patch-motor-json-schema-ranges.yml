@@ -18,7 +18,9 @@ jobs:
           ref: fix/motor-json-schema-ranges-20260911
           fetch-depth: 0
       - name: Apply schema value guard patch
-        run: python tools/tmp_patch_motor_json_schema_ranges.py
+        run: |
+          python tools/tmp_patch_motor_json_schema_ranges.py
+          python tools/tmp_patch_motor_json_schema_range_tests.py
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Validate focused contracts
@@ -35,6 +37,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_schema_value_guard.py
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
+            tests/test_reference_renderer_json_utility_guard.py \
+            tests/test_reference_renderer_json_schema_value_guard.py
           git commit -m "Enforce Motor State schema value constraints"
           git push origin HEAD:fix/motor-json-schema-ranges-20260911
