@@ -89,12 +89,35 @@ This stage grants `source_detail_quality_authority=true` for the explicitly sele
 
 The receipt is create-only and public/path-free. At most one crop per domain is attested for a given scene receipt.
 
+## Aggregate human-reviewed multi-performer detail
+
+`aggregate-photoidentity-multiperformer-detail-evidence.ps1` composes one or more target-crop quality receipts into a new `multiperformer-detail-evidence` bundle **before** nail/anatomy authority is added.
+
+The aggregation:
+
+- starts from the exact canonical `human-parsing-evidence` bundle;
+- preserves its observation rows, source-file count and scan-exhaustion fields unchanged;
+- adds only source-detail claims from the supplied human quality receipts;
+- rejects a multi-performer scene that overlaps the single-performer observation-row pool;
+- rejects duplicate domain/scene authority;
+- copies every source-quality receipt into `multiperformer-detail-source-authority` and binds each copy by SHA-256;
+- uses the registered `human-reviewed-target-crop-detail-quality@1` claim authority only for eyes, hands, feet, hair/hairline and exposed skin;
+- does not grant that adapter authority for rear-body, torso/chest, waist/hips, fingernails or toenails.
+
+The central analyzer adapter for this intermediate bundle is `bodyrig-photoidentity-coarse-openpose-schp-human-target-detail-composite@1`. It has the same capability set as the canonical OpenPose+SCHP stage; it merely permits the additional **human-reviewed source path** for those five domains.
+
+If this complete aggregate exists, nail attestation uses it as its prior. Nail discovery itself remains bound to the original `human-parsing-evidence` bytes so its already-materialized source candidates cannot silently change. The nail receipt records both the immutable base hashes and the selected prior hashes.
+
+The aggregate may improve normal distinct-scene sufficiency counts, but it still does not add nail/anatomy authority and does not activate production.
+
 ## Next authority gate
 
-Source-detail-quality authority is still not photoidentity sufficiency. The next separate gate must aggregate quality-attested claims across distinct source scenes, bind them into the central photoidentity authority table and apply the normal per-domain scene-count requirements. Until that composite bundle validates, missing detail remains insufficient and avatar/reconstruction work stays blocked.
+The next separate hardening gate must teach the final human source-chain and body-job registry to persist and revalidate the multi-performer aggregation receipt plus its copied quality receipts. Only after that end-to-end lineage is verified may a final anatomy-attested sufficient bundle be registered against a body-build.
+
+Until registration validates the complete source chain, avatar/reconstruction work remains blocked by the normal body-job photoidentity gate.
 
 ## Non-authority
 
-Discovery, track review, identity attestation, candidate materialization, target-isolation attestation, machine detail enrichment and source-detail-quality attestation are not body reconstruction, bodyprint recovery acceptance, final photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
+Discovery, track review, identity attestation, candidate materialization, target-isolation attestation, machine detail enrichment, source-detail-quality attestation and intermediate multi-performer aggregation are not body reconstruction, bodyprint recovery acceptance, final registered photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
 
 The existing recovery/bodyprint wire contract remains unchanged.
