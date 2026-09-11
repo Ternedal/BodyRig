@@ -103,3 +103,34 @@ def test_reference_renderer_validates_every_v2_observed_range_but_does_not_inven
 
     # Gesture semantics still come only from the performed Motor State gesture id.
     assert '_state.gesture.id == "small_shrug"' in source
+
+
+def test_reference_renderer_affect_transition_clears_previous_emotion_without_touching_visemes() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_expression = source[source.index("private bool ApplyExpression") : source.index("private bool ApplySpeech")]
+
+    # Unsupported semantic ids fail before any renderer channel is mutated.
+    support_switch = apply_expression.index("switch (_state.expression.emotion)")
+    first_clear = apply_expression.index("expression.SetWeight(ExpressionKey.Neutral, 0.0f);")
+    assert support_switch < first_clear
+    assert "default:\n                    return false;" in apply_expression[support_switch:first_clear]
+
+    for key in ("Neutral", "Happy", "Angry", "Sad", "Relaxed", "Surprised"):
+        assert f"expression.SetWeight(ExpressionKey.{key}, 0.0f);" in apply_expression
+
+    # Affect cleanup must not erase simultaneous speech articulation.
+    for viseme in ("Aa", "Ih", "Ou", "Ee", "Oh"):
+        assert f"ExpressionKey.{viseme}" not in apply_expression
+
+    weight = apply_expression.index("var weight = Mathf.Clamp01(_state.expression.intensity);")
+    apply_switch = apply_expression.index("switch (_state.expression.emotion)", support_switch + 1)
+    assert first_clear < weight < apply_switch
+    for emotion, key in (
+        ("neutral", "Neutral"),
+        ("happy", "Happy"),
+        ("angry", "Angry"),
+        ("sad", "Sad"),
+        ("relaxed", "Relaxed"),
+        ("surprised", "Surprised"),
+    ):
+        assert f'case "{emotion}": expression.SetWeight(ExpressionKey.{key}, weight); return true;' in apply_expression
