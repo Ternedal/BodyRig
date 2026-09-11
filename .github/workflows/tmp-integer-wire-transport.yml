@@ -1,0 +1,77 @@
+name: tmp-integer-wire-transport
+
+on:
+  push:
+    branches:
+      - staging/integer-wire-transport-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[run-integer-wire-transport]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Reset to exact current-main authority
+        run: git checkout --detach 65f4415adddb57974e42b58f277d1fbbfb76b4e4
+      - name: Apply wire transport fix and regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          driver = Path('reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs')
+          source = driver.read_text(encoding='utf-8')
+          replacements = {
+              '            public int elapsed_ms;': '            public float elapsed_ms;',
+              '            public int duration_ms;': '            public float duration_ms;',
+          }
+          for old, new in replacements.items():
+              if source.count(old) != 1:
+                  raise SystemExit(f'expected exactly one transport declaration: {old!r}; count={source.count(old)}')
+              source = source.replace(old, new, 1)
+          driver.write_text(source, encoding='utf-8')
+
+          test = Path('tests/test_reference_renderer_integer_wire_transport.py')
+          if test.exists():
+              raise SystemExit('transport regression already exists')
+          test.write_text('''from pathlib import Path\n\n\nREPO = Path(__file__).resolve().parents[1]\nDRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDriver.cs"\n\n\ndef test_integer_valued_motor_fields_use_float_wire_transport_after_raw_validation() -> None:\n    source = DRIVER.read_text(encoding="utf-8")\n    speech = source[\n        source.index("private sealed class SpeechState") :\n        source.index("private sealed class ObservedEmbodimentState")\n    ]\n    motor = source[\n        source.index("private sealed class MotorState") :\n        source.index("[SerializeField] private BodyRigAvatarLoader")\n    ]\n    apply = source[\n        source.index("public void ApplyMotorJson") :\n        source.index("private static void ValidatePosture")\n    ]\n\n    assert "public float elapsed_ms;" in speech\n    assert "public int elapsed_ms;" not in speech\n    assert "public float duration_ms;" in motor\n    assert "public int duration_ms;" not in motor\n\n    raw_guard = "var validatedVersion = JsonUtility.ValidateMotorStateJson(json);"\n    unity_parse = "var next = JsonUtility.FromJson<MotorState>(json);"\n    assert raw_guard in apply\n    assert unity_parse in apply\n    assert apply.index(raw_guard) < apply.index(unity_parse)\n    assert 'ValidateRange(next.duration_ms, 0.0f, 120000.0f, "duration_ms");' in apply\n    assert "next.speech.elapsed_ms < 0 || next.speech.elapsed_ms > 3600000" in apply\n''', encoding='utf-8')
+          PY
+      - name: Assert exact two-file patch
+        shell: bash
+        run: |
+          actual="$(git status --short | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_integer_wire_transport.py' | sort)"
+          test "$actual" = "$expected" || { echo 'unexpected changed files:'; printf '%s\n' "$actual"; exit 1; }
+          git diff --check
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Publish clean candidate
+        shell: bash
+        run: |
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
+            tests/test_reference_renderer_integer_wire_transport.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_integer_wire_transport.py' | sort)"
+          test "$actual" = "$expected" || { echo 'unexpected staged files:'; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Use float wire transport for integer-valued Motor State fields'
+          git push origin HEAD:refs/heads/fix/integer-wire-transport-20260911
