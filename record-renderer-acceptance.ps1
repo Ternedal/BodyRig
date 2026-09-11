@@ -93,10 +93,13 @@ if ($fittingStages.Count -ne 1 -or [string]$fittingStages[0].adapter -ne "sith-s
 $reportHash = Sha256 $AcceptanceReport
 
 $runtimeFile = Read-JsonFile $RuntimeManifest "Runtime manifest"; $RuntimeManifest = $runtimeFile.Path; $runtime = $runtimeFile.Value
-$expectedRuntimeFields = @("format","version","body_id","body_name","package_sha256","avatar","bodyprint","payloads")
+$expectedRuntimeFields = @("format","version","body_id","body_name","package_sha256","avatar","avatar_sha256","bodyprint","bodyprint_sha256","payloads")
 if (@(Compare-Object -ReferenceObject $expectedRuntimeFields -DifferenceObject @($runtime.PSObject.Properties.Name)).Count -ne 0) { throw "Runtime manifest fields do not match BodyRig runtime assets v1." }
 if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or [int]$runtime.version -ne 1 -or [string]$runtime.body_id -ne $bodyId -or ([string]$runtime.package_sha256).ToLowerInvariant() -ne $actualPackageHash) { throw "Runtime manifest identity does not match automated acceptance." }
 if ([string]$runtime.avatar -ne "avatar.vrm" -or [string]$runtime.bodyprint -ne "bodyprint.json") { throw "Runtime manifest contains unexpected avatar/bodyprint paths." }
+$runtimeAvatarManifestHash = Require-Sha ([string]$runtime.avatar_sha256) "runtime.avatar_sha256"
+$runtimeBodyprintManifestHash = Require-Sha ([string]$runtime.bodyprint_sha256) "runtime.bodyprint_sha256"
+if ([string]$runtime.avatar_sha256 -cne $runtimeAvatarManifestHash -or [string]$runtime.bodyprint_sha256 -cne $runtimeBodyprintManifestHash) { throw "Runtime manifest payload SHA-256 fields must be canonical lower-case." }
 if (@($runtime.payloads) -notcontains "avatar.vrm" -or @($runtime.payloads) -notcontains "bodyprint.json") { throw "Runtime manifest does not include required avatar/bodyprint payloads." }
 $runtimeManifestHash = Sha256 $RuntimeManifest; if ($runtimeManifestHash -ne $acceptedRuntimeManifestHash) { throw "Runtime manifest SHA-256 no longer matches Gate A." }
 
@@ -105,6 +108,7 @@ if (-not (Test-Path $avatarPath -PathType Leaf) -or -not (Test-Path $bodyprintPa
 $avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath; $checksums = Read-PackageJson $packagePath "checksums.json" "checksums.json"
 $expectedAvatarHash = Require-Sha ([string]$checksums.PSObject.Properties["avatar.vrm"].Value) "checksums.avatar.vrm"; $expectedBodyprintHash = Require-Sha ([string]$checksums.PSObject.Properties["bodyprint.json"].Value) "checksums.bodyprint.json"
 if ($avatarHash -ne $expectedAvatarHash -or $bodyprintHash -ne $expectedBodyprintHash) { throw "Materialized runtime payload hashes do not match the accepted .mrbody." }
+if ($runtimeAvatarManifestHash -ne $avatarHash -or $runtimeBodyprintManifestHash -ne $bodyprintHash) { throw "Runtime manifest payload SHA-256 bindings do not match materialized runtime bytes." }
 if ((Require-Sha ([string]$skinQa.avatar_sha256) "skin QA avatar hash") -ne $avatarHash) { throw "Anatomical skin QA was not run on the accepted avatar bytes." }
 
 $probeFile = Read-JsonFile $ProbeReport "Renderer machine probe"; $ProbeReport = $probeFile.Path; $probe = $probeFile.Value
