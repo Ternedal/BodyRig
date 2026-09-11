@@ -363,7 +363,11 @@ namespace BodyRig.ReferenceRenderer
 
             var fields = ParseObjectMembers(raw, "speech");
             RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
-            RequireStringMember(fields, "state", "speech");
+            var state = RequireStringMember(fields, "state", "speech");
+            if (state != "start" && state != "update" && state != "stop")
+            {
+                throw new ArgumentException("Motor State speech state must be start, update, or stop");
+            }
             RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);
             if (fields.ContainsKey("viseme"))
             {
@@ -752,10 +756,23 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException(
                     $"Motor State {context} length must be {minimumLength}..{maximumLength}");
             }
-            if (pattern != null && !Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant))
+            if (pattern != null && !MatchesCanonicalWholeStringPattern(value, pattern))
             {
                 throw new ArgumentException($"Motor State {context} does not match canonical pattern");
             }
+        }
+
+        private static bool MatchesCanonicalWholeStringPattern(string value, string pattern)
+        {
+            if (pattern.Length < 2 || pattern[0] != '^' || pattern[pattern.Length - 1] != '$')
+            {
+                throw new ArgumentException("Motor State canonical string pattern must be whole-string anchored");
+            }
+            var body = pattern.Substring(1, pattern.Length - 2);
+            return Regex.IsMatch(
+                value,
+                "\A(?:" + body + ")\z",
+                RegexOptions.CultureInvariant);
         }
 
         private static int UnicodeScalarLength(string value, string context)

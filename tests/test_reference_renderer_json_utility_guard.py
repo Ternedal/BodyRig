@@ -136,7 +136,8 @@ def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> N
     assert 'ValidateDuration(root);' in validate
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L)' in validate
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
-    assert 'RequireStringMember(fields, "state", "speech")' in speech
+    assert 'var state = RequireStringMember(fields, "state", "speech")' in speech
+    assert 'state != "start" && state != "update" && state != "stop"' in speech
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in speech
     assert 'fields, "viseme", "speech", 1, 32, "^[A-Za-z0-9._-]+$"' in speech
     assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
@@ -266,7 +267,10 @@ def test_string_constraints_run_on_decoded_tokens_and_count_unicode_scalars() ->
     assert "UnicodeScalarLength(value, context)" in constrained
     assert "char.IsHighSurrogate" in constrained
     assert "char.IsLowSurrogate" in constrained
-    assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in constrained
+    assert "MatchesCanonicalWholeStringPattern(value, pattern)" in constrained
+    assert '"\\A(?:" + body + ")\\z"' in constrained
+    assert "pattern[0] != '^'" in constrained
+    assert "pattern[pattern.Length - 1] != '$'" in constrained
 
 
 def test_gaze_keeps_arbitrary_legal_string_content_except_schema_length() -> None:
@@ -290,3 +294,27 @@ def test_root_duplicate_decoded_keys_remain_fail_closed() -> None:
     assert "ReadJsonString(json, ref index" in parser
     assert "members.TryAdd(key, rawValue)" in parser
     assert "contains duplicate field" in parser
+
+
+def test_schema_patterns_use_absolute_dotnet_end_anchor() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[
+        source.index("private static bool MatchesCanonicalWholeStringPattern") :
+        source.index("private static int UnicodeScalarLength")
+    ]
+    assert '"\\A(?:" + body + ")\\z"' in helper
+    assert "RegexOptions.CultureInvariant" in helper
+    assert "Regex.IsMatch(value, pattern" not in helper
+    assert "pattern[0] != '^'" in helper
+    assert "pattern[pattern.Length - 1] != '$'" in helper
+
+
+def test_speech_state_enum_fails_closed_before_unity_assignment() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    speech = source[
+        source.index("private static void ValidateSpeech") :
+        source.index("private static void ValidatePosture")
+    ]
+    assert 'var state = RequireStringMember(fields, "state", "speech")' in speech
+    assert 'state != "start" && state != "update" && state != "stop"' in speech
+    assert "speech state must be start, update, or stop" in speech
