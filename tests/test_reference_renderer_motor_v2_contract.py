@@ -188,7 +188,7 @@ def test_reference_renderer_zero_gaze_strength_releases_head_without_residual_wr
     source = DRIVER.read_text(encoding="utf-8")
     apply_gaze = source[source.index("private bool ApplyGaze") : source.index("private void RestorePostureOffsetsForFrame")]
 
-    target_guard = apply_gaze.index('if (_state.gaze.target != "user") return false;')
+    target_guard = apply_gaze.index('if (_state.gaze.target != "user")')
     zero_guard = apply_gaze.index("if (_state.gaze.strength <= 0.0f)")
     release_end = apply_gaze.index("if (_head == null", zero_guard)
     head_write = apply_gaze.index("_head.localRotation = Quaternion.Slerp(")

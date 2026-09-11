@@ -741,7 +741,13 @@ namespace BodyRig.ReferenceRenderer
         private bool ApplyGaze()
         {
             if (_state.gaze == null) return false;
-            if (_state.gaze.target != "user") return false;
+            if (_state.gaze.target != "user")
+            {
+                // Unsupported targets fail closed and must not seed the
+                // smoothing accumulator used by a later supported user gaze.
+                _gazeStrength = 0.0f;
+                return false;
+            }
             if (_state.gaze.strength <= 0.0f)
             {
                 // Explicit zero gaze releases the head immediately instead of
