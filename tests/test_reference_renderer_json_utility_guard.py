@@ -276,12 +276,13 @@ def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() 
     shim = SHIM.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
 
-    assert "internal static void ValidateMotorStateJson(string json)" in shim
+    assert "internal static int ValidateMotorStateJson(string json)" in shim
     dedicated = shim[
-        shim.index("internal static void ValidateMotorStateJson") :
+        shim.index("internal static int ValidateMotorStateJson") :
         shim.index("public static T FromJson<T>")
     ]
-    assert "ValidateMotorStatePresenceAndTypes(json, true);" in dedicated
+    assert "ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);" in dedicated
+    assert "return validatedVersion.Value;" in dedicated
     assert "bool requireMotorState = false" in shim
     assert "Motor State JSON root must be an object" in shim
     assert shim.count("Motor State requires canonical type discriminator") == 2
@@ -301,4 +302,4 @@ def test_generic_jsonutility_surfaces_remain_non_motor_compatible() -> None:
     source = SHIM.read_text(encoding="utf-8")
     assert "ValidateMotorStatePresenceAndTypes(json);" in source
     assert source.count("ValidateMotorStatePresenceAndTypes(json);") == 3
-    assert "ValidateMotorStatePresenceAndTypes(json, true);" in source
+    assert "ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);" in source
