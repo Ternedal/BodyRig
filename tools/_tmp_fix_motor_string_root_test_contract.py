@@ -19,4 +19,4 @@ new = '''    assert 'fields, "viseme", "speech", 1, 32, "^[A-Za-z0-9._-]+$"' in 
 if text.count(old) != 1:
     raise RuntimeError("expected legacy viseme string assertion exactly once")
 text = text.replace(old, new, 1)
-TEST.write_text(text, encoding="utf-8")
+TEST.write_text(text.rstrip() + "\n", encoding="utf-8")
