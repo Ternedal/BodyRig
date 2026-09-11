@@ -1,0 +1,68 @@
+name: tmp-turn-speed-epsilon-adjust
+
+on:
+  push:
+    branches:
+      - staging/turn-speed-epsilon-adjust-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[run-turn-speed-epsilon-adjust]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Reset to exact PR head authority
+        run: git checkout --detach 357b7d976cbaa7aff1247c09a11df27a2b79ebdf
+      - name: Use Unity runtime epsilon
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs'),
+              Path('tests/test_reference_renderer_turn_speed_schema_parity.py'),
+          ]
+          for path in paths:
+              source = path.read_text(encoding='utf-8')
+              count = source.count('float.Epsilon')
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one float.Epsilon, found {count}')
+              path.write_text(source.replace('float.Epsilon', 'Mathf.Epsilon', 1), encoding='utf-8')
+          PY
+      - name: Assert exact patch
+        shell: bash
+        run: |
+          actual="$(git status --short | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs' \
+            'tests/test_reference_renderer_turn_speed_schema_parity.py' | sort)"
+          test "$actual" = "$expected" || { echo 'unexpected changed files:'; printf '%s\n' "$actual"; exit 1; }
+          git diff --check
+          grep -q 'turn_speed_degrees_per_second = Mathf.Epsilon;' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+          ! grep -q 'turn_speed_degrees_per_second = float.Epsilon;' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Publish corrected PR head
+        shell: bash
+        run: |
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
+            tests/test_reference_renderer_turn_speed_schema_parity.py
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Use Unity runtime epsilon for turn-speed underflow'
+          git push --force-with-lease=refs/heads/fix/turn-speed-underflow-clean-20260911:357b7d976cbaa7aff1247c09a11df27a2b79ebdf origin HEAD:refs/heads/fix/turn-speed-underflow-clean-20260911
