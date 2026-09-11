@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from bodyrig.photoidentity_authority import PhotoIdentityAuthorityError, validate_authoritative_observation_evidence
+from bodyrig.photoidentity_authority import (
+    DETAIL_DOMAIN_AUTHORITY,
+    PhotoIdentityAuthorityError,
+    validate_authoritative_observation_evidence,
+)
 from bodyrig.photoidentity_evidence import build_observation_evidence, write_bundle
 from bodyrig.photoidentity_multiperformer_detail_aggregate import (
     AUTHORITY_DIRNAME,
@@ -65,7 +69,7 @@ def _row(scene: str) -> dict[str, object]:
 
 
 def _claim(scene: str, domain: str, *, quality: float = 0.91) -> dict[str, object]:
-    adapter, revision = DOMAIN_MACHINE_AUTHORITY[domain]
+    _, adapter, revision = DETAIL_DOMAIN_AUTHORITY[domain]
     return {
         "scene_id": scene,
         "quality": quality,
