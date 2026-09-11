@@ -141,6 +141,39 @@ def test_reference_renderer_realizes_only_source_marked_performed_natural_postur
     assert "_boundAnimator.transform.right" in realization
 
 
+def test_reference_renderer_preserves_recovered_hip_roll_sign() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    realization = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
+
+    # Recovery defines the signed roll from rightHip.y - leftHip.y. Unity local
+    # Z uses the matching right/up convention, so the performed value must not
+    # be negated or the pelvis would be mirrored.
+    assert "Quaternion.Euler(0.0f, 0.0f, posture.hip_roll_degrees)" in realization
+    assert "Quaternion.Euler(0.0f, 0.0f, -posture.hip_roll_degrees)" not in realization
+
+
+def test_reference_renderer_does_not_overwrite_animator_pose_when_posture_is_absent() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
+    apply_posture = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
+
+    # Bind restoration is conditional on applying/clearing posture ownership;
+    # it is not an unconditional per-frame LateUpdate reset.
+    restore_call = late_update.index("RestorePostureOffsetsForFrame();")
+    ownership_guard = late_update.index("if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)")
+    assert ownership_guard < restore_call
+    assert "_postureOwnedPoseLastFrame && !performedPosture" in late_update
+    assert "_postureOwnedPoseLastFrame = PostureRealized;" in late_update
+    assert "_sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;" in late_update
+
+    no_posture = apply_posture[
+        apply_posture.index("if (_state.posture == null)") : apply_posture.index('if (_state.posture.id == "neutral")')
+    ]
+    assert "return false;" in no_posture
+    assert "_spineBaseRotation" not in no_posture
+    assert "RestorePostureOffsetsForFrame" not in no_posture
+
+
 def test_reference_renderer_walk_requires_real_humanoid_height_and_leg_bones() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("private bool ApplyLocomotion")
