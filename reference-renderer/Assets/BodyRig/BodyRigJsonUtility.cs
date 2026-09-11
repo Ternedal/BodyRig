@@ -21,6 +21,54 @@ namespace BodyRig.ReferenceRenderer
             "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
         private const string JsonIntegerPattern = "-?(?:0|[1-9][0-9]*)";
 
+        private static readonly string[] RootV1Fields =
+        {
+            "type",
+            "version",
+            "body_id",
+            "utterance_id",
+            "motion",
+            "expression",
+            "gesture",
+            "gaze",
+            "posture",
+            "duration_ms",
+            "speech",
+        };
+
+        private static readonly string[] RootV2Fields =
+        {
+            "type",
+            "version",
+            "body_id",
+            "utterance_id",
+            "motion",
+            "expression",
+            "gesture",
+            "gaze",
+            "posture",
+            "duration_ms",
+            "speech",
+            "embodiment",
+        };
+
+        private static readonly string[] RootV3Fields =
+        {
+            "type",
+            "version",
+            "body_id",
+            "utterance_id",
+            "motion",
+            "expression",
+            "gesture",
+            "gaze",
+            "posture",
+            "locomotion",
+            "duration_ms",
+            "speech",
+            "embodiment",
+        };
+
         private static readonly string[] MotionFields =
         {
             "energy",
@@ -204,17 +252,55 @@ namespace BodyRig.ReferenceRenderer
             }
             var version = int.Parse(rawVersion.Trim());
 
-            RequireStringMember(root, "body_id", "root");
-            RequireStringMember(root, "utterance_id", "root");
+            RequireAllowedFields(root, RootFieldsForVersion(version), "root");
+            RequireConstrainedStringMember(
+                root, "body_id", "root", 1, 160, "^[a-z0-9æøå_-]+$");
+            RequireConstrainedStringMember(
+                root, "utterance_id", "root", 1, 160, "^[A-Za-z0-9._:-]+$");
             ValidateRequiredExactObject(root, "motion", MotionFields, "motion", Array.Empty<string>());
             ValidateOptionalExactObject(root, "expression", ExpressionFields, "expression", new[] { "emotion" });
+            ValidateOptionalConstrainedString(
+                root, "expression", "emotion", "expression", 1, 64, "^[a-z0-9_-]+$");
             ValidateOptionalExactObject(root, "gesture", GestureFields, "gesture", new[] { "id" });
+            ValidateOptionalConstrainedString(
+                root, "gesture", "id", "gesture", 1, 80, "^[a-z0-9_-]+$");
             ValidateOptionalExactObject(root, "gaze", GazeFields, "gaze", new[] { "target" });
+            ValidateOptionalConstrainedString(
+                root, "gaze", "target", "gaze", 1, 127, null);
             ValidateDuration(root);
             ValidateSpeech(root);
             ValidatePosture(root, version);
             ValidateEmbodiment(root, version);
             ValidateLocomotion(root, version);
+        }
+
+        private static string[] RootFieldsForVersion(int version)
+        {
+            switch (version)
+            {
+                case 1: return RootV1Fields;
+                case 2: return RootV2Fields;
+                case 3: return RootV3Fields;
+                default: throw new ArgumentOutOfRangeException(nameof(version));
+            }
+        }
+
+        private static void ValidateOptionalConstrainedString(
+            Dictionary<string, string> parent,
+            string propertyName,
+            string field,
+            string context,
+            int minimumLength,
+            int maximumLength,
+            string pattern)
+        {
+            if (!parent.TryGetValue(propertyName, out var raw))
+            {
+                return;
+            }
+            var members = ParseObjectMembers(raw, context);
+            RequireConstrainedStringMember(
+                members, field, context, minimumLength, maximumLength, pattern);
         }
 
         private static void ValidateRequiredExactObject(
@@ -279,7 +365,11 @@ namespace BodyRig.ReferenceRenderer
             RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
             RequireStringMember(fields, "state", "speech");
             RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);
-            if (fields.ContainsKey("viseme")) RequireStringMember(fields, "viseme", "speech");
+            if (fields.ContainsKey("viseme"))
+            {
+                RequireConstrainedStringMember(
+                    fields, "viseme", "speech", 1, 32, "^[A-Za-z0-9._-]+$");
+            }
             if (fields.ContainsKey("amplitude")) RequireNumericMember(fields, "amplitude", "speech");
         }
 
@@ -291,7 +381,8 @@ namespace BodyRig.ReferenceRenderer
             }
 
             var fields = ParseObjectMembers(raw, "posture");
-            var id = RequireStringMember(fields, "id", "posture");
+            var id = RequireConstrainedStringMember(
+                fields, "id", "posture", 1, 80, "^[a-z0-9_-]+$");
             if (fields.ContainsKey("source"))
             {
                 var source = RequireStringMember(fields, "source", "posture");
@@ -633,6 +724,61 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException($"Motor State {context} requires string field: {field}");
             }
             return value;
+        }
+
+        private static string RequireConstrainedStringMember(
+            Dictionary<string, string> members,
+            string field,
+            string context,
+            int minimumLength,
+            int maximumLength,
+            string pattern)
+        {
+            var value = RequireStringMember(members, field, context);
+            ValidateDecodedString(value, context + "." + field, minimumLength, maximumLength, pattern);
+            return value;
+        }
+
+        private static void ValidateDecodedString(
+            string value,
+            string context,
+            int minimumLength,
+            int maximumLength,
+            string pattern)
+        {
+            var length = UnicodeScalarLength(value, context);
+            if (length < minimumLength || length > maximumLength)
+            {
+                throw new ArgumentException(
+                    $"Motor State {context} length must be {minimumLength}..{maximumLength}");
+            }
+            if (pattern != null && !Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant))
+            {
+                throw new ArgumentException($"Motor State {context} does not match canonical pattern");
+            }
+        }
+
+        private static int UnicodeScalarLength(string value, string context)
+        {
+            var count = 0;
+            for (var index = 0; index < value.Length; index++)
+            {
+                var current = value[index];
+                if (char.IsHighSurrogate(current))
+                {
+                    if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
+                    {
+                        throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
+                    }
+                    index++;
+                }
+                else if (char.IsLowSurrogate(current))
+                {
+                    throw new ArgumentException($"Motor State {context} contains an unpaired surrogate");
+                }
+                count++;
+            }
+            return count;
         }
 
         private static void RequireNumericMember(

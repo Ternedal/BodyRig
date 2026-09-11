@@ -131,14 +131,14 @@ def test_gaze_string_cannot_spoof_missing_strength_and_braces_remain_legal_strin
 def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> None:
     source = SHIM.read_text(encoding="utf-8")
     validate = source[source.index("private static void ValidateMotorStatePresenceAndTypes") :]
-    assert 'RequireStringMember(root, "body_id", "root")' in validate
-    assert 'RequireStringMember(root, "utterance_id", "root")' in validate
+    assert 'root, "body_id", "root", 1, 160, "^[a-z0-9æøå_-]+$"' in validate
+    assert 'root, "utterance_id", "root", 1, 160, "^[A-Za-z0-9._:-]+$"' in validate
     assert 'ValidateDuration(root);' in validate
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L)' in validate
     speech = source[source.index("private static void ValidateSpeech") : source.index("private static void ValidatePosture")]
     assert 'RequireStringMember(fields, "state", "speech")' in speech
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L)' in speech
-    assert 'RequireStringMember(fields, "viseme", "speech")' in speech
+    assert 'fields, "viseme", "speech", 1, 32, "^[A-Za-z0-9._-]+$"' in speech
     assert 'RequireNumericMember(fields, "amplitude", "speech")' in speech
 
 
@@ -192,3 +192,101 @@ def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
     assert "CultureInfo.InvariantCulture" in helper
     assert "value < minimum || value > maximum" in helper
     assert "ArgumentOutOfRangeException" in helper
+
+
+def _root_properties(path: Path) -> set[str]:
+    return set(_contract(path)["properties"])
+
+
+def test_root_allowlists_match_canonical_version_properties() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    assert _array_fields(source, "RootV1Fields") == _root_properties(MOTOR_V1)
+    assert _array_fields(source, "RootV2Fields") == _root_properties(MOTOR_V2)
+    assert _array_fields(source, "RootV3Fields") == _root_properties(MOTOR_V3)
+    validate = source[
+        source.index("private static void ValidateMotorStatePresenceAndTypes") :
+        source.index("private static void ValidateRequiredExactObject")
+    ]
+    assert 'RequireAllowedFields(root, RootFieldsForVersion(version), "root");' in validate
+
+
+def test_decoded_string_constraints_match_canonical_shared_schema() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    schemas = [_contract(path) for path in (MOTOR_V1, MOTOR_V2, MOTOR_V3)]
+
+    for field in ("body_id", "utterance_id"):
+        expected = schemas[0]["properties"][field]
+        assert all(item["properties"][field] == expected for item in schemas)
+        assert f'root, "{field}", "root", {expected["minLength"]}, {expected["maxLength"]}, "{expected["pattern"]}"' in source
+
+    shared = (
+        ("expression", "emotion", 64, "^[a-z0-9_-]+$"),
+        ("gesture", "id", 80, "^[a-z0-9_-]+$"),
+        ("gaze", "target", 127, None),
+    )
+    for object_name, field, maximum, pattern in shared:
+        expected = schemas[0]["properties"][object_name]["properties"][field]
+        assert all(item["properties"][object_name]["properties"][field] == expected for item in schemas)
+        assert expected["minLength"] == 1
+        assert expected["maxLength"] == maximum
+        if pattern is None:
+            assert "pattern" not in expected
+            needle = f'root, "{object_name}", "{field}", "{object_name}", 1, {maximum}, null'
+        else:
+            assert expected["pattern"] == pattern
+            needle = f'root, "{object_name}", "{field}", "{object_name}", 1, {maximum}, "{pattern}"'
+        assert needle in source
+
+    viseme = schemas[0]["properties"]["speech"]["properties"]["viseme"]
+    assert all(item["properties"]["speech"]["properties"]["viseme"] == viseme for item in schemas)
+    assert f'fields, "viseme", "speech", {viseme["minLength"]}, {viseme["maxLength"]}, "{viseme["pattern"]}"' in source
+
+
+def test_posture_id_constraint_matches_generic_schema_variants() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    v1 = _contract(MOTOR_V1)["properties"]["posture"]["properties"]["id"]
+    v2 = _contract(MOTOR_V2)["properties"]["posture"]["properties"]["id"]
+    generic_v3 = next(
+        item for item in _contract(MOTOR_V3)["properties"]["posture"]["oneOf"]
+        if "const" not in item["properties"]["id"]
+    )["properties"]["id"]
+    assert v1 == v2 == generic_v3
+    assert f'fields, "id", "posture", {v1["minLength"]}, {v1["maxLength"]}, "{v1["pattern"]}"' in source
+    assert 'source != "modelrig-bodyprint-v1"' in source
+
+
+def test_string_constraints_run_on_decoded_tokens_and_count_unicode_scalars() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    constrained = source[
+        source.index("private static string RequireConstrainedStringMember") :
+        source.index("private static void RequireNumericMember")
+    ]
+    assert "var value = RequireStringMember" in constrained
+    assert "ValidateDecodedString(value" in constrained
+    assert "UnicodeScalarLength(value, context)" in constrained
+    assert "char.IsHighSurrogate" in constrained
+    assert "char.IsLowSurrogate" in constrained
+    assert "Regex.IsMatch(value, pattern, RegexOptions.CultureInvariant)" in constrained
+
+
+def test_gaze_keeps_arbitrary_legal_string_content_except_schema_length() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    validate = source[
+        source.index("private static void ValidateMotorStatePresenceAndTypes") :
+        source.index("private static void ValidateRequiredExactObject")
+    ]
+    assert 'root, "gaze", "target", "gaze", 1, 127, null' in validate
+    assert "ParseObjectMembers" in source
+    assert "ReadJsonString" in source
+    assert "FlatObjectPattern" not in source
+
+
+def test_root_duplicate_decoded_keys_remain_fail_closed() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    parser = source[
+        source.index("private static Dictionary<string, string> ParseObjectMembers") :
+        source.index("private static void SkipJsonValue")
+    ]
+    assert "ReadJsonString(json, ref index" in parser
+    assert "members.TryAdd(key, rawValue)" in parser
+    assert "contains duplicate field" in parser
