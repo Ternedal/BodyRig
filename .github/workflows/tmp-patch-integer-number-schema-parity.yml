@@ -1,0 +1,53 @@
+name: tmp-patch-integer-number-schema-parity
+
+on:
+  push:
+    branches:
+      - staging/integer-number-schema-parity-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[run-integer-number-parity]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Preserve patch generator
+        run: cp tools/tmp_patch_integer_number_schema_parity.py /tmp/integer-number-parity.py
+      - name: Reset to exact current-main authority
+        run: git checkout --detach 495d7f666f7b8fd47d663e3cffc5247bd9e08137
+      - name: Apply integer number schema parity fix
+        run: python /tmp/integer-number-parity.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Publish clean candidate
+        shell: bash
+        run: |
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
+            tests/test_reference_renderer_raw_numeric_ranges.py \
+            tests/test_reference_renderer_json_whitespace_guard.py \
+            tests/test_reference_renderer_integer_number_schema_parity.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_raw_numeric_ranges.py' \
+            'tests/test_reference_renderer_json_whitespace_guard.py' \
+            'tests/test_reference_renderer_integer_number_schema_parity.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Align integer-valued JSON numbers with schemas"
+          git push origin HEAD:fix/integer-number-schema-parity-20260911
