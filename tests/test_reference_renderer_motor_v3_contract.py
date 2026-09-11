@@ -114,7 +114,8 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert "right_arm_swing_to_height * armDegreesPerHeight" in realization
     assert "Mathf.Clamp(locomotion.left_arm_swing_to_height * 90.0f" not in realization
     assert "Mathf.Clamp(locomotion.right_arm_swing_to_height * 90.0f" not in realization
-    assert "locomotionOwnsArms" in realization
+    assert "locomotionOwnsLeftArm" in realization
+    assert "locomotionOwnsRightArm" in realization
     assert "locomotion.turn_speed_degrees_per_second * dt" in realization
 
     assert ".Translate(" not in realization
@@ -129,13 +130,15 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     apply_locomotion = source[source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")]
 
     assert "private bool _locomotionPoseOwnedLastFrame;" in source
-    assert "private bool _locomotionArmPoseOwnedLastFrame;" in source
+    assert "private bool _locomotionLeftArmPoseOwnedLastFrame;" in source
+    assert "private bool _locomotionRightArmPoseOwnedLastFrame;" in source
 
     no_locomotion = apply_locomotion[
         apply_locomotion.index("if (locomotion == null)") : apply_locomotion.index("var locomotionBlend")
     ]
     assert "_locomotionPoseOwnedLastFrame = false;" in no_locomotion
-    assert "_locomotionArmPoseOwnedLastFrame = false;" in no_locomotion
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in no_locomotion
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in no_locomotion
     assert "RestoreLocomotionPose();" not in no_locomotion
     assert "BlendLocomotionPoseToBase" not in no_locomotion
 
@@ -145,7 +148,9 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
         )
     ]
     assert "if (_locomotionPoseOwnedLastFrame)" in stop
-    assert "BlendLocomotionPoseToBase(locomotionBlend, _locomotionArmPoseOwnedLastFrame);" in stop
+    assert "BlendLocomotionPoseToBase(" in stop
+    assert "_locomotionLeftArmPoseOwnedLastFrame" in stop
+    assert "_locomotionRightArmPoseOwnedLastFrame" in stop
 
     turn = apply_locomotion[
         apply_locomotion.index('if (locomotion.action == "turn_left"') : apply_locomotion.index(
@@ -153,7 +158,8 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
         )
     ]
     assert "_locomotionPoseOwnedLastFrame = false;" in turn
-    assert "_locomotionArmPoseOwnedLastFrame = false;" in turn
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in turn
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in turn
     assert "RestoreLocomotionPose();" not in turn
     assert "BlendLocomotionPoseToBase" not in turn
     assert "transform.Rotate(" in turn
@@ -161,25 +167,32 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     assert "RestoreLocomotionPose();" not in apply_locomotion
 
     walk = apply_locomotion[apply_locomotion.index('if (locomotion.action != "walk")') :]
-    assert (
-        "var locomotionOwnsArms = (_state.gesture == null || !IsSupportedGestureId(_state.gesture.id))"
-        in walk
-    )
-    assert "if (locomotionOwnsArms)" in walk
+    assert "var locomotionOwnsLeftArm" in walk
+    assert "!GestureOwnsLeftUpperArm(_state.gesture)" in walk
+    assert "var locomotionOwnsRightArm" in walk
+    assert "!GestureOwnsRightUpperArm(_state.gesture)" in walk
+    assert "if (locomotionOwnsLeftArm || locomotionOwnsRightArm)" in walk
+    assert "if (locomotionOwnsLeftArm)" in walk
+    assert "if (locomotionOwnsRightArm)" in walk
     assert "_locomotionPoseOwnedLastFrame = true;" in walk
-    assert "_locomotionArmPoseOwnedLastFrame = locomotionOwnsArms;" in walk
+    assert "_locomotionLeftArmPoseOwnedLastFrame = locomotionOwnsLeftArm;" in walk
+    assert "_locomotionRightArmPoseOwnedLastFrame = locomotionOwnsRightArm;" in walk
 
     blend = source[source.index("private void BlendLocomotionPoseToBase") : source.index("private bool ApplyLocomotion")]
-    assert "bool includeArms" in blend
-    assert "if (includeArms)" in blend
+    assert "bool includeLeftArm" in blend
+    assert "bool includeRightArm" in blend
+    assert "if (includeLeftArm" in blend
+    assert "if (includeRightArm" in blend
 
     bind = source[source.index("private void BindAvatarIfNeeded()") : source.index("private float LocomotionBlend")]
     assert "_locomotionPoseOwnedLastFrame = false;" in bind
-    assert "_locomotionArmPoseOwnedLastFrame = false;" in bind
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in bind
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in bind
     neutral = source[source.index("public void RestoreNeutralPose()") :]
     assert "RestoreLocomotionPose();" in neutral
     assert "_locomotionPoseOwnedLastFrame = false;" in neutral
-    assert "_locomotionArmPoseOwnedLastFrame = false;" in neutral
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in neutral
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in neutral
 
 
 def test_reference_renderer_gestures_only_write_the_bones_the_action_owns() -> None:
