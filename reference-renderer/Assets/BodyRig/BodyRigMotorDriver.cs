@@ -389,7 +389,10 @@ namespace BodyRig.ReferenceRenderer
                     return;
                 case "turn_left":
                 case "turn_right":
-                    ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f, "locomotion.turn_speed_degrees_per_second");
+                    ValidateExclusivePositiveRange(
+                        locomotion.turn_speed_degrees_per_second,
+                        720.0f,
+                        "locomotion.turn_speed_degrees_per_second");
                     return;
                 case "stop":
                     return;
@@ -446,6 +449,14 @@ namespace BodyRig.ReferenceRenderer
             if (float.IsNaN(value) || float.IsInfinity(value) || value < minimum || value > maximum)
             {
                 throw new ArgumentOutOfRangeException(field, $"BodyRig motor value must be in {minimum}..{maximum}");
+            }
+        }
+
+        private static void ValidateExclusivePositiveRange(float value, float maximum, string field)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value) || value <= 0.0f || value > maximum)
+            {
+                throw new ArgumentOutOfRangeException(field, $"BodyRig motor value must be > 0 and <= {maximum}");
             }
         }
 
