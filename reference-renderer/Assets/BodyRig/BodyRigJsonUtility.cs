@@ -274,12 +274,7 @@ namespace BodyRig.ReferenceRenderer
                 return;
             }
 
-            if (!root.TryGetValue("version", out var rawVersion) ||
-                !Regex.IsMatch(rawVersion, "^[123]$", RegexOptions.CultureInvariant))
-            {
-                throw new ArgumentException("Motor State requires integer version 1, 2, or 3");
-            }
-            var version = int.Parse(rawVersion);
+            var version = RequireMotorStateVersion(root);
 
             RequireAllowedFields(root, RootFieldsForVersion(version), $"root v{version}");
             RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern);
@@ -303,6 +298,19 @@ namespace BodyRig.ReferenceRenderer
             ValidatePosture(root, version);
             ValidateEmbodiment(root, version);
             ValidateLocomotion(root, version);
+        }
+
+        private static int RequireMotorStateVersion(Dictionary<string, string> root)
+        {
+            if (!root.TryGetValue("version", out var rawVersion))
+            {
+                throw new ArgumentException("Motor State requires numeric version 1, 2, or 3");
+            }
+            RequireNumericToken(rawVersion, "version");
+            if (CompareJsonNumberToInteger(rawVersion, 1L) == 0) return 1;
+            if (CompareJsonNumberToInteger(rawVersion, 2L) == 0) return 2;
+            if (CompareJsonNumberToInteger(rawVersion, 3L) == 0) return 3;
+            throw new ArgumentException("Motor State requires numeric version 1, 2, or 3");
         }
 
         private static string[] RootFieldsForVersion(int version)
