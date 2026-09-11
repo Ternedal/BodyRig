@@ -33,8 +33,10 @@ BODYPRINT = {
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
+        "left_arm_swing_to_height": 0.20,
+        "right_arm_swing_to_height": 0.18,
         "arm_swing_to_height": 0.19,
-        "arm_swing_asymmetry": 0.07,
+        "arm_swing_asymmetry": 0.10,
         "turn_speed_degrees_per_second": 79.2,
         "transition_intensity": 0.31,
         "idle_sway_to_height": 0.012,
@@ -74,6 +76,9 @@ def test_v2_cue_and_v3_motor_state_share_the_canonical_app_runtime(monkeypatch) 
     assert state["locomotion"]["action"] == "walk"
     assert state["locomotion"]["cadence_spm"] == 116.0
     assert state["locomotion"]["stride_length_to_height"] == 0.34
+    assert state["locomotion"]["left_arm_swing_to_height"] == 0.20
+    assert state["locomotion"]["right_arm_swing_to_height"] == 0.18
+    assert state["locomotion"]["left_arm_swing_to_height"] > state["locomotion"]["right_arm_swing_to_height"]
 
 
 def test_v2_natural_posture_is_realized_only_through_v3_motor_endpoint(monkeypatch) -> None:
