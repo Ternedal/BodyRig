@@ -126,6 +126,48 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert 'locomotion.action == "turn_right"' in realization
 
 
+def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    apply_locomotion = source[source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")]
+
+    assert "private bool _locomotionPoseOwnedLastFrame;" in source
+
+    no_locomotion = apply_locomotion[
+        apply_locomotion.index("if (locomotion == null)") : apply_locomotion.index("var locomotionBlend")
+    ]
+    assert "if (_locomotionPoseOwnedLastFrame)" in no_locomotion
+    assert "RestoreLocomotionPose();" in no_locomotion
+    assert "_locomotionPoseOwnedLastFrame = false;" in no_locomotion
+    assert "BlendLocomotionPoseToBase(0.35f);" not in no_locomotion
+
+    stop = apply_locomotion[
+        apply_locomotion.index('if (locomotion.action == "stop")') : apply_locomotion.index(
+            'if (locomotion.action == "turn_left"'
+        )
+    ]
+    assert "if (_locomotionPoseOwnedLastFrame)" in stop
+    assert "BlendLocomotionPoseToBase(locomotionBlend);" in stop
+
+    turn = apply_locomotion[
+        apply_locomotion.index('if (locomotion.action == "turn_left"') : apply_locomotion.index(
+            'if (locomotion.action != "walk")'
+        )
+    ]
+    assert "if (_locomotionPoseOwnedLastFrame)" in turn
+    assert "RestoreLocomotionPose();" in turn
+    assert "_locomotionPoseOwnedLastFrame = false;" in turn
+    assert "BlendLocomotionPoseToBase(locomotionBlend);" not in turn
+    assert "transform.Rotate(" in turn
+
+    walk = apply_locomotion[apply_locomotion.index('if (locomotion.action != "walk")') :]
+    assert "_locomotionPoseOwnedLastFrame = true;" in walk
+
+    bind = source[source.index("private void BindAvatarIfNeeded()") : source.index("private float LocomotionBlend")]
+    assert "_locomotionPoseOwnedLastFrame = false;" in bind
+    neutral = source[source.index("public void RestoreNeutralPose()") :]
+    assert "_locomotionPoseOwnedLastFrame = false;" in neutral
+
+
 def test_reference_renderer_realizes_only_source_marked_performed_natural_posture() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("private bool ApplyPosture")
