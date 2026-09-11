@@ -134,7 +134,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class MotorState
         {
             public string type;
-            public int version;
+            public int version { get; set; }
             public string body_id;
             public string utterance_id;
             public MotionState motion;
@@ -273,9 +273,14 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException("BodyRig motor JSON is required", nameof(json));
             }
 
-            JsonUtility.ValidateMotorStateJson(json);
+            var validatedVersion = JsonUtility.ValidateMotorStateJson(json);
             var next = JsonUtility.FromJson<MotorState>(json);
-            if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2 && next.version != 3))
+            if (next == null || next.type != "bodyrig-motor-state")
+            {
+                throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
+            }
+            next.version = validatedVersion;
+            if (next.version != 1 && next.version != 2 && next.version != 3)
             {
                 throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
             }

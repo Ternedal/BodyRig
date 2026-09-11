@@ -92,7 +92,7 @@ def test_shared_raw_guard_field_sets_follow_all_motor_schemas() -> None:
 def test_raw_guard_uses_decoded_root_scoped_members_not_document_wide_regex_matches() -> None:
     source = SHIM.read_text(encoding="utf-8")
     validate = source[
-        source.index("private static void ValidateMotorStatePresenceAndTypes") :
+        source.index("private static int ValidateMotorStatePresenceAndTypes") :
         source.index("private static string[] RootFieldsForVersion")
     ]
     assert 'var root = ParseObjectMembers(json, "root");' in validate
@@ -147,7 +147,7 @@ def test_gaze_string_cannot_spoof_missing_strength_and_braces_remain_legal_strin
 
 def test_duration_speech_and_shared_string_types_fail_closed_before_unity() -> None:
     source = SHIM.read_text(encoding="utf-8")
-    validate = source[source.index("private static void ValidateMotorStatePresenceAndTypes") :]
+    validate = source[source.index("private static int ValidateMotorStatePresenceAndTypes") :]
     assert 'RequireConstrainedStringMember(root, "body_id", "root", 1, 160, BodyIdPattern)' in validate
     assert 'RequireConstrainedStringMember(root, "utterance_id", "root", 1, 160, UtteranceIdPattern)' in validate
     assert 'ValidateDuration(root);' in validate
@@ -171,7 +171,7 @@ def test_canonical_string_constraints_are_checked_after_json_escape_decoding() -
     assert 'private const string LowerIdentifierPattern = @"\\A[a-z0-9_-]+\\z";' in source
     assert 'private const string UtteranceIdPattern = @"\\A[A-Za-z0-9._:-]+\\z";' in source
     assert 'private const string VisemePattern = @"\\A[A-Za-z0-9._-]+\\z";' in source
-    validate = source[source.index("private static void ValidateMotorStatePresenceAndTypes") : source.index("private static string[] RootFieldsForVersion")]
+    validate = source[source.index("private static int ValidateMotorStatePresenceAndTypes") : source.index("private static string[] RootFieldsForVersion")]
     assert 'root, "expression", "emotion", "expression", 1, 64, LowerIdentifierPattern' in validate
     assert 'root, "gesture", "id", "gesture", 1, 80, LowerIdentifierPattern' in validate
     assert 'root, "gaze", "target", "gaze", 1, 127, null' in validate
@@ -276,22 +276,22 @@ def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() 
     shim = SHIM.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
 
-    assert "internal static void ValidateMotorStateJson(string json)" in shim
+    assert "internal static int ValidateMotorStateJson(string json)" in shim
     dedicated = shim[
-        shim.index("internal static void ValidateMotorStateJson") :
+        shim.index("internal static int ValidateMotorStateJson") :
         shim.index("public static T FromJson<T>")
     ]
-    assert "ValidateMotorStatePresenceAndTypes(json, true);" in dedicated
+    assert "return ValidateMotorStatePresenceAndTypes(json, true);" in dedicated
     assert "bool requireMotorState = false" in shim
     assert "Motor State JSON root must be an object" in shim
     assert shim.count("Motor State requires canonical type discriminator") == 2
 
-    assert driver.count("JsonUtility.ValidateMotorStateJson(json);") == 1
+    assert driver.count("var validatedVersion = JsonUtility.ValidateMotorStateJson(json);") == 1
     apply = driver[
         driver.index("public void ApplyMotorJson") :
         driver.index("private static void ValidatePosture")
     ]
-    assert apply.index("JsonUtility.ValidateMotorStateJson(json);") < apply.index(
+    assert apply.index("var validatedVersion = JsonUtility.ValidateMotorStateJson(json);") < apply.index(
         "JsonUtility.FromJson<MotorState>(json)"
     )
     assert apply.index("JsonUtility.FromJson<MotorState>(json)") < apply.index("_state = next;")
@@ -301,4 +301,4 @@ def test_generic_jsonutility_surfaces_remain_non_motor_compatible() -> None:
     source = SHIM.read_text(encoding="utf-8")
     assert "ValidateMotorStatePresenceAndTypes(json);" in source
     assert source.count("ValidateMotorStatePresenceAndTypes(json);") == 3
-    assert "ValidateMotorStatePresenceAndTypes(json, true);" in source
+    assert "return ValidateMotorStatePresenceAndTypes(json, true);" in source
