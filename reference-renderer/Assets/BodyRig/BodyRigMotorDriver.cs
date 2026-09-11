@@ -635,10 +635,18 @@ namespace BodyRig.ReferenceRenderer
 
             // A simultaneous explicit gesture owns the arms. Otherwise each
             // anatomical arm follows its own already-performed v3 amplitude.
+            // One shared safety scale bounds the larger arm to 45 degrees while
+            // preserving the anatomical left/right ordering and ratio.
             if (_state.gesture == null && _leftUpperArm != null && _rightUpperArm != null)
             {
-                var leftArmDegrees = Mathf.Clamp(locomotion.left_arm_swing_to_height * 90.0f, 0.0f, 45.0f);
-                var rightArmDegrees = Mathf.Clamp(locomotion.right_arm_swing_to_height * 90.0f, 0.0f, 45.0f);
+                var maxArmSwing = Mathf.Max(
+                    locomotion.left_arm_swing_to_height,
+                    locomotion.right_arm_swing_to_height);
+                var armDegreesPerHeight = maxArmSwing > 0.0001f
+                    ? Mathf.Min(90.0f, 45.0f / maxArmSwing)
+                    : 90.0f;
+                var leftArmDegrees = locomotion.left_arm_swing_to_height * armDegreesPerHeight;
+                var rightArmDegrees = locomotion.right_arm_swing_to_height * armDegreesPerHeight;
                 var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * leftArmDegrees, 0.0f, 0.0f);
                 var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * rightArmDegrees, 0.0f, 0.0f);
                 _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
