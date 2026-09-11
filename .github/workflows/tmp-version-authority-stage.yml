@@ -33,6 +33,10 @@ jobs:
           git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
                   reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
                   tests/test_reference_renderer_json_utility_guard.py \
+                  tests/test_reference_renderer_json_whitespace_guard.py \
+                  tests/test_reference_renderer_raw_numeric_ranges.py \
+                  tests/test_reference_renderer_version_schema_parity.py \
+                  tests/test_reference_renderer_motor_v2_contract.py \
                   tests/test_reference_renderer_version_authority.py
           git commit -m "Preserve raw Motor State version authority"
           git push origin HEAD:fix/version-authority-stage-20260911
