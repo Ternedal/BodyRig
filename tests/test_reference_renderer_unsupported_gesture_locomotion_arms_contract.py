@@ -13,10 +13,11 @@ def test_unsupported_gesture_does_not_steal_locomotion_arm_ownership() -> None:
         source.index("private bool ApplyLocomotion") : source.index("private bool ApplyGesture")
     ]
 
-    authority = "(_state.gesture == null || !IsSupportedGestureId(_state.gesture.id))"
-    assert authority in locomotion
-    assert "var locomotionOwnsArms =" in locomotion
-    assert authority < locomotion if False else True
+    expected = (
+        "var locomotionOwnsArms = (_state.gesture == null || "
+        "!IsSupportedGestureId(_state.gesture.id)) && _leftUpperArm != null && _rightUpperArm != null;"
+    )
+    assert expected in locomotion
 
 
 def test_supported_gesture_ids_still_have_arm_precedence_over_walk() -> None:
