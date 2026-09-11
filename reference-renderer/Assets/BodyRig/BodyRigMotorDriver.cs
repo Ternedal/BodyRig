@@ -804,10 +804,12 @@ namespace BodyRig.ReferenceRenderer
             var performedPosture = HasSupportedPerformedPosture();
             var supportedGesture = _state.gesture != null && IsSupportedGestureId(_state.gesture.id);
             var gestureId = supportedGesture ? _state.gesture.id : null;
+            var smallShrugOwnsShoulders =
+                gestureId == "small_shrug" && _leftShoulder != null && _rightShoulder != null;
             var gestureOwnsLeftShoulder =
-                _leftShoulder != null && (gestureId == "small_shrug" || gestureId == "neutral");
+                smallShrugOwnsShoulders || (gestureId == "neutral" && _leftShoulder != null);
             var gestureOwnsRightShoulder =
-                _rightShoulder != null && (gestureId == "small_shrug" || gestureId == "neutral");
+                smallShrugOwnsShoulders || (gestureId == "neutral" && _rightShoulder != null);
             var presentOwnsRightArm =
                 gestureId == "present" && _rightUpperArm != null && _rightLowerArm != null;
             var gestureOwnsRightUpperArm =
@@ -1411,12 +1413,13 @@ namespace BodyRig.ReferenceRenderer
             if (!IsSupportedGestureId(_state.gesture.id)) return false;
             if (_state.gesture.id == "small_shrug")
             {
-                // This gesture owns shoulder translation only. Do not reset an
-                // Animator/VRMA arm pose simply because a shrug is active.
+                // Shrug is bilateral. An incomplete rig must fail before any
+                // shoulder mutation so realization and ownership stay aligned.
+                if (_leftShoulder == null || _rightShoulder == null) return false;
                 var lift = 0.025f * _gestureAmplitude;
-                if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
-                if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
-                return _leftShoulder != null && _rightShoulder != null;
+                _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
+                _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
+                return true;
             }
             if (_state.gesture.id == "present")
             {

@@ -42,7 +42,9 @@ def test_gesture_transition_ownership_matches_actual_action_writes() -> None:
         source.index("private void BindAvatarIfNeeded()")
     ]
 
-    assert 'gestureId == "small_shrug" || gestureId == "neutral"' in late_update
+    assert 'gestureId == "small_shrug" && _leftShoulder != null && _rightShoulder != null' in late_update
+    assert 'smallShrugOwnsShoulders || (gestureId == "neutral" && _leftShoulder != null)' in late_update
+    assert 'smallShrugOwnsShoulders || (gestureId == "neutral" && _rightShoulder != null)' in late_update
     assert 'gestureId == "present" && _rightUpperArm != null && _rightLowerArm != null' in late_update
     assert 'presentOwnsRightArm || (gestureId == "neutral" && _rightUpperArm != null)' in late_update
     assert 'presentOwnsRightArm || (gestureId == "neutral" && _rightLowerArm != null)' in late_update
