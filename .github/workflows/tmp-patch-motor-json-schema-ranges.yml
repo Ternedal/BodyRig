@@ -25,10 +25,11 @@ jobs:
         run: |
           python -m pytest -q \
             tests/test_reference_renderer_json_utility_guard.py \
-            tests/test_reference_renderer_json_shared_guard.py \
             tests/test_reference_renderer_json_schema_value_guard.py \
             tests/test_reference_renderer_motor_v2_contract.py \
-            tests/test_reference_renderer_motor_v3_contract.py
+            tests/test_reference_renderer_motor_v3_contract.py \
+            tests/test_reference_renderer_expression_release_contract.py \
+            tests/test_reference_renderer_speech_release_contract.py
           git diff --check
       - name: Commit real patch
         run: |
