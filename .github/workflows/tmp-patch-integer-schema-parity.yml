@@ -36,33 +36,43 @@ jobs:
 
           path = Path("tests/test_reference_renderer_json_utility_guard.py")
           text = path.read_text(encoding="utf-8")
-          old = '''    assert "long.TryParse(" in helper
-          assert "NumberStyles.AllowLeadingSign" in helper
-          assert "CultureInfo.InvariantCulture" in helper
-          assert "value < minimum || value > maximum" in helper
-          '''
-          new = '''    assert "RequireIntegerToken(raw, context);" in helper
-          assert "CompareJsonNumberToInteger(raw, minimum) < 0" in helper
-          assert "CompareJsonNumberToInteger(raw, maximum) > 0" in helper
-          assert "long.TryParse(" not in helper
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f"json utility integer contract anchor count={text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          anchor = '    assert "long.TryParse(" in helper\n'
+          replacement = (
+              '    assert "RequireIntegerToken(raw, context);" in helper\n'
+              '    assert "CompareJsonNumberToInteger(raw, minimum) < 0" in helper\n'
+              '    assert "CompareJsonNumberToInteger(raw, maximum) > 0" in helper\n'
+              '    assert "long.TryParse(" not in helper\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f"json utility integer anchor count={text.count(anchor)}")
+          text = text.replace(anchor, replacement, 1)
+          for obsolete in (
+              '    assert "NumberStyles.AllowLeadingSign" in helper\n',
+              '    assert "CultureInfo.InvariantCulture" in helper\n',
+              '    assert "value < minimum || value > maximum" in helper\n',
+          ):
+              if text.count(obsolete) != 1:
+                  raise SystemExit(f"json utility obsolete anchor count={text.count(obsolete)}: {obsolete!r}")
+              text = text.replace(obsolete, '', 1)
+          path.write_text(text, encoding="utf-8")
 
           path = Path("tests/test_reference_renderer_raw_numeric_ranges.py")
           text = path.read_text(encoding="utf-8")
-          old = '''    assert "long.TryParse(" in integer
-          assert "value < minimum || value > maximum" in integer
-          '''
-          new = '''    assert "RequireIntegerToken(raw, context);" in integer
-          assert "CompareJsonNumberToInteger(raw, minimum) < 0" in integer
-          assert "CompareJsonNumberToInteger(raw, maximum) > 0" in integer
-          assert "long.TryParse(" not in integer
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f"raw numeric integer contract anchor count={text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          anchor = '    assert "long.TryParse(" in integer\n'
+          replacement = (
+              '    assert "RequireIntegerToken(raw, context);" in integer\n'
+              '    assert "CompareJsonNumberToInteger(raw, minimum) < 0" in integer\n'
+              '    assert "CompareJsonNumberToInteger(raw, maximum) > 0" in integer\n'
+              '    assert "long.TryParse(" not in integer\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f"raw numeric integer anchor count={text.count(anchor)}")
+          text = text.replace(anchor, replacement, 1)
+          obsolete = '    assert "value < minimum || value > maximum" in integer\n'
+          if text.count(obsolete) != 1:
+              raise SystemExit(f"raw numeric obsolete anchor count={text.count(obsolete)}")
+          text = text.replace(obsolete, '', 1)
+          path.write_text(text, encoding="utf-8")
           PY
       - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
