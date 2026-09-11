@@ -30,8 +30,10 @@ def _bodyprint() -> dict:
             "stride_length_to_height": 0.34,
             "stance_width_to_height": 0.13,
             "vertical_bounce_to_height": 0.025,
+            "left_arm_swing_to_height": 0.19,
+            "right_arm_swing_to_height": 0.17,
             "arm_swing_to_height": 0.18,
-            "arm_swing_asymmetry": 0.08,
+            "arm_swing_asymmetry": 0.1053,
             "turn_speed": 0.22,
             "turn_speed_degrees_per_second": 39.6,
             "transition_intensity": 0.31,
@@ -70,6 +72,19 @@ def test_missing_gait_cannot_be_called_complete() -> None:
     result = inspect_movement_identity(bodyprint)
     assert result["complete"] is False
     assert "walk_cadence_spm" in result["missing_fields"]
+    with pytest.raises(MovementIdentityError, match="Movement Identity is incomplete"):
+        require_movement_identity(bodyprint)
+
+
+def test_unsigned_arm_swing_summary_cannot_prove_anatomical_direction() -> None:
+    bodyprint = _bodyprint()
+    del bodyprint["motion"]["left_arm_swing_to_height"]
+    del bodyprint["motion"]["right_arm_swing_to_height"]
+
+    result = inspect_movement_identity(bodyprint)
+    assert result["complete"] is False
+    assert "left_arm_swing_to_height" in result["missing_fields"]
+    assert "right_arm_swing_to_height" in result["missing_fields"]
     with pytest.raises(MovementIdentityError, match="Movement Identity is incomplete"):
         require_movement_identity(bodyprint)
 
