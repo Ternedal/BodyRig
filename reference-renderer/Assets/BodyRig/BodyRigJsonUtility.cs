@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace BodyRig.ReferenceRenderer
@@ -8,55 +9,54 @@ namespace BodyRig.ReferenceRenderer
     /// Namespace-local shim around UnityEngine.JsonUtility.
     ///
     /// Unity's serializer maps missing or structurally incompatible numeric JSON
-    /// members to CLR zero. Range validation alone therefore cannot distinguish
-    /// a required field that was absent/malformed from one explicitly supplied
-    /// as 0. Preserve JsonUtility everywhere else, but fail closed on raw Motor
-    /// State v3 action objects before deserialization can erase presence/type.
+    /// members to CLR zero and can erase malformed optional objects to null. Raw
+    /// Motor State validation therefore runs before deserialization, preserving
+    /// the canonical presence/type boundary for v1/v2/v3 while leaving ordinary
+    /// JsonUtility payloads untouched.
     /// </summary>
     internal static class JsonUtility
     {
         private const string JsonNumberPattern =
             "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?";
+        private const string JsonIntegerPattern = "-?(?:0|[1-9][0-9]*)";
 
-        private static readonly Regex MotorTypePattern = new Regex(
-            "\\\"type\\\"\\s*:\\s*\\\"bodyrig-motor-state\\\"",
-            RegexOptions.CultureInvariant);
+        private static readonly string[] MotionFields =
+        {
+            "energy",
+            "head_motion",
+        };
 
-        private static readonly Regex VersionThreePattern = new Regex(
-            "\\\"version\\\"\\s*:\\s*3(?:\\s*[,}])",
-            RegexOptions.CultureInvariant);
+        private static readonly string[] ExpressionFields =
+        {
+            "emotion",
+            "intensity",
+        };
 
-        private static readonly Regex LocomotionPropertyPattern = new Regex(
-            "\\\"locomotion\\\"\\s*:",
-            RegexOptions.CultureInvariant);
+        private static readonly string[] GestureFields =
+        {
+            "id",
+            "amplitude",
+        };
 
-        private static readonly Regex LocomotionObjectPattern = new Regex(
-            "\\\"locomotion\\\"\\s*:\\s*\\{(?<body>[^{}]*)\\}",
-            RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        private static readonly string[] GazeFields =
+        {
+            "target",
+            "strength",
+        };
 
-        private static readonly Regex PosturePropertyPattern = new Regex(
-            "\\\"posture\\\"\\s*:",
-            RegexOptions.CultureInvariant);
+        private static readonly string[] SpeechAllowedFields =
+        {
+            "state",
+            "elapsed_ms",
+            "viseme",
+            "amplitude",
+        };
 
-        private static readonly Regex PostureObjectPattern = new Regex(
-            "\\\"posture\\\"\\s*:\\s*\\{(?<body>[^{}]*)\\}",
-            RegexOptions.CultureInvariant | RegexOptions.Singleline);
-
-        private static readonly Regex PropertyPattern = new Regex(
-            "\\\"(?<key>[A-Za-z0-9_]+)\\\"\\s*:",
-            RegexOptions.CultureInvariant);
-
-        private static readonly Regex ActionPattern = new Regex(
-            "\\\"action\\\"\\s*:\\s*\\\"(?<action>[a-z_]+)\\\"(?=\\s*(?:,|$))",
-            RegexOptions.CultureInvariant);
-
-        private static readonly Regex PostureIdPattern = new Regex(
-            "\\\"id\\\"\\s*:\\s*\\\"(?<id>[a-z0-9_-]+)\\\"(?=\\s*(?:,|$))",
-            RegexOptions.CultureInvariant);
-
-        private static readonly Regex PostureSourcePattern = new Regex(
-            "\\\"source\\\"\\s*:\\s*\\\"modelrig-bodyprint-v1\\\"(?=\\s*(?:,|$))",
-            RegexOptions.CultureInvariant);
+        private static readonly string[] SpeechRequiredFields =
+        {
+            "state",
+            "elapsed_ms",
+        };
 
         private static readonly string[] GenericPostureFields =
         {
@@ -106,21 +106,59 @@ namespace BodyRig.ReferenceRenderer
             "transition_intensity",
         };
 
+        private static readonly string[] ObservedEmbodimentFields =
+        {
+            "energy",
+            "gesture_frequency",
+            "gesture_amplitude",
+            "head_motion",
+            "turn_speed",
+            "walk_cadence_spm",
+            "posture_torso_lean_degrees",
+            "posture_torso_forward_lean_degrees",
+            "posture_torso_right_lean_degrees",
+            "posture_shoulder_tilt_degrees",
+            "posture_shoulder_roll_degrees",
+            "posture_hip_tilt_degrees",
+            "posture_hip_roll_degrees",
+            "posture_head_offset_to_height",
+            "posture_head_forward_offset_to_height",
+            "posture_head_right_offset_to_height",
+            "stride_length_to_height",
+            "stance_width_to_height",
+            "vertical_bounce_to_height",
+            "left_arm_swing_to_height",
+            "right_arm_swing_to_height",
+            "arm_swing_to_height",
+            "arm_swing_asymmetry",
+            "turn_speed_degrees_per_second",
+            "transition_intensity",
+            "idle_sway_to_height",
+            "blink_rate_per_min",
+            "gaze_strength",
+            "head_tilt",
+            "speech_motion",
+            "idle_strength",
+            "gaze_smoothing",
+            "gesture_intensity",
+            "breathing_strength",
+        };
+
         public static T FromJson<T>(string json)
         {
-            ValidateMotorStateV3PresenceAndTypes(json);
+            ValidateMotorStatePresenceAndTypes(json);
             return UnityEngine.JsonUtility.FromJson<T>(json);
         }
 
         public static object FromJson(string json, Type type)
         {
-            ValidateMotorStateV3PresenceAndTypes(json);
+            ValidateMotorStatePresenceAndTypes(json);
             return UnityEngine.JsonUtility.FromJson(json, type);
         }
 
         public static void FromJsonOverwrite(string json, object objectToOverwrite)
         {
-            ValidateMotorStateV3PresenceAndTypes(json);
+            ValidateMotorStatePresenceAndTypes(json);
             UnityEngine.JsonUtility.FromJsonOverwrite(json, objectToOverwrite);
         }
 
@@ -134,140 +172,558 @@ namespace BodyRig.ReferenceRenderer
             return UnityEngine.JsonUtility.ToJson(obj, prettyPrint);
         }
 
-        private static void ValidateMotorStateV3PresenceAndTypes(string json)
+        private static void ValidateMotorStatePresenceAndTypes(string json)
         {
-            if (string.IsNullOrWhiteSpace(json) ||
-                !MotorTypePattern.IsMatch(json) ||
-                !VersionThreePattern.IsMatch(json))
+            if (string.IsNullOrWhiteSpace(json))
             {
                 return;
             }
 
-            ValidatePosture(json);
-            ValidateLocomotion(json);
+            var probeIndex = 0;
+            SkipWhitespace(json, ref probeIndex);
+            if (probeIndex >= json.Length || json[probeIndex] != '{')
+            {
+                return;
+            }
+
+            var root = ParseObjectMembers(json, "root");
+            if (!root.TryGetValue("type", out var rawType))
+            {
+                return;
+            }
+            if (!TryParseStringToken(rawType, out var type) || type != "bodyrig-motor-state")
+            {
+                return;
+            }
+
+            if (!root.TryGetValue("version", out var rawVersion) ||
+                !Regex.IsMatch(rawVersion.Trim(), "^[123]$", RegexOptions.CultureInvariant))
+            {
+                throw new ArgumentException("Motor State requires integer version 1, 2, or 3");
+            }
+            var version = int.Parse(rawVersion.Trim());
+
+            RequireStringMember(root, "body_id", "root");
+            RequireStringMember(root, "utterance_id", "root");
+            ValidateRequiredExactObject(root, "motion", MotionFields, "motion", Array.Empty<string>());
+            ValidateOptionalExactObject(root, "expression", ExpressionFields, "expression", new[] { "emotion" });
+            ValidateOptionalExactObject(root, "gesture", GestureFields, "gesture", new[] { "id" });
+            ValidateOptionalExactObject(root, "gaze", GazeFields, "gaze", new[] { "target" });
+            ValidateDuration(root);
+            ValidateSpeech(root);
+            ValidatePosture(root, version);
+            ValidateEmbodiment(root, version);
+            ValidateLocomotion(root, version);
         }
 
-        private static void ValidatePosture(string json)
+        private static void ValidateRequiredExactObject(
+            Dictionary<string, string> parent,
+            string propertyName,
+            string[] expected,
+            string context,
+            string[] stringFields)
         {
-            if (!PosturePropertyPattern.IsMatch(json))
+            if (!parent.TryGetValue(propertyName, out var raw))
+            {
+                throw new ArgumentException($"Motor State requires {context} object");
+            }
+            ValidateExactObject(raw, expected, context, stringFields);
+        }
+
+        private static void ValidateOptionalExactObject(
+            Dictionary<string, string> parent,
+            string propertyName,
+            string[] expected,
+            string context,
+            string[] stringFields)
+        {
+            if (!parent.TryGetValue(propertyName, out var raw))
+            {
+                return;
+            }
+            ValidateExactObject(raw, expected, context, stringFields);
+        }
+
+        private static void ValidateExactObject(
+            string raw,
+            string[] expected,
+            string context,
+            string[] stringFields)
+        {
+            var fields = ParseObjectMembers(raw, context);
+            RequireExactFields(fields, expected, context);
+            RequireNumericFields(fields, expected, context, stringFields);
+            foreach (var field in stringFields)
+            {
+                RequireStringMember(fields, field, context);
+            }
+        }
+
+        private static void ValidateDuration(Dictionary<string, string> root)
+        {
+            if (root.TryGetValue("duration_ms", out var raw))
+            {
+                RequireIntegerToken(raw, "duration_ms");
+            }
+        }
+
+        private static void ValidateSpeech(Dictionary<string, string> root)
+        {
+            if (!root.TryGetValue("speech", out var raw))
             {
                 return;
             }
 
-            var objectMatch = PostureObjectPattern.Match(json);
-            if (!objectMatch.Success)
+            var fields = ParseObjectMembers(raw, "speech");
+            RequireAllowedAndRequiredFields(fields, SpeechAllowedFields, SpeechRequiredFields, "speech");
+            RequireStringMember(fields, "state", "speech");
+            RequireIntegerMember(fields, "elapsed_ms", "speech");
+            if (fields.ContainsKey("viseme")) RequireStringMember(fields, "viseme", "speech");
+            if (fields.ContainsKey("amplitude")) RequireNumericMember(fields, "amplitude", "speech");
+        }
+
+        private static void ValidatePosture(Dictionary<string, string> root, int version)
+        {
+            if (!root.TryGetValue("posture", out var raw))
             {
-                throw new ArgumentException("Motor State v3 posture must be a flat JSON object");
+                return;
             }
 
-            var body = objectMatch.Groups["body"].Value;
-            var idMatch = PostureIdPattern.Match(body);
-            if (!idMatch.Success)
+            var fields = ParseObjectMembers(raw, "posture");
+            var id = RequireStringMember(fields, "id", "posture");
+            if (fields.ContainsKey("source"))
             {
-                throw new ArgumentException("Motor State v3 posture requires a string id");
-            }
-
-            var fields = CollectUniqueFields(body, "posture");
-            var id = idMatch.Groups["id"].Value;
-            if (fields.Contains("source"))
-            {
-                if (id != "natural" || !PostureSourcePattern.IsMatch(body))
+                var source = RequireStringMember(fields, "source", "posture");
+                if (version != 3 || id != "natural" || source != "modelrig-bodyprint-v1")
                 {
-                    throw new ArgumentException("Motor State v3 source-derived posture requires natural id and modelrig-bodyprint-v1 source");
+                    throw new ArgumentException(
+                        "Motor State source-derived posture requires v3 natural id and modelrig-bodyprint-v1 source");
                 }
                 RequireExactFields(fields, NaturalPostureFields, "source-derived natural posture");
-                RequireNumericFields(body, NaturalPostureFields, "source-derived natural posture", "id", "source");
+                RequireNumericFields(
+                    fields, NaturalPostureFields, "source-derived natural posture", "id", "source");
                 return;
             }
 
-            // Legacy/generic posture ids remain frozen. In particular, an old
-            // id literally named "natural" is not source authority unless the
-            // explicit source marker and signed fields are present.
             RequireExactFields(fields, GenericPostureFields, $"posture {id}");
-            RequireNumericFields(body, GenericPostureFields, $"posture {id}", "id");
+            RequireNumericFields(fields, GenericPostureFields, $"posture {id}", "id");
         }
 
-        private static void ValidateLocomotion(string json)
+        private static void ValidateEmbodiment(Dictionary<string, string> root, int version)
         {
-            if (!LocomotionPropertyPattern.IsMatch(json))
+            if (!root.TryGetValue("embodiment", out var raw))
             {
-                // Locomotion is optional in Motor State v3. A v1 cue routed
-                // through v3 legitimately has no locomotion object.
                 return;
             }
-
-            var objectMatch = LocomotionObjectPattern.Match(json);
-            if (!objectMatch.Success)
+            if (version < 2)
             {
-                throw new ArgumentException("Motor State v3 locomotion must be a flat JSON object");
+                throw new ArgumentException("Motor State v1 may not carry embodiment");
             }
 
-            var body = objectMatch.Groups["body"].Value;
-            var actionMatch = ActionPattern.Match(body);
-            if (!actionMatch.Success)
+            var embodiment = ParseObjectMembers(raw, "embodiment");
+            RequireExactFields(embodiment, new[] { "source", "observed" }, "embodiment");
+            var source = RequireStringMember(embodiment, "source", "embodiment");
+            if (source != "modelrig-bodyprint-v1")
             {
-                throw new ArgumentException("Motor State v3 locomotion requires a string action");
+                throw new ArgumentException("Motor State embodiment requires modelrig-bodyprint-v1 source");
             }
 
-            var fields = CollectUniqueFields(body, "locomotion");
-            var action = actionMatch.Groups["action"].Value;
+            var observed = ParseObjectMembers(embodiment["observed"], "embodiment.observed");
+            if (observed.Count == 0)
+            {
+                throw new ArgumentException("Motor State embodiment.observed requires at least one field");
+            }
+            RequireAllowedFields(observed, ObservedEmbodimentFields, "embodiment.observed");
+            foreach (var field in observed.Keys)
+            {
+                RequireNumericMember(observed, field, "embodiment.observed");
+            }
+        }
+
+        private static void ValidateLocomotion(Dictionary<string, string> root, int version)
+        {
+            if (!root.TryGetValue("locomotion", out var raw))
+            {
+                return;
+            }
+            if (version != 3)
+            {
+                throw new ArgumentException("Locomotion requires Motor State v3");
+            }
+
+            var fields = ParseObjectMembers(raw, "locomotion");
+            var action = RequireStringMember(fields, "action", "locomotion");
             switch (action)
             {
                 case "walk":
                     RequireExactFields(fields, WalkLocomotionFields, action);
-                    RequireNumericFields(body, WalkLocomotionFields, action, "action");
+                    RequireNumericFields(fields, WalkLocomotionFields, action, "action");
                     return;
                 case "turn_left":
                 case "turn_right":
                     RequireExactFields(fields, TurnLocomotionFields, action);
-                    RequireNumericFields(body, TurnLocomotionFields, action, "action");
+                    RequireNumericFields(fields, TurnLocomotionFields, action, "action");
                     return;
                 case "stop":
                     RequireExactFields(fields, StopLocomotionFields, action);
-                    RequireNumericFields(body, StopLocomotionFields, action, "action");
+                    RequireNumericFields(fields, StopLocomotionFields, action, "action");
                     return;
                 default:
                     throw new ArgumentException($"Unsupported Motor State v3 locomotion action: {action}");
             }
         }
 
-        private static HashSet<string> CollectUniqueFields(string body, string objectName)
+        private static Dictionary<string, string> ParseObjectMembers(string json, string context)
         {
-            var fields = new HashSet<string>(StringComparer.Ordinal);
-            foreach (Match property in PropertyPattern.Matches(body))
+            var index = 0;
+            SkipWhitespace(json, ref index);
+            if (index >= json.Length || json[index] != '{')
             {
-                var key = property.Groups["key"].Value;
-                if (!fields.Add(key))
+                throw new ArgumentException($"Motor State {context} must be a JSON object");
+            }
+            index++;
+
+            var members = new Dictionary<string, string>(StringComparer.Ordinal);
+            SkipWhitespace(json, ref index);
+            if (index < json.Length && json[index] == '}')
+            {
+                index++;
+                EnsureOnlyTrailingWhitespace(json, index, context);
+                return members;
+            }
+
+            while (index < json.Length)
+            {
+                SkipWhitespace(json, ref index);
+                var key = ReadJsonString(json, ref index, context + " field name");
+                SkipWhitespace(json, ref index);
+                if (index >= json.Length || json[index] != ':')
                 {
-                    throw new ArgumentException($"Motor State v3 {objectName} contains duplicate field: {key}");
+                    throw new ArgumentException($"Motor State {context} field {key} is missing ':'");
+                }
+                index++;
+                SkipWhitespace(json, ref index);
+
+                var valueStart = index;
+                SkipJsonValue(json, ref index, context + "." + key);
+                var rawValue = json.Substring(valueStart, index - valueStart);
+                if (!members.TryAdd(key, rawValue))
+                {
+                    throw new ArgumentException($"Motor State {context} contains duplicate field: {key}");
+                }
+
+                SkipWhitespace(json, ref index);
+                if (index >= json.Length)
+                {
+                    throw new ArgumentException($"Motor State {context} object is not closed");
+                }
+                if (json[index] == ',')
+                {
+                    index++;
+                    continue;
+                }
+                if (json[index] == '}')
+                {
+                    index++;
+                    EnsureOnlyTrailingWhitespace(json, index, context);
+                    return members;
+                }
+                throw new ArgumentException($"Motor State {context} has invalid JSON object syntax");
+            }
+
+            throw new ArgumentException($"Motor State {context} object is not closed");
+        }
+
+        private static void SkipJsonValue(string json, ref int index, string context)
+        {
+            SkipWhitespace(json, ref index);
+            if (index >= json.Length)
+            {
+                throw new ArgumentException($"Motor State {context} is missing a value");
+            }
+
+            if (json[index] == '"')
+            {
+                ReadJsonString(json, ref index, context);
+                return;
+            }
+            if (json[index] == '{' || json[index] == '[')
+            {
+                SkipComposite(json, ref index, context);
+                return;
+            }
+
+            var start = index;
+            while (index < json.Length &&
+                   !char.IsWhiteSpace(json[index]) &&
+                   json[index] != ',' && json[index] != '}' && json[index] != ']')
+            {
+                index++;
+            }
+            if (index == start)
+            {
+                throw new ArgumentException($"Motor State {context} has an invalid value");
+            }
+        }
+
+        private static void SkipComposite(string json, ref int index, string context)
+        {
+            var stack = new Stack<char>();
+            stack.Push(json[index] == '{' ? '}' : ']');
+            index++;
+
+            while (index < json.Length)
+            {
+                var current = json[index];
+                if (current == '"')
+                {
+                    ReadJsonString(json, ref index, context);
+                    continue;
+                }
+                if (current == '{')
+                {
+                    stack.Push('}');
+                    index++;
+                    continue;
+                }
+                if (current == '[')
+                {
+                    stack.Push(']');
+                    index++;
+                    continue;
+                }
+                if (current == '}' || current == ']')
+                {
+                    if (stack.Count == 0 || stack.Pop() != current)
+                    {
+                        throw new ArgumentException($"Motor State {context} has mismatched JSON delimiters");
+                    }
+                    index++;
+                    if (stack.Count == 0)
+                    {
+                        return;
+                    }
+                    continue;
+                }
+                index++;
+            }
+
+            throw new ArgumentException($"Motor State {context} value is not closed");
+        }
+
+        private static string ReadJsonString(string json, ref int index, string context)
+        {
+            if (index >= json.Length || json[index] != '"')
+            {
+                throw new ArgumentException($"Motor State {context} requires a JSON string");
+            }
+            index++;
+            var result = new StringBuilder();
+            while (index < json.Length)
+            {
+                var current = json[index++];
+                if (current == '"')
+                {
+                    return result.ToString();
+                }
+                if (current < 0x20)
+                {
+                    throw new ArgumentException($"Motor State {context} contains an invalid control character");
+                }
+                if (current != '\\')
+                {
+                    result.Append(current);
+                    continue;
+                }
+                if (index >= json.Length)
+                {
+                    throw new ArgumentException($"Motor State {context} has an incomplete JSON escape");
+                }
+
+                var escape = json[index++];
+                switch (escape)
+                {
+                    case '"': result.Append('"'); break;
+                    case '\\': result.Append('\\'); break;
+                    case '/': result.Append('/'); break;
+                    case 'b': result.Append('\b'); break;
+                    case 'f': result.Append('\f'); break;
+                    case 'n': result.Append('\n'); break;
+                    case 'r': result.Append('\r'); break;
+                    case 't': result.Append('\t'); break;
+                    case 'u':
+                        if (index + 4 > json.Length)
+                        {
+                            throw new ArgumentException($"Motor State {context} has an incomplete unicode escape");
+                        }
+                        var code = 0;
+                        for (var offset = 0; offset < 4; offset++)
+                        {
+                            var hex = HexValue(json[index + offset]);
+                            if (hex < 0)
+                            {
+                                throw new ArgumentException($"Motor State {context} has an invalid unicode escape");
+                            }
+                            code = (code << 4) | hex;
+                        }
+                        result.Append((char)code);
+                        index += 4;
+                        break;
+                    default:
+                        throw new ArgumentException($"Motor State {context} has an invalid JSON escape");
                 }
             }
-            return fields;
+
+            throw new ArgumentException($"Motor State {context} string is not closed");
+        }
+
+        private static int HexValue(char value)
+        {
+            if (value >= '0' && value <= '9') return value - '0';
+            if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+            if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+            return -1;
+        }
+
+        private static void SkipWhitespace(string json, ref int index)
+        {
+            while (index < json.Length && char.IsWhiteSpace(json[index])) index++;
+        }
+
+        private static void EnsureOnlyTrailingWhitespace(string json, int index, string context)
+        {
+            while (index < json.Length && char.IsWhiteSpace(json[index])) index++;
+            if (index != json.Length)
+            {
+                throw new ArgumentException($"Motor State {context} has trailing JSON content");
+            }
+        }
+
+        private static bool TryParseStringToken(string raw, out string value)
+        {
+            value = null;
+            var index = 0;
+            try
+            {
+                SkipWhitespace(raw, ref index);
+                if (index >= raw.Length || raw[index] != '"') return false;
+                value = ReadJsonString(raw, ref index, "string token");
+                SkipWhitespace(raw, ref index);
+                return index == raw.Length;
+            }
+            catch (ArgumentException)
+            {
+                value = null;
+                return false;
+            }
+        }
+
+        private static string RequireStringMember(
+            Dictionary<string, string> members,
+            string field,
+            string context)
+        {
+            if (!members.TryGetValue(field, out var raw))
+            {
+                throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+            }
+            if (!TryParseStringToken(raw, out var value))
+            {
+                throw new ArgumentException($"Motor State {context} requires string field: {field}");
+            }
+            return value;
+        }
+
+        private static void RequireNumericMember(
+            Dictionary<string, string> members,
+            string field,
+            string context)
+        {
+            if (!members.TryGetValue(field, out var raw))
+            {
+                throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+            }
+            RequireNumericToken(raw, context + "." + field);
+        }
+
+        private static void RequireIntegerMember(
+            Dictionary<string, string> members,
+            string field,
+            string context)
+        {
+            if (!members.TryGetValue(field, out var raw))
+            {
+                throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+            }
+            RequireIntegerToken(raw, context + "." + field);
+        }
+
+        private static void RequireNumericToken(string raw, string context)
+        {
+            if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonNumberPattern + ")$", RegexOptions.CultureInvariant))
+            {
+                throw new ArgumentException($"Motor State {context} requires a numeric JSON token");
+            }
+        }
+
+        private static void RequireIntegerToken(string raw, string context)
+        {
+            if (!Regex.IsMatch(raw.Trim(), "^(?:" + JsonIntegerPattern + ")$", RegexOptions.CultureInvariant))
+            {
+                throw new ArgumentException($"Motor State {context} requires an integer JSON token");
+            }
         }
 
         private static void RequireExactFields(
-            HashSet<string> actual,
+            Dictionary<string, string> actual,
             string[] expected,
             string context)
         {
             if (actual.Count != expected.Length)
             {
-                throw new ArgumentException(
-                    $"Motor State v3 field set does not match {context}");
+                throw new ArgumentException($"Motor State field set does not match {context}");
             }
-
             foreach (var field in expected)
             {
-                if (!actual.Contains(field))
+                if (!actual.ContainsKey(field))
                 {
-                    throw new ArgumentException(
-                        $"Motor State v3 {context} is missing required field: {field}");
+                    throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+                }
+            }
+        }
+
+        private static void RequireAllowedAndRequiredFields(
+            Dictionary<string, string> actual,
+            string[] allowed,
+            string[] required,
+            string context)
+        {
+            RequireAllowedFields(actual, allowed, context);
+            foreach (var field in required)
+            {
+                if (!actual.ContainsKey(field))
+                {
+                    throw new ArgumentException($"Motor State {context} is missing required field: {field}");
+                }
+            }
+        }
+
+        private static void RequireAllowedFields(
+            Dictionary<string, string> actual,
+            string[] allowed,
+            string context)
+        {
+            foreach (var field in actual.Keys)
+            {
+                if (Array.IndexOf(allowed, field) < 0)
+                {
+                    throw new ArgumentException($"Motor State {context} contains unsupported field: {field}");
                 }
             }
         }
 
         private static void RequireNumericFields(
-            string body,
+            Dictionary<string, string> actual,
             string[] expected,
             string context,
             params string[] stringFields)
@@ -278,15 +734,7 @@ namespace BodyRig.ReferenceRenderer
                 {
                     continue;
                 }
-
-                var pattern =
-                    "\\\"" + Regex.Escape(field) + "\\\"\\s*:\\s*" +
-                    JsonNumberPattern + "(?=\\s*(?:,|$))";
-                if (!Regex.IsMatch(body, pattern, RegexOptions.CultureInvariant))
-                {
-                    throw new ArgumentException(
-                        $"Motor State v3 {context} requires numeric field: {field}");
-                }
+                RequireNumericMember(actual, field, context);
             }
         }
     }
