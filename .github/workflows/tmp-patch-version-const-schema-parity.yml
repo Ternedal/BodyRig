@@ -1,0 +1,49 @@
+name: tmp-patch-version-const-schema-parity
+
+on:
+  push:
+    branches:
+      - staging/version-const-schema-parity-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: contains(github.event.head_commit.message, '[run-version-const-parity]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Preserve patch generator
+        run: cp tools/tmp_patch_version_const_schema_parity.py /tmp/version-const-patch.py
+      - name: Reset to exact current-main authority
+        run: git checkout --detach b63e79349f5619a3759b618fe40696480ee1f8d3
+      - name: Apply version const schema parity fix
+        run: python /tmp/version-const-patch.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Publish clean candidate
+        shell: bash
+        run: |
+          git add \
+            reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
+            tests/test_reference_renderer_version_schema_parity.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_version_schema_parity.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Align renderer version const semantics with schemas"
+          git push origin HEAD:fix/version-const-schema-parity-20260911
