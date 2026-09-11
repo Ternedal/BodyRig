@@ -301,6 +301,7 @@ namespace BodyRig.ReferenceRenderer
 
             Validate01(next.motion.energy, "motion.energy");
             Validate01(next.motion.head_motion, "motion.head_motion");
+            ValidateRange(next.duration_ms, 0.0f, 120000.0f, "duration_ms");
             if (next.expression != null)
             {
                 if (string.IsNullOrWhiteSpace(next.expression.emotion)) throw new ArgumentException("Expression emotion is required", nameof(json));
@@ -329,7 +330,8 @@ namespace BodyRig.ReferenceRenderer
             {
                 if (next.speech.state != "start" && next.speech.state != "update" && next.speech.state != "stop")
                     throw new ArgumentException("Unsupported speech timing state", nameof(json));
-                if (next.speech.elapsed_ms < 0) throw new ArgumentOutOfRangeException("speech.elapsed_ms");
+                if (next.speech.elapsed_ms < 0 || next.speech.elapsed_ms > 3600000)
+                    throw new ArgumentOutOfRangeException("speech.elapsed_ms");
                 Validate01(next.speech.amplitude, "speech.amplitude");
             }
 
