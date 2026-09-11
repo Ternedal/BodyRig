@@ -1,0 +1,59 @@
+name: validate-gaze-target-unicode-schema
+
+on:
+  push:
+    branches:
+      - staging/gaze-target-wellformed-unicode-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: contains(github.event.head_commit.message, '[run-gaze-target-unicode]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Apply gaze target Unicode schema constraint
+        run: python .github/scripts/apply_gaze_target_unicode_schema.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Run full Python regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("contracts").glob("*.json")):
+              json.loads(path.read_text(encoding="utf-8"))
+          print("JSON contracts: PASS")
+          PY
+          git diff --check
+      - name: Commit validated product blobs
+        shell: bash
+        run: |
+          git add \
+            contracts/bodyrig-motor-state-v1.schema.json \
+            contracts/bodyrig-motor-state-v2.schema.json \
+            contracts/bodyrig-motor-state-v3.schema.json \
+            tests/test_motor_state_gaze_target_unicode_schema.py
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            'contracts/bodyrig-motor-state-v1.schema.json' \
+            'contracts/bodyrig-motor-state-v2.schema.json' \
+            'contracts/bodyrig-motor-state-v3.schema.json' \
+            'tests/test_motor_state_gaze_target_unicode_schema.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Require well-formed Unicode in gaze targets"
+          git push origin HEAD:staging/gaze-target-wellformed-unicode-20260911
