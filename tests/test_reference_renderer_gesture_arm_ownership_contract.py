@@ -27,10 +27,10 @@ def test_gesture_arm_authority_matches_bones_each_action_actually_writes() -> No
     source = DRIVER.read_text(encoding="utf-8")
     left = source[
         source.index("private static bool GestureOwnsLeftUpperArm") :
-        source.index("private static bool GestureOwnsRightUpperArm")
+        source.index("private bool GestureOwnsRightUpperArm")
     ]
     right = source[
-        source.index("private static bool GestureOwnsRightUpperArm") :
+        source.index("private bool GestureOwnsRightUpperArm") :
         source.index("private bool HasSourceDerivedNaturalPosture")
     ]
 
@@ -43,7 +43,9 @@ def test_gesture_arm_authority_matches_bones_each_action_actually_writes() -> No
     # shoulder translation, and unsupported ids must fail closed without
     # stealing either locomotion arm.
     assert 'gesture.id == "present"' in right
+    assert 'return _rightUpperArm != null && _rightLowerArm != null;' in right
     assert 'gesture.id == "neutral"' in right
+    assert 'return gesture.id == "neutral" && _rightUpperArm != null;' in right
     assert 'gesture.id == "small_shrug"' not in right
 
 
