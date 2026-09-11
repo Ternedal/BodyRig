@@ -59,9 +59,11 @@ def test_raw_version_and_number_tokens_are_not_broadly_trimmed() -> None:
         "private static void ValidateMotorStatePresenceAndTypes",
         "private static string[] RootFieldsForVersion",
     )
-    assert 'Regex.IsMatch(rawVersion, "^[123]$"' in validate
+    assert "var version = RequireMotorStateVersion(root);" in validate
     assert "rawVersion.Trim()" not in validate
-    assert "int.Parse(rawVersion)" in validate
+    assert 'Regex.IsMatch(rawVersion, "^[123]$"' not in validate
+    assert "int.Parse(rawVersion)" not in validate
+    assert 'RequireNumericToken(rawVersion, "version");' in validate
 
     numeric = _slice(
         source,
