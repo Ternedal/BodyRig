@@ -1,0 +1,52 @@
+name: tmp-integer-wire-transport
+
+on:
+  push:
+    branches: [staging/integer-wire-transport-post374-20260911]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Apply product patch
+        run: python tools/tmp_patch_integer_wire_transport.py
+      - name: Assert raw integer and version authorities survive
+        run: |
+          grep -F 'private static bool IsIntegralJsonNumber(string raw)' reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs
+          grep -F 'public int version { get; set; }' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+          grep -F 'next.version = validatedVersion;' reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+      - name: Install locked test environment
+        run: |
+          python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+          python -m pip check
+      - name: Validate full suite and clean diff
+        run: |
+          python -m compileall -q bodyrig tests
+          python -m pytest -q
+          git diff --check
+      - name: Publish validated candidate tree
+        shell: bash
+        run: |
+          expected=$(cat <<'EOF'
+          reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs
+          tests/test_reference_renderer_integer_schema_parity.py
+          EOF
+          )
+          actual="$(git status --porcelain | sed -E 's/^.. //' | grep -v '^\.github/workflows/tmp-integer-wire-transport.yml$' | grep -v '^tools/tmp_patch_integer_wire_transport.py$' | sort)"
+          test "$actual" = "$(printf '%s\n' "$expected" | sort)" || { echo 'Unexpected product diff:'; git status --short; exit 1; }
+          rm .github/workflows/tmp-integer-wire-transport.yml tools/tmp_patch_integer_wire_transport.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Use schema-compatible integer wire transport'
+          git push origin HEAD:staging/integer-wire-transport-post374-20260911
