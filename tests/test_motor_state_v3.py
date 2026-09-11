@@ -22,9 +22,15 @@ FULL_MOVEMENT = {
         "gait_step_events": 7,
         "idle_observed_seconds": 0.9,
         "posture_torso_lean_degrees": 5.2,
+        "posture_torso_forward_lean_degrees": 4.8,
+        "posture_torso_right_lean_degrees": -1.2,
         "posture_shoulder_tilt_degrees": 1.3,
+        "posture_shoulder_roll_degrees": -1.3,
         "posture_hip_tilt_degrees": 0.8,
+        "posture_hip_roll_degrees": -0.8,
         "posture_head_offset_to_height": 0.041,
+        "posture_head_forward_offset_to_height": 0.036,
+        "posture_head_right_offset_to_height": 0.019,
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
@@ -142,6 +148,41 @@ def test_v3_turn_uses_observed_turn_speed_and_explicit_direction() -> None:
     }
 
 
+def test_v3_explicit_natural_posture_uses_signed_source_identity() -> None:
+    runtime = BodyRuntime()
+    runtime.activate("person-a", FULL_MOVEMENT)
+    runtime.apply_cue(BodyCueV2(utterance_id="u-posture", posture="natural"))
+
+    state = runtime.motor_state_v3()
+    assert state["posture"] == {
+        "id": "natural",
+        "intensity": 1.0,
+        "torso_forward_lean_degrees": 4.8,
+        "torso_right_lean_degrees": -1.2,
+        "shoulder_roll_degrees": -1.3,
+        "hip_roll_degrees": -0.8,
+        "head_forward_offset_to_height": 0.036,
+        "head_right_offset_to_height": 0.019,
+    }
+    assert "locomotion" not in state
+    assert state["embodiment"]["observed"]["posture_torso_forward_lean_degrees"] == 4.8
+
+
+def test_v3_natural_posture_intensity_blends_performed_values_toward_neutral() -> None:
+    runtime = BodyRuntime()
+    runtime.activate("person-a", FULL_MOVEMENT)
+    runtime.apply_cue(BodyCueV2(utterance_id="u-posture-half", posture="natural", intensity=0.5))
+
+    posture = runtime.motor_state_v3()["posture"]
+    assert posture["intensity"] == 0.5
+    assert posture["torso_forward_lean_degrees"] == 2.4
+    assert posture["torso_right_lean_degrees"] == -0.6
+    assert posture["shoulder_roll_degrees"] == -0.65
+    assert posture["hip_roll_degrees"] == -0.4
+    assert posture["head_forward_offset_to_height"] == 0.018
+    assert posture["head_right_offset_to_height"] == 0.0095
+
+
 def test_v3_locomotion_fails_closed_without_complete_movement_identity() -> None:
     incomplete = deepcopy(FULL_MOVEMENT)
     del incomplete["motion"]["stance_width_to_height"]
@@ -150,6 +191,17 @@ def test_v3_locomotion_fails_closed_without_complete_movement_identity() -> None
     runtime.apply_cue(BodyCueV2(utterance_id="u-walk", locomotion=LocomotionCue(action="walk")))
 
     with pytest.raises(ValueError, match="requires complete source-derived Movement Identity"):
+        runtime.motor_state_v3()
+
+
+def test_v3_natural_posture_fails_closed_without_signed_direction_authority() -> None:
+    incomplete = deepcopy(FULL_MOVEMENT)
+    del incomplete["motion"]["posture_head_right_offset_to_height"]
+    runtime = BodyRuntime()
+    runtime.activate("person-a", incomplete)
+    runtime.apply_cue(BodyCueV2(utterance_id="u-posture", posture="natural"))
+
+    with pytest.raises(ValueError, match="natural posture requires complete source-derived Movement Identity"):
         runtime.motor_state_v3()
 
 
@@ -177,7 +229,7 @@ def test_v3_turn_rejects_positive_speed_that_rounds_to_zero() -> None:
         runtime.motor_state_v3()
 
 
-def test_v3_never_creates_locomotion_from_movement_identity_alone() -> None:
+def test_v3_never_creates_locomotion_or_natural_posture_from_identity_alone() -> None:
     runtime = BodyRuntime()
     runtime.activate("person-a", FULL_MOVEMENT)
     runtime.apply_cue(BodyCue(utterance_id="u-talk", emotion="neutral"))
@@ -189,3 +241,4 @@ def test_v3_never_creates_locomotion_from_movement_identity_alone() -> None:
     expected["version"] = 3
     assert v3 == expected
     assert "locomotion" not in v3
+    assert "posture" not in v3
