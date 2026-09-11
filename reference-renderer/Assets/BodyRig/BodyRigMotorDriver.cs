@@ -222,6 +222,10 @@ namespace BodyRig.ReferenceRenderer
         private bool _locomotionPoseOwnedLastFrame;
         private bool _locomotionLeftArmPoseOwnedLastFrame;
         private bool _locomotionRightArmPoseOwnedLastFrame;
+        private bool _headRotationOwnedLastFrame;
+        private bool _headRotationWrittenThisFrame;
+        private Quaternion _headRotationReleaseRotation;
+        private Quaternion _headRotationAppliedRotation;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -489,6 +493,73 @@ namespace BodyRig.ReferenceRenderer
         private static bool SameExpressionWeight(float first, float second)
         {
             return Mathf.Abs(first - second) <= 0.0001f;
+        }
+
+        private void PrepareHeadRotationOwnershipForFrame()
+        {
+            _headRotationWrittenThisFrame = false;
+            if (_head == null)
+            {
+                _headRotationOwnedLastFrame = false;
+                return;
+            }
+            if (!_headRotationOwnedLastFrame)
+            {
+                return;
+            }
+
+            // Animator/VRMA evaluates before this LateUpdate. If it has already
+            // replaced BodyRig's previous head rotation, preserve that external
+            // value as the newest release baseline and let this frame reacquire
+            // ownership only if a performed head producer actually writes.
+            if (!SameRotation(_head.localRotation, _headRotationAppliedRotation))
+            {
+                _headRotationReleaseRotation = _head.localRotation;
+                _headRotationOwnedLastFrame = false;
+            }
+        }
+
+        private void AcquireHeadRotationOwnership()
+        {
+            if (_head == null)
+            {
+                return;
+            }
+            if (!_headRotationOwnedLastFrame)
+            {
+                _headRotationReleaseRotation = _head.localRotation;
+                _headRotationOwnedLastFrame = true;
+            }
+        }
+
+        private void CommitHeadRotationOwnershipForFrame()
+        {
+            if (_head == null)
+            {
+                _headRotationOwnedLastFrame = false;
+                _headRotationWrittenThisFrame = false;
+                return;
+            }
+            if (_headRotationWrittenThisFrame)
+            {
+                _headRotationOwnedLastFrame = true;
+                _headRotationAppliedRotation = _head.localRotation;
+                return;
+            }
+            if (_headRotationOwnedLastFrame)
+            {
+                var stillBodyRig = SameRotation(_head.localRotation, _headRotationAppliedRotation);
+                if (stillBodyRig)
+                {
+                    _head.localRotation = _headRotationReleaseRotation;
+                }
+                else
+                {
+                    _headRotationReleaseRotation = _head.localRotation;
+                }
+            }
+            _headRotationOwnedLastFrame = false;
+            _headRotationWrittenThisFrame = false;
         }
 
         private void PrepareGestureOwnershipForFrame(
@@ -777,6 +848,8 @@ namespace BodyRig.ReferenceRenderer
                 PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
             }
 
+            PrepareHeadRotationOwnershipForFrame();
+
             if (sourceNaturalPosture)
             {
                 RestorePostureOffsetsForFrame();
@@ -819,6 +892,7 @@ namespace BodyRig.ReferenceRenderer
             MotionRealized = ApplyHeadMotion();
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
+            CommitHeadRotationOwnershipForFrame();
             PostureRealized = ApplyPosture();
             CommitPostureOwnershipForFrame(sourceNaturalPosture, PostureRealized);
             CommitGestureOwnershipForFrame(
@@ -885,6 +959,8 @@ namespace BodyRig.ReferenceRenderer
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
+            _headRotationOwnedLastFrame = false;
+            _headRotationWrittenThisFrame = false;
             _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
@@ -1137,10 +1213,12 @@ namespace BodyRig.ReferenceRenderer
             var speechBoost = 1.0f + 0.35f * _speechAmplitude;
             var microYaw = Mathf.Sin(t * 1.13f) * 2.0f * _headMotion * speechBoost;
             var microPitch = Mathf.Sin(t * 1.71f + 0.7f) * 1.2f * _headMotion * speechBoost;
+            AcquireHeadRotationOwnership();
             _head.localRotation = Quaternion.Slerp(
                 _head.localRotation,
                 _headBaseRotation * Quaternion.Euler(microPitch, microYaw, 0.0f),
                 0.35f);
+            _headRotationWrittenThisFrame = true;
             return true;
         }
 
@@ -1162,15 +1240,25 @@ namespace BodyRig.ReferenceRenderer
                 _gazeStrength = 0.0f;
                 return false;
             }
-            if (_head == null || _head.parent == null || userGazeTarget == null) return false;
+            if (_head == null || _head.parent == null || userGazeTarget == null)
+            {
+                _gazeStrength = 0.0f;
+                return false;
+            }
             var direction = userGazeTarget.position - _head.position;
-            if (direction.sqrMagnitude <= 0.000001f) return false;
+            if (direction.sqrMagnitude <= 0.000001f)
+            {
+                _gazeStrength = 0.0f;
+                return false;
+            }
             var worldLook = Quaternion.LookRotation(direction.normalized, Vector3.up);
             var localLook = Quaternion.Inverse(_head.parent.rotation) * worldLook;
+            AcquireHeadRotationOwnership();
             _head.localRotation = Quaternion.Slerp(
                 _head.localRotation,
                 localLook,
                 Mathf.Clamp01(_gazeStrength * 0.65f));
+            _headRotationWrittenThisFrame = true;
             return true;
         }
 
@@ -1508,6 +1596,8 @@ namespace BodyRig.ReferenceRenderer
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
+            _headRotationOwnedLastFrame = false;
+            _headRotationWrittenThisFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;
