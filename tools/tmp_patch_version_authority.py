@@ -88,6 +88,47 @@ if driver_source.count(old_driver) != 1:
 driver_source = driver_source.replace(old_driver, new_driver, 1)
 driver.write_text(driver_source, encoding="utf-8")
 
+guard = repo / "tests" / "test_reference_renderer_json_utility_guard.py"
+guard_source = guard.read_text(encoding="utf-8")
+old_guard = '''    assert "internal static void ValidateMotorStateJson(string json)" in shim
+    dedicated = shim[
+        shim.index("internal static void ValidateMotorStateJson") :
+        shim.index("public static T FromJson<T>")
+    ]
+    assert "ValidateMotorStatePresenceAndTypes(json, true);" in dedicated
+'''
+new_guard = '''    assert "internal static int ValidateMotorStateJson(string json)" in shim
+    dedicated = shim[
+        shim.index("internal static int ValidateMotorStateJson") :
+        shim.index("public static T FromJson<T>")
+    ]
+    assert "ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);" in dedicated
+    assert "return validatedVersion.Value;" in dedicated
+'''
+if guard_source.count(old_guard) != 1:
+    raise SystemExit(f"dedicated guard test anchor count={guard_source.count(old_guard)}")
+guard_source = guard_source.replace(old_guard, new_guard, 1)
+old_generic = '''    assert "ValidateMotorStatePresenceAndTypes(json, true);" in source
+'''
+new_generic = '''    assert "ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);" in source
+'''
+if guard_source.count(old_generic) != 1:
+    raise SystemExit(f"generic guard test anchor count={guard_source.count(old_generic)}")
+guard_source = guard_source.replace(old_generic, new_generic, 1)
+guard.write_text(guard_source, encoding="utf-8")
+
+v2_test = repo / "tests" / "test_reference_renderer_motor_v2_contract.py"
+v2_source = v2_test.read_text(encoding="utf-8")
+old_v2 = '''    assert "next.version != 1 && next.version != 2 && next.version != 3" in source
+'''
+new_v2 = '''    assert "next.version = validatedVersion;" in source
+    assert "next.version != 1 && next.version != 2 && next.version != 3" not in source
+'''
+if v2_source.count(old_v2) != 1:
+    raise SystemExit(f"v2 version contract anchor count={v2_source.count(old_v2)}")
+v2_source = v2_source.replace(old_v2, new_v2, 1)
+v2_test.write_text(v2_source, encoding="utf-8")
+
 test = repo / "tests" / "test_reference_renderer_version_authority.py"
 if test.exists():
     raise SystemExit("version authority regression already exists")
