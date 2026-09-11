@@ -193,7 +193,8 @@ namespace BodyRig.ReferenceRenderer
         private bool _postureOwnedPoseLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private bool _locomotionPoseOwnedLastFrame;
-        private bool _locomotionArmPoseOwnedLastFrame;
+        private bool _locomotionLeftArmPoseOwnedLastFrame;
+        private bool _locomotionRightArmPoseOwnedLastFrame;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -401,6 +402,23 @@ namespace BodyRig.ReferenceRenderer
             return id == "small_shrug" || id == "present" || id == "neutral";
         }
 
+        private static bool GestureOwnsLeftUpperArm(GestureState gesture)
+        {
+            // None of the currently supported performed gestures writes the
+            // left upper arm. Keep this explicit so future gesture additions
+            // must opt into left-arm ownership deliberately.
+            return false;
+        }
+
+        private static bool GestureOwnsRightUpperArm(GestureState gesture)
+        {
+            if (gesture == null || !IsSupportedGestureId(gesture.id))
+            {
+                return false;
+            }
+            return gesture.id == "present" || gesture.id == "neutral";
+        }
+
         private bool HasSourceDerivedNaturalPosture()
         {
             return _state != null && _state.version == 3 && _state.posture != null &&
@@ -530,7 +548,8 @@ namespace BodyRig.ReferenceRenderer
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
-            _locomotionArmPoseOwnedLastFrame = false;
+            _locomotionLeftArmPoseOwnedLastFrame = false;
+            _locomotionRightArmPoseOwnedLastFrame = false;
             _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
@@ -594,17 +613,20 @@ namespace BodyRig.ReferenceRenderer
             return 1.0f - Mathf.Exp(-Mathf.Max(dt, 0.0001f) / seconds);
         }
 
-        private void BlendLocomotionPoseToBase(float blend, bool includeArms)
+        private void BlendLocomotionPoseToBase(float blend, bool includeLeftArm, bool includeRightArm)
         {
             if (_hips != null) _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition, blend);
             if (_leftUpperLeg != null) _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, _leftUpperLegBaseRotation, blend);
             if (_rightUpperLeg != null) _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, _rightUpperLegBaseRotation, blend);
             if (_leftLowerLeg != null) _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, _leftLowerLegBaseRotation, blend);
             if (_rightLowerLeg != null) _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, _rightLowerLegBaseRotation, blend);
-            if (includeArms)
+            if (includeLeftArm && _leftUpperArm != null)
             {
-                if (_leftUpperArm != null) _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
-                if (_rightUpperArm != null) _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
+                _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
+            }
+            if (includeRightArm && _rightUpperArm != null)
+            {
+                _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
             }
         }
 
@@ -617,7 +639,8 @@ namespace BodyRig.ReferenceRenderer
                 // Animator/VRMA has already evaluated before LateUpdate, so a
                 // bind-pose restore here would overwrite its current frame.
                 _locomotionPoseOwnedLastFrame = false;
-                _locomotionArmPoseOwnedLastFrame = false;
+                _locomotionLeftArmPoseOwnedLastFrame = false;
+                _locomotionRightArmPoseOwnedLastFrame = false;
                 return false;
             }
 
@@ -626,11 +649,14 @@ namespace BodyRig.ReferenceRenderer
             {
                 // Stop only settles a pose that BodyRig actually owns. A stop
                 // cue arriving over an external Animator pose must not pull it
-                // toward BodyRig's captured bind pose. Arms are included only
-                // if the preceding gait frame actually owned them.
+                // toward BodyRig's captured bind pose. Each arm is included only
+                // if the preceding gait frame actually owned that anatomical side.
                 if (_locomotionPoseOwnedLastFrame)
                 {
-                    BlendLocomotionPoseToBase(locomotionBlend, _locomotionArmPoseOwnedLastFrame);
+                    BlendLocomotionPoseToBase(
+                        locomotionBlend,
+                        _locomotionLeftArmPoseOwnedLastFrame,
+                        _locomotionRightArmPoseOwnedLastFrame);
                 }
                 return true;
             }
@@ -640,7 +666,8 @@ namespace BodyRig.ReferenceRenderer
                 // Turning owns root heading only. Releasing any preceding gait
                 // is a bookkeeping change, not a bind-pose write over Animator.
                 _locomotionPoseOwnedLastFrame = false;
-                _locomotionArmPoseOwnedLastFrame = false;
+                _locomotionLeftArmPoseOwnedLastFrame = false;
+                _locomotionRightArmPoseOwnedLastFrame = false;
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
                 _boundAnimator.transform.Rotate(
@@ -687,30 +714,38 @@ namespace BodyRig.ReferenceRenderer
                 _hipsBasePosition + Vector3.up * bounceOffset,
                 locomotionBlend);
 
-            // A simultaneous explicit supported gesture owns the arms.
-            // Unsupported gesture ids fail closed and therefore do not steal
-            // arm ownership from otherwise valid performed walk locomotion.
-            // Otherwise each anatomical arm follows its own already-performed
-            // v3 amplitude. One shared safety scale bounds the larger arm to
-            // 45 degrees while preserving the anatomical left/right ratio.
-            var locomotionOwnsArms = (_state.gesture == null || !IsSupportedGestureId(_state.gesture.id)) && _leftUpperArm != null && _rightUpperArm != null;
-            if (locomotionOwnsArms)
+            // Gesture precedence is anatomical, not all-or-nothing. A shrug
+            // owns shoulder translation only, while present/neutral own the
+            // right arm. Unsupported ids fail closed and own neither arm.
+            var locomotionOwnsLeftArm = _leftUpperArm != null && !GestureOwnsLeftUpperArm(_state.gesture);
+            var locomotionOwnsRightArm = _rightUpperArm != null && !GestureOwnsRightUpperArm(_state.gesture);
+            if (locomotionOwnsLeftArm || locomotionOwnsRightArm)
             {
+                // Bound only the arm swings BodyRig will actually realize this
+                // frame. When both are owned, the shared scale preserves the
+                // recovered anatomical left/right ratio.
                 var maxArmSwing = Mathf.Max(
-                    locomotion.left_arm_swing_to_height,
-                    locomotion.right_arm_swing_to_height);
+                    locomotionOwnsLeftArm ? locomotion.left_arm_swing_to_height : 0.0f,
+                    locomotionOwnsRightArm ? locomotion.right_arm_swing_to_height : 0.0f);
                 var armDegreesPerHeight = maxArmSwing > 0.0001f
                     ? Mathf.Min(90.0f, 45.0f / maxArmSwing)
                     : 90.0f;
                 var leftArmDegrees = locomotion.left_arm_swing_to_height * armDegreesPerHeight;
                 var rightArmDegrees = locomotion.right_arm_swing_to_height * armDegreesPerHeight;
-                var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * leftArmDegrees, 0.0f, 0.0f);
-                var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * rightArmDegrees, 0.0f, 0.0f);
-                _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
-                _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
+                if (locomotionOwnsLeftArm)
+                {
+                    var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * leftArmDegrees, 0.0f, 0.0f);
+                    _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
+                }
+                if (locomotionOwnsRightArm)
+                {
+                    var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * rightArmDegrees, 0.0f, 0.0f);
+                    _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
+                }
             }
             _locomotionPoseOwnedLastFrame = true;
-            _locomotionArmPoseOwnedLastFrame = locomotionOwnsArms;
+            _locomotionLeftArmPoseOwnedLastFrame = locomotionOwnsLeftArm;
+            _locomotionRightArmPoseOwnedLastFrame = locomotionOwnsRightArm;
             return true;
         }
 
@@ -1076,7 +1111,8 @@ namespace BodyRig.ReferenceRenderer
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
-            _locomotionArmPoseOwnedLastFrame = false;
+            _locomotionLeftArmPoseOwnedLastFrame = false;
+            _locomotionRightArmPoseOwnedLastFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;
