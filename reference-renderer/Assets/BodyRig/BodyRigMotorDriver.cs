@@ -514,6 +514,41 @@ namespace BodyRig.ReferenceRenderer
             return Mathf.Abs(first - second) <= 0.0001f;
         }
 
+        private static bool IsSupportedExpressionEmotion(string emotion)
+        {
+            switch (emotion)
+            {
+                case "neutral":
+                case "happy":
+                case "angry":
+                case "sad":
+                case "relaxed":
+                case "surprised":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsSupportedSpeechViseme(string viseme)
+        {
+            if (string.IsNullOrWhiteSpace(viseme))
+            {
+                return false;
+            }
+            switch (viseme.ToUpperInvariant())
+            {
+                case "AA":
+                case "IH":
+                case "OU":
+                case "EE":
+                case "OH":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private void PrepareHeadRotationOwnershipForFrame()
         {
             _headRotationWrittenThisFrame = false;
@@ -1589,7 +1624,8 @@ namespace BodyRig.ReferenceRenderer
 
         private void ReleaseOwnedExpression()
         {
-            if (_state.expression != null || string.IsNullOrWhiteSpace(_lastOwnedExpressionEmotion) ||
+            if ((_state.expression != null && IsSupportedExpressionEmotion(_state.expression.emotion)) ||
+                string.IsNullOrWhiteSpace(_lastOwnedExpressionEmotion) ||
                 avatarLoader == null || avatarLoader.Active == null)
             {
                 return;
@@ -1681,7 +1717,9 @@ namespace BodyRig.ReferenceRenderer
 
         private void ReleaseOwnedSpeechViseme()
         {
-            if (_state.speech != null || !_speechVisemeOwned || string.IsNullOrWhiteSpace(_lastOwnedSpeechViseme) ||
+            if ((_state.speech != null && _state.speech.state != "stop" &&
+                    IsSupportedSpeechViseme(_state.speech.viseme)) ||
+                !_speechVisemeOwned || string.IsNullOrWhiteSpace(_lastOwnedSpeechViseme) ||
                 avatarLoader == null || avatarLoader.Active == null)
             {
                 return;
