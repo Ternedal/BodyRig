@@ -193,6 +193,16 @@ namespace BodyRig.ReferenceRenderer
         private bool _speechVisemeOwned;
         private string _lastOwnedSpeechViseme;
         private float _lastOwnedSpeechVisemeWeight;
+        private bool _gestureShoulderPoseOwnedLastFrame;
+        private bool _gestureRightArmPoseOwnedLastFrame;
+        private Vector3 _gestureReleaseLeftShoulderPosition;
+        private Vector3 _gestureAppliedLeftShoulderPosition;
+        private Vector3 _gestureReleaseRightShoulderPosition;
+        private Vector3 _gestureAppliedRightShoulderPosition;
+        private Quaternion _gestureReleaseRightUpperArmRotation;
+        private Quaternion _gestureAppliedRightUpperArmRotation;
+        private Quaternion _gestureReleaseRightLowerArmRotation;
+        private Quaternion _gestureAppliedRightLowerArmRotation;
         private bool _postureSpineOwnedLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private Quaternion _postureReleaseSpineRotation;
@@ -414,6 +424,24 @@ namespace BodyRig.ReferenceRenderer
             return id == "small_shrug" || id == "present" || id == "neutral";
         }
 
+        private static bool GestureOwnsShoulderPositions(GestureState gesture)
+        {
+            if (gesture == null || !IsSupportedGestureId(gesture.id))
+            {
+                return false;
+            }
+            return gesture.id == "small_shrug" || gesture.id == "neutral";
+        }
+
+        private static bool GestureOwnsRightArmPose(GestureState gesture)
+        {
+            if (gesture == null || !IsSupportedGestureId(gesture.id))
+            {
+                return false;
+            }
+            return gesture.id == "present" || gesture.id == "neutral";
+        }
+
         private static bool GestureOwnsLeftUpperArm(GestureState gesture)
         {
             // None of the currently supported performed gestures writes the
@@ -424,11 +452,7 @@ namespace BodyRig.ReferenceRenderer
 
         private static bool GestureOwnsRightUpperArm(GestureState gesture)
         {
-            if (gesture == null || !IsSupportedGestureId(gesture.id))
-            {
-                return false;
-            }
-            return gesture.id == "present" || gesture.id == "neutral";
+            return GestureOwnsRightArmPose(gesture);
         }
 
         private bool HasSourceDerivedNaturalPosture()
@@ -467,6 +491,83 @@ namespace BodyRig.ReferenceRenderer
         private static bool SameExpressionWeight(float first, float second)
         {
             return Mathf.Abs(first - second) <= 0.0001f;
+        }
+
+        private void PrepareGestureOwnershipForFrame()
+        {
+            var gesture = _state != null ? _state.gesture : null;
+            var ownsShoulders = GestureOwnsShoulderPositions(gesture);
+            var ownsRightArm = GestureOwnsRightArmPose(gesture);
+
+            if (_gestureShoulderPoseOwnedLastFrame)
+            {
+                var leftStillBodyRig = _leftShoulder == null ||
+                    SamePosition(_leftShoulder.localPosition, _gestureAppliedLeftShoulderPosition);
+                var rightStillBodyRig = _rightShoulder == null ||
+                    SamePosition(_rightShoulder.localPosition, _gestureAppliedRightShoulderPosition);
+
+                if (_leftShoulder != null && !leftStillBodyRig) _gestureReleaseLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null && !rightStillBodyRig) _gestureReleaseRightShoulderPosition = _rightShoulder.localPosition;
+
+                if (!ownsShoulders)
+                {
+                    if (_leftShoulder != null && leftStillBodyRig)
+                        _leftShoulder.localPosition = _gestureReleaseLeftShoulderPosition;
+                    if (_rightShoulder != null && rightStillBodyRig)
+                        _rightShoulder.localPosition = _gestureReleaseRightShoulderPosition;
+                    _gestureShoulderPoseOwnedLastFrame = false;
+                }
+            }
+            else if (ownsShoulders)
+            {
+                if (_leftShoulder != null) _gestureReleaseLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null) _gestureReleaseRightShoulderPosition = _rightShoulder.localPosition;
+            }
+
+            if (_gestureRightArmPoseOwnedLastFrame)
+            {
+                var upperStillBodyRig = _rightUpperArm == null ||
+                    SameRotation(_rightUpperArm.localRotation, _gestureAppliedRightUpperArmRotation);
+                var lowerStillBodyRig = _rightLowerArm == null ||
+                    SameRotation(_rightLowerArm.localRotation, _gestureAppliedRightLowerArmRotation);
+
+                if (_rightUpperArm != null && !upperStillBodyRig) _gestureReleaseRightUpperArmRotation = _rightUpperArm.localRotation;
+                if (_rightLowerArm != null && !lowerStillBodyRig) _gestureReleaseRightLowerArmRotation = _rightLowerArm.localRotation;
+
+                if (!ownsRightArm)
+                {
+                    if (_rightUpperArm != null && upperStillBodyRig)
+                        _rightUpperArm.localRotation = _gestureReleaseRightUpperArmRotation;
+                    if (_rightLowerArm != null && lowerStillBodyRig)
+                        _rightLowerArm.localRotation = _gestureReleaseRightLowerArmRotation;
+                    _gestureRightArmPoseOwnedLastFrame = false;
+                }
+            }
+            else if (ownsRightArm)
+            {
+                if (_rightUpperArm != null) _gestureReleaseRightUpperArmRotation = _rightUpperArm.localRotation;
+                if (_rightLowerArm != null) _gestureReleaseRightLowerArmRotation = _rightLowerArm.localRotation;
+            }
+        }
+
+        private void CommitGestureOwnershipForFrame(bool gestureRealized)
+        {
+            var gesture = _state != null ? _state.gesture : null;
+            _gestureShoulderPoseOwnedLastFrame = gestureRealized && GestureOwnsShoulderPositions(gesture) &&
+                (_leftShoulder != null || _rightShoulder != null);
+            if (_gestureShoulderPoseOwnedLastFrame)
+            {
+                if (_leftShoulder != null) _gestureAppliedLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null) _gestureAppliedRightShoulderPosition = _rightShoulder.localPosition;
+            }
+
+            _gestureRightArmPoseOwnedLastFrame = gestureRealized && GestureOwnsRightArmPose(gesture) &&
+                (_rightUpperArm != null || _rightLowerArm != null);
+            if (_gestureRightArmPoseOwnedLastFrame)
+            {
+                if (_rightUpperArm != null) _gestureAppliedRightUpperArmRotation = _rightUpperArm.localRotation;
+                if (_rightLowerArm != null) _gestureAppliedRightLowerArmRotation = _rightLowerArm.localRotation;
+            }
         }
 
         private void PreparePostureOwnershipForFrame(bool performedPosture, bool sourceNaturalPosture)
@@ -557,6 +658,7 @@ namespace BodyRig.ReferenceRenderer
             // value. If Animator/VRMA already rewrote a channel this frame, its
             // value becomes the latest release baseline and is left untouched.
             PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+            PrepareGestureOwnershipForFrame();
 
             if (sourceNaturalPosture)
             {
@@ -603,6 +705,7 @@ namespace BodyRig.ReferenceRenderer
             GazeRealized = ApplyGaze();
             PostureRealized = ApplyPosture();
             CommitPostureOwnershipForFrame(sourceNaturalPosture, PostureRealized);
+            CommitGestureOwnershipForFrame(GestureRealized);
             ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
             ReleaseOwnedSpeechViseme();
@@ -642,6 +745,8 @@ namespace BodyRig.ReferenceRenderer
             _speechVisemeOwned = false;
             _lastOwnedSpeechViseme = null;
             _lastOwnedSpeechVisemeWeight = 0.0f;
+            _gestureShoulderPoseOwnedLastFrame = false;
+            _gestureRightArmPoseOwnedLastFrame = false;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
@@ -1259,6 +1364,8 @@ namespace BodyRig.ReferenceRenderer
             _speechVisemeOwned = false;
             _lastOwnedSpeechViseme = null;
             _lastOwnedSpeechVisemeWeight = 0.0f;
+            _gestureShoulderPoseOwnedLastFrame = false;
+            _gestureRightArmPoseOwnedLastFrame = false;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
