@@ -9,8 +9,14 @@ from typing import Any, Mapping, Sequence
 
 from .photoidentity_authority import PhotoIdentityAuthorityError, validate_authoritative_bundle
 from .photoidentity_evidence import DETAIL_QUALITY_THRESHOLD
+from .photoidentity_multiperformer_detail_aggregate import (
+    PhotoIdentityMultiDetailAggregateError,
+    validate_multiperformer_detail_aggregation,
+)
+from .photoidentity_target_crop_quality_attestation import ADAPTER as TARGET_DETAIL_ADAPTER
+from .photoidentity_target_crop_quality_attestation import ADAPTER_REVISION as TARGET_DETAIL_REVISION
 
-POLICY_REVISION = "photoidentity-human-source-chain-v1"
+POLICY_REVISION = "photoidentity-human-source-chain-v2"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -152,6 +158,39 @@ def _assert_claims_match(
         raise PhotoIdentitySourceChainError(f"final {domain} claims do not match human source receipt")
 
 
+def _target_detail_claims(observations: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    details = observations.get("detail_evidence")
+    if not isinstance(details, Mapping):
+        raise PhotoIdentitySourceChainError("photoidentity detail evidence is invalid")
+    result: dict[str, list[dict[str, Any]]] = {}
+    for domain, raw_claims in details.items():
+        if not isinstance(raw_claims, list):
+            continue
+        selected: list[dict[str, Any]] = []
+        for raw in raw_claims:
+            if not isinstance(raw, Mapping):
+                continue
+            if (
+                str(raw.get("adapter") or "") == TARGET_DETAIL_ADAPTER
+                and str(raw.get("revision") or "") == TARGET_DETAIL_REVISION
+            ):
+                if raw.get("source_derived") is not True:
+                    raise PhotoIdentitySourceChainError("multi-performer target-detail claim is not source-derived")
+                selected.append(
+                    {
+                        "scene_id": str(raw.get("scene_id") or ""),
+                        "quality": round(_quality(raw.get("quality"), label=f"{domain} target-detail quality"), 4),
+                        "source_derived": True,
+                        "adapter": TARGET_DETAIL_ADAPTER,
+                        "revision": TARGET_DETAIL_REVISION,
+                    }
+                )
+        if selected:
+            selected.sort(key=lambda item: (item["scene_id"], item["quality"]))
+            result[str(domain)] = selected
+    return result
+
+
 def validate_registration_source_chain(
     report_path: str | Path,
     observation_path: str | Path | None = None,
@@ -249,6 +288,54 @@ def validate_registration_source_chain(
         if (str(receipt.get("performer_id") or ""), str(receipt.get("bodyrig_revision") or "")) != common:
             raise PhotoIdentitySourceChainError(f"{label} receipt performer/revision authority changed")
 
+    final_target_claims = _target_detail_claims(observations)
+    try:
+        aggregation = validate_multiperformer_detail_aggregation(sweep_root)
+    except PhotoIdentityMultiDetailAggregateError as exc:
+        raise PhotoIdentitySourceChainError(f"multi-performer detail lineage is invalid: {exc}") from exc
+
+    aggregation_payload: dict[str, Any] | None = None
+    if aggregation is None:
+        if final_target_claims:
+            raise PhotoIdentitySourceChainError(
+                "human target-detail claims exist without persisted multi-performer aggregation lineage"
+            )
+        if str(nail_receipt.get("prior_stage") or "") != "human-parsing":
+            raise PhotoIdentitySourceChainError("nail prior stage is invalid without multi-performer aggregation")
+    else:
+        aggregate_report = aggregation["report"]
+        if (
+            str(aggregate_report["performer_id"]) != common[0]
+            or str(aggregate_report["bodyrig_revision"]) != common[1]
+            or str(aggregate_report["baseline_source_manifest_sha256"])
+            != str(report["baseline_source_manifest_sha256"])
+        ):
+            raise PhotoIdentitySourceChainError("multi-performer aggregation changed final performer/revision/source authority")
+        if str(nail_receipt.get("prior_stage") or "") != "multiperformer-detail":
+            raise PhotoIdentitySourceChainError("nail authority did not select the persisted multi-performer detail prior")
+        if nail_receipt.get("prior_observation_evidence_sha256") != _sha256(Path(aggregation["observations_path"])):
+            raise PhotoIdentitySourceChainError("nail receipt no longer binds the multi-performer detail observations")
+        if nail_receipt.get("prior_sufficiency_report_sha256") != _sha256(Path(aggregation["report_path"])):
+            raise PhotoIdentitySourceChainError("nail receipt no longer binds the multi-performer detail report")
+        aggregate_observations = _read_json(
+            Path(aggregation["observations_path"]),
+            label="Aggregated multi-performer photoidentity observations",
+        )
+        expected_target_claims = _target_detail_claims(aggregate_observations)
+        if not expected_target_claims or final_target_claims != expected_target_claims:
+            raise PhotoIdentitySourceChainError(
+                "final human target-detail claims do not match persisted multi-performer aggregation lineage"
+            )
+        quality_paths = [Path(value).resolve() for value in aggregation["quality_receipt_paths"]]
+        aggregation_payload = {
+            "receipt": str(Path(aggregation["receipt_path"]).resolve()),
+            "receipt_sha256": _sha256(Path(aggregation["receipt_path"])),
+            "quality_receipts": [str(path) for path in quality_paths],
+            "quality_receipt_sha256s": [_sha256(path) for path in quality_paths],
+            "observation_evidence_sha256": _sha256(Path(aggregation["observations_path"])),
+            "sufficiency_report_sha256": _sha256(Path(aggregation["report_path"])),
+        }
+
     fingernails = _selected_claims(
         nail_receipt.get("selected_fingernails"),
         label="Fingernail attestation",
@@ -317,4 +404,5 @@ def validate_registration_source_chain(
         "nail_attestation_sha256": _sha256(nail_receipt_path),
         "anatomy_attestation": str(anatomy_receipt_path),
         "anatomy_attestation_sha256": _sha256(anatomy_receipt_path),
+        "multiperformer_detail": aggregation_payload,
     }
