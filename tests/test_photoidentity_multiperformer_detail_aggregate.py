@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,18 +14,37 @@ from bodyrig.photoidentity_multiperformer_detail_aggregate import (
     aggregate_multiperformer_detail_evidence,
     validate_multiperformer_detail_aggregation,
 )
+from bodyrig.photoidentity_multiperformer_target_attestation import (
+    FORMAT as ISOLATION_FORMAT,
+    POLICY as ISOLATION_POLICY,
+    VERSION as ISOLATION_VERSION,
+)
 from bodyrig.photoidentity_prior import resolve_pre_nail_bundle
-from bodyrig.photoidentity_target_crop_detail import OPENPOSE_ADAPTER as TARGET_OPENPOSE_ADAPTER
-from bodyrig.photoidentity_target_crop_detail import OPENPOSE_REVISION as TARGET_OPENPOSE_REVISION
+from bodyrig.photoidentity_target_crop_enrich import (
+    FORMAT as ENRICHMENT_FORMAT,
+    PRIVATE_FORMAT as PRIVATE_ENRICHMENT_FORMAT,
+    PRIVATE_VERSION as PRIVATE_ENRICHMENT_VERSION,
+    VERSION as ENRICHMENT_VERSION,
+)
 from bodyrig.photoidentity_target_crop_quality_attestation import (
     ADAPTER as QUALITY_ADAPTER,
     ADAPTER_REVISION as QUALITY_ADAPTER_REVISION,
+    DOMAIN_MACHINE_AUTHORITY,
     FORMAT as QUALITY_FORMAT,
     POLICY as QUALITY_POLICY,
 )
 
 REVISION = "a" * 40
 BASELINE_SHA = "b" * 64
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _row(scene: str) -> dict[str, object]:
@@ -45,13 +65,13 @@ def _row(scene: str) -> dict[str, object]:
 
 
 def _claim(scene: str, domain: str, *, quality: float = 0.91) -> dict[str, object]:
-    adapter = "openpose-body25-face-hand-detail" if domain in {"eyes_detail", "hands", "feet"} else "schp-atr18-source-observability"
+    adapter, revision = DOMAIN_MACHINE_AUTHORITY[domain]
     return {
         "scene_id": scene,
         "quality": quality,
         "source_derived": True,
         "adapter": adapter,
-        "revision": "1",
+        "revision": revision,
     }
 
 
@@ -82,10 +102,87 @@ def _base_sweep(tmp_path: Path) -> Path:
     return sweep
 
 
-def _quality_receipt(tmp_path: Path, *, scene: str = "multi-1", domain: str = "eyes_detail", quality: float = 0.93) -> Path:
-    path = tmp_path / f"quality-{scene}-{domain}.json"
-    machine_adapter = TARGET_OPENPOSE_ADAPTER
-    machine_revision = TARGET_OPENPOSE_REVISION
+def _quality_lineage(
+    tmp_path: Path,
+    *,
+    scene: str = "multi-1",
+    domain: str = "eyes_detail",
+    quality: float = 0.93,
+) -> tuple[Path, Path]:
+    candidate_root = tmp_path / f"candidate-{scene}-{domain}"
+    enrichment_root = candidate_root / "target-crop-detail-enrichment"
+    private_root = enrichment_root / "private-analysis"
+    sample_id = "targetsample-0001"
+
+    crop = private_root / "crop.png"
+    crop.parent.mkdir(parents=True, exist_ok=True)
+    crop.write_bytes(b"real-source-crop-bytes")
+    crop_sha = _sha(crop)
+
+    isolation_path = candidate_root / "photoidentity-multiperformer-target-isolation-attestation.json"
+    isolation = {
+        "format": ISOLATION_FORMAT,
+        "version": ISOLATION_VERSION,
+        "policy": ISOLATION_POLICY,
+        "bodyrig_revision": REVISION,
+        "performer_id": "42",
+        "scene_id": scene,
+        "accepted_samples": [{"sample_id": sample_id, "target_crop_sha256": crop_sha}],
+        "target_isolated_source_authority": True,
+        "authority_scope": "accepted-samples-only",
+        "photoidentity_source_evidence_authority": False,
+        "reconstruction_permitted": False,
+        "production_activation": False,
+    }
+    _write(isolation_path, isolation)
+
+    private_path = private_root / "private-analysis-index.json"
+    private = {
+        "format": PRIVATE_ENRICHMENT_FORMAT,
+        "version": PRIVATE_ENRICHMENT_VERSION,
+        "bodyrig_revision": REVISION,
+        "performer_id": "42",
+        "scene_id": scene,
+        "rows": [{"sample_id": sample_id, "analysis_crop": str(crop)}],
+    }
+    _write(private_path, private)
+
+    machine_adapter, machine_revision = DOMAIN_MACHINE_AUTHORITY[domain]
+    public_path = enrichment_root / "target-crop-detail-enrichment.json"
+    public = {
+        "format": ENRICHMENT_FORMAT,
+        "version": ENRICHMENT_VERSION,
+        "bodyrig_revision": REVISION,
+        "performer_id": "42",
+        "scene_id": scene,
+        "human_target_isolation_attestation_sha256": _sha(isolation_path),
+        "private_analysis_index_sha256": _sha(private_path),
+        "machine_observability_only": True,
+        "source_detail_quality_authority": False,
+        "photoidentity_source_evidence_authority": False,
+        "reconstruction_permitted": False,
+        "production_activation": False,
+        "samples": [
+            {
+                "sample_id": sample_id,
+                "target_crop_sha256": crop_sha,
+                "candidates": [
+                    {
+                        "domain": domain,
+                        "machine_observability_score": quality,
+                        "source_derived": True,
+                        "adapter": machine_adapter,
+                        "revision": machine_revision,
+                        "source_detail_quality_authority": False,
+                        "photoidentity_sufficiency_authority": False,
+                    }
+                ],
+            }
+        ],
+    }
+    _write(public_path, public)
+
+    receipt_path = enrichment_root / "photoidentity-target-crop-detail-quality-attestation.json"
     receipt = {
         "format": QUALITY_FORMAT,
         "version": 1,
@@ -93,17 +190,17 @@ def _quality_receipt(tmp_path: Path, *, scene: str = "multi-1", domain: str = "e
         "bodyrig_revision": REVISION,
         "performer_id": "42",
         "scene_id": scene,
-        "human_target_isolation_attestation_sha256": "c" * 64,
-        "target_crop_detail_enrichment_sha256": "d" * 64,
-        "private_analysis_index_sha256": "e" * 64,
+        "human_target_isolation_attestation_sha256": _sha(isolation_path),
+        "target_crop_detail_enrichment_sha256": _sha(public_path),
+        "private_analysis_index_sha256": _sha(private_path),
         "adapter": QUALITY_ADAPTER,
         "adapter_revision": QUALITY_ADAPTER_REVISION,
         "selected_domains": [domain],
         "selected_claims": [{
-            "sample_id": "targetsample-0001",
+            "sample_id": sample_id,
             "domain": domain,
             "scene_id": scene,
-            "target_crop_sha256": "f" * 64,
+            "target_crop_sha256": crop_sha,
             "quality": quality,
             "machine_adapter": machine_adapter,
             "machine_revision": machine_revision,
@@ -120,20 +217,27 @@ def _quality_receipt(tmp_path: Path, *, scene: str = "multi-1", domain: str = "e
         "reconstruction_permitted": False,
         "production_activation": False,
     }
-    path.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
-    return path
+    _write(receipt_path, receipt)
+    return candidate_root, receipt_path
 
 
 def test_aggregate_adds_distinct_human_reviewed_scene_without_mutating_base_rows(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    receipt = _quality_receipt(tmp_path)
-    result = aggregate_multiperformer_detail_evidence(sweep_root=sweep, quality_receipts=[receipt])
+    candidate_root, receipt = _quality_lineage(tmp_path)
+    result = aggregate_multiperformer_detail_evidence(
+        sweep_root=sweep,
+        quality_receipts=[receipt],
+        candidate_roots=[candidate_root],
+    )
     observations = json.loads(Path(result["enriched_observation_evidence"]).read_text(encoding="utf-8"))
     report = result["report"]
     assert observations["rows"] == [_row("single-1")]
     claims = observations["detail_evidence"]["eyes_detail"]
     assert [item["scene_id"] for item in claims] == ["multi-1", "single-1"]
-    assert {item["adapter"] for item in claims} == {"openpose-body25-face-hand-detail", QUALITY_ADAPTER}
+    assert {item["adapter"] for item in claims} == {
+        "openpose-body25-face-hand-detail",
+        QUALITY_ADAPTER,
+    }
     assert report["domains"]["eyes_detail"]["qualifying_distinct_scenes"] == 2
     assert report["domains"]["eyes_detail"]["status"] == "pass"
     validated = validate_multiperformer_detail_aggregation(sweep)
@@ -145,20 +249,53 @@ def test_aggregate_adds_distinct_human_reviewed_scene_without_mutating_base_rows
 
 def test_aggregate_rejects_overlap_with_single_person_observation_pool(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    receipt = _quality_receipt(tmp_path, scene="single-1")
+    candidate_root, receipt = _quality_lineage(tmp_path, scene="single-1")
     with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="overlaps the single-performer observation pool"):
-        aggregate_multiperformer_detail_evidence(sweep_root=sweep, quality_receipts=[receipt])
+        aggregate_multiperformer_detail_evidence(
+            sweep_root=sweep,
+            quality_receipts=[receipt],
+            candidate_roots=[candidate_root],
+        )
 
 
 def test_aggregate_prior_fails_closed_when_persisted_quality_receipt_is_tampered(tmp_path: Path) -> None:
     sweep = _base_sweep(tmp_path)
-    receipt = _quality_receipt(tmp_path)
-    aggregate_multiperformer_detail_evidence(sweep_root=sweep, quality_receipts=[receipt])
+    candidate_root, receipt = _quality_lineage(tmp_path)
+    aggregate_multiperformer_detail_evidence(
+        sweep_root=sweep,
+        quality_receipts=[receipt],
+        candidate_roots=[candidate_root],
+    )
     authority = sweep / AUTHORITY_DIRNAME
     stored = next(authority.glob("quality-*.json"))
     stored.write_text(stored.read_text(encoding="utf-8") + " ", encoding="utf-8")
     with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="hash mismatch"):
         validate_multiperformer_detail_aggregation(sweep)
+
+
+def test_aggregate_rejects_detached_quality_receipt_with_fabricated_source_hash(tmp_path: Path) -> None:
+    sweep = _base_sweep(tmp_path)
+    candidate_root, receipt = _quality_lineage(tmp_path)
+    value = json.loads(receipt.read_text(encoding="utf-8"))
+    value["human_target_isolation_attestation_sha256"] = "0" * 64
+    _write(receipt, value)
+    with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="not bound to current isolation receipt"):
+        aggregate_multiperformer_detail_evidence(
+            sweep_root=sweep,
+            quality_receipts=[receipt],
+            candidate_roots=[candidate_root],
+        )
+
+
+def test_aggregate_requires_candidate_root_for_every_quality_receipt(tmp_path: Path) -> None:
+    sweep = _base_sweep(tmp_path)
+    _, receipt = _quality_lineage(tmp_path)
+    with pytest.raises(PhotoIdentityMultiDetailAggregateError, match="corresponding human-isolation candidate root"):
+        aggregate_multiperformer_detail_evidence(
+            sweep_root=sweep,
+            quality_receipts=[receipt],
+            candidate_roots=[],
+        )
 
 
 def test_human_target_detail_adapter_is_not_authority_for_nails_or_anatomy() -> None:
