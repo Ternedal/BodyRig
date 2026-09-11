@@ -1,0 +1,54 @@
+name: validate-version-numeric-const
+
+on:
+  push:
+    branches:
+      - staging/version-numeric-const-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: contains(github.event.head_commit.message, '[run-version-numeric-const]')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Apply version numeric const parity patch
+        run: python .github/scripts/apply_version_numeric_const.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Run full Python regressions
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python -m pytest -q
+          git diff --check
+      - name: Commit clean validated tree
+        shell: bash
+        run: |
+          rm -f \
+            .github/scripts/apply_version_numeric_const.py \
+            .github/workflows/validate-version-numeric-const.yml \
+            .github/version-numeric-const.trigger
+          git add -A
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            '.github/scripts/apply_version_numeric_const.py' \
+            '.github/version-numeric-const.trigger' \
+            '.github/workflows/validate-version-numeric-const.yml' \
+            'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
+            'tests/test_reference_renderer_json_whitespace_guard.py' \
+            'tests/test_reference_renderer_version_schema_parity.py' | sort)"
+          test "$actual" = "$expected" || { echo "unexpected staged files:"; printf '%s\n' "$actual"; exit 1; }
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Match Motor State version numeric const semantics"
+          git push origin HEAD:staging/version-numeric-const-20260911
