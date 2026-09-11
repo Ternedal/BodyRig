@@ -24,6 +24,34 @@ def test_runtime_manifest_binds_critical_payload_hashes() -> None:
     )
 
 
+def test_runtime_manifest_schema_requires_both_authoritative_runtime_payloads() -> None:
+    schema = json.loads(
+        (ROOT / "contracts" / "bodyrig-runtime-assets-v1.schema.json").read_text(encoding="utf-8")
+    )
+    payloads = schema["properties"]["payloads"]
+    assert payloads["type"] == "array"
+    assert payloads["minItems"] == 4
+    assert payloads["maxItems"] == 10
+    assert payloads["uniqueItems"] is True
+    assert "contains" not in payloads
+    required_payloads = {
+        constraint["contains"]["const"]
+        for constraint in payloads["allOf"]
+    }
+    assert required_payloads == {"avatar.vrm", "bodyprint.json"}
+    assert {"avatar.vrm", "bodyprint.json"} <= set(payloads["items"]["enum"])
+
+    materialize = (ROOT / "bodyrig" / "materialize.py").read_text(encoding="utf-8")
+    assert 'if not avatar_path.is_file() or not bodyprint_path.is_file():' in materialize
+    assert 'raise MRBodyError("materialized runtime is missing required avatar/bodyprint payload")' in materialize
+
+    renderer_guard = (
+        ROOT / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigJsonUtility.cs"
+    ).read_text(encoding="utf-8")
+    assert 'if (!unique.Contains("avatar.vrm") || !unique.Contains("bodyprint.json"))' in renderer_guard
+    assert 'Runtime manifest is missing required avatar/bodyprint payloads' in renderer_guard
+
+
 def test_reference_renderer_rechecks_runtime_payload_hashes_point_of_use() -> None:
     loader = (
         ROOT / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigAvatarLoader.cs"
