@@ -190,6 +190,18 @@ namespace BodyRig.ReferenceRenderer
         private float _speechAmplitude;
         private string _lastOwnedExpressionEmotion;
         private bool _speechVisemeOwned;
+        private bool _postureSpineOwnedLastFrame;
+        private bool _sourcePostureOffsetsOwnedLastFrame;
+        private Quaternion _postureReleaseSpineRotation;
+        private Quaternion _postureAppliedSpineRotation;
+        private Vector3 _postureReleaseHeadPosition;
+        private Vector3 _postureAppliedHeadPosition;
+        private Quaternion _postureReleaseHipsRotation;
+        private Quaternion _postureAppliedHipsRotation;
+        private Vector3 _postureReleaseLeftShoulderPosition;
+        private Vector3 _postureAppliedLeftShoulderPosition;
+        private Vector3 _postureReleaseRightShoulderPosition;
+        private Vector3 _postureAppliedRightShoulderPosition;
         private bool _locomotionPoseOwnedLastFrame;
         private bool _locomotionLeftArmPoseOwnedLastFrame;
         private bool _locomotionRightArmPoseOwnedLastFrame;
@@ -297,7 +309,6 @@ namespace BodyRig.ReferenceRenderer
             if (posture == null || string.IsNullOrWhiteSpace(posture.id))
                 throw new ArgumentException("Posture id is required");
             Validate01(posture.intensity, "posture.intensity");
-
             // Frozen legacy/generic posture ids carry no source marker. Even an
             // old id literally named "natural" remains generic and must not be
             // reinterpreted as Movement Identity authority.
@@ -423,6 +434,104 @@ namespace BodyRig.ReferenceRenderer
                 _state.posture.id == "natural" && _state.posture.source == ObservedEmbodimentSource;
         }
 
+        private bool HasSupportedPerformedPosture()
+        {
+            if (_state == null || _state.posture == null)
+            {
+                return false;
+            }
+            if (HasSourceDerivedNaturalPosture())
+            {
+                return true;
+            }
+            if (!string.IsNullOrWhiteSpace(_state.posture.source))
+            {
+                return false;
+            }
+            return _state.posture.id == "neutral" || _state.posture.id == "upright";
+        }
+
+        private static bool SamePosition(Vector3 first, Vector3 second)
+        {
+            return (first - second).sqrMagnitude <= 0.00000001f;
+        }
+
+        private static bool SameRotation(Quaternion first, Quaternion second)
+        {
+            return Quaternion.Angle(first, second) <= 0.01f;
+        }
+
+        private void PreparePostureOwnershipForFrame(bool performedPosture, bool sourceNaturalPosture)
+        {
+            if (_postureSpineOwnedLastFrame && _spine != null)
+            {
+                var stillBodyRigSpine = SameRotation(_spine.localRotation, _postureAppliedSpineRotation);
+                if (!stillBodyRigSpine)
+                {
+                    _postureReleaseSpineRotation = _spine.localRotation;
+                }
+                if (!performedPosture)
+                {
+                    if (stillBodyRigSpine)
+                    {
+                        _spine.localRotation = _postureReleaseSpineRotation;
+                    }
+                    _postureSpineOwnedLastFrame = false;
+                }
+            }
+            else if (performedPosture && _spine != null)
+            {
+                _postureReleaseSpineRotation = _spine.localRotation;
+            }
+
+            if (_sourcePostureOffsetsOwnedLastFrame)
+            {
+                var headStillBodyRig = _head == null || SamePosition(_head.localPosition, _postureAppliedHeadPosition);
+                var hipsStillBodyRig = _hips == null || SameRotation(_hips.localRotation, _postureAppliedHipsRotation);
+                var leftShoulderStillBodyRig = _leftShoulder == null || SamePosition(_leftShoulder.localPosition, _postureAppliedLeftShoulderPosition);
+                var rightShoulderStillBodyRig = _rightShoulder == null || SamePosition(_rightShoulder.localPosition, _postureAppliedRightShoulderPosition);
+
+                if (_head != null && !headStillBodyRig) _postureReleaseHeadPosition = _head.localPosition;
+                if (_hips != null && !hipsStillBodyRig) _postureReleaseHipsRotation = _hips.localRotation;
+                if (_leftShoulder != null && !leftShoulderStillBodyRig) _postureReleaseLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null && !rightShoulderStillBodyRig) _postureReleaseRightShoulderPosition = _rightShoulder.localPosition;
+
+                if (!sourceNaturalPosture)
+                {
+                    if (_head != null && headStillBodyRig) _head.localPosition = _postureReleaseHeadPosition;
+                    if (_hips != null && hipsStillBodyRig) _hips.localRotation = _postureReleaseHipsRotation;
+                    if (_leftShoulder != null && leftShoulderStillBodyRig) _leftShoulder.localPosition = _postureReleaseLeftShoulderPosition;
+                    if (_rightShoulder != null && rightShoulderStillBodyRig) _rightShoulder.localPosition = _postureReleaseRightShoulderPosition;
+                    _sourcePostureOffsetsOwnedLastFrame = false;
+                }
+            }
+            else if (sourceNaturalPosture)
+            {
+                if (_head != null) _postureReleaseHeadPosition = _head.localPosition;
+                if (_hips != null) _postureReleaseHipsRotation = _hips.localRotation;
+                if (_leftShoulder != null) _postureReleaseLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null) _postureReleaseRightShoulderPosition = _rightShoulder.localPosition;
+            }
+        }
+
+        private void CommitPostureOwnershipForFrame(bool sourceNaturalPosture, bool postureRealized)
+        {
+            _postureSpineOwnedLastFrame = postureRealized && _spine != null;
+            if (_postureSpineOwnedLastFrame)
+            {
+                _postureAppliedSpineRotation = _spine.localRotation;
+            }
+
+            _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && postureRealized;
+            if (_sourcePostureOffsetsOwnedLastFrame)
+            {
+                if (_head != null) _postureAppliedHeadPosition = _head.localPosition;
+                if (_hips != null) _postureAppliedHipsRotation = _hips.localRotation;
+                if (_leftShoulder != null) _postureAppliedLeftShoulderPosition = _leftShoulder.localPosition;
+                if (_rightShoulder != null) _postureAppliedRightShoulderPosition = _rightShoulder.localPosition;
+            }
+        }
+
         private void LateUpdate()
         {
             BindAvatarIfNeeded();
@@ -434,11 +543,13 @@ namespace BodyRig.ReferenceRenderer
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
             var sourceNaturalPosture = HasSourceDerivedNaturalPosture();
+            var performedPosture = HasSupportedPerformedPosture();
 
-            // Source-derived natural posture owns these bind-relative offsets
-            // only while it is actively performed. Recompose from bind while
-            // that authority is active; once posture is absent, stop writing so
-            // Animator/VRMA keeps the pose it evaluated for the current frame.
+            // Release only transforms that still equal BodyRig's last applied
+            // value. If Animator/VRMA already rewrote a channel this frame, its
+            // value becomes the latest release baseline and is left untouched.
+            PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+
             if (sourceNaturalPosture)
             {
                 RestorePostureOffsetsForFrame();
@@ -483,6 +594,7 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
             PostureRealized = ApplyPosture();
+            CommitPostureOwnershipForFrame(sourceNaturalPosture, PostureRealized);
             ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
             ReleaseOwnedSpeechViseme();
@@ -519,6 +631,8 @@ namespace BodyRig.ReferenceRenderer
             _speechAmplitude = 0.0f;
             _lastOwnedExpressionEmotion = null;
             _speechVisemeOwned = false;
+            _postureSpineOwnedLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
@@ -1080,6 +1194,8 @@ namespace BodyRig.ReferenceRenderer
             _state = null;
             _lastOwnedExpressionEmotion = null;
             _speechVisemeOwned = false;
+            _postureSpineOwnedLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
