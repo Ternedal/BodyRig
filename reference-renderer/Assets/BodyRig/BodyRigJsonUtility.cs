@@ -197,9 +197,14 @@ namespace BodyRig.ReferenceRenderer
             "breathing_strength",
         };
 
-        internal static void ValidateMotorStateJson(string json)
+        internal static int ValidateMotorStateJson(string json)
         {
-            ValidateMotorStatePresenceAndTypes(json, true);
+            ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);
+            if (!validatedVersion.HasValue)
+            {
+                throw new ArgumentException("Motor State semantic version is required");
+            }
+            return validatedVersion.Value;
         }
 
         public static T FromJson<T>(string json)
@@ -232,6 +237,15 @@ namespace BodyRig.ReferenceRenderer
 
         private static void ValidateMotorStatePresenceAndTypes(string json, bool requireMotorState = false)
         {
+            ValidateMotorStatePresenceAndTypes(json, requireMotorState, out _);
+        }
+
+        private static void ValidateMotorStatePresenceAndTypes(
+            string json,
+            bool requireMotorState,
+            out int? validatedVersion)
+        {
+            validatedVersion = null;
             if (string.IsNullOrEmpty(json))
             {
                 if (requireMotorState)
@@ -298,6 +312,7 @@ namespace BodyRig.ReferenceRenderer
             ValidatePosture(root, version);
             ValidateEmbodiment(root, version);
             ValidateLocomotion(root, version);
+            validatedVersion = version;
         }
 
         private static int RequireMotorStateVersion(Dictionary<string, string> root)
