@@ -189,7 +189,10 @@ namespace BodyRig.ReferenceRenderer
         private float _gazeStrength;
         private float _speechAmplitude;
         private string _lastOwnedExpressionEmotion;
+        private float _lastOwnedExpressionWeight;
         private bool _speechVisemeOwned;
+        private string _lastOwnedSpeechViseme;
+        private float _lastOwnedSpeechVisemeWeight;
         private bool _postureSpineOwnedLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private Quaternion _postureReleaseSpineRotation;
@@ -461,6 +464,11 @@ namespace BodyRig.ReferenceRenderer
             return Quaternion.Angle(first, second) <= 0.01f;
         }
 
+        private static bool SameExpressionWeight(float first, float second)
+        {
+            return Mathf.Abs(first - second) <= 0.0001f;
+        }
+
         private void PreparePostureOwnershipForFrame(bool performedPosture, bool sourceNaturalPosture)
         {
             if (_postureSpineOwnedLastFrame && _spine != null)
@@ -630,7 +638,10 @@ namespace BodyRig.ReferenceRenderer
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
             _lastOwnedExpressionEmotion = null;
+            _lastOwnedExpressionWeight = 0.0f;
             _speechVisemeOwned = false;
+            _lastOwnedSpeechViseme = null;
+            _lastOwnedSpeechVisemeWeight = 0.0f;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
@@ -1015,16 +1026,37 @@ namespace BodyRig.ReferenceRenderer
                 return;
             }
 
+            // Passive release must not erase a value already rewritten by a
+            // different facial controller after BodyRig's last LateUpdate.
             switch (_lastOwnedExpressionEmotion)
             {
-                case "neutral": expression.SetWeight(ExpressionKey.Neutral, 0.0f); break;
-                case "happy": expression.SetWeight(ExpressionKey.Happy, 0.0f); break;
-                case "angry": expression.SetWeight(ExpressionKey.Angry, 0.0f); break;
-                case "sad": expression.SetWeight(ExpressionKey.Sad, 0.0f); break;
-                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, 0.0f); break;
-                case "surprised": expression.SetWeight(ExpressionKey.Surprised, 0.0f); break;
+                case "neutral":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Neutral), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Neutral, 0.0f);
+                    break;
+                case "happy":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Happy), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Happy, 0.0f);
+                    break;
+                case "angry":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Angry), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Angry, 0.0f);
+                    break;
+                case "sad":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Sad), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Sad, 0.0f);
+                    break;
+                case "relaxed":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Relaxed), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Relaxed, 0.0f);
+                    break;
+                case "surprised":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Surprised), _lastOwnedExpressionWeight))
+                        expression.SetWeight(ExpressionKey.Surprised, 0.0f);
+                    break;
             }
             _lastOwnedExpressionEmotion = null;
+            _lastOwnedExpressionWeight = 0.0f;
         }
 
         private bool ApplyExpression()
@@ -1060,6 +1092,7 @@ namespace BodyRig.ReferenceRenderer
 
             var weight = Mathf.Clamp01(_state.expression.intensity);
             _lastOwnedExpressionEmotion = _state.expression.emotion;
+            _lastOwnedExpressionWeight = weight;
             switch (_state.expression.emotion)
             {
                 case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); return true;
@@ -1074,7 +1107,8 @@ namespace BodyRig.ReferenceRenderer
 
         private void ReleaseOwnedSpeechViseme()
         {
-            if (_state.speech != null || !_speechVisemeOwned || avatarLoader == null || avatarLoader.Active == null)
+            if (_state.speech != null || !_speechVisemeOwned || string.IsNullOrWhiteSpace(_lastOwnedSpeechViseme) ||
+                avatarLoader == null || avatarLoader.Active == null)
             {
                 return;
             }
@@ -1084,12 +1118,36 @@ namespace BodyRig.ReferenceRenderer
                 return;
             }
 
-            expression.SetWeight(ExpressionKey.Aa, 0.0f);
-            expression.SetWeight(ExpressionKey.Ih, 0.0f);
-            expression.SetWeight(ExpressionKey.Ou, 0.0f);
-            expression.SetWeight(ExpressionKey.Ee, 0.0f);
-            expression.SetWeight(ExpressionKey.Oh, 0.0f);
+            // The four inactive visemes were already zero on BodyRig's previous
+            // frame. Touch only the last active key, and only while its value is
+            // still the exact weight BodyRig applied. An external lip-sync or
+            // facial controller can therefore take ownership before this release.
+            switch (_lastOwnedSpeechViseme)
+            {
+                case "AA":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Aa), _lastOwnedSpeechVisemeWeight))
+                        expression.SetWeight(ExpressionKey.Aa, 0.0f);
+                    break;
+                case "IH":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Ih), _lastOwnedSpeechVisemeWeight))
+                        expression.SetWeight(ExpressionKey.Ih, 0.0f);
+                    break;
+                case "OU":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Ou), _lastOwnedSpeechVisemeWeight))
+                        expression.SetWeight(ExpressionKey.Ou, 0.0f);
+                    break;
+                case "EE":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Ee), _lastOwnedSpeechVisemeWeight))
+                        expression.SetWeight(ExpressionKey.Ee, 0.0f);
+                    break;
+                case "OH":
+                    if (SameExpressionWeight(expression.GetWeight(ExpressionKey.Oh), _lastOwnedSpeechVisemeWeight))
+                        expression.SetWeight(ExpressionKey.Oh, 0.0f);
+                    break;
+            }
             _speechVisemeOwned = false;
+            _lastOwnedSpeechViseme = null;
+            _lastOwnedSpeechVisemeWeight = 0.0f;
         }
 
         private bool ApplySpeech()
@@ -1109,6 +1167,8 @@ namespace BodyRig.ReferenceRenderer
                 expression.SetWeight(ExpressionKey.Ee, 0.0f);
                 expression.SetWeight(ExpressionKey.Oh, 0.0f);
                 _speechVisemeOwned = false;
+                _lastOwnedSpeechViseme = null;
+                _lastOwnedSpeechVisemeWeight = 0.0f;
                 return true;
             }
 
@@ -1139,6 +1199,8 @@ namespace BodyRig.ReferenceRenderer
 
             _speechVisemeOwned = true;
             var weight = Mathf.Clamp01(_speechAmplitude);
+            _lastOwnedSpeechViseme = viseme;
+            _lastOwnedSpeechVisemeWeight = weight;
             switch (viseme)
             {
                 case "AA": expression.SetWeight(ExpressionKey.Aa, weight); return true;
@@ -1193,7 +1255,10 @@ namespace BodyRig.ReferenceRenderer
             }
             _state = null;
             _lastOwnedExpressionEmotion = null;
+            _lastOwnedExpressionWeight = 0.0f;
             _speechVisemeOwned = false;
+            _lastOwnedSpeechViseme = null;
+            _lastOwnedSpeechVisemeWeight = 0.0f;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
