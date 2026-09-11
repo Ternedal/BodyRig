@@ -1,0 +1,35 @@
+name: review-motor-string-root-constraints-20260911
+
+on:
+  push:
+    branches:
+      - fix/motor-json-string-root-constraints-stage-20260911
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Apply root and decoded string constraint patch
+        run: python tools/_tmp_apply_motor_string_root_constraints.py
+      - name: Install locked test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e '.[test]'
+      - name: Run focused renderer trust-boundary regressions
+        run: |
+          python -m pytest -q tests/test_reference_renderer_json_utility_guard.py tests/test_reference_renderer_locomotion_release_ownership.py tests/test_reference_renderer_facial_release_ownership.py
+          git diff --check
+      - name: Commit validated product patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_utility_guard.py
+          git diff --cached --check
+          git commit -m 'Enforce canonical Motor State root and string constraints'
+          git push origin HEAD:fix/motor-json-string-root-constraints-stage-20260911
