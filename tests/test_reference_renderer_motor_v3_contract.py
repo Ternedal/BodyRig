@@ -265,14 +265,19 @@ def test_reference_renderer_preserves_recovered_hip_roll_sign() -> None:
 def test_reference_renderer_does_not_overwrite_animator_pose_when_posture_is_absent() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
+    prepare = source[
+        source.index("private void PreparePostureOwnershipForFrame") :
+        source.index("private void CommitPostureOwnershipForFrame")
+    ]
     apply_posture = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
 
-    assert "if (sourceNaturalPosture)" in late_update
-    assert "RestorePostureOffsetsForFrame();" in late_update
-    assert "sourceNaturalPosture ||" not in late_update
-    assert "_postureOwnedPoseLastFrame" not in source
-    assert "_sourcePostureOffsetsOwnedLastFrame" not in source
-    assert "var performedPosture" not in late_update
+    assert "var performedPosture = HasSupportedPerformedPosture();" in late_update
+    assert "PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);" in late_update
+    assert "CommitPostureOwnershipForFrame(sourceNaturalPosture, PostureRealized);" in late_update
+    assert "SameRotation(_spine.localRotation, _postureAppliedSpineRotation)" in prepare
+    assert "if (!stillBodyRigSpine)" in prepare
+    assert "if (stillBodyRigSpine)" in prepare
+    assert "_spine.localRotation = _postureReleaseSpineRotation;" in prepare
     assert "_spine.localRotation = _spineBaseRotation;" not in late_update
 
     no_posture = apply_posture[
