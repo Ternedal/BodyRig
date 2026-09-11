@@ -35,6 +35,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
-            tests/test_reference_renderer_turn_speed_schema_parity.py
+            tests/test_reference_renderer_turn_speed_schema_parity.py \
+            tests/test_reference_renderer_motor_v3_contract.py
           git commit -m "Align renderer turn-speed range with Motor State v3"
           git push origin HEAD:staging/turn-speed-schema-parity-20260911
