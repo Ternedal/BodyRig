@@ -68,7 +68,10 @@ def test_reference_renderer_v3_validates_action_specific_performed_ranges() -> N
     assert 'ValidateRange(locomotion.left_arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(locomotion.right_arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(locomotion.arm_swing_to_height, 0.0f, 2.0f' in validation
-    assert 'ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f' in validation
+    assert "ValidateExclusivePositiveRange(" in validation
+    assert "locomotion.turn_speed_degrees_per_second" in validation
+    assert "720.0f" in validation
+    assert "0.0001f" not in validation
 
 
 def test_reference_renderer_v3_validates_source_marked_natural_posture_ranges() -> None:
