@@ -18,7 +18,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Reset to exact current-main authority
-        run: git checkout --detach 46dbbfd588fe7f14da71738ea9dd23568f41ada3
+        run: |
+          git checkout --detach 46dbbfd588fe7f14da71738ea9dd23568f41ada3
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Cherry-pick exact validated PR commit
         run: git cherry-pick 719ebd2c204d4821ba6772b5cf4960ddaac04a68
       - name: Assert exact five-file patch
