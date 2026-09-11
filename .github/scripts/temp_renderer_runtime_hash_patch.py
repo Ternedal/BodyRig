@@ -4,10 +4,13 @@ from pathlib import Path
 def replace_once(path: str, old: str, new: str) -> None:
     target = Path(path)
     text = target.read_bytes().decode("utf-8")
-    count = text.count(old)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    effective_old = old.replace("\n", newline)
+    effective_new = new.replace("\n", newline)
+    count = text.count(effective_old)
     if count != 1:
         raise SystemExit(f"expected exactly one match in {path}, found {count}")
-    target.write_bytes(text.replace(old, new, 1).encode("utf-8"))
+    target.write_bytes(text.replace(effective_old, effective_new, 1).encode("utf-8"))
 
 
 replace_once(
