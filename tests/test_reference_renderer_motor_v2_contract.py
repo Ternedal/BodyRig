@@ -41,16 +41,22 @@ def test_reference_renderer_keeps_v1_v2_compatibility_without_repersonalizing_pe
     assert "_state.speech.amplitude" in source
 
     # Raw observed evidence is provenance/capability data, not another multiplier
-    # and, critically, must never create an unsolicited movement action.
+    # and, critically, must never create an unsolicited movement/posture action.
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     assert "_state.embodiment" not in late_update
     assert ".embodiment.observed" not in late_update
     for field in (
         "walk_cadence_spm",
         "posture_torso_lean_degrees",
+        "posture_torso_forward_lean_degrees",
+        "posture_torso_right_lean_degrees",
         "posture_shoulder_tilt_degrees",
+        "posture_shoulder_roll_degrees",
         "posture_hip_tilt_degrees",
+        "posture_hip_roll_degrees",
         "posture_head_offset_to_height",
+        "posture_head_forward_offset_to_height",
+        "posture_head_right_offset_to_height",
         "arm_swing_asymmetry",
         "idle_sway_to_height",
     ):
@@ -76,12 +82,16 @@ def test_reference_renderer_validates_every_v2_observed_range_but_does_not_inven
         assert f"observed.{field}" in validation
         assert f'embodiment.observed.{field}' in validation
 
-    # Non-0..1 movement ranges stay explicit rather than being accidentally
-    # clamped into generic style values.
+    # Non-0..1 and signed movement ranges stay explicit rather than being
+    # accidentally clamped into generic style values.
     assert 'ValidateRange(observed.walk_cadence_spm, 0.0f, 300.0f' in validation
     assert 'ValidateRange(observed.posture_torso_lean_degrees, 0.0f, 90.0f' in validation
-    assert 'ValidateRange(observed.posture_shoulder_tilt_degrees, 0.0f, 90.0f' in validation
-    assert 'ValidateRange(observed.posture_hip_tilt_degrees, 0.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_torso_forward_lean_degrees, -90.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_torso_right_lean_degrees, -90.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_shoulder_roll_degrees, -90.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_hip_roll_degrees, -90.0f, 90.0f' in validation
+    assert 'ValidateRange(observed.posture_head_forward_offset_to_height, -1.0f, 1.0f' in validation
+    assert 'ValidateRange(observed.posture_head_right_offset_to_height, -1.0f, 1.0f' in validation
     assert 'ValidateRange(observed.stride_length_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(observed.arm_swing_to_height, 0.0f, 2.0f' in validation
     assert 'ValidateRange(observed.turn_speed_degrees_per_second, 0.0f, 720.0f' in validation
