@@ -80,7 +80,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["action", "effort", "transition_intensity", "cadence_spm", "stride_length_to_height", "stance_width_to_height", "vertical_bounce_to_height", "arm_swing_to_height"],
+          "required": ["action", "effort", "transition_intensity", "cadence_spm", "stride_length_to_height", "stance_width_to_height", "vertical_bounce_to_height", "left_arm_swing_to_height", "right_arm_swing_to_height", "arm_swing_to_height"],
           "properties": {
             "action": {"const": "walk"},
             "effort": {"type": "number", "minimum": 0.0, "maximum": 1.0},
@@ -89,6 +89,8 @@
             "stride_length_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "stance_width_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "vertical_bounce_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "left_arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
+            "right_arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0}
           }
         },
@@ -157,6 +159,8 @@
             "stride_length_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "stance_width_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "vertical_bounce_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "left_arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
+            "right_arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "arm_swing_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "arm_swing_asymmetry": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "turn_speed_degrees_per_second": {"type": "number", "minimum": 0.0, "maximum": 720.0},
