@@ -205,6 +205,8 @@ namespace BodyRig.ReferenceRenderer
         private Quaternion _gestureAppliedRightUpperArmRotation;
         private Quaternion _gestureReleaseRightLowerArmRotation;
         private Quaternion _gestureAppliedRightLowerArmRotation;
+        private bool _shoulderOwnershipOrderKnown;
+        private bool _gestureShoulderLayerPrecedesPosture;
         private bool _postureSpineOwnedLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private Quaternion _postureReleaseSpineRotation;
@@ -715,18 +717,57 @@ namespace BodyRig.ReferenceRenderer
             var gestureOwnsRightLowerArm =
                 presentOwnsRightArm || (gestureId == "neutral" && _rightLowerArm != null);
 
+            var gestureShouldersOwnedLastFrame =
+                _gestureLeftShoulderOwnedLastFrame || _gestureRightShoulderOwnedLastFrame;
+            var postureShouldersOwnedLastFrame = _sourcePostureOffsetsOwnedLastFrame;
+            var gestureOwnsShoulders = gestureOwnsLeftShoulder || gestureOwnsRightShoulder;
+            var postureOwnsShoulders = sourceNaturalPosture &&
+                (_leftShoulder != null || _rightShoulder != null);
+
+            // When gesture and source posture overlap on shoulder translation,
+            // release preparation must follow acquisition order. The older layer
+            // has the true external baseline; running the newer layer first can
+            // make the older layer mistake an internal release for Animator/VRMA.
+            if (gestureOwnsShoulders && postureOwnsShoulders && !_shoulderOwnershipOrderKnown)
+            {
+                if (gestureShouldersOwnedLastFrame && !postureShouldersOwnedLastFrame)
+                {
+                    _gestureShoulderLayerPrecedesPosture = true;
+                }
+                else if (postureShouldersOwnedLastFrame && !gestureShouldersOwnedLastFrame)
+                {
+                    _gestureShoulderLayerPrecedesPosture = false;
+                }
+                else
+                {
+                    // Simultaneous acquisition sees the same pre-write baseline;
+                    // choose a deterministic order for the lifetime of overlap.
+                    _gestureShoulderLayerPrecedesPosture = true;
+                }
+                _shoulderOwnershipOrderKnown = true;
+            }
+
             // Release only transforms that still equal BodyRig's last applied
             // value. If Animator/VRMA already rewrote a channel this frame, its
             // value becomes the latest release baseline and is left untouched.
-            // Gesture release must happen before posture ownership observes
-            // overlapping shoulder channels. Otherwise a natural posture can
-            // retain a released shrug as its later release baseline.
-            PrepareGestureOwnershipForFrame(
-                gestureOwnsLeftShoulder,
-                gestureOwnsRightShoulder,
-                gestureOwnsRightUpperArm,
-                gestureOwnsRightLowerArm);
-            PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+            if (_shoulderOwnershipOrderKnown && !_gestureShoulderLayerPrecedesPosture)
+            {
+                PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+                PrepareGestureOwnershipForFrame(
+                    gestureOwnsLeftShoulder,
+                    gestureOwnsRightShoulder,
+                    gestureOwnsRightUpperArm,
+                    gestureOwnsRightLowerArm);
+            }
+            else
+            {
+                PrepareGestureOwnershipForFrame(
+                    gestureOwnsLeftShoulder,
+                    gestureOwnsRightShoulder,
+                    gestureOwnsRightUpperArm,
+                    gestureOwnsRightLowerArm);
+                PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
+            }
 
             if (sourceNaturalPosture)
             {
@@ -777,6 +818,15 @@ namespace BodyRig.ReferenceRenderer
                 gestureOwnsRightShoulder,
                 gestureOwnsRightUpperArm,
                 gestureOwnsRightLowerArm);
+
+            var gestureShouldersOwnedAfterCommit =
+                _gestureLeftShoulderOwnedLastFrame || _gestureRightShoulderOwnedLastFrame;
+            var postureShouldersOwnedAfterCommit = _sourcePostureOffsetsOwnedLastFrame;
+            if (!(gestureShouldersOwnedAfterCommit && postureShouldersOwnedAfterCommit))
+            {
+                _shoulderOwnershipOrderKnown = false;
+            }
+
             ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
             ReleaseOwnedSpeechViseme();
@@ -820,6 +870,8 @@ namespace BodyRig.ReferenceRenderer
             _gestureRightShoulderOwnedLastFrame = false;
             _gestureRightUpperArmOwnedLastFrame = false;
             _gestureRightLowerArmOwnedLastFrame = false;
+            _shoulderOwnershipOrderKnown = false;
+            _gestureShoulderLayerPrecedesPosture = false;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
@@ -1441,6 +1493,8 @@ namespace BodyRig.ReferenceRenderer
             _gestureRightShoulderOwnedLastFrame = false;
             _gestureRightUpperArmOwnedLastFrame = false;
             _gestureRightLowerArmOwnedLastFrame = false;
+            _shoulderOwnershipOrderKnown = false;
+            _gestureShoulderLayerPrecedesPosture = false;
             _postureSpineOwnedLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
