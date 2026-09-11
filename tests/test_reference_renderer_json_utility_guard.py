@@ -266,10 +266,10 @@ def test_driver_still_routes_motor_state_through_guard_and_preserves_post_merge_
 def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
     source = SHIM.read_text(encoding="utf-8")
     helper = source[source.index("private static void RequireIntegerRangeToken") :]
-    assert "long.TryParse(" in helper
-    assert "NumberStyles.AllowLeadingSign" in helper
-    assert "CultureInfo.InvariantCulture" in helper
-    assert "value < minimum || value > maximum" in helper
+    assert "RequireIntegerToken(raw, context);" in helper
+    assert "CompareJsonNumberToInteger(raw, minimum) < 0" in helper
+    assert "CompareJsonNumberToInteger(raw, maximum) > 0" in helper
+    assert "long.TryParse(" not in helper
     assert "ArgumentOutOfRangeException" in helper
 
 def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() -> None:
