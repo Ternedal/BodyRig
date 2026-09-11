@@ -53,16 +53,17 @@
           "additionalProperties": false,
           "required": ["id", "intensity"],
           "properties": {
-            "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^(?!natural$)[a-z0-9_-]+$"},
+            "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9_-]+$"},
             "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0}
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["id", "intensity", "torso_forward_lean_degrees", "torso_right_lean_degrees", "shoulder_roll_degrees", "hip_roll_degrees", "head_forward_offset_to_height", "head_right_offset_to_height"],
+          "required": ["id", "source", "intensity", "torso_forward_lean_degrees", "torso_right_lean_degrees", "shoulder_roll_degrees", "hip_roll_degrees", "head_forward_offset_to_height", "head_right_offset_to_height"],
           "properties": {
             "id": {"const": "natural"},
+            "source": {"const": "modelrig-bodyprint-v1"},
             "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "torso_forward_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
             "torso_right_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
