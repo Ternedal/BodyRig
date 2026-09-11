@@ -267,12 +267,13 @@ def test_reference_renderer_does_not_overwrite_animator_pose_when_posture_is_abs
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     apply_posture = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
 
-    restore_call = late_update.index("RestorePostureOffsetsForFrame();")
-    ownership_guard = late_update.index("if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)")
-    assert ownership_guard < restore_call
-    assert "_postureOwnedPoseLastFrame && !performedPosture" in late_update
-    assert "_postureOwnedPoseLastFrame = PostureRealized;" in late_update
-    assert "_sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;" in late_update
+    assert "if (sourceNaturalPosture)" in late_update
+    assert "RestorePostureOffsetsForFrame();" in late_update
+    assert "sourceNaturalPosture ||" not in late_update
+    assert "_postureOwnedPoseLastFrame" not in source
+    assert "_sourcePostureOffsetsOwnedLastFrame" not in source
+    assert "var performedPosture" not in late_update
+    assert "_spine.localRotation = _spineBaseRotation;" not in late_update
 
     no_posture = apply_posture[
         apply_posture.index("if (_state.posture == null)") : apply_posture.index('if (_state.posture.id == "neutral")')
