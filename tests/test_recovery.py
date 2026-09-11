@@ -19,7 +19,8 @@ def movement_frame(index: int) -> dict:
     bounce = 0.0 if idle else 0.018 * math.sin(index * math.pi / 2.5)
     left_forward = 0.0 if idle else 0.18 * phase
     right_forward = -left_forward
-    arm = 0.0 if idle else -0.16 * phase
+    left_arm = 0.0 if idle else -0.16 * phase
+    right_arm = 0.0 if idle else 0.10 * phase
     return {
         "timestamp_ms": ts,
         "confidence": 0.95,
@@ -28,10 +29,10 @@ def movement_frame(index: int) -> dict:
             "neck": [0.0, 1.56 + bounce, 0.045],
             "left_shoulder": [-0.22, 1.45 + bounce, 0.05],
             "right_shoulder": [0.22, 1.44 + bounce, 0.05],
-            "left_elbow": [-0.38, 1.30 + bounce, arm * 0.55],
-            "right_elbow": [0.38, 1.30 + bounce, -arm * 0.55],
-            "left_wrist": [-0.52, 1.12 + bounce, arm],
-            "right_wrist": [0.52, 1.12 + bounce, -arm],
+            "left_elbow": [-0.38, 1.30 + bounce, left_arm * 0.55],
+            "right_elbow": [0.38, 1.30 + bounce, right_arm * 0.55],
+            "left_wrist": [-0.52, 1.12 + bounce, left_arm],
+            "right_wrist": [0.52, 1.12 + bounce, right_arm],
             "mid_hip": [0.0, 1.0 + bounce, 0.0],
             "left_hip": [-0.16, 1.005 + bounce, 0.0],
             "right_hip": [0.16, 0.995 + bounce, 0.0],
@@ -66,6 +67,9 @@ def test_extracts_complete_source_derived_movement_identity():
     assert 30.0 <= motion["walk_cadence_spm"] <= 240.0
     assert motion["stride_length_to_height"] > 0.0
     assert motion["stance_width_to_height"] > 0.0
+    assert motion["left_arm_swing_to_height"] > motion["right_arm_swing_to_height"] > 0.0
+    assert motion["arm_swing_to_height"] > 0.0
+    assert motion["arm_swing_asymmetry"] > 0.0
     assert "posture_torso_lean_degrees" in motion
     assert "posture_torso_forward_lean_degrees" in motion
     assert "posture_torso_right_lean_degrees" in motion
