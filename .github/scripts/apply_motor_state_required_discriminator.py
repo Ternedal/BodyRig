@@ -103,6 +103,12 @@ if driver_source.count(old_driver) != 1:
 driver.write_text(driver_source.replace(old_driver, new_driver), encoding="utf-8")
 
 test_source = test.read_text(encoding="utf-8")
+old_allowlist = '    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson"}\n'
+new_allowlist = '    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson", "ValidateMotorStateJson"}\n'
+if test_source.count(old_allowlist) != 1:
+    raise SystemExit("JsonUtility surface allowlist anchor mismatch")
+test_source = test_source.replace(old_allowlist, new_allowlist)
+
 addition = r'''
 
 def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() -> None:
@@ -119,6 +125,7 @@ def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() 
     assert "Motor State JSON root must be an object" in shim
     assert shim.count("Motor State requires canonical type discriminator") == 2
 
+    assert driver.count("JsonUtility.ValidateMotorStateJson(json);") == 1
     apply = driver[
         driver.index("public void ApplyMotorJson") :
         driver.index("private static void ValidatePosture")
