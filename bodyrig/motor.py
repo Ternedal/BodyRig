@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .models import BodyCue, SpeechTiming
+from .models import BodyCue, BodyCueAny, BodyCueV2, SpeechTiming
+from .movement_identity import MovementIdentityError, require_movement_identity
 
 
 def _clamp01(value: float) -> float:
@@ -87,6 +88,22 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
         if value is not None:
             observed[key] = value
     return observed
+
+
+def _legacy_cue(cue: BodyCueAny) -> BodyCue:
+    if isinstance(cue, BodyCue):
+        return cue
+    return BodyCue(
+        utterance_id=cue.utterance_id,
+        body_id=cue.body_id,
+        emotion=cue.emotion,
+        intensity=cue.intensity,
+        energy=cue.energy,
+        gesture=cue.gesture,
+        gaze=cue.gaze,
+        posture=cue.posture,
+        duration_ms=cue.duration_ms,
+    )
 
 
 def resolve_motor_state(
@@ -202,4 +219,74 @@ def resolve_motor_state_v2(
             "source": "modelrig-bodyprint-v1",
             "observed": observed,
         }
+    return result
+
+
+def _performed_locomotion(*, bodyprint: Mapping[str, Any], cue: BodyCueV2) -> dict[str, Any] | None:
+    request = cue.locomotion
+    if request is None:
+        return None
+    try:
+        require_movement_identity(bodyprint)
+    except MovementIdentityError as exc:
+        raise ValueError(f"explicit locomotion requires complete source-derived Movement Identity: {exc}") from exc
+
+    motion = bodyprint.get("motion")
+    if not isinstance(motion, Mapping):
+        raise ValueError("explicit locomotion requires a source-derived motion section")
+
+    effort = 0.5 if request.effort is None else float(request.effort)
+    pace_factor = 0.75 + 0.5 * effort
+    amplitude_factor = 0.85 + 0.3 * effort
+    transition = float(motion["transition_intensity"])
+
+    result: dict[str, Any] = {
+        "action": request.action,
+        "effort": round(effort, 4),
+        "transition_intensity": round(transition, 4),
+    }
+    if request.action == "walk":
+        cadence = max(30.0, min(240.0, float(motion["walk_cadence_spm"]) * pace_factor))
+        result.update(
+            {
+                "cadence_spm": round(cadence, 3),
+                "stride_length_to_height": round(min(2.0, float(motion["stride_length_to_height"]) * amplitude_factor), 4),
+                "stance_width_to_height": round(float(motion["stance_width_to_height"]), 4),
+                "vertical_bounce_to_height": round(min(1.0, float(motion["vertical_bounce_to_height"]) * amplitude_factor), 4),
+                "arm_swing_to_height": round(min(2.0, float(motion["arm_swing_to_height"]) * amplitude_factor), 4),
+            }
+        )
+    elif request.action in {"turn_left", "turn_right"}:
+        observed_turn = float(motion["turn_speed_degrees_per_second"])
+        if observed_turn <= 0.0:
+            raise ValueError("explicit turn requires non-zero source-derived turn-speed evidence")
+        result["turn_speed_degrees_per_second"] = round(min(720.0, observed_turn * pace_factor), 4)
+    return result
+
+
+def resolve_motor_state_v3(
+    *,
+    body_id: str,
+    bodyprint: Mapping[str, Any],
+    cue: BodyCueAny,
+    speech: SpeechTiming | None = None,
+) -> dict[str, Any]:
+    """Resolve explicit locomotion without changing v1/v2 semantics.
+
+    BodyCue v2 is the first cue contract that can request locomotion. Movement
+    Identity evidence never creates that action by itself: only an explicit
+    ``locomotion`` cue can produce the performed v3 locomotion section.
+    """
+
+    result = resolve_motor_state_v2(
+        body_id=body_id,
+        bodyprint=bodyprint,
+        cue=_legacy_cue(cue),
+        speech=speech,
+    )
+    result["version"] = 3
+    if isinstance(cue, BodyCueV2):
+        locomotion = _performed_locomotion(bodyprint=bodyprint, cue=cue)
+        if locomotion is not None:
+            result["locomotion"] = locomotion
     return result
