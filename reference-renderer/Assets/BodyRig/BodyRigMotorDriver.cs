@@ -184,6 +184,8 @@ namespace BodyRig.ReferenceRenderer
         private float _headMotion;
         private float _gazeStrength;
         private float _speechAmplitude;
+        private bool _postureOwnedPoseLastFrame;
+        private bool _sourcePostureOffsetsOwnedLastFrame;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -382,6 +384,29 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
+        private bool HasSourceDerivedNaturalPosture()
+        {
+            return _state != null && _state.version == 3 && _state.posture != null &&
+                _state.posture.id == "natural" && _state.posture.source == ObservedEmbodimentSource;
+        }
+
+        private bool HasSupportedPerformedPosture()
+        {
+            if (_state == null || _state.posture == null)
+            {
+                return false;
+            }
+            if (HasSourceDerivedNaturalPosture())
+            {
+                return true;
+            }
+            if (!string.IsNullOrWhiteSpace(_state.posture.source))
+            {
+                return false;
+            }
+            return _state.posture.id == "neutral" || _state.posture.id == "upright";
+        }
+
         private void LateUpdate()
         {
             BindAvatarIfNeeded();
@@ -392,11 +417,21 @@ namespace BodyRig.ReferenceRenderer
 
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
+            var sourceNaturalPosture = HasSourceDerivedNaturalPosture();
+            var performedPosture = HasSupportedPerformedPosture();
 
-            // Reset posture-owned translations/roll before composing this frame.
-            // Spine rotation is intentionally blended in ApplyPosture so a cue
-            // transition does not snap the torso.
-            RestorePostureOffsetsForFrame();
+            // Only posture owns these bind-relative offsets. Reset them while a
+            // source posture is being recomposed, or once while clearing the
+            // previous source posture. With no posture before or now, Animator/
+            // VRMA bone transforms are left untouched.
+            if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)
+            {
+                RestorePostureOffsetsForFrame();
+            }
+            if (_postureOwnedPoseLastFrame && !performedPosture && _spine != null)
+            {
+                _spine.localRotation = _spineBaseRotation;
+            }
 
             // These fields are already performed values resolved by BodyRig.
             // Raw embodiment evidence is never consumed here.
@@ -415,6 +450,8 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
             PostureRealized = ApplyPosture();
+            _postureOwnedPoseLastFrame = PostureRealized;
+            _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;
             ExpressionRealized = ApplyExpression();
             SpeechTimingRealized = ApplySpeech();
             RealizationFrameCount++;
@@ -447,6 +484,8 @@ namespace BodyRig.ReferenceRenderer
             _headMotion = 0.0f;
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
+            _postureOwnedPoseLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
             _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
@@ -679,7 +718,6 @@ namespace BodyRig.ReferenceRenderer
             if (_spine == null) return false;
             if (_state.posture == null)
             {
-                _spine.localRotation = Quaternion.Slerp(_spine.localRotation, _spineBaseRotation, 0.35f);
                 return false;
             }
             if (_state.posture.id == "neutral")
@@ -710,7 +748,10 @@ namespace BodyRig.ReferenceRenderer
 
             if (_hips != null)
             {
-                _hips.localRotation = _hipsBaseRotation * Quaternion.Euler(0.0f, 0.0f, -posture.hip_roll_degrees);
+                // Recovery defines hip roll as rightHip.y - leftHip.y. Unity
+                // positive local Z raises the avatar's right side, so preserve
+                // that recovered sign rather than mirroring it.
+                _hips.localRotation = _hipsBaseRotation * Quaternion.Euler(0.0f, 0.0f, posture.hip_roll_degrees);
             }
 
             if (_leftShoulder != null && _rightShoulder != null && _shoulderSpan > 0.0001f)
@@ -810,6 +851,8 @@ namespace BodyRig.ReferenceRenderer
                 expression.SetWeight(ExpressionKey.Oh, 0.0f);
             }
             _state = null;
+            _postureOwnedPoseLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;
