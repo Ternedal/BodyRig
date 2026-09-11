@@ -30,9 +30,21 @@ jobs:
         run: |
           python -m pytest -q
           git diff --check
-      - name: Commit validated product blobs
+      - name: Commit validated product blobs from exact main base
         shell: bash
         run: |
+          base='cfa967e6be60eafc18b1cf7d4d22d8b373b04f0c'
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/reference-renderer/Assets/BodyRig" "$tmp/tests"
+          cp reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs "$tmp/reference-renderer/Assets/BodyRig/"
+          cp reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs "$tmp/reference-renderer/Assets/BodyRig/"
+          cp tests/test_reference_renderer_json_utility_guard.py "$tmp/tests/"
+
+          git checkout --detach "$base"
+          cp "$tmp/reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs" reference-renderer/Assets/BodyRig/
+          cp "$tmp/reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs" reference-renderer/Assets/BodyRig/
+          cp "$tmp/tests/test_reference_renderer_json_utility_guard.py" tests/
+
           git add \
             reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs \
             reference-renderer/Assets/BodyRig/BodyRigMotorDriver.cs \
@@ -47,4 +59,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Require Motor State discriminator before Unity"
-          git push origin HEAD:staging/motor-state-required-discriminator-20260911
+          git push origin HEAD:fix/motor-state-required-discriminator-20260911
