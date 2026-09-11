@@ -45,6 +45,7 @@ jobs:
           tests/test_reference_renderer_json_whitespace_guard.py
           tests/test_reference_renderer_raw_numeric_ranges.py
           tests/test_reference_renderer_version_authority.py
+          tests/test_reference_renderer_version_schema_parity.py
           EOF
           )
           actual="$(git status --porcelain | sed -E 's/^.. //' | grep -v '^\.github/workflows/tmp-version-authority-v2.yml$' | grep -v '^tools/tmp_patch_version_authority_v2.py$' | sort)"
