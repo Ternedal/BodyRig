@@ -93,6 +93,8 @@ The receipt is create-only and public/path-free. At most one crop per domain is 
 
 `aggregate-photoidentity-multiperformer-detail-evidence.ps1` composes one or more target-crop quality receipts into a new `multiperformer-detail-evidence` bundle **before** nail/anatomy authority is added.
 
+Every `-QualityReceipt` must be paired positionally with its exact human-reviewed `-CandidateRoot`. Before accepting any claim, aggregation replays the target-isolation receipt, target-crop enrichment receipt, private analysis index and selected crop bytes/provenance. A detached JSON receipt with merely well-formed SHA-256 strings is not authority.
+
 The aggregation:
 
 - starts from the exact canonical `human-parsing-evidence` bundle;
@@ -110,14 +112,20 @@ If this complete aggregate exists, nail attestation uses it as its prior. Nail d
 
 The aggregate may improve normal distinct-scene sufficiency counts, but it still does not add nail/anatomy authority and does not activate production.
 
-## Next authority gate
+## Final source-chain and registry authority
 
-The next separate hardening gate must teach the final human source-chain and body-job registry to persist and revalidate the multi-performer aggregation receipt plus its copied quality receipts. Only after that end-to-end lineage is verified may a final anatomy-attested sufficient bundle be registered against a body-build.
+Final registration now revalidates the complete multi-performer lineage before those target-detail claims can survive into registered body-job authority.
 
-Until registration validates the complete source chain, avatar/reconstruction work remains blocked by the normal body-job photoidentity gate.
+`photoidentity-human-source-chain-v2` requires any final `human-reviewed-target-crop-detail-quality@1` claims to have a valid persisted aggregation at the same performer, BodyRig revision and baseline source authority. The nail receipt must point to the exact aggregation observation/report bytes, and the target-detail claims in the final anatomy bundle must exactly match the aggregation claims.
+
+Body-job registry authority v3 copies the aggregation receipt and every SHA-bound quality receipt into the job's create-only `source-authority/multiperformer-detail` tree. `require_body_job_photoidentity_evidence` revalidates that persisted receipt set and its hashes on every later authority check. Removal, replacement or tampering therefore fails closed.
+
+The registry path does not need the original private crop tree after registration: the full live source lineage was replayed before aggregation, while the durable registry binds the exact human quality receipts, aggregation receipt and final claim set. It grants no authority outside eyes, hands, feet, hair/hairline and exposed skin.
 
 ## Non-authority
 
-Discovery, track review, identity attestation, candidate materialization, target-isolation attestation, machine detail enrichment, source-detail-quality attestation and intermediate multi-performer aggregation are not body reconstruction, bodyprint recovery acceptance, final registered photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
+Discovery, track review, identity attestation, candidate materialization, target-isolation attestation, machine detail enrichment and source-detail-quality attestation are not body reconstruction, bodyprint recovery acceptance, final registered photoidentity sufficiency, human avatar fidelity acceptance, Gate A, Windows/Quest acceptance or production activation.
+
+Intermediate multi-performer aggregation is also not production authority by itself. It becomes usable only when the complete final nail/anatomy source chain is validated and registered through the body-job photoidentity gate.
 
 The existing recovery/bodyprint wire contract remains unchanged.
