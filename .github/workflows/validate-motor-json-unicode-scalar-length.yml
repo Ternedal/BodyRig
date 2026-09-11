@@ -30,13 +30,10 @@ jobs:
         run: |
           python -m pytest -q
           git diff --check
-      - name: Commit clean validation result
+      - name: Commit validated product blobs
         shell: bash
         run: |
-          rm -f .github/scripts/apply_motor_json_unicode_scalar_length.py
-          rm -f .github/workflows/validate-motor-json-unicode-scalar-length.yml
-          rm -f .github/unicode-scalar-length.trigger
-          git add -A
+          git add reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs tests/test_reference_renderer_json_utility_guard.py
           actual="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
             'reference-renderer/Assets/BodyRig/BodyRigJsonUtility.cs' \
