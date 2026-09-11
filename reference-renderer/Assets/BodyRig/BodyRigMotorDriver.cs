@@ -273,6 +273,7 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException("BodyRig motor JSON is required", nameof(json));
             }
 
+            JsonUtility.ValidateMotorStateJson(json);
             var next = JsonUtility.FromJson<MotorState>(json);
             if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2 && next.version != 3))
             {

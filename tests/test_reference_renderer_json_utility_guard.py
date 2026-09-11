@@ -58,7 +58,7 @@ def test_renderer_json_shim_preserves_all_jsonutility_surfaces_used_in_namespace
         if path == SHIM:
             continue
         used.update(re.findall(r"\bJsonUtility\.([A-Za-z0-9_]+)", path.read_text(encoding="utf-8")))
-    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson"}
+    assert used <= {"FromJson", "FromJsonOverwrite", "ToJson", "ValidateMotorStateJson"}
     generic = source.index("public static T FromJson<T>(string json)")
     assert source.index("ValidateMotorStatePresenceAndTypes(json);", generic) < source.index(
         "UnityEngine.JsonUtility.FromJson<T>(json)", generic
@@ -271,3 +271,34 @@ def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
     assert "CultureInfo.InvariantCulture" in helper
     assert "value < minimum || value > maximum" in helper
     assert "ArgumentOutOfRangeException" in helper
+
+def test_motor_driver_requires_raw_discriminator_before_unity_deserialization() -> None:
+    shim = SHIM.read_text(encoding="utf-8")
+    driver = DRIVER.read_text(encoding="utf-8")
+
+    assert "internal static void ValidateMotorStateJson(string json)" in shim
+    dedicated = shim[
+        shim.index("internal static void ValidateMotorStateJson") :
+        shim.index("public static T FromJson<T>")
+    ]
+    assert "ValidateMotorStatePresenceAndTypes(json, true);" in dedicated
+    assert "bool requireMotorState = false" in shim
+    assert "Motor State JSON root must be an object" in shim
+    assert shim.count("Motor State requires canonical type discriminator") == 2
+
+    assert driver.count("JsonUtility.ValidateMotorStateJson(json);") == 1
+    apply = driver[
+        driver.index("public void ApplyMotorJson") :
+        driver.index("private static void ValidatePosture")
+    ]
+    assert apply.index("JsonUtility.ValidateMotorStateJson(json);") < apply.index(
+        "JsonUtility.FromJson<MotorState>(json)"
+    )
+    assert apply.index("JsonUtility.FromJson<MotorState>(json)") < apply.index("_state = next;")
+
+
+def test_generic_jsonutility_surfaces_remain_non_motor_compatible() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    assert "ValidateMotorStatePresenceAndTypes(json);" in source
+    assert source.count("ValidateMotorStatePresenceAndTypes(json);") == 3
+    assert "ValidateMotorStatePresenceAndTypes(json, true);" in source
