@@ -105,7 +105,7 @@ constraint_helper = '''        private static string RequireConstrainedStringMem
         }
 
 '''
-assert "RequireConstrainedStringMember(" not in shim
+assert "private static string RequireConstrainedStringMember(" not in shim
 shim = shim.replace(helper_marker, constraint_helper + helper_marker, 1)
 shim_path.write_text(shim, encoding="utf-8")
 
