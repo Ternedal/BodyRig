@@ -197,6 +197,11 @@ namespace BodyRig.ReferenceRenderer
             "breathing_strength",
         };
 
+        internal static void ValidateMotorStateJson(string json)
+        {
+            ValidateMotorStatePresenceAndTypes(json, true);
+        }
+
         public static T FromJson<T>(string json)
         {
             ValidateMotorStatePresenceAndTypes(json);
@@ -225,10 +230,14 @@ namespace BodyRig.ReferenceRenderer
             return UnityEngine.JsonUtility.ToJson(obj, prettyPrint);
         }
 
-        private static void ValidateMotorStatePresenceAndTypes(string json)
+        private static void ValidateMotorStatePresenceAndTypes(string json, bool requireMotorState = false)
         {
             if (string.IsNullOrEmpty(json))
             {
+                if (requireMotorState)
+                {
+                    throw new ArgumentException("Motor State JSON is required");
+                }
                 return;
             }
 
@@ -240,16 +249,28 @@ namespace BodyRig.ReferenceRenderer
             }
             if (probeIndex >= json.Length || json[probeIndex] != '{')
             {
+                if (requireMotorState)
+                {
+                    throw new ArgumentException("Motor State JSON root must be an object");
+                }
                 return;
             }
 
             var root = ParseObjectMembers(json, "root");
             if (!root.TryGetValue("type", out var rawType))
             {
+                if (requireMotorState)
+                {
+                    throw new ArgumentException("Motor State requires canonical type discriminator");
+                }
                 return;
             }
             if (!TryParseStringToken(rawType, out var type) || type != "bodyrig-motor-state")
             {
+                if (requireMotorState)
+                {
+                    throw new ArgumentException("Motor State requires canonical type discriminator");
+                }
                 return;
             }
 
