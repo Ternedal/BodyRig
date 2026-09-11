@@ -13,6 +13,10 @@ def test_multiperformer_detail_aggregation_operator_is_source_only_and_revision_
     assert "bodyrig\\__init__.py" in text
     assert "human-parsing-evidence\\photoidentity-observations.json" in text
     assert "photoidentity-multiperformer-detail-aggregation.json" in text
+    assert "[parameter(mandatory = $true)][string[]]$candidateroot" in text
+    assert "$candidateroot.count -ne $qualityreceipt.count" in text
+    assert '"--candidate-root"' in text
+    assert "photoidentity-multiperformer-target-isolation-attestation.json" in text
     assert "nail/anatomy authority: not changed" in text
     assert "production activation: false" in text
     for forbidden in ("run-windows", "run-quest", "manager.start", "clone-body", "run-subject-anatomy"):
