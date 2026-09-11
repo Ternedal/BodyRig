@@ -4,16 +4,18 @@ BodyRig giver ModelRig en visuel og kropslig tilstedeværelse.
 
 - **ModelRig** tænker og producerer semantisk intent.
 - **VoiceRig** lytter og taler.
-- **BodyRig** bygger en portabel kropsprofil fra video og omsætter intent + taletiming til ansigt/kropsadfærd.
-- **Kaliv / VR-klienter** renderer avataren.
+- **BodyRig** er autoritet for body identity, `.mrbody`, BodyPrint, source-derived Movement Identity og Motor State.
+- **Kaliv / VR-klienter** renderer den allerede udførte Motor State og må ikke genopfinde krops-/bevægelsesprofilen.
+
+Den aktuelle arkitektur er samlet i **`docs/ARCHITECTURE.md`**. Runtime-kontrakten for BodyCue/Motor State står i **`docs/MOTOR_STATE.md`**. `HANDOFF.md` er den operationelle overgangs-/statusguide og må ikke bruges til at opfinde fysisk eller menneskelig evidens.
 
 ## V1-mål
 
-Det normale flow er:
+Det normale high-fidelity flow er:
 
-> vælg 1–10 videoklip → identificér personen → udled BodyPrint → rekonstruér visuel identitet/krop → fit source-derived VRM 1.0 → eksportér `.mrbody` → anatomisk skin-QA → materialisér validerede runtime-assets → kør samme faste deformation-sweep på Windows/Quest → brug de samme bytes i klienterne.
+> vælg kildevideo → auditér source-univers og view/detail-sufficiency → isolér den rigtige performer → udled BodyPrint + Movement Identity → rekonstruér visuel identitet/krop → fit source-derived VRM 1.0 → eksportér `.mrbody` → anatomisk skin-QA → materialisér validerede runtime-assets → kør samme faste deformation-sweep på Windows/Quest → bind human review og de samme bytes gennem release-kæden.
 
-V1 er local-first. Kildevideo er build-input og må ikke ende i den portable profil eller support-output.
+V1 er local-first. Kildevideo er build-input og må ikke ende i den portable profil eller support-output. Manglende source evidence er en blokering; BodyRig må ikke udfylde identitet, detalje eller bevægelseskarakteristika med generiske gæt.
 
 ## Bootstrap
 
@@ -226,29 +228,46 @@ Kun den resulterende `bodyrig-release-acceptance.json` må have:
 }
 ```
 
-## Bevægelsesstil
+## Bevægelsesstil og Motor State
 
-ModelRig sender semantiske `BodyCue`-events. BodyRig resolver dem gennem det aktive BodyPrint til `BodyRig Motor State v1`, så den samme gestus kan have forskellig amplitude, hovedbevægelse, gaze og tale-ekspressivitet for forskellige profiler.
+ModelRig sender semantiske `BodyCue`-events. BodyRig resolver dem gennem den aktive BodyPrint til en **allerede udført** Motor State:
 
-Renderer-klienterne skal konsumere Motor State og må ikke selv genfortolke ModelRig-cuet som en ny personlighed/motion-profile.
+- **Motor State v1** — kompatibilitetskontrakten for udført motion/expression/gesture/gaze;
+- **Motor State v2** — samme udførte state plus valgfri source-derived `embodiment`-evidence;
+- **BodyCue v2 + Motor State v3** — tilføjer eksplicit locomotion (`walk`, `turn_left`, `turn_right`, `stop`) udført gennem komplet source-derived Movement Identity.
+
+Movement Identity alene starter aldrig en bevægelse. En v2-locomotion cue kræver komplet gait/posture/dynamics/idle-evidence; ellers fejler BodyRig lukket i stedet for at vælge en generisk walk. En aktiv BodyCue v2 kan heller ikke læses gennem v1/v2 motor-endpoints, fordi det ville tabe locomotion-semantikken.
+
+Reference-rendereren bruger kun den allerede udførte `locomotion`-struktur fra Motor State v3. Manglende, malformed eller type-invalid locomotion JSON afvises fail-closed; der indsættes ikke skjulte standardværdier.
+
+Se `docs/MOTOR_STATE.md` for de præcise kontrakter og endpoints.
 
 ## Arkitektur
 
-```text
-ModelRig -- BodyCue ------------------+
-                                      v
-                                  BodyRig ----> renderer/Kaliv/VR
-                                      ^
-VoiceRig -- utterance/viseme timing --+
+```mermaid
+flowchart TB
+    MR["ModelRig\nsemantic BodyCue v1/v2"]
+    VR["VoiceRig\nutterance + viseme timing"]
+    BR["BodyRig runtime\nBodyPrint + Movement Identity\nMotor State v1/v2/v3"]
+    REN["renderer / Kaliv / VR\nengine-specific realization"]
 
-Stash/video --> pinned recovery + PHALP --> canonical tracks/BodyPrint
-            --> visual identity --> pinned SiTH/SMPL-X --> VRM 1.0
-            --> .mrbody --> anatomical skin QA --> validated runtime materialization
-            --> exact-revision renderer build --> deterministic Humanoid deformation sweep
-            --> atomic Windows/Quest evidence pairs --> contract-bound structured human review
-            --> reference release policy --> byte/build/revision-bound production acceptance
+    MR --> BR
+    VR --> BR
+    BR --> REN
+
+    SRC["Stash / source video"]
+    SUF["source-universe + sufficiency audit\nprojection-safe · performer-isolated"]
+    REC["pinned recovery + PHALP"]
+    ID["BodyPrint + identity/detail authority\nMovement Identity"]
+    FIT["pinned SiTH / SMPL-X → VRM 1.0"]
+    PKG["validated .mrbody"]
+    QA["Gate A → Windows → human review\n→ Quest → human review → release"]
+
+    SRC --> SUF --> REC --> ID --> FIT --> PKG --> QA
 ```
+
+Den fulde current-state arkitektur — inklusive M1–M6 digital-twin composition, source-sufficiency og fysisk acceptance-hierarki — står i `docs/ARCHITECTURE.md`.
 
 Research-stacks, checkpoints og kropsmodel-licenser holdes bag build-time grænser, så de ikke bliver skjulte runtime-afhængigheder i `.mrbody`.
 
-Se `docs/ARCHITECTURE.md`, `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/MOTOR_STATE.md`, `docs/PHYSICAL_CLONE_SESSION.md`, `docs/SKIN_QA.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.
+Se også `docs/MRBODY_SPEC.md`, `docs/AVATAR_FITTING.md`, `docs/PHYSICAL_CLONE_SESSION.md`, `docs/SKIN_QA.md` og `docs/RIG_ACCEPTANCE.md` for de detaljerede kontrakter og gates.

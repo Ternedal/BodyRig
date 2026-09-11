@@ -2,22 +2,19 @@
 
 ModelRig owns **what** the assistant means to express. BodyRig owns **how this body performs it**.
 
-The boundary is deliberately two-stage:
+The boundary is deliberately two-stage and renderer-neutral:
 
-```text
-ModelRig BodyCue
-    semantic: thoughtful + small_shrug + gaze=user
-                     |
-                     v
-               BodyRig runtime
-               + active BodyPrint
-                     |
-                     v
-BodyRig Motor State
-    performed gesture amplitude, head motion, gaze strength, speech motion
-                     |
-                     v
-              renderer / Kaliv / VR
+```mermaid
+flowchart LR
+    C["ModelRig BodyCue\nsemantic expression / gesture / gaze\nBodyCue v2 may add locomotion or natural posture"]
+    BP["Active BodyPrint\n+ source-derived Movement Identity"]
+    BR["BodyRig runtime\nsemantic → performed resolution"]
+    MS["BodyRig Motor State\nv1/v2/v3\nperformed values"]
+    R["renderer / Kaliv / VR\nengine-specific realization only"]
+
+    C --> BR
+    BP --> BR
+    BR --> MS --> R
 ```
 
 A renderer must not need the original recovery model or source videos.
