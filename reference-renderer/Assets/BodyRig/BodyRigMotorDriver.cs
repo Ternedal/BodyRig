@@ -222,6 +222,25 @@ namespace BodyRig.ReferenceRenderer
         private bool _locomotionPoseOwnedLastFrame;
         private bool _locomotionLeftArmPoseOwnedLastFrame;
         private bool _locomotionRightArmPoseOwnedLastFrame;
+        private bool _locomotionHipsPositionOwnedLastFrame;
+        private bool _locomotionLeftUpperLegOwnedLastFrame;
+        private bool _locomotionRightUpperLegOwnedLastFrame;
+        private bool _locomotionLeftLowerLegOwnedLastFrame;
+        private bool _locomotionRightLowerLegOwnedLastFrame;
+        private Vector3 _locomotionReleaseHipsPosition;
+        private Vector3 _locomotionAppliedHipsPosition;
+        private Quaternion _locomotionReleaseLeftUpperLegRotation;
+        private Quaternion _locomotionAppliedLeftUpperLegRotation;
+        private Quaternion _locomotionReleaseRightUpperLegRotation;
+        private Quaternion _locomotionAppliedRightUpperLegRotation;
+        private Quaternion _locomotionReleaseLeftLowerLegRotation;
+        private Quaternion _locomotionAppliedLeftLowerLegRotation;
+        private Quaternion _locomotionReleaseRightLowerLegRotation;
+        private Quaternion _locomotionAppliedRightLowerLegRotation;
+        private Quaternion _locomotionReleaseLeftUpperArmRotation;
+        private Quaternion _locomotionAppliedLeftUpperArmRotation;
+        private Quaternion _locomotionReleaseRightUpperArmRotation;
+        private Quaternion _locomotionAppliedRightUpperArmRotation;
         private bool _headRotationOwnedLastFrame;
         private bool _headRotationWrittenThisFrame;
         private Quaternion _headRotationReleaseRotation;
@@ -796,6 +815,12 @@ namespace BodyRig.ReferenceRenderer
             var gestureOwnsRightLowerArm =
                 presentOwnsRightArm || (gestureId == "neutral" && _rightLowerArm != null);
 
+            // Release gait-owned arm channels before gesture ownership is acquired
+            // so a new gesture snapshots the real external/Animator baseline, not
+            // BodyRig's preceding walk swing. Core gait channels use the same
+            // non-destructive release rule when walk authority ends.
+            PrepareLocomotionOwnershipForFrame();
+
             var gestureShouldersOwnedLastFrame =
                 _gestureLeftShoulderOwnedLastFrame || _gestureRightShoulderOwnedLastFrame;
             var postureShouldersOwnedLastFrame = _sourcePostureOffsetsOwnedLastFrame;
@@ -848,6 +873,10 @@ namespace BodyRig.ReferenceRenderer
                 PreparePostureOwnershipForFrame(performedPosture, sourceNaturalPosture);
             }
 
+            // Acquisition happens only after gesture release/handoff has run.
+            // This makes both walk->gesture and gesture->walk transitions capture
+            // the underlying external arm baseline rather than the departing layer.
+            AcquireLocomotionOwnershipForFrame();
             PrepareHeadRotationOwnershipForFrame();
 
             if (sourceNaturalPosture)
@@ -959,6 +988,11 @@ namespace BodyRig.ReferenceRenderer
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
+            _locomotionHipsPositionOwnedLastFrame = false;
+            _locomotionLeftUpperLegOwnedLastFrame = false;
+            _locomotionRightUpperLegOwnedLastFrame = false;
+            _locomotionLeftLowerLegOwnedLastFrame = false;
+            _locomotionRightLowerLegOwnedLastFrame = false;
             _headRotationOwnedLastFrame = false;
             _headRotationWrittenThisFrame = false;
             _shoulderSpan = 0.0f;
@@ -1024,21 +1058,229 @@ namespace BodyRig.ReferenceRenderer
             return 1.0f - Mathf.Exp(-Mathf.Max(dt, 0.0001f) / seconds);
         }
 
+        private bool CanRealizeWalk(LocomotionState locomotion)
+        {
+            return locomotion != null && locomotion.action == "walk" &&
+                _hips != null && _leftUpperLeg != null && _rightUpperLeg != null &&
+                _leftLowerLeg != null && _rightLowerLeg != null && _avatarHeight > 0.0001f;
+        }
+
+        private void PrepareLocomotionPositionChannel(
+            Transform target,
+            bool wantsOwnership,
+            ref bool ownedLastFrame,
+            ref Vector3 releasePosition,
+            Vector3 appliedPosition)
+        {
+            if (target == null)
+            {
+                ownedLastFrame = false;
+                return;
+            }
+            if (!ownedLastFrame)
+            {
+                return;
+            }
+
+            var stillBodyRig = SamePosition(target.localPosition, appliedPosition);
+            if (!stillBodyRig)
+            {
+                // Animator/VRMA wrote this channel after BodyRig's previous frame.
+                // Keep the external value as the new baseline and relinquish it.
+                releasePosition = target.localPosition;
+                ownedLastFrame = false;
+                return;
+            }
+            if (!wantsOwnership)
+            {
+                target.localPosition = releasePosition;
+                ownedLastFrame = false;
+            }
+        }
+
+        private void PrepareLocomotionRotationChannel(
+            Transform target,
+            bool wantsOwnership,
+            ref bool ownedLastFrame,
+            ref Quaternion releaseRotation,
+            Quaternion appliedRotation)
+        {
+            if (target == null)
+            {
+                ownedLastFrame = false;
+                return;
+            }
+            if (!ownedLastFrame)
+            {
+                return;
+            }
+
+            var stillBodyRig = SameRotation(target.localRotation, appliedRotation);
+            if (!stillBodyRig)
+            {
+                releaseRotation = target.localRotation;
+                ownedLastFrame = false;
+                return;
+            }
+            if (!wantsOwnership)
+            {
+                target.localRotation = releaseRotation;
+                ownedLastFrame = false;
+            }
+        }
+
+        private void RefreshLocomotionCoreAggregateOwnership()
+        {
+            _locomotionPoseOwnedLastFrame =
+                _locomotionHipsPositionOwnedLastFrame ||
+                _locomotionLeftUpperLegOwnedLastFrame ||
+                _locomotionRightUpperLegOwnedLastFrame ||
+                _locomotionLeftLowerLegOwnedLastFrame ||
+                _locomotionRightLowerLegOwnedLastFrame;
+        }
+
+        private void PrepareLocomotionOwnershipForFrame()
+        {
+            var locomotion = _state != null ? _state.locomotion : null;
+            var walkOwnsCore = CanRealizeWalk(locomotion);
+            var stop = locomotion != null && locomotion.action == "stop";
+
+            // Stop may continue only channels BodyRig still owns. The helpers
+            // below drop an individual channel immediately if Animator/VRMA has
+            // rewritten it, so stop can never pull that channel toward bind pose.
+            var stopKeepsHips = stop && _locomotionHipsPositionOwnedLastFrame;
+            var stopKeepsLeftUpperLeg = stop && _locomotionLeftUpperLegOwnedLastFrame;
+            var stopKeepsRightUpperLeg = stop && _locomotionRightUpperLegOwnedLastFrame;
+            var stopKeepsLeftLowerLeg = stop && _locomotionLeftLowerLegOwnedLastFrame;
+            var stopKeepsRightLowerLeg = stop && _locomotionRightLowerLegOwnedLastFrame;
+            var stopKeepsLeftArm = stop && _locomotionLeftArmPoseOwnedLastFrame &&
+                !GestureOwnsLeftUpperArm(_state.gesture);
+            var stopKeepsRightArm = stop && _locomotionRightArmPoseOwnedLastFrame &&
+                !GestureOwnsRightUpperArm(_state.gesture);
+
+            var walkOwnsLeftArm = walkOwnsCore && _leftUpperArm != null &&
+                !GestureOwnsLeftUpperArm(_state.gesture);
+            var walkOwnsRightArm = walkOwnsCore && _rightUpperArm != null &&
+                !GestureOwnsRightUpperArm(_state.gesture);
+
+            PrepareLocomotionPositionChannel(
+                _hips, walkOwnsCore || stopKeepsHips,
+                ref _locomotionHipsPositionOwnedLastFrame,
+                ref _locomotionReleaseHipsPosition, _locomotionAppliedHipsPosition);
+            PrepareLocomotionRotationChannel(
+                _leftUpperLeg, walkOwnsCore || stopKeepsLeftUpperLeg,
+                ref _locomotionLeftUpperLegOwnedLastFrame,
+                ref _locomotionReleaseLeftUpperLegRotation, _locomotionAppliedLeftUpperLegRotation);
+            PrepareLocomotionRotationChannel(
+                _rightUpperLeg, walkOwnsCore || stopKeepsRightUpperLeg,
+                ref _locomotionRightUpperLegOwnedLastFrame,
+                ref _locomotionReleaseRightUpperLegRotation, _locomotionAppliedRightUpperLegRotation);
+            PrepareLocomotionRotationChannel(
+                _leftLowerLeg, walkOwnsCore || stopKeepsLeftLowerLeg,
+                ref _locomotionLeftLowerLegOwnedLastFrame,
+                ref _locomotionReleaseLeftLowerLegRotation, _locomotionAppliedLeftLowerLegRotation);
+            PrepareLocomotionRotationChannel(
+                _rightLowerLeg, walkOwnsCore || stopKeepsRightLowerLeg,
+                ref _locomotionRightLowerLegOwnedLastFrame,
+                ref _locomotionReleaseRightLowerLegRotation, _locomotionAppliedRightLowerLegRotation);
+            PrepareLocomotionRotationChannel(
+                _leftUpperArm, walkOwnsLeftArm || stopKeepsLeftArm,
+                ref _locomotionLeftArmPoseOwnedLastFrame,
+                ref _locomotionReleaseLeftUpperArmRotation, _locomotionAppliedLeftUpperArmRotation);
+            PrepareLocomotionRotationChannel(
+                _rightUpperArm, walkOwnsRightArm || stopKeepsRightArm,
+                ref _locomotionRightArmPoseOwnedLastFrame,
+                ref _locomotionReleaseRightUpperArmRotation, _locomotionAppliedRightUpperArmRotation);
+
+            RefreshLocomotionCoreAggregateOwnership();
+        }
+
+        private void AcquireLocomotionOwnershipForFrame()
+        {
+            var locomotion = _state != null ? _state.locomotion : null;
+            if (!CanRealizeWalk(locomotion))
+            {
+                return;
+            }
+
+            // Acquisition occurs after gesture release. Every core channel gets
+            // its own current external baseline, so one channel can be handed
+            // back independently without changing the ownership of the others.
+            if (!_locomotionHipsPositionOwnedLastFrame)
+            {
+                _locomotionReleaseHipsPosition = _hips.localPosition;
+                _locomotionHipsPositionOwnedLastFrame = true;
+            }
+            if (!_locomotionLeftUpperLegOwnedLastFrame)
+            {
+                _locomotionReleaseLeftUpperLegRotation = _leftUpperLeg.localRotation;
+                _locomotionLeftUpperLegOwnedLastFrame = true;
+            }
+            if (!_locomotionRightUpperLegOwnedLastFrame)
+            {
+                _locomotionReleaseRightUpperLegRotation = _rightUpperLeg.localRotation;
+                _locomotionRightUpperLegOwnedLastFrame = true;
+            }
+            if (!_locomotionLeftLowerLegOwnedLastFrame)
+            {
+                _locomotionReleaseLeftLowerLegRotation = _leftLowerLeg.localRotation;
+                _locomotionLeftLowerLegOwnedLastFrame = true;
+            }
+            if (!_locomotionRightLowerLegOwnedLastFrame)
+            {
+                _locomotionReleaseRightLowerLegRotation = _rightLowerLeg.localRotation;
+                _locomotionRightLowerLegOwnedLastFrame = true;
+            }
+
+            var walkOwnsLeftArm = _leftUpperArm != null && !GestureOwnsLeftUpperArm(_state.gesture);
+            var walkOwnsRightArm = _rightUpperArm != null && !GestureOwnsRightUpperArm(_state.gesture);
+            if (walkOwnsLeftArm && !_locomotionLeftArmPoseOwnedLastFrame)
+            {
+                _locomotionReleaseLeftUpperArmRotation = _leftUpperArm.localRotation;
+                _locomotionLeftArmPoseOwnedLastFrame = true;
+            }
+            if (walkOwnsRightArm && !_locomotionRightArmPoseOwnedLastFrame)
+            {
+                _locomotionReleaseRightUpperArmRotation = _rightUpperArm.localRotation;
+                _locomotionRightArmPoseOwnedLastFrame = true;
+            }
+            RefreshLocomotionCoreAggregateOwnership();
+        }
+
+        private void CommitLocomotionOwnershipForFrame()
+        {
+            if (_locomotionHipsPositionOwnedLastFrame && _hips != null)
+                _locomotionAppliedHipsPosition = _hips.localPosition;
+            if (_locomotionLeftUpperLegOwnedLastFrame && _leftUpperLeg != null)
+                _locomotionAppliedLeftUpperLegRotation = _leftUpperLeg.localRotation;
+            if (_locomotionRightUpperLegOwnedLastFrame && _rightUpperLeg != null)
+                _locomotionAppliedRightUpperLegRotation = _rightUpperLeg.localRotation;
+            if (_locomotionLeftLowerLegOwnedLastFrame && _leftLowerLeg != null)
+                _locomotionAppliedLeftLowerLegRotation = _leftLowerLeg.localRotation;
+            if (_locomotionRightLowerLegOwnedLastFrame && _rightLowerLeg != null)
+                _locomotionAppliedRightLowerLegRotation = _rightLowerLeg.localRotation;
+            if (_locomotionLeftArmPoseOwnedLastFrame && _leftUpperArm != null)
+                _locomotionAppliedLeftUpperArmRotation = _leftUpperArm.localRotation;
+            if (_locomotionRightArmPoseOwnedLastFrame && _rightUpperArm != null)
+                _locomotionAppliedRightUpperArmRotation = _rightUpperArm.localRotation;
+        }
+
         private void BlendLocomotionPoseToBase(float blend, bool includeLeftArm, bool includeRightArm)
         {
-            if (_hips != null) _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition, blend);
-            if (_leftUpperLeg != null) _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, _leftUpperLegBaseRotation, blend);
-            if (_rightUpperLeg != null) _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, _rightUpperLegBaseRotation, blend);
-            if (_leftLowerLeg != null) _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, _leftLowerLegBaseRotation, blend);
-            if (_rightLowerLeg != null) _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, _rightLowerLegBaseRotation, blend);
-            if (includeLeftArm && _leftUpperArm != null)
-            {
+            if (_locomotionHipsPositionOwnedLastFrame && _hips != null)
+                _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition, blend);
+            if (_locomotionLeftUpperLegOwnedLastFrame && _leftUpperLeg != null)
+                _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, _leftUpperLegBaseRotation, blend);
+            if (_locomotionRightUpperLegOwnedLastFrame && _rightUpperLeg != null)
+                _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, _rightUpperLegBaseRotation, blend);
+            if (_locomotionLeftLowerLegOwnedLastFrame && _leftLowerLeg != null)
+                _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, _leftLowerLegBaseRotation, blend);
+            if (_locomotionRightLowerLegOwnedLastFrame && _rightLowerLeg != null)
+                _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, _rightLowerLegBaseRotation, blend);
+            if (includeLeftArm && _locomotionLeftArmPoseOwnedLastFrame && _leftUpperArm != null)
                 _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
-            }
-            if (includeRightArm && _rightUpperArm != null)
-            {
+            if (includeRightArm && _locomotionRightArmPoseOwnedLastFrame && _rightUpperArm != null)
                 _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
-            }
         }
 
         private bool ApplyLocomotion(float dt)
@@ -1046,12 +1288,9 @@ namespace BodyRig.ReferenceRenderer
             var locomotion = _state != null ? _state.locomotion : null;
             if (locomotion == null)
             {
-                // Releasing locomotion ownership means stopping BodyRig writes.
-                // Animator/VRMA has already evaluated before LateUpdate, so a
-                // bind-pose restore here would overwrite its current frame.
-                _locomotionPoseOwnedLastFrame = false;
-                _locomotionLeftArmPoseOwnedLastFrame = false;
-                _locomotionRightArmPoseOwnedLastFrame = false;
+                // Passive gait release has already happened channel-by-channel
+                // in PrepareLocomotionOwnershipForFrame(). Never restore bind pose
+                // here: external Animator/VRMA rewrites must remain authoritative.
                 return false;
             }
 
@@ -1062,23 +1301,23 @@ namespace BodyRig.ReferenceRenderer
                 // cue arriving over an external Animator pose must not pull it
                 // toward BodyRig's captured bind pose. Each arm is included only
                 // if the preceding gait frame actually owned that anatomical side.
-                if (_locomotionPoseOwnedLastFrame)
+                if (_locomotionPoseOwnedLastFrame ||
+                    _locomotionLeftArmPoseOwnedLastFrame ||
+                    _locomotionRightArmPoseOwnedLastFrame)
                 {
                     BlendLocomotionPoseToBase(
                         locomotionBlend,
                         _locomotionLeftArmPoseOwnedLastFrame,
                         _locomotionRightArmPoseOwnedLastFrame);
+                    CommitLocomotionOwnershipForFrame();
                 }
                 return true;
             }
 
             if (locomotion.action == "turn_left" || locomotion.action == "turn_right")
             {
-                // Turning owns root heading only. Releasing any preceding gait
-                // is a bookkeeping change, not a bind-pose write over Animator.
-                _locomotionPoseOwnedLastFrame = false;
-                _locomotionLeftArmPoseOwnedLastFrame = false;
-                _locomotionRightArmPoseOwnedLastFrame = false;
+                // Turning owns root heading only. Any preceding gait channels
+                // were released non-destructively before action dispatch.
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
                 _boundAnimator.transform.Rotate(
@@ -1154,9 +1393,15 @@ namespace BodyRig.ReferenceRenderer
                     _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
                 }
             }
-            _locomotionPoseOwnedLastFrame = true;
+            _locomotionHipsPositionOwnedLastFrame = true;
+            _locomotionLeftUpperLegOwnedLastFrame = true;
+            _locomotionRightUpperLegOwnedLastFrame = true;
+            _locomotionLeftLowerLegOwnedLastFrame = true;
+            _locomotionRightLowerLegOwnedLastFrame = true;
+            RefreshLocomotionCoreAggregateOwnership();
             _locomotionLeftArmPoseOwnedLastFrame = locomotionOwnsLeftArm;
             _locomotionRightArmPoseOwnedLastFrame = locomotionOwnsRightArm;
+            CommitLocomotionOwnershipForFrame();
             return true;
         }
 
@@ -1596,6 +1841,11 @@ namespace BodyRig.ReferenceRenderer
             _locomotionPoseOwnedLastFrame = false;
             _locomotionLeftArmPoseOwnedLastFrame = false;
             _locomotionRightArmPoseOwnedLastFrame = false;
+            _locomotionHipsPositionOwnedLastFrame = false;
+            _locomotionLeftUpperLegOwnedLastFrame = false;
+            _locomotionRightUpperLegOwnedLastFrame = false;
+            _locomotionLeftLowerLegOwnedLastFrame = false;
+            _locomotionRightLowerLegOwnedLastFrame = false;
             _headRotationOwnedLastFrame = false;
             _headRotationWrittenThisFrame = false;
             RealizationFrameCount = 0;

@@ -136,9 +136,9 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     no_locomotion = apply_locomotion[
         apply_locomotion.index("if (locomotion == null)") : apply_locomotion.index("var locomotionBlend")
     ]
-    assert "_locomotionPoseOwnedLastFrame = false;" in no_locomotion
-    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in no_locomotion
-    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in no_locomotion
+    assert "_locomotionPoseOwnedLastFrame = false;" not in no_locomotion
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" not in no_locomotion
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" not in no_locomotion
     assert "RestoreLocomotionPose();" not in no_locomotion
     assert "BlendLocomotionPoseToBase" not in no_locomotion
 
@@ -147,7 +147,7 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
             'if (locomotion.action == "turn_left"'
         )
     ]
-    assert "if (_locomotionPoseOwnedLastFrame)" in stop
+    assert "if (_locomotionPoseOwnedLastFrame ||" in stop
     assert "BlendLocomotionPoseToBase(" in stop
     assert "_locomotionLeftArmPoseOwnedLastFrame" in stop
     assert "_locomotionRightArmPoseOwnedLastFrame" in stop
@@ -157,9 +157,9 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
             'if (locomotion.action != "walk")'
         )
     ]
-    assert "_locomotionPoseOwnedLastFrame = false;" in turn
-    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" in turn
-    assert "_locomotionRightArmPoseOwnedLastFrame = false;" in turn
+    assert "_locomotionPoseOwnedLastFrame = false;" not in turn
+    assert "_locomotionLeftArmPoseOwnedLastFrame = false;" not in turn
+    assert "_locomotionRightArmPoseOwnedLastFrame = false;" not in turn
     assert "RestoreLocomotionPose();" not in turn
     assert "BlendLocomotionPoseToBase" not in turn
     assert "transform.Rotate(" in turn
@@ -174,7 +174,8 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     assert "if (locomotionOwnsLeftArm || locomotionOwnsRightArm)" in walk
     assert "if (locomotionOwnsLeftArm)" in walk
     assert "if (locomotionOwnsRightArm)" in walk
-    assert "_locomotionPoseOwnedLastFrame = true;" in walk
+    assert "_locomotionHipsPositionOwnedLastFrame = true;" in walk
+    assert "RefreshLocomotionCoreAggregateOwnership();" in walk
     assert "_locomotionLeftArmPoseOwnedLastFrame = locomotionOwnsLeftArm;" in walk
     assert "_locomotionRightArmPoseOwnedLastFrame = locomotionOwnsRightArm;" in walk
 
