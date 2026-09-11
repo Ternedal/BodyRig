@@ -682,9 +682,10 @@ namespace BodyRig.ReferenceRenderer
         private bool ApplyGesture()
         {
             if (_state.gesture == null) return false;
-            RestoreGesturePose();
             if (_state.gesture.id == "small_shrug")
             {
+                // This gesture owns shoulder translation only. Do not reset an
+                // Animator/VRMA arm pose simply because a shrug is active.
                 var lift = 0.025f * _gestureAmplitude;
                 if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition + Vector3.up * lift;
                 if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition + Vector3.up * lift;
@@ -692,6 +693,8 @@ namespace BodyRig.ReferenceRenderer
             }
             if (_state.gesture.id == "present")
             {
+                // Present owns only the right upper/lower arm. Shoulders remain
+                // under Animator/VRMA/posture ownership for this frame.
                 if (_rightUpperArm == null || _rightLowerArm == null) return false;
                 _rightUpperArm.localRotation = _rightUpperArmBaseRotation * Quaternion.Euler(
                     -18.0f * _gestureAmplitude,
@@ -703,7 +706,13 @@ namespace BodyRig.ReferenceRenderer
                     -28.0f * _gestureAmplitude);
                 return true;
             }
-            if (_state.gesture.id == "neutral") return true;
+            if (_state.gesture.id == "neutral")
+            {
+                // Neutral is an explicit reset request, so it may deliberately
+                // restore the gesture-owned bind-relative pose.
+                RestoreGesturePose();
+                return true;
+            }
             return false;
         }
 

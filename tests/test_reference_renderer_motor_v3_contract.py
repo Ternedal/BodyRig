@@ -179,6 +179,39 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     assert "_locomotionArmPoseOwnedLastFrame = false;" in neutral
 
 
+def test_reference_renderer_gestures_only_write_the_bones_the_action_owns() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    gesture = source[source.index("private bool ApplyGesture") : source.index("private bool ApplyHeadMotion")]
+
+    # There must be no unconditional broad bind-pose reset before dispatching
+    # the performed gesture. That used to overwrite Animator/VRMA bones that a
+    # specific gesture did not own.
+    prefix = gesture[: gesture.index('if (_state.gesture.id == "small_shrug")')]
+    assert "RestoreGesturePose();" not in prefix
+
+    shrug = gesture[
+        gesture.index('if (_state.gesture.id == "small_shrug")') : gesture.index('if (_state.gesture.id == "present")')
+    ]
+    assert "_leftShoulder.localPosition" in shrug
+    assert "_rightShoulder.localPosition" in shrug
+    assert "_rightUpperArm" not in shrug
+    assert "_rightLowerArm" not in shrug
+    assert "RestoreGesturePose();" not in shrug
+
+    present = gesture[
+        gesture.index('if (_state.gesture.id == "present")') : gesture.index('if (_state.gesture.id == "neutral")')
+    ]
+    assert "_rightUpperArm.localRotation" in present
+    assert "_rightLowerArm.localRotation" in present
+    assert "_leftShoulder.localPosition" not in present
+    assert "_rightShoulder.localPosition" not in present
+    assert "RestoreGesturePose();" not in present
+
+    neutral = gesture[gesture.index('if (_state.gesture.id == "neutral")') :]
+    assert "RestoreGesturePose();" in neutral
+    assert "return true;" in neutral
+
+
 def test_reference_renderer_realizes_only_source_marked_performed_natural_posture() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("private bool ApplyPosture")
