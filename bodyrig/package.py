@@ -12,6 +12,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
+from .movement_identity import FIELD_RANGES as MOVEMENT_IDENTITY_FIELD_RANGES
+from .movement_identity import INTEGER_FIELDS as MOVEMENT_IDENTITY_INTEGER_FIELDS
 
 FORMAT = "modelrig-body"
 FORMAT_VERSION = 1
@@ -62,7 +64,13 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
         raise MRBodyError("bodyprint.json: unknown fields")
     rules = {
         "shape": {"height_scale": (1e-6, 4.0), "shoulder_to_height": (0.0, 1.0), "hip_to_height": (0.0, 1.0), "arm_to_height": (0.0, 1.0), "leg_to_height": (0.0, 1.0)},
-        "motion": {"energy": (0.0, 1.0), "gesture_frequency": (0.0, 1.0), "gesture_amplitude": (0.0, 1.0), "head_motion": (0.0, 1.0), "turn_speed": (0.0, 1.0), "walk_cadence_spm": (0.0, 300.0)},
+        "motion": {
+            "energy": (0.0, 1.0),
+            "gesture_frequency": (0.0, 1.0),
+            "gesture_amplitude": (0.0, 1.0),
+            "head_motion": (0.0, 1.0),
+            **MOVEMENT_IDENTITY_FIELD_RANGES,
+        },
         "expression": {"blink_rate_per_min": (0.0, 120.0), "gaze_strength": (0.0, 1.0), "head_tilt": (0.0, 1.0), "speech_motion": (0.0, 1.0)},
         "runtime": {"idle_strength": (0.0, 1.0), "gaze_smoothing": (0.0, 1.0), "gesture_intensity": (0.0, 1.0), "breathing_strength": (0.0, 1.0)},
     }
@@ -76,6 +84,8 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
         for key, item in obj.items():
             lo, hi = section_rules[key]
             _num(item, lo, hi, f"{section}.{key}")
+            if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and not float(item).is_integer():
+                raise MRBodyError(f"bodyprint.motion.{key}: expected integral observation count")
             observed += 1
     if observed == 0:
         raise MRBodyError("bodyprint.json: no observed fields")

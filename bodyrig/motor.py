@@ -44,6 +44,8 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
     Motor State v1 historically resolves several missing values through neutral
     defaults. V2 keeps that compatible performed state, but its embodiment
     receipt must never turn those defaults into claimed personal observations.
+    Source-derived Movement Identity fields are transported here as evidence;
+    their presence never creates a semantic gait/posture action by itself.
     """
 
     motion = bodyprint.get("motion") if isinstance(bodyprint.get("motion"), Mapping) else {}
@@ -57,6 +59,18 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
         (motion, "head_motion", 0.0, 1.0),
         (motion, "turn_speed", 0.0, 1.0),
         (motion, "walk_cadence_spm", 0.0, 300.0),
+        (motion, "posture_torso_lean_degrees", 0.0, 90.0),
+        (motion, "posture_shoulder_tilt_degrees", 0.0, 90.0),
+        (motion, "posture_hip_tilt_degrees", 0.0, 90.0),
+        (motion, "posture_head_offset_to_height", 0.0, 1.0),
+        (motion, "stride_length_to_height", 0.0, 2.0),
+        (motion, "stance_width_to_height", 0.0, 1.0),
+        (motion, "vertical_bounce_to_height", 0.0, 1.0),
+        (motion, "arm_swing_to_height", 0.0, 2.0),
+        (motion, "arm_swing_asymmetry", 0.0, 1.0),
+        (motion, "turn_speed_degrees_per_second", 0.0, 720.0),
+        (motion, "transition_intensity", 0.0, 1.0),
+        (motion, "idle_sway_to_height", 0.0, 1.0),
         (expression, "blink_rate_per_min", 0.0, 120.0),
         (expression, "gaze_strength", 0.0, 1.0),
         (expression, "head_tilt", 0.0, 1.0),

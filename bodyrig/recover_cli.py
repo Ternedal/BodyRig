@@ -28,6 +28,15 @@ from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 _SOURCE_TRACK_RE = re.compile(r"^s(\d{2})-t")
 _FILE_COMMAND_STATUS_FORMAT = "bodyrig-file-command-status"
 _FILE_COMMAND_STATUS_VERSION = 1
+_MOVEMENT_COVERAGE_SUM_FIELDS = frozenset(
+    {
+        "movement_observed_frames",
+        "movement_observed_seconds",
+        "gait_step_events",
+        "idle_observed_seconds",
+    }
+)
+_MOVEMENT_COVERAGE_COUNT_FIELDS = frozenset({"movement_observed_frames", "gait_step_events"})
 
 
 def _select_track(result: RecoveryResult, requested: str | None) -> RecoveredTrack:
@@ -125,14 +134,24 @@ def _aggregate_bodyprints(tracks: tuple[RecoveredTrack, ...]) -> dict:
                 for key in bodyprint.get(section, {})
             }
         )
-        aggregate: dict[str, float] = {}
+        aggregate: dict[str, float | int] = {}
         for key in keys:
             values = [
                 float(bodyprint[section][key])
                 for bodyprint in bodyprints
                 if key in bodyprint.get(section, {})
             ]
-            if values:
+            if not values:
+                continue
+            if section == "motion" and key in _MOVEMENT_COVERAGE_SUM_FIELDS:
+                total = sum(values)
+                if key in _MOVEMENT_COVERAGE_COUNT_FIELDS:
+                    if not total.is_integer():
+                        raise RecoveryError(f"movement coverage count became fractional during aggregation: {key}")
+                    aggregate[key] = int(total)
+                else:
+                    aggregate[key] = round(total, 3)
+            else:
                 aggregate[key] = float(median(values))
         if aggregate:
             result[section] = aggregate

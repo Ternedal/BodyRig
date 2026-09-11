@@ -14,6 +14,18 @@ FULL_STYLE = {
         "head_motion": 0.58,
         "turn_speed": 0.44,
         "walk_cadence_spm": 116.0,
+        "posture_torso_lean_degrees": 5.2,
+        "posture_shoulder_tilt_degrees": 1.3,
+        "posture_hip_tilt_degrees": 0.8,
+        "posture_head_offset_to_height": 0.041,
+        "stride_length_to_height": 0.34,
+        "stance_width_to_height": 0.13,
+        "vertical_bounce_to_height": 0.024,
+        "arm_swing_to_height": 0.19,
+        "arm_swing_asymmetry": 0.07,
+        "turn_speed_degrees_per_second": 79.2,
+        "transition_intensity": 0.31,
+        "idle_sway_to_height": 0.012,
     },
     "expression": {
         "blink_rate_per_min": 17.0,
@@ -68,6 +80,18 @@ def test_v2_preserves_v1_performed_state_and_adds_observed_receipt() -> None:
             "head_motion": 0.58,
             "turn_speed": 0.44,
             "walk_cadence_spm": 116.0,
+            "posture_torso_lean_degrees": 5.2,
+            "posture_shoulder_tilt_degrees": 1.3,
+            "posture_hip_tilt_degrees": 0.8,
+            "posture_head_offset_to_height": 0.041,
+            "stride_length_to_height": 0.34,
+            "stance_width_to_height": 0.13,
+            "vertical_bounce_to_height": 0.024,
+            "arm_swing_to_height": 0.19,
+            "arm_swing_asymmetry": 0.07,
+            "turn_speed_degrees_per_second": 79.2,
+            "transition_intensity": 0.31,
+            "idle_sway_to_height": 0.012,
             "blink_rate_per_min": 17.0,
             "gaze_strength": 0.76,
             "head_tilt": 0.36,
@@ -98,6 +122,8 @@ def test_v2_never_turns_v1_defaults_into_personal_observations() -> None:
     # V2 may expose only the field that was actually present in BodyPrint.
     assert v2["embodiment"]["observed"] == {"energy": 0.2}
     assert "gesture_frequency" not in v2["embodiment"]["observed"]
+    assert "walk_cadence_spm" not in v2["embodiment"]["observed"]
+    assert "stride_length_to_height" not in v2["embodiment"]["observed"]
     assert "blink_rate_per_min" not in v2["embodiment"]["observed"]
 
 

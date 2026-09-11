@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .avatar import AvatarError, VRM_SPEC_VERSION, validate_vrm1
+from .movement_identity import MovementIdentityError, require_movement_identity
 from .package import MRBodyError, ValidatedBody, validate_package
 
 
@@ -186,6 +187,12 @@ def validate_promoted_release_lineage(
         key in motion for key in ("gesture_amplitude", "head_motion")
     ):
         raise HighFidelityReleaseGateError("promoted package lacks source-derived BodyPrint motion authority")
+    try:
+        require_movement_identity(promoted.bodyprint)
+    except MovementIdentityError as exc:
+        raise HighFidelityReleaseGateError(
+            f"promoted package lacks complete source-derived Movement Identity: {exc}"
+        ) from exc
 
     source_recovery = _exact_stage(source.provenance, "body-recovery")
     promoted_recovery = _exact_stage(promoted.provenance, "body-recovery")
