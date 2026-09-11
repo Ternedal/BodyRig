@@ -17,9 +17,15 @@ def _bodyprint() -> dict:
             "gait_step_events": 6,
             "idle_observed_seconds": 0.8,
             "posture_torso_lean_degrees": 5.2,
+            "posture_torso_forward_lean_degrees": 4.8,
+            "posture_torso_right_lean_degrees": -1.2,
             "posture_shoulder_tilt_degrees": 1.4,
+            "posture_shoulder_roll_degrees": -1.4,
             "posture_hip_tilt_degrees": 0.9,
+            "posture_hip_roll_degrees": 0.9,
             "posture_head_offset_to_height": 0.045,
+            "posture_head_forward_offset_to_height": 0.041,
+            "posture_head_right_offset_to_height": 0.018,
             "walk_cadence_spm": 112.0,
             "stride_length_to_height": 0.34,
             "stance_width_to_height": 0.13,
@@ -66,6 +72,36 @@ def test_missing_gait_cannot_be_called_complete() -> None:
     assert "walk_cadence_spm" in result["missing_fields"]
     with pytest.raises(MovementIdentityError, match="Movement Identity is incomplete"):
         require_movement_identity(bodyprint)
+
+
+def test_magnitude_only_posture_cannot_be_called_complete() -> None:
+    bodyprint = _bodyprint()
+    for field in (
+        "posture_torso_forward_lean_degrees",
+        "posture_torso_right_lean_degrees",
+        "posture_shoulder_roll_degrees",
+        "posture_hip_roll_degrees",
+        "posture_head_forward_offset_to_height",
+        "posture_head_right_offset_to_height",
+    ):
+        del bodyprint["motion"][field]
+
+    result = inspect_movement_identity(bodyprint)
+    assert result["complete"] is False
+    assert "posture_torso_forward_lean_degrees" in result["missing_fields"]
+    assert "posture_head_right_offset_to_height" in result["missing_fields"]
+    with pytest.raises(MovementIdentityError, match="Movement Identity is incomplete"):
+        require_movement_identity(bodyprint)
+
+
+def test_signed_posture_ranges_are_fail_closed() -> None:
+    bodyprint = _bodyprint()
+    bodyprint["motion"]["posture_torso_right_lean_degrees"] = -91.0
+    with pytest.raises(MRBodyError, match="posture_torso_right_lean_degrees"):
+        validate_bodyprint(bodyprint)
+    result = inspect_movement_identity(bodyprint)
+    assert result["complete"] is False
+    assert any("posture_torso_right_lean_degrees" in blocker for blocker in result["blockers"])
 
 
 def test_short_or_nonwalking_evidence_fails_closed() -> None:

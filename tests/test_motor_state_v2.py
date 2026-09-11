@@ -15,9 +15,15 @@ FULL_STYLE = {
         "turn_speed": 0.44,
         "walk_cadence_spm": 116.0,
         "posture_torso_lean_degrees": 5.2,
+        "posture_torso_forward_lean_degrees": 4.8,
+        "posture_torso_right_lean_degrees": -1.2,
         "posture_shoulder_tilt_degrees": 1.3,
+        "posture_shoulder_roll_degrees": -1.3,
         "posture_hip_tilt_degrees": 0.8,
+        "posture_hip_roll_degrees": -0.8,
         "posture_head_offset_to_height": 0.041,
+        "posture_head_forward_offset_to_height": 0.036,
+        "posture_head_right_offset_to_height": 0.019,
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
@@ -81,9 +87,15 @@ def test_v2_preserves_v1_performed_state_and_adds_observed_receipt() -> None:
             "turn_speed": 0.44,
             "walk_cadence_spm": 116.0,
             "posture_torso_lean_degrees": 5.2,
+            "posture_torso_forward_lean_degrees": 4.8,
+            "posture_torso_right_lean_degrees": -1.2,
             "posture_shoulder_tilt_degrees": 1.3,
+            "posture_shoulder_roll_degrees": -1.3,
             "posture_hip_tilt_degrees": 0.8,
+            "posture_hip_roll_degrees": -0.8,
             "posture_head_offset_to_height": 0.041,
+            "posture_head_forward_offset_to_height": 0.036,
+            "posture_head_right_offset_to_height": 0.019,
             "stride_length_to_height": 0.34,
             "stance_width_to_height": 0.13,
             "vertical_bounce_to_height": 0.024,
@@ -124,6 +136,7 @@ def test_v2_never_turns_v1_defaults_into_personal_observations() -> None:
     assert "gesture_frequency" not in v2["embodiment"]["observed"]
     assert "walk_cadence_spm" not in v2["embodiment"]["observed"]
     assert "stride_length_to_height" not in v2["embodiment"]["observed"]
+    assert "posture_torso_forward_lean_degrees" not in v2["embodiment"]["observed"]
     assert "blink_rate_per_min" not in v2["embodiment"]["observed"]
 
 

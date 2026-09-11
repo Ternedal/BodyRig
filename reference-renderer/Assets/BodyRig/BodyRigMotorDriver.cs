@@ -10,8 +10,8 @@ namespace BodyRig.ReferenceRenderer
     /// It consumes already-personalized performed values from BodyRig. It does
     /// not reinterpret ModelRig semantics, read BodyPrint itself, or multiply
     /// observed embodiment evidence into performed values a second time.
-    /// Motor State v3 locomotion is realized only when an explicit performed
-    /// locomotion object is present.
+    /// Motor State v3 locomotion and source-marked natural posture are realized
+    /// only when explicit performed objects are present.
     /// </summary>
     public sealed class BodyRigMotorDriver : MonoBehaviour
     {
@@ -49,7 +49,14 @@ namespace BodyRig.ReferenceRenderer
         private sealed class PostureState
         {
             public string id;
+            public string source;
             public float intensity;
+            public float torso_forward_lean_degrees;
+            public float torso_right_lean_degrees;
+            public float shoulder_roll_degrees;
+            public float hip_roll_degrees;
+            public float head_forward_offset_to_height;
+            public float head_right_offset_to_height;
         }
 
         [Serializable]
@@ -85,9 +92,15 @@ namespace BodyRig.ReferenceRenderer
             public float turn_speed;
             public float walk_cadence_spm;
             public float posture_torso_lean_degrees;
+            public float posture_torso_forward_lean_degrees;
+            public float posture_torso_right_lean_degrees;
             public float posture_shoulder_tilt_degrees;
+            public float posture_shoulder_roll_degrees;
             public float posture_hip_tilt_degrees;
+            public float posture_hip_roll_degrees;
             public float posture_head_offset_to_height;
+            public float posture_head_forward_offset_to_height;
+            public float posture_head_right_offset_to_height;
             public float stride_length_to_height;
             public float stance_width_to_height;
             public float vertical_bounce_to_height;
@@ -152,6 +165,7 @@ namespace BodyRig.ReferenceRenderer
         private Transform _rightFoot;
         private Quaternion _headBaseRotation;
         private Quaternion _spineBaseRotation;
+        private Quaternion _hipsBaseRotation;
         private Quaternion _leftUpperArmBaseRotation;
         private Quaternion _rightUpperArmBaseRotation;
         private Quaternion _rightLowerArmBaseRotation;
@@ -159,15 +173,19 @@ namespace BodyRig.ReferenceRenderer
         private Quaternion _rightUpperLegBaseRotation;
         private Quaternion _leftLowerLegBaseRotation;
         private Quaternion _rightLowerLegBaseRotation;
+        private Vector3 _headBasePosition;
         private Vector3 _hipsBasePosition;
         private Vector3 _leftShoulderBasePosition;
         private Vector3 _rightShoulderBasePosition;
+        private float _shoulderSpan;
         private float _avatarHeight;
         private MotorState _state;
         private float _gestureAmplitude;
         private float _headMotion;
         private float _gazeStrength;
         private float _speechAmplitude;
+        private bool _postureOwnedPoseLastFrame;
+        private bool _sourcePostureOffsetsOwnedLastFrame;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -241,8 +259,7 @@ namespace BodyRig.ReferenceRenderer
             }
             if (next.posture != null)
             {
-                if (string.IsNullOrWhiteSpace(next.posture.id)) throw new ArgumentException("Posture id is required", nameof(json));
-                Validate01(next.posture.intensity, "posture.intensity");
+                ValidatePosture(next.posture, next.version);
             }
             if (next.locomotion != null)
             {
@@ -266,6 +283,30 @@ namespace BodyRig.ReferenceRenderer
             PostureRealized = false;
             LocomotionRealized = false;
             SpeechTimingRealized = false;
+        }
+
+        private static void ValidatePosture(PostureState posture, int version)
+        {
+            if (posture == null || string.IsNullOrWhiteSpace(posture.id))
+                throw new ArgumentException("Posture id is required");
+            Validate01(posture.intensity, "posture.intensity");
+
+            // Frozen legacy/generic posture ids carry no source marker. Even an
+            // old id literally named "natural" remains generic and must not be
+            // reinterpreted as Movement Identity authority.
+            if (string.IsNullOrWhiteSpace(posture.source))
+            {
+                return;
+            }
+            if (version != 3 || posture.id != "natural" || posture.source != ObservedEmbodimentSource)
+                throw new ArgumentException("Source-derived natural posture requires Motor State v3 and modelrig-bodyprint-v1 authority");
+
+            ValidateRange(posture.torso_forward_lean_degrees, -90.0f, 90.0f, "posture.torso_forward_lean_degrees");
+            ValidateRange(posture.torso_right_lean_degrees, -90.0f, 90.0f, "posture.torso_right_lean_degrees");
+            ValidateRange(posture.shoulder_roll_degrees, -90.0f, 90.0f, "posture.shoulder_roll_degrees");
+            ValidateRange(posture.hip_roll_degrees, -90.0f, 90.0f, "posture.hip_roll_degrees");
+            ValidateRange(posture.head_forward_offset_to_height, -1.0f, 1.0f, "posture.head_forward_offset_to_height");
+            ValidateRange(posture.head_right_offset_to_height, -1.0f, 1.0f, "posture.head_right_offset_to_height");
         }
 
         private static void ValidateLocomotion(LocomotionState locomotion)
@@ -303,9 +344,15 @@ namespace BodyRig.ReferenceRenderer
             Validate01(observed.turn_speed, "embodiment.observed.turn_speed");
             ValidateRange(observed.walk_cadence_spm, 0.0f, 300.0f, "embodiment.observed.walk_cadence_spm");
             ValidateRange(observed.posture_torso_lean_degrees, 0.0f, 90.0f, "embodiment.observed.posture_torso_lean_degrees");
+            ValidateRange(observed.posture_torso_forward_lean_degrees, -90.0f, 90.0f, "embodiment.observed.posture_torso_forward_lean_degrees");
+            ValidateRange(observed.posture_torso_right_lean_degrees, -90.0f, 90.0f, "embodiment.observed.posture_torso_right_lean_degrees");
             ValidateRange(observed.posture_shoulder_tilt_degrees, 0.0f, 90.0f, "embodiment.observed.posture_shoulder_tilt_degrees");
+            ValidateRange(observed.posture_shoulder_roll_degrees, -90.0f, 90.0f, "embodiment.observed.posture_shoulder_roll_degrees");
             ValidateRange(observed.posture_hip_tilt_degrees, 0.0f, 90.0f, "embodiment.observed.posture_hip_tilt_degrees");
+            ValidateRange(observed.posture_hip_roll_degrees, -90.0f, 90.0f, "embodiment.observed.posture_hip_roll_degrees");
             Validate01(observed.posture_head_offset_to_height, "embodiment.observed.posture_head_offset_to_height");
+            ValidateRange(observed.posture_head_forward_offset_to_height, -1.0f, 1.0f, "embodiment.observed.posture_head_forward_offset_to_height");
+            ValidateRange(observed.posture_head_right_offset_to_height, -1.0f, 1.0f, "embodiment.observed.posture_head_right_offset_to_height");
             ValidateRange(observed.stride_length_to_height, 0.0f, 2.0f, "embodiment.observed.stride_length_to_height");
             Validate01(observed.stance_width_to_height, "embodiment.observed.stance_width_to_height");
             Validate01(observed.vertical_bounce_to_height, "embodiment.observed.vertical_bounce_to_height");
@@ -337,6 +384,29 @@ namespace BodyRig.ReferenceRenderer
             }
         }
 
+        private bool HasSourceDerivedNaturalPosture()
+        {
+            return _state != null && _state.version == 3 && _state.posture != null &&
+                _state.posture.id == "natural" && _state.posture.source == ObservedEmbodimentSource;
+        }
+
+        private bool HasSupportedPerformedPosture()
+        {
+            if (_state == null || _state.posture == null)
+            {
+                return false;
+            }
+            if (HasSourceDerivedNaturalPosture())
+            {
+                return true;
+            }
+            if (!string.IsNullOrWhiteSpace(_state.posture.source))
+            {
+                return false;
+            }
+            return _state.posture.id == "neutral" || _state.posture.id == "upright";
+        }
+
         private void LateUpdate()
         {
             BindAvatarIfNeeded();
@@ -347,6 +417,21 @@ namespace BodyRig.ReferenceRenderer
 
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
+            var sourceNaturalPosture = HasSourceDerivedNaturalPosture();
+            var performedPosture = HasSupportedPerformedPosture();
+
+            // Only posture owns these bind-relative offsets. Reset them while a
+            // source posture is being recomposed, or once while clearing the
+            // previous source posture. With no posture before or now, Animator/
+            // VRMA bone transforms are left untouched.
+            if (sourceNaturalPosture || _sourcePostureOffsetsOwnedLastFrame)
+            {
+                RestorePostureOffsetsForFrame();
+            }
+            if (_postureOwnedPoseLastFrame && !performedPosture && _spine != null)
+            {
+                _spine.localRotation = _spineBaseRotation;
+            }
 
             // These fields are already performed values resolved by BodyRig.
             // Raw embodiment evidence is never consumed here.
@@ -365,6 +450,8 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
             PostureRealized = ApplyPosture();
+            _postureOwnedPoseLastFrame = PostureRealized;
+            _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;
             ExpressionRealized = ApplyExpression();
             SpeechTimingRealized = ApplySpeech();
             RealizationFrameCount++;
@@ -397,6 +484,9 @@ namespace BodyRig.ReferenceRenderer
             _headMotion = 0.0f;
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
+            _postureOwnedPoseLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
+            _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
 
@@ -422,9 +512,17 @@ namespace BodyRig.ReferenceRenderer
             _leftFoot = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftFoot);
             _rightFoot = _boundAnimator.GetBoneTransform(HumanBodyBones.RightFoot);
 
-            if (_head != null) _headBaseRotation = _head.localRotation;
+            if (_head != null)
+            {
+                _headBaseRotation = _head.localRotation;
+                _headBasePosition = _head.localPosition;
+            }
             if (_spine != null) _spineBaseRotation = _spine.localRotation;
-            if (_hips != null) _hipsBasePosition = _hips.localPosition;
+            if (_hips != null)
+            {
+                _hipsBasePosition = _hips.localPosition;
+                _hipsBaseRotation = _hips.localRotation;
+            }
             if (_leftShoulder != null) _leftShoulderBasePosition = _leftShoulder.localPosition;
             if (_rightShoulder != null) _rightShoulderBasePosition = _rightShoulder.localPosition;
             if (_leftUpperArm != null) _leftUpperArmBaseRotation = _leftUpperArm.localRotation;
@@ -434,6 +532,10 @@ namespace BodyRig.ReferenceRenderer
             if (_rightUpperLeg != null) _rightUpperLegBaseRotation = _rightUpperLeg.localRotation;
             if (_leftLowerLeg != null) _leftLowerLegBaseRotation = _leftLowerLeg.localRotation;
             if (_rightLowerLeg != null) _rightLowerLegBaseRotation = _rightLowerLeg.localRotation;
+            if (_leftShoulder != null && _rightShoulder != null)
+            {
+                _shoulderSpan = Vector3.Distance(_leftShoulder.position, _rightShoulder.position);
+            }
             if (_head != null && _leftFoot != null && _rightFoot != null)
             {
                 var feetMid = (_leftFoot.position + _rightFoot.position) * 0.5f;
@@ -594,10 +696,30 @@ namespace BodyRig.ReferenceRenderer
             return true;
         }
 
+        private void RestorePostureOffsetsForFrame()
+        {
+            if (_head != null) _head.localPosition = _headBasePosition;
+            if (_hips != null) _hips.localRotation = _hipsBaseRotation;
+            if (_leftShoulder != null) _leftShoulder.localPosition = _leftShoulderBasePosition;
+            if (_rightShoulder != null) _rightShoulder.localPosition = _rightShoulderBasePosition;
+        }
+
+        private Vector3 LocalOffsetForWorldVector(Transform target, Vector3 worldOffset)
+        {
+            if (target == null || target.parent == null)
+            {
+                return worldOffset;
+            }
+            return target.parent.InverseTransformVector(worldOffset);
+        }
+
         private bool ApplyPosture()
         {
-            if (_state.posture == null) return false;
             if (_spine == null) return false;
+            if (_state.posture == null)
+            {
+                return false;
+            }
             if (_state.posture.id == "neutral")
             {
                 _spine.localRotation = Quaternion.Slerp(_spine.localRotation, _spineBaseRotation, 0.35f);
@@ -611,7 +733,44 @@ namespace BodyRig.ReferenceRenderer
                     0.35f);
                 return true;
             }
-            return false;
+            if (_state.posture.source != ObservedEmbodimentSource || _state.posture.id != "natural" ||
+                _state.version != 3 || _boundAnimator == null || _avatarHeight <= 0.0001f)
+            {
+                return false;
+            }
+
+            var posture = _state.posture;
+            var torsoTarget = _spineBaseRotation * Quaternion.Euler(
+                posture.torso_forward_lean_degrees,
+                0.0f,
+                -posture.torso_right_lean_degrees);
+            _spine.localRotation = Quaternion.Slerp(_spine.localRotation, torsoTarget, 0.35f);
+
+            if (_hips != null)
+            {
+                // Recovery defines hip roll as rightHip.y - leftHip.y. Unity
+                // positive local Z raises the avatar's right side, so preserve
+                // that recovered sign rather than mirroring it.
+                _hips.localRotation = _hipsBaseRotation * Quaternion.Euler(0.0f, 0.0f, posture.hip_roll_degrees);
+            }
+
+            if (_leftShoulder != null && _rightShoulder != null && _shoulderSpan > 0.0001f)
+            {
+                var verticalDifference = Mathf.Tan(posture.shoulder_roll_degrees * Mathf.Deg2Rad) * _shoulderSpan;
+                var halfRise = Mathf.Clamp(verticalDifference * 0.5f, -0.25f * _avatarHeight, 0.25f * _avatarHeight);
+                var up = _boundAnimator.transform.up;
+                _leftShoulder.localPosition += LocalOffsetForWorldVector(_leftShoulder, -up * halfRise);
+                _rightShoulder.localPosition += LocalOffsetForWorldVector(_rightShoulder, up * halfRise);
+            }
+
+            if (_head != null)
+            {
+                var worldOffset =
+                    _boundAnimator.transform.forward * (posture.head_forward_offset_to_height * _avatarHeight) +
+                    _boundAnimator.transform.right * (posture.head_right_offset_to_height * _avatarHeight);
+                _head.localPosition = _headBasePosition + LocalOffsetForWorldVector(_head, worldOffset);
+            }
+            return true;
         }
 
         private bool ApplyExpression()
@@ -673,6 +832,7 @@ namespace BodyRig.ReferenceRenderer
         {
             RestoreLocomotionPose();
             RestoreGesturePose();
+            RestorePostureOffsetsForFrame();
             if (_head != null) _head.localRotation = _headBaseRotation;
             if (_spine != null) _spine.localRotation = _spineBaseRotation;
             if (avatarLoader != null && avatarLoader.Active != null && avatarLoader.Active.Runtime != null)
@@ -691,6 +851,8 @@ namespace BodyRig.ReferenceRenderer
                 expression.SetWeight(ExpressionKey.Oh, 0.0f);
             }
             _state = null;
+            _postureOwnedPoseLastFrame = false;
+            _sourcePostureOffsetsOwnedLastFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;

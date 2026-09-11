@@ -10,9 +10,15 @@ MIN_IDLE_SECONDS = 0.5
 
 POSTURE_FIELDS = (
     "posture_torso_lean_degrees",
+    "posture_torso_forward_lean_degrees",
+    "posture_torso_right_lean_degrees",
     "posture_shoulder_tilt_degrees",
+    "posture_shoulder_roll_degrees",
     "posture_hip_tilt_degrees",
+    "posture_hip_roll_degrees",
     "posture_head_offset_to_height",
+    "posture_head_forward_offset_to_height",
+    "posture_head_right_offset_to_height",
 )
 GAIT_FIELDS = (
     "walk_cadence_spm",
@@ -42,9 +48,15 @@ FIELD_RANGES: dict[str, tuple[float, float]] = {
     "gait_step_events": (0.0, 1_000_000.0),
     "idle_observed_seconds": (0.0, 86_400.0),
     "posture_torso_lean_degrees": (0.0, 90.0),
+    "posture_torso_forward_lean_degrees": (-90.0, 90.0),
+    "posture_torso_right_lean_degrees": (-90.0, 90.0),
     "posture_shoulder_tilt_degrees": (0.0, 90.0),
+    "posture_shoulder_roll_degrees": (-90.0, 90.0),
     "posture_hip_tilt_degrees": (0.0, 90.0),
+    "posture_hip_roll_degrees": (-90.0, 90.0),
     "posture_head_offset_to_height": (0.0, 1.0),
+    "posture_head_forward_offset_to_height": (-1.0, 1.0),
+    "posture_head_right_offset_to_height": (-1.0, 1.0),
     "walk_cadence_spm": (0.0, 300.0),
     "stride_length_to_height": (0.0, 2.0),
     "stance_width_to_height": (0.0, 1.0),

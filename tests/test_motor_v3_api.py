@@ -21,9 +21,15 @@ BODYPRINT = {
         "gait_step_events": 7,
         "idle_observed_seconds": 0.9,
         "posture_torso_lean_degrees": 5.2,
+        "posture_torso_forward_lean_degrees": 4.8,
+        "posture_torso_right_lean_degrees": -1.2,
         "posture_shoulder_tilt_degrees": 1.3,
+        "posture_shoulder_roll_degrees": -1.3,
         "posture_hip_tilt_degrees": 0.8,
+        "posture_hip_roll_degrees": -0.8,
         "posture_head_offset_to_height": 0.041,
+        "posture_head_forward_offset_to_height": 0.036,
+        "posture_head_right_offset_to_height": 0.019,
         "stride_length_to_height": 0.34,
         "stance_width_to_height": 0.13,
         "vertical_bounce_to_height": 0.024,
@@ -68,6 +74,33 @@ def test_v2_cue_and_v3_motor_state_share_the_canonical_app_runtime(monkeypatch) 
     assert state["locomotion"]["action"] == "walk"
     assert state["locomotion"]["cadence_spm"] == 116.0
     assert state["locomotion"]["stride_length_to_height"] == 0.34
+
+
+def test_v2_natural_posture_is_realized_only_through_v3_motor_endpoint(monkeypatch) -> None:
+    client, _ = _client(monkeypatch)
+    cue = client.post(
+        "/api/v2/runtime/cue",
+        json={
+            "type": "modelrig-body-cue",
+            "version": 2,
+            "utterance_id": "u-natural-posture",
+            "posture": "natural",
+        },
+    )
+    assert cue.status_code == 200
+
+    assert client.get("/api/v1/runtime/motor-state").status_code == 409
+    assert client.get("/api/v2/runtime/motor-state").status_code == 409
+
+    response = client.get("/api/v3/runtime/motor-state")
+    assert response.status_code == 200
+    posture = response.json()["posture"]
+    assert posture["id"] == "natural"
+    assert posture["torso_forward_lean_degrees"] == 4.8
+    assert posture["torso_right_lean_degrees"] == -1.2
+    assert posture["shoulder_roll_degrees"] == -1.3
+    assert posture["head_right_offset_to_height"] == 0.019
+    assert "locomotion" not in response.json()
 
 
 def test_v1_cue_endpoint_remains_v1_only(monkeypatch) -> None:

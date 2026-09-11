@@ -47,13 +47,33 @@
       }
     },
     "posture": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "intensity"],
-      "properties": {
-        "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9_-]+$"},
-        "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0}
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "intensity"],
+          "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[a-z0-9_-]+$"},
+            "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "source", "intensity", "torso_forward_lean_degrees", "torso_right_lean_degrees", "shoulder_roll_degrees", "hip_roll_degrees", "head_forward_offset_to_height", "head_right_offset_to_height"],
+          "properties": {
+            "id": {"const": "natural"},
+            "source": {"const": "modelrig-bodyprint-v1"},
+            "intensity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "torso_forward_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+            "torso_right_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+            "shoulder_roll_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+            "hip_roll_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+            "head_forward_offset_to_height": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+            "head_right_offset_to_height": {"type": "number", "minimum": -1.0, "maximum": 1.0}
+          }
+        }
+      ]
     },
     "locomotion": {
       "oneOf": [
@@ -125,9 +145,15 @@
             "turn_speed": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "walk_cadence_spm": {"type": "number", "minimum": 0.0, "maximum": 300.0},
             "posture_torso_lean_degrees": {"type": "number", "minimum": 0.0, "maximum": 90.0},
+            "posture_torso_forward_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+            "posture_torso_right_lean_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
             "posture_shoulder_tilt_degrees": {"type": "number", "minimum": 0.0, "maximum": 90.0},
+            "posture_shoulder_roll_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
             "posture_hip_tilt_degrees": {"type": "number", "minimum": 0.0, "maximum": 90.0},
+            "posture_hip_roll_degrees": {"type": "number", "minimum": -90.0, "maximum": 90.0},
             "posture_head_offset_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "posture_head_forward_offset_to_height": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+            "posture_head_right_offset_to_height": {"type": "number", "minimum": -1.0, "maximum": 1.0},
             "stride_length_to_height": {"type": "number", "minimum": 0.0, "maximum": 2.0},
             "stance_width_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             "vertical_bounce_to_height": {"type": "number", "minimum": 0.0, "maximum": 1.0},

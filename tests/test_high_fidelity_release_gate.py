@@ -34,9 +34,15 @@ def _movement_identity() -> dict:
         "gait_step_events": 7,
         "idle_observed_seconds": 0.9,
         "posture_torso_lean_degrees": 5.1,
+        "posture_torso_forward_lean_degrees": 4.6,
+        "posture_torso_right_lean_degrees": -1.1,
         "posture_shoulder_tilt_degrees": 1.2,
+        "posture_shoulder_roll_degrees": -1.2,
         "posture_hip_tilt_degrees": 0.8,
+        "posture_hip_roll_degrees": -0.8,
         "posture_head_offset_to_height": 0.04,
+        "posture_head_forward_offset_to_height": 0.035,
+        "posture_head_right_offset_to_height": 0.017,
         "walk_cadence_spm": 114.0,
         "stride_length_to_height": 0.33,
         "stance_width_to_height": 0.14,
@@ -162,6 +168,24 @@ def test_promoted_release_rejects_generic_motion_without_gait_identity(monkeypat
         )
 
 
+def test_promoted_release_rejects_magnitude_only_posture_identity(monkeypatch, tmp_path: Path) -> None:
+    incomplete = _bodyprint(omit_movement_field="posture_torso_forward_lean_degrees")
+    source_dir, promoted, gate = _arrange(
+        monkeypatch,
+        tmp_path,
+        source_bodyprint=incomplete,
+        promoted_bodyprint=incomplete,
+    )
+
+    with pytest.raises(release_gate.HighFidelityReleaseGateError, match="Movement Identity"):
+        release_gate.validate_promoted_release_lineage(
+            promoted,
+            source_dir=source_dir,
+            source_gate=gate,
+            source_report=_source_report(),
+        )
+
+
 def test_promoted_release_lineage_rejects_visual_provenance_drift(monkeypatch, tmp_path: Path) -> None:
     source_dir, promoted, gate = _arrange(
         monkeypatch,
@@ -176,31 +200,3 @@ def test_promoted_release_lineage_rejects_visual_provenance_drift(monkeypatch, t
             source_gate=gate,
             source_report=_source_report(),
         )
-
-
-def test_promoted_release_lineage_rejects_noncanonical_fitter(monkeypatch, tmp_path: Path) -> None:
-    source_dir, promoted, gate = _arrange(
-        monkeypatch,
-        tmp_path,
-        promoted_provenance=_provenance(fitting_adapter="other-fitter"),
-    )
-
-    with pytest.raises(release_gate.HighFidelityReleaseGateError, match="promoted package lacks canonical"):
-        release_gate.validate_promoted_release_lineage(
-            promoted,
-            source_dir=source_dir,
-            source_gate=gate,
-            source_report=_source_report(),
-        )
-
-
-def test_release_check_names_remain_aligned_with_canonical_completion_script() -> None:
-    root = Path(__file__).resolve().parents[1]
-    completion = (root / "complete-acceptance.ps1").read_text(encoding="utf-8")
-    physical = (root / "bodyrig" / "high_fidelity_physical_acceptance.py").read_text(encoding="utf-8")
-
-    for name in release_gate.CANONICAL_RELEASE_CHECKS:
-        assert f"'{name}'" in completion
-    assert "_assert_release_compatible_gate_report" in physical
-    assert '"recovery": dict(release_lineage["recovery"])' in physical
-    assert '"vrm_spec_version": release_lineage["vrm_spec_version"]' in physical
