@@ -19,7 +19,7 @@ def test_renderer_version_guard_uses_schema_numeric_const_semantics() -> None:
 
     source = SHIM.read_text(encoding="utf-8")
     validate = source[
-        source.index("private static void ValidateMotorStatePresenceAndTypes") :
+        source.index("private static int ValidateMotorStatePresenceAndTypes") :
         source.index("private static int RequireMotorStateVersion")
     ]
     assert "var version = RequireMotorStateVersion(root);" in validate

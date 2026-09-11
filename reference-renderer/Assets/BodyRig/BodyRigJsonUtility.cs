@@ -197,9 +197,9 @@ namespace BodyRig.ReferenceRenderer
             "breathing_strength",
         };
 
-        internal static void ValidateMotorStateJson(string json)
+        internal static int ValidateMotorStateJson(string json)
         {
-            ValidateMotorStatePresenceAndTypes(json, true);
+            return ValidateMotorStatePresenceAndTypes(json, true);
         }
 
         public static T FromJson<T>(string json)
@@ -230,7 +230,7 @@ namespace BodyRig.ReferenceRenderer
             return UnityEngine.JsonUtility.ToJson(obj, prettyPrint);
         }
 
-        private static void ValidateMotorStatePresenceAndTypes(string json, bool requireMotorState = false)
+        private static int ValidateMotorStatePresenceAndTypes(string json, bool requireMotorState = false)
         {
             if (string.IsNullOrEmpty(json))
             {
@@ -238,7 +238,7 @@ namespace BodyRig.ReferenceRenderer
                 {
                     throw new ArgumentException("Motor State JSON is required");
                 }
-                return;
+                return 0;
             }
 
             var probeIndex = 0;
@@ -253,7 +253,7 @@ namespace BodyRig.ReferenceRenderer
                 {
                     throw new ArgumentException("Motor State JSON root must be an object");
                 }
-                return;
+                return 0;
             }
 
             var root = ParseObjectMembers(json, "root");
@@ -263,7 +263,7 @@ namespace BodyRig.ReferenceRenderer
                 {
                     throw new ArgumentException("Motor State requires canonical type discriminator");
                 }
-                return;
+                return 0;
             }
             if (!TryParseStringToken(rawType, out var type) || type != "bodyrig-motor-state")
             {
@@ -271,7 +271,7 @@ namespace BodyRig.ReferenceRenderer
                 {
                     throw new ArgumentException("Motor State requires canonical type discriminator");
                 }
-                return;
+                return 0;
             }
 
             var version = RequireMotorStateVersion(root);
@@ -298,6 +298,7 @@ namespace BodyRig.ReferenceRenderer
             ValidatePosture(root, version);
             ValidateEmbodiment(root, version);
             ValidateLocomotion(root, version);
+            return version;
         }
 
         private static int RequireMotorStateVersion(Dictionary<string, string> root)

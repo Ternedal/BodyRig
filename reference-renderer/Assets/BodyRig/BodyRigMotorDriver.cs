@@ -134,7 +134,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class MotorState
         {
             public string type;
-            public int version;
+            public float version;
             public string body_id;
             public string utterance_id;
             public MotionState motion;
@@ -246,7 +246,7 @@ namespace BodyRig.ReferenceRenderer
         private Quaternion _headRotationReleaseRotation;
         private Quaternion _headRotationAppliedRotation;
 
-        public int LastMotorVersion => _state != null ? _state.version : 0;
+        public int LastMotorVersion => _state != null ? (int)_state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
         public string LastUtteranceId => _state != null ? _state.utterance_id : null;
         public int RealizationFrameCount { get; private set; }
@@ -273,12 +273,13 @@ namespace BodyRig.ReferenceRenderer
                 throw new ArgumentException("BodyRig motor JSON is required", nameof(json));
             }
 
-            JsonUtility.ValidateMotorStateJson(json);
+            var validatedVersion = JsonUtility.ValidateMotorStateJson(json);
             var next = JsonUtility.FromJson<MotorState>(json);
-            if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2 && next.version != 3))
+            if (next == null || next.type != "bodyrig-motor-state")
             {
                 throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
             }
+            next.version = validatedVersion;
             if (string.IsNullOrWhiteSpace(next.body_id) || string.IsNullOrWhiteSpace(next.utterance_id) || next.motion == null)
             {
                 throw new ArgumentException("Incomplete BodyRig Motor State", nameof(json));
@@ -320,7 +321,7 @@ namespace BodyRig.ReferenceRenderer
             }
             if (next.posture != null)
             {
-                ValidatePosture(next.posture, next.version);
+                ValidatePosture(next.posture, validatedVersion);
             }
             if (next.locomotion != null)
             {

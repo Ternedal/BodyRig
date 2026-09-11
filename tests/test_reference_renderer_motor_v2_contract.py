@@ -27,7 +27,9 @@ def _observed_driver_fields(source: str) -> set[str]:
 def test_reference_renderer_keeps_v1_v2_compatibility_without_repersonalizing_performed_state() -> None:
     source = DRIVER.read_text(encoding="utf-8")
 
-    assert "next.version != 1 && next.version != 2 && next.version != 3" in source
+    assert "var validatedVersion = JsonUtility.ValidateMotorStateJson(json);" in source
+    assert "next.version = validatedVersion;" in source
+    assert "next.version != 1 && next.version != 2 && next.version != 3" not in source
     assert 'ObservedEmbodimentSource = "modelrig-bodyprint-v1"' in source
     assert "next.version == 1 && next.embodiment != null" in source
     assert "next.version >= 2 && next.embodiment != null" in source
