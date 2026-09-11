@@ -135,10 +135,9 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     no_locomotion = apply_locomotion[
         apply_locomotion.index("if (locomotion == null)") : apply_locomotion.index("var locomotionBlend")
     ]
-    assert "if (_locomotionPoseOwnedLastFrame)" in no_locomotion
-    assert "RestoreLocomotionPose();" in no_locomotion
     assert "_locomotionPoseOwnedLastFrame = false;" in no_locomotion
-    assert "BlendLocomotionPoseToBase(0.35f);" not in no_locomotion
+    assert "RestoreLocomotionPose();" not in no_locomotion
+    assert "BlendLocomotionPoseToBase" not in no_locomotion
 
     stop = apply_locomotion[
         apply_locomotion.index('if (locomotion.action == "stop")') : apply_locomotion.index(
@@ -153,11 +152,14 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
             'if (locomotion.action != "walk")'
         )
     ]
-    assert "if (_locomotionPoseOwnedLastFrame)" in turn
-    assert "RestoreLocomotionPose();" in turn
     assert "_locomotionPoseOwnedLastFrame = false;" in turn
-    assert "BlendLocomotionPoseToBase(locomotionBlend);" not in turn
+    assert "RestoreLocomotionPose();" not in turn
+    assert "BlendLocomotionPoseToBase" not in turn
     assert "transform.Rotate(" in turn
+
+    # Ordinary frame processing must never force a locomotion bind-pose restore.
+    # Explicit RestoreNeutralPose remains the only full reset authority.
+    assert "RestoreLocomotionPose();" not in apply_locomotion
 
     walk = apply_locomotion[apply_locomotion.index('if (locomotion.action != "walk")') :]
     assert "_locomotionPoseOwnedLastFrame = true;" in walk
@@ -165,6 +167,7 @@ def test_reference_renderer_locomotion_only_writes_bone_pose_while_it_owns_gait(
     bind = source[source.index("private void BindAvatarIfNeeded()") : source.index("private float LocomotionBlend")]
     assert "_locomotionPoseOwnedLastFrame = false;" in bind
     neutral = source[source.index("public void RestoreNeutralPose()") :]
+    assert "RestoreLocomotionPose();" in neutral
     assert "_locomotionPoseOwnedLastFrame = false;" in neutral
 
 
