@@ -26,7 +26,7 @@ def _locomotion_driver_fields(source: str) -> set[str]:
 def _natural_posture_schema_fields() -> set[str]:
     contract = json.loads(MOTOR_V3.read_text(encoding="utf-8"))
     variants = contract["properties"]["posture"]["oneOf"]
-    natural = next(item for item in variants if item["properties"]["id"].get("const") == "natural")
+    natural = next(item for item in variants if item["properties"].get("source", {}).get("const") == "modelrig-bodyprint-v1")
     return set(natural["properties"])
 
 
@@ -45,7 +45,7 @@ def test_reference_renderer_v3_dto_matches_performed_locomotion_contract() -> No
     assert "public bool LocomotionRealized" in source
 
 
-def test_reference_renderer_v3_dto_carries_every_natural_posture_field() -> None:
+def test_reference_renderer_v3_dto_carries_every_source_derived_posture_field() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     assert _natural_posture_schema_fields() <= _posture_driver_fields(source)
     assert "public PostureState posture;" in source
@@ -69,15 +69,17 @@ def test_reference_renderer_v3_validates_action_specific_performed_ranges() -> N
     assert 'ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f' in validation
 
 
-def test_reference_renderer_v3_validates_natural_posture_ranges_and_version() -> None:
+def test_reference_renderer_v3_validates_source_marked_natural_posture_ranges() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("private static void ValidatePosture")
     end = source.index("private static void ValidateLocomotion", start)
     validation = source[start:end]
 
-    assert 'posture.id != "natural"' in validation
+    assert "string.IsNullOrWhiteSpace(posture.source)" in validation
+    assert "posture.id != \"natural\"" in validation
+    assert "posture.source != ObservedEmbodimentSource" in validation
     assert "version != 3" in validation
-    assert "Natural source-derived posture requires Motor State v3" in validation
+    assert "Source-derived natural posture requires Motor State v3 and modelrig-bodyprint-v1 authority" in validation
     assert 'ValidateRange(posture.torso_forward_lean_degrees, -90.0f, 90.0f' in validation
     assert 'ValidateRange(posture.torso_right_lean_degrees, -90.0f, 90.0f' in validation
     assert 'ValidateRange(posture.shoulder_roll_degrees, -90.0f, 90.0f' in validation
@@ -111,7 +113,7 @@ def test_reference_renderer_realizes_only_performed_locomotion_not_raw_evidence(
     assert 'locomotion.action == "turn_right"' in realization
 
 
-def test_reference_renderer_realizes_only_explicit_performed_natural_posture() -> None:
+def test_reference_renderer_realizes_only_source_marked_performed_natural_posture() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     start = source.index("private bool ApplyPosture")
     end = source.index("private bool ApplyExpression", start)
@@ -120,6 +122,7 @@ def test_reference_renderer_realizes_only_explicit_performed_natural_posture() -
     assert "_state.embodiment" not in realization
     assert ".observed" not in realization
     assert "_state.posture" in realization
+    assert "_state.posture.source != ObservedEmbodimentSource" in realization
     assert '_state.posture.id != "natural"' in realization
     assert "_state.version != 3" in realization
     for field in (
@@ -153,9 +156,19 @@ def test_reference_renderer_walk_requires_real_humanoid_height_and_leg_bones() -
     assert "_avatarHeight = 1.7" not in source
 
 
-def test_reference_renderer_does_not_let_old_motor_versions_smuggle_locomotion_or_natural_posture() -> None:
+def test_reference_renderer_preserves_legacy_natural_id_without_source_authority() -> None:
+    source = DRIVER.read_text(encoding="utf-8")
+    validation = source[source.index("private static void ValidatePosture") : source.index("private static void ValidateLocomotion")]
+    realization = source[source.index("private bool ApplyPosture") : source.index("private bool ApplyExpression")]
+
+    assert "if (string.IsNullOrWhiteSpace(posture.source))" in validation
+    assert "return;" in validation[validation.index("if (string.IsNullOrWhiteSpace(posture.source))") :]
+    assert "_state.posture.source != ObservedEmbodimentSource" in realization
+
+
+def test_reference_renderer_does_not_let_old_motor_versions_smuggle_locomotion_or_source_posture() -> None:
     source = DRIVER.read_text(encoding="utf-8")
     assert "next.version < 3 && next.locomotion != null" in source
     assert 'throw new ArgumentException("Motor State v1/v2 may not carry locomotion"' in source
     assert "version != 3" in source
-    assert "Natural source-derived posture requires Motor State v3" in source
+    assert "Source-derived natural posture requires Motor State v3" in source
