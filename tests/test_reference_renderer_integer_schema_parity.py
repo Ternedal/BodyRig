@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SHIM = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigJsonUtility.cs"
+DRIVER = REPO / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigMotorDriver.cs"
 SCHEMAS = [
     REPO / "contracts" / "bodyrig-motor-state-v1.schema.json",
     REPO / "contracts" / "bodyrig-motor-state-v2.schema.json",
@@ -79,3 +80,17 @@ def test_integer_fields_route_through_value_semantic_range_guard() -> None:
     ]
     assert 'RequireIntegerRangeToken(raw, "duration_ms", 0L, 120000L);' in duration
     assert 'RequireIntegerRangeMember(fields, "elapsed_ms", "speech", 0L, 3600000L);' in speech
+
+
+def test_unity_wire_uses_exact_float_transport_for_bounded_integer_fields() -> None:
+    duration, elapsed = _integer_contracts(SCHEMAS[0])
+    assert duration["maximum"] < 2**24
+    assert elapsed["maximum"] < 2**24
+
+    source = DRIVER.read_text(encoding="utf-8")
+    assert "public float duration_ms;" in source
+    assert "public int duration_ms;" not in source
+    assert "public float elapsed_ms;" in source
+    assert "public int elapsed_ms;" not in source
+    assert 'ValidateRange(next.duration_ms, 0.0f, 120000.0f, "duration_ms")' in source
+    assert "next.speech.elapsed_ms < 0 || next.speech.elapsed_ms > 3600000" in source
