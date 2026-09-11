@@ -74,6 +74,21 @@ def test_multi_segment_bodyprint_never_computes_motion_across_clip_boundaries():
     assert 0.20 < bodyprint["shape"]["shoulder_to_height"] < 0.30
 
 
+def test_multi_source_movement_coverage_is_summed_not_medianed():
+    first = track("s00-t1", count=12)
+    second = track("s01-t1", count=12)
+
+    bodyprint = _aggregate_bodyprints((first, second))
+    motion = bodyprint["motion"]
+
+    assert motion["movement_observed_frames"] == 24
+    assert isinstance(motion["movement_observed_frames"], int)
+    assert motion["movement_observed_seconds"] == pytest.approx(2.2)
+    assert motion["idle_observed_seconds"] == pytest.approx(2.2)
+    assert motion["gait_step_events"] == 0
+    assert isinstance(motion["gait_step_events"], int)
+
+
 def test_aggregate_track_id_is_deterministic_and_bounded():
     tracks = (track("s00-t1", count=2), track("s01-t7", count=2))
     value = _proof_track_id(tracks)
