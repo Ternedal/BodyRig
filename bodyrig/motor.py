@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .models import BodyCue, BodyCueAny, BodyCueV2, SpeechTiming
+from .models import BodyCueAny, BodyCueV2, SpeechTiming
 from .movement_identity import MovementIdentityError, require_movement_identity
 
 
@@ -90,37 +90,19 @@ def _observed_embodiment(bodyprint: Mapping[str, Any]) -> dict[str, float]:
     return observed
 
 
-def _legacy_cue(cue: BodyCueAny) -> BodyCue:
-    if isinstance(cue, BodyCue):
-        return cue
-    return BodyCue(
-        utterance_id=cue.utterance_id,
-        body_id=cue.body_id,
-        emotion=cue.emotion,
-        intensity=cue.intensity,
-        energy=cue.energy,
-        gesture=cue.gesture,
-        gaze=cue.gaze,
-        posture=cue.posture,
-        duration_ms=cue.duration_ms,
-    )
-
-
 def resolve_motor_state(
     *,
     body_id: str,
     bodyprint: Mapping[str, Any],
-    cue: BodyCue,
+    cue: BodyCueAny,
     speech: SpeechTiming | None = None,
 ) -> dict[str, Any]:
-    """Resolve a semantic ModelRig cue through one body's observed style.
+    """Resolve common performed state through one body's observed style.
 
-    This is intentionally renderer-neutral: it resolves personal amplitudes and
-    behaviour strengths, not Unity bone rotations. A renderer may map the
-    resulting gesture/posture ids onto its own animation system.
-
-    This function is the frozen Motor State v1 behavior. Keep it backwards
-    compatible; richer observed embodiment belongs in ``resolve_motor_state_v2``.
+    BodyCue v1 remains the public compatibility input for Motor State v1. The
+    broader internal cue type lets Motor State v3 reuse these unchanged common
+    semantics for a v2 cue without fabricating a fake v1 semantic field.
+    Runtime routing still rejects BodyCue v2 from the public v1/v2 motor paths.
     """
 
     motion = bodyprint.get("motion") if isinstance(bodyprint.get("motion"), dict) else {}
@@ -195,7 +177,7 @@ def resolve_motor_state_v2(
     *,
     body_id: str,
     bodyprint: Mapping[str, Any],
-    cue: BodyCue,
+    cue: BodyCueAny,
     speech: SpeechTiming | None = None,
 ) -> dict[str, Any]:
     """Resolve Motor State v2 without changing v1 performance semantics.
@@ -281,7 +263,7 @@ def resolve_motor_state_v3(
     result = resolve_motor_state_v2(
         body_id=body_id,
         bodyprint=bodyprint,
-        cue=_legacy_cue(cue),
+        cue=cue,
         speech=speech,
     )
     result["version"] = 3
