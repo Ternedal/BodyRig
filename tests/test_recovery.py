@@ -67,8 +67,29 @@ def test_extracts_complete_source_derived_movement_identity():
     assert motion["stride_length_to_height"] > 0.0
     assert motion["stance_width_to_height"] > 0.0
     assert "posture_torso_lean_degrees" in motion
+    assert "posture_torso_forward_lean_degrees" in motion
+    assert "posture_torso_right_lean_degrees" in motion
+    assert "posture_shoulder_roll_degrees" in motion
+    assert "posture_hip_roll_degrees" in motion
+    assert "posture_head_forward_offset_to_height" in motion
+    assert "posture_head_right_offset_to_height" in motion
     assert "turn_speed_degrees_per_second" in motion
     assert "idle_sway_to_height" in motion
+
+
+def test_signed_posture_uses_body_relative_forward_and_right_axes():
+    result = parse_recovery_result(payload([movement_frame(index) for index in range(30)]))
+    motion = BodyprintExtractor().extract(result.tracks[0])["motion"]
+
+    # The synthetic shoulders define +X as anatomical right, so BodyRig's
+    # established shoulder-relative forward basis is +Z. These signs therefore
+    # prove the extractor is not reporting camera/world-axis magnitudes.
+    assert motion["posture_torso_forward_lean_degrees"] > 0.0
+    assert abs(motion["posture_torso_right_lean_degrees"]) < 0.2
+    assert motion["posture_shoulder_roll_degrees"] < 0.0
+    assert motion["posture_hip_roll_degrees"] < 0.0
+    assert motion["posture_head_forward_offset_to_height"] > 0.0
+    assert motion["posture_head_right_offset_to_height"] > 0.0
 
 
 def test_unobserved_timestamp_gaps_do_not_count_as_movement_or_idle_coverage():
