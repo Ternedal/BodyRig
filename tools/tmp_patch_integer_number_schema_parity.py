@@ -161,6 +161,31 @@ new_ws = '''    assert "JsonIntegerPattern" not in numeric
 if whitespace_source.count(old_ws) != 1:
     raise SystemExit(f"whitespace integer anchor count={whitespace_source.count(old_ws)}")
 whitespace_source = whitespace_source.replace(old_ws, new_ws, 1)
+old_guard = '''def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[source.index("private static void RequireIntegerRangeToken") :]
+    assert "long.TryParse(" in helper
+    assert "NumberStyles.AllowLeadingSign" in helper
+    assert "CultureInfo.InvariantCulture" in helper
+    assert "value < minimum || value > maximum" in helper
+    assert "ArgumentOutOfRangeException" in helper
+'''
+new_guard = '''def test_raw_integer_ranges_are_checked_before_unity_int_coercion() -> None:
+    source = SHIM.read_text(encoding="utf-8")
+    helper = source[
+        source.index("private static void RequireIntegerToken") :
+        source.index("private static void RequireExactFields")
+    ]
+    assert "RequireNumericToken(raw, context);" in helper
+    assert "IsIntegralJsonNumber(raw)" in helper
+    assert "CompareJsonNumberToInteger(raw, minimum) < 0" in helper
+    assert "CompareJsonNumberToInteger(raw, maximum) > 0" in helper
+    assert "long.TryParse(\\n                    raw," not in helper
+    assert "ArgumentOutOfRangeException" in helper
+'''
+if whitespace_source.count(old_guard) != 1:
+    raise SystemExit(f"raw integer guard test anchor count={whitespace_source.count(old_guard)}")
+whitespace_source = whitespace_source.replace(old_guard, new_guard, 1)
 whitespace.write_text(whitespace_source, encoding="utf-8")
 
 parity = repo / "tests" / "test_reference_renderer_integer_number_schema_parity.py"
