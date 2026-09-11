@@ -21,7 +21,7 @@ namespace BodyRig.ReferenceRenderer
         private sealed class RuntimeManifest
         {
             public string format;
-            public int version;
+            public int version { get; set; }
             public string body_id;
             public string body_name;
             public string package_sha256;
@@ -82,7 +82,13 @@ namespace BodyRig.ReferenceRenderer
             RuntimeManifest manifest;
             try
             {
-                manifest = JsonUtility.FromJson<RuntimeManifest>(File.ReadAllText(fullManifestPath));
+                var rawManifestJson = File.ReadAllText(fullManifestPath);
+                var validatedVersion = JsonUtility.ValidateRuntimeManifestJson(rawManifestJson);
+                manifest = JsonUtility.FromJson<RuntimeManifest>(rawManifestJson);
+                if (manifest != null)
+                {
+                    manifest.version = validatedVersion;
+                }
             }
             catch (Exception exception)
             {
@@ -196,7 +202,7 @@ namespace BodyRig.ReferenceRenderer
             {
                 throw new InvalidDataException("Unsupported BodyRig runtime manifest format/version");
             }
-            if (string.IsNullOrWhiteSpace(manifest.body_id) || string.IsNullOrWhiteSpace(manifest.body_name))
+            if (string.IsNullOrEmpty(manifest.body_id) || string.IsNullOrEmpty(manifest.body_name))
             {
                 throw new InvalidDataException("BodyRig runtime manifest has no body identity");
             }

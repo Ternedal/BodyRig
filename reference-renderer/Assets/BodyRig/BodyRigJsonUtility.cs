@@ -23,6 +23,35 @@ namespace BodyRig.ReferenceRenderer
         private const string LowerIdentifierPattern = @"\A[a-z0-9_-]+\z";
         private const string UtteranceIdPattern = @"\A[A-Za-z0-9._:-]+\z";
         private const string VisemePattern = @"\A[A-Za-z0-9._-]+\z";
+        private const string Sha256Pattern = @"\A[0-9a-f]{64}\z";
+
+        private static readonly string[] RuntimeManifestFields =
+        {
+            "format",
+            "version",
+            "body_id",
+            "body_name",
+            "package_sha256",
+            "avatar",
+            "avatar_sha256",
+            "bodyprint",
+            "bodyprint_sha256",
+            "payloads",
+        };
+
+        private static readonly string[] RuntimeManifestPayloads =
+        {
+            "avatar.vrm",
+            "bodyprint.json",
+            "provenance.json",
+            "thumbnail.png",
+            "motions/idle.vrma",
+            "motions/walk.vrma",
+            "motions/talk.vrma",
+            "motions/gesture_01.vrma",
+            "motions/gesture_02.vrma",
+            "motions/gesture_03.vrma",
+        };
 
         private static readonly string[] RootV1Fields =
         {
@@ -196,6 +225,51 @@ namespace BodyRig.ReferenceRenderer
             "breathing_strength",
         };
 
+        internal static int ValidateRuntimeManifestJson(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+            {
+                throw new ArgumentException("Runtime manifest JSON is required");
+            }
+
+            var root = ParseObjectMembers(json, "runtime manifest");
+            RequireExactFields(root, RuntimeManifestFields, "runtime manifest");
+
+            var format = RequireStringMember(root, "format", "runtime manifest");
+            if (format != "bodyrig-runtime-assets")
+            {
+                throw new ArgumentException("Runtime manifest requires bodyrig-runtime-assets format");
+            }
+
+            if (!root.TryGetValue("version", out var rawVersion))
+            {
+                throw new ArgumentException("Runtime manifest requires numeric version 1");
+            }
+            RequireNumericToken(rawVersion, "runtime manifest.version");
+            if (CompareJsonNumberToInteger(rawVersion, 1L) != 0)
+            {
+                throw new ArgumentException("Runtime manifest requires numeric version 1");
+            }
+
+            RequireConstrainedStringMember(root, "body_id", "runtime manifest", 1, 160, BodyIdPattern);
+            RequireConstrainedStringMember(root, "body_name", "runtime manifest", 1, 160, null);
+            RequireConstrainedStringMember(root, "package_sha256", "runtime manifest", 64, 64, Sha256Pattern);
+            RequireConstrainedStringMember(root, "avatar_sha256", "runtime manifest", 64, 64, Sha256Pattern);
+            RequireConstrainedStringMember(root, "bodyprint_sha256", "runtime manifest", 64, 64, Sha256Pattern);
+
+            if (RequireStringMember(root, "avatar", "runtime manifest") != "avatar.vrm")
+            {
+                throw new ArgumentException("Runtime manifest requires avatar.vrm payload path");
+            }
+            if (RequireStringMember(root, "bodyprint", "runtime manifest") != "bodyprint.json")
+            {
+                throw new ArgumentException("Runtime manifest requires bodyprint.json payload path");
+            }
+
+            ValidateRuntimeManifestPayloads(root);
+            return 1;
+        }
+
         internal static int ValidateMotorStateJson(string json)
         {
             ValidateMotorStatePresenceAndTypes(json, true, out var validatedVersion);
@@ -312,6 +386,83 @@ namespace BodyRig.ReferenceRenderer
             ValidateEmbodiment(root, version);
             ValidateLocomotion(root, version);
             validatedVersion = version;
+        }
+
+        private static void ValidateRuntimeManifestPayloads(Dictionary<string, string> root)
+        {
+            if (!root.TryGetValue("payloads", out var rawPayloads))
+            {
+                throw new ArgumentException("Runtime manifest requires payloads array");
+            }
+
+            var payloads = ParseStringArray(rawPayloads, "runtime manifest.payloads");
+            if (payloads.Count < 4 || payloads.Count > 10)
+            {
+                throw new ArgumentOutOfRangeException("runtime manifest.payloads", "Runtime manifest payload count must be in 4..10");
+            }
+
+            var unique = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var payload in payloads)
+            {
+                if (Array.IndexOf(RuntimeManifestPayloads, payload) < 0)
+                {
+                    throw new ArgumentException($"Runtime manifest contains unsupported payload: {payload}");
+                }
+                if (!unique.Add(payload))
+                {
+                    throw new ArgumentException($"Runtime manifest contains duplicate payload: {payload}");
+                }
+            }
+
+            if (!unique.Contains("avatar.vrm") || !unique.Contains("bodyprint.json"))
+            {
+                throw new ArgumentException("Runtime manifest is missing required avatar/bodyprint payloads");
+            }
+        }
+
+        private static List<string> ParseStringArray(string json, string context)
+        {
+            var index = 0;
+            SkipWhitespace(json, ref index);
+            if (index >= json.Length || json[index] != '[')
+            {
+                throw new ArgumentException($"Motor State {context} must be a JSON array");
+            }
+            index++;
+
+            var values = new List<string>();
+            SkipWhitespace(json, ref index);
+            if (index < json.Length && json[index] == ']')
+            {
+                index++;
+                EnsureOnlyTrailingWhitespace(json, index, context);
+                return values;
+            }
+
+            while (index < json.Length)
+            {
+                SkipWhitespace(json, ref index);
+                values.Add(ReadJsonString(json, ref index, context));
+                SkipWhitespace(json, ref index);
+                if (index >= json.Length)
+                {
+                    throw new ArgumentException($"Motor State {context} array is not closed");
+                }
+                if (json[index] == ',')
+                {
+                    index++;
+                    continue;
+                }
+                if (json[index] == ']')
+                {
+                    index++;
+                    EnsureOnlyTrailingWhitespace(json, index, context);
+                    return values;
+                }
+                throw new ArgumentException($"Motor State {context} has invalid JSON array syntax");
+            }
+
+            throw new ArgumentException($"Motor State {context} array is not closed");
         }
 
         private static int RequireMotorStateVersion(Dictionary<string, string> root)
