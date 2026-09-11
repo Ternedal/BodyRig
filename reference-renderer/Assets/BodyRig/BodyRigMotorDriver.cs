@@ -5,12 +5,13 @@ using UnityEngine;
 namespace BodyRig.ReferenceRenderer
 {
     /// <summary>
-    /// Reference-only renderer for BodyRig Motor State v1 and v2.
+    /// Reference renderer for BodyRig Motor State v1, v2 and v3.
     ///
-    /// It consumes already-personalized performed amplitudes from BodyRig. It
-    /// does not reinterpret ModelRig BodyCue semantics, read BodyPrint itself,
-    /// or multiply v2 observed embodiment evidence into performed values a
-    /// second time.
+    /// It consumes already-personalized performed values from BodyRig. It does
+    /// not reinterpret ModelRig semantics, read BodyPrint itself, or multiply
+    /// observed embodiment evidence into performed values a second time.
+    /// Motor State v3 locomotion is realized only when an explicit performed
+    /// locomotion object is present.
     /// </summary>
     public sealed class BodyRigMotorDriver : MonoBehaviour
     {
@@ -49,6 +50,20 @@ namespace BodyRig.ReferenceRenderer
         {
             public string id;
             public float intensity;
+        }
+
+        [Serializable]
+        private sealed class LocomotionState
+        {
+            public string action;
+            public float effort;
+            public float transition_intensity;
+            public float cadence_spm;
+            public float stride_length_to_height;
+            public float stance_width_to_height;
+            public float vertical_bounce_to_height;
+            public float arm_swing_to_height;
+            public float turn_speed_degrees_per_second;
         }
 
         [Serializable]
@@ -110,6 +125,7 @@ namespace BodyRig.ReferenceRenderer
             public GestureState gesture;
             public GazeState gaze;
             public PostureState posture;
+            public LocomotionState locomotion;
             public int duration_ms;
             public SpeechState speech;
             public EmbodimentState embodiment;
@@ -122,16 +138,31 @@ namespace BodyRig.ReferenceRenderer
         private Animator _boundAnimator;
         private Transform _head;
         private Transform _spine;
+        private Transform _hips;
         private Transform _leftShoulder;
         private Transform _rightShoulder;
+        private Transform _leftUpperArm;
         private Transform _rightUpperArm;
         private Transform _rightLowerArm;
+        private Transform _leftUpperLeg;
+        private Transform _rightUpperLeg;
+        private Transform _leftLowerLeg;
+        private Transform _rightLowerLeg;
+        private Transform _leftFoot;
+        private Transform _rightFoot;
         private Quaternion _headBaseRotation;
         private Quaternion _spineBaseRotation;
+        private Quaternion _leftUpperArmBaseRotation;
         private Quaternion _rightUpperArmBaseRotation;
         private Quaternion _rightLowerArmBaseRotation;
+        private Quaternion _leftUpperLegBaseRotation;
+        private Quaternion _rightUpperLegBaseRotation;
+        private Quaternion _leftLowerLegBaseRotation;
+        private Quaternion _rightLowerLegBaseRotation;
+        private Vector3 _hipsBasePosition;
         private Vector3 _leftShoulderBasePosition;
         private Vector3 _rightShoulderBasePosition;
+        private float _avatarHeight;
         private MotorState _state;
         private float _gestureAmplitude;
         private float _headMotion;
@@ -147,8 +178,10 @@ namespace BodyRig.ReferenceRenderer
         public bool GestureRealized { get; private set; }
         public bool GazeRealized { get; private set; }
         public bool PostureRealized { get; private set; }
+        public bool LocomotionRealized { get; private set; }
         public bool SpeechTimingRealized { get; private set; }
-        public bool SourceObservedEmbodimentBound => _state != null && _state.version == 2 && _state.embodiment != null;
+        public bool SourceObservedEmbodimentBound =>
+            _state != null && _state.version >= 2 && _state.embodiment != null;
 
         public void Configure(BodyRigAvatarLoader configuredLoader, Transform configuredUserGazeTarget = null)
         {
@@ -164,7 +197,7 @@ namespace BodyRig.ReferenceRenderer
             }
 
             var next = JsonUtility.FromJson<MotorState>(json);
-            if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2))
+            if (next == null || next.type != "bodyrig-motor-state" || (next.version != 1 && next.version != 2 && next.version != 3))
             {
                 throw new ArgumentException("Unsupported BodyRig Motor State", nameof(json));
             }
@@ -174,9 +207,13 @@ namespace BodyRig.ReferenceRenderer
             }
             if (next.version == 1 && next.embodiment != null)
             {
-                throw new ArgumentException("Motor State v1 may not carry v2 embodiment evidence", nameof(json));
+                throw new ArgumentException("Motor State v1 may not carry observed embodiment evidence", nameof(json));
             }
-            if (next.version == 2 && next.embodiment != null)
+            if (next.version < 3 && next.locomotion != null)
+            {
+                throw new ArgumentException("Motor State v1/v2 may not carry locomotion", nameof(json));
+            }
+            if (next.version >= 2 && next.embodiment != null)
             {
                 if (next.embodiment.source != ObservedEmbodimentSource || next.embodiment.observed == null)
                 {
@@ -207,6 +244,11 @@ namespace BodyRig.ReferenceRenderer
                 if (string.IsNullOrWhiteSpace(next.posture.id)) throw new ArgumentException("Posture id is required", nameof(json));
                 Validate01(next.posture.intensity, "posture.intensity");
             }
+            if (next.locomotion != null)
+            {
+                if (next.version != 3) throw new ArgumentException("Locomotion requires Motor State v3", nameof(json));
+                ValidateLocomotion(next.locomotion);
+            }
             if (next.speech != null)
             {
                 if (next.speech.state != "start" && next.speech.state != "update" && next.speech.state != "stop")
@@ -222,7 +264,34 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = false;
             GazeRealized = false;
             PostureRealized = false;
+            LocomotionRealized = false;
             SpeechTimingRealized = false;
+        }
+
+        private static void ValidateLocomotion(LocomotionState locomotion)
+        {
+            if (locomotion == null || string.IsNullOrWhiteSpace(locomotion.action))
+                throw new ArgumentException("Locomotion action is required");
+            Validate01(locomotion.effort, "locomotion.effort");
+            Validate01(locomotion.transition_intensity, "locomotion.transition_intensity");
+            switch (locomotion.action)
+            {
+                case "walk":
+                    ValidateRange(locomotion.cadence_spm, 30.0f, 240.0f, "locomotion.cadence_spm");
+                    ValidateRange(locomotion.stride_length_to_height, 0.0f, 2.0f, "locomotion.stride_length_to_height");
+                    Validate01(locomotion.stance_width_to_height, "locomotion.stance_width_to_height");
+                    Validate01(locomotion.vertical_bounce_to_height, "locomotion.vertical_bounce_to_height");
+                    ValidateRange(locomotion.arm_swing_to_height, 0.0f, 2.0f, "locomotion.arm_swing_to_height");
+                    return;
+                case "turn_left":
+                case "turn_right":
+                    ValidateRange(locomotion.turn_speed_degrees_per_second, 0.0001f, 720.0f, "locomotion.turn_speed_degrees_per_second");
+                    return;
+                case "stop":
+                    return;
+                default:
+                    throw new ArgumentException("Unsupported locomotion action");
+            }
         }
 
         private static void ValidateObservedEmbodiment(ObservedEmbodimentState observed)
@@ -279,9 +348,8 @@ namespace BodyRig.ReferenceRenderer
             var dt = Mathf.Max(Time.unscaledDeltaTime, 0.0001f);
             var blend = 1.0f - Mathf.Exp(-dt / Mathf.Max(smoothingSeconds, 0.01f));
 
-            // The performed fields below are already resolved against BodyPrint
-            // by BodyRig. v2 embodiment is evidence/provenance for consumers; it
-            // is deliberately not multiplied into these values again here.
+            // These fields are already performed values resolved by BodyRig.
+            // Raw embodiment evidence is never consumed here.
             var targetGesture = _state.gesture != null ? _state.gesture.amplitude : 0.0f;
             var targetHead = _state.motion != null ? _state.motion.head_motion : 0.0f;
             var targetGaze = _state.gaze != null ? _state.gaze.strength : 0.0f;
@@ -292,6 +360,7 @@ namespace BodyRig.ReferenceRenderer
             _gazeStrength = Mathf.Lerp(_gazeStrength, targetGaze, blend);
             _speechAmplitude = Mathf.Lerp(_speechAmplitude, targetSpeech, blend);
 
+            LocomotionRealized = ApplyLocomotion(dt);
             MotionRealized = ApplyHeadMotion();
             GestureRealized = ApplyGesture();
             GazeRealized = ApplyGaze();
@@ -312,14 +381,23 @@ namespace BodyRig.ReferenceRenderer
             _boundAnimator = animator;
             _head = null;
             _spine = null;
+            _hips = null;
             _leftShoulder = null;
             _rightShoulder = null;
+            _leftUpperArm = null;
             _rightUpperArm = null;
             _rightLowerArm = null;
+            _leftUpperLeg = null;
+            _rightUpperLeg = null;
+            _leftLowerLeg = null;
+            _rightLowerLeg = null;
+            _leftFoot = null;
+            _rightFoot = null;
             _gestureAmplitude = 0.0f;
             _headMotion = 0.0f;
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
+            _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
 
             if (_boundAnimator == null)
@@ -329,19 +407,133 @@ namespace BodyRig.ReferenceRenderer
 
             _head = _boundAnimator.GetBoneTransform(HumanBodyBones.Head);
             _spine = _boundAnimator.GetBoneTransform(HumanBodyBones.Spine);
+            _hips = _boundAnimator.GetBoneTransform(HumanBodyBones.Hips);
             _leftShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftShoulder)
                 ?? _boundAnimator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
             _rightShoulder = _boundAnimator.GetBoneTransform(HumanBodyBones.RightShoulder)
                 ?? _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+            _leftUpperArm = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
             _rightUpperArm = _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperArm);
             _rightLowerArm = _boundAnimator.GetBoneTransform(HumanBodyBones.RightLowerArm);
+            _leftUpperLeg = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+            _rightUpperLeg = _boundAnimator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+            _leftLowerLeg = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
+            _rightLowerLeg = _boundAnimator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+            _leftFoot = _boundAnimator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            _rightFoot = _boundAnimator.GetBoneTransform(HumanBodyBones.RightFoot);
 
             if (_head != null) _headBaseRotation = _head.localRotation;
             if (_spine != null) _spineBaseRotation = _spine.localRotation;
+            if (_hips != null) _hipsBasePosition = _hips.localPosition;
             if (_leftShoulder != null) _leftShoulderBasePosition = _leftShoulder.localPosition;
             if (_rightShoulder != null) _rightShoulderBasePosition = _rightShoulder.localPosition;
+            if (_leftUpperArm != null) _leftUpperArmBaseRotation = _leftUpperArm.localRotation;
             if (_rightUpperArm != null) _rightUpperArmBaseRotation = _rightUpperArm.localRotation;
             if (_rightLowerArm != null) _rightLowerArmBaseRotation = _rightLowerArm.localRotation;
+            if (_leftUpperLeg != null) _leftUpperLegBaseRotation = _leftUpperLeg.localRotation;
+            if (_rightUpperLeg != null) _rightUpperLegBaseRotation = _rightUpperLeg.localRotation;
+            if (_leftLowerLeg != null) _leftLowerLegBaseRotation = _leftLowerLeg.localRotation;
+            if (_rightLowerLeg != null) _rightLowerLegBaseRotation = _rightLowerLeg.localRotation;
+            if (_head != null && _leftFoot != null && _rightFoot != null)
+            {
+                var feetMid = (_leftFoot.position + _rightFoot.position) * 0.5f;
+                _avatarHeight = Vector3.Distance(_head.position, feetMid);
+            }
+        }
+
+        private float LocomotionBlend(float dt, float transitionIntensity)
+        {
+            var seconds = Mathf.Lerp(0.30f, 0.06f, Mathf.Clamp01(transitionIntensity));
+            return 1.0f - Mathf.Exp(-Mathf.Max(dt, 0.0001f) / seconds);
+        }
+
+        private void BlendLocomotionPoseToBase(float blend)
+        {
+            if (_hips != null) _hips.localPosition = Vector3.Lerp(_hips.localPosition, _hipsBasePosition, blend);
+            if (_leftUpperLeg != null) _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, _leftUpperLegBaseRotation, blend);
+            if (_rightUpperLeg != null) _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, _rightUpperLegBaseRotation, blend);
+            if (_leftLowerLeg != null) _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, _leftLowerLegBaseRotation, blend);
+            if (_rightLowerLeg != null) _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, _rightLowerLegBaseRotation, blend);
+            if (_leftUpperArm != null) _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, _leftUpperArmBaseRotation, blend);
+            if (_rightUpperArm != null) _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, _rightUpperArmBaseRotation, blend);
+        }
+
+        private bool ApplyLocomotion(float dt)
+        {
+            var locomotion = _state != null ? _state.locomotion : null;
+            if (locomotion == null)
+            {
+                BlendLocomotionPoseToBase(0.35f);
+                return false;
+            }
+
+            var locomotionBlend = LocomotionBlend(dt, locomotion.transition_intensity);
+            if (locomotion.action == "stop")
+            {
+                BlendLocomotionPoseToBase(locomotionBlend);
+                return true;
+            }
+
+            if (locomotion.action == "turn_left" || locomotion.action == "turn_right")
+            {
+                BlendLocomotionPoseToBase(locomotionBlend);
+                if (_boundAnimator == null) return false;
+                var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
+                _boundAnimator.transform.Rotate(
+                    0.0f,
+                    direction * locomotion.turn_speed_degrees_per_second * dt,
+                    0.0f,
+                    Space.Self);
+                return true;
+            }
+
+            if (locomotion.action != "walk") return false;
+            if (_hips == null || _leftUpperLeg == null || _rightUpperLeg == null ||
+                _leftLowerLeg == null || _rightLowerLeg == null || _avatarHeight <= 0.0001f)
+            {
+                return false;
+            }
+
+            // cadence_spm is steps/minute. One full left/right cycle contains
+            // two steps, hence cadence / 120 cycles per second.
+            var phase = Time.unscaledTime * (locomotion.cadence_spm / 120.0f) * Mathf.PI * 2.0f;
+            var legWave = Mathf.Sin(phase);
+            var strideDegrees = Mathf.Clamp(locomotion.stride_length_to_height * 90.0f, 0.0f, 45.0f);
+            var stanceDegrees = Mathf.Clamp(locomotion.stance_width_to_height * 80.0f, 0.0f, 20.0f);
+            var kneeDegrees = Mathf.Clamp(locomotion.stride_length_to_height * 70.0f, 0.0f, 35.0f);
+
+            var leftUpperTarget = _leftUpperLegBaseRotation * Quaternion.Euler(
+                legWave * strideDegrees, 0.0f, stanceDegrees);
+            var rightUpperTarget = _rightUpperLegBaseRotation * Quaternion.Euler(
+                -legWave * strideDegrees, 0.0f, -stanceDegrees);
+            var leftLowerTarget = _leftLowerLegBaseRotation * Quaternion.Euler(
+                Mathf.Max(0.0f, -legWave) * kneeDegrees, 0.0f, 0.0f);
+            var rightLowerTarget = _rightLowerLegBaseRotation * Quaternion.Euler(
+                Mathf.Max(0.0f, legWave) * kneeDegrees, 0.0f, 0.0f);
+
+            _leftUpperLeg.localRotation = Quaternion.Slerp(_leftUpperLeg.localRotation, leftUpperTarget, locomotionBlend);
+            _rightUpperLeg.localRotation = Quaternion.Slerp(_rightUpperLeg.localRotation, rightUpperTarget, locomotionBlend);
+            _leftLowerLeg.localRotation = Quaternion.Slerp(_leftLowerLeg.localRotation, leftLowerTarget, locomotionBlend);
+            _rightLowerLeg.localRotation = Quaternion.Slerp(_rightLowerLeg.localRotation, rightLowerTarget, locomotionBlend);
+
+            var bounceRange = locomotion.vertical_bounce_to_height * _avatarHeight;
+            var bounceOffset = Mathf.Sin(phase * 2.0f) * bounceRange * 0.5f;
+            _hips.localPosition = Vector3.Lerp(
+                _hips.localPosition,
+                _hipsBasePosition + Vector3.up * bounceOffset,
+                locomotionBlend);
+
+            // A simultaneous explicit gesture owns the arms. Otherwise gait arm
+            // swing follows the already-performed v3 amplitude.
+            if (_state.gesture == null && _leftUpperArm != null && _rightUpperArm != null)
+            {
+                var armDegrees = Mathf.Clamp(locomotion.arm_swing_to_height * 90.0f, 0.0f, 45.0f);
+                var leftArmTarget = _leftUpperArmBaseRotation * Quaternion.Euler(-legWave * armDegrees, 0.0f, 0.0f);
+                var rightArmTarget = _rightUpperArmBaseRotation * Quaternion.Euler(legWave * armDegrees, 0.0f, 0.0f);
+                _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
+                _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
+            }
+            return true;
         }
 
         private bool ApplyGesture()
@@ -466,8 +658,20 @@ namespace BodyRig.ReferenceRenderer
             if (_rightLowerArm != null) _rightLowerArm.localRotation = _rightLowerArmBaseRotation;
         }
 
+        private void RestoreLocomotionPose()
+        {
+            if (_hips != null) _hips.localPosition = _hipsBasePosition;
+            if (_leftUpperLeg != null) _leftUpperLeg.localRotation = _leftUpperLegBaseRotation;
+            if (_rightUpperLeg != null) _rightUpperLeg.localRotation = _rightUpperLegBaseRotation;
+            if (_leftLowerLeg != null) _leftLowerLeg.localRotation = _leftLowerLegBaseRotation;
+            if (_rightLowerLeg != null) _rightLowerLeg.localRotation = _rightLowerLegBaseRotation;
+            if (_leftUpperArm != null) _leftUpperArm.localRotation = _leftUpperArmBaseRotation;
+            if (_rightUpperArm != null) _rightUpperArm.localRotation = _rightUpperArmBaseRotation;
+        }
+
         public void RestoreNeutralPose()
         {
+            RestoreLocomotionPose();
             RestoreGesturePose();
             if (_head != null) _head.localRotation = _headBaseRotation;
             if (_spine != null) _spine.localRotation = _spineBaseRotation;
@@ -493,6 +697,7 @@ namespace BodyRig.ReferenceRenderer
             GestureRealized = false;
             GazeRealized = false;
             PostureRealized = false;
+            LocomotionRealized = false;
             SpeechTimingRealized = false;
         }
     }

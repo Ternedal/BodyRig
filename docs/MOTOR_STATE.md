@@ -98,7 +98,7 @@ Motor State v2 preserves the performed state and adds an optional `embodiment` r
 
 The receipt is evidence, not a second personalization pass. A renderer must not multiply `embodiment.observed.gesture_amplitude`, `head_motion`, `gaze_strength`, `speech_motion`, or other observations into the already-resolved performed values again. It must also not create a gesture, gait event, expression, or semantic action solely because an observed BodyPrint field exists.
 
-The reference Unity renderer therefore accepts both Motor State v1 and v2, validates the v2 evidence source/ranges when present, and renders the same performed gesture/head/gaze/speech values for an otherwise equivalent v1/v2 state.
+The reference Unity renderer accepts Motor State v1, v2 and v3. It validates v2/v3 embodiment evidence when present, but all animation is driven from already-performed fields. Raw `embodiment.observed` values are never consumed in the render loop.
 
 ## BodyCue v2 and Motor State v3
 
@@ -159,15 +159,19 @@ Example natural walk output:
 }
 ```
 
-This is fail-closed. An explicit locomotion cue requires complete Movement Identity. Missing gait/posture/dynamics/idle evidence is an error; BodyRig does not substitute a generic walk. Explicit turns additionally require non-zero observed turn-speed evidence.
+This is fail-closed. An explicit locomotion cue requires complete Movement Identity. Missing gait/posture/dynamics/idle evidence is an error; BodyRig does not substitute a generic walk. Explicit turns additionally require a positive, representable observed turn-speed.
 
 A BodyCue v2 must never be requested through Motor State v1 or v2 because doing so would silently drop its locomotion semantic. The runtime rejects that downgrade and requires Motor State v3.
 
 Movement Identity observations alone still cannot produce a `locomotion` section. A BodyCue v1 routed through v3 remains non-locomoting unless an explicit v2 locomotion cue exists.
 
-### v3 exposure boundary
+### Reference renderer v3 realization
 
-The Python runtime exposes `BodyRuntime.motor_state_v3()` for contract/resolver testing. The HTTP runtime endpoint is intentionally not exposed until the reference renderer can consume and realize Motor State v3. This prevents an API client from receiving an apparently actionable locomotion contract before the production reference consumer exists.
+The reference Unity renderer consumes only the performed `locomotion` object from Motor State v3.
+
+`walk` is deliberately realized as an **in-place gait cycle**. Cadence controls cycle timing; stride and stance control leg motion; vertical bounce controls hips displacement relative to avatar height; and arm swing controls the upper arms unless an explicit gesture is simultaneously active. The renderer does not translate the avatar through world space because BodyCue v2 does not specify a destination, heading, or distance. Inventing those values would exceed the semantic contract.
+
+`turn_left` and `turn_right` are different: direction is explicit in the cue, so the renderer may rotate the avatar using the already-performed turn rate. `stop` blends the gait pose back toward the bound neutral pose while preserving the avatar's world orientation.
 
 ## VoiceRig synchronization
 
@@ -192,16 +196,26 @@ This prevents an animation or viseme from the previous body/profile leaking into
 
 ## API
 
-After a body is active and a BodyCue v1 has been received:
+For the frozen BodyCue v1 path:
 
 ```text
-GET /api/v1/runtime/motor-state
-GET /api/v2/runtime/motor-state
+POST /api/v1/runtime/cue
+GET  /api/v1/runtime/motor-state
+GET  /api/v2/runtime/motor-state
 ```
 
 The v1 endpoint returns the unchanged v1 compatibility contract. The v2 endpoint returns Motor State v2 with observed embodiment evidence when the active BodyPrint contains supported observed values.
 
-Before those prerequisites exist both endpoints return conflict rather than synthesizing identity/style values without a BodyPrint. BodyCue v2 / Motor State v3 HTTP exposure remains blocked until renderer realization lands.
+For explicit locomotion:
+
+```text
+POST /api/v2/runtime/cue
+GET  /api/v3/runtime/motor-state
+```
+
+The v2 cue endpoint accepts BodyCue v2, including locomotion-only cues. The v3 motor endpoint resolves those semantics through the active source-derived Movement Identity. Once a BodyCue v2 is active, the older v1/v2 motor endpoints return conflict rather than silently discarding locomotion.
+
+All motor endpoints fail closed when there is no active body/BodyPrint or no compatible active cue.
 
 Machine-readable contracts:
 

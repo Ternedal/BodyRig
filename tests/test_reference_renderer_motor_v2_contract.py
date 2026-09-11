@@ -24,14 +24,15 @@ def _observed_driver_fields(source: str) -> set[str]:
     return set(re.findall(r"public float ([A-Za-z0-9_]+);", block))
 
 
-def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_state() -> None:
+def test_reference_renderer_keeps_v1_v2_compatibility_without_repersonalizing_performed_state() -> None:
     source = DRIVER.read_text(encoding="utf-8")
 
-    assert "next.version != 1 && next.version != 2" in source
+    assert "next.version != 1 && next.version != 2 && next.version != 3" in source
     assert 'ObservedEmbodimentSource = "modelrig-bodyprint-v1"' in source
     assert "next.version == 1 && next.embodiment != null" in source
-    assert "next.version == 2 && next.embodiment != null" in source
+    assert "next.version >= 2 && next.embodiment != null" in source
     assert "ValidateObservedEmbodiment(next.embodiment.observed);" in source
+    assert "next.version < 3 && next.locomotion != null" in source
 
     # The renderer must consume BodyRig's already-personalized performed fields.
     assert "? _state.gesture.amplitude" in source
@@ -39,7 +40,7 @@ def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_
     assert "_state.gaze.strength" in source
     assert "_state.speech.amplitude" in source
 
-    # Observed v2 evidence is provenance/capability data, not another multiplier
+    # Raw observed evidence is provenance/capability data, not another multiplier
     # and, critically, must never create an unsolicited movement action.
     late_update = source[source.index("private void LateUpdate()") : source.index("private void BindAvatarIfNeeded()")]
     assert "_state.embodiment" not in late_update
@@ -50,13 +51,7 @@ def test_reference_renderer_accepts_v1_and_v2_without_repersonalizing_performed_
         "posture_shoulder_tilt_degrees",
         "posture_hip_tilt_degrees",
         "posture_head_offset_to_height",
-        "stride_length_to_height",
-        "stance_width_to_height",
-        "vertical_bounce_to_height",
-        "arm_swing_to_height",
         "arm_swing_asymmetry",
-        "turn_speed_degrees_per_second",
-        "transition_intensity",
         "idle_sway_to_height",
     ):
         assert field not in late_update
