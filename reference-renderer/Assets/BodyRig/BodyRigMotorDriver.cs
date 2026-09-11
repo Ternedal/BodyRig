@@ -188,6 +188,7 @@ namespace BodyRig.ReferenceRenderer
         private float _headMotion;
         private float _gazeStrength;
         private float _speechAmplitude;
+        private string _lastOwnedExpressionEmotion;
         private bool _postureOwnedPoseLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
         private bool _locomotionPoseOwnedLastFrame;
@@ -462,6 +463,7 @@ namespace BodyRig.ReferenceRenderer
             PostureRealized = ApplyPosture();
             _postureOwnedPoseLastFrame = PostureRealized;
             _sourcePostureOffsetsOwnedLastFrame = sourceNaturalPosture && PostureRealized;
+            ReleaseOwnedExpression();
             ExpressionRealized = ApplyExpression();
             SpeechTimingRealized = ApplySpeech();
             RealizationFrameCount++;
@@ -494,6 +496,7 @@ namespace BodyRig.ReferenceRenderer
             _headMotion = 0.0f;
             _gazeStrength = 0.0f;
             _speechAmplitude = 0.0f;
+            _lastOwnedExpressionEmotion = null;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
@@ -845,6 +848,31 @@ namespace BodyRig.ReferenceRenderer
             return true;
         }
 
+        private void ReleaseOwnedExpression()
+        {
+            if (_state.expression != null || string.IsNullOrWhiteSpace(_lastOwnedExpressionEmotion) ||
+                avatarLoader == null || avatarLoader.Active == null)
+            {
+                return;
+            }
+            var expression = avatarLoader.Active.Runtime != null ? avatarLoader.Active.Runtime.Expression : null;
+            if (expression == null)
+            {
+                return;
+            }
+
+            switch (_lastOwnedExpressionEmotion)
+            {
+                case "neutral": expression.SetWeight(ExpressionKey.Neutral, 0.0f); break;
+                case "happy": expression.SetWeight(ExpressionKey.Happy, 0.0f); break;
+                case "angry": expression.SetWeight(ExpressionKey.Angry, 0.0f); break;
+                case "sad": expression.SetWeight(ExpressionKey.Sad, 0.0f); break;
+                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, 0.0f); break;
+                case "surprised": expression.SetWeight(ExpressionKey.Surprised, 0.0f); break;
+            }
+            _lastOwnedExpressionEmotion = null;
+        }
+
         private bool ApplyExpression()
         {
             if (_state.expression == null || avatarLoader == null || avatarLoader.Active == null) return false;
@@ -879,14 +907,16 @@ namespace BodyRig.ReferenceRenderer
             var weight = Mathf.Clamp01(_state.expression.intensity);
             switch (_state.expression.emotion)
             {
-                case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); return true;
-                case "happy": expression.SetWeight(ExpressionKey.Happy, weight); return true;
-                case "angry": expression.SetWeight(ExpressionKey.Angry, weight); return true;
-                case "sad": expression.SetWeight(ExpressionKey.Sad, weight); return true;
-                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, weight); return true;
-                case "surprised": expression.SetWeight(ExpressionKey.Surprised, weight); return true;
+                case "neutral": expression.SetWeight(ExpressionKey.Neutral, weight); break;
+                case "happy": expression.SetWeight(ExpressionKey.Happy, weight); break;
+                case "angry": expression.SetWeight(ExpressionKey.Angry, weight); break;
+                case "sad": expression.SetWeight(ExpressionKey.Sad, weight); break;
+                case "relaxed": expression.SetWeight(ExpressionKey.Relaxed, weight); break;
+                case "surprised": expression.SetWeight(ExpressionKey.Surprised, weight); break;
                 default: return false;
             }
+            _lastOwnedExpressionEmotion = _state.expression.emotion;
+            return true;
         }
 
         private bool ApplySpeech()
@@ -987,6 +1017,7 @@ namespace BodyRig.ReferenceRenderer
                 expression.SetWeight(ExpressionKey.Oh, 0.0f);
             }
             _state = null;
+            _lastOwnedExpressionEmotion = null;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
             _locomotionPoseOwnedLastFrame = false;
