@@ -37,6 +37,9 @@
       "maxItems": 10,
       "uniqueItems": true,
       "contains": {"const": "avatar.vrm"},
+      "allOf": [
+        {"contains": {"const": "bodyprint.json"}}
+      ],
       "items": {
         "type": "string",
         "enum": [

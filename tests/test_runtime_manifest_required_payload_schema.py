@@ -1,17 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "contracts" / "bodyrig-runtime-assets-v1.schema.json"
-TEST = ROOT / "tests" / "test_runtime_manifest_required_payload_schema.py"
-
-text = SCHEMA.read_text(encoding="utf-8")
-old = '      "contains": {"const": "avatar.vrm"},\n      "items": {\n'
-new = '      "contains": {"const": "avatar.vrm"},\n      "allOf": [\n        {"contains": {"const": "bodyprint.json"}}\n      ],\n      "items": {\n'
-if text.count(old) != 1:
-    raise SystemExit(f"expected one runtime payload contains block, got {text.count(old)}")
-SCHEMA.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-TEST.write_text(r'''from __future__ import annotations
+from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -57,4 +44,3 @@ def test_runtime_renderer_and_materializer_require_same_authoritative_payloads()
 
     materializer = MATERIALIZER.read_text(encoding="utf-8")
     assert 'materialized runtime is missing required avatar/bodyprint payload' in materializer
-''', encoding="utf-8")
