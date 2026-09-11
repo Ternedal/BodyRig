@@ -190,6 +190,7 @@ namespace BodyRig.ReferenceRenderer
         private float _speechAmplitude;
         private bool _postureOwnedPoseLastFrame;
         private bool _sourcePostureOffsetsOwnedLastFrame;
+        private bool _locomotionPoseOwnedLastFrame;
 
         public int LastMotorVersion => _state != null ? _state.version : 0;
         public string LastBodyId => _state != null ? _state.body_id : null;
@@ -494,6 +495,7 @@ namespace BodyRig.ReferenceRenderer
             _speechAmplitude = 0.0f;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
+            _locomotionPoseOwnedLastFrame = false;
             _shoulderSpan = 0.0f;
             _avatarHeight = 0.0f;
             RealizationFrameCount = 0;
@@ -573,20 +575,40 @@ namespace BodyRig.ReferenceRenderer
             var locomotion = _state != null ? _state.locomotion : null;
             if (locomotion == null)
             {
-                BlendLocomotionPoseToBase(0.35f);
+                // Clear BodyRig's previous gait pose exactly once. With no
+                // locomotion ownership before or now, Animator/VRMA keeps full
+                // authority over hips, legs and arms.
+                if (_locomotionPoseOwnedLastFrame)
+                {
+                    RestoreLocomotionPose();
+                    _locomotionPoseOwnedLastFrame = false;
+                }
                 return false;
             }
 
             var locomotionBlend = LocomotionBlend(dt, locomotion.transition_intensity);
             if (locomotion.action == "stop")
             {
-                BlendLocomotionPoseToBase(locomotionBlend);
+                // Stop only settles a pose that BodyRig actually owns. A stop
+                // cue arriving over an external Animator pose must not pull it
+                // toward BodyRig's captured bind pose.
+                if (_locomotionPoseOwnedLastFrame)
+                {
+                    BlendLocomotionPoseToBase(locomotionBlend);
+                }
                 return true;
             }
 
             if (locomotion.action == "turn_left" || locomotion.action == "turn_right")
             {
-                BlendLocomotionPoseToBase(locomotionBlend);
+                // Turning owns root heading, not leg/hip/arm animation. Clear a
+                // preceding BodyRig gait once, then leave those bones to the
+                // Animator while the explicit turn continues.
+                if (_locomotionPoseOwnedLastFrame)
+                {
+                    RestoreLocomotionPose();
+                    _locomotionPoseOwnedLastFrame = false;
+                }
                 if (_boundAnimator == null) return false;
                 var direction = locomotion.action == "turn_left" ? -1.0f : 1.0f;
                 _boundAnimator.transform.Rotate(
@@ -652,6 +674,7 @@ namespace BodyRig.ReferenceRenderer
                 _leftUpperArm.localRotation = Quaternion.Slerp(_leftUpperArm.localRotation, leftArmTarget, locomotionBlend);
                 _rightUpperArm.localRotation = Quaternion.Slerp(_rightUpperArm.localRotation, rightArmTarget, locomotionBlend);
             }
+            _locomotionPoseOwnedLastFrame = true;
             return true;
         }
 
@@ -870,6 +893,7 @@ namespace BodyRig.ReferenceRenderer
             _state = null;
             _postureOwnedPoseLastFrame = false;
             _sourcePostureOffsetsOwnedLastFrame = false;
+            _locomotionPoseOwnedLastFrame = false;
             RealizationFrameCount = 0;
             MotionRealized = false;
             ExpressionRealized = false;
