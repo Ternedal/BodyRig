@@ -33,10 +33,32 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _finite_triplet(values: Sequence[float]) -> tuple[float, float, float]:
+    try:
+        if len(values) < 3:
+            raise ValueError
+        point = tuple(float(values[index]) for index in range(3))
+    except (TypeError, ValueError, OverflowError, IndexError):
+        raise SourceHairExtractError("hair candidate geometry is non-finite") from None
+    if not all(math.isfinite(value) for value in point):
+        raise SourceHairExtractError("hair candidate geometry is non-finite")
+    return point
+
+
+def _distance(value: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise SourceHairExtractError("hair candidate distances are invalid") from None
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise SourceHairExtractError("hair candidate distances are invalid")
+    return numeric
+
+
 def _quantile(values: Sequence[float], q: float) -> float:
     if not values:
         raise SourceHairExtractError("hair candidate metric has no values")
-    ordered = sorted(float(value) for value in values)
+    ordered = sorted(values)
     if any(not math.isfinite(value) for value in ordered):
         raise SourceHairExtractError("hair candidate metric is non-finite")
     if len(ordered) == 1:
@@ -66,13 +88,9 @@ def select_hair_faces(
     if len(source_to_donor_distance) != len(source_positions):
         raise SourceHairExtractError("hair candidate distance vector does not match source geometry")
 
-    donor = [tuple(float(value) for value in row[:3]) for row in donor_positions]
-    source = [tuple(float(value) for value in row[:3]) for row in source_positions]
-    distances = [float(value) for value in source_to_donor_distance]
-    if any(len(row) != 3 or not all(math.isfinite(value) for value in row) for row in donor + source):
-        raise SourceHairExtractError("hair candidate geometry is non-finite")
-    if any(not math.isfinite(value) or value < 0.0 for value in distances):
-        raise SourceHairExtractError("hair candidate distances are invalid")
+    donor = [_finite_triplet(row) for row in donor_positions]
+    source = [_finite_triplet(row) for row in source_positions]
+    distances = [_distance(value) for value in source_to_donor_distance]
 
     y_min = min(row[1] for row in donor)
     y_max = max(row[1] for row in donor)
