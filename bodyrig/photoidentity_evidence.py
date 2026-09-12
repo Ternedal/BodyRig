@@ -88,7 +88,10 @@ def _revision(value: object) -> str:
 def _finite(value: object, *, label: str, minimum: float = 0.0, maximum: float = 1.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PhotoIdentityEvidenceError(f"{label} is not numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise PhotoIdentityEvidenceError(f"{label} is outside {minimum}..{maximum}") from None
     if not math.isfinite(result) or not minimum <= result <= maximum:
         raise PhotoIdentityEvidenceError(f"{label} is outside {minimum}..{maximum}")
     return result
@@ -119,9 +122,21 @@ def _canonical_row(value: Mapping[str, Any]) -> dict[str, Any]:
         raise PhotoIdentityEvidenceError("photoidentity source ordinal is invalid")
     start = value.get("start_seconds")
     duration = value.get("duration_seconds")
-    if isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(float(start)) or float(start) < 0.0:
+    if isinstance(start, bool) or not isinstance(start, (int, float)):
         raise PhotoIdentityEvidenceError("photoidentity observation start is invalid")
-    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(float(duration)) or not 1.0 <= float(duration) <= 12.0:
+    try:
+        start_number = float(start)
+    except OverflowError:
+        raise PhotoIdentityEvidenceError("photoidentity observation start is invalid") from None
+    if not math.isfinite(start_number) or start_number < 0.0:
+        raise PhotoIdentityEvidenceError("photoidentity observation start is invalid")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+        raise PhotoIdentityEvidenceError("photoidentity observation duration is invalid")
+    try:
+        duration_number = float(duration)
+    except OverflowError:
+        raise PhotoIdentityEvidenceError("photoidentity observation duration is invalid") from None
+    if not math.isfinite(duration_number) or not 1.0 <= duration_number <= 12.0:
         raise PhotoIdentityEvidenceError("photoidentity observation duration is invalid")
     view = str(value.get("view") or "")
     if view not in {"front", "left_profile", "right_profile", "rear", "unknown"}:
@@ -129,8 +144,8 @@ def _canonical_row(value: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "scene_id": scene_id,
         "source_ordinal": ordinal,
-        "start_seconds": round(float(start), 3),
-        "duration_seconds": round(float(duration), 3),
+        "start_seconds": round(start_number, 3),
+        "duration_seconds": round(duration_number, 3),
         "target_confidence": _finite(value.get("target_confidence"), label="target_confidence"),
         "target_screen_fraction": _finite(value.get("target_screen_fraction"), label="target_screen_fraction"),
         "face_visibility": _finite(value.get("face_visibility"), label="face_visibility"),
