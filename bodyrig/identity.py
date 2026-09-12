@@ -21,14 +21,15 @@ def _integer(value: Any, *, field: str, minimum: int, maximum: int) -> int:
 
 
 def _ratio(value: Any, *, field: str) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        or not 0.0 <= float(value) <= 1.0
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise VisualIdentityError(f"{field} must be a finite number in 0..1")
-    return float(value)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        raise VisualIdentityError(f"{field} must be a finite number in 0..1") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise VisualIdentityError(f"{field} must be a finite number in 0..1")
+    return numeric
 
 
 def _nonempty(value: Any, *, field: str, maximum: int) -> str:
