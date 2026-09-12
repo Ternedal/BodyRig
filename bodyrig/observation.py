@@ -65,7 +65,7 @@ def _finite(value: Any, *, label: str, minimum: float = 0.0, maximum: float = 1.
         raise ObservationError(f"{label} must be a finite number")
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ObservationError(f"{label} must be a finite number") from exc
     if not math.isfinite(result) or not minimum <= result <= maximum:
         raise ObservationError(f"{label} must be in {minimum}..{maximum}")
@@ -77,7 +77,7 @@ def _positive(value: Any, *, label: str, maximum: float) -> float:
         raise ObservationError(f"{label} must be a finite number")
     try:
         result = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ObservationError(f"{label} must be a finite number") from exc
     if not math.isfinite(result) or result < 0.0 or result > maximum:
         raise ObservationError(f"{label} must be in 0..{maximum}")
@@ -95,7 +95,8 @@ def load_stash_source_manifest(path: str | Path) -> tuple[dict[str, Any], list[d
         raise ObservationError("Stash source manifest is invalid JSON") from exc
     if not isinstance(manifest, dict):
         raise ObservationError("Stash source manifest must be an object")
-    if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+    version = manifest.get("version")
+    if manifest.get("format") != "bodyrig-stash-source-manifest" or isinstance(version, bool) or version != VERSION:
         raise ObservationError("unsupported Stash source manifest format/version")
     if manifest.get("source_kind") != "stash-local":
         raise ObservationError("observation selection currently requires stash-local sources")
@@ -191,7 +192,8 @@ def validate_analyzer_result(
         raise ObservationError("observation analyzer result is invalid JSON") from exc
     if not isinstance(result, dict) or set(result) != {"format", "version", "adapter", "revision", "observations"}:
         raise ObservationError("observation analyzer result fields must match v1 exactly")
-    if result["format"] != ANALYZER_RESULT_FORMAT or result["version"] != VERSION:
+    version = result["version"]
+    if result["format"] != ANALYZER_RESULT_FORMAT or isinstance(version, bool) or version != VERSION:
         raise ObservationError("unsupported observation analyzer result format/version")
     if result["adapter"] != expected_adapter or result["revision"] != expected_revision:
         raise ObservationError("observation analyzer adapter/revision mismatch")
