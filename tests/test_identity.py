@@ -93,6 +93,22 @@ def test_visual_identity_rejects_observation_count_above_total():
         validate_visual_identity(value)
 
 
+def test_visual_identity_rejects_huge_integer_ratio_with_domain_error():
+    value = json.loads(json.dumps(IDENTITY))
+    value["coverage"]["face"] = 10**400
+    with pytest.raises(VisualIdentityError, match=r"coverage\.face must be a finite number in 0\.\.1"):
+        validate_visual_identity(value)
+
+
+def test_visual_identity_ratio_boundaries_remain_inclusive():
+    value = json.loads(json.dumps(IDENTITY))
+    value["coverage"]["face"] = 0
+    value["quality"]["sharpness"] = 1
+    validated = validate_visual_identity(value)
+    assert validated["coverage"]["face"] == 0
+    assert validated["quality"]["sharpness"] == 1
+
+
 def test_builtin_fitter_registry_is_explicit_about_placeholder_capabilities():
     assert fitter_names() == ("procedural-vrm1",)
     fitter = get_fitter("procedural-vrm1")
@@ -141,6 +157,32 @@ def test_avatar_cli_rejects_identity_profile_from_other_track(tmp_path: Path):
     other["subject_track_id"] = "8"
     proof_path.write_text(json.dumps(_proof()), encoding="utf-8")
     identity_path.write_text(json.dumps(other), encoding="utf-8")
+
+    result = avatar_main(
+        [
+            str(proof_path),
+            "--body-id",
+            "fixture-person",
+            "--name",
+            "Fixture Person",
+            "--identity-profile",
+            str(identity_path),
+            "--out",
+            str(output),
+        ]
+    )
+    assert result == 1
+    assert not output.exists()
+
+
+def test_avatar_cli_rejects_huge_identity_ratio_without_raw_overflow(tmp_path: Path):
+    proof_path = tmp_path / "proof.json"
+    identity_path = tmp_path / "identity.json"
+    output = tmp_path / "body.mrbody"
+    huge = json.loads(json.dumps(IDENTITY))
+    huge["quality"]["visibility"] = 10**400
+    proof_path.write_text(json.dumps(_proof()), encoding="utf-8")
+    identity_path.write_text(json.dumps(huge), encoding="utf-8")
 
     result = avatar_main(
         [
