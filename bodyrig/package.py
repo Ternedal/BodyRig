@@ -71,7 +71,7 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
     if set(value) - allowed_top:
         raise MRBodyError("bodyprint.json: unknown fields")
     rules = {
-        "shape": {"height_scale": (1e-6, 4.0), "shoulder_to_height": (0.0, 1.0), "hip_to_height": (0.0, 1.0), "arm_to_height": (0.0, 1.0), "leg_to_height": (0.0, 1.0)},
+        "shape": {"height_scale": (0.0, 4.0), "shoulder_to_height": (0.0, 1.0), "hip_to_height": (0.0, 1.0), "arm_to_height": (0.0, 1.0), "leg_to_height": (0.0, 1.0)},
         "motion": {
             "energy": (0.0, 1.0),
             "gesture_frequency": (0.0, 1.0),
@@ -92,6 +92,8 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
         for key, item in obj.items():
             lo, hi = section_rules[key]
             _num(item, lo, hi, f"{section}.{key}")
+            if section == "shape" and key == "height_scale" and float(item) <= 0.0:
+                raise MRBodyError("bodyprint.shape.height_scale: invalid number")
             if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and not float(item).is_integer():
                 raise MRBodyError(f"bodyprint.motion.{key}: expected integral observation count")
             observed += 1
