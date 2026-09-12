@@ -448,9 +448,11 @@ def physical_acceptance_status(
         }
     try:
         receipt = _json(acceptance / RECEIPT_NAME, "physical handoff receipt")
+        version = receipt.get("version")
         if (
             receipt.get("format") != FORMAT
-            or receipt.get("version") != VERSION
+            or isinstance(version, bool)
+            or version != VERSION
             or receipt.get("previewJobId") != preview_job_id
             or receipt.get("promotedPackageSha256") != expected
             or receipt.get("physicalAcceptanceAuthority") is not False
