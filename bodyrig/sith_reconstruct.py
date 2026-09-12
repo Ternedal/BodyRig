@@ -169,9 +169,15 @@ def _finite_vector(value: Any, *, field: str, length: int) -> list[float]:
         raise SithReconstructError(f"SiTH fit {field} must contain exactly {length} values")
     result: list[float] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise SithReconstructError(f"SiTH fit {field} contains a non-finite number")
-        result.append(float(item))
+        try:
+            number = float(item)
+        except (TypeError, ValueError, OverflowError):
+            raise SithReconstructError(f"SiTH fit {field} contains a non-finite number") from None
+        if not math.isfinite(number):
+            raise SithReconstructError(f"SiTH fit {field} contains a non-finite number")
+        result.append(number)
     return result
 
 
