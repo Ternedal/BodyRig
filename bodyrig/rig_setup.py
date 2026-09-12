@@ -20,6 +20,10 @@ class RigSetupError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _nonempty(value: Any, *, field: str, maximum: int = 4000) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise RigSetupError(f"{field} must contain 1..{maximum} characters")
@@ -35,7 +39,7 @@ def _sha(value: Any, *, field: str) -> str:
 def validate_rig_setup(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != {"format", "version", "recovery", "high_fidelity"}:
         raise RigSetupError("rig setup fields must match v1 exactly")
-    if value["format"] != FORMAT or value["version"] != VERSION:
+    if value["format"] != FORMAT or not _v1(value["version"]):
         raise RigSetupError("unsupported rig setup format/version")
 
     recovery = value["recovery"]
@@ -119,7 +123,7 @@ def load_rig_setup(path: str | Path, *, verify_files: bool = True) -> dict[str, 
         "smpl_expected_path",
         "smpl_present",
     }
-    if set(summary_value) != required_summary or summary_value.get("format") != "bodyrig-recovery-environment" or summary_value.get("version") != 1:
+    if set(summary_value) != required_summary or summary_value.get("format") != "bodyrig-recovery-environment" or not _v1(summary_value.get("version")):
         raise RigSetupError("recovery environment summary contract mismatch")
     if summary_value.get("smpl_present") is not True:
         raise RigSetupError("recovery environment summary does not prove SMPL presence")
@@ -132,7 +136,7 @@ def load_rig_setup(path: str | Path, *, verify_files: bool = True) -> dict[str, 
             raise RigSetupError(f"recovery {field} does not match environment summary")
 
     preflight_value = _read_json(preflight, label="recovery preflight")
-    if preflight_value.get("format") != "bodyrig-recovery-preflight" or preflight_value.get("version") != 1:
+    if preflight_value.get("format") != "bodyrig-recovery-preflight" or not _v1(preflight_value.get("version")):
         raise RigSetupError("recovery preflight contract mismatch")
     if preflight_value.get("ok") is not True:
         raise RigSetupError("recovery preflight is not green")
