@@ -88,4 +88,4 @@ def test_package_huge_bodyprint_integer_fails_with_mrbody_error(tmp_path: Path):
 if "def test_bodyprint_huge_integer_fails_with_mrbody_error" in text:
     raise SystemExit("overflow tests already present unexpectedly")
 with test.open("w", encoding="utf-8", newline="") as stream:
-    stream.write(text.rstrip("\r\n") + block + newline)
+    stream.write(text.rstrip("\r\n") + block)
