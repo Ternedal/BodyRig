@@ -13,7 +13,10 @@ class PhotoIdentitySchpDetailError(ValueError):
 def _finite(value: object, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PhotoIdentitySchpDetailError(f"{label} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as exc:
+        raise PhotoIdentitySchpDetailError(f"{label} must be in 0..1") from exc
     if not math.isfinite(result) or not 0.0 <= result <= 1.0:
         raise PhotoIdentitySchpDetailError(f"{label} must be in 0..1")
     return result
@@ -36,7 +39,7 @@ def _normalize_map(segmentation: Sequence[Sequence[object]]) -> tuple[list[list[
                 raise PhotoIdentitySchpDetailError("SCHP segmentation contains boolean label")
             try:
                 label = int(value)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise PhotoIdentitySchpDetailError("SCHP segmentation contains non-integer label") from exc
             if label not in LABELS:
                 raise PhotoIdentitySchpDetailError(f"SCHP segmentation contains unknown label {label}")
