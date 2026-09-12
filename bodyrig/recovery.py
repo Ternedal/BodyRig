@@ -62,7 +62,7 @@ def parse_recovery_result(payload: object, *, expected_adapter: str | None = Non
         raise RecoveryError("recovery result must be an object")
     if set(payload) != {"format", "version", "adapter", "revision", "tracks"}:
         raise RecoveryError("recovery result fields must match v1 exactly")
-    if payload["format"] != "bodyrig-recovery" or payload["version"] != 1:
+    if payload["format"] != "bodyrig-recovery" or isinstance(payload["version"], bool) or payload["version"] != 1:
         raise RecoveryError("unsupported recovery format/version")
     adapter = payload["adapter"]
     revision = payload["revision"]
