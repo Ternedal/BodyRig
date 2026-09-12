@@ -50,6 +50,10 @@ class AutomaticReleaseGateError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _need_sha(value: Any, label: str) -> str:
     text = str(value or "").lower()
     if not SHA256.fullmatch(text):
@@ -116,7 +120,7 @@ def _read_package_json(package: Path, name: str) -> dict[str, Any]:
 def _runtime_identity(acceptance_dir: Path, gate: Any) -> tuple[str, str]:
     manifest_path = acceptance_dir / "runtime" / "runtime-manifest.json"
     manifest = _read_json(manifest_path, "Runtime manifest")
-    if manifest.get("format") != "bodyrig-runtime-assets" or manifest.get("version") != 1:
+    if manifest.get("format") != "bodyrig-runtime-assets" or not _is_v1(manifest.get("version")):
         raise AutomaticReleaseGateError("runtime manifest format/version mismatch")
     if str(manifest.get("body_id") or "") != gate.body_id:
         raise AutomaticReleaseGateError("runtime body_id does not match Gate A")
@@ -157,7 +161,7 @@ def _validate_skin_qa(acceptance_dir: Path, gate_report: dict[str, Any], gate: A
     skin_path = acceptance_dir / "bodyrig-skin-qa.json"
     _require_hash(skin_path, skin_hash, "skin QA report")
     skin = _read_json(skin_path, "Skin QA report")
-    if skin.get("format") != "bodyrig-skin-qa" or skin.get("version") != 1:
+    if skin.get("format") != "bodyrig-skin-qa" or not _is_v1(skin.get("version")):
         raise AutomaticReleaseGateError("skin QA format/version mismatch")
     if skin.get("structural_pass") is not True:
         raise AutomaticReleaseGateError("skin QA structural_pass is not true")
@@ -187,7 +191,7 @@ def _validate_probe(
     renderer_contract: dict[str, Any],
 ) -> dict[str, Any]:
     value = _read_json(path, f"{platform} renderer probe")
-    if value.get("format") != "bodyrig-renderer-probe" or value.get("version") != 1:
+    if value.get("format") != "bodyrig-renderer-probe" or not _is_v1(value.get("version")):
         raise AutomaticReleaseGateError(f"{platform} renderer probe format/version mismatch")
     if value.get("platform") != platform or value.get("unity_platform") != unity_platform:
         raise AutomaticReleaseGateError(f"{platform} renderer probe platform mismatch")
@@ -225,7 +229,7 @@ def _validate_probe(
 
 def _validate_deformation(path: Path, *, platform: str, revision: str, probe: dict[str, Any]) -> dict[str, Any]:
     value = _read_json(path, f"{platform} deformation probe")
-    if value.get("format") != "bodyrig-deformation-probe" or value.get("version") != 1 or value.get("platform") != platform:
+    if value.get("format") != "bodyrig-deformation-probe" or not _is_v1(value.get("version")) or value.get("platform") != platform:
         raise AutomaticReleaseGateError(f"{platform} deformation probe format/platform mismatch")
     if _need_revision(value.get("bodyrig_revision"), "deformation.bodyrig_revision") != revision:
         raise AutomaticReleaseGateError(f"{platform} deformation revision mismatch")
@@ -261,7 +265,7 @@ def _validate_quality(path: Path, *, platform: str, revision: str, probe: dict[s
         "thresholds","machine_quality_pass","production_activation",
     }
     _require_exact_keys(value, expected_fields, f"{platform} quality receipt")
-    if value.get("format") != "bodyrig-deformation-quality" or value.get("version") != 1:
+    if value.get("format") != "bodyrig-deformation-quality" or not _is_v1(value.get("version")):
         raise AutomaticReleaseGateError(f"{platform} quality format/version mismatch")
     if value.get("platform") != platform or _need_revision(value.get("bodyrig_revision"), "quality.bodyrig_revision") != revision:
         raise AutomaticReleaseGateError(f"{platform} quality platform/revision mismatch")
@@ -365,7 +369,7 @@ def validate_and_build(acceptance_dir: Path, repo_root: Path, *, require_git_sta
     skin_hash, skin_assessment = _validate_skin_qa(acceptance_dir, gate_report, gate, avatar_hash)
 
     contract = _read_json(repo_root / "reference-renderer" / "renderer-contract.json", "Reference renderer contract")
-    if contract.get("format") != "bodyrig-reference-renderer-contract" or contract.get("version") != 1:
+    if contract.get("format") != "bodyrig-reference-renderer-contract" or not _is_v1(contract.get("version")):
         raise AutomaticReleaseGateError("reference renderer contract format/version mismatch")
     if contract.get("deformation_sequence_revision") != "humanoid-muscle-sweep-v1":
         raise AutomaticReleaseGateError("reference renderer deformation sequence mismatch")
