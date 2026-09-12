@@ -338,7 +338,8 @@ def validate_realization_receipt(
     value = _json(path, "digital-twin platform realization receipt")
     if set(value) != REALIZATION_FIELDS:
         raise DigitalTwinPlatformAcceptanceError("digital-twin platform realization fields are not canonical")
-    if value.get("format") != REALIZATION_FORMAT or value.get("version") != REALIZATION_VERSION:
+    version = value.get("version")
+    if value.get("format") != REALIZATION_FORMAT or isinstance(version, bool) or version != REALIZATION_VERSION:
         raise DigitalTwinPlatformAcceptanceError("digital-twin platform realization format/version is invalid")
 
     for field in INPUT_FIELDS - {"format", "version"}:
