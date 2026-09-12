@@ -23,7 +23,7 @@ jobs:
       - name: Install locked Linux test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Run focused PhotoIdentity regressions
-        run: python -m pytest -q tests/test_photoidentity_evidence.py tests/test_photoidentity_authority.py tests/test_photoidentity_source_chain.py
+        run: python -m pytest -q tests/test_photoidentity_evidence.py tests/test_photoidentity_registry.py tests/test_photoidentity_source_chain.py
       - name: Check diff whitespace
         run: git diff --check
       - name: Commit validated product patch
