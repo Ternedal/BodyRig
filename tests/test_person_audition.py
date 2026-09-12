@@ -142,3 +142,50 @@ def test_receipt_is_strict_and_contains_no_prompt_reply_or_token(tmp_path: Path)
             audition_id=receipt["audition_id"],
             assembly_fingerprint=ASSEMBLY,
         )
+
+
+def test_persisted_audition_rejects_boolean_v1_version(tmp_path: Path) -> None:
+    receipt = _write(tmp_path, prompt="Hej", reply="Hej tilbage")
+    audition_id = receipt["audition_id"]
+    path = receipt_path(tmp_path, PERSON_ID, audition_id)
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    persisted["version"] = True
+    path.write_text(json.dumps(persisted), encoding="utf-8")
+
+    with pytest.raises(PersonAuditionError, match="format/version"):
+        verify_audition(
+            tmp_path,
+            person_id=PERSON_ID,
+            audition_id=audition_id,
+            assembly_fingerprint=ASSEMBLY,
+        )
+
+
+def test_persisted_audition_accepts_numeric_float_v1_and_keeps_exact_bindings(tmp_path: Path) -> None:
+    receipt = _write(tmp_path, prompt="Hej", reply="Hej tilbage")
+    audition_id = receipt["audition_id"]
+    path = receipt_path(tmp_path, PERSON_ID, audition_id)
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    persisted["version"] = 1.0
+    path.write_text(json.dumps(persisted), encoding="utf-8")
+
+    verified = verify_audition(
+        tmp_path,
+        person_id=PERSON_ID,
+        audition_id=audition_id,
+        assembly_fingerprint=ASSEMBLY,
+    )
+
+    assert verified["version"] == 1.0
+    assert verified["person_id"] == PERSON_ID
+    assert verified["audition_id"] == audition_id
+    assert verified["assembly_fingerprint"] == ASSEMBLY
+    assert verified["modelrig_service"] == "modelrig-server"
+    assert verified["modelrig_version"] == "modelrig-test-1"
+    assert verified["voicerig_service"] == "voicerig"
+    assert verified["voicerig_version"] == "voicerig-test-1"
+    assert verified["prompt_sha256"] == receipt["prompt_sha256"]
+    assert verified["reply_sha256"] == receipt["reply_sha256"]
+    assert verified["audio_sha256"] == receipt["audio_sha256"]
+    assert verified["complete"] is True
+    assert audio_path(tmp_path, PERSON_ID, audition_id).read_bytes() == _wav()
