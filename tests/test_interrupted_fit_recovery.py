@@ -302,3 +302,58 @@ def test_recovery_refuses_non_sith_fitter(tmp_path: Path) -> None:
             identity_workspace=workspace,
             current_revision=REVISION,
         )
+
+
+def test_boolean_stash_manifest_version_is_rejected(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    manifest_path = outer / "bodyrig-stash-source-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = True
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(InterruptedFitRecoveryError, match="unsupported Stash source manifest format/version"):
+        build_recovery_plan(
+            failed_session_path=failed,
+            stash_clone_output=outer,
+            identity_workspace=workspace,
+            current_revision=REVISION,
+        )
+
+
+def test_boolean_persisted_recovery_plan_version_is_rejected(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    plan = build_recovery_plan(
+        failed_session_path=failed,
+        stash_clone_output=outer,
+        identity_workspace=workspace,
+        current_revision=REVISION,
+    )
+    plan["version"] = True
+
+    with pytest.raises(InterruptedFitRecoveryError, match="unsupported interrupted fit recovery plan"):
+        verify_recovered_package(plan, outer / "clone" / "fixture-person.mrbody")
+
+
+def test_numeric_float_versions_remain_v1_compatible_through_resume_and_verify(tmp_path: Path) -> None:
+    failed, outer, workspace = _fixture(tmp_path)
+    manifest_path = outer / "bodyrig-stash-source-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["version"] = 1.0
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    plan = build_recovery_plan(
+        failed_session_path=failed,
+        stash_clone_output=outer,
+        identity_workspace=workspace,
+        current_revision=REVISION,
+    )
+    assert plan["recovery_mode"] == "resume-fit-only"
+    assert plan["production_activation"] is False
+    plan["version"] = 1.0
+
+    package = _build_recovered_package(outer)
+    verified = verify_recovered_package(plan, package)
+    assert verified["recovery_mode"] == "resume-fit-only"
+    assert verified["fitter_rerun"] is True
+    assert verified["adopted_complete_package"] is False
+    assert verified["expensive_reconstruction_rerun"] is False

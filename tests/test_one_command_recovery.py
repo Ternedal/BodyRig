@@ -199,3 +199,52 @@ def test_live_status_revalidates_producer_plan_and_emits_existing_recovery_comma
     assert "resume-interrupted-physical-fit.ps1" in status["next_command"]
     assert "-FailedSessionReport" in status["next_command"]
     assert status["expensive_reconstruction_rerun"] is False
+
+
+def test_boolean_one_command_run_authority_version_fails_closed(tmp_path: Path) -> None:
+    session, _ = _fixture(tmp_path)
+    authority_path = session.parent / "run-authority.json"
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = True
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    assert recovery.inspect_one_command_recovery(session) is None
+
+
+def test_boolean_hash_bound_recovery_plan_version_is_rejected(tmp_path: Path) -> None:
+    session, _ = _fixture(tmp_path)
+    run_root = session.parent
+    plan_path = run_root / "interrupted-fit-recovery-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["version"] = True
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    authority_path = run_root / "run-authority.json"
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["interrupted_fit_recovery_plan_sha256"] = _sha(plan_path)
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    with pytest.raises(recovery.OneCommandRecoveryError, match="recovery plan format/version mismatch"):
+        recovery.inspect_one_command_recovery(session)
+
+
+def test_numeric_float_one_command_versions_remain_v1_compatible(tmp_path: Path) -> None:
+    session, _ = _fixture(tmp_path)
+    run_root = session.parent
+    plan_path = run_root / "interrupted-fit-recovery-plan.json"
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan["version"] = 1.0
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+    authority_path = run_root / "run-authority.json"
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = 1.0
+    authority["interrupted_fit_recovery_plan_sha256"] = _sha(plan_path)
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    status = recovery.inspect_one_command_recovery(session)
+    assert status is not None
+    assert status["state"] == "ready"
+    assert status["recovery_mode"] == "resume-fit-only"
+    assert status["expensive_reconstruction_rerun"] is False
+    assert status["fitter_rerun"] is True
