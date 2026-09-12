@@ -59,9 +59,16 @@ def _is_strict_utf8_text(value: str) -> bool:
     return True
 
 
-def _num(value: Any, lo: float, hi: float, field: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not lo <= float(value) <= hi:
+def _num(value: Any, lo: float, hi: float, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MRBodyError(f"bodyprint.{field}: invalid number")
+    try:
+        numeric = float(value)
+    except OverflowError:
+        raise MRBodyError(f"bodyprint.{field}: invalid number") from None
+    if not math.isfinite(numeric) or not lo <= numeric <= hi:
+        raise MRBodyError(f"bodyprint.{field}: invalid number")
+    return numeric
 
 
 def validate_bodyprint(value: Any) -> dict[str, Any]:
@@ -91,10 +98,10 @@ def validate_bodyprint(value: Any) -> dict[str, Any]:
             raise MRBodyError(f"bodyprint.{section}: invalid object")
         for key, item in obj.items():
             lo, hi = section_rules[key]
-            _num(item, lo, hi, f"{section}.{key}")
-            if section == "shape" and key == "height_scale" and float(item) <= 0.0:
+            numeric = _num(item, lo, hi, f"{section}.{key}")
+            if section == "shape" and key == "height_scale" and numeric <= 0.0:
                 raise MRBodyError("bodyprint.shape.height_scale: invalid number")
-            if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and not float(item).is_integer():
+            if section == "motion" and key in MOVEMENT_IDENTITY_INTEGER_FIELDS and not numeric.is_integer():
                 raise MRBodyError(f"bodyprint.motion.{key}: expected integral observation count")
             observed += 1
     if observed == 0:
