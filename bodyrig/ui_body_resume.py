@@ -294,7 +294,12 @@ def _verify_recovery_receipt(path: Path, *, mode: str, plan: dict[str, Any]) -> 
         raise UiJobError("interrupted recovery receipt is unreadable") from exc
     if not isinstance(value, dict):
         raise UiJobError("interrupted recovery receipt must be a JSON object")
-    if value.get("format") != "bodyrig-interrupted-physical-fit-recovery" or value.get("version") != 1:
+    receipt_version = value.get("version")
+    if (
+        value.get("format") != "bodyrig-interrupted-physical-fit-recovery"
+        or isinstance(receipt_version, bool)
+        or receipt_version != 1
+    ):
         raise UiJobError("interrupted recovery receipt format/version mismatch")
     if value.get("recovery_mode") != mode:
         raise UiJobError("interrupted recovery receipt changed the selected recovery mode")

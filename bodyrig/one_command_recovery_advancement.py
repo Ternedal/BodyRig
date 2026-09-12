@@ -83,7 +83,8 @@ def inspect_completed_recovery(structural: Mapping[str, Any]) -> dict[str, Any] 
         )
 
     receipt = _read_json(recovery_receipt, "interrupted fit recovery receipt")
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    receipt_version = receipt.get("version")
+    if receipt.get("format") != FORMAT or isinstance(receipt_version, bool) or receipt_version != VERSION:
         raise OneCommandRecoveryAdvancementError("interrupted fit recovery receipt format/version mismatch")
 
     failed_raw = _read_json(failed_session, "failed physical session")
