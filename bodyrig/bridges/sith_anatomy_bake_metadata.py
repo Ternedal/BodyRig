@@ -23,7 +23,10 @@ class AnatomyBakeMetadataError(ValueError):
 def _finite_nonnegative(value: Any, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise AnatomyBakeMetadataError(f"{label} is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise AnatomyBakeMetadataError(f"{label} is invalid") from None
     if not math.isfinite(result) or result < 0.0:
         raise AnatomyBakeMetadataError(f"{label} is invalid")
     return result
@@ -32,7 +35,10 @@ def _finite_nonnegative(value: Any, *, label: str) -> float:
 def _finite_signed(value: Any, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise AnatomyBakeMetadataError(f"{label} is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise AnatomyBakeMetadataError(f"{label} is invalid") from None
     if not math.isfinite(result):
         raise AnatomyBakeMetadataError(f"{label} is invalid")
     return result
