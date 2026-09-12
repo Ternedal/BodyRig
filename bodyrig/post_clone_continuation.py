@@ -83,7 +83,12 @@ def build_post_clone_plan(
 
     source_manifest_path = outer / "bodyrig-stash-source-manifest.json"
     source_manifest = _read_json(source_manifest_path, label="Stash source manifest")
-    if source_manifest.get("format") != "bodyrig-stash-source-manifest" or source_manifest.get("version") != 1:
+    source_version = source_manifest.get("version")
+    if (
+        source_manifest.get("format") != "bodyrig-stash-source-manifest"
+        or isinstance(source_version, bool)
+        or source_version != 1
+    ):
         raise PostCloneContinuationError("unsupported Stash source manifest format/version")
     if source_manifest.get("source_kind") != "stash-local":
         raise PostCloneContinuationError("post-clone continuation requires a stash-local source manifest")
