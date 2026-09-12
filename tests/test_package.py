@@ -167,3 +167,39 @@ def test_install_package_uses_copied_temp_bytes_as_single_identity_authority(tmp
     assert validated_paths[0] != package.resolve()
     assert installed == library / "test-body.mrbody"
     assert real_validate(installed).manifest["id"] == "test-body"
+
+def test_bodyprint_huge_integer_fails_with_mrbody_error():
+    bodyprint = {
+        "format": "modelrig-bodyprint",
+        "version": 1,
+        "motion": {"energy": 10**400},
+    }
+
+    with pytest.raises(MRBodyError, match=r"bodyprint\.motion\.energy: invalid number"):
+        package_module.validate_bodyprint(bodyprint)
+
+
+def test_package_huge_bodyprint_integer_fails_with_mrbody_error(tmp_path: Path):
+    package = make_package(tmp_path / "source.mrbody")
+    crafted = tmp_path / "huge-number.mrbody"
+
+    with zipfile.ZipFile(package, "r") as source:
+        entries = {info.filename: source.read(info.filename) for info in source.infolist()}
+
+    bodyprint = {
+        "format": "modelrig-bodyprint",
+        "version": 1,
+        "motion": {"energy": 10**400},
+    }
+    bodyprint_bytes = json.dumps(bodyprint, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    entries["bodyprint.json"] = bodyprint_bytes
+    checksums = json.loads(entries["checksums.json"].decode("utf-8"))
+    checksums["bodyprint.json"] = hashlib.sha256(bodyprint_bytes).hexdigest()
+    entries["checksums.json"] = (json.dumps(checksums, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+    with zipfile.ZipFile(crafted, "w", compression=zipfile.ZIP_DEFLATED) as target:
+        for name, data in entries.items():
+            target.writestr(name, data)
+
+    with pytest.raises(MRBodyError, match=r"bodyprint\.motion\.energy: invalid number"):
+        validate_package(crafted)
