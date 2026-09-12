@@ -45,9 +45,15 @@ def _finite_vec(value: object, field: str) -> Vec3:
         raise RecoveryError(f"{field}: expected [x,y,z]")
     out: list[float] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise RecoveryError(f"{field}: coordinates must be finite numbers")
-        out.append(float(item))
+        try:
+            numeric = float(item)
+        except OverflowError:
+            raise RecoveryError(f"{field}: coordinates must be finite numbers") from None
+        if not math.isfinite(numeric):
+            raise RecoveryError(f"{field}: coordinates must be finite numbers")
+        out.append(numeric)
     return out[0], out[1], out[2]
 
 
@@ -91,7 +97,13 @@ def parse_recovery_result(payload: object, *, expected_adapter: str | None = Non
                 raise RecoveryError(f"tracks[{ti}]: timestamps must be strictly increasing non-negative integers")
             previous_ts = timestamp
             confidence = raw_frame.get("confidence", 1.0)
-            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(float(confidence)) or not 0.0 <= float(confidence) <= 1.0:
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+                raise RecoveryError(f"tracks[{ti}].frames[{fi}]: invalid confidence")
+            try:
+                numeric_confidence = float(confidence)
+            except OverflowError:
+                raise RecoveryError(f"tracks[{ti}].frames[{fi}]: invalid confidence") from None
+            if not math.isfinite(numeric_confidence) or not 0.0 <= numeric_confidence <= 1.0:
                 raise RecoveryError(f"tracks[{ti}].frames[{fi}]: invalid confidence")
             raw_joints = raw_frame["joints"]
             if not isinstance(raw_joints, dict) or not raw_joints or len(raw_joints) > 256:
@@ -99,7 +111,7 @@ def parse_recovery_result(payload: object, *, expected_adapter: str | None = Non
             joints = {name: _finite_vec(point, f"joint {name}") for name, point in raw_joints.items() if isinstance(name, str) and 0 < len(name) <= 80}
             if len(joints) != len(raw_joints):
                 raise RecoveryError("invalid joint name")
-            frames.append(RecoveryFrame(timestamp_ms=timestamp, joints=joints, confidence=float(confidence)))
+            frames.append(RecoveryFrame(timestamp_ms=timestamp, joints=joints, confidence=numeric_confidence))
         tracks.append(RecoveredTrack(track_id=track_id, frames=tuple(frames)))
     return RecoveryResult(tracks=tuple(tracks), adapter=adapter, revision=revision)
 

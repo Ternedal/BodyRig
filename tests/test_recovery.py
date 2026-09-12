@@ -1,9 +1,12 @@
+import json
 import math
+import subprocess
 
 import pytest
 
+import bodyrig.recovery as recovery_module
 from bodyrig.movement_identity import require_movement_identity
-from bodyrig.recovery import BodyprintExtractor, RecoveryError, parse_recovery_result
+from bodyrig.recovery import BodyprintExtractor, JsonCommandRecoveryAdapter, RecoveryError, parse_recovery_result
 
 
 def frame(ts, shift=0.0):
@@ -126,3 +129,52 @@ def test_out_of_order_time_rejected():
 
 def test_adapter_identity_pinned():
     with pytest.raises(RecoveryError,match="identity mismatch"): parse_recovery_result(payload([frame(0),frame(100)]),expected_adapter="hmr2")
+
+
+def test_huge_integer_confidence_rejected_with_recovery_error():
+    bad = payload([frame(0), frame(100)])
+    bad["tracks"][0]["frames"][1]["confidence"] = 10**400
+
+    with pytest.raises(RecoveryError, match="invalid confidence"):
+        parse_recovery_result(bad)
+
+
+def test_huge_integer_joint_coordinate_rejected_with_recovery_error():
+    bad = payload([frame(0), frame(100)])
+    bad["tracks"][0]["frames"][1]["joints"]["head"][0] = 10**400
+
+    with pytest.raises(RecoveryError, match="coordinates must be finite numbers"):
+        parse_recovery_result(bad)
+
+
+def test_confidence_boundaries_remain_inclusive():
+    value = payload([frame(0), frame(100)])
+    value["tracks"][0]["frames"][0]["confidence"] = 0
+    value["tracks"][0]["frames"][1]["confidence"] = 1
+
+    result = parse_recovery_result(value)
+    assert [item.confidence for item in result.tracks[0].frames] == [0.0, 1.0]
+
+
+def test_json_command_adapter_normalizes_huge_numeric_stdout(monkeypatch, tmp_path):
+    bad = payload([frame(0), frame(100)])
+    bad["tracks"][0]["frames"][1]["confidence"] = 10**400
+    completed = subprocess.CompletedProcess(
+        args=["fixture"],
+        returncode=0,
+        stdout=json.dumps(bad),
+        stderr="",
+    )
+    monkeypatch.setattr(
+        recovery_module.subprocess,
+        "run",
+        lambda *args, **kwargs: completed,
+    )
+    adapter = JsonCommandRecoveryAdapter(
+        ["fixture"],
+        name="fixture",
+        revision="fixture-v1",
+    )
+
+    with pytest.raises(RecoveryError, match="invalid confidence"):
+        adapter.recover([tmp_path / "source.mp4"])
