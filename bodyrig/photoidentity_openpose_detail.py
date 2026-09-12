@@ -15,7 +15,10 @@ class PhotoIdentityOpenPoseDetailError(ValueError):
 def _finite(value: object, *, label: str, minimum: float = 0.0, maximum: float = 1.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PhotoIdentityOpenPoseDetailError(f"{label} must be numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise PhotoIdentityOpenPoseDetailError(f"{label} must be in {minimum}..{maximum}") from None
     if not math.isfinite(result) or not minimum <= result <= maximum:
         raise PhotoIdentityOpenPoseDetailError(f"{label} must be in {minimum}..{maximum}")
     return result
@@ -29,10 +32,14 @@ def _triples(value: object, *, label: str, expected_points: int) -> list[tuple[f
     result: list[tuple[float, float, float]] = []
     for index in range(expected_points):
         chunk = value[index * 3 : index * 3 + 3]
+        if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in chunk):
+            raise PhotoIdentityOpenPoseDetailError(f"OpenPose {label} contains non-numeric values")
         try:
             x, y, confidence = (float(item) for item in chunk)
-        except (TypeError, ValueError) as exc:
-            raise PhotoIdentityOpenPoseDetailError(f"OpenPose {label} contains non-numeric values") from exc
+        except OverflowError:
+            raise PhotoIdentityOpenPoseDetailError(
+                f"OpenPose {label} contains invalid coordinates/confidence"
+            ) from None
         if not all(math.isfinite(item) for item in (x, y, confidence)) or not 0.0 <= confidence <= 1.0:
             raise PhotoIdentityOpenPoseDetailError(f"OpenPose {label} contains invalid coordinates/confidence")
         result.append((x, y, confidence))
@@ -201,6 +208,14 @@ def merge_best_claims(
             scene = str(claim.get("scene_id") or "")
             quality = _finite(claim.get("quality"), label=f"{domain} quality")
             current = by_scene.get(scene)
-            if current is None or quality > float(current.get("quality", 0.0)):
+            current_quality = (
+                _finite(current.get("quality"), label=f"{domain} existing quality")
+                if current is not None
+                else None
+            )
+            if current_quality is None or quality > current_quality:
                 by_scene[scene] = claim
-        destination[domain] = sorted(by_scene.values(), key=lambda item: (-float(item["quality"]), str(item["scene_id"])))
+        destination[domain] = sorted(
+            by_scene.values(),
+            key=lambda item: (-_finite(item.get("quality"), label=f"{domain} quality"), str(item["scene_id"])),
+        )
