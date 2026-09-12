@@ -315,3 +315,16 @@ def test_persisted_blueprint_huge_ratio_is_normalized_to_binding_error(tmp_path:
         match="bound personality blueprint evidence is invalid",
     ):
         read_blueprint_evidence(tmp_path, person_id=person_id, digest=digest)
+
+
+def test_persisted_blueprint_boolean_version_fails_closed(tmp_path: Path) -> None:
+    person_id = "person-" + "a" * 32
+    blueprint = _blueprint()
+    digest = blueprint_sha256(blueprint)
+    blueprint["version"] = True
+    path = tmp_path / "personality-blueprints" / person_id / f"{digest}.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(blueprint), encoding="utf-8")
+
+    with pytest.raises(PersonalityEmbodimentBindingError, match="blueprint evidence is invalid"):
+        read_blueprint_evidence(tmp_path, person_id=person_id, digest=digest)
