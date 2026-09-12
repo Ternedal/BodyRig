@@ -170,3 +170,26 @@ def test_invalid_communication_type_is_reported_as_blueprint_error() -> None:
             default_language="da",
             communication={**communication(), "warmth": "high"},
         )
+
+def test_blueprint_rejects_huge_integer_ratio_with_domain_error() -> None:
+    value = build_blueprint(
+        default_language="da",
+        communication=communication(),
+    )
+    value["communication"]["warmth"] = 10**400
+
+    with pytest.raises(
+        PersonalityBlueprintError,
+        match=r"communication\.warmth must be a finite number in 0\.\.1",
+    ):
+        validate_blueprint(value)
+
+
+def test_blueprint_ratio_boundaries_remain_inclusive() -> None:
+    value = build_blueprint(
+        default_language="da",
+        communication=communication(directness=0.0, warmth=1.0),
+    )
+
+    assert value["communication"]["directness"] == 0.0
+    assert value["communication"]["warmth"] == 1.0
