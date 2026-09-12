@@ -72,7 +72,12 @@ def _num(value: Any, lo: float, hi: float, field: str) -> float:
 
 
 def validate_bodyprint(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or value.get("format") != "modelrig-bodyprint" or value.get("version") != 1:
+    if (
+        not isinstance(value, dict)
+        or value.get("format") != "modelrig-bodyprint"
+        or isinstance(value.get("version"), bool)
+        or value.get("version") != 1
+    ):
         raise MRBodyError("bodyprint.json: unsupported format/version")
     allowed_top = {"format", "version", "shape", "motion", "expression", "runtime"}
     if set(value) - allowed_top:
@@ -113,7 +118,7 @@ def validate_manifest(value: Any) -> dict[str, Any]:
     required = {"format", "format_version", "id", "name", "avatar", "bodyprint", "provenance", "thumbnail", "builder"}
     if not isinstance(value, dict) or set(value) != required:
         raise MRBodyError("manifest.json: fields must match v1 exactly")
-    if value["format"] != FORMAT or value["format_version"] != FORMAT_VERSION:
+    if value["format"] != FORMAT or isinstance(value["format_version"], bool) or value["format_version"] != FORMAT_VERSION:
         raise MRBodyError("manifest.json: unsupported format/version")
     if not isinstance(value["id"], str) or not SLUG_RE.fullmatch(value["id"]):
         raise MRBodyError("manifest.json: invalid id")
@@ -146,7 +151,12 @@ def validate_manifest(value: Any) -> dict[str, Any]:
 def validate_provenance(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {"format", "version", "created_at", "source", "synthetic_avatar", "pipeline"}:
         raise MRBodyError("provenance.json: fields must match v1 exactly")
-    if value["format"] != "modelrig-body-provenance" or value["version"] != 1 or value["synthetic_avatar"] is not True:
+    if (
+        value["format"] != "modelrig-body-provenance"
+        or isinstance(value["version"], bool)
+        or value["version"] != 1
+        or value["synthetic_avatar"] is not True
+    ):
         raise MRBodyError("provenance.json: invalid format")
     if (
         not isinstance(value["created_at"], str)
