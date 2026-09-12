@@ -19,6 +19,10 @@ class FidelityAdjustmentError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _canonical_sha256(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(
@@ -40,7 +44,7 @@ def _direction(value: Any, *, field: str) -> str:
 def build_fidelity_adjustment_plan(evaluation: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(evaluation, Mapping):
         raise FidelityAdjustmentError("fidelity evaluation must be an object")
-    if evaluation.get("format") != "bodyrig-fidelity-evaluation" or evaluation.get("version") != 1:
+    if evaluation.get("format") != "bodyrig-fidelity-evaluation" or not _v1(evaluation.get("version")):
         raise FidelityAdjustmentError("unsupported fidelity evaluation format/version")
     if evaluation.get("semantics") != SEMANTICS:
         raise FidelityAdjustmentError("fidelity evaluation semantics mismatch")
