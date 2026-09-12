@@ -121,7 +121,12 @@ def validate_manifest(value: Any) -> dict[str, Any]:
     builder = value["builder"]
     if not isinstance(builder, dict) or set(builder) - {"name", "version", "revision"} or not {"name", "version"} <= set(builder):
         raise MRBodyError("manifest.json: invalid builder")
-    if builder["name"] != "bodyrig" or not isinstance(builder["version"], str) or not 1 <= len(builder["version"]) <= 64:
+    if (
+        builder["name"] != "bodyrig"
+        or not isinstance(builder["version"], str)
+        or not 1 <= len(builder["version"]) <= 64
+        or not _is_strict_utf8_text(builder["version"])
+    ):
         raise MRBodyError("manifest.json: invalid builder identity")
     revision = builder.get("revision")
     if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision)):
@@ -134,7 +139,11 @@ def validate_provenance(value: Any) -> dict[str, Any]:
         raise MRBodyError("provenance.json: fields must match v1 exactly")
     if value["format"] != "modelrig-body-provenance" or value["version"] != 1 or value["synthetic_avatar"] is not True:
         raise MRBodyError("provenance.json: invalid format")
-    if not isinstance(value["created_at"], str) or not value["created_at"]:
+    if (
+        not isinstance(value["created_at"], str)
+        or not value["created_at"]
+        or not _is_strict_utf8_text(value["created_at"])
+    ):
         raise MRBodyError("provenance.json: invalid created_at")
     source = value["source"]
     if not isinstance(source, dict) or set(source) != {"kind", "count"} or source["kind"] != "user-supplied-local-media":
@@ -146,7 +155,16 @@ def validate_provenance(value: Any) -> dict[str, Any]:
     if not isinstance(pipeline, list) or not 1 <= len(pipeline) <= 32:
         raise MRBodyError("provenance.json: invalid pipeline")
     for item in pipeline:
-        if not isinstance(item, dict) or set(item) != {"stage", "adapter", "revision"} or not all(isinstance(item[k], str) and item[k] for k in item):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"stage", "adapter", "revision"}
+            or not all(
+                isinstance(item[key], str)
+                and item[key]
+                and _is_strict_utf8_text(item[key])
+                for key in item
+            )
+        ):
             raise MRBodyError("provenance.json: invalid pipeline stage")
     return value
 
