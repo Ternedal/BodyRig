@@ -82,7 +82,10 @@ class MovementIdentityError(ValueError):
 def _number(value: object, *, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MovementIdentityError(f"movement identity field is not numeric: {field}")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise MovementIdentityError(f"movement identity field is outside numeric range: {field}") from exc
     if not math.isfinite(number):
         raise MovementIdentityError(f"movement identity field is non-finite: {field}")
     lo, hi = FIELD_RANGES[field]

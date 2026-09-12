@@ -138,3 +138,30 @@ def test_implausible_cadence_is_not_identity_authority() -> None:
     result = inspect_movement_identity(bodyprint)
     assert result["complete"] is False
     assert any("cadence is implausible" in item for item in result["blockers"])
+
+
+def test_huge_numeric_field_fails_closed_as_movement_identity_error() -> None:
+    bodyprint = _bodyprint()
+    bodyprint["motion"]["walk_cadence_spm"] = 10**400
+
+    result = inspect_movement_identity(bodyprint)
+    assert result["complete"] is False
+    assert any("walk_cadence_spm" in blocker for blocker in result["blockers"])
+
+    with pytest.raises(MovementIdentityError, match="walk_cadence_spm"):
+        require_movement_identity(bodyprint)
+
+
+def test_numeric_range_boundaries_remain_valid() -> None:
+    bodyprint = _bodyprint()
+    bodyprint["motion"]["posture_torso_forward_lean_degrees"] = -90.0
+    bodyprint["motion"]["posture_torso_right_lean_degrees"] = 90.0
+    bodyprint["motion"]["posture_shoulder_roll_degrees"] = -90.0
+    bodyprint["motion"]["posture_hip_roll_degrees"] = 90.0
+    bodyprint["motion"]["posture_head_forward_offset_to_height"] = -1.0
+    bodyprint["motion"]["posture_head_right_offset_to_height"] = 1.0
+    bodyprint["motion"]["turn_speed_degrees_per_second"] = 720.0
+    bodyprint["motion"]["transition_intensity"] = 1.0
+    bodyprint["motion"]["idle_sway_to_height"] = 0.0
+
+    assert require_movement_identity(bodyprint)["complete"] is True
