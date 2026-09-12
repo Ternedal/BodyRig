@@ -60,6 +60,10 @@ class AbBaselineCandidateError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _git(repo_root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
@@ -150,7 +154,7 @@ def _assert_cycle_open(repo_root: Path) -> None:
         raise AbBaselineCandidateError("A/B lifecycle state is not valid UTF-8 JSON") from exc
     if not isinstance(value, dict) or set(value) != CYCLE_STATE_FIELDS:
         raise AbBaselineCandidateError("A/B lifecycle state fields do not match the canonical v1 lifecycle contract")
-    if value.get("format") != CYCLE_STATE_FORMAT or value.get("version") != 1:
+    if value.get("format") != CYCLE_STATE_FORMAT or not _v1(value.get("version")):
         raise AbBaselineCandidateError("A/B lifecycle state format/version mismatch")
     if value.get("cycle_id") != HISTORICAL_V1_CYCLE_ID:
         raise AbBaselineCandidateError("A/B lifecycle state cycle id differs from the completed v1 cycle")
@@ -201,7 +205,7 @@ f"the original Windows evidence fingerprint remains SHA-256 {windows_sha}. "
 def _validate_contract(value: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if set(value) != EXPECTED_TOP_LEVEL_FIELDS:
         raise AbBaselineCandidateError("A/B candidate contract has unexpected top-level fields")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    if value.get("format") != FORMAT or not _v1(value.get("version")):
         raise AbBaselineCandidateError("A/B candidate contract format/version mismatch")
     if value.get("comparison_only") is not True:
         raise AbBaselineCandidateError("A/B candidate contract must remain comparison-only")
