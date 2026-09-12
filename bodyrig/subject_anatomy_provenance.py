@@ -49,7 +49,10 @@ def _sha(value: Any, *, label: str) -> str:
 def _finite_nonnegative(value: Any, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise SubjectAnatomyProvenanceError(f"{label} is invalid") from None
     if not math.isfinite(result) or result < 0.0:
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
     return result
@@ -58,7 +61,10 @@ def _finite_nonnegative(value: Any, *, label: str) -> float:
 def _finite_alignment(value: Any, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise SubjectAnatomyProvenanceError(f"{label} is invalid") from None
     if not math.isfinite(result) or not -1.0 <= result <= 1.0:
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
     return result
@@ -69,14 +75,21 @@ def _finite_vector(value: Any, *, label: str, length: int) -> list[float]:
         raise SubjectAnatomyProvenanceError(f"{label} is invalid")
     result: list[float] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise SubjectAnatomyProvenanceError(f"{label} is invalid")
-        result.append(float(item))
+        try:
+            numeric = float(item)
+        except OverflowError:
+            raise SubjectAnatomyProvenanceError(f"{label} is invalid") from None
+        if not math.isfinite(numeric):
+            raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+        result.append(numeric)
     return result
 
 
 def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regression: bool = True) -> dict[str, Any]:
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if value.get("format") != FORMAT or isinstance(version, bool) or version != VERSION:
         raise SubjectAnatomyProvenanceError("subject anatomy refit evidence format is invalid")
     family = value.get("targetModelFamily")
     if family not in MODEL_FAMILIES:
