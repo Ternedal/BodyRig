@@ -128,6 +128,10 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -167,7 +171,7 @@ def _quote(path: Path) -> str:
 def _session_status(session_path: Path) -> AcceptanceStatus:
     session_path = session_path.expanduser().resolve()
     session = _read_json(session_path, "Physical clone session")
-    if session.get("format") != "bodyrig-physical-clone-session" or session.get("version") != 1:
+    if session.get("format") != "bodyrig-physical-clone-session" or not _is_v1(session.get("version")):
         raise AcceptanceStatusError("Unsupported physical clone session format/version.")
     body_id = str(session.get("body_id") or "") or None
     revision = _need_sha40(session.get("bodyrig_revision"), "session.bodyrig_revision")
@@ -207,7 +211,7 @@ def _session_status(session_path: Path) -> AcceptanceStatus:
 
 def _validate_gate_a(path: Path) -> GateAInfo:
     report = _read_json(path, "Gate A acceptance report")
-    if report.get("format") != "bodyrig-rig-acceptance" or report.get("version") != 1:
+    if report.get("format") != "bodyrig-rig-acceptance" or not _is_v1(report.get("version")):
         raise AcceptanceStatusError("Unsupported Gate A acceptance format/version.")
     if report.get("automated_pass") is not True or report.get("production_activation") is not False:
         raise AcceptanceStatusError("Gate A is not a valid non-activating automated PASS.")
@@ -268,7 +272,7 @@ def _platform_paths(acceptance_dir: Path, prefix: str, attestation_name: str) ->
 
 def _validate_probe(path: Path, *, platform: str, gate: GateAInfo) -> dict[str, Any]:
     probe = _read_json(path, "Renderer machine probe")
-    if probe.get("format") != "bodyrig-renderer-probe" or probe.get("version") != 1 or probe.get("platform") != platform:
+    if probe.get("format") != "bodyrig-renderer-probe" or not _is_v1(probe.get("version")) or probe.get("platform") != platform:
         raise AcceptanceStatusError(f"Invalid renderer machine probe: {path}")
     if _need_sha40(probe.get("bodyrig_revision"), "probe.bodyrig_revision") != gate.revision:
         raise AcceptanceStatusError(f"Renderer machine probe was built from a different BodyRig revision: {path}")
@@ -287,7 +291,7 @@ def _validate_probe(path: Path, *, platform: str, gate: GateAInfo) -> dict[str, 
 
 def _validate_deformation(path: Path, *, platform: str, probe: dict[str, Any], gate: GateAInfo) -> None:
     deformation = _read_json(path, "Deformation probe")
-    if deformation.get("format") != "bodyrig-deformation-probe" or deformation.get("version") != 1 or deformation.get("platform") != platform:
+    if deformation.get("format") != "bodyrig-deformation-probe" or not _is_v1(deformation.get("version")) or deformation.get("platform") != platform:
         raise AcceptanceStatusError(f"Invalid deformation probe: {path}")
     if _need_sha40(deformation.get("bodyrig_revision"), "deformation.bodyrig_revision") != gate.revision:
         raise AcceptanceStatusError(f"Deformation probe was built from a different BodyRig revision: {path}")
@@ -361,7 +365,7 @@ def _renderer_rejection_status(
 
 def _validate_attestation(path: Path, *, platform: str, gate: GateAInfo, paths: PlatformPaths) -> None:
     attestation = _read_json(path, "Renderer attestation")
-    if attestation.get("format") != "bodyrig-renderer-acceptance" or attestation.get("version") != 1:
+    if attestation.get("format") != "bodyrig-renderer-acceptance" or not _is_v1(attestation.get("version")):
         raise AcceptanceStatusError(f"Invalid renderer attestation: {path}")
     if attestation.get("platform") != platform or attestation.get("result") != "pass":
         raise AcceptanceStatusError(f"Renderer attestation is not a PASS for {platform}: {path}")
@@ -457,7 +461,7 @@ def _validate_release_artifact(
     release = _read_json(release_path, "Final release acceptance")
     if set(release) != RELEASE_FIELDS:
         raise AcceptanceStatusError("Final release acceptance fields do not match BodyRig release acceptance v1.")
-    if release.get("format") != "bodyrig-release-acceptance" or release.get("version") != 1:
+    if release.get("format") != "bodyrig-release-acceptance" or not _is_v1(release.get("version")):
         raise AcceptanceStatusError("Final release acceptance format/version is invalid.")
     if not str(release.get("completed_at") or "").strip():
         raise AcceptanceStatusError("Final release acceptance has no completed_at timestamp.")
