@@ -23,7 +23,7 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _completed_fixture(tmp_path: Path) -> tuple[dict, Path, Path, Path]:
+def _completed_fixture(tmp_path: Path, *, receipt_version: object = 1) -> tuple[dict, Path, Path, Path]:
     run_root = tmp_path / "automatic-production" / "fixture"
     clone_output = run_root / "clone-output"
     clone_dir = clone_output / "clone"
@@ -77,7 +77,7 @@ def _completed_fixture(tmp_path: Path) -> tuple[dict, Path, Path, Path]:
     recovered_payload = json.loads(recovered.read_text(encoding="utf-8"))
     receipt = {
         "format": "bodyrig-interrupted-physical-fit-recovery",
-        "version": 1,
+        "version": receipt_version,
         "bodyrig_revision": REVISION,
         "performer_id": PERFORMER,
         "body_alias": BODY_ID,
@@ -120,6 +120,25 @@ def test_completed_recovery_rebinds_session_readiness_package_and_reconstruction
     assert result is not None
     assert result["recovered_session"] == str(recovered.resolve())
     assert result["recovery_mode"] == "resume-fit-only"
+    assert result["expensive_reconstruction_rerun"] is False
+    assert result["fitter_rerun"] is False
+
+
+def test_completed_recovery_rejects_boolean_receipt_version_before_advancement(tmp_path: Path, monkeypatch) -> None:
+    structural, _failed, _recovered, _readiness = _completed_fixture(tmp_path, receipt_version=True)
+    monkeypatch.setattr(advancement, "validate_package", lambda _path: SimpleNamespace(manifest={"id": CANONICAL_BODY}))
+    with pytest.raises(advancement.OneCommandRecoveryAdvancementError, match="receipt format/version mismatch"):
+        advancement.inspect_completed_recovery(structural)
+
+
+def test_completed_recovery_accepts_numeric_float_v1_through_full_rebind(tmp_path: Path, monkeypatch) -> None:
+    structural, _failed, recovered, _readiness = _completed_fixture(tmp_path, receipt_version=1.0)
+    monkeypatch.setattr(advancement, "validate_package", lambda _path: SimpleNamespace(manifest={"id": CANONICAL_BODY}))
+    result = advancement.inspect_completed_recovery(structural)
+    assert result is not None
+    assert result["recovered_session"] == str(recovered.resolve())
+    assert result["recovery_mode"] == "resume-fit-only"
+    assert result["package_sha256"] == _sha(Path(structural["clone_output"]) / "clone" / f"{BODY_ID}.mrbody")
     assert result["expensive_reconstruction_rerun"] is False
     assert result["fitter_rerun"] is False
 
