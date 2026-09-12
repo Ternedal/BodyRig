@@ -26,7 +26,12 @@ def validate_adjustment_payload(value: Any) -> dict[str, Any]:
     expected = {"format", "version", "feedback_sha256", "changes"}
     if not isinstance(value, dict) or set(value) != expected:
         raise BodyprintAdjustmentError("BodyPrint adjustment fields must match v1 exactly")
-    if value.get("format") != ADJUSTMENT_FORMAT or value.get("version") != ADJUSTMENT_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != ADJUSTMENT_FORMAT
+        or isinstance(version, bool)
+        or version != ADJUSTMENT_VERSION
+    ):
         raise BodyprintAdjustmentError("unsupported BodyPrint adjustment format/version")
     feedback_sha = value.get("feedback_sha256")
     if (
@@ -48,9 +53,14 @@ def validate_adjustment_payload(value: Any) -> dict[str, Any]:
             raise BodyprintAdjustmentError(f"changes[{index}].field is invalid or duplicated")
         seen.add(field)
         delta = item.get("delta")
-        if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(float(delta)):
+        if isinstance(delta, bool) or not isinstance(delta, (int, float)):
             raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite")
-        delta = float(delta)
+        try:
+            delta = float(delta)
+        except (TypeError, ValueError, OverflowError):
+            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite") from None
+        if not math.isfinite(delta):
+            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite")
         if delta == 0.0 or abs(delta) > FIELD_LIMITS[field] + 1e-12:
             raise BodyprintAdjustmentError(f"changes[{index}].delta exceeds the bounded V1 limit")
         reason = item.get("reason")
