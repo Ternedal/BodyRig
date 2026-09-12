@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Regression coverage for the two standalone SiTH fit-JSON consumers."""
+
 import json
 
 import pytest
