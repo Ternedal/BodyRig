@@ -141,7 +141,7 @@ def validate_provenance(value: Any) -> dict[str, Any]:
         raise MRBodyError("provenance.json: invalid format")
     if (
         not isinstance(value["created_at"], str)
-        or not value["created_at"]
+        or not 1 <= len(value["created_at"]) <= 80
         or not _is_strict_utf8_text(value["created_at"])
     ):
         raise MRBodyError("provenance.json: invalid created_at")
@@ -154,15 +154,16 @@ def validate_provenance(value: Any) -> dict[str, Any]:
     pipeline = value["pipeline"]
     if not isinstance(pipeline, list) or not 1 <= len(pipeline) <= 32:
         raise MRBodyError("provenance.json: invalid pipeline")
+    pipeline_text_limits = {"stage": 80, "adapter": 120, "revision": 160}
     for item in pipeline:
         if (
             not isinstance(item, dict)
-            or set(item) != {"stage", "adapter", "revision"}
+            or set(item) != set(pipeline_text_limits)
             or not all(
                 isinstance(item[key], str)
-                and item[key]
+                and 1 <= len(item[key]) <= pipeline_text_limits[key]
                 and _is_strict_utf8_text(item[key])
-                for key in item
+                for key in pipeline_text_limits
             )
         ):
             raise MRBodyError("provenance.json: invalid pipeline stage")
