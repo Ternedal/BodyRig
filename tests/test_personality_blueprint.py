@@ -193,3 +193,16 @@ def test_blueprint_ratio_boundaries_remain_inclusive() -> None:
 
     assert value["communication"]["directness"] == 0.0
     assert value["communication"]["warmth"] == 1.0
+
+
+def test_blueprint_rejects_boolean_version_constant() -> None:
+    value = build_blueprint(default_language="da", communication=communication())
+    value["version"] = True
+    with pytest.raises(PersonalityBlueprintError, match="format/version"):
+        validate_blueprint(value)
+
+
+def test_blueprint_preserves_schema_numeric_version_equality() -> None:
+    value = build_blueprint(default_language="da", communication=communication())
+    value["version"] = 1.0
+    assert validate_blueprint(value)["version"] == 1

@@ -86,7 +86,7 @@ def _style_exemplars(value: Any) -> list[str]:
 def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise PersonalityBlueprintError("personality blueprint fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    if value.get("format") != FORMAT or isinstance(value.get("version"), bool) or value.get("version") != VERSION:
         raise PersonalityBlueprintError("unsupported personality blueprint format/version")
 
     language = _text(value.get("default_language"), field="default_language", maximum=16)
