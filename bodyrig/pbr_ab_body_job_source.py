@@ -38,6 +38,10 @@ class PbrAbBodyJobSourceError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PbrAbBodyJobSourceError(f"{label} is missing: {path}")
@@ -159,7 +163,7 @@ def _verify_source_enqueue_authority(
     marker = job.get("source_enqueue_authority")
     if not isinstance(marker, dict) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
         raise PbrAbBodyJobSourceError("body job lacks canonical revision-bound source enqueue authority")
-    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or not _v1(marker.get("version")):
         raise PbrAbBodyJobSourceError("body job source enqueue authority format/version mismatch")
     if str(marker.get("job_id") or "") != job_id or str(marker.get("person_id") or "") != person_id:
         raise PbrAbBodyJobSourceError("body job source enqueue authority identity mismatch")
@@ -260,7 +264,7 @@ def inspect_body_job_source(
 
     job_path = _canonical_job_path(job_id)
     job = _read_json(job_path, "succeeded A/B baseline body job")
-    if job.get("format") != "bodyrig-ui-job" or job.get("version") != 1:
+    if job.get("format") != "bodyrig-ui-job" or not _v1(job.get("version")):
         raise PbrAbBodyJobSourceError("body job format/version mismatch")
     if job.get("job_id") != job_id:
         raise PbrAbBodyJobSourceError("body job id does not match its canonical storage path")
@@ -287,7 +291,7 @@ def inspect_body_job_source(
         raise PbrAbBodyJobSourceError("body job lacks revision-bound A/B private-workspace retention authority")
     if (
         retention.get("format") != "bodyrig-ab-baseline-retention"
-        or retention.get("version") != 1
+        or not _v1(retention.get("version"))
         or retention.get("retain_private_workspace") is not True
         or retention.get("job_id") != job_id
         or _revision(retention.get("expected_bodyrig_revision"), "A/B retention expected revision") != job_revision
@@ -331,7 +335,7 @@ def inspect_body_job_source(
     policy = _read_json(policy_path, "PBR A/B retained-source policy")
     if set(policy) != {"format", "version", "safe_source_floor_revision"}:
         raise PbrAbBodyJobSourceError("PBR A/B retained-source policy fields do not match v1")
-    if policy.get("format") != "bodyrig-pbr-ab-source-policy" or policy.get("version") != 1:
+    if policy.get("format") != "bodyrig-pbr-ab-source-policy" or not _v1(policy.get("version")):
         raise PbrAbBodyJobSourceError("PBR A/B retained-source policy format/version mismatch")
     floor = _revision(policy.get("safe_source_floor_revision"), "safe-source floor revision")
     _git(repo, "cat-file", "-e", f"{floor}^{{commit}}")
