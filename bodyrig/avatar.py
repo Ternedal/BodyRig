@@ -34,6 +34,18 @@ class AvatarError(ValueError):
     pass
 
 
+def _positive_finite_number(value: Any, *, message: str, maximum: float | None = None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise AvatarError(message)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        raise AvatarError(message) from None
+    if not math.isfinite(numeric) or numeric <= 0.0 or (maximum is not None and numeric > maximum):
+        raise AvatarError(message)
+    return numeric
+
+
 @dataclass(frozen=True)
 class AvatarFitResult:
     avatar_vrm: bytes
@@ -74,7 +86,7 @@ def parse_glb_json(data: bytes) -> dict[str, Any]:
                 raise AvatarError("avatar: multiple JSON chunks")
             try:
                 decoded = json.loads(chunk.rstrip(b" \t\r\n\x00").decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 raise AvatarError("avatar: invalid glTF JSON") from exc
             if not isinstance(decoded, dict):
                 raise AvatarError("avatar: glTF JSON must be an object")
@@ -138,12 +150,11 @@ def validate_vrm1(data: bytes) -> dict[str, Any]:
             raise AvatarError(f"avatar: node for {bone_name} must be an object")
         scale = node.get("scale")
         if scale is not None:
-            if (
-                not isinstance(scale, list)
-                or len(scale) != 3
-                or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in scale)
-            ):
-                raise AvatarError(f"avatar: humanoid bone {bone_name} must have positive finite scale")
+            message = f"avatar: humanoid bone {bone_name} must have positive finite scale"
+            if not isinstance(scale, list) or len(scale) != 3:
+                raise AvatarError(message)
+            for value in scale:
+                _positive_finite_number(value, message=message)
     return document
 
 
@@ -234,7 +245,8 @@ class ProceduralAvatarFitter:
 
     @staticmethod
     def _shape(bodyprint: Mapping[str, Any]) -> dict[str, float]:
-        if bodyprint.get("format") != "modelrig-bodyprint" or bodyprint.get("version") != 1:
+        version = bodyprint.get("version")
+        if bodyprint.get("format") != "modelrig-bodyprint" or isinstance(version, bool) or version != 1:
             raise AvatarError("bodyprint: unsupported format/version")
         raw = bodyprint.get("shape")
         if not isinstance(raw, dict):
@@ -242,14 +254,14 @@ class ProceduralAvatarFitter:
         required = ("shoulder_to_height", "hip_to_height", "arm_to_height", "leg_to_height")
         shape: dict[str, float] = {}
         for key in required:
-            value = raw.get(key)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not 0.0 < float(value) <= 1.0:
-                raise AvatarError(f"bodyprint.shape.{key} is required and must be in (0,1]")
-            shape[key] = float(value)
+            message = f"bodyprint.shape.{key} is required and must be in (0,1]"
+            shape[key] = _positive_finite_number(raw.get(key), message=message, maximum=1.0)
         height_scale = raw.get("height_scale", 1.0)
-        if isinstance(height_scale, bool) or not isinstance(height_scale, (int, float)) or not math.isfinite(float(height_scale)) or not 0.0 < float(height_scale) <= 4.0:
-            raise AvatarError("bodyprint.shape.height_scale must be in (0,4]")
-        shape["height_scale"] = float(height_scale)
+        shape["height_scale"] = _positive_finite_number(
+            height_scale,
+            message="bodyprint.shape.height_scale must be in (0,4]",
+            maximum=4.0,
+        )
         return shape
 
     def fit(self, bodyprint: Mapping[str, Any], *, name: str) -> AvatarFitResult:
