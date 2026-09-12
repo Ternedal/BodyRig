@@ -7,7 +7,7 @@ from .movement_identity import MovementIdentityError, require_movement_identity
 
 
 def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
+    return max(0.0, min(1.0, value))
 
 
 def _number(section: Mapping[str, Any] | None, key: str, default: float) -> float:
@@ -16,7 +16,11 @@ def _number(section: Mapping[str, Any] | None, key: str, default: float) -> floa
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
-    return _clamp01(float(value))
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return _clamp01(number)
 
 
 def _observed_number(
@@ -33,7 +37,10 @@ def _observed_number(
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
     if not minimum <= number <= maximum:
         return None
     return number
