@@ -116,6 +116,51 @@ def test_write_and_read_review_are_exact_package_and_component_state_bound(
     assert status["quality_note"] == receipt["quality_note"]
 
 
+def test_review_rejects_boolean_v1_discriminator_before_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(tmp_path)
+    audit = _audit(package)
+    monkeypatch.setattr("bodyrig.high_fidelity_human_review.audit_high_fidelity_package", lambda _: audit)
+    write_review(package, checklist=_checklist(), quality_note="reviewed physical evidence")
+    path = review_path(package)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = True
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(HighFidelityHumanReviewError, match="format/version/policy mismatch"):
+        read_review(package)
+    with pytest.raises(HighFidelityHumanReviewError, match="format/version/policy mismatch"):
+        review_status(package)
+
+
+def test_numeric_float_v1_preserves_exact_review_authority_and_pass_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(tmp_path)
+    audit = _audit(package)
+    monkeypatch.setattr("bodyrig.high_fidelity_human_review.audit_high_fidelity_package", lambda _: audit)
+    receipt = write_review(package, checklist=_checklist(), quality_note="reviewed physical evidence")
+    path = review_path(package)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    loaded = read_review(package)
+    status = review_status(package)
+
+    assert loaded["version"] == 1.0
+    assert not isinstance(loaded["version"], bool)
+    assert loaded["package_sha256"] == receipt["package_sha256"]
+    assert loaded["component_state_sha256"] == receipt["component_state_sha256"]
+    assert loaded["checklist"] == receipt["checklist"]
+    assert loaded["human_review_complete"] is True
+    assert loaded["production_activation"] is False
+    assert status["state"] == "pass"
+    assert status["passed"] is True
+    assert status["quality_note"] == receipt["quality_note"]
+
+
 def test_review_is_create_only_for_exact_package_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
