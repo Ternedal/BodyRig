@@ -226,7 +226,12 @@ def run_sweep(
         baseline_manifest = json.loads(baseline_source_manifest.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PhotoIdentitySweepError("baseline Stash source manifest is unreadable") from exc
-    if not isinstance(baseline_manifest, dict) or baseline_manifest.get("format") != "bodyrig-stash-source-manifest" or baseline_manifest.get("version") != 1:
+    if (
+        not isinstance(baseline_manifest, dict)
+        or baseline_manifest.get("format") != "bodyrig-stash-source-manifest"
+        or isinstance(baseline_manifest.get("version"), bool)
+        or baseline_manifest.get("version") != 1
+    ):
         raise PhotoIdentitySweepError("baseline Stash source manifest format/version is invalid")
     baseline_performer = baseline_manifest.get("performer") or {}
     if str(baseline_performer.get("id") or "") != performer_id:
