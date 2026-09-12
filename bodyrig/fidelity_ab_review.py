@@ -23,6 +23,10 @@ class FidelityAbReviewError(ValueError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -66,7 +70,7 @@ def _need_revision(value: Any, *, label: str) -> str:
 
 def _validate_ab(path: Path) -> dict[str, Any]:
     evidence = _load_json(path, label="fidelity A/B evidence")
-    if evidence.get("format") != AB_FORMAT or evidence.get("version") != AB_VERSION:
+    if evidence.get("format") != AB_FORMAT or not _is_version(evidence.get("version"), AB_VERSION):
         raise FidelityAbReviewError("fidelity A/B evidence format/version mismatch")
     invariants = evidence.get("invariants")
     if not isinstance(invariants, dict) or invariants.get("clean_appearance_ab") is not True:
@@ -107,7 +111,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
     body_id = side.get("body_id")
     if not isinstance(body_id, str) or not body_id:
         raise FidelityAbReviewError(f"{label} body id is missing")
-    if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or comparison.get("version") != 1:
+    if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or not _is_version(comparison.get("version"), 1):
         raise FidelityAbReviewError(f"{label} comparison authority format/version mismatch")
     if comparison.get("authority") != "validated-package-comparison-only":
         raise FidelityAbReviewError(f"{label} comparison authority is not direct package comparison evidence")
@@ -119,7 +123,7 @@ def _validate_render_dir(path: Path, *, side: dict[str, Any], label: str) -> dic
         raise FidelityAbReviewError(f"{label} comparison authority is bound to different package bytes")
     renderer_revision = _need_revision(comparison.get("bodyrig_revision"), label=f"{label} renderer revision")
 
-    if render_set.get("format") != "bodyrig-fidelity-render-set" or render_set.get("version") != 1:
+    if render_set.get("format") != "bodyrig-fidelity-render-set" or not _is_version(render_set.get("version"), 1):
         raise FidelityAbReviewError(f"{label} render-set format/version mismatch")
     if render_set.get("semantics") != "visual-fidelity-not-identity-verification":
         raise FidelityAbReviewError(f"{label} render-set semantics mismatch")
