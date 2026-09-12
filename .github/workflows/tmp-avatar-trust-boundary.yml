@@ -1,0 +1,194 @@
+name: tmp-avatar-trust-boundary
+
+on:
+  push:
+    branches:
+      - staging/avatar-trust-boundary-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Apply avatar trust-boundary fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          avatar = Path('bodyrig/avatar.py')
+          text = avatar.read_text(encoding='utf-8')
+
+          old = '''class AvatarError(ValueError):
+              pass
+
+
+          @dataclass(frozen=True)
+          '''.replace('          ', '')
+          new = '''class AvatarError(ValueError):
+              pass
+
+
+          def _finite_float(value: object, error_message: str) -> float:
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  raise AvatarError(error_message)
+              try:
+                  number = float(value)
+              except OverflowError:
+                  raise AvatarError(error_message) from None
+              if not math.isfinite(number):
+                  raise AvatarError(error_message)
+              return number
+
+
+          @dataclass(frozen=True)
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('AvatarError insertion anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '            except (UnicodeDecodeError, json.JSONDecodeError) as exc:\n'
+          new = '            except (UnicodeDecodeError, ValueError) as exc:\n'
+          if old not in text:
+              raise SystemExit('GLB JSON exception anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        scale = node.get("scale")
+                  if scale is not None:
+                      if (
+                          not isinstance(scale, list)
+                          or len(scale) != 3
+                          or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0 for value in scale)
+                      ):
+                          raise AvatarError(f"avatar: humanoid bone {bone_name} must have positive finite scale")
+          '''.replace('          ', '')
+          new = '''        scale = node.get("scale")
+                  if scale is not None:
+                      message = f"avatar: humanoid bone {bone_name} must have positive finite scale"
+                      if not isinstance(scale, list) or len(scale) != 3:
+                          raise AvatarError(message)
+                      for value in scale:
+                          if _finite_float(value, message) <= 0:
+                              raise AvatarError(message)
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('VRM scale validation anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        for key in required:
+                      value = raw.get(key)
+                      if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not 0.0 < float(value) <= 1.0:
+                          raise AvatarError(f"bodyprint.shape.{key} is required and must be in (0,1]")
+                      shape[key] = float(value)
+                  height_scale = raw.get("height_scale", 1.0)
+                  if isinstance(height_scale, bool) or not isinstance(height_scale, (int, float)) or not math.isfinite(float(height_scale)) or not 0.0 < float(height_scale) <= 4.0:
+                      raise AvatarError("bodyprint.shape.height_scale must be in (0,4]")
+                  shape["height_scale"] = float(height_scale)
+          '''.replace('          ', '')
+          new = '''        for key in required:
+                      value = raw.get(key)
+                      message = f"bodyprint.shape.{key} is required and must be in (0,1]"
+                      number = _finite_float(value, message)
+                      if not 0.0 < number <= 1.0:
+                          raise AvatarError(message)
+                      shape[key] = number
+                  height_scale = raw.get("height_scale", 1.0)
+                  height_message = "bodyprint.shape.height_scale must be in (0,4]"
+                  normalized_height = _finite_float(height_scale, height_message)
+                  if not 0.0 < normalized_height <= 4.0:
+                      raise AvatarError(height_message)
+                  shape["height_scale"] = normalized_height
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('procedural shape validation anchor not found')
+          text = text.replace(old, new, 1)
+          avatar.write_text(text, encoding='utf-8')
+
+          tests = Path('tests/test_avatar.py')
+          t = tests.read_text(encoding='utf-8')
+          if 'import struct\n' not in t:
+              t = t.replace('import json\n', 'import json\nimport struct\n', 1)
+          if 'import bodyrig.avatar as avatar_module\n' not in t:
+              t = t.replace('import pytest\n\n', 'import pytest\n\nimport bodyrig.avatar as avatar_module\n', 1)
+
+          addition = r'''
+
+          def _raw_json_glb(payload: bytes) -> bytes:
+              json_chunk = payload + b" " * ((-len(payload)) % 4)
+              chunk = struct.pack("<I4s", len(json_chunk), b"JSON") + json_chunk
+              return b"glTF" + struct.pack("<II", 2, 12 + len(chunk)) + chunk
+
+
+          def test_validate_vrm1_normalizes_huge_scale_overflow():
+              result = ProceduralAvatarFitter().fit(BODYPRINT, name="Fixture Person")
+              document = parse_glb_json(result.avatar_vrm)
+              hips_index = document["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]["hips"]["node"]
+              document["nodes"][hips_index]["scale"] = [10**400, 1, 1]
+
+              with pytest.raises(AvatarError, match="positive finite scale"):
+                  validate_vrm1(avatar_module._glb(document, b""))
+
+
+          def test_parse_glb_json_normalizes_integer_digit_limit_value_error():
+              result = ProceduralAvatarFitter().fit(BODYPRINT, name="Fixture Person")
+              document = parse_glb_json(result.avatar_vrm)
+              hips_index = document["extensions"]["VRMC_vrm"]["humanoid"]["humanBones"]["hips"]["node"]
+              document["nodes"][hips_index]["scale"] = [1, 1, 1]
+              raw = json.dumps(document, separators=(",", ":")).encode("utf-8")
+              marker = b'"scale":[1,1,1]'
+              assert marker in raw
+              raw = raw.replace(marker, b'"scale":[' + (b"9" * 5000) + b',1,1]', 1)
+
+              with pytest.raises(AvatarError, match="invalid glTF JSON"):
+                  parse_glb_json(_raw_json_glb(raw))
+
+
+          @pytest.mark.parametrize("field", ["shoulder_to_height", "height_scale"])
+          def test_procedural_fitter_normalizes_huge_shape_overflow(field):
+              bodyprint = dict(BODYPRINT)
+              bodyprint["shape"] = dict(BODYPRINT["shape"])
+              bodyprint["shape"][field] = 10**400
+
+              with pytest.raises(AvatarError, match="bodyprint.shape"):
+                  ProceduralAvatarFitter().fit(bodyprint, name="Huge Shape")
+          '''.replace('          ', '')
+          if 'test_validate_vrm1_normalizes_huge_scale_overflow' in t:
+              raise SystemExit('avatar regressions already present')
+          tests.write_text(t.rstrip() + addition + '\n', encoding='utf-8')
+          PY
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full suite and exact product diff
+        shell: bash
+        run: |
+          python -m pytest
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(bodyrig/avatar.py tests/test_avatar.py)
+          if [ "${changed[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected product diff: %s\n' "${changed[*]}" >&2
+            exit 1
+          fi
+      - name: Publish validated staging product tree
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bodyrig/avatar.py tests/test_avatar.py
+          mapfile -t staged < <(git diff --cached --name-only | sort)
+          expected=(bodyrig/avatar.py tests/test_avatar.py)
+          if [ "${staged[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected staged product set: %s\n' "${staged[*]}" >&2
+            exit 1
+          fi
+          git commit -m 'Harden avatar numeric trust boundary'
+          git push origin HEAD:staging/avatar-trust-boundary-20260912
