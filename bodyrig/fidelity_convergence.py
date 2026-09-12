@@ -28,14 +28,15 @@ class FidelityConvergenceError(ValueError):
 
 
 def _ratio(value: Any, *, field: str) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        or not 0.0 <= float(value) <= 1.0
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise FidelityConvergenceError(f"{field} must be a finite number in 0..1")
-    return float(value)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        raise FidelityConvergenceError(f"{field} must be a finite number in 0..1") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise FidelityConvergenceError(f"{field} must be a finite number in 0..1")
+    return numeric
 
 
 def _sha(value: Any, *, field: str) -> str:
@@ -92,7 +93,8 @@ def validate_measurement(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
     if not isinstance(value, Mapping) or set(value) != required:
         raise FidelityConvergenceError("fidelity measurement fields must match v1 exactly")
-    if value.get("format") != MEASUREMENT_FORMAT or value.get("version") != MEASUREMENT_VERSION:
+    version = value.get("version")
+    if value.get("format") != MEASUREMENT_FORMAT or isinstance(version, bool) or version != MEASUREMENT_VERSION:
         raise FidelityConvergenceError("unsupported fidelity measurement format/version")
 
     iteration = value.get("iteration")
