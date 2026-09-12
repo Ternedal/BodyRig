@@ -5,6 +5,17 @@ import pytest
 from bodyrig.bridges import bodyprint_shape_adjust as adjust
 
 
+class CountingFloat(float):
+    def __new__(cls, value: float):
+        instance = super().__new__(cls, value)
+        instance.float_calls = 0
+        return instance
+
+    def __float__(self) -> float:
+        self.float_calls += 1
+        return float.__float__(self)
+
+
 def _payload(*, delta=0.01, version=1, field="shape.arm_to_height") -> dict:
     return {
         "format": adjust.ADJUSTMENT_FORMAT,
@@ -45,11 +56,11 @@ def test_exact_arm_delta_boundaries_are_accepted(delta) -> None:
     assert type(result["changes"][0]["delta"]) is float
 
 
-def test_ordinary_integer_delta_is_normalized_to_float() -> None:
-    result = adjust.validate_adjustment_payload(
-        _payload(delta=1, field="motion.gesture_amplitude")
-    )
+def test_accepted_delta_is_converted_exactly_once_and_normalized() -> None:
+    delta = CountingFloat(0.01)
 
-    # The integer is outside the bounded V1 range, so conversion succeeds first
-    # and the existing bounded-range contract still rejects it canonically.
-    assert result  # pragma: no cover
+    result = adjust.validate_adjustment_payload(_payload(delta=delta))
+
+    assert delta.float_calls == 1
+    assert result["changes"][0]["delta"] == 0.01
+    assert type(result["changes"][0]["delta"]) is float
