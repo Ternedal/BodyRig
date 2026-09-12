@@ -154,7 +154,13 @@ def read_review(*, candidate_dir: str | Path, source_eye_appearance_dir: str | P
     }
     if set(value) != required:
         raise SourceIrisIsolationReviewError("iris isolation review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or version != VERSION
+        or value.get("policyRevision") != POLICY_REVISION
+    ):
         raise SourceIrisIsolationReviewError("iris isolation review format/version/policy mismatch")
     revision = str(value.get("bodyrigRevision") or "")
     if not REVISION_RE.fullmatch(revision):

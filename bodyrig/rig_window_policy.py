@@ -35,7 +35,7 @@ def _scope_sessions(
             session = base._read_json(path)
             if not session:
                 continue
-            if session.get("format") != "bodyrig-physical-clone-session" or session.get("version") != 1:
+            if session.get("format") != "bodyrig-physical-clone-session" or not base._is_v1(session.get("version")):
                 continue
             if session.get("status") != "pass" or session.get("stage") != "complete":
                 continue

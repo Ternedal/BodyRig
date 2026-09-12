@@ -54,7 +54,9 @@ def test_existing_non_directory_handoff_fails_closed(monkeypatch, tmp_path: Path
     assert result["production_activation"] is False
 
 
-def _mock_valid_committed_handoff(monkeypatch, tmp_path: Path, package_sha: str) -> Path:
+def _mock_valid_committed_handoff(
+    monkeypatch, tmp_path: Path, package_sha: str, *, version: object = physical.VERSION
+) -> Path:
     acceptance = tmp_path / "physical-acceptance"
     acceptance.mkdir()
     accepted = acceptance / ("bodyid-" + "1" * 24 + ".mrbody")
@@ -67,7 +69,7 @@ def _mock_valid_committed_handoff(monkeypatch, tmp_path: Path, package_sha: str)
         "_json",
         lambda *_args, **_kwargs: {
             "format": physical.FORMAT,
-            "version": physical.VERSION,
+            "version": version,
             "previewJobId": JOB_ID,
             "canonicalBodyId": "bodyid-" + "1" * 24,
             "bodyrigRevision": "c" * 40,
@@ -113,6 +115,43 @@ def test_valid_handoff_delegates_to_canonical_acceptance_state_machine(monkeypat
     assert result["state"] == "ready"
     assert result["gate"] == "windows-probe"
     assert "run-windows-renderer-probe.ps1" in result["next_command"]
+    assert result["production_activation"] is False
+
+
+def test_boolean_handoff_version_fails_before_canonical_acceptance_delegation(monkeypatch, tmp_path: Path) -> None:
+    package, package_sha = _package(tmp_path)
+    _mock_valid_committed_handoff(monkeypatch, tmp_path, package_sha, version=True)
+    delegated = {"called": False}
+
+    def inspect(_path):
+        delegated["called"] = True
+        raise AssertionError("boolean handoff must fail before canonical acceptance delegation")
+
+    monkeypatch.setattr(physical, "inspect_acceptance_dir", inspect)
+    result = physical.physical_acceptance_status(JOB_ID, package_path=package, package_sha256=package_sha)
+
+    assert result["state"] == "invalid"
+    assert result["gate"] == "physical-gate-a"
+    assert result["production_activation"] is False
+    assert delegated["called"] is False
+
+
+def test_numeric_float_handoff_version_preserves_windows_probe_state(monkeypatch, tmp_path: Path) -> None:
+    package, package_sha = _package(tmp_path)
+    acceptance = _mock_valid_committed_handoff(monkeypatch, tmp_path, package_sha, version=1.0)
+    monkeypatch.setattr(
+        physical,
+        "inspect_acceptance_dir",
+        lambda _path: AcceptanceStatus(
+            "ready", "windows-probe", str(acceptance), "bodyid-" + "1" * 24, "c" * 40,
+            "fresh Gate A is ready for Windows", '.\\run-windows-renderer-probe.ps1 -AcceptanceDir "x"',
+        ),
+    )
+
+    result = physical.physical_acceptance_status(JOB_ID, package_path=package, package_sha256=package_sha)
+
+    assert result["state"] == "ready"
+    assert result["gate"] == "windows-probe"
     assert result["production_activation"] is False
 
 

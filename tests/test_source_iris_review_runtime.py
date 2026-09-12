@@ -18,7 +18,13 @@ def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _base_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, bytes]:
+def _base_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    base_version: object = 1,
+    eye_version: object = 1,
+) -> tuple[Path, bytes]:
     root = tmp_path / "base-runtime"
     root.mkdir()
     vrm = root / runtime.BASE_VRM_NAME
@@ -26,7 +32,7 @@ def _base_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     vrm.write_bytes(raw)
     receipt = {
         "format": "bodyrig-source-hair-eye-review-runtime",
-        "version": 1,
+        "version": base_version,
         "bodyrigRevision": BASE_REVISION,
         "bridgeScriptSha256": "3" * 64,
         "bodyId": "fixture-body",
@@ -61,7 +67,7 @@ def _base_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     (root / runtime.BASE_RECEIPT_NAME).write_text(json.dumps(receipt), encoding="utf-8")
     eye_metadata = {
         "format": "bodyrig-source-eye-review-runtime-metadata",
-        "version": 1,
+        "version": eye_version,
         "eyeComponentReceiptSha256": "8" * 64,
         "eyeAppearanceReceiptSha256": EYE_APPEARANCE_SHA,
         "canonicalEyeBakeSha256": CANONICAL_BAKE_SHA,
@@ -230,3 +236,115 @@ def test_reviewed_runtime_rejects_review_that_claims_eye_component_authority(tmp
             bodyrig_revision=REVIEW_REVISION,
             output_dir=tmp_path / "reviewed",
         )
+
+
+
+def test_base_runtime_receipt_rejects_boolean_v1_before_iris_overlay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch, base_version=True)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    with pytest.raises(runtime.SourceIrisReviewRuntimeError, match="combined source hair\\+eye runtime receipt fields/format"):
+        runtime.build_reviewed_runtime(
+            base_runtime_dir=base_dir,
+            iris_candidate_dir=candidate_dir,
+            source_eye_appearance_dir=source_dir,
+            bodyrig_revision=REVIEW_REVISION,
+            output_dir=tmp_path / "reviewed",
+        )
+
+
+def test_base_runtime_receipt_accepts_numeric_float_v1_without_authority_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch, base_version=1.0)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    result = runtime.build_reviewed_runtime(
+        base_runtime_dir=base_dir,
+        iris_candidate_dir=candidate_dir,
+        source_eye_appearance_dir=source_dir,
+        bodyrig_revision=REVIEW_REVISION,
+        output_dir=tmp_path / "reviewed",
+    )
+    assert result["irisIdentityIsolated"] is True
+    assert result["eyeComponentAuthority"] is False
+    assert result["eyesPromotionEligible"] is False
+    assert result["productionActivation"] is False
+
+
+def test_embedded_eye_metadata_rejects_boolean_v1_before_iris_overlay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch, eye_version=True)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    with pytest.raises(runtime.SourceIrisReviewRuntimeError, match="embedded eye review metadata fields/format"):
+        runtime.build_reviewed_runtime(
+            base_runtime_dir=base_dir,
+            iris_candidate_dir=candidate_dir,
+            source_eye_appearance_dir=source_dir,
+            bodyrig_revision=REVIEW_REVISION,
+            output_dir=tmp_path / "reviewed",
+        )
+
+
+def test_embedded_eye_metadata_accepts_numeric_float_v1_without_authority_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch, eye_version=1.0)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    result = runtime.build_reviewed_runtime(
+        base_runtime_dir=base_dir,
+        iris_candidate_dir=candidate_dir,
+        source_eye_appearance_dir=source_dir,
+        bodyrig_revision=REVIEW_REVISION,
+        output_dir=tmp_path / "reviewed",
+    )
+    assert result["runtimeBytesUnchanged"] is True
+    assert result["embeddedEyeRuntimeStillReviewPending"] is True
+    assert result["eyeComponentAuthority"] is False
+    assert result["productionActivation"] is False
+
+
+def test_reviewed_runtime_receipt_rejects_boolean_v1_before_readback_authority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    output = tmp_path / "reviewed"
+    runtime.build_reviewed_runtime(
+        base_runtime_dir=base_dir,
+        iris_candidate_dir=candidate_dir,
+        source_eye_appearance_dir=source_dir,
+        bodyrig_revision=REVIEW_REVISION,
+        output_dir=output,
+    )
+    path = output / runtime.OUTPUT_RECEIPT_NAME
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = True
+    path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(runtime.SourceIrisReviewRuntimeError, match="reviewed iris runtime receipt fields/format"):
+        runtime.read_reviewed_runtime(
+            base_runtime_dir=base_dir,
+            iris_candidate_dir=candidate_dir,
+            source_eye_appearance_dir=source_dir,
+            reviewed_runtime_dir=output,
+        )
+
+
+def test_reviewed_runtime_receipt_accepts_numeric_float_v1_without_authority_expansion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base_dir, _ = _base_runtime(tmp_path, monkeypatch)
+    candidate_dir, source_dir = _iris_authority(tmp_path, monkeypatch)
+    output = tmp_path / "reviewed"
+    runtime.build_reviewed_runtime(
+        base_runtime_dir=base_dir,
+        iris_candidate_dir=candidate_dir,
+        source_eye_appearance_dir=source_dir,
+        bodyrig_revision=REVIEW_REVISION,
+        output_dir=output,
+    )
+    path = output / runtime.OUTPUT_RECEIPT_NAME
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value), encoding="utf-8")
+    verified = runtime.read_reviewed_runtime(
+        base_runtime_dir=base_dir,
+        iris_candidate_dir=candidate_dir,
+        source_eye_appearance_dir=source_dir,
+        reviewed_runtime_dir=output,
+    )
+    assert verified["version"] == 1.0
+    assert not isinstance(verified["version"], bool)
+    assert verified["irisIdentityIsolated"] is True
+    assert verified["eyeComponentAuthority"] is False
+    assert verified["eyesPromotionEligible"] is False
+    assert verified["productionActivation"] is False

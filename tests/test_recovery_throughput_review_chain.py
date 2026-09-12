@@ -24,6 +24,22 @@ def _write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _set_version(path: Path, version: object) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = version
+    _write_json(path, value)
+    return value
+
+
+def _criteria() -> dict[str, str]:
+    return {
+        "identity_shape": "pass",
+        "face_identity": "pass",
+        "skin_texture_alignment": "pass",
+        "gross_anatomy": "pass",
+    }
+
+
 def _fixture_bundle(tmp_path: Path) -> Path:
     root = tmp_path / "bundle"
     (root / "baseline").mkdir(parents=True)
@@ -79,6 +95,54 @@ def _fixture_bundle(tmp_path: Path) -> Path:
     return root
 
 
+def test_review_bundle_rejects_boolean_v1_version(tmp_path: Path) -> None:
+    root = _fixture_bundle(tmp_path)
+    _set_version(root / "review-bundle.json", True)
+    with pytest.raises(RecoveryThroughputReviewBundleError, match="format/version mismatch"):
+        verify_bundle(root)
+
+
+def test_human_review_rejects_boolean_v1_version(tmp_path: Path) -> None:
+    root = _fixture_bundle(tmp_path)
+    out = tmp_path / "human-review.json"
+    record_review(
+        root,
+        out_path=out,
+        reviewer="Fixture Reviewer",
+        criteria=_criteria(),
+        note="No material regression in reviewed views.",
+    )
+    _set_version(out, True)
+    with pytest.raises(RecoveryThroughputHumanReviewError, match="format/version/semantics mismatch"):
+        verify_review(out, bundle_dir=root)
+
+
+def test_numeric_float_v1_survives_full_throughput_human_review_chain(tmp_path: Path) -> None:
+    root = _fixture_bundle(tmp_path)
+    bundle = _set_version(root / "review-bundle.json", 1.0)
+    assert verify_bundle(root) == bundle
+
+    out = tmp_path / "human-review.json"
+    record_review(
+        root,
+        out_path=out,
+        reviewer="Fixture Reviewer",
+        criteria=_criteria(),
+        note="No material regression in reviewed views.",
+    )
+    expected = _set_version(out, 1.0)
+    verified = verify_review(out, bundle_dir=root)
+
+    assert verified == expected
+    assert verified["human_visual_review_passed"] is True
+    assert verified["decision"] == "no-material-regression"
+    assert verified["next_gate"] == "eligible-for-explicit-promotion-review"
+    assert verified["review_bundle_receipt_sha256"] == file_sha256(root / "review-bundle.json")
+    assert verified["machine_audit_sha256"] == file_sha256(root / "machine-audit.json")
+    assert verified["promotion_authority"] is False
+    assert verified["production_activation"] is False
+
+
 def test_review_bundle_is_hash_bound_and_tamper_evident(tmp_path: Path) -> None:
     root = _fixture_bundle(tmp_path)
     receipt = verify_bundle(root)
@@ -94,12 +158,7 @@ def test_review_bundle_is_hash_bound_and_tamper_evident(tmp_path: Path) -> None:
 def test_human_review_is_create_only_external_and_never_promotion_authority(tmp_path: Path) -> None:
     root = _fixture_bundle(tmp_path)
     out = tmp_path / "human-review.json"
-    criteria = {
-        "identity_shape": "pass",
-        "face_identity": "pass",
-        "skin_texture_alignment": "pass",
-        "gross_anatomy": "pass",
-    }
+    criteria = _criteria()
     receipt = record_review(
         root,
         out_path=out,
@@ -153,11 +212,6 @@ def test_human_receipt_cannot_be_written_inside_immutable_bundle(tmp_path: Path)
             root,
             out_path=root / "human-review.json",
             reviewer="Fixture Reviewer",
-            criteria={
-                "identity_shape": "pass",
-                "face_identity": "pass",
-                "skin_texture_alignment": "pass",
-                "gross_anatomy": "pass",
-            },
+            criteria=_criteria(),
             note="Invalid output location.",
         )
