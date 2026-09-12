@@ -69,7 +69,12 @@ def _identity() -> dict:
     }
 
 
-def _fixture(tmp_path: Path, *, pass_session: bool = True) -> tuple[Path, Path, Path]:
+def _fixture(
+    tmp_path: Path,
+    *,
+    pass_session: bool = True,
+    source_version: object = 1,
+) -> tuple[Path, Path, Path]:
     alias = "fixture-person"
     outer = tmp_path / "clone-output"
     clone = outer / "clone"
@@ -93,7 +98,7 @@ def _fixture(tmp_path: Path, *, pass_session: bool = True) -> tuple[Path, Path, 
         json.dumps(
             {
                 "format": "bodyrig-stash-source-manifest",
-                "version": 1,
+                "version": source_version,
                 "source_kind": "stash-local",
                 "performer": {"id": "42", "name": "Fixture Person"},
                 "selected": [{"scene_id": "1", "path": str(source)}],
@@ -163,6 +168,24 @@ def test_post_clone_plan_reuses_completed_clone_without_recovery_or_fitter(tmp_p
     assert plan["fitter_rerun"] is False
     assert plan["gate_a_rerun"] is True
     assert plan["fidelity_rerun"] is True
+
+
+def test_post_clone_plan_refuses_boolean_source_manifest_version(tmp_path: Path) -> None:
+    session, outer, _package = _fixture(tmp_path, source_version=True)
+    with pytest.raises(PostCloneContinuationError, match="unsupported Stash source manifest format/version"):
+        build_post_clone_plan(session_report=session, clone_output=outer, current_revision=REVISION)
+
+
+def test_post_clone_plan_preserves_numeric_float_v1_source_manifest_compatibility(tmp_path: Path) -> None:
+    session, outer, _package = _fixture(tmp_path, source_version=1.0)
+    plan = build_post_clone_plan(session_report=session, clone_output=outer, current_revision=REVISION)
+    manifest = outer / "bodyrig-stash-source-manifest.json"
+
+    assert plan["source_count"] == 1
+    assert plan["authority"]["source_manifest_sha256"] == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert plan["recovery_rerun"] is False
+    assert plan["fitter_rerun"] is False
+    assert plan["production_activation"] is False
 
 
 def test_post_clone_plan_refuses_non_pass_session(tmp_path: Path) -> None:
