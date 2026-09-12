@@ -63,7 +63,10 @@ def _integer(value: Any, *, field: str, minimum: int = 0) -> int:
 def _number(value: Any, *, field: str, minimum: float = 0.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise FidelityCheckpointError(f"{field} is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise FidelityCheckpointError(f"{field} is invalid") from None
     if result < minimum or result != result or result in {float("inf"), float("-inf")}:
         raise FidelityCheckpointError(f"{field} is invalid")
     return result
@@ -188,7 +191,8 @@ def validate_checkpoint(value: Any) -> dict[str, Any]:
     }
     if set(value) != required:
         raise FidelityCheckpointError("checkpoint fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if value.get("format") != FORMAT or isinstance(version, bool) or version != VERSION:
         raise FidelityCheckpointError("unsupported checkpoint format/version")
 
     sequence = _integer(value.get("sequence"), field="sequence", minimum=1)
