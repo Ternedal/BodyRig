@@ -18,6 +18,10 @@ def _fail(message: str) -> None:
     raise ValueError(message)
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -116,7 +120,7 @@ def validate(
 
     plan_path = local_app_data / "BodyRig" / "ab-baseline-plans" / f"{baseline_job_id}.json"
     plan = _read_json(plan_path, "shared A/B baseline plan")
-    if plan.get("format") != "bodyrig-dual-candidate-ab-baseline-plan" or plan.get("version") != 1:
+    if plan.get("format") != "bodyrig-dual-candidate-ab-baseline-plan" or not _is_v1(plan.get("version")):
         _fail("shared A/B baseline plan format/version mismatch")
     _require_boundary(plan)
     if plan.get("baseline_job_id") != baseline_job_id:
@@ -153,7 +157,7 @@ def validate(
     }
     values = {name: _read_json(path, name.replace("_", " ")) for name, path in paths.items()}
     authority = values["human_authority"]
-    if authority.get("format") != "bodyrig-pbr-plan-bound-human-review-authority" or authority.get("version") != 1:
+    if authority.get("format") != "bodyrig-pbr-plan-bound-human-review-authority" or not _is_v1(authority.get("version")):
         _fail("PBR human-review authority format/version mismatch")
     _require_boundary(authority, human_recorded=True)
     expected_identity = {
@@ -186,7 +190,7 @@ def validate(
             _fail(f"PBR human-review authority no longer binds exact {key} bytes")
 
     plan_authority = values["plan_authority"]
-    if plan_authority.get("format") != "bodyrig-pbr-ab-body-job-plan-authority" or plan_authority.get("version") != 1:
+    if plan_authority.get("format") != "bodyrig-pbr-ab-body-job-plan-authority" or not _is_v1(plan_authority.get("version")):
         _fail("PBR plan authority format/version mismatch")
     _require_boundary(plan_authority)
     plan_fields = {
@@ -207,7 +211,7 @@ def validate(
             _fail(f"PBR plan authority {field} mismatch")
 
     source_authority = values["source_authority"]
-    if source_authority.get("format") != "bodyrig-pbr-ab-body-job-source-authority" or source_authority.get("version") != 1:
+    if source_authority.get("format") != "bodyrig-pbr-ab-body-job-source-authority" or not _is_v1(source_authority.get("version")):
         _fail("PBR source authority format/version mismatch")
     if source_authority.get("comparison_only") is not True or source_authority.get("human_visual_authority_required") is not True:
         _fail("PBR source authority crossed comparison boundary")
@@ -225,7 +229,7 @@ def validate(
         _fail("PBR source authority has no revision-bound Stash performer identity")
 
     run_authority = values["run_authority"]
-    if run_authority.get("format") != "bodyrig-pbr-ab-run" or run_authority.get("version") != 1:
+    if run_authority.get("format") != "bodyrig-pbr-ab-run" or not _is_v1(run_authority.get("version")):
         _fail("PBR run authority format/version mismatch")
     if run_authority.get("comparison_only") is not True or run_authority.get("physical_acceptance_authority") is not False:
         _fail("PBR run authority crossed comparison/physical boundary")
@@ -233,7 +237,7 @@ def validate(
         _fail("PBR run authority crossed production boundary")
 
     review = values["human_review"]
-    if review.get("format") != "bodyrig-fidelity-ab-human-review" or review.get("version") != 1:
+    if review.get("format") != "bodyrig-fidelity-ab-human-review" or not _is_v1(review.get("version")):
         _fail("PBR human-review receipt format/version mismatch")
     if str(review.get("decision") or "") != str(authority.get("decision") or ""):
         _fail("PBR human-review decision does not match terminal authority")
