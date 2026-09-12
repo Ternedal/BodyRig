@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
-from bodyrig.person_source_alignment import file_sha256, write_binding
+from bodyrig.person_source_alignment import binding_path, file_sha256, write_binding
 from bodyrig.person_voice_source import PersonVoiceSourceError, source_files_for_body
 
 
@@ -65,6 +65,17 @@ def _fixture(root: Path) -> tuple[dict, Path, Path]:
     return load_profile(root, profile["person_id"]), manifest, media
 
 
+def _rewrite_manifest_version(root: Path, profile: dict, manifest: Path, version: object) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["version"] = version
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    path = binding_path(root, profile["person_id"], "body", "body-r0001")
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    receipt["evidence"]["sha256"] = file_sha256(manifest)
+    path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def test_source_voice_files_revalidate_manifest_and_exact_media_bytes(tmp_path: Path) -> None:
     profile, manifest, media = _fixture(tmp_path)
     evidence = source_files_for_body(tmp_path, profile, body_revision="body-r0001")
@@ -95,3 +106,21 @@ def test_source_voice_files_fail_closed_when_manifest_changes(tmp_path: Path) ->
 
     with pytest.raises(PersonVoiceSourceError, match="manifest no longer matches"):
         source_files_for_body(tmp_path, profile, body_revision="body-r0001")
+
+
+def test_source_voice_files_reject_boolean_manifest_version_after_exact_rebind(tmp_path: Path) -> None:
+    profile, manifest, _ = _fixture(tmp_path)
+    _rewrite_manifest_version(tmp_path, profile, manifest, True)
+
+    with pytest.raises(PersonVoiceSourceError, match="format/version mismatch"):
+        source_files_for_body(tmp_path, profile, body_revision="body-r0001")
+
+
+def test_source_voice_files_accept_numeric_float_manifest_version_after_exact_rebind(tmp_path: Path) -> None:
+    profile, manifest, media = _fixture(tmp_path)
+    _rewrite_manifest_version(tmp_path, profile, manifest, 1.0)
+
+    evidence = source_files_for_body(tmp_path, profile, body_revision="body-r0001")
+
+    assert evidence["manifest_sha256"] == file_sha256(manifest)
+    assert evidence["source_files"][0]["sha256"] == file_sha256(media)

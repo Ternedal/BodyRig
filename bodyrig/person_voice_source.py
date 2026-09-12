@@ -46,7 +46,12 @@ def source_files_for_body(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PersonVoiceSourceError("body source manifest is unreadable") from exc
-    if not isinstance(manifest, Mapping) or manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+    if (
+        not isinstance(manifest, Mapping)
+        or manifest.get("format") != "bodyrig-stash-source-manifest"
+        or isinstance(manifest.get("version"), bool)
+        or manifest.get("version") != 1
+    ):
         raise PersonVoiceSourceError("body source manifest format/version mismatch")
     performer = manifest.get("performer")
     if not isinstance(performer, Mapping):
