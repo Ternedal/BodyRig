@@ -58,7 +58,8 @@ def inspect_run_authority(run_root: str | Path) -> dict[str, Any]:
         raise AutomaticRunDiscoveryError(f"one-command RunRoot is missing or symlinked: {root}")
     authority_path = root / "run-authority.json"
     authority = _read_json(authority_path)
-    if authority.get("format") != AUTHORITY_FORMAT or authority.get("version") != AUTHORITY_VERSION:
+    authority_version = authority.get("version")
+    if authority.get("format") != AUTHORITY_FORMAT or isinstance(authority_version, bool) or authority_version != AUTHORITY_VERSION:
         raise AutomaticRunDiscoveryError("one-command run authority format/version mismatch")
 
     revision = str(authority.get("bodyrig_revision") or "").strip().lower()

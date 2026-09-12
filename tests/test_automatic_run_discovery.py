@@ -12,12 +12,19 @@ from bodyrig.acceptance_status import AcceptanceStatus
 REV = "a" * 40
 
 
-def write_authority(run_root: Path, *, performer: str = "42", body: str = "body-a", activation: bool = False) -> Path:
+def write_authority(
+    run_root: Path,
+    *,
+    performer: str = "42",
+    body: str = "body-a",
+    activation: bool = False,
+    version: object = 1,
+) -> Path:
     run_root.mkdir(parents=True)
     clone_output = run_root / "clone-output"
     value = {
         "format": "bodyrig-one-command-production-authority",
-        "version": 1,
+        "version": version,
         "started_at": "2026-09-07T12:00:00Z",
         "bodyrig_revision": REV,
         "performer_id": performer,
@@ -30,6 +37,13 @@ def write_authority(run_root: Path, *, performer: str = "42", body: str = "body-
     path = run_root / "run-authority.json"
     path.write_text(json.dumps(value) + "\n", encoding="utf-8")
     return path
+
+
+def test_run_authority_rejects_boolean_v1_version(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    write_authority(run, version=True)
+    with pytest.raises(discovery.AutomaticRunDiscoveryError, match="format/version mismatch"):
+        discovery.inspect_run_authority(run)
 
 
 def test_run_authority_requires_exact_canonical_layout(tmp_path: Path) -> None:
@@ -58,9 +72,14 @@ def test_candidate_requires_real_session_not_run_flag(tmp_path: Path) -> None:
     assert discovery.candidate_from_run(value) is None
 
 
-def test_candidate_uses_structural_acceptance_rank_after_strict_session(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("version", [1, 1.0])
+def test_candidate_uses_structural_acceptance_rank_after_strict_session(
+    tmp_path: Path,
+    monkeypatch,
+    version: object,
+) -> None:
     run = tmp_path / "run"
-    write_authority(run)
+    write_authority(run, version=version)
     session_path = run / "bodyrig-physical-clone-session.json"
     session_path.write_text("{}\n", encoding="utf-8")
     acceptance = run / "clone-output" / "acceptance"
