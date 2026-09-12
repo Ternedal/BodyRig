@@ -60,7 +60,11 @@ def _is_strict_utf8_text(value: str) -> bool:
 
 
 def _num(value: Any, lo: float, hi: float, field: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not lo <= float(value) <= hi:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MRBodyError(f"bodyprint.{field}: invalid number")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise MRBodyError(f"bodyprint.{field}: invalid number")
+    if not lo <= value <= hi:
         raise MRBodyError(f"bodyprint.{field}: invalid number")
 
 
