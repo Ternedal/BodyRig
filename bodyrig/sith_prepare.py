@@ -231,10 +231,13 @@ def _triples(value: Any, *, label: str, expected_points: int) -> list[tuple[floa
         raise SithPrepareError(f"OpenPose {label} must contain {expected_points * 3} values")
     result: list[tuple[float, float, float]] = []
     for index in range(expected_points):
+        chunk = value[index * 3 : index * 3 + 3]
+        if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in chunk):
+            raise SithPrepareError(f"OpenPose {label} contains a non-numeric value")
         try:
-            x, y, confidence = (float(item) for item in value[index * 3 : index * 3 + 3])
-        except (TypeError, ValueError) as exc:
-            raise SithPrepareError(f"OpenPose {label} contains a non-numeric value") from exc
+            x, y, confidence = (float(item) for item in chunk)
+        except OverflowError:
+            raise SithPrepareError(f"OpenPose {label} contains a non-finite value") from None
         if not all(math.isfinite(item) for item in (x, y, confidence)):
             raise SithPrepareError(f"OpenPose {label} contains a non-finite value")
         if not 0.0 <= confidence <= 1.0:
