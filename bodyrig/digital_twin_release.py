@@ -63,6 +63,10 @@ class DigitalTwinReleaseError(RuntimeError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -143,10 +147,10 @@ def validate_release_authority_structure(
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise DigitalTwinReleaseError("digital-twin final release fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise DigitalTwinReleaseError("digital-twin final release format/version/policy mismatch")
 
-    if composition_authority.get("format") != "bodyrig-digital-twin-composition-authority" or composition_authority.get("version") != 1:
+    if composition_authority.get("format") != "bodyrig-digital-twin-composition-authority" or not _v1(composition_authority.get("version")):
         raise DigitalTwinReleaseError("M6 requires finalized M4 composition authority")
     exact_identity = {
         "person_id": composition_authority.get("person_id"),
@@ -184,7 +188,7 @@ def validate_release_authority_structure(
     if _sha(body_release_status.get("package_sha256"), "body release package SHA-256") != str(value["body_package_sha256"]):
         raise DigitalTwinReleaseError("body release package differs from M6 release")
 
-    if platform_acceptance_status.get("format") != "bodyrig-digital-twin-platform-status" or platform_acceptance_status.get("version") != 1:
+    if platform_acceptance_status.get("format") != "bodyrig-digital-twin-platform-status" or not _v1(platform_acceptance_status.get("version")):
         raise DigitalTwinReleaseError("M6 requires canonical M5 platform status")
     if (
         platform_acceptance_status.get("m5_ready") is not True
