@@ -79,20 +79,41 @@ def _openpose_model_root(openpose: str) -> str:
     return result
 
 
+def _source_quality(row: Mapping[str, Any], key: str) -> float:
+    try:
+        raw = row[key]
+    except KeyError:
+        raise PhotoIdentityOpenPoseRunnerError("photoidentity row lacks numeric source-quality fields") from None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise PhotoIdentityOpenPoseRunnerError("photoidentity row lacks numeric source-quality fields")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise PhotoIdentityOpenPoseRunnerError("photoidentity row lacks numeric source-quality fields") from None
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise PhotoIdentityOpenPoseRunnerError("photoidentity row source-quality fields are invalid")
+    return value
+
+
+def _timing(value: Any, *, label: str, positive: bool) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotoIdentityOpenPoseRunnerError(f"photoidentity row {label} is invalid")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise PhotoIdentityOpenPoseRunnerError(f"photoidentity row {label} is invalid") from None
+    if not math.isfinite(number) or (number <= 0.0 if positive else number < 0.0):
+        raise PhotoIdentityOpenPoseRunnerError(f"photoidentity row {label} is invalid")
+    return number
+
+
 def _score(row: Mapping[str, Any], *, face: bool) -> float:
     visibility_key = "face_visibility" if face else "full_body_visibility"
-    try:
-        values = (
-            float(row["target_confidence"]),
-            float(row[visibility_key]),
-            float(row["sharpness"]),
-            1.0 - float(row["occlusion"]),
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise PhotoIdentityOpenPoseRunnerError("photoidentity row lacks numeric source-quality fields") from exc
-    if not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in values):
-        raise PhotoIdentityOpenPoseRunnerError("photoidentity row source-quality fields are invalid")
-    return math.prod(values)
+    confidence = _source_quality(row, "target_confidence")
+    visibility = _source_quality(row, visibility_key)
+    sharpness = _source_quality(row, "sharpness")
+    occlusion = _source_quality(row, "occlusion")
+    return math.prod((confidence, visibility, sharpness, 1.0 - occlusion))
 
 
 def select_detail_frame_candidates(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -103,26 +124,22 @@ def select_detail_frame_candidates(rows: Sequence[Mapping[str, Any]]) -> list[di
         row = dict(raw)
         scene = str(row.get("scene_id") or "").strip()
         ordinal = row.get("source_ordinal")
-        start = row.get("start_seconds")
-        duration = row.get("duration_seconds")
         if not scene or isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 1:
             raise PhotoIdentityOpenPoseRunnerError("photoidentity row has invalid scene/source identity")
-        if isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(float(start)) or float(start) < 0.0:
-            raise PhotoIdentityOpenPoseRunnerError("photoidentity row start is invalid")
-        if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(float(duration)) or float(duration) <= 0.0:
-            raise PhotoIdentityOpenPoseRunnerError("photoidentity row duration is invalid")
+        row["start_seconds"] = _timing(row.get("start_seconds"), label="start", positive=False)
+        row["duration_seconds"] = _timing(row.get("duration_seconds"), label="duration", positive=True)
         grouped.setdefault(scene, []).append(row)
 
     result: list[dict[str, Any]] = []
     scene_rank: list[tuple[float, str]] = []
     chosen_by_scene: dict[str, list[dict[str, Any]]] = {}
     for scene, scene_rows in grouped.items():
-        face_best = max(scene_rows, key=lambda item: (_score(item, face=True), -float(item["start_seconds"])))
-        body_best = max(scene_rows, key=lambda item: (_score(item, face=False), -float(item["start_seconds"])))
+        face_best = max(scene_rows, key=lambda item: (_score(item, face=True), -item["start_seconds"]))
+        body_best = max(scene_rows, key=lambda item: (_score(item, face=False), -item["start_seconds"]))
         unique: list[dict[str, Any]] = []
         seen: set[tuple[int, float]] = set()
         for candidate in (face_best, body_best):
-            key = (int(candidate["source_ordinal"]), float(candidate["start_seconds"]))
+            key = (int(candidate["source_ordinal"]), candidate["start_seconds"])
             if key not in seen:
                 seen.add(key)
                 unique.append(candidate)
@@ -262,7 +279,7 @@ def collect_openpose_detail_evidence(
         if not isinstance(source_meta, Mapping):
             raise PhotoIdentityOpenPoseRunnerError("detail row source ordinal has no private source binding")
         source = Path(str(source_meta.get("path") or "")).expanduser().resolve()
-        midpoint = float(row["start_seconds"]) + float(row["duration_seconds"]) / 2.0
+        midpoint = row["start_seconds"] + row["duration_seconds"] / 2.0
         key = (ordinal, round(midpoint, 3))
         if key in attempted:
             continue
