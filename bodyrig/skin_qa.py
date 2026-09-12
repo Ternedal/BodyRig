@@ -37,7 +37,10 @@ _quantile = legacy._quantile
 def _finite(value: Any, *, label: str, minimum: float | None = None, maximum: float | None = None) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SkinQaError(f"skin QA: donor appearance {label} evidence is invalid")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise SkinQaError(f"skin QA: donor appearance {label} evidence is invalid") from None
     if not math.isfinite(result):
         raise SkinQaError(f"skin QA: donor appearance {label} evidence is invalid")
     if minimum is not None and result < minimum:
@@ -211,6 +214,18 @@ def _validate_anatomy_appearance(appearance: dict[str, Any]) -> None:
         raise SkinQaError("skin QA: donor anatomy texel-region coverage is invalid")
 
 
+def _transfer_distance(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SkinQaError("skin QA: rig transfer distance evidence is invalid")
+    try:
+        result = float(value)
+    except OverflowError:
+        raise SkinQaError("skin QA: rig transfer distance evidence is invalid") from None
+    if not math.isfinite(result) or result < 0.0:
+        raise SkinQaError("skin QA: rig transfer distance evidence is invalid")
+    return result
+
+
 def _validate_transfer_authority(bodyrig: dict[str, Any]) -> tuple[str, float, float]:
     transfer = bodyrig.get("rigTransfer")
     if not isinstance(transfer, dict):
@@ -218,21 +233,13 @@ def _validate_transfer_authority(bodyrig: dict[str, Any]) -> tuple[str, float, f
     method = transfer.get("method")
     if method not in {LEGACY_RIG_TRANSFER, DONOR_RIG_TRANSFER}:
         raise SkinQaError("skin QA: unsupported rig transfer method")
-    nearest_p95 = transfer.get("nearestDistanceP95")
-    nearest_max = transfer.get("nearestDistanceMax")
-    if any(
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        or float(value) < 0.0
-        for value in (nearest_p95, nearest_max)
-    ):
-        raise SkinQaError("skin QA: rig transfer distance evidence is invalid")
+    nearest_p95 = _transfer_distance(transfer.get("nearestDistanceP95"))
+    nearest_max = _transfer_distance(transfer.get("nearestDistanceMax"))
 
     if method == LEGACY_RIG_TRANSFER:
-        return str(method), float(nearest_p95), float(nearest_max)
+        return str(method), nearest_p95, nearest_max
 
-    if float(nearest_p95) != 0.0 or float(nearest_max) != 0.0:
+    if nearest_p95 != 0.0 or nearest_max != 0.0:
         raise SkinQaError("skin QA: direct donor LBS must not claim nearest-transfer distance")
     geometry = bodyrig.get("geometryAuthority")
     if geometry != {
