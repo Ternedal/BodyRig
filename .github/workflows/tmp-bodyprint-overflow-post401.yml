@@ -6,6 +6,7 @@ on:
       - staging/bodyprint-overflow-post401-20260912
     paths:
       - .github/workflows/tmp-bodyprint-overflow-post401.yml
+      - tools/tmp_patch_bodyprint_overflow_post401.py
 
 permissions:
   contents: write
