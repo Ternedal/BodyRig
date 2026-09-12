@@ -12,6 +12,10 @@ class ObservationEvidenceError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _load(path: str | Path, *, label: str) -> tuple[Path, bytes, dict[str, Any]]:
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_file():
@@ -45,11 +49,11 @@ def build_observation_evidence(
     selection_sha = hashlib.sha256(selection_raw).hexdigest()
     segments_sha = hashlib.sha256(segments_raw).hexdigest()
 
-    if source.get("format") != "bodyrig-stash-source-manifest" or source.get("version") != 1:
+    if source.get("format") != "bodyrig-stash-source-manifest" or not _v1(source.get("version")):
         raise ObservationEvidenceError("unsupported Stash source manifest")
-    if selection.get("format") != "bodyrig-observation-selection" or selection.get("version") != 1:
+    if selection.get("format") != "bodyrig-observation-selection" or not _v1(selection.get("version")):
         raise ObservationEvidenceError("unsupported observation selection")
-    if segments.get("format") != "bodyrig-observation-segments" or segments.get("version") != 1:
+    if segments.get("format") != "bodyrig-observation-segments" or not _v1(segments.get("version")):
         raise ObservationEvidenceError("unsupported observation segment manifest")
     if selection.get("source_manifest_sha256") != source_sha:
         raise ObservationEvidenceError("observation selection is not bound to this source manifest")

@@ -18,12 +18,18 @@ def _canonical_sha(value: dict) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _fixture(tmp_path: Path):
+def _fixture(
+    tmp_path: Path,
+    *,
+    source_version: object = 1,
+    selection_version: object = 1,
+    segments_version: object = 1,
+):
     source_video = tmp_path / "source.mp4"
     source_video.write_bytes(b"source")
     source = {
         "format": "bodyrig-stash-source-manifest",
-        "version": 1,
+        "version": source_version,
         "source_kind": "stash-local",
         "performer": {"id": "7", "name": "Alice", "disambiguation": ""},
         "stash_version": "test",
@@ -40,7 +46,7 @@ def _fixture(tmp_path: Path):
 
     selection = {
         "format": "bodyrig-observation-selection",
-        "version": 1,
+        "version": selection_version,
         "source_manifest_sha256": source_sha,
         "adapter": "fixture",
         "revision": "r1",
@@ -61,7 +67,7 @@ def _fixture(tmp_path: Path):
     segment_sha = hashlib.sha256(segment.read_bytes()).hexdigest()
     segments = {
         "format": "bodyrig-observation-segments",
-        "version": 1,
+        "version": segments_version,
         "selection_sha256": _canonical_sha(selection),
         "segments": [{
             "source_id": "s001", "scene_id": "11", "path": str(segment),
@@ -86,6 +92,58 @@ def test_evidence_rehashes_chain_and_strips_private_paths(tmp_path: Path):
     assert evidence["segments"][0]["sha256"] == hashlib.sha256(segment.read_bytes()).hexdigest()
     assert str(segment) not in raw
     assert str(tmp_path) not in raw
+    assert "path" not in evidence["segments"][0]
+
+
+def test_evidence_rejects_boolean_source_manifest_version_with_coherent_chain(tmp_path: Path):
+    source_path, selection_path, segments_path, _ = _fixture(tmp_path, source_version=True)
+    with pytest.raises(ObservationEvidenceError, match="unsupported Stash source manifest"):
+        build_observation_evidence(
+            source_manifest_path=source_path,
+            selection_path=selection_path,
+            segments_path=segments_path,
+        )
+
+
+def test_evidence_rejects_boolean_selection_version_with_coherent_chain(tmp_path: Path):
+    source_path, selection_path, segments_path, _ = _fixture(tmp_path, selection_version=True)
+    with pytest.raises(ObservationEvidenceError, match="unsupported observation selection"):
+        build_observation_evidence(
+            source_manifest_path=source_path,
+            selection_path=selection_path,
+            segments_path=segments_path,
+        )
+
+
+def test_evidence_rejects_boolean_segment_manifest_version_with_coherent_chain(tmp_path: Path):
+    source_path, selection_path, segments_path, _ = _fixture(tmp_path, segments_version=True)
+    with pytest.raises(ObservationEvidenceError, match="unsupported observation segment manifest"):
+        build_observation_evidence(
+            source_manifest_path=source_path,
+            selection_path=selection_path,
+            segments_path=segments_path,
+        )
+
+
+def test_evidence_preserves_numeric_float_v1_compatibility_and_exact_hash_bindings(tmp_path: Path):
+    source_path, selection_path, segments_path, segment = _fixture(
+        tmp_path,
+        source_version=1.0,
+        selection_version=1.0,
+        segments_version=1.0,
+    )
+    evidence = build_observation_evidence(
+        source_manifest_path=source_path,
+        selection_path=selection_path,
+        segments_path=segments_path,
+    )
+
+    assert evidence["format"] == "bodyrig-observation-evidence"
+    assert evidence["version"] == 1
+    assert evidence["source_manifest_sha256"] == hashlib.sha256(source_path.read_bytes()).hexdigest()
+    assert evidence["selection_sha256"] == hashlib.sha256(selection_path.read_bytes()).hexdigest()
+    assert evidence["segments_manifest_sha256"] == hashlib.sha256(segments_path.read_bytes()).hexdigest()
+    assert evidence["segments"][0]["sha256"] == hashlib.sha256(segment.read_bytes()).hexdigest()
     assert "path" not in evidence["segments"][0]
 
 
