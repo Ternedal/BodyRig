@@ -48,14 +48,15 @@ class PersonalityBlueprintError(ValueError):
 
 
 def _ratio(value: Any, *, field: str) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        or not 0.0 <= float(value) <= 1.0
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PersonalityBlueprintError(f"{field} must be a finite number in 0..1")
-    return float(value)
+    try:
+        numeric = float(value)
+    except OverflowError:
+        raise PersonalityBlueprintError(f"{field} must be a finite number in 0..1") from None
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise PersonalityBlueprintError(f"{field} must be a finite number in 0..1")
+    return numeric
 
 
 def _text(value: Any, *, field: str, maximum: int, empty: bool = False) -> str:
