@@ -1,0 +1,37 @@
+name: tmp-photoidentity-evidence-overflow
+
+on:
+  push:
+    branches:
+      - staging/photoidentity-evidence-overflow-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Apply PhotoIdentity evidence overflow patch
+        run: python tools/_tmp_apply_photoidentity_evidence_overflow.py
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Run focused PhotoIdentity regressions
+        run: python -m pytest -q tests/test_photoidentity_evidence.py tests/test_photoidentity_authority.py tests/test_photoidentity_source_chain.py
+      - name: Check diff whitespace
+        run: git diff --check
+      - name: Commit validated product patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-photoidentity-evidence-overflow.yml tools/_tmp_apply_photoidentity_evidence_overflow.py
+          git add bodyrig/photoidentity_evidence.py tests/test_photoidentity_evidence.py
+          git commit -m "Fail closed on huge PhotoIdentity evidence numerics"
+          git push origin HEAD:staging/photoidentity-evidence-overflow-20260912
