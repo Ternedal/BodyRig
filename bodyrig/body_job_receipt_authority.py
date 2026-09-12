@@ -36,6 +36,10 @@ class BodyJobReceiptAuthorityError(ValueError):
     pass
 
 
+def _v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _translate(exc: Exception) -> BodyJobReceiptAuthorityError:
     return BodyJobReceiptAuthorityError(str(exc))
 
@@ -62,7 +66,7 @@ def _verify_source_enqueue_authority(
     marker = job.get("source_enqueue_authority")
     if not isinstance(marker, Mapping) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
         raise BodyJobReceiptAuthorityError("succeeded body job lacks canonical revision-bound source enqueue authority")
-    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or not _v1(marker.get("version")):
         raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority format/version mismatch")
     if str(marker.get("job_id") or "") != job_id or str(marker.get("person_id") or "") != person_id:
         raise BodyJobReceiptAuthorityError("succeeded body job source enqueue authority identity mismatch")
@@ -112,7 +116,7 @@ def _verify_source_manifest(
         manifest = _read_json(manifest_path, "registered body source manifest")
     except PbrAbBodyJobSourceError as exc:
         raise _translate(exc) from exc
-    if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+    if manifest.get("format") != "bodyrig-stash-source-manifest" or not _v1(manifest.get("version")):
         raise BodyJobReceiptAuthorityError("registered body source manifest format/version mismatch")
     performer = manifest.get("performer")
     source = source_binding.get("source")
@@ -176,7 +180,7 @@ def inspect_succeeded_body_job_receipts(
     except (PbrAbBodyJobSourceError, OSError) as exc:
         raise _translate(exc) from exc
 
-    if job.get("format") != "bodyrig-ui-job" or job.get("version") != 1:
+    if job.get("format") != "bodyrig-ui-job" or not _v1(job.get("version")):
         raise BodyJobReceiptAuthorityError("body job format/version mismatch")
     if job.get("job_id") != job_id:
         raise BodyJobReceiptAuthorityError("body job id does not match its canonical storage path")
