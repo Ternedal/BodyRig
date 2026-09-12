@@ -197,7 +197,12 @@ def read_binding(
         value = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PersonSourceAlignmentError(f"source binding is unreadable for {revision_id}") from exc
-    if not isinstance(value, Mapping) or value.get("format") != FORMAT or value.get("version") != VERSION:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("format") != FORMAT
+        or isinstance(value.get("version"), bool)
+        or value.get("version") != VERSION
+    ):
         raise PersonSourceAlignmentError(f"source binding format/version invalid for {revision_id}")
     if value.get("person_id") != profile.get("person_id") or value.get("source") != _source(profile):
         raise PersonSourceAlignmentError(f"source binding identity mismatch for {revision_id}")
