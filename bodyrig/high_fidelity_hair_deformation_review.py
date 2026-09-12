@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +56,24 @@ TOP_FIELDS = {
 
 class HighFidelityHairDeformationReviewError(RuntimeError):
     pass
+
+
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
+def _metric(value: Any, *, field: str, minimum: float, maximum: float | None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is invalid")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is invalid") from None
+    if not math.isfinite(number):
+        raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is invalid")
+    if number < minimum or (maximum is not None and number > maximum):
+        raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is outside canonical thresholds")
+    return number
 
 
 def _job_id(value: str) -> str:
@@ -160,7 +179,7 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
     expected_avatar = _sha(preview.get("review_vrm_sha256"), label="preview review VRM SHA-256")
     if (
         probe.get("format") != "bodyrig-hair-deformation-probe"
-        or probe.get("version") != 1
+        or not _v1(probe.get("version"))
         or str(probe.get("bodyrig_revision") or "").lower() != expected_revision
         or probe.get("platform") != "windows-unity-univrm"
         or probe.get("package_sha256") != expected_package
@@ -190,14 +209,12 @@ def _machine_authority(preview_job_id: str) -> dict[str, Any]:
     }
     metrics: dict[str, float] = {}
     for field, (minimum, maximum) in numeric.items():
-        value = probe.get(field)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is invalid")
-        number = float(value)
-        if number < minimum or (maximum is not None and number > maximum):
-            raise HighFidelityHairDeformationReviewError(f"hair deformation metric {field} is outside canonical thresholds")
-        metrics[field] = number
-
+        metrics[field] = _metric(
+            probe.get(field),
+            field=field,
+            minimum=minimum,
+            maximum=maximum,
+        )
     exact_component_review_path = component_review_path(
         job_id,
         review_vrm_sha256=str(component_review["review_vrm_sha256"]),
@@ -290,7 +307,7 @@ def read_review(preview_job_id: str) -> dict[str, Any]:
     value = _read_json(path, label="Hair deformation human review")
     if set(value) != TOP_FIELDS:
         raise HighFidelityHairDeformationReviewError("hair deformation review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HighFidelityHairDeformationReviewError("hair deformation review format/version/policy mismatch")
     expected = {
         "preview_job_id": str(preview["job_id"]),
