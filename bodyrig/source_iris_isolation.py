@@ -71,7 +71,12 @@ def _source_authority(source_dir: Path) -> tuple[dict[str, Any], Path, Path, Pat
         if not path.is_file():
             raise SourceIrisIsolationError(f"source eye appearance artifact is missing: {path.name}")
     receipt = _read_json(receipt_path, label="source eye appearance receipt")
-    if receipt.get("format") != SOURCE_FORMAT or receipt.get("version") != SOURCE_VERSION:
+    source_version = receipt.get("version")
+    if (
+        receipt.get("format") != SOURCE_FORMAT
+        or isinstance(source_version, bool)
+        or source_version != SOURCE_VERSION
+    ):
         raise SourceIrisIsolationError("source eye appearance receipt format/version mismatch")
     if (
         receipt.get("sourceDerivedEyeSurfaceAppearance") is not True
@@ -250,7 +255,14 @@ def read_candidate(output_dir: str | Path, *, source_eye_appearance_dir: str | P
         "irisIdentityIsolated", "irisIsolationStatus", "humanReviewRequired",
         "eyeComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("method") != METHOD:
+    version = value.get("version")
+    if (
+        set(value) != required
+        or value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or version != VERSION
+        or value.get("method") != METHOD
+    ):
         raise SourceIrisIsolationError("iris isolation candidate fields/format do not match v1")
     _revision(str(value.get("bodyrigRevision") or ""))
     exact = {
