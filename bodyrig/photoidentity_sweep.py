@@ -56,6 +56,26 @@ def _canonical_revision(value: str) -> str:
     return revision
 
 
+def _read_baseline_source_manifest(path: Path, performer_id: str) -> tuple[dict[str, Any], str]:
+    try:
+        baseline_manifest = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PhotoIdentitySweepError("baseline Stash source manifest is unreadable") from exc
+
+    version = baseline_manifest.get("version") if isinstance(baseline_manifest, dict) else None
+    if (
+        not isinstance(baseline_manifest, dict)
+        or baseline_manifest.get("format") != "bodyrig-stash-source-manifest"
+        or isinstance(version, bool)
+        or version != 1
+    ):
+        raise PhotoIdentitySweepError("baseline Stash source manifest format/version is invalid")
+    baseline_performer = baseline_manifest.get("performer") or {}
+    if str(baseline_performer.get("id") or "") != performer_id:
+        raise PhotoIdentitySweepError("baseline Stash source manifest belongs to a different performer")
+    return baseline_manifest, _sha256(path)
+
+
 def _rank_source_pool(
     scenes: Iterable[Mapping[str, Any]],
     *,
@@ -222,16 +242,7 @@ def run_sweep(
     if output_dir.exists():
         raise PhotoIdentitySweepError(f"photoidentity sweep output already exists: {output_dir}")
 
-    try:
-        baseline_manifest = json.loads(baseline_source_manifest.read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PhotoIdentitySweepError("baseline Stash source manifest is unreadable") from exc
-    if not isinstance(baseline_manifest, dict) or baseline_manifest.get("format") != "bodyrig-stash-source-manifest" or baseline_manifest.get("version") != 1:
-        raise PhotoIdentitySweepError("baseline Stash source manifest format/version is invalid")
-    baseline_performer = baseline_manifest.get("performer") or {}
-    if str(baseline_performer.get("id") or "") != performer_id:
-        raise PhotoIdentitySweepError("baseline Stash source manifest belongs to a different performer")
-    baseline_sha = _sha256(baseline_source_manifest)
+    _, baseline_sha = _read_baseline_source_manifest(baseline_source_manifest, performer_id)
 
     try:
         config = _load_config(analyzer_config_path)
