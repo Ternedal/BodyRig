@@ -54,7 +54,10 @@ def _canonical_sha(value: object, *, label: str) -> str:
 def _quality(value: object, *, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise PhotoIdentitySourceChainError(f"{label} is not numeric")
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError:
+        raise PhotoIdentitySourceChainError(f"{label} is outside 0..1") from None
     if not math.isfinite(result) or not 0.0 <= result <= 1.0:
         raise PhotoIdentitySourceChainError(f"{label} is outside 0..1")
     if result < DETAIL_QUALITY_THRESHOLD:
@@ -70,9 +73,11 @@ def _receipt_boundary(
     expected_format: str,
     label: str,
 ) -> None:
+    version = receipt.get("version")
     if (
         receipt.get("format") != expected_format
-        or receipt.get("version") != 1
+        or isinstance(version, bool)
+        or version != 1
         or receipt.get("operator_supplied") is not True
         or receipt.get("source_grounded") is not True
         or receipt.get("generic_guessing_permitted") is not False
@@ -148,10 +153,11 @@ def _assert_claims_match(
             raise PhotoIdentitySourceChainError(f"final {domain} claim is not source-derived")
         if str(item.get("adapter") or "") != adapter or str(item.get("revision") or "") != revision:
             raise PhotoIdentitySourceChainError(f"final {domain} claim adapter/revision changed")
+        quality = _quality(item.get("quality"), label=f"final {domain} claim quality")
         actual.append(
             {
                 "scene_id": str(item.get("scene_id") or ""),
-                "quality": round(float(item.get("quality", -1.0)), 4),
+                "quality": round(quality, 4),
             }
         )
     if actual != list(expected):
