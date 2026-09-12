@@ -207,7 +207,13 @@ def resume_gate_a(
     readiness = _read_json(readiness_path, label="physical clone readiness")
     if _sha256(readiness_path) != session["readiness_sha256"]:
         raise GateAResumeError("physical readiness bytes no longer match the completed session")
-    if readiness.get("format") != "bodyrig-rig-readiness" or readiness.get("version") != 1 or readiness.get("ready") is not True:
+    readiness_version = readiness.get("version")
+    if (
+        readiness.get("format") != "bodyrig-rig-readiness"
+        or isinstance(readiness_version, bool)
+        or readiness_version != 1
+        or readiness.get("ready") is not True
+    ):
         raise GateAResumeError("physical readiness report is not READY v1 evidence")
     if str(readiness.get("rig_setup_sha256") or "").lower() != session["rig_setup_sha256"]:
         raise GateAResumeError("physical readiness rig setup differs from the completed session")
@@ -288,7 +294,12 @@ def resume_gate_a(
             raise GateAResumeError(f"runtime materialization failed: {detail}")
         runtime_manifest_path = runtime_dir / "runtime-manifest.json"
         runtime = _read_json(runtime_manifest_path, label="materialized runtime manifest")
-        if runtime.get("format") != "bodyrig-runtime-assets" or runtime.get("version") != 1:
+        runtime_version = runtime.get("version")
+        if (
+            runtime.get("format") != "bodyrig-runtime-assets"
+            or isinstance(runtime_version, bool)
+            or runtime_version != 1
+        ):
             raise GateAResumeError("materialized runtime manifest format/version mismatch")
         if runtime.get("body_id") != lineage["body_id"] or str(runtime.get("package_sha256") or "").lower() != source_package_sha:
             raise GateAResumeError("materialized runtime identity does not match the resumed package")
