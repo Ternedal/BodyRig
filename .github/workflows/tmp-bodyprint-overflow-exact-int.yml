@@ -9,91 +9,42 @@ permissions:
   contents: write
 
 jobs:
-  patch-test-publish:
+  validate:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: '3.12'
-      - name: Apply exact-integer BodyPrint numeric boundary fix
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          package_path = Path('bodyrig/package.py')
-          source = package_path.read_text(encoding='utf-8')
-          old = '''def _num(value: Any, lo: float, hi: float, field: str) -> None:\n    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or not lo <= float(value) <= hi:\n        raise MRBodyError(f"bodyprint.{field}: invalid number")\n'''
-          new = '''def _num(value: Any, lo: float, hi: float, field: str) -> None:\n    if isinstance(value, bool) or not isinstance(value, (int, float)):\n        raise MRBodyError(f"bodyprint.{field}: invalid number")\n    if isinstance(value, float) and not math.isfinite(value):\n        raise MRBodyError(f"bodyprint.{field}: invalid number")\n    if not lo <= value <= hi:\n        raise MRBodyError(f"bodyprint.{field}: invalid number")\n'''
-          if source.count(old) != 1:
-              raise SystemExit('BodyPrint numeric validator anchor mismatch')
-          package_path.write_text(source.replace(old, new), encoding='utf-8', newline='\n')
-
-          test_path = Path('tests/test_package.py')
-          test = test_path.read_text(encoding='utf-8')
-          marker = 'def test_bodyprint_huge_integer_fails_with_mrbody_error'
-          if marker in test:
-              raise SystemExit('overflow regression already exists unexpectedly')
-          addition = r'''
-
-
-@pytest.mark.parametrize("value", [10**400, -(10**400)])
-def test_bodyprint_huge_integer_fails_with_mrbody_error(value):
-    bodyprint = {
-        "format": "modelrig-bodyprint",
-        "version": 1,
-        "motion": {"energy": value},
-    }
-
-    with pytest.raises(MRBodyError, match=r"bodyprint\.motion\.energy: invalid number"):
-        package_module.validate_bodyprint(bodyprint)
-
-
-def test_package_huge_bodyprint_integer_fails_with_mrbody_error(tmp_path: Path):
-    package = make_package(tmp_path / "source.mrbody")
-    crafted = tmp_path / "huge-number.mrbody"
-
-    with zipfile.ZipFile(package, "r") as source:
-        entries = {info.filename: source.read(info.filename) for info in source.infolist()}
-
-    bodyprint = {
-        "format": "modelrig-bodyprint",
-        "version": 1,
-        "motion": {"energy": 10**400},
-    }
-    bodyprint_bytes = json.dumps(bodyprint, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    entries["bodyprint.json"] = bodyprint_bytes
-    checksums = json.loads(entries["checksums.json"].decode("utf-8"))
-    checksums["bodyprint.json"] = hashlib.sha256(bodyprint_bytes).hexdigest()
-    entries["checksums.json"] = (json.dumps(checksums, indent=2, sort_keys=True) + "\n").encode("utf-8")
-
-    with zipfile.ZipFile(crafted, "w", compression=zipfile.ZIP_DEFLATED) as target:
-        for name, data in entries.items():
-            target.writestr(name, data)
-
-    with pytest.raises(MRBodyError, match=r"bodyprint\.motion\.energy: invalid number"):
-        validate_package(crafted)
-'''
-          test_path.write_text(test.rstrip() + addition + '\n', encoding='utf-8', newline='\n')
-          PY
-      - name: Install locked Linux test environment
+          python-version: "3.11"
+      - name: Apply exact-integer BodyPrint overflow patch
+        run: python .github/scripts/tmp_bodyprint_overflow_exact_int.py
+      - name: Install locked test environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
-      - name: Run full locked Python suite
+      - name: Validate full suite and product diff
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
+          python -m compileall -q bodyrig tests
           python -m pytest -q
           git diff --check
-      - name: Commit staging product result
-        shell: bash
+          python - <<'PY'
+          import subprocess
+          expected = {"bodyrig/package.py", "tests/test_package.py"}
+          changed = {
+              line.strip()
+              for line in subprocess.check_output(["git", "diff", "--name-only"], text=True).splitlines()
+              if line.strip()
+          }
+          if changed != expected:
+              raise SystemExit(f"unexpected product diff: {sorted(changed)} != {sorted(expected)}")
+          print("Product diff: PASS | " + ", ".join(sorted(changed)))
+          PY
+      - name: Publish validated staging product tree
         run: |
-          git rm .github/workflows/tmp-bodyprint-overflow-exact-int.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bodyrig/package.py tests/test_package.py
           git diff --cached --check
-          git commit -m 'Fail closed on huge BodyPrint numeric values without int float coercion'
+          git commit -m "Fail closed on huge BodyPrint numeric values without int float coercion"
           git push origin HEAD:staging/bodyprint-overflow-exact-int-20260912
-          test "$(git diff --name-only a6f26d418904fd8398d16fcaa37ee989a3c71213..HEAD | sort | tr '\n' ' ')" = "bodyrig/package.py tests/test_package.py "
