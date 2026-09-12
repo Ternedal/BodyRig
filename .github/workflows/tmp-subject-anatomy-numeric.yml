@@ -1,0 +1,187 @@
+name: tmp-subject-anatomy-numeric
+
+on:
+  push:
+    branches:
+      - staging/subject-anatomy-numeric-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Apply subject-anatomy numeric boundary fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          product = Path('bodyrig/subject_anatomy_provenance.py')
+          text = product.read_text(encoding='utf-8')
+          old = '''def _finite_nonnegative(value: Any, *, label: str) -> float:
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              result = float(value)
+              if not math.isfinite(result) or result < 0.0:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return result
+
+
+          def _finite_alignment(value: Any, *, label: str) -> float:
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              result = float(value)
+              if not math.isfinite(result) or not -1.0 <= result <= 1.0:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return result
+
+
+          def _finite_vector(value: Any, *, label: str, length: int) -> list[float]:
+              if not isinstance(value, list) or len(value) != length:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              result: list[float] = []
+              for item in value:
+                  if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+                      raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+                  result.append(float(item))
+              return result
+          '''.replace('          ', '')
+          new = '''def _finite_number(value: Any, *, label: str) -> float:
+              if isinstance(value, bool) or not isinstance(value, (int, float)):
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              try:
+                  result = float(value)
+              except OverflowError:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid") from None
+              if not math.isfinite(result):
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return result
+
+
+          def _finite_nonnegative(value: Any, *, label: str) -> float:
+              result = _finite_number(value, label=label)
+              if result < 0.0:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return result
+
+
+          def _finite_alignment(value: Any, *, label: str) -> float:
+              result = _finite_number(value, label=label)
+              if not -1.0 <= result <= 1.0:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return result
+
+
+          def _finite_vector(value: Any, *, label: str, length: int) -> list[float]:
+              if not isinstance(value, list) or len(value) != length:
+                  raise SubjectAnatomyProvenanceError(f"{label} is invalid")
+              return [_finite_number(item, label=label) for item in value]
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('numeric helper anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regression: bool = True) -> dict[str, Any]:
+              if value.get("format") != FORMAT or value.get("version") != VERSION:
+                  raise SubjectAnatomyProvenanceError("subject anatomy refit evidence format is invalid")
+          '''.replace('          ', '')
+          new = '''def validate_subject_anatomy_refit(value: Mapping[str, Any], *, require_non_regression: bool = True) -> dict[str, Any]:
+              version = value.get("version")
+              if (
+                  value.get("format") != FORMAT
+                  or isinstance(version, bool)
+                  or not isinstance(version, (int, float))
+                  or version != VERSION
+              ):
+                  raise SubjectAnatomyProvenanceError("subject anatomy refit evidence format is invalid")
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('version validation anchor not found')
+          product.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('tests/test_subject_anatomy_provenance.py')
+          t = tests.read_text(encoding='utf-8')
+          addition = r'''
+
+          def test_subject_anatomy_provenance_rejects_boolean_version_but_accepts_numeric_one() -> None:
+              boolean_version = _receipt()
+              boolean_version["version"] = True
+              with pytest.raises(SubjectAnatomyProvenanceError, match="format is invalid"):
+                  validate_subject_anatomy_refit(boolean_version)
+
+              numeric_version = _receipt()
+              numeric_version["version"] = 1.0
+              assert validate_subject_anatomy_refit(numeric_version)["version"] == 1
+
+
+          def test_subject_anatomy_provenance_normalizes_huge_scalar_overflow() -> None:
+              value = _receipt()
+              value["initialDonorToSourceP95"] = 10**400
+              with pytest.raises(SubjectAnatomyProvenanceError, match="initial anatomy p95 is invalid"):
+                  validate_subject_anatomy_refit(value)
+
+
+          def test_subject_anatomy_provenance_normalizes_huge_vector_overflow() -> None:
+              value = _receipt()
+              value["derivedBetas"] = [10**400] + [0.1] * 9
+              with pytest.raises(SubjectAnatomyProvenanceError, match="derived anatomy betas is invalid"):
+                  validate_subject_anatomy_refit(value)
+
+
+          def test_subject_anatomy_provenance_normalizes_huge_alignment_overflow() -> None:
+              value = _receipt()
+              value.update(
+                  {
+                      "method": "explicit-family-smplx-betas-icp-normal-aware-to-retained-sith-source-v2",
+                      "initialNormalAlignmentMean": 10**400,
+                      "initialNormalAlignmentP05": 0.2,
+                      "finalNormalAlignmentMean": 0.4,
+                      "finalNormalAlignmentP05": 0.3,
+                      "normalAwareNonRegression": True,
+                      "normalAlignmentAuthority": "nearest-source-vertex-area-weighted-v1",
+                      "normalLossWeight": 0.1,
+                  }
+              )
+              with pytest.raises(SubjectAnatomyProvenanceError, match="initial anatomy normal mean is invalid"):
+                  validate_subject_anatomy_refit(value)
+          '''.replace('          ', '')
+          if 'test_subject_anatomy_provenance_normalizes_huge_scalar_overflow' in t:
+              raise SystemExit('numeric boundary regressions already present')
+          tests.write_text(t.rstrip() + addition + '\n', encoding='utf-8')
+          PY
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full suite and exact product diff
+        shell: bash
+        run: |
+          python -m pytest
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(bodyrig/subject_anatomy_provenance.py tests/test_subject_anatomy_provenance.py)
+          if [ "${changed[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected product diff: %s\n' "${changed[*]}" >&2
+            exit 1
+          fi
+      - name: Publish validated staging product tree
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bodyrig/subject_anatomy_provenance.py tests/test_subject_anatomy_provenance.py
+          mapfile -t staged < <(git diff --cached --name-only | sort)
+          expected=(bodyrig/subject_anatomy_provenance.py tests/test_subject_anatomy_provenance.py)
+          if [ "${staged[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected staged product set: %s\n' "${staged[*]}" >&2
+            exit 1
+          fi
+          git commit -m 'Fail closed on subject-anatomy provenance numerics'
+          git push origin HEAD:staging/subject-anatomy-numeric-20260912
