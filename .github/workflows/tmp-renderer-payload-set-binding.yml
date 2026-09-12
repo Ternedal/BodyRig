@@ -1,0 +1,51 @@
+name: tmp-renderer-payload-set-binding
+
+on:
+  push:
+    branches:
+      - staging/renderer-payload-set-binding-20260912
+    paths:
+      - .github/workflows/tmp-renderer-payload-set-binding.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact payload-binding patch
+        shell: pwsh
+        run: python .\tools\tmp_patch_renderer_payload_set_binding.py
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('.\record-renderer-acceptance.ps1','.\tests\test-complete-acceptance.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "$path parse errors: $($errors | Out-String)" }
+          }
+      - name: Run complete acceptance regression
+        shell: pwsh
+        run: pwsh -NoLogo -NoProfile -NonInteractive -File .\tests\test-complete-acceptance.ps1
+      - name: Validate clean patch
+        shell: pwsh
+        run: |
+          git diff --check
+          $changed = @(git diff --name-only)
+          $expected = @('record-renderer-acceptance.ps1','tests/test-complete-acceptance.ps1')
+          $delta = @(Compare-Object -ReferenceObject ($expected | Sort-Object) -DifferenceObject ($changed | Sort-Object))
+          if ($delta.Count -gt 0 -or $changed.Count -ne 2) { throw "Unexpected patch files: $($changed -join ', ')" }
+      - name: Commit validated product patch
+        shell: pwsh
+        run: |
+          git config user.name 'BodyRig CI'
+          git config user.email 'bodyrig-ci@example.invalid'
+          git add -- record-renderer-acceptance.ps1 tests/test-complete-acceptance.ps1
+          git commit -m 'Bind renderer acceptance to full runtime payload set'
+          git push origin HEAD:staging/renderer-payload-set-binding-20260912
