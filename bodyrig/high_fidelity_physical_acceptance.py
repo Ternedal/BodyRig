@@ -50,6 +50,10 @@ class HighFidelityPhysicalAcceptanceError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _hash(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -450,7 +454,7 @@ def physical_acceptance_status(
         receipt = _json(acceptance / RECEIPT_NAME, "physical handoff receipt")
         if (
             receipt.get("format") != FORMAT
-            or receipt.get("version") != VERSION
+            or not _is_v1(receipt.get("version"))
             or receipt.get("previewJobId") != preview_job_id
             or receipt.get("promotedPackageSha256") != expected
             or receipt.get("physicalAcceptanceAuthority") is not False

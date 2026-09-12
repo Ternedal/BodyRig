@@ -73,6 +73,68 @@ def _build(source: Path, out: Path) -> dict:
     )
 
 
+def test_source_eye_authority_rejects_boolean_v1_before_candidate_build(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    receipt_path = source / "eye-appearance-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = True
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(SourceIrisIsolationError, match="source eye appearance receipt format/version mismatch"):
+        _build(source, tmp_path / "iris")
+
+
+def test_source_eye_authority_accepts_numeric_float_v1_with_exact_source_binding(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    receipt_path = source / "eye-appearance-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = 1.0
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    value = _build(source, tmp_path / "iris")
+
+    assert value["sourceEyeAppearanceReceiptSha256"] == _sha(receipt_path)
+    assert value["irisIdentityIsolated"] is False
+    assert value["humanReviewRequired"] is True
+    assert value["eyeComponentAuthority"] is False
+    assert value["productionActivation"] is False
+
+
+def test_candidate_receipt_rejects_boolean_v1_before_review_authority(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    _build(source, out)
+    path = out / "iris-isolation-candidate.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = True
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(SourceIrisIsolationError, match="fields/format do not match v1"):
+        read_candidate(out, source_eye_appearance_dir=source)
+
+
+def test_candidate_receipt_accepts_numeric_float_v1_without_expanding_authority(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    built = _build(source, out)
+    path = out / "iris-isolation-candidate.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    verified = read_candidate(out, source_eye_appearance_dir=source)
+
+    assert verified["version"] == 1.0
+    assert not isinstance(verified["version"], bool)
+    assert verified["sourceEyeAppearanceReceiptSha256"] == built["sourceEyeAppearanceReceiptSha256"]
+    assert verified["left"]["candidatePngSha256"] == built["left"]["candidatePngSha256"]
+    assert verified["right"]["candidatePngSha256"] == built["right"]["candidatePngSha256"]
+    assert verified["irisIdentityIsolated"] is False
+    assert verified["humanReviewRequired"] is True
+    assert verified["eyeComponentAuthority"] is False
+    assert verified["productionActivation"] is False
+
+
 def test_candidate_is_source_and_revision_bound_and_cannot_grant_iris_authority(tmp_path: Path) -> None:
     source = _source(tmp_path)
     out = tmp_path / "iris"
@@ -195,3 +257,52 @@ def test_review_fails_closed_if_candidate_bytes_change_after_review(tmp_path: Pa
     (out / "left_iris_candidate.png").write_bytes((out / "left_iris_candidate.png").read_bytes() + b"tamper")
     with pytest.raises(SourceIrisIsolationReviewError, match="candidate authority failed"):
         read_review(candidate_dir=out, source_eye_appearance_dir=source)
+
+
+
+def test_human_review_receipt_rejects_boolean_v1_before_iris_review_pass(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    _build(source, out)
+    receipt = write_review(
+        candidate_dir=out,
+        source_eye_appearance_dir=source,
+        bodyrig_revision=REVISION,
+        checklist={field: True for field in CHECKLIST_FIELDS},
+        quality_note="Exact source-derived iris review fixture.",
+    )
+    path = Path(receipt["reviewPath"])
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = True
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(SourceIrisIsolationReviewError, match="format/version/policy mismatch"):
+        read_review(candidate_dir=out, source_eye_appearance_dir=source)
+
+
+def test_human_review_receipt_accepts_numeric_float_v1_without_expanding_authority(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    out = tmp_path / "iris"
+    _build(source, out)
+    receipt = write_review(
+        candidate_dir=out,
+        source_eye_appearance_dir=source,
+        bodyrig_revision=REVISION,
+        checklist={field: True for field in CHECKLIST_FIELDS},
+        quality_note="Exact source-derived iris review fixture.",
+    )
+    path = Path(receipt["reviewPath"])
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    verified = read_review(candidate_dir=out, source_eye_appearance_dir=source)
+
+    assert verified["version"] == 1.0
+    assert not isinstance(verified["version"], bool)
+    assert verified["candidateSha256"] == receipt["candidateSha256"]
+    assert verified["irisIdentityIsolated"] is True
+    assert verified["humanReviewComplete"] is True
+    assert verified["eyeComponentAuthority"] is False
+    assert verified["eyesPromotionEligible"] is False
+    assert verified["productionActivation"] is False

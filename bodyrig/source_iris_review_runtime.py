@@ -30,6 +30,10 @@ class SourceIrisReviewRuntimeError(ValueError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -94,7 +98,7 @@ def _base_runtime(runtime_dir: Path) -> tuple[dict[str, Any], Path, Path, dict[s
         "comparisonOnly", "humanReviewRequired", "hairComponentAuthority", "eyeComponentAuthority",
         "productionActivation",
     }
-    if set(receipt) != required or receipt.get("format") != BASE_RUNTIME_FORMAT or receipt.get("version") != BASE_RUNTIME_VERSION:
+    if set(receipt) != required or receipt.get("format") != BASE_RUNTIME_FORMAT or not _is_version(receipt.get("version"), BASE_RUNTIME_VERSION):
         raise SourceIrisReviewRuntimeError("combined source hair+eye runtime receipt fields/format do not match v1")
     _revision(receipt.get("bodyrigRevision"), label="base runtime BodyRig revision")
     for field in (
@@ -140,7 +144,7 @@ def _base_runtime(runtime_dir: Path) -> tuple[dict[str, Any], Path, Path, dict[s
         "eyelashStatus", "skinIndex", "physicalFaceCloseupReviewRequired", "comparisonOnly",
         "humanReviewRequired", "eyeComponentAuthority", "productionActivation",
     }
-    if set(eye) != required_eye or eye.get("format") != EYE_METADATA_FORMAT or eye.get("version") != EYE_METADATA_VERSION:
+    if set(eye) != required_eye or eye.get("format") != EYE_METADATA_FORMAT or not _is_version(eye.get("version"), EYE_METADATA_VERSION):
         raise SourceIrisReviewRuntimeError("embedded eye review metadata fields/format do not match v1")
     if eye.get("eyeAppearanceReceiptSha256") != receipt["eyeAppearanceReceiptSha256"]:
         raise SourceIrisReviewRuntimeError("embedded eye runtime binds different eye appearance authority")
@@ -292,7 +296,7 @@ def read_reviewed_runtime(
         "irisAppearanceStatus", "cornealMaterialStatus", "eyelashStatus", "eyeComponentAuthority",
         "eyesPromotionEligible", "comparisonOnly", "humanReviewRequired", "productionActivation",
     }
-    if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION:
+    if set(value) != required or value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION):
         raise SourceIrisReviewRuntimeError("reviewed iris runtime receipt fields/format do not match v1")
     revision = _revision(value.get("bodyrigRevision"), label="reviewed runtime BodyRig revision")
     if candidate.get("bodyrigRevision") != revision or review.get("bodyrigRevision") != revision:

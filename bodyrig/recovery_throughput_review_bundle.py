@@ -85,7 +85,13 @@ def verify_bundle(path: str | Path) -> dict[str, Any]:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RecoveryThroughputReviewBundleError("review bundle receipt is invalid JSON") from exc
-    if not isinstance(receipt, dict) or receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    receipt_version = receipt.get("version") if isinstance(receipt, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("format") != FORMAT
+        or isinstance(receipt_version, bool)
+        or receipt_version != VERSION
+    ):
         raise RecoveryThroughputReviewBundleError("review bundle receipt format/version mismatch")
     if receipt.get("semantics") != SEMANTICS:
         raise RecoveryThroughputReviewBundleError("review bundle semantics mismatch")

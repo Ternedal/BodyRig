@@ -43,6 +43,10 @@ class HighFidelityHumanReviewError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _canonical_json(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -197,7 +201,7 @@ def read_review(package_path: str | Path) -> dict[str, Any]:
         raise HighFidelityHumanReviewError(f"high-fidelity human review is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HighFidelityHumanReviewError("high-fidelity human review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HighFidelityHumanReviewError("high-fidelity human review format/version/policy mismatch")
     if str(value.get("body_id") or "") != str(audit.get("canonical_body_id") or ""):
         raise HighFidelityHumanReviewError("high-fidelity human review body id no longer matches package authority")

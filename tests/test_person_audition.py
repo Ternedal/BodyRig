@@ -124,6 +124,37 @@ def test_audition_rejects_other_assembly(tmp_path: Path) -> None:
         )
 
 
+def test_audition_rejects_boolean_v1_receipt(tmp_path: Path) -> None:
+    receipt = _write(tmp_path)
+    path = receipt_path(tmp_path, PERSON_ID, receipt["audition_id"])
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = True
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(PersonAuditionError, match="format/version"):
+        verify_audition(
+            tmp_path, person_id=PERSON_ID, audition_id=receipt["audition_id"], assembly_fingerprint=ASSEMBLY
+        )
+
+
+def test_audition_numeric_float_v1_preserves_audio_and_assembly_authority(tmp_path: Path) -> None:
+    receipt = _write(tmp_path)
+    path = receipt_path(tmp_path, PERSON_ID, receipt["audition_id"])
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    verified = verify_audition(
+        tmp_path, person_id=PERSON_ID, audition_id=receipt["audition_id"], assembly_fingerprint=ASSEMBLY
+    )
+
+    assert verified["version"] == 1.0
+    assert not isinstance(verified["version"], bool)
+    assert verified["assembly_fingerprint"] == ASSEMBLY
+    assert verified["audio_sha256"] == receipt["audio_sha256"]
+    assert audio_path(tmp_path, PERSON_ID, receipt["audition_id"]).read_bytes() == _wav()
+
+
 def test_receipt_is_strict_and_contains_no_prompt_reply_or_token(tmp_path: Path) -> None:
     receipt = _write(tmp_path, prompt="secret prompt text", reply="secret reply text")
     path = receipt_path(tmp_path, PERSON_ID, receipt["audition_id"])

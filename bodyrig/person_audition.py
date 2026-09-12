@@ -89,7 +89,8 @@ def _validate(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
     if not isinstance(value, Mapping) or set(value) != expected:
         raise PersonAuditionError("audition receipt fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if value.get("format") != FORMAT or isinstance(version, bool) or version != VERSION:
         raise PersonAuditionError("unsupported audition receipt format/version")
     audition_id = value.get("audition_id")
     person_id = value.get("person_id")

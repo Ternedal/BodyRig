@@ -28,6 +28,10 @@ class RigWindowPlanError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _ps_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -189,7 +193,7 @@ def _completed_sessions(
             session = _read_json(path)
             if not session:
                 continue
-            if session.get("format") != "bodyrig-physical-clone-session" or session.get("version") != 1:
+            if session.get("format") != "bodyrig-physical-clone-session" or not _is_v1(session.get("version")):
                 continue
             if session.get("status") != "pass" or session.get("stage") != "complete":
                 continue
