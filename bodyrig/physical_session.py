@@ -86,7 +86,8 @@ def _timestamp(value: Any, *, field: str, nullable: bool = False) -> str | None:
 def validate_session(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != FIELDS:
         raise PhysicalSessionError("physical clone session fields must match v1 exactly")
-    if value["format"] != FORMAT or value["version"] != VERSION:
+    version = value["version"]
+    if value["format"] != FORMAT or isinstance(version, bool) or version != VERSION:
         raise PhysicalSessionError("unsupported physical clone session format/version")
 
     try:
