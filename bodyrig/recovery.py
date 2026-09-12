@@ -139,7 +139,7 @@ class JsonCommandRecoveryAdapter:
             raise RecoveryError(f"recovery adapter exited {completed.returncode}: {completed.stderr.strip()[-2000:]}")
         try:
             payload = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, ValueError) as exc:
             raise RecoveryError("recovery adapter returned invalid JSON") from exc
         result = parse_recovery_result(payload, expected_adapter=self.name)
         if result.revision != self.revision:
