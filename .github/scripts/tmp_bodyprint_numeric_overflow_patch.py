@@ -60,4 +60,4 @@ def test_package_huge_bodyprint_integer_fails_with_mrbody_error(tmp_path: Path):
 '''
 if "def test_bodyprint_huge_integer_fails_with_mrbody_error" in test_source:
     raise SystemExit("BodyPrint overflow regression already exists")
-test_path.write_text(test_source.rstrip() + addition + "\n", encoding="utf-8")
+test_path.write_text(test_source.rstrip() + addition, encoding="utf-8")
