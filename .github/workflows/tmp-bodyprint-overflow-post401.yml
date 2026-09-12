@@ -1,0 +1,53 @@
+name: tmp-bodyprint-overflow-post401
+
+on:
+  push:
+    branches:
+      - staging/bodyprint-overflow-post401-20260912
+    paths:
+      - .github/workflows/tmp-bodyprint-overflow-post401.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply exact post-401 integration patch
+        run: python tools/tmp_patch_bodyprint_overflow_post401.py
+      - name: Run package boundary regressions
+        run: |
+          python -m pytest -q \
+            tests/test_package.py \
+            tests/test_package_bodyprint_height_scale_contract.py \
+            tests/test_package_provenance_length_contract.py \
+            tests/test_package_metadata_unicode.py \
+            tests/test_package_manifest_unicode.py
+      - name: Validate clean patch
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          printf '%s\n' "${changed[@]}" | grep -Fx 'bodyrig/package.py'
+          printf '%s\n' "${changed[@]}" | grep -Fx 'tests/test_package.py'
+          grep -F '"height_scale": (0.0, 4.0)' bodyrig/package.py
+          grep -F 'key == "height_scale" and float(item) <= 0.0' bodyrig/package.py
+          grep -F 'pipeline_text_limits = {"stage": 80, "adapter": 120, "revision": 160}' bodyrig/package.py
+      - name: Commit validated product integration
+        run: |
+          git config user.name 'BodyRig CI'
+          git config user.email 'bodyrig-ci@example.invalid'
+          git add -- bodyrig/package.py tests/test_package.py
+          git commit -m 'Fail closed on huge BodyPrint numeric values'
+          git push origin HEAD:staging/bodyprint-overflow-post401-20260912
