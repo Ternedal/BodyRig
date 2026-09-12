@@ -1,0 +1,45 @@
+name: tmp-sith-fit-json-eof
+
+on:
+  push:
+    branches:
+      - fix/sith-fit-json-bridge-numeric-overflow-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Normalize canonical bridge EOF
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('bodyrig/bridges/sith_canonical_smplx_obj.py')
+          text = path.read_text(encoding='utf-8')
+          if text.endswith('\n'):
+              raise SystemExit('canonical bridge already has final newline')
+          path.write_text(text + '\n', encoding='utf-8')
+          PY
+          git diff --check
+          python - <<'PY'
+          import subprocess
+          changed = {line.strip() for line in subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines() if line.strip()}
+          expected = {'bodyrig/bridges/sith_canonical_smplx_obj.py'}
+          if changed != expected:
+              raise SystemExit(f'unexpected EOF diff: {sorted(changed)} != {sorted(expected)}')
+          PY
+      - name: Publish EOF cleanup and remove temporary gate
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-sith-fit-json-eof.yml
+          git add bodyrig/bridges/sith_canonical_smplx_obj.py
+          git commit -m "Restore canonical bridge final newline"
+          git push origin HEAD:fix/sith-fit-json-bridge-numeric-overflow-20260912
