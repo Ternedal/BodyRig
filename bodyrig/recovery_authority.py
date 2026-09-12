@@ -53,7 +53,12 @@ def resolve_phalp_repo(
         raise RecoveryAuthorityError(
             f"{RIG_SETUP_ENV} rig setup report is unreadable"
         ) from exc
-    if not isinstance(report, dict) or report.get("format") != "bodyrig-rig-setup" or report.get("version") != 1:
+    if (
+        not isinstance(report, dict)
+        or report.get("format") != "bodyrig-rig-setup"
+        or isinstance(report.get("version"), bool)
+        or report.get("version") != 1
+    ):
         raise RecoveryAuthorityError(
             f"{RIG_SETUP_ENV} does not reference a BodyRig rig setup v1 report"
         )
