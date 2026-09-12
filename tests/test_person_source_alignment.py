@@ -8,6 +8,7 @@ import pytest
 from bodyrig.person_source_alignment import (
     PersonSourceAlignmentError,
     alignment_status,
+    binding_path,
     read_binding,
     require_alignment,
     write_binding,
@@ -78,6 +79,16 @@ def _bind_all(root: Path, profile: dict) -> None:
         evidence_kind="personality-blueprint-v1",
         evidence_sha256="d" * 64,
         evidence_ref="personality-blueprints/d.json",
+    )
+
+
+def _rewrite_binding_version(root: Path, profile: dict, kind: str, revision_id: str, version: object) -> None:
+    path = binding_path(root, profile["person_id"], kind, revision_id)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = version
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -207,3 +218,53 @@ def test_source_file_hashes_are_persisted_without_paths(tmp_path: Path) -> None:
     encoded = json.dumps(receipt)
     assert "C:\\" not in encoded
     assert "E:\\" not in encoded
+
+
+def test_binding_rejects_boolean_version_and_alignment_status_fails_closed(tmp_path: Path) -> None:
+    profile = _profile()
+    _bind_all(tmp_path, profile)
+    _rewrite_binding_version(tmp_path, profile, "body", "body-r0001", True)
+
+    with pytest.raises(PersonSourceAlignmentError, match="format/version invalid"):
+        read_binding(tmp_path, profile, kind="body", revision_id="body-r0001")
+
+    status = alignment_status(
+        tmp_path,
+        profile,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+    )
+    assert status["aligned"] is False
+    assert status["components"]["body"]["aligned"] is False
+    assert "format/version invalid" in status["components"]["body"]["reason"]
+    assert status["components"]["voice"]["aligned"] is True
+    assert status["components"]["personality"]["aligned"] is True
+
+
+def test_binding_accepts_numeric_float_version_and_preserves_idempotence(tmp_path: Path) -> None:
+    profile = _profile()
+    write_binding(
+        tmp_path,
+        profile,
+        kind="body",
+        revision_id="body-r0001",
+        evidence_kind="stash-physical-session-v1",
+        evidence_sha256="a" * 64,
+        evidence_ref="physical-session.json",
+    )
+    _rewrite_binding_version(tmp_path, profile, "body", "body-r0001", 1.0)
+
+    receipt = read_binding(tmp_path, profile, kind="body", revision_id="body-r0001")
+    assert receipt["version"] == 1.0
+
+    same = write_binding(
+        tmp_path,
+        profile,
+        kind="body",
+        revision_id="body-r0001",
+        evidence_kind="stash-physical-session-v1",
+        evidence_sha256="a" * 64,
+        evidence_ref="physical-session.json",
+    )
+    assert same["version"] == 1.0
