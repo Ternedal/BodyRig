@@ -15,13 +15,13 @@ from bodyrig.recovery_authority import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _rig_report(tmp_path: Path, *, four_d: Path, phalp: Path) -> Path:
+def _rig_report(tmp_path: Path, *, four_d: Path, phalp: Path, version: object = 1) -> Path:
     report = tmp_path / "rig-setup.json"
     report.write_text(
         json.dumps(
             {
                 "format": "bodyrig-rig-setup",
-                "version": 1,
+                "version": version,
                 "recovery": {
                     "four_d_humans_repo": str(four_d),
                     "phalp_repo": str(phalp),
@@ -45,6 +45,33 @@ def test_resolve_phalp_repo_uses_byte_bound_ready_rig_authority(tmp_path: Path):
         environ={RIG_SETUP_ENV: str(report)},
     )
     assert resolved == phalp.resolve()
+
+
+def test_resolve_phalp_repo_rejects_boolean_rig_setup_version(tmp_path: Path):
+    four_d = tmp_path / "recovery" / "4D-Humans"
+    phalp = tmp_path / "recovery" / "PHALP"
+    four_d.mkdir(parents=True)
+    phalp.mkdir()
+    report = _rig_report(tmp_path, four_d=four_d, phalp=phalp, version=True)
+
+    with pytest.raises(RecoveryAuthorityError, match="BodyRig rig setup v1 report"):
+        resolve_phalp_repo(
+            four_d,
+            environ={RIG_SETUP_ENV: str(report)},
+        )
+
+
+def test_resolve_phalp_repo_accepts_numeric_float_v1_version(tmp_path: Path):
+    four_d = tmp_path / "recovery" / "4D-Humans"
+    phalp = tmp_path / "recovery" / "PHALP"
+    four_d.mkdir(parents=True)
+    phalp.mkdir()
+    report = _rig_report(tmp_path, four_d=four_d, phalp=phalp, version=1.0)
+
+    assert resolve_phalp_repo(
+        four_d,
+        environ={RIG_SETUP_ENV: str(report)},
+    ) == phalp.resolve()
 
 
 def test_resolve_phalp_repo_rejects_rig_setup_for_other_4d_checkout(tmp_path: Path):
