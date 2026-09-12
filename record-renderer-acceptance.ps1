@@ -91,6 +91,14 @@ $fittingStages = @($provenance.pipeline | Where-Object { [string]$_.stage -eq "a
 if ($visualStages.Count -ne 1) { throw "Accepted .mrbody does not contain exactly one visual-identity-capture provenance stage." }
 if ($fittingStages.Count -ne 1 -or [string]$fittingStages[0].adapter -ne "sith-smplx-vrm" -or [string]$fittingStages[0].revision -ne "1") { throw "Accepted .mrbody was not produced by the built-in sith-smplx-vrm v1 fitter." }
 $reportHash = Sha256 $AcceptanceReport
+$checksums = Read-PackageJson $packagePath "checksums.json" "checksums.json"
+$packagePayloadNames = @($checksums.PSObject.Properties | ForEach-Object { [string]$_.Name })
+$gatePayloadNames = @($report.package.payload_names | ForEach-Object { [string]$_ })
+$gatePayloadSeen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($payloadName in $gatePayloadNames) {
+    if (-not $gatePayloadSeen.Add($payloadName) -or $packagePayloadNames -cnotcontains $payloadName) { throw "Gate A package payload set does not match the accepted .mrbody checksums." }
+}
+if ($gatePayloadSeen.Count -ne $packagePayloadNames.Count) { throw "Gate A package payload set does not match the accepted .mrbody checksums." }
 
 $runtimeFile = Read-JsonFile $RuntimeManifest "Runtime manifest"; $RuntimeManifest = $runtimeFile.Path; $runtime = $runtimeFile.Value
 $expectedRuntimeFields = @("format","version","body_id","body_name","package_sha256","avatar","avatar_sha256","bodyprint","bodyprint_sha256","payloads")
@@ -101,11 +109,23 @@ $runtimeAvatarManifestHash = Require-Sha ([string]$runtime.avatar_sha256) "runti
 $runtimeBodyprintManifestHash = Require-Sha ([string]$runtime.bodyprint_sha256) "runtime.bodyprint_sha256"
 if ([string]$runtime.avatar_sha256 -cne $runtimeAvatarManifestHash -or [string]$runtime.bodyprint_sha256 -cne $runtimeBodyprintManifestHash) { throw "Runtime manifest payload SHA-256 fields must be canonical lower-case." }
 if (@($runtime.payloads) -notcontains "avatar.vrm" -or @($runtime.payloads) -notcontains "bodyprint.json") { throw "Runtime manifest does not include required avatar/bodyprint payloads." }
+$runtimePayloadNames = @($runtime.payloads | ForEach-Object { [string]$_ })
+$runtimePayloadSeen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($payloadName in $runtimePayloadNames) {
+    if (-not $runtimePayloadSeen.Add($payloadName) -or $packagePayloadNames -cnotcontains $payloadName) { throw "Runtime manifest payload set does not match the accepted .mrbody checksums." }
+}
+if ($runtimePayloadSeen.Count -ne $packagePayloadNames.Count) { throw "Runtime manifest payload set does not match the accepted .mrbody checksums." }
 $runtimeManifestHash = Sha256 $RuntimeManifest; if ($runtimeManifestHash -ne $acceptedRuntimeManifestHash) { throw "Runtime manifest SHA-256 no longer matches Gate A." }
 
 $runtimeDir = Split-Path -Parent $RuntimeManifest; $avatarPath = Join-Path $runtimeDir "avatar.vrm"; $bodyprintPath = Join-Path $runtimeDir "bodyprint.json"
 if (-not (Test-Path $avatarPath -PathType Leaf) -or -not (Test-Path $bodyprintPath -PathType Leaf)) { throw "Materialized runtime is missing avatar.vrm or bodyprint.json." }
-$avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath; $checksums = Read-PackageJson $packagePath "checksums.json" "checksums.json"
+foreach ($payloadName in $packagePayloadNames) {
+    $payloadPath = Join-Path $runtimeDir $payloadName
+    if (-not (Test-Path -LiteralPath $payloadPath -PathType Leaf)) { throw "Materialized runtime is missing accepted package payload: $payloadName" }
+    $expectedPayloadHash = Require-Sha ([string]$checksums.PSObject.Properties[$payloadName].Value) "checksums.$payloadName"
+    if ((Sha256 $payloadPath) -ne $expectedPayloadHash) { throw "Materialized runtime payload hash does not match the accepted .mrbody: $payloadName" }
+}
+$avatarHash = Sha256 $avatarPath; $bodyprintHash = Sha256 $bodyprintPath
 $expectedAvatarHash = Require-Sha ([string]$checksums.PSObject.Properties["avatar.vrm"].Value) "checksums.avatar.vrm"; $expectedBodyprintHash = Require-Sha ([string]$checksums.PSObject.Properties["bodyprint.json"].Value) "checksums.bodyprint.json"
 if ($avatarHash -ne $expectedAvatarHash -or $bodyprintHash -ne $expectedBodyprintHash) { throw "Materialized runtime payload hashes do not match the accepted .mrbody." }
 if ($runtimeAvatarManifestHash -ne $avatarHash -or $runtimeBodyprintManifestHash -ne $bodyprintHash) { throw "Runtime manifest payload SHA-256 bindings do not match materialized runtime bytes." }
