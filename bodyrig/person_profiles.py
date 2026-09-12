@@ -233,7 +233,8 @@ def _validate_person_revision(value: Any) -> dict[str, Any]:
 def validate_profile(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise PersonProfileError("person profile fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if value.get("format") != FORMAT or isinstance(version, bool) or version != VERSION:
         raise PersonProfileError("unsupported person profile format/version")
     person_id = value.get("person_id")
     if not isinstance(person_id, str) or not PERSON_ID_RE.fullmatch(person_id):
