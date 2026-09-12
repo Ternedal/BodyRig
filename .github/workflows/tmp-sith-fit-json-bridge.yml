@@ -1,0 +1,61 @@
+name: tmp-sith-fit-json-bridge
+
+on:
+  push:
+    branches:
+      - fix/sith-fit-json-bridge-numeric-overflow-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Patch fitter numeric boundary
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('bodyrig/bridges/sith_smplx_vrm_fitter.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    result: list[float] = []\n    for item in value:\n        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):\n            raise FitterError(f"SiTH fit {field} contains a non-finite value")\n        result.append(float(item))\n    return result\n'''
+          new = '''    result: list[float] = []\n    for item in value:\n        if isinstance(item, bool) or not isinstance(item, (int, float)):\n            raise FitterError(f"SiTH fit {field} contains a non-finite value")\n        try:\n            number = float(item)\n        except (TypeError, ValueError, OverflowError):\n            raise FitterError(f"SiTH fit {field} contains a non-finite value") from None\n        if not math.isfinite(number):\n            raise FitterError(f"SiTH fit {field} contains a non-finite value")\n        result.append(number)\n    return result\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one fitter replacement target, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+      - name: Install locked test environment
+        run: |
+          python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+          python -m pip check
+      - name: Validate regression, full suite and patch scope
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m pytest -q tests/test_sith_fit_json_bridge_numeric_boundaries.py
+          python -m pytest -q
+          git diff --check
+          python - <<'PY'
+          import subprocess
+          changed = {line.strip() for line in subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines() if line.strip()}
+          expected = {'bodyrig/bridges/sith_smplx_vrm_fitter.py'}
+          if changed != expected:
+              raise SystemExit(f'unexpected patch diff: {sorted(changed)} != {sorted(expected)}')
+          print('Patch scope: PASS')
+          PY
+      - name: Publish validated fitter fix and remove temporary gate
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-sith-fit-json-bridge.yml
+          git add bodyrig/bridges/sith_smplx_vrm_fitter.py
+          git commit -m "Fail closed on fitter SMPL-X fit numerics"
+          git push origin HEAD:fix/sith-fit-json-bridge-numeric-overflow-20260912
