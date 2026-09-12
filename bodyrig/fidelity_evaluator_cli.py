@@ -35,7 +35,11 @@ def _read_result(path: Path) -> dict:
     }
     if set(value) != expected:
         raise FidelityEvaluatorRunnerError("fidelity evaluator result fields must match v1 exactly")
-    if value.get("format") != "bodyrig-fidelity-evaluation" or value.get("version") != 1:
+    if (
+        value.get("format") != "bodyrig-fidelity-evaluation"
+        or isinstance(value.get("version"), bool)
+        or value.get("version") != 1
+    ):
         raise FidelityEvaluatorRunnerError("fidelity evaluator result format/version mismatch")
     if value.get("human_visual_authority_required") is not True:
         raise FidelityEvaluatorRunnerError("fidelity evaluator must retain human visual authority")
