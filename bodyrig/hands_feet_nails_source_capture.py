@@ -106,9 +106,11 @@ def _canonical_identity(person_id: str, body_revision: str, bodyrig_revision: st
 def _normalized_crop(value: Any, *, region: str) -> list[float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 4:
         raise HandsFeetNailsSourceCaptureError(f"{region} crop_norm must contain x,y,width,height")
+    if any(isinstance(item, bool) for item in value):
+        raise HandsFeetNailsSourceCaptureError(f"{region} crop_norm contains a non-numeric value")
     try:
         x, y, width, height = [float(item) for item in value]
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise HandsFeetNailsSourceCaptureError(f"{region} crop_norm contains a non-numeric value") from exc
     if not all(value == value and abs(value) != float("inf") for value in (x, y, width, height)):
         raise HandsFeetNailsSourceCaptureError(f"{region} crop_norm must contain finite values")

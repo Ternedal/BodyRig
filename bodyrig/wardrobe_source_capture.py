@@ -86,9 +86,11 @@ def _identity(person_id: str, body_revision: str, bodyrig_revision: str) -> tupl
 def _crop(value: Any, *, view: str) -> list[float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 4:
         raise WardrobeSourceCaptureError(f"{view} crop_norm must contain x,y,width,height")
+    if any(isinstance(item, bool) for item in value):
+        raise WardrobeSourceCaptureError(f"{view} crop_norm contains a non-numeric value")
     try:
         x, y, width, height = [float(item) for item in value]
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise WardrobeSourceCaptureError(f"{view} crop_norm contains a non-numeric value") from exc
     if not all(item == item and abs(item) != float("inf") for item in (x, y, width, height)):
         raise WardrobeSourceCaptureError(f"{view} crop_norm must contain finite values")
