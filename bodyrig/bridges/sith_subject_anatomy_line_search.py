@@ -165,7 +165,12 @@ def _endpoint_authority(
     endpoint_obj = endpoint_dir / "subject_smplx.obj"
     evidence_path = endpoint_dir / "subject-anatomy-refit.json"
     evidence = _read_json(evidence_path, label="v3 subject anatomy endpoint evidence")
-    if evidence.get("format") != "bodyrig-subject-anatomy-refit" or evidence.get("version") != 1:
+    version = evidence.get("version")
+    if (
+        evidence.get("format") != "bodyrig-subject-anatomy-refit"
+        or isinstance(version, bool)
+        or version != 1
+    ):
         raise SubjectAnatomyLineSearchError("v3 endpoint evidence format is invalid")
     if evidence.get("method") != ENDPOINT_METHOD or evidence.get("targetModelFamily") != gender:
         raise SubjectAnatomyLineSearchError("line-search endpoint is not the requested v3 model-family candidate")
