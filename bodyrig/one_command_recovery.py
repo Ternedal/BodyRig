@@ -33,6 +33,10 @@ class OneCommandRecoveryError(ValueError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise OneCommandRecoveryError(f"{label} is missing or symlinked: {path}")
@@ -98,7 +102,7 @@ def inspect_one_command_recovery(session_report: str | Path) -> dict[str, Any] |
         return None
 
     authority = _read_json(authority_path, "one-command run authority")
-    if authority.get("format") != RUN_FORMAT or authority.get("version") != RUN_VERSION:
+    if authority.get("format") != RUN_FORMAT or not _is_version(authority.get("version"), RUN_VERSION):
         return None
     plan_text = str(authority.get("interrupted_fit_recovery_plan") or "").strip()
     plan_hash_text = str(authority.get("interrupted_fit_recovery_plan_sha256") or "").strip()
@@ -140,7 +144,7 @@ def inspect_one_command_recovery(session_report: str | Path) -> dict[str, Any] |
         raise OneCommandRecoveryError("failed session lacks clean-checkout/readiness authority")
 
     plan = _read_json(plan_path, "interrupted fit recovery plan")
-    if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
+    if plan.get("format") != PLAN_FORMAT or not _is_version(plan.get("version"), PLAN_VERSION):
         raise OneCommandRecoveryError("interrupted fit recovery plan format/version mismatch")
     if str(plan.get("bodyrig_revision") or "").lower() != revision:
         raise OneCommandRecoveryError("recovery plan revision differs from run authority")

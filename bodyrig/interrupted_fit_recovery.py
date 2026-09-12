@@ -29,6 +29,10 @@ class InterruptedFitRecoveryError(ValueError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise InterruptedFitRecoveryError(f"required recovery artifact not found: {path}")
@@ -138,7 +142,7 @@ def build_recovery_plan(
         raise InterruptedFitRecoveryError("interrupted fit does not use the production SiTH SMPL-X fitter")
 
     manifest = _read_json(source_manifest, label="Stash source manifest")
-    if manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+    if manifest.get("format") != "bodyrig-stash-source-manifest" or not _is_version(manifest.get("version"), 1):
         raise InterruptedFitRecoveryError("unsupported Stash source manifest format/version")
     if manifest.get("source_kind") != "stash-local":
         raise InterruptedFitRecoveryError("interrupted physical recovery requires a stash-local source manifest")
@@ -215,7 +219,7 @@ def build_recovery_plan(
 
 
 def verify_recovered_package(plan: Mapping[str, Any], package_path: str | os.PathLike[str]) -> dict[str, Any]:
-    if not isinstance(plan, Mapping) or plan.get("format") != FORMAT or plan.get("version") != VERSION:
+    if not isinstance(plan, Mapping) or plan.get("format") != FORMAT or not _is_version(plan.get("version"), VERSION):
         raise InterruptedFitRecoveryError("unsupported interrupted fit recovery plan")
     authority = plan.get("authority")
     paths = plan.get("paths")
