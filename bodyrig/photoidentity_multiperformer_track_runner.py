@@ -58,9 +58,11 @@ def _validate_review(review: object, *, expected_source_index: int) -> dict[str,
     }
     if set(review) != required:
         raise PhotoIdentityMultiTrackRunnerError("PHALP track review fields changed")
-    if review["format"] != "bodyrig-phalp-track-review" or review["version"] != 1:
+    version = review["version"]
+    if review["format"] != "bodyrig-phalp-track-review" or isinstance(version, bool) or version != 1:
         raise PhotoIdentityMultiTrackRunnerError("unsupported PHALP track review format/version")
-    if review["source_index"] != expected_source_index:
+    source_index = review["source_index"]
+    if isinstance(source_index, bool) or source_index != expected_source_index:
         raise PhotoIdentityMultiTrackRunnerError("PHALP track review source index changed")
     if review["target_track_id"] is not None:
         raise PhotoIdentityMultiTrackRunnerError("machine track review illegally selected a target identity")
@@ -158,7 +160,8 @@ def validate_track_review_batch(payload: object, *, expected_source_count: int) 
     }
     if set(payload) != required:
         raise PhotoIdentityMultiTrackRunnerError("PHALP track review batch fields changed")
-    if payload["format"] != FORMAT or payload["version"] != VERSION:
+    version = payload["version"]
+    if payload["format"] != FORMAT or isinstance(version, bool) or version != VERSION:
         raise PhotoIdentityMultiTrackRunnerError("unsupported PHALP track review batch format/version")
     if payload["adapter"] != ADAPTER_NAME or payload["revision"] != ADAPTER_REVISION:
         raise PhotoIdentityMultiTrackRunnerError("PHALP track review adapter authority changed")
@@ -184,7 +187,8 @@ def validate_track_review_batch(payload: object, *, expected_source_count: int) 
     for expected_index, raw in enumerate(sources):
         if not isinstance(raw, Mapping) or set(raw) != {"source_index", "source_media_sha256", "review"}:
             raise PhotoIdentityMultiTrackRunnerError("PHALP source review row fields changed")
-        if raw["source_index"] != expected_index:
+        source_index = raw["source_index"]
+        if isinstance(source_index, bool) or source_index != expected_index:
             raise PhotoIdentityMultiTrackRunnerError("PHALP source review ordering changed")
         normalized.append(
             {
