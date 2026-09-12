@@ -132,7 +132,13 @@ def verify_review(review_path: str | Path, *, bundle_dir: str | Path) -> dict[st
     bundle = verify_bundle(bundle_root)
     machine_path, _ = _require_machine_pass(bundle_root)
     receipt = _read_json(Path(review_path).expanduser().resolve(), label="human A/B review")
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION or receipt.get("semantics") != SEMANTICS:
+    receipt_version = receipt.get("version")
+    if (
+        receipt.get("format") != FORMAT
+        or isinstance(receipt_version, bool)
+        or receipt_version != VERSION
+        or receipt.get("semantics") != SEMANTICS
+    ):
         raise RecoveryThroughputHumanReviewError("human A/B review format/version/semantics mismatch")
     if receipt.get("promotion_authority") is not False or receipt.get("production_activation") is not False:
         raise RecoveryThroughputHumanReviewError("human A/B review cannot carry promotion/production authority")
