@@ -38,7 +38,8 @@ def validate_recovery_proof(value: Any) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != expected:
         raise ProofError("recovery proof fields must match v1 exactly")
-    if value["format"] != "bodyrig-recovery-proof" or value["version"] != 1:
+    version = value["version"]
+    if value["format"] != "bodyrig-recovery-proof" or isinstance(version, bool) or version != 1:
         raise ProofError("unsupported recovery proof format/version")
 
     count = value["source_count"]
