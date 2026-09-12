@@ -122,3 +122,63 @@ def test_full_rig_setup_rejects_wrong_sith_checkpoint_path_even_with_rehashed_se
     rig.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(RigSetupError, match="pinned SiTH checkpoint path"):
         load_rig_setup(rig)
+
+
+def test_full_rig_setup_rejects_boolean_top_level_version(tmp_path: Path):
+    rig = _fixture(tmp_path)
+    value = json.loads(rig.read_text(encoding="utf-8"))
+    value["version"] = True
+    rig.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(RigSetupError, match="unsupported rig setup format/version"):
+        load_rig_setup(rig)
+
+
+def test_full_rig_setup_rejects_boolean_recovery_environment_version_after_rehash(tmp_path: Path):
+    rig = _fixture(tmp_path)
+    value = json.loads(rig.read_text(encoding="utf-8"))
+    summary = Path(value["recovery"]["environment_summary"])
+    summary_value = json.loads(summary.read_text(encoding="utf-8"))
+    summary_value["version"] = True
+    value["recovery"]["environment_summary_sha256"] = _write(summary, summary_value)
+    rig.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(RigSetupError, match="recovery environment summary contract mismatch"):
+        load_rig_setup(rig)
+
+
+def test_full_rig_setup_rejects_boolean_recovery_preflight_version_after_rehash(tmp_path: Path):
+    rig = _fixture(tmp_path)
+    value = json.loads(rig.read_text(encoding="utf-8"))
+    preflight = Path(value["recovery"]["preflight"])
+    preflight_value = json.loads(preflight.read_text(encoding="utf-8"))
+    preflight_value["version"] = True
+    value["recovery"]["preflight_sha256"] = _write(preflight, preflight_value)
+    rig.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(RigSetupError, match="recovery preflight contract mismatch"):
+        load_rig_setup(rig)
+
+
+def test_full_rig_setup_preserves_numeric_float_v1_compatibility(tmp_path: Path):
+    rig = _fixture(tmp_path)
+    value = json.loads(rig.read_text(encoding="utf-8"))
+
+    summary = Path(value["recovery"]["environment_summary"])
+    summary_value = json.loads(summary.read_text(encoding="utf-8"))
+    summary_value["version"] = 1.0
+    value["recovery"]["environment_summary_sha256"] = _write(summary, summary_value)
+
+    preflight = Path(value["recovery"]["preflight"])
+    preflight_value = json.loads(preflight.read_text(encoding="utf-8"))
+    preflight_value["version"] = 1.0
+    value["recovery"]["preflight_sha256"] = _write(preflight, preflight_value)
+
+    value["version"] = 1.0
+    rig.write_text(json.dumps(value), encoding="utf-8")
+
+    loaded = load_rig_setup(rig)
+    assert loaded["format"] == "bodyrig-rig-setup"
+    assert loaded["version"] == 1
+    assert loaded["recovery"]["environment_summary_sha256"] == hashlib.sha256(summary.read_bytes()).hexdigest()
+    assert loaded["recovery"]["preflight_sha256"] == hashlib.sha256(preflight.read_bytes()).hexdigest()
