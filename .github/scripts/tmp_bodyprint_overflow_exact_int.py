@@ -53,4 +53,4 @@ def test_package_huge_bodyprint_integer_fails_with_mrbody_error(tmp_path: Path):
     with pytest.raises(MRBodyError, match=r"bodyprint\.motion\.energy: invalid number"):
         validate_package(crafted)
 '''
-test_path.write_text(test.rstrip() + addition + "\n", encoding="utf-8", newline="\n")
+test_path.write_text(test.rstrip() + addition.rstrip() + "\n", encoding="utf-8", newline="\n")
