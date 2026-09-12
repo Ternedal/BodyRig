@@ -1,0 +1,25 @@
+from pathlib import Path
+
+
+def replace_once(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected exactly one replacement target, found {count}")
+    path.write_text(text.replace(old, new), encoding="utf-8")
+
+
+runtime = Path("bodyrig/bridges/bodyprint_shape_adjust.py")
+replace_once(
+    runtime,
+    '''    if value.get("format") != ADJUSTMENT_FORMAT or value.get("version") != ADJUSTMENT_VERSION:\n        raise BodyprintAdjustmentError("unsupported BodyPrint adjustment format/version")\n''',
+    '''    version = value.get("version")\n    if (\n        value.get("format") != ADJUSTMENT_FORMAT\n        or isinstance(version, bool)\n        or version != ADJUSTMENT_VERSION\n    ):\n        raise BodyprintAdjustmentError("unsupported BodyPrint adjustment format/version")\n''',
+)
+replace_once(
+    runtime,
+    '''        delta = item.get("delta")\n        if isinstance(delta, bool) or not isinstance(delta, (int, float)) or not math.isfinite(float(delta)):\n            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite")\n        delta = float(delta)\n''',
+    '''        delta = item.get("delta")\n        if isinstance(delta, bool) or not isinstance(delta, (int, float)):\n            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite")\n        try:\n            delta = float(delta)\n        except (TypeError, ValueError, OverflowError):\n            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite") from None\n        if not math.isfinite(delta):\n            raise BodyprintAdjustmentError(f"changes[{index}].delta must be finite")\n''',
+)
+
+tests = Path("tests/test_bodyprint_adjustment_numeric_boundaries.py")
+tests.write_text('''from __future__ import annotations\n\nimport pytest\n\nfrom bodyrig.bridges.bodyprint_shape_adjust import (\n    ADJUSTMENT_FORMAT,\n    FIELD_LIMITS,\n    BodyprintAdjustmentError,\n    validate_adjustment_payload,\n)\n\n\ndef _payload(*, version: object = 1, delta: object = 0.005, field: str = "shape.shoulder_to_height") -> dict[str, object]:\n    return {\n        "format": ADJUSTMENT_FORMAT,\n        "version": version,\n        "feedback_sha256": "a" * 64,\n        "changes": [\n            {\n                "field": field,\n                "delta": delta,\n                "reason": "source-grounded correction",\n            }\n        ],\n    }\n\n\nclass _SingleFloat(float):\n    def __new__(cls, value: float):\n        instance = super().__new__(cls, value)\n        instance.float_calls = 0\n        return instance\n\n    def __float__(self) -> float:\n        self.float_calls += 1\n        if self.float_calls > 1:\n            raise AssertionError("delta was converted more than once")\n        return super().__float__()\n\n\nclass _ValueErrorFloat(float):\n    def __float__(self) -> float:\n        raise ValueError("conversion failed")\n\n\nclass _TypeErrorFloat(float):\n    def __float__(self) -> float:\n        raise TypeError("conversion failed")\n\n\ndef test_huge_delta_is_normalized_to_domain_error() -> None:\n    with pytest.raises(BodyprintAdjustmentError, match=r"changes\\[0\\]\\.delta must be finite"):\n        validate_adjustment_payload(_payload(delta=10**400))\n\n\n@pytest.mark.parametrize("delta", [_ValueErrorFloat(0.005), _TypeErrorFloat(0.005)])\ndef test_conversion_failures_are_normalized_to_domain_error(delta: float) -> None:\n    with pytest.raises(BodyprintAdjustmentError, match=r"changes\\[0\\]\\.delta must be finite"):\n        validate_adjustment_payload(_payload(delta=delta))\n\n\ndef test_boolean_version_is_rejected() -> None:\n    with pytest.raises(BodyprintAdjustmentError, match="unsupported BodyPrint adjustment format/version"):\n        validate_adjustment_payload(_payload(version=True))\n\n\ndef test_numeric_float_version_preserves_json_const_equality() -> None:\n    validated = validate_adjustment_payload(_payload(version=1.0))\n    assert validated["version"] == 1\n\n\n@pytest.mark.parametrize("field,limit", FIELD_LIMITS.items())\n@pytest.mark.parametrize("sign", [-1.0, 1.0])\ndef test_exact_v1_delta_boundaries_remain_valid(field: str, limit: float, sign: float) -> None:\n    validated = validate_adjustment_payload(_payload(field=field, delta=sign * limit))\n    assert validated["changes"][0]["field"] == field\n    assert validated["changes"][0]["delta"] == sign * limit\n\n\ndef test_ordinary_delta_is_normalized_once_and_reused() -> None:\n    delta = _SingleFloat(0.005)\n    validated = validate_adjustment_payload(_payload(delta=delta))\n    assert validated["changes"][0]["delta"] == 0.005\n    assert type(validated["changes"][0]["delta"]) is float\n    assert delta.float_calls == 1\n\n\ndef test_zero_delta_remains_rejected() -> None:\n    with pytest.raises(BodyprintAdjustmentError, match="exceeds the bounded V1 limit"):\n        validate_adjustment_payload(_payload(delta=0))\n''', encoding="utf-8")
