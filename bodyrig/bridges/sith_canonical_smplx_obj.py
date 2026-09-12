@@ -41,9 +41,15 @@ def _finite_vector(value: Any, *, field: str, length: int) -> list[float]:
         raise CanonicalSmplxError(f"fit parameter {field} must contain exactly {length} values")
     result: list[float] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
             raise CanonicalSmplxError(f"fit parameter {field} contains a non-finite value")
-        result.append(float(item))
+        try:
+            number = float(item)
+        except (TypeError, ValueError, OverflowError):
+            raise CanonicalSmplxError(f"fit parameter {field} contains a non-finite value") from None
+        if not math.isfinite(number):
+            raise CanonicalSmplxError(f"fit parameter {field} contains a non-finite value")
+        result.append(number)
     return result
 
 
