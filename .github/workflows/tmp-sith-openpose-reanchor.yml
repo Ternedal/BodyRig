@@ -1,0 +1,59 @@
+name: tmp-sith-openpose-reanchor
+
+on:
+  push:
+    branches:
+      - staging/sith-openpose-reanchor-20260912
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Materialize reviewed SiTH OpenPose product diff
+        shell: bash
+        run: |
+          git checkout a02b1539c7f84f35287b1088aa389d0569cf2df8 -- bodyrig/sith_prepare.py tests/test_sith_openpose_numeric_boundaries.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('bodyrig/sith_prepare.py')
+          data = path.read_bytes()
+          if not data.endswith(b'\n'):
+              path.write_bytes(data + b'\n')
+          PY
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Validate full suite and exact product diff
+        shell: bash
+        run: |
+          python -m pytest
+          git diff --check
+          mapfile -t changed < <(git diff --name-only HEAD | sort)
+          expected=(bodyrig/sith_prepare.py tests/test_sith_openpose_numeric_boundaries.py)
+          if [ "${changed[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected product diff: %s\n' "${changed[*]}" >&2
+            exit 1
+          fi
+      - name: Publish validated staging product tree
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add bodyrig/sith_prepare.py tests/test_sith_openpose_numeric_boundaries.py
+          mapfile -t staged < <(git diff --cached --name-only | sort)
+          expected=(bodyrig/sith_prepare.py tests/test_sith_openpose_numeric_boundaries.py)
+          if [ "${staged[*]}" != "${expected[*]}" ]; then
+            printf 'unexpected staged product set: %s\n' "${staged[*]}" >&2
+            exit 1
+          fi
+          git commit -m 'Fail closed on SiTH OpenPose numerics'
+          git push origin HEAD:staging/sith-openpose-reanchor-20260912
