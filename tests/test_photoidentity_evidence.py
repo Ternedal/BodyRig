@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -169,3 +170,41 @@ def test_detail_claim_must_be_source_derived() -> None:
     }
     with pytest.raises(PhotoIdentityEvidenceError, match="not source-derived"):
         _evidence(capabilities=["eyes-detail"], rows=[_row("scene1", "front")], details=details)
+
+def test_huge_row_timing_integer_fails_with_domain_error() -> None:
+    row = _row("scene1", "front")
+    row["start_seconds"] = 10**400
+
+    with pytest.raises(PhotoIdentityEvidenceError, match="photoidentity observation start is invalid"):
+        _evidence(capabilities=["coarse-face-view"], rows=[row])
+
+
+def test_huge_quality_integer_fails_with_domain_error() -> None:
+    row = _row("scene1", "front")
+    row["target_confidence"] = 10**400
+
+    with pytest.raises(PhotoIdentityEvidenceError, match=r"target_confidence is outside 0\.0\.\.1\.0"):
+        _evidence(capabilities=["coarse-face-view"], rows=[row])
+
+
+def test_bundle_huge_bound_numeric_fails_after_sha_binding(tmp_path: Path) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view", "coarse-full-body-view"],
+        rows=[_row("scene1", "front"), _row("scene2", "front")],
+    )
+    observations, report_path, _ = write_bundle(tmp_path / "bundle-overflow", evidence)
+
+    raw = json.loads(observations.read_text(encoding="utf-8"))
+    raw["rows"][0]["target_confidence"] = 10**400
+    observation_bytes = (json.dumps(raw, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    observations.write_bytes(observation_bytes)
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["observation_evidence_sha256"] = hashlib.sha256(observation_bytes).hexdigest()
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PhotoIdentityEvidenceError, match=r"target_confidence is outside 0\.0\.\.1\.0"):
+        validate_bundle(report_path, observations)
