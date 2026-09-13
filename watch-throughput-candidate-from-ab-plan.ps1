@@ -31,6 +31,11 @@ function Read-JsonFile {
     return $value
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Require-ExactFields {
     param(
         [Parameter(Mandatory = $true)]$Value,
@@ -121,11 +126,11 @@ try {
     $sourceAuthority = $job.source_enqueue_authority
     if (
         [string]$job.format -ne "bodyrig-ui-job" -or
-        [int]$job.version -ne 1 -or
+        -not (Test-V1Version $job.version) -or
         [string]$job.kind -ne "body-build" -or
         [string]$job.job_id -ne $CandidateJobId -or
         [string]$runPlan.format -ne "bodyrig-throughput-candidate-run-plan" -or
-        [int]$runPlan.version -ne 1 -or
+        -not (Test-V1Version $runPlan.version) -or
         [string]$runPlan.baseline_job_id -ne $BaselineJobId -or
         [string]$runPlan.candidate_job_id -ne $CandidateJobId -or
         [string]$runPlan.person_id -notmatch '^person-[0-9a-f]{32}$' -or
@@ -145,7 +150,7 @@ try {
         $runPlan.production_activation -ne $false -or
         $null -eq $sourceAuthority -or
         [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
-        [int]$sourceAuthority.version -ne 1 -or
+        -not (Test-V1Version $sourceAuthority.version) -or
         [string]$sourceAuthority.job_id -ne $CandidateJobId -or
         [string]$sourceAuthority.person_id -ne [string]$runPlan.person_id -or
         [string]::IsNullOrWhiteSpace([string]$sourceAuthority.stash_performer_id) -or
@@ -167,7 +172,7 @@ try {
     $runPlanSha = File-Sha256 -Path $runPlanPath
     if (
         [string]$gate.format -ne "bodyrig-throughput-pbr-human-review-gate" -or
-        [int]$gate.version -ne 1 -or
+        -not (Test-V1Version $gate.version) -or
         [string]$gate.baseline_job_id -ne $BaselineJobId -or
         [string]$gate.candidate_job_id -ne $CandidateJobId -or
         [string]$gate.person_id -ne [string]$runPlan.person_id -or
