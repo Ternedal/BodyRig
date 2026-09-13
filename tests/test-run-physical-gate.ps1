@@ -133,6 +133,27 @@ try {
     if (@($capture.source).Count -ne 1 -or [string]$capture.source[0] -ne "person-a.mp4") { throw "source argument was not forwarded" }
     Write-Host "PASS: exact managed environment forwards to validate-rig"
 
+    $f = New-Fixture "version-numeric-float"
+    $f.Summary.version = [double]1.0
+    Save-Summary $f
+    Assert-Success (Invoke-Gate $f) "numeric floating v1"
+    Write-Host "PASS: numeric floating v1 accepted"
+
+    $versionRejectCases = @(
+        @{ Name = "version-true"; Value = $true; Label = "boolean true v1" },
+        @{ Name = "version-false"; Value = $false; Label = "boolean false v1" },
+        @{ Name = "version-string"; Value = "1"; Label = "string v1" },
+        @{ Name = "version-null"; Value = $null; Label = "null v1" },
+        @{ Name = "version-two"; Value = 2; Label = "non-v1 numeric" }
+    )
+    foreach ($case in $versionRejectCases) {
+        $f = New-Fixture $case.Name
+        $f.Summary.version = $case.Value
+        Save-Summary $f
+        Assert-Failure (Invoke-Gate $f) $case.Label
+        Write-Host "PASS: $($case.Label) rejected"
+    }
+
     $f = New-Fixture "four-d-pin"
     $f.Summary.four_d_humans_revision = "0" * 40
     Save-Summary $f
