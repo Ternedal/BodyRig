@@ -38,6 +38,10 @@ function Sha256([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algori
 function Require-Sha([string]$Value, [string]$Field) {
     $v = $Value.ToLowerInvariant(); if ($v -notmatch '^[0-9a-f]{64}$') { throw "$Field is not a canonical SHA-256." }; return $v
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Read-PackageJson([string]$PackagePath,[string]$EntryName,[string]$Label) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
@@ -56,7 +60,7 @@ if (-not $Pass) { throw "Renderer acceptance requires an explicit -Pass attestat
 if (-not $ConfirmQualityChecklist) { throw "Renderer acceptance requires explicit -ConfirmQualityChecklist after the complete physical review." }
 
 $acceptanceFile = Read-JsonFile $AcceptanceReport "Acceptance report"; $AcceptanceReport = $acceptanceFile.Path; $report = $acceptanceFile.Value; $reportDir = Split-Path -Parent $AcceptanceReport
-if ([string]$report.format -ne "bodyrig-rig-acceptance" -or [int]$report.version -ne 1) { throw "Unsupported BodyRig acceptance report format/version." }
+if ([string]$report.format -ne "bodyrig-rig-acceptance" -or -not (Test-V1Version $report.version)) { throw "Unsupported BodyRig acceptance report format/version." }
 if ($report.automated_pass -ne $true -or $report.production_activation -ne $false -or [string]$report.physical_renderer_acceptance -ne "pending") { throw "Automated rig acceptance is not in a valid pending-renderer PASS state." }
 if ([string]$report.runtime.manifest -ne "runtime/runtime-manifest.json" -or $report.runtime.materialized_from_package -ne $true) { throw "Automated acceptance does not contain valid materialized runtime evidence." }
 if ($report.package.placeholder_avatar -ne $false) { throw "Renderer acceptance requires a non-placeholder high-fidelity package." }
@@ -82,7 +86,7 @@ $bodyId = [string]$report.package.body_id; if ([string]::IsNullOrWhiteSpace($bod
 $packagePath = Join-Path $reportDir "$bodyId.mrbody"; if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) { throw "Accepted .mrbody package not found beside report: $packagePath" }; $packagePath = (Resolve-Path $packagePath).Path
 $actualPackageHash = Sha256 $packagePath; if ($actualPackageHash -ne (Require-Sha ([string]$report.package.package_sha256) "package.package_sha256")) { throw "Accepted .mrbody SHA-256 no longer matches automated acceptance." }
 $skinQaFile = Read-JsonFile $skinQaEvidencePath "Anatomical skin QA report"; $skinQa = $skinQaFile.Value
-if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or [int]$skinQa.version -ne 1 -or [string]$skinQa.body_id -ne $bodyId -or (Require-Sha ([string]$skinQa.package_sha256) "skin QA package hash") -ne $actualPackageHash) { throw "Anatomical skin QA identity does not match the accepted package." }
+if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or -not (Test-V1Version $skinQa.version) -or [string]$skinQa.body_id -ne $bodyId -or (Require-Sha ([string]$skinQa.package_sha256) "skin QA package hash") -ne $actualPackageHash) { throw "Anatomical skin QA identity does not match the accepted package." }
 if ($skinQa.structural_pass -ne $true -or $skinQa.manual_review_required -ne $true -or [string]$skinQa.automated_assessment -ne [string]$report.skin_qa.automated_assessment) { throw "Anatomical skin QA report no longer matches Gate A." }
 
 $provenance = Read-PackageJson $packagePath "provenance.json" "provenance.json"
@@ -103,7 +107,7 @@ if ($gatePayloadSeen.Count -ne $packagePayloadNames.Count) { throw "Gate A packa
 $runtimeFile = Read-JsonFile $RuntimeManifest "Runtime manifest"; $RuntimeManifest = $runtimeFile.Path; $runtime = $runtimeFile.Value
 $expectedRuntimeFields = @("format","version","body_id","body_name","package_sha256","avatar","avatar_sha256","bodyprint","bodyprint_sha256","payloads")
 if (@(Compare-Object -ReferenceObject $expectedRuntimeFields -DifferenceObject @($runtime.PSObject.Properties.Name)).Count -ne 0) { throw "Runtime manifest fields do not match BodyRig runtime assets v1." }
-if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or [int]$runtime.version -ne 1 -or [string]$runtime.body_id -ne $bodyId -or ([string]$runtime.package_sha256).ToLowerInvariant() -ne $actualPackageHash) { throw "Runtime manifest identity does not match automated acceptance." }
+if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or -not (Test-V1Version $runtime.version) -or [string]$runtime.body_id -ne $bodyId -or ([string]$runtime.package_sha256).ToLowerInvariant() -ne $actualPackageHash) { throw "Runtime manifest identity does not match automated acceptance." }
 if ([string]$runtime.avatar -ne "avatar.vrm" -or [string]$runtime.bodyprint -ne "bodyprint.json") { throw "Runtime manifest contains unexpected avatar/bodyprint paths." }
 $runtimeAvatarManifestHash = Require-Sha ([string]$runtime.avatar_sha256) "runtime.avatar_sha256"
 $runtimeBodyprintManifestHash = Require-Sha ([string]$runtime.bodyprint_sha256) "runtime.bodyprint_sha256"
@@ -134,7 +138,7 @@ if ((Require-Sha ([string]$skinQa.avatar_sha256) "skin QA avatar hash") -ne $ava
 $probeFile = Read-JsonFile $ProbeReport "Renderer machine probe"; $ProbeReport = $probeFile.Path; $probe = $probeFile.Value
 $expectedProbeFields = @("format","version","observed_at","bodyrig_revision","platform","unity_platform","unity_version","build_guid","device_model","graphics_device","body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256","vrm10_loaded","humanoid_valid","required_bones_valid","active_renderer")
 if (@(Compare-Object -ReferenceObject $expectedProbeFields -DifferenceObject @($probe.PSObject.Properties.Name)).Count -ne 0) { throw "Renderer machine probe fields do not match BodyRig renderer probe v1." }
-if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne $Platform) { throw "Renderer machine probe format/platform mismatch." }
+if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne $Platform) { throw "Renderer machine probe format/platform mismatch." }
 if ([string]$probe.bodyrig_revision -notmatch '^[0-9a-f]{40}$' -or [string]$probe.bodyrig_revision -ne $head) { throw "Renderer machine probe was not produced by a player built from the exact accepted BodyRig revision." }
 if ($probe.vrm10_loaded -ne $true -or $probe.humanoid_valid -ne $true -or $probe.required_bones_valid -ne $true) { throw "Renderer machine probe did not prove VRM/Humanoid/bones success." }
 if ([string]$probe.body_id -ne $bodyId -or (Require-Sha ([string]$probe.package_sha256) "probe.package_sha256") -ne $actualPackageHash -or (Require-Sha ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $runtimeManifestHash -or (Require-Sha ([string]$probe.avatar_sha256) "probe.avatar_sha256") -ne $avatarHash -or (Require-Sha ([string]$probe.bodyprint_sha256) "probe.bodyprint_sha256") -ne $bodyprintHash) { throw "Renderer machine probe byte identity does not match accepted runtime." }
@@ -150,7 +154,7 @@ $probeHash = Sha256 $ProbeReport
 $deformationFile = Read-JsonFile $DeformationReport "Deformation machine probe"; $DeformationReport = $deformationFile.Path; $deformation = $deformationFile.Value
 $expectedDeformationFields = @("format","version","observed_at","bodyrig_revision","platform","unity_platform","unity_version","build_guid","device_model","body_id","package_sha256","runtime_manifest_sha256","avatar_sha256","bodyprint_sha256","sequence_revision","pose_count","poses","required_muscles_resolved","restored_neutral","complete","manual_review_required")
 if (@(Compare-Object -ReferenceObject $expectedDeformationFields -DifferenceObject @($deformation.PSObject.Properties.Name)).Count -ne 0) { throw "Deformation machine probe fields do not match BodyRig deformation probe v1." }
-if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne $Platform) { throw "Deformation machine probe format/platform mismatch." }
+if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne $Platform) { throw "Deformation machine probe format/platform mismatch." }
 if ([string]$deformation.bodyrig_revision -notmatch '^[0-9a-f]{40}$' -or [string]$deformation.bodyrig_revision -ne $head -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Deformation machine probe was not produced by the same exact accepted BodyRig build revision." }
 if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Deformation machine probe did not complete the fixed review sequence." }
 $poseIds = @($deformation.poses | ForEach-Object { [string]$_.id })
