@@ -12,7 +12,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required for the canonical high-fidelity physical handoff."
 }
 
-$minimumPhysicalHandoffRevision = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
+$minimumPhysicalHandoffRevision = "827e336e11e0f1b19bc513660c449ea439d0bd2a"
 
 function Assert-CheckoutAuthority {
     param(
