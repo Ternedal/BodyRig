@@ -8,6 +8,15 @@ from bodyrig.app import app
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _continuation_source() -> str:
+    """Audit the public adapter and its byte-preserved implementation core together."""
+    paths = (
+        ROOT / "bodyrig" / "high_fidelity_continuation_status.py",
+        ROOT / "bodyrig" / "high_fidelity_continuation_status_legacy.py",
+    )
+    return "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+
 def test_continuation_status_route_is_strictly_read_only() -> None:
     paths = app.openapi()["paths"]
     route = paths["/api/v1/high-fidelity-preview-jobs/{job_id}/continuation-status"]
@@ -37,7 +46,7 @@ def test_person_studio_loads_unified_continuation_as_isolated_extension() -> Non
 
 
 def test_continuation_adapter_revalidates_hair_package_instead_of_using_anatomy_candidate() -> None:
-    source = (ROOT / "bodyrig" / "high_fidelity_continuation_status.py").read_text(encoding="utf-8")
+    source = _continuation_source()
 
     assert "read_promotion as read_hair_promotion" in source
     assert "promoted_package_sha256" in source
@@ -47,7 +56,7 @@ def test_continuation_adapter_revalidates_hair_package_instead_of_using_anatomy_
 
 
 def test_face_secondary_preview_paths_match_atomic_operator_layout() -> None:
-    source = (ROOT / "bodyrig" / "high_fidelity_continuation_status.py").read_text(encoding="utf-8")
+    source = _continuation_source()
 
     assert '"face_preview_root": face_preview' in source
     assert '"face_preparation": face_preview / "preparation"' in source
@@ -56,7 +65,7 @@ def test_face_secondary_preview_paths_match_atomic_operator_layout() -> None:
 
 
 def test_eye_only_rebuild_command_contains_every_canonical_authority_input() -> None:
-    source = (ROOT / "bodyrig" / "high_fidelity_continuation_status.py").read_text(encoding="utf-8")
+    source = _continuation_source()
 
     for token in (
         "-PackagePath",
