@@ -33,6 +33,11 @@ function Write-AtomicJson {
     }
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig one-command production activation is Windows-only."
 }
@@ -182,7 +187,7 @@ try {
             if ($LASTEXITCODE -ne 0 -or $planRaw.Count -ne 1) { continue }
             try { $plan = ([string]$planRaw[0]) | ConvertFrom-Json }
             catch { continue }
-            if ([string]$plan.format -ne "bodyrig-interrupted-fit-recovery-plan" -or [int]$plan.version -ne 1) { continue }
+            if ([string]$plan.format -ne "bodyrig-interrupted-fit-recovery-plan" -or -not (Test-V1Version $plan.version)) { continue }
             if (([string]$plan.bodyrig_revision).ToLowerInvariant() -ne $head) { continue }
             if ([string]$plan.performer_id -ne $PerformerId -or [string]$plan.body_alias -ne $BodyId) { continue }
             $matches += [pscustomobject]@{ Workspace = $workspace.FullName; Plan = $plan }
