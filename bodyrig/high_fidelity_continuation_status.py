@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -20,6 +21,7 @@ VERSION = _legacy.VERSION
 JOB_RE = _legacy.JOB_RE
 SHA_RE = _legacy.SHA_RE
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
+MINIMUM_HFN_INTEGRATION_REVISION = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
 HighFidelityContinuationStatusError = _legacy.HighFidelityContinuationStatusError
 
 GATE_ORDER = (*_legacy.GATE_ORDER, CANDIDATE_GATE, RENDER_GATE, HUMAN_GATE)
@@ -80,6 +82,51 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _integration_checkout_state() -> tuple[str, bool, bool]:
+    root = _repo_root().expanduser().resolve()
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        floor = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "merge-base",
+                "--is-ancestor",
+                MINIMUM_HFN_INTEGRATION_REVISION,
+                "HEAD",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise HighFidelityContinuationStatusError(
+            "Git executable is unavailable for HFN integration revision validation"
+        ) from exc
+    revision = head.stdout.strip().lower()
+    if head.returncode != 0 or not GIT_RE.fullmatch(revision):
+        raise HighFidelityContinuationStatusError(
+            "could not resolve the current BodyRig revision for HFN integration"
+        )
+    if dirty.returncode != 0:
+        raise HighFidelityContinuationStatusError(
+            "could not inspect BodyRig checkout cleanliness for HFN integration"
+        )
+    return revision, not bool(dirty.stdout.strip()), floor.returncode == 0
 
 
 def continuation_paths(preview_job_id: str) -> dict[str, Path]:
@@ -293,6 +340,48 @@ def _blocked_hfn_result(
     return result
 
 
+def _migration_required_result(
+    base: Mapping[str, Any],
+    *,
+    job_id: str,
+    package_path: Path,
+    package_sha: str,
+    source_bodyrig_revision: str,
+) -> dict[str, Any]:
+    reason = (
+        "Legacy anatomy/hair/eyes/face-secondary continuation is complete, but HFN must be applied by a clean "
+        "current integration checkout. Preserve the exact legacy promoted package and return to current main before "
+        "creating any HFN receipt."
+    )
+    gates = list(base.get("gates") or [])
+    gates.append(_gate(CANDIDATE_GATE, "required", reason=reason))
+    quoted_job = _quote(job_id)
+    result = dict(base)
+    result.update({
+        "state": "incomplete",
+        "gates": gates,
+        "next_gate": {
+            "gate": CANDIDATE_GATE,
+            "command": (
+                ".\\update-windows.ps1 -NoBrowser -SkipPlan; "
+                f"if ($?) {{ & .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_job} }}"
+            ),
+            "operator_input_required": False,
+            "reason": reason,
+        },
+        "current_package_path": str(package_path),
+        "current_package_sha256": package_sha,
+        "source_bodyrig_revision": source_bodyrig_revision,
+        "hfn_bodyrig_revision": None,
+        "high_fidelity_complete": False,
+        "high_fidelity_human_review_required": False,
+        "production_ready": False,
+        "production_activation": False,
+        "final_audit": None,
+    })
+    return result
+
+
 def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
     _sync_legacy_seams()
     base = _legacy.inspect_continuation(preview_job_id)
@@ -308,7 +397,7 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
 
     person_id = str(preview.get("person_id") or "").strip().lower()
     body_revision = str(preview.get("body_revision") or "").strip().lower()
-    bodyrig_revision = str(preview.get("bodyrig_revision") or "").strip().lower()
+    source_bodyrig_revision = str(preview.get("bodyrig_revision") or "").strip().lower()
     package_value = str(base.get("current_package_path") or "").strip()
     package_sha = str(base.get("current_package_sha256") or "").strip().lower()
     if not person_id or not body_revision or not package_value or not SHA_RE.fullmatch(package_sha):
@@ -323,7 +412,7 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
             gate_id=CANDIDATE_GATE,
             reason=reason,
         )
-    if not GIT_RE.fullmatch(bodyrig_revision):
+    if not GIT_RE.fullmatch(source_bodyrig_revision):
         source = Path(package_value).expanduser().resolve()
         gates = list(base.get("gates") or [])
         return _blocked_hfn_result(
@@ -336,11 +425,46 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         )
 
     source_package = Path(package_value).expanduser().resolve()
+    try:
+        hfn_bodyrig_revision, checkout_clean, hfn_floor_present = _integration_checkout_state()
+    except HighFidelityContinuationStatusError as exc:
+        blocked = _blocked_hfn_result(
+            base,
+            gates=list(base.get("gates") or []),
+            package_path=source_package,
+            package_sha=package_sha,
+            gate_id=CANDIDATE_GATE,
+            reason=str(exc),
+        )
+        blocked["source_bodyrig_revision"] = source_bodyrig_revision
+        blocked["hfn_bodyrig_revision"] = None
+        return blocked
+    if not checkout_clean:
+        blocked = _blocked_hfn_result(
+            base,
+            gates=list(base.get("gates") or []),
+            package_path=source_package,
+            package_sha=package_sha,
+            gate_id=CANDIDATE_GATE,
+            reason="BodyRig checkout is dirty; HFN continuation requires exact clean integration authority",
+        )
+        blocked["source_bodyrig_revision"] = source_bodyrig_revision
+        blocked["hfn_bodyrig_revision"] = None
+        return blocked
+    if not hfn_floor_present:
+        return _migration_required_result(
+            base,
+            job_id=job_id,
+            package_path=source_package,
+            package_sha=package_sha,
+            source_bodyrig_revision=source_bodyrig_revision,
+        )
+
     hfn = inspect_hfn_continuation(
         root=person_library(),
         person_id=person_id,
         body_revision=body_revision,
-        bodyrig_revision=bodyrig_revision,
+        bodyrig_revision=hfn_bodyrig_revision,
         source_package_path=source_package,
         source_package_sha256=package_sha,
         render_dir=paths["hfn_render"],
@@ -386,6 +510,8 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
             "next_gate": dict(action),
             "current_package_path": str(current_package),
             "current_package_sha256": current_sha,
+            "source_bodyrig_revision": source_bodyrig_revision,
+            "hfn_bodyrig_revision": hfn_bodyrig_revision,
             "high_fidelity_complete": False,
             "high_fidelity_human_review_required": False,
             "production_ready": False,
@@ -410,7 +536,7 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
                 "HFN-reviewed candidate is no longer high-fidelity component complete"
             )
     except (OSError, HighFidelityPackageAuditError) as exc:
-        return _blocked_hfn_result(
+        blocked = _blocked_hfn_result(
             base,
             gates=combined,
             package_path=current_package,
@@ -418,6 +544,9 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
             gate_id=CANDIDATE_GATE,
             reason=f"final HFN candidate audit failed: {exc}",
         )
+        blocked["source_bodyrig_revision"] = source_bodyrig_revision
+        blocked["hfn_bodyrig_revision"] = hfn_bodyrig_revision
+        return blocked
 
     result = dict(base)
     result.update({
@@ -427,6 +556,8 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         "current_package_path": str(current_package),
         "current_package_sha256": current_sha,
         "components": components,
+        "source_bodyrig_revision": source_bodyrig_revision,
+        "hfn_bodyrig_revision": hfn_bodyrig_revision,
         "high_fidelity_complete": True,
         "high_fidelity_human_review_required": True,
         "physical_windows_acceptance_required": True,

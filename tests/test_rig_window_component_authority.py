@@ -282,13 +282,14 @@ def test_geometry_only_rejection_preserves_profiled_convergence(tmp_path: Path, 
     assert "run-profiled-fidelity-convergence.ps1" in str(plan["next_command"])
 
 
-def test_small_anatomical_detail_fails_closed_until_package_application_exists(tmp_path: Path, monkeypatch) -> None:
+def test_small_anatomical_detail_routes_to_addressable_component_rework(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(component.authority, "build_plan", lambda **_kwargs: _plan())
     monkeypatch.setattr(
         component,
         "_validated_failed_checks",
         lambda _acceptance: frozenset({"small_anatomical_detail"}),
     )
+    monkeypatch.setattr(component, "list_recent_previews", lambda **_kwargs: [])
 
     plan = component.build_plan(
         repo_root=tmp_path,
@@ -296,13 +297,40 @@ def test_small_anatomical_detail_fails_closed_until_package_application_exists(t
         body_id="lauren-phillips-test-02",
     )
 
-    assert plan["state"] == "blocked"
-    assert plan["path"] == "human-fidelity-rework-blocked"
-    assert plan["next_command"] is None
-    assert plan["unroutable_failed_checks"] == ["small_anatomical_detail"]
+    assert plan["state"] == "ready"
+    assert plan["path"] == "high-fidelity-component-rework"
+    assert plan["component_failed_checks"] == ["small_anatomical_detail"]
     assert plan["expensive_reconstruction_rerun"] is False
     assert plan["fitter_rerun"] is False
-    assert "hands/feet/nails" in str(plan["rationale"])
+    assert "start-high-fidelity-preview-from-body-job.ps1" in str(plan["next_command"])
+    assert f"-Revision '{OLD}'" in str(plan["next_command"])
+
+
+def test_mixed_hair_eye_and_small_detail_rejection_stays_component_scoped(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(component.authority, "build_plan", lambda **_kwargs: _plan())
+    monkeypatch.setattr(
+        component,
+        "_validated_failed_checks",
+        lambda _acceptance: frozenset({"hair_appearance", "eye_appearance", "small_anatomical_detail"}),
+    )
+    monkeypatch.setattr(component, "list_recent_previews", lambda **_kwargs: [])
+
+    plan = component.build_plan(
+        repo_root=tmp_path,
+        performer_id="42",
+        body_id="lauren-phillips-test-02",
+    )
+
+    assert plan["path"] == "high-fidelity-component-rework"
+    assert plan["component_failed_checks"] == [
+        "eye_appearance",
+        "hair_appearance",
+        "small_anatomical_detail",
+    ]
+    assert plan["expensive_reconstruction_rerun"] is False
+    assert plan["fitter_rerun"] is False
+    assert "start-high-fidelity-preview-from-body-job.ps1" in str(plan["next_command"])
+    assert "run-profiled-fidelity-convergence.ps1" not in str(plan["next_command"])
 
 
 def test_component_rejection_without_exact_person_or_body_job_fails_closed(tmp_path: Path, monkeypatch) -> None:

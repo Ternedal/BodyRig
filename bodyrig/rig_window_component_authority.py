@@ -17,9 +17,9 @@ HIGH_FIDELITY_COMPONENT_CHECKS = frozenset(
         "hair_appearance",
         "eye_appearance",
         "face_secondary",
+        "small_anatomical_detail",
     }
 )
-UNROUTABLE_DETAIL_CHECKS = frozenset({"small_anatomical_detail"})
 _PREVIEW_ACTIVE = frozenset({"queued", "running", "succeeded"})
 _PREVIEW_RETRYABLE = frozenset({"failed", "interrupted"})
 _TARGET_FAMILIES = frozenset({"female", "male", "neutral"})
@@ -192,9 +192,21 @@ def _historical_status_command(*, revision: str, preview_job_id: str, head: str)
     quoted_preview = authority.policy.base._ps_quote(preview_job_id)
     if revision == head:
         return f".\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview}"
+    quoted_revision = authority.policy.base._ps_quote(revision)
     return (
-        f"& .\\update-windows.ps1 -Revision {authority.policy.base._ps_quote(revision)} -NoBrowser; "
-        f"if ($?) {{ & .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} }}"
+        f"& .\\update-windows.ps1 -Revision {quoted_revision} -NoBrowser -SkipPlan; "
+        "if ($?) { "
+        f"$legacyStatusJson = @(& .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} -Json); "
+        "if ($?) { "
+        "$legacyStatus = (($legacyStatusJson -join [Environment]::NewLine) | ConvertFrom-Json); "
+        "if ($legacyStatus.high_fidelity_complete -eq $true) { "
+        "& .\\update-windows.ps1 -NoBrowser -SkipPlan; "
+        f"if ($?) {{ & .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} }} "
+        "} else { "
+        f"& .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} "
+        "} "
+        "} "
+        "}"
     )
 
 
@@ -262,8 +274,9 @@ def _route_to_preview_authority(
             routed.update(
                 rationale=(
                     "Human review rejected only addressable high-fidelity component domains and an exact scoped "
-                    "succeeded preview already exists. Re-enter its producer revision and continue the existing "
-                    "anatomy/hair/eyes/face-secondary gate chain instead of rebuilding the body or merely listing evidence."
+                    "succeeded preview already exists. Re-enter its producer revision for unfinished legacy "
+                    "anatomy/hair/eyes/face-secondary gates; once that chain proves complete, return to current "
+                    "integration authority for HFN instead of rewriting historical evidence."
                 ),
                 next_command=_historical_status_command(
                     revision=revision,
@@ -330,19 +343,6 @@ def route_component_fidelity_rework(plan: dict[str, Any]) -> dict[str, Any]:
             "Selected human fidelity rejection could not be revalidated before routing. "
             f"Do not spend rig time on a guessed rework path: {exc}",
         )
-
-    if failed_checks & UNROUTABLE_DETAIL_CHECKS:
-        routed = _block(
-            plan,
-            "Human review rejected small anatomical detail. The current hands/feet/nails authority can review an "
-            "exact package, but source-derived small-detail application is not yet integrated into the promoted "
-            "high-fidelity body lineage. Do not rerun body convergence or claim this failure is addressed.",
-        )
-        routed["failed_checks"] = sorted(failed_checks)
-        routed["unroutable_failed_checks"] = sorted(failed_checks & UNROUTABLE_DETAIL_CHECKS)
-        routed["expensive_reconstruction_rerun"] = False
-        routed["fitter_rerun"] = False
-        return routed
 
     component_failures = failed_checks & HIGH_FIDELITY_COMPONENT_CHECKS
     if not component_failures:
