@@ -40,7 +40,13 @@ IDENTITY = {
 BODYPRINT = {
     "format": "modelrig-bodyprint",
     "version": 1,
-    "shape": {"height_scale": 1.0},
+    "shape": {
+        "shoulder_to_height": 0.24,
+        "hip_to_height": 0.19,
+        "arm_to_height": 0.44,
+        "leg_to_height": 0.53,
+    },
+    "motion": {"energy": 0.42, "head_motion": 0.21},
 }
 
 
