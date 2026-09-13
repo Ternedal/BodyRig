@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -52,6 +53,13 @@ CAPTURE_REGION_TO_SEMANTIC = {
     "left_foot": "left_toenails",
     "right_foot": "right_toenails",
 }
+SEMANTIC_LANDMARK_LABELS = {
+    "left_fingernails": ("thumb", "index", "middle", "ring", "pinky"),
+    "right_fingernails": ("thumb", "index", "middle", "ring", "pinky"),
+    "left_toenails": ("big_toe", "small_toe", "heel"),
+    "right_toenails": ("big_toe", "small_toe", "heel"),
+}
+LANDMARK_FIELDS = {"x_norm", "y_norm", "confidence"}
 TOP_FIELDS = {
     "format",
     "version",
@@ -194,23 +202,47 @@ def _validate_projection(value: Mapping[str, Any], *, semantic_region: str, crop
         or value.get("production_activation") is not False
     ):
         raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection crossed its evidence-only authority boundary")
+
+    expected_labels = SEMANTIC_LANDMARK_LABELS.get(semantic_region)
+    if expected_labels is None:
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection semantic labels are unsupported")
     required = value.get("required_landmark_count")
-    observed = value.get("observed_landmark_count")
+    if isinstance(required, bool) or not isinstance(required, int) or required != len(expected_labels):
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection required landmark count is not canonical")
+
     landmarks = value.get("landmarks")
-    if (
-        isinstance(required, bool)
-        or not isinstance(required, int)
-        or required < 1
-        or isinstance(observed, bool)
-        or not isinstance(observed, int)
-        or observed < 0
-        or observed > required
-        or not isinstance(landmarks, Mapping)
-        or observed != len(landmarks)
-        or value.get("application_ready") is not (observed == required)
-    ):
-        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection readiness is inconsistent")
-    return dict(value)
+    if not isinstance(landmarks, Mapping):
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection semantic labels are invalid")
+    labels = set(landmarks)
+    expected_set = set(expected_labels)
+    if not labels.issubset(expected_set):
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection semantic labels are invalid")
+
+    normalized_landmarks: dict[str, dict[str, float]] = {}
+    for label in expected_labels:
+        if label not in landmarks:
+            continue
+        raw = landmarks[label]
+        if not isinstance(raw, Mapping) or set(raw) != LANDMARK_FIELDS:
+            raise HandsFeetNailsLandmarkEvidenceError(f"HFN nail projection {label} landmark fields are not canonical")
+        normalized: dict[str, float] = {}
+        for field in ("x_norm", "y_norm", "confidence"):
+            raw_number = raw.get(field)
+            if isinstance(raw_number, bool) or not isinstance(raw_number, (int, float)):
+                raise HandsFeetNailsLandmarkEvidenceError(f"HFN nail projection {label} landmark value is invalid")
+            number = float(raw_number)
+            if not math.isfinite(number) or number < 0.0 or number > 1.0:
+                raise HandsFeetNailsLandmarkEvidenceError(f"HFN nail projection {label} landmark value is outside 0..1")
+            normalized[field] = number
+        normalized_landmarks[label] = normalized
+
+    observed = value.get("observed_landmark_count")
+    if isinstance(observed, bool) or not isinstance(observed, int) or observed != len(normalized_landmarks):
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection observed landmark count is inconsistent")
+    expected_ready = len(normalized_landmarks) == required and set(normalized_landmarks) == expected_set
+    if value.get("application_ready") is not expected_ready:
+        raise HandsFeetNailsLandmarkEvidenceError("HFN nail projection application readiness is inconsistent")
+    return {**dict(value), "landmarks": normalized_landmarks}
 
 
 def evidence_path(
