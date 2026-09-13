@@ -1,6 +1,8 @@
 param(
     [ValidateRange(1, 100)][int]$Limit = 10,
     [switch]$SucceededOnly,
+    [ValidatePattern('^$|^person-[0-9a-f]{32}$')][string]$PersonId = "",
+    [ValidatePattern('^$|^job-[0-9a-f]{32}$')][string]$BodyJobId = "",
     [switch]$Json
 )
 
@@ -34,6 +36,8 @@ try {
 
     $argsList = @("-m", "bodyrig.high_fidelity_preview_list_cli", "--limit", [string]$Limit)
     if ($SucceededOnly) { $argsList += "--succeeded-only" }
+    if (-not [string]::IsNullOrWhiteSpace($PersonId)) { $argsList += @("--person-id", $PersonId) }
+    if (-not [string]::IsNullOrWhiteSpace($BodyJobId)) { $argsList += @("--body-job-id", $BodyJobId) }
     if ($Json) { $argsList += "--json" }
     Push-Location $repoRoot
     try {
