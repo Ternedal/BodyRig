@@ -37,6 +37,11 @@ function Assert-ExactPath {
     return $actualFull
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([string]::IsNullOrWhiteSpace($RecoveryRoot)) {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
         throw "LOCALAPPDATA is unavailable; pass -RecoveryRoot explicitly."
@@ -74,7 +79,7 @@ $expectedFields = @(
 if (@(Compare-Object -ReferenceObject $expectedFields -DifferenceObject @($summary.PSObject.Properties.Name)).Count -ne 0) {
     throw "Managed recovery environment summary fields do not match BodyRig recovery environment v1."
 }
-if ([string]$summary.format -ne "bodyrig-recovery-environment" -or [int]$summary.version -ne 1) {
+if ([string]$summary.format -ne "bodyrig-recovery-environment" -or -not (Test-V1Version $summary.version)) {
     throw "Unsupported managed recovery environment format/version."
 }
 
