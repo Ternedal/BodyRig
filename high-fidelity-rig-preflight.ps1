@@ -80,7 +80,14 @@ $rendererReadinessScript = Need-File (Join-Path $repoRoot "check-reference-rende
 $contractPath = Need-File (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
 try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Reference renderer contract is invalid JSON: $contractPath" }
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) {
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) {
     throw "Unsupported reference renderer contract."
 }
 $unityVersion = ([string]$contract.unity_editor_version).Trim()
