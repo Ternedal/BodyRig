@@ -192,9 +192,21 @@ def _historical_status_command(*, revision: str, preview_job_id: str, head: str)
     quoted_preview = authority.policy.base._ps_quote(preview_job_id)
     if revision == head:
         return f".\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview}"
+    quoted_revision = authority.policy.base._ps_quote(revision)
     return (
-        f"& .\\update-windows.ps1 -Revision {authority.policy.base._ps_quote(revision)} -NoBrowser; "
-        f"if ($?) {{ & .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} }}"
+        f"& .\\update-windows.ps1 -Revision {quoted_revision} -NoBrowser -SkipPlan; "
+        "if ($?) { "
+        f"$legacyStatusJson = @(& .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} -Json); "
+        "if ($?) { "
+        "$legacyStatus = (($legacyStatusJson -join [Environment]::NewLine) | ConvertFrom-Json); "
+        "if ($legacyStatus.high_fidelity_complete -eq $true) { "
+        "& .\\update-windows.ps1 -NoBrowser -SkipPlan; "
+        f"if ($?) {{ & .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} }} "
+        "} else { "
+        f"& .\\high-fidelity-physical-status.ps1 -PreviewJobId {quoted_preview} "
+        "} "
+        "} "
+        "}"
     )
 
 
@@ -262,8 +274,9 @@ def _route_to_preview_authority(
             routed.update(
                 rationale=(
                     "Human review rejected only addressable high-fidelity component domains and an exact scoped "
-                    "succeeded preview already exists. Re-enter its producer revision and continue the existing "
-                    "anatomy/hair/eyes/face-secondary gate chain instead of rebuilding the body or merely listing evidence."
+                    "succeeded preview already exists. Re-enter its producer revision for unfinished legacy "
+                    "anatomy/hair/eyes/face-secondary gates; once that chain proves complete, return to current "
+                    "integration authority for HFN instead of rewriting historical evidence."
                 ),
                 next_command=_historical_status_command(
                     revision=revision,
