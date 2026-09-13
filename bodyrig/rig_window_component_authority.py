@@ -17,9 +17,9 @@ HIGH_FIDELITY_COMPONENT_CHECKS = frozenset(
         "hair_appearance",
         "eye_appearance",
         "face_secondary",
+        "small_anatomical_detail",
     }
 )
-UNROUTABLE_DETAIL_CHECKS = frozenset({"small_anatomical_detail"})
 _PREVIEW_ACTIVE = frozenset({"queued", "running", "succeeded"})
 _PREVIEW_RETRYABLE = frozenset({"failed", "interrupted"})
 _TARGET_FAMILIES = frozenset({"female", "male", "neutral"})
@@ -330,19 +330,6 @@ def route_component_fidelity_rework(plan: dict[str, Any]) -> dict[str, Any]:
             "Selected human fidelity rejection could not be revalidated before routing. "
             f"Do not spend rig time on a guessed rework path: {exc}",
         )
-
-    if failed_checks & UNROUTABLE_DETAIL_CHECKS:
-        routed = _block(
-            plan,
-            "Human review rejected small anatomical detail. The current hands/feet/nails authority can review an "
-            "exact package, but source-derived small-detail application is not yet integrated into the promoted "
-            "high-fidelity body lineage. Do not rerun body convergence or claim this failure is addressed.",
-        )
-        routed["failed_checks"] = sorted(failed_checks)
-        routed["unroutable_failed_checks"] = sorted(failed_checks & UNROUTABLE_DETAIL_CHECKS)
-        routed["expensive_reconstruction_rerun"] = False
-        routed["fitter_rerun"] = False
-        return routed
 
     component_failures = failed_checks & HIGH_FIDELITY_COMPONENT_CHECKS
     if not component_failures:
