@@ -22,6 +22,7 @@ def test_scoped_ab_baseline_consumers_use_bool_safe_numeric_v1_authority() -> No
             "$authority.version",
             "$plan.version",
             "$plan.ab_baseline_retention.version",
+            "$runAuthority.version",
         ),
         "throughput_start": (
             "$plan.version",
