@@ -9,6 +9,7 @@ CORE = (ROOT / "bodyrig" / "rig_window_plan.py").read_text(encoding="utf-8")
 POLICY = (ROOT / "bodyrig" / "rig_window_policy.py").read_text(encoding="utf-8")
 AUTHORITY = (ROOT / "bodyrig" / "rig_window_authority_policy.py").read_text(encoding="utf-8")
 COMPONENT_AUTHORITY = (ROOT / "bodyrig" / "rig_window_component_authority.py").read_text(encoding="utf-8")
+HANDOFF_FLOOR = (ROOT / "bodyrig" / "rig_window_handoff_floor.py").read_text(encoding="utf-8")
 INTERRUPTED = (ROOT / "resume-interrupted-body-job.ps1").read_text(encoding="utf-8")
 
 
@@ -19,7 +20,9 @@ def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
     assert "BodyRig checkout is dirty" in WRAPPER
     assert "bodyrig.__file__" in WRAPPER
     assert "unexpected location" in WRAPPER
-    assert '"-m", "bodyrig.rig_window_component_authority"' in WRAPPER
+    assert '"-m", "bodyrig.rig_window_handoff_floor"' in WRAPPER
+    assert "rig_window_component_authority as component" in HANDOFF_FLOOR
+    assert "component.build_plan(**kwargs)" in HANDOFF_FLOOR
     assert "rig_window_authority_policy as authority" in COMPONENT_AUTHORITY
     assert "authority.build_plan(**kwargs)" in COMPONENT_AUTHORITY
 
@@ -56,6 +59,16 @@ def test_complete_historical_evidence_requires_current_origin_main_ancestry_now(
     assert '"merge-base", "--is-ancestor"' in AUTHORITY
     assert 'str(candidate.get("state") or "") == "complete"' in AUTHORITY
     assert "complete historical evidence revision is not proven as an ancestor" in AUTHORITY
+
+
+def test_historical_physical_evidence_must_meet_current_handoff_floor_before_ranking() -> None:
+    assert "MINIMUM_PHYSICAL_HANDOFF_REVISION" in HANDOFF_FLOOR
+    assert "_PHYSICAL_EVIDENCE_KINDS" in HANDOFF_FLOOR
+    assert '"ui-acceptance"' in HANDOFF_FLOOR
+    assert '"physical-session"' in HANDOFF_FLOOR
+    assert '"merge-base", "--is-ancestor", floor, revision' in HANDOFF_FLOOR
+    assert "predates the current minimum physical handoff revision" in HANDOFF_FLOOR
+    assert "HFN fingernail-geometry/runtime contract" in HANDOFF_FLOOR
 
 
 def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
