@@ -92,6 +92,11 @@ function Resolve-InputDirectory {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $usingManifest = -not [string]::IsNullOrWhiteSpace($SourceManifest)
 $usingOverrideManifest = -not [string]::IsNullOrWhiteSpace($SourceOverrideManifest)
@@ -120,7 +125,7 @@ if ($usingManifest) {
     } catch {
         throw "BodyRig source manifest is not valid JSON: $SourceManifest"
     }
-    if ([string]$manifest.format -ne "bodyrig-stash-source-manifest" -or [int]$manifest.version -ne 1) {
+    if ([string]$manifest.format -ne "bodyrig-stash-source-manifest" -or -not (Test-V1Version $manifest.version)) {
         throw "Unsupported BodyRig source manifest format/version."
     }
     if ([string]$manifest.source_kind -ne "stash-local") {
@@ -146,7 +151,7 @@ if ($usingManifest) {
         } catch {
             throw "BodyRig observation segment manifest is not valid JSON."
         }
-        if ([string]$overrideManifest.format -ne "bodyrig-observation-segments" -or [int]$overrideManifest.version -ne 1) {
+        if ([string]$overrideManifest.format -ne "bodyrig-observation-segments" -or -not (Test-V1Version $overrideManifest.version)) {
             throw "Unsupported BodyRig observation segment manifest format/version."
         }
         $segments = @($overrideManifest.segments)
