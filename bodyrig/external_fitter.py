@@ -36,6 +36,10 @@ class ExternalFitterResult:
     visual_identity: str
 
 
+def _is_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == VERSION
+
+
 def _read_log_tail(path: Path, limit: int = 4000) -> str:
     try:
         raw = path.read_bytes()
@@ -125,7 +129,7 @@ def validate_external_fit_output(
     }
     if not isinstance(result, dict) or set(result) != required:
         raise ExternalFitterError("external fitter result fields must match v1 exactly")
-    if result["format"] != RESULT_FORMAT or result["version"] != VERSION:
+    if result["format"] != RESULT_FORMAT or not _is_v1(result["version"]):
         raise ExternalFitterError("unsupported external fitter result format/version")
     if result["adapter"] != expected_adapter or result["revision"] != expected_revision:
         raise ExternalFitterError("external fitter adapter/revision does not match the selected adapter")
