@@ -28,9 +28,6 @@ GATE_LABELS = {
     HUMAN_GATE: "Hands/feet/nails package-bound human review",
 }
 
-# Compatibility seams intentionally mirror the old module. Existing tests and
-# callers monkeypatch several of these names; inspect_continuation synchronizes
-# any wrapper-level overrides into the byte-preserved legacy core before use.
 _preview_root = _legacy._preview_root
 _repo_root = _legacy._repo_root
 _candidate_package = _legacy._candidate_package
@@ -230,14 +227,17 @@ def _result(
                 )
                 next_gate = audit_gate
 
+    next_gate_state = next((
+        str(item.get("state") or "") for item in gates if item.get("id") == next_gate
+    ), "") if next_gate else ""
     state = "complete" if high_fidelity_complete else (
-        "blocked" if gates and gates[-1]["state"] in {"blocked", "invalid"} else "incomplete"
+        "blocked" if next_gate_state in {"blocked", "invalid"} else "incomplete"
     )
     action = _next_action(job_id, next_gate, paths, context) if next_gate else None
     if action is not None and state == "blocked":
         action = {**action, "command": None, "reason": next((
             str(item.get("reason") or "") for item in gates if item.get("id") == next_gate
-        ), str(gates[-1].get("reason") or ""))}
+        ), "continuation authority is invalid")}
     return {
         "format": FORMAT,
         "version": VERSION,
