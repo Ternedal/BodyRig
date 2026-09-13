@@ -54,14 +54,13 @@ def _projection(region: str = "left_fingernails") -> dict:
 
 
 def _canonical_evidence() -> dict:
-    sha_a = "a" * 64
     return {
         "format": evidence.FORMAT,
         "version": evidence.VERSION,
         "policy_revision": evidence.POLICY_REVISION,
         "performer_id": "42",
         "bodyrig_revision": "b" * 40,
-        "input_discovery_sha256": sha_a,
+        "input_discovery_sha256": "a" * 64,
         "private_source_manifest_set_sha256": "c" * 64,
         "openpose_adapter": evidence.OPENPOSE_ADAPTER,
         "openpose_revision": evidence.OPENPOSE_REVISION,
@@ -96,7 +95,13 @@ def test_validator_accepts_canonical_evidence_and_rejects_boolean_v1() -> None:
         validate_landmark_evidence(bad)
 
 
-def test_validator_rejects_authority_escalation_and_duplicate_records() -> None:
+def test_validator_rejects_zero_records_authority_escalation_and_duplicates() -> None:
+    empty = _canonical_evidence()
+    empty["records"] = []
+    empty["record_count"] = 0
+    with pytest.raises(PhotoIdentityNailLandmarkEvidenceError, match="record count is invalid"):
+        validate_landmark_evidence(empty)
+
     elevated = _canonical_evidence()
     elevated["package_application_authority"] = True
     with pytest.raises(PhotoIdentityNailLandmarkEvidenceError, match="evidence-only authority boundary"):
@@ -117,7 +122,7 @@ def test_validator_rejects_inconsistent_projection_readiness() -> None:
         validate_landmark_evidence(value)
 
 
-def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monkeypatch, tmp_path: Path) -> None:
+def _build_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path, dict, dict, dict, str]:
     public_path = tmp_path / "nail-source-candidates.json"
     public_path.write_text("{}\n", encoding="utf-8")
     private_root = tmp_path / "private-nail-source-candidates"
@@ -125,26 +130,23 @@ def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monk
     candidate_root.mkdir(parents=True)
     frame = candidate_root / "source-frame.png"
     closeup = candidate_root / "left-fingernails.png"
+    source = tmp_path / "private-source.mp4"
+    source.write_bytes(b"exact-private-source-media")
     Image.new("RGB", (1920, 1920), (120, 110, 100)).save(frame)
     Image.new("RGB", (1024, 1024), (120, 110, 100)).save(closeup)
 
     candidate_id = "nailcand-" + "2" * 32
-    source_media_sha = "3" * 64
     public_candidate = {
         "candidate_id": candidate_id,
         "scene_id": "scene-a",
-        "source_media_sha256": source_media_sha,
+        "source_media_sha256": _sha(source),
         "source_frame_sha256": _sha(frame),
-        "regions": {
-            "left_fingernails": {
-                "image_sha256": _sha(closeup),
-            }
-        },
+        "regions": {"left_fingernails": {"image_sha256": _sha(closeup)}},
     }
     private_candidate = {
         **public_candidate,
         "candidate_directory": str(candidate_root),
-        "source_path": str(tmp_path / "private-source.mp4"),
+        "source_path": str(source),
         "region_images": {"left_fingernails": str(closeup)},
     }
     public = {
@@ -154,8 +156,12 @@ def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monk
         "openpose_adapter": evidence.OPENPOSE_ADAPTER,
         "openpose_revision": evidence.OPENPOSE_REVISION,
     }
-    private = {"unused": True}
+    return public_path, private_root, candidate_root, source, public_candidate, private_candidate, public, candidate_id
 
+
+def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monkeypatch, tmp_path: Path) -> None:
+    public_path, private_root, candidate_root, source, public_candidate, private_candidate, public, candidate_id = _build_fixture(tmp_path)
+    private = {"unused": True}
     monkeypatch.setattr(
         evidence,
         "_load_discovery",
@@ -179,9 +185,9 @@ def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monk
     assert result["manifest"] == str(output)
     assert persisted["input_discovery_sha256"] == _sha(public_path)
     assert persisted["record_count"] == 1
-    assert persisted["records"][0]["source_frame_sha256"] == _sha(frame)
-    assert persisted["records"][0]["closeup_image_sha256"] == _sha(closeup)
-    assert persisted["records"][0]["source_media_sha256"] == source_media_sha
+    assert persisted["records"][0]["source_media_sha256"] == _sha(source)
+    assert persisted["records"][0]["source_frame_sha256"] == public_candidate["source_frame_sha256"]
+    assert persisted["records"][0]["closeup_image_sha256"] == public_candidate["regions"]["left_fingernails"]["image_sha256"]
     assert persisted["records"][0]["projection"]["application_ready"] is True
     assert persisted["package_application_authority"] is False
     assert persisted["production_activation"] is False
@@ -197,37 +203,29 @@ def test_build_binds_exact_candidate_bytes_without_persisting_private_paths(monk
         )
 
 
+def test_build_rejects_tampered_source_media_before_openpose(monkeypatch, tmp_path: Path) -> None:
+    public_path, private_root, _candidate_root, source, public_candidate, private_candidate, public, candidate_id = _build_fixture(tmp_path)
+    source.write_bytes(b"tampered-source-media")
+    monkeypatch.setattr(evidence, "_load_discovery", lambda root: (public_path, public, private_root / "private.json", {}))
+    monkeypatch.setattr(evidence, "_candidate_maps", lambda a, b: ({candidate_id: public_candidate}, {candidate_id: private_candidate}))
+    called = False
+
+    def fail_if_called(**kwargs):
+        nonlocal called
+        called = True
+        return _payload()
+
+    monkeypatch.setattr(evidence, "_run_openpose", fail_if_called)
+    with pytest.raises(PhotoIdentityNailLandmarkEvidenceError, match="source media bytes changed"):
+        build_landmark_evidence(sweep_root=tmp_path, distribution="BodyRig", openpose="/opt/openpose")
+    assert called is False
+
+
 def test_build_rejects_tampered_frame_before_openpose(monkeypatch, tmp_path: Path) -> None:
-    public_path = tmp_path / "nail-source-candidates.json"
-    public_path.write_text("{}\n", encoding="utf-8")
-    private_root = tmp_path / "private-nail-source-candidates"
-    candidate_root = private_root / "candidate-0001"
-    candidate_root.mkdir(parents=True)
+    public_path, private_root, candidate_root, _source, public_candidate, private_candidate, public, candidate_id = _build_fixture(tmp_path)
     frame = candidate_root / "source-frame.png"
-    closeup = candidate_root / "left-fingernails.png"
-    Image.new("RGB", (640, 640), (0, 0, 0)).save(frame)
-    Image.new("RGB", (1024, 1024), (0, 0, 0)).save(closeup)
-    candidate_id = "nailcand-" + "6" * 32
-    public_candidate = {
-        "candidate_id": candidate_id,
-        "scene_id": "scene-a",
-        "source_media_sha256": "7" * 64,
-        "source_frame_sha256": "8" * 64,
-        "regions": {"left_fingernails": {"image_sha256": _sha(closeup)}},
-    }
-    private_candidate = {
-        **public_candidate,
-        "candidate_directory": str(candidate_root),
-        "region_images": {"left_fingernails": str(closeup)},
-    }
-    public = {
-        "performer_id": "42",
-        "bodyrig_revision": "9" * 40,
-        "private_source_manifest_set_sha256": "a" * 64,
-        "openpose_adapter": evidence.OPENPOSE_ADAPTER,
-        "openpose_revision": evidence.OPENPOSE_REVISION,
-    }
-    monkeypatch.setattr(evidence, "_load_discovery", lambda root: (public_path, public, tmp_path / "private.json", {}))
+    Image.new("RGB", (1920, 1920), (0, 0, 0)).save(frame)
+    monkeypatch.setattr(evidence, "_load_discovery", lambda root: (public_path, public, private_root / "private.json", {}))
     monkeypatch.setattr(evidence, "_candidate_maps", lambda a, b: ({candidate_id: public_candidate}, {candidate_id: private_candidate}))
     called = False
 
