@@ -10,6 +10,8 @@ from typing import Any
 AUTHORITY_FORMAT = "bodyrig-sith-reconstruction-authority"
 AUTHORITY_VERSION = 1
 AUTHORITY_FILENAME = "reconstruction-authority.json"
+RECONSTRUCTION_FORMAT = "bodyrig-sith-reconstruction"
+RECONSTRUCTION_VERSION = 1
 SMPLX_FIT_PROFILE = "gender-aware-final-params-canonical-obj-v1"
 SMPLX_GENDERS = ("female", "male", "neutral")
 SHA256_LENGTH = 64
@@ -53,6 +55,37 @@ def _load_json_object(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _is_numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == expected
+    )
+
+
+def validate_reconstruction_document(workspace: str | Path) -> dict[str, Any]:
+    """Validate the persisted SiTH reconstruction schema before it can gain authority.
+
+    JSON booleans are intentionally excluded even though Python compares
+    ``True == 1``. Numeric JSON ``1`` and ``1.0`` remain compatible v1 values.
+    Artifact/profile validation is owned by the downstream stage-specific gates;
+    this function establishes only the persisted reconstruction schema boundary.
+    """
+
+    reconstruction = _stage(workspace) / "reconstruction.json"
+    if not reconstruction.is_file():
+        raise SithReconstructionAuthorityError("SiTH reconstruction evidence is missing")
+    value = _load_json_object(reconstruction, label="SiTH reconstruction evidence")
+    if (
+        value.get("format") != RECONSTRUCTION_FORMAT
+        or not _is_numeric_version(value.get("version"), RECONSTRUCTION_VERSION)
+    ):
+        raise SithReconstructionAuthorityError(
+            "SiTH reconstruction evidence format/version mismatch"
+        )
+    return value
+
+
 def _write_create_only(path: Path, value: dict[str, Any]) -> None:
     if path.exists():
         raise SithReconstructionAuthorityError(
@@ -86,10 +119,7 @@ def write_reconstruction_authority(
     gender = _normalize_gender(body_model_gender)
     stage = _stage(workspace)
     reconstruction = stage / "reconstruction.json"
-    if not reconstruction.is_file():
-        raise SithReconstructionAuthorityError(
-            "SiTH reconstruction evidence is missing; cannot create resume authority"
-        )
+    validate_reconstruction_document(workspace)
     value = {
         "format": AUTHORITY_FORMAT,
         "version": AUTHORITY_VERSION,
@@ -122,8 +152,7 @@ def validate_reconstruction_authority(
             "SiTH reconstruction is legacy/incompatible: reconstruction authority is missing; "
             "rebuild only the SiTH stage with the current gender-aware canonical-SMPL-X pipeline"
         )
-    if not reconstruction.is_file():
-        raise SithReconstructionAuthorityError("SiTH reconstruction evidence is missing")
+    validate_reconstruction_document(workspace)
 
     value = _load_json_object(authority_path, label="SiTH reconstruction authority")
     required = {
@@ -137,7 +166,10 @@ def validate_reconstruction_authority(
         raise SithReconstructionAuthorityError(
             "SiTH reconstruction authority fields must match v1 exactly"
         )
-    if value["format"] != AUTHORITY_FORMAT or value["version"] != AUTHORITY_VERSION:
+    if (
+        value["format"] != AUTHORITY_FORMAT
+        or not _is_numeric_version(value["version"], AUTHORITY_VERSION)
+    ):
         raise SithReconstructionAuthorityError(
             "SiTH reconstruction authority format/version mismatch"
         )
