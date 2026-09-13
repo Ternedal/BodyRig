@@ -27,7 +27,7 @@ def test_renderer_gate_a_rebind_scope_is_complete() -> None:
     discovered = tuple(
         sorted(
             path.name
-            for path in ROOT.glob("rebind-gate-a-renderer-*-revision.ps1")
+            for path in ROOT.glob("rebind-gate-a-renderer*.ps1")
             if "sourceAcceptance.version" in path.read_text(encoding="utf-8")
         )
     )
