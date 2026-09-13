@@ -66,6 +66,11 @@ function Resolve-InputFile {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Resolve-Executable {
     param([string]$Value, [Parameter(Mandatory = $true)][string]$Fallback, [Parameter(Mandatory = $true)][string]$Label)
     if (-not [string]::IsNullOrWhiteSpace($Value)) {
@@ -412,6 +417,9 @@ try {
 } catch {
     throw "BodyRig Stash source manifest is unreadable after selection."
 }
+if ([string]$manifest.format -ne "bodyrig-stash-source-manifest" -or -not (Test-V1Version $manifest.version)) {
+    throw "BodyRig Stash source manifest format/version mismatch."
+}
 if ([string]$manifest.performer.id -ne $PerformerId) {
     throw "Stash source manifest performer id mismatch."
 }
@@ -517,7 +525,7 @@ try {
         } catch {
             throw "BodyRig observation segment manifest is unreadable after selection."
         }
-        if ([string]$segmentManifest.format -ne "bodyrig-observation-segments" -or [int]$segmentManifest.version -ne 1) {
+        if ([string]$segmentManifest.format -ne "bodyrig-observation-segments" -or -not (Test-V1Version $segmentManifest.version)) {
             throw "BodyRig observation segment manifest format/version mismatch."
         }
         $segments = @($segmentManifest.segments)
