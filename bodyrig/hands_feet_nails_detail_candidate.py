@@ -374,6 +374,21 @@ def _embedded_receipt(
     return value
 
 
+def _embedded_receipt_matches(actual: Any, expected: Mapping[str, Any]) -> bool:
+    if not isinstance(actual, Mapping) or set(actual) != EMBEDDED_FIELDS:
+        return False
+    version = actual.get("version")
+    if isinstance(version, bool) or version != VERSION:
+        return False
+    for field in ("sourceGrounded", "packageApplicationAuthority", "textureModified", "humanReviewRequired"):
+        if actual.get(field) is not True:
+            return False
+    for field in ("generative", "geometryModified", "productionActivation"):
+        if actual.get(field) is not False:
+            return False
+    return dict(actual) == dict(expected)
+
+
 def _append_basecolor(
     document: dict[str, Any],
     binary: bytes,
@@ -439,12 +454,14 @@ def _rewrite_package(source: Path, destination: Path, *, avatar_vrm: bytes) -> N
 def validate_candidate_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsDetailCandidateError("HFN detail candidate receipt fields are not canonical")
+    version = value.get("version")
     if (
-        value.get("format"),
-        value.get("version"),
-        value.get("policy_revision"),
-        value.get("method"),
-    ) != (FORMAT, VERSION, POLICY_REVISION, METHOD):
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+        or value.get("method") != METHOD
+    ):
         raise HandsFeetNailsDetailCandidateError(
             "HFN detail candidate format/version/policy/method mismatch"
         )
@@ -808,7 +825,10 @@ def read_detail_candidate(
             "uv_material_mapping_sha256": receipt["uv_material_mapping_sha256"],
         },
     )
-    if bodyrig.get("handsFeetNailsDetailApplication") != expected_embedded:
+    if not _embedded_receipt_matches(
+        bodyrig.get("handsFeetNailsDetailApplication"),
+        expected_embedded,
+    ):
         raise HandsFeetNailsDetailCandidateError(
             "embedded HFN detail authority is stale or tampered"
         )
