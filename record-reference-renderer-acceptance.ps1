@@ -32,6 +32,11 @@ function Read-JsonFile {
     return [pscustomobject]@{ Path = $resolved; Value = $value }
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Assert-CheckoutAuthority {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -117,7 +122,7 @@ if ($Platform -eq "windows-unity-univrm") {
 $pair = Resolve-EvidencePair -AcceptanceRoot $AcceptanceDir -Prefix $prefix
 $probeFile = Read-JsonFile $pair.Probe "$prefix renderer machine probe"
 $probe = $probeFile.Value
-if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne $Platform) { throw "$prefix renderer machine probe format/platform mismatch." }
+if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne $Platform) { throw "$prefix renderer machine probe format/platform mismatch." }
 if ([string]$probe.active_renderer.name -ne [string]$contract.renderer_name -or [string]$probe.active_renderer.version -ne [string]$contract.renderer_version) {
     throw "$prefix renderer machine probe identity does not match reference-renderer/renderer-contract.json."
 }
@@ -127,7 +132,7 @@ if ([string]$probe.unity_version -ne [string]$contract.unity_editor_version) {
 
 $deformationFile = Read-JsonFile $pair.Deformation "$prefix deformation probe"
 $deformation = $deformationFile.Value
-if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne $Platform) { throw "$prefix deformation probe format/platform mismatch." }
+if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne $Platform) { throw "$prefix deformation probe format/platform mismatch." }
 if ([string]$deformation.sequence_revision -ne [string]$contract.deformation_sequence_revision) { throw "$prefix deformation sequence does not match the reference renderer contract." }
 if ([string]$deformation.unity_version -ne [string]$contract.unity_editor_version) {
     throw "$prefix deformation probe Unity version does not match the pinned reference renderer contract."
