@@ -26,6 +26,11 @@ function Read-JsonFile {
     return [pscustomobject]@{ Path = $resolved; Value = $value }
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Assert-CheckoutAuthority {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -117,9 +122,9 @@ foreach ($entry in $platforms) {
     $deformation = (Read-JsonFile $entry.Deformation "$($entry.Name) deformation probe").Value
     $attestation = (Read-JsonFile $entry.Attestation "$($entry.Name) renderer attestation").Value
 
-    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne $entry.Platform) { throw "$($entry.Name) renderer probe format/platform mismatch." }
-    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne $entry.Platform) { throw "$($entry.Name) deformation probe format/platform mismatch." }
-    if ([string]$attestation.format -ne "bodyrig-renderer-acceptance" -or [int]$attestation.version -ne 1 -or [string]$attestation.platform -ne $entry.Platform -or [string]$attestation.result -ne "pass") { throw "$($entry.Name) renderer attestation is not a PASS for the expected platform." }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne $entry.Platform) { throw "$($entry.Name) renderer probe format/platform mismatch." }
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne $entry.Platform) { throw "$($entry.Name) deformation probe format/platform mismatch." }
+    if ([string]$attestation.format -ne "bodyrig-renderer-acceptance" -or -not (Test-V1Version $attestation.version) -or [string]$attestation.platform -ne $entry.Platform -or [string]$attestation.result -ne "pass") { throw "$($entry.Name) renderer attestation is not a PASS for the expected platform." }
 
     if ([string]$probe.active_renderer.name -ne [string]$contract.renderer_name -or [string]$probe.active_renderer.version -ne [string]$contract.renderer_version) { throw "$($entry.Name) machine probe renderer identity does not match renderer-contract.json." }
     if ([string]$attestation.renderer_name -ne [string]$contract.renderer_name -or [string]$attestation.renderer_version -ne [string]$contract.renderer_version) { throw "$($entry.Name) human attestation renderer identity does not match renderer-contract.json." }
