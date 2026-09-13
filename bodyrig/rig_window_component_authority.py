@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -30,6 +31,18 @@ BROAD_COMPONENT_REBUILD_CHECKS = frozenset(
 _PREVIEW_ACTIVE = frozenset({"queued", "running", "succeeded"})
 _PREVIEW_RETRYABLE = frozenset({"failed", "interrupted"})
 _TARGET_FAMILIES = frozenset({"female", "male", "neutral"})
+_DEFAULT_SITH_SEED = 1337
+_REJECTION_REBUILD_SEED_DOMAIN = "bodyrig-broad-component-rebuild-v1"
+
+
+def _rejection_rebuild_seed(*, body_job_id: str, preview_job_id: str, revision: str) -> int:
+    material = "\0".join(
+        (_REJECTION_REBUILD_SEED_DOMAIN, body_job_id, preview_job_id, revision)
+    ).encode("utf-8")
+    seed = int.from_bytes(hashlib.sha256(material).digest()[:4], "big") & 0x7FFFFFFF
+    if seed == _DEFAULT_SITH_SEED:
+        seed = (_DEFAULT_SITH_SEED + 1) & 0x7FFFFFFF
+    return seed
 
 
 def _validated_failed_checks(acceptance_dir: str | Path) -> frozenset[str]:
@@ -277,6 +290,18 @@ def _route_to_preview_authority(
         status = str(selected.get("status") or "")
         component_failures = frozenset(str(value) for value in (plan.get("component_failed_checks") or []))
         if status == "succeeded" and BROAD_COMPONENT_REBUILD_CHECKS.issubset(component_failures):
+            base_command = str(plan.get("next_command") or "").strip()
+            if "run-profiled-fidelity-convergence.ps1" not in base_command:
+                return _block(
+                    plan,
+                    "Broad component rejection requires a fresh profiled reconstruction, but the selected rework "
+                    "plan has no canonical convergence command to seed safely.",
+                )
+            rebuild_seed = _rejection_rebuild_seed(
+                body_job_id=body_job_id,
+                preview_job_id=preview_job_id,
+                revision=revision,
+            )
             escalated = dict(plan)
             escalated.update(
                 path="human-fidelity-rework",
@@ -286,10 +311,13 @@ def _route_to_preview_authority(
                 expensive_reconstruction_rerun=True,
                 fitter_rerun=True,
                 operator_input_required=False,
+                rebuild_seed=rebuild_seed,
+                next_command=f"{base_command} -BaseSithSeed {rebuild_seed}",
                 rationale=(
                     "Human review rejected hair, eyes and small anatomical detail after this exact high-fidelity "
                     "preview already succeeded. Re-entering the same retained preview can only repeat the rejected "
-                    "visual base, so escalate to the existing profiled reconstruction/fitter rework path instead."
+                    "visual base, so escalate to the existing profiled reconstruction/fitter rework path with a "
+                    "deterministic rejection-derived SiTH seed instead of repeating the default seed."
                 ),
             )
             return escalated

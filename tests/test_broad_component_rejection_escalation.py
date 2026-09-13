@@ -52,6 +52,29 @@ def _succeeded_preview() -> dict[str, object]:
     }
 
 
+def test_rejection_rebuild_seed_is_stable_non_default_and_authority_bound() -> None:
+    first = component._rejection_rebuild_seed(
+        body_job_id=BODY_JOB,
+        preview_job_id=PREVIEW,
+        revision=OLD,
+    )
+    repeated = component._rejection_rebuild_seed(
+        body_job_id=BODY_JOB,
+        preview_job_id=PREVIEW,
+        revision=OLD,
+    )
+    different_preview = component._rejection_rebuild_seed(
+        body_job_id=BODY_JOB,
+        preview_job_id="hfpreview-" + "4" * 32,
+        revision=OLD,
+    )
+
+    assert first == repeated
+    assert first != 1337
+    assert 0 <= first <= 2147483647
+    assert different_preview != first
+
+
 def test_repeated_hair_eye_small_detail_failure_escalates_past_succeeded_preview(
     tmp_path: Path,
     monkeypatch,
@@ -86,6 +109,15 @@ def test_repeated_hair_eye_small_detail_failure_escalates_past_succeeded_preview
     assert plan["expensive_reconstruction_rerun"] is True
     assert plan["fitter_rerun"] is True
     assert plan["operator_input_required"] is False
-    assert "run-profiled-fidelity-convergence.ps1" in str(plan["next_command"])
-    assert "high-fidelity-physical-status.ps1" not in str(plan["next_command"])
+    expected_seed = component._rejection_rebuild_seed(
+        body_job_id=BODY_JOB,
+        preview_job_id=PREVIEW,
+        revision=OLD,
+    )
+    assert plan["rebuild_seed"] == expected_seed
+    command = str(plan["next_command"])
+    assert "run-profiled-fidelity-convergence.ps1" in command
+    assert f"-BaseSithSeed {expected_seed}" in command
+    assert "-BaseSithSeed 1337" not in command
+    assert "high-fidelity-physical-status.ps1" not in command
     assert "repeat the rejected visual base" in str(plan["rationale"])
