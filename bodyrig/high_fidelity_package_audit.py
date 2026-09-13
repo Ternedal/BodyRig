@@ -25,6 +25,8 @@ FORMAT = "bodyrig-high-fidelity-package-audit"
 VERSION = 1
 GLB_MAGIC = b"glTF"
 JSON_CHUNK = b"JSON"
+BIN_CHUNK = b"BIN\x00"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 HAIR_NODE = "BodyRigSourceHairReview"
 HAIR_MESH = "BodyRigSourceHairReviewMesh"
@@ -44,6 +46,20 @@ FACE_MATERIALS = (
     "BodyRigTeethReview",
     "BodyRigEyelashesReview",
 )
+
+HFN_IMAGE = "BodyRigHandsFeetNailsDetailBaseColor"
+HFN_APPLICATION_FORMAT = "bodyrig-hands-feet-nails-detail-application"
+HFN_POLICY_REVISION = "bodyrig-hands-feet-nails-detail-candidate-v1"
+HFN_REGIONS = frozenset({"left_hand", "right_hand", "left_foot", "right_foot"})
+HFN_APPLICATION_FIELDS = {
+    "format", "version", "policyRevision", "candidateId", "personId", "bodyRevision",
+    "captureId", "bodyrigRevision", "method", "sourcePackageSha256", "sourceCaptureSha256",
+    "landmarkEvidenceSha256", "uvEvidenceSha256", "sourceBaseColorSha256",
+    "candidateBaseColorSha256", "maxChannelDeltaLevels", "regions", "geometrySurfaceSha256",
+    "skinnedSurfaceSha256", "rigSha256", "uvMaterialMappingSha256", "sourceGrounded",
+    "generative", "packageApplicationAuthority", "geometryModified", "textureModified",
+    "humanReviewRequired", "productionActivation",
+}
 
 
 class HighFidelityPackageAuditError(ValueError):
@@ -83,6 +99,32 @@ def _read_glb_document(value: bytes) -> dict[str, Any]:
     if document is None:
         raise HighFidelityPackageAuditError("avatar.vrm GLB has no JSON document")
     return document
+
+
+def _read_glb_binary(value: bytes) -> bytes:
+    if not isinstance(value, bytes) or len(value) < 20 or value[:4] != GLB_MAGIC:
+        raise HighFidelityPackageAuditError("avatar.vrm is not a GLB/VRM")
+    version, declared_length = struct.unpack("<II", value[4:12])
+    if version != 2 or declared_length != len(value):
+        raise HighFidelityPackageAuditError("avatar.vrm GLB header is invalid")
+    offset = 12
+    binary: bytes | None = None
+    while offset + 8 <= len(value):
+        length, kind = struct.unpack("<I4s", value[offset:offset + 8])
+        offset += 8
+        end = offset + length
+        if end > len(value):
+            raise HighFidelityPackageAuditError("avatar.vrm GLB chunk is truncated")
+        payload = value[offset:end]
+        offset = end
+        if kind != BIN_CHUNK:
+            continue
+        if binary is not None:
+            raise HighFidelityPackageAuditError("avatar.vrm contains multiple BIN chunks")
+        binary = payload
+    if binary is None:
+        raise HighFidelityPackageAuditError("avatar.vrm GLB has no BIN chunk")
+    return binary
 
 
 def _array(document: Mapping[str, Any], name: str, *, label: str) -> list[Any]:
@@ -218,6 +260,142 @@ def _require_material_image_binding(
         raise HighFidelityPackageAuditError(
             f"{component}=complete but canonical material is not bound to canonical image"
         )
+
+
+def _buffer_view_bytes(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: Any,
+    *,
+    label: str,
+) -> bytes:
+    view = _indexed(document, "bufferViews", index, label=label)
+    if view.get("buffer", 0) != 0:
+        raise HighFidelityPackageAuditError(f"{label} must use embedded buffer 0")
+    offset = view.get("byteOffset", 0)
+    length = view.get("byteLength")
+    if (
+        isinstance(offset, bool)
+        or not isinstance(offset, int)
+        or offset < 0
+        or isinstance(length, bool)
+        or not isinstance(length, int)
+        or length < 0
+        or offset + length > len(binary)
+    ):
+        raise HighFidelityPackageAuditError(f"{label} bufferView bounds are invalid")
+    return binary[offset:offset + length]
+
+
+def _canonical_sha256(value: Any, *, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise HighFidelityPackageAuditError(f"{label} is not a canonical SHA-256")
+    return text
+
+
+def _audit_hfn_payload(
+    document: Mapping[str, Any],
+    binary: bytes,
+    bodyrig: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    application = bodyrig.get("handsFeetNailsDetailApplication")
+    if application is None:
+        return None
+    if not isinstance(application, Mapping) or set(application) != HFN_APPLICATION_FIELDS:
+        raise HighFidelityPackageAuditError(
+            "HFN detail application metadata fields are not canonical"
+        )
+    version = application.get("version")
+    method = application.get("method")
+    regions = application.get("regions")
+    if (
+        application.get("format") != HFN_APPLICATION_FORMAT
+        or isinstance(version, bool)
+        or version != 1
+        or application.get("policyRevision") != HFN_POLICY_REVISION
+        or not isinstance(method, str)
+        or not method.strip()
+        or not isinstance(regions, Mapping)
+        or set(regions) != HFN_REGIONS
+    ):
+        raise HighFidelityPackageAuditError(
+            "HFN detail application format/version/policy/method/regions are invalid"
+        )
+    for field in ("sourceGrounded", "packageApplicationAuthority", "textureModified", "humanReviewRequired"):
+        if application.get(field) is not True:
+            raise HighFidelityPackageAuditError(f"HFN detail application {field} authority is invalid")
+    for field in ("generative", "geometryModified", "productionActivation"):
+        if application.get(field) is not False:
+            raise HighFidelityPackageAuditError(f"HFN detail application {field} authority is invalid")
+
+    source_sha = _canonical_sha256(
+        application.get("sourceBaseColorSha256"),
+        label="HFN source base-color SHA-256",
+    )
+    candidate_sha = _canonical_sha256(
+        application.get("candidateBaseColorSha256"),
+        label="HFN candidate base-color SHA-256",
+    )
+    if source_sha == candidate_sha:
+        raise HighFidelityPackageAuditError(
+            "HFN detail application does not change active base-color bytes"
+        )
+
+    appearance = bodyrig.get("appearanceTransfer")
+    if not isinstance(appearance, Mapping):
+        raise HighFidelityPackageAuditError(
+            "HFN detail application has no active appearanceTransfer authority"
+        )
+    if _canonical_sha256(
+        appearance.get("activeBaseColorSha256"),
+        label="active base-color SHA-256",
+    ) != candidate_sha:
+        raise HighFidelityPackageAuditError(
+            "HFN detail candidate hash is not the active appearanceTransfer base color"
+        )
+
+    image_index = _named_index(document, "images", HFN_IMAGE, label="HFN detail render payload")
+    if image_index != 0:
+        raise HighFidelityPackageAuditError(
+            "HFN detail base color must remain canonical image 0"
+        )
+    image = _indexed(document, "images", image_index, label="HFN detail image")
+    if image.get("mimeType") != "image/png":
+        raise HighFidelityPackageAuditError("HFN detail active base color is not declared as PNG")
+    textures = _array(document, "textures", label="HFN detail render payload")
+    if not textures or not isinstance(textures[0], Mapping) or textures[0].get("source") != image_index:
+        raise HighFidelityPackageAuditError(
+            "HFN detail active image is not bound to canonical texture 0"
+        )
+    materials = _array(document, "materials", label="HFN detail render payload")
+    if not materials or not isinstance(materials[0], Mapping):
+        raise HighFidelityPackageAuditError("HFN detail requires canonical body material 0")
+    pbr = materials[0].get("pbrMetallicRoughness")
+    if not isinstance(pbr, Mapping) or pbr.get("baseColorTexture") != {"index": 0}:
+        raise HighFidelityPackageAuditError(
+            "HFN detail active image is not bound to body material 0 base color"
+        )
+
+    payload = _buffer_view_bytes(
+        document,
+        binary,
+        image.get("bufferView"),
+        label="HFN detail active base color",
+    )
+    if not payload.startswith(PNG_SIGNATURE):
+        raise HighFidelityPackageAuditError("HFN detail active base-color bytes are not PNG")
+    actual_sha = hashlib.sha256(payload).hexdigest()
+    if actual_sha != candidate_sha:
+        raise HighFidelityPackageAuditError(
+            "HFN detail active base-color bytes do not match candidate authority"
+        )
+    return {
+        "image": image_index,
+        "buffer_view": image.get("bufferView"),
+        "base_color_sha256": actual_sha,
+        "method": method.strip(),
+    }
 
 
 def _audit_hair_payload(document: Mapping[str, Any], bodyrig: Mapping[str, Any]) -> dict[str, Any]:
@@ -389,7 +567,13 @@ def audit_high_fidelity_package(path: str | Path) -> dict[str, Any]:
     except (OSError, KeyError, zipfile.BadZipFile) as exc:
         raise HighFidelityPackageAuditError("could not read validated avatar.vrm") from exc
 
-    fidelity = audit_fidelity_document(_read_glb_document(avatar))
+    document = _read_glb_document(avatar)
+    fidelity = audit_fidelity_document(document)
+    bodyrig = _bodyrig(document)
+    if bodyrig.get("handsFeetNailsDetailApplication") is not None:
+        hfn_payload = _audit_hfn_payload(document, _read_glb_binary(avatar), bodyrig)
+        if hfn_payload is not None:
+            fidelity["render_payloads"]["hands_feet_nails"] = hfn_payload
     return {
         "format": FORMAT,
         "version": VERSION,
