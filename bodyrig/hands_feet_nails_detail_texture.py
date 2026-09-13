@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -9,6 +10,11 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from .bridges.sith_pbr_material import PNG_SIGNATURE
 from .fidelity_ab import FidelityAbError, _indices
+from .hands_feet_nails_landmark_evidence import (
+    HandsFeetNailsLandmarkEvidenceError,
+    evidence_path as landmark_evidence_path,
+    validate_landmark_evidence,
+)
 from .hands_feet_nails_source_capture import REQUIRED_REGIONS, capture_dir
 from .hands_feet_nails_uv_domain_evidence import (
     REGION_JOINT_NAMES,
@@ -19,13 +25,34 @@ from .hands_feet_nails_uv_domain_evidence import (
     _region_domain,
 )
 
-METHOD = "source-closeup-luminance-residual-skinned-uv-v1"
+METHOD = "source-landmark-fingernail-residual-skinned-uv-v2"
 DETAIL_STRENGTH = 0.50
 GAUSSIAN_RADIUS = 2.0
 EDGE_SUPPRESS_LEVEL = 40
-MAX_CHANNEL_DELTA_LEVELS = 8
+RESIDUAL_MAX_CHANNEL_DELTA_LEVELS = 8
+MAX_CHANNEL_DELTA_LEVELS = 24
+NAIL_BLEND_STRENGTH = 0.58
+NAIL_PATCH_RADIUS_FRACTION = 0.055
+NAIL_DISTAL_WEIGHT_THRESHOLD = 0.10
+MIN_NAIL_MASK_PIXELS = 6
 MIN_REGION_MASK_PIXELS = 24
 MIN_REGION_CHANGED_PIXELS = 8
+HAND_NAIL_JOINTS = {
+    "left_hand": {
+        "thumb": "smplx_left_thumb3",
+        "index": "smplx_left_index3",
+        "middle": "smplx_left_middle3",
+        "ring": "smplx_left_ring3",
+        "pinky": "smplx_left_pinky3",
+    },
+    "right_hand": {
+        "thumb": "smplx_right_thumb3",
+        "index": "smplx_right_index3",
+        "middle": "smplx_right_middle3",
+        "ring": "smplx_right_ring3",
+        "pinky": "smplx_right_pinky3",
+    },
+}
 REGION_METRIC_FIELDS = {
     "source_image_sha256",
     "uv_set_sha256",
@@ -54,14 +81,11 @@ def _array(document: Mapping[str, Any], name: str) -> list[Any]:
     return value
 
 
-def _region_masks(
+def _body_uv_inputs(
     document: Mapping[str, Any],
     binary: bytes,
     uv_evidence: Mapping[str, Any],
-    *,
-    width: int,
-    height: int,
-) -> dict[str, Image.Image]:
+) -> tuple[list[tuple[float | int, ...]], list[tuple[float | int, ...]], list[tuple[float | int, ...]], list[int], list[str]]:
     mesh_index, skin_index, primitive_index, primitive, _joint_nodes, joint_names = _canonical_mesh(document)
     mesh = _array(document, "meshes")[mesh_index]
     if (
@@ -101,6 +125,40 @@ def _region_masks(
         raise HandsFeetNailsDetailTextureError(str(exc)) from exc
     if len(indices) % 3:
         raise HandsFeetNailsDetailTextureError("HFN body triangle index count is invalid")
+    return uvs, joints, weights, indices, joint_names
+
+
+def _draw_uv_triangle(
+    draw: ImageDraw.ImageDraw,
+    *,
+    triangle: list[int],
+    uvs: list[tuple[float | int, ...]],
+    width: int,
+    height: int,
+) -> None:
+    points: list[tuple[int, int]] = []
+    for vertex in triangle:
+        u, v = float(uvs[vertex][0]), float(uvs[vertex][1])
+        if not (0.0 <= u <= 1.0 and 0.0 <= v <= 1.0):
+            raise HandsFeetNailsDetailTextureError(
+                "HFN body UV escaped normalized texture bounds"
+            )
+        points.append((
+            min(width - 1, max(0, int(round(u * (width - 1))))),
+            min(height - 1, max(0, int(round(v * (height - 1))))),
+        ))
+    draw.polygon(points, fill=255)
+
+
+def _region_masks(
+    document: Mapping[str, Any],
+    binary: bytes,
+    uv_evidence: Mapping[str, Any],
+    *,
+    width: int,
+    height: int,
+) -> dict[str, Image.Image]:
+    uvs, joints, weights, indices, joint_names = _body_uv_inputs(document, binary, uv_evidence)
 
     memberships: dict[str, list[bool]] = {}
     for region in REQUIRED_REGIONS:
@@ -142,18 +200,9 @@ def _region_masks(
             )
         if not owners:
             continue
-        points: list[tuple[int, int]] = []
-        for vertex in triangle:
-            u, v = float(uvs[vertex][0]), float(uvs[vertex][1])
-            if not (0.0 <= u <= 1.0 and 0.0 <= v <= 1.0):
-                raise HandsFeetNailsDetailTextureError(
-                    "HFN body UV escaped normalized texture bounds"
-                )
-            points.append((
-                min(width - 1, max(0, int(round(u * (width - 1))))),
-                min(height - 1, max(0, int(round(v * (height - 1))))),
-            ))
-        draws[owners[0]].polygon(points, fill=255)
+        _draw_uv_triangle(
+            draws[owners[0]], triangle=triangle, uvs=uvs, width=width, height=height
+        )
 
     union = Image.new("L", (width, height), 0)
     for region in REQUIRED_REGIONS:
@@ -168,6 +217,119 @@ def _region_masks(
     return masks
 
 
+def _fingernail_masks(
+    document: Mapping[str, Any],
+    binary: bytes,
+    uv_evidence: Mapping[str, Any],
+    region_masks: Mapping[str, Image.Image],
+    *,
+    width: int,
+    height: int,
+) -> dict[str, dict[str, Image.Image]]:
+    uvs, joints, weights, indices, joint_names = _body_uv_inputs(document, binary, uv_evidence)
+    result: dict[str, dict[str, Image.Image]] = {}
+    for region, nail_joints in HAND_NAIL_JOINTS.items():
+        region_result: dict[str, Image.Image] = {}
+        for label, joint_name in nail_joints.items():
+            if joint_name not in joint_names:
+                raise HandsFeetNailsDetailTextureError(
+                    f"{region} fingernail target joint is missing: {joint_name}"
+                )
+            joint_index = joint_names.index(joint_name)
+            membership = [
+                sum(
+                    float(weight)
+                    for joint, weight in zip(joint_row, weight_row, strict=True)
+                    if int(joint) == joint_index
+                ) >= NAIL_DISTAL_WEIGHT_THRESHOLD
+                for joint_row, weight_row in zip(joints, weights, strict=True)
+            ]
+            distal = Image.new("L", (width, height), 0)
+            draw = ImageDraw.Draw(distal)
+            for offset in range(0, len(indices), 3):
+                triangle = indices[offset : offset + 3]
+                if all(membership[vertex] for vertex in triangle):
+                    _draw_uv_triangle(
+                        draw, triangle=triangle, uvs=uvs, width=width, height=height
+                    )
+            distal = ImageChops.multiply(distal, region_masks[region])
+            bbox = distal.getbbox()
+            if bbox is None:
+                raise HandsFeetNailsDetailTextureError(
+                    f"{region} {label} distal UV domain is missing"
+                )
+            x0, y0, x1, y1 = bbox
+            span_x, span_y = x1 - x0, y1 - y0
+            inset_x = max(1, int(round(span_x * 0.20)))
+            inset_y = max(1, int(round(span_y * 0.20)))
+            ellipse = Image.new("L", (width, height), 0)
+            ellipse_draw = ImageDraw.Draw(ellipse)
+            ellipse_draw.ellipse(
+                (
+                    x0 + inset_x,
+                    y0 + inset_y,
+                    max(x0 + inset_x + 1, x1 - inset_x),
+                    max(y0 + inset_y + 1, y1 - inset_y),
+                ),
+                fill=255,
+            )
+            nail = ImageChops.multiply(distal, ellipse)
+            if nail.histogram()[255] < MIN_NAIL_MASK_PIXELS:
+                # Keep the implementation fail-closed but avoid rejecting a valid
+                # tiny UV island merely because the conservative inset removed it.
+                nail = distal
+            if nail.histogram()[255] < MIN_NAIL_MASK_PIXELS:
+                raise HandsFeetNailsDetailTextureError(
+                    f"{region} {label} fingernail UV mask is too small"
+                )
+            region_result[label] = nail
+        result[region] = region_result
+    return result
+
+
+def _read_landmark_evidence(
+    source_root: Path,
+    uv_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    required = (
+        "person_id",
+        "body_revision",
+        "capture_id",
+        "landmark_evidence_bodyrig_revision",
+        "landmark_evidence_sha256",
+    )
+    if any(not uv_evidence.get(field) for field in required):
+        raise HandsFeetNailsDetailTextureError(
+            "HFN UV evidence lacks exact landmark-evidence authority"
+        )
+    path = landmark_evidence_path(
+        source_root,
+        str(uv_evidence["person_id"]),
+        str(uv_evidence["body_revision"]),
+        str(uv_evidence["capture_id"]),
+        str(uv_evidence["landmark_evidence_bodyrig_revision"]),
+    )
+    if not path.is_file() or _sha256_file(path) != uv_evidence["landmark_evidence_sha256"]:
+        raise HandsFeetNailsDetailTextureError(
+            "HFN landmark evidence bytes no longer match UV evidence authority"
+        )
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        landmark = validate_landmark_evidence(raw)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        HandsFeetNailsLandmarkEvidenceError,
+    ) as exc:
+        raise HandsFeetNailsDetailTextureError("HFN landmark evidence is invalid") from exc
+    if landmark.get("all_regions_application_ready") is not True:
+        raise HandsFeetNailsDetailTextureError(
+            "HFN fingernail application requires all landmark regions to be ready"
+        )
+    return landmark
+
+
 def _residual_map(source: Image.Image) -> Image.Image:
     gray = source.convert("L")
     blurred = gray.filter(ImageFilter.GaussianBlur(radius=GAUSSIAN_RADIUS))
@@ -177,8 +339,8 @@ def _residual_map(source: Image.Image) -> Image.Image:
         residual = int(sample) - int(baseline)
         delta = 0 if abs(residual) > EDGE_SUPPRESS_LEVEL else int(round(residual * DETAIL_STRENGTH))
         encoded[index] = 128 + max(
-            -MAX_CHANNEL_DELTA_LEVELS,
-            min(MAX_CHANNEL_DELTA_LEVELS, delta),
+            -RESIDUAL_MAX_CHANNEL_DELTA_LEVELS,
+            min(RESIDUAL_MAX_CHANNEL_DELTA_LEVELS, delta),
         )
     return Image.frombytes("L", gray.size, bytes(encoded))
 
@@ -213,8 +375,8 @@ def _apply_region(
             pixels[start : start + 3] = bytes(after)
             changed += 1
             observed_max = max(observed_max, observed)
-    if observed_max > MAX_CHANNEL_DELTA_LEVELS:
-        raise HandsFeetNailsDetailTextureError("HFN detail exceeded bounded channel delta")
+    if observed_max > RESIDUAL_MAX_CHANNEL_DELTA_LEVELS:
+        raise HandsFeetNailsDetailTextureError("HFN residual detail exceeded bounded channel delta")
     if changed < MIN_REGION_CHANGED_PIXELS:
         raise HandsFeetNailsDetailTextureError(
             "HFN source closeup does not contain enough bounded local detail for application"
@@ -222,6 +384,82 @@ def _apply_region(
     result = base.copy()
     result.paste(Image.frombytes("RGB", size, bytes(pixels)), bbox[:2])
     return result, changed, observed_max
+
+
+def _landmark_patch(source: Image.Image, landmark: Mapping[str, Any]) -> Image.Image:
+    try:
+        x = float(landmark["x_norm"])
+        y = float(landmark["y_norm"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HandsFeetNailsDetailTextureError("HFN fingernail landmark is invalid") from exc
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        raise HandsFeetNailsDetailTextureError("HFN fingernail landmark escaped source closeup")
+    width, height = source.size
+    radius = max(8, int(round(min(width, height) * NAIL_PATCH_RADIUS_FRACTION)))
+    cx = int(round(x * (width - 1)))
+    cy = int(round(y * (height - 1)))
+    left, top = max(0, cx - radius), max(0, cy - radius)
+    right, bottom = min(width, cx + radius + 1), min(height, cy + radius + 1)
+    if right - left < 4 or bottom - top < 4:
+        raise HandsFeetNailsDetailTextureError("HFN fingernail source patch is too small")
+    return source.crop((left, top, right, bottom)).convert("RGB")
+
+
+def _apply_nail_patch(
+    base: Image.Image,
+    *,
+    mask: Image.Image,
+    patch: Image.Image,
+) -> Image.Image:
+    bbox = mask.getbbox()
+    if bbox is None:
+        raise HandsFeetNailsDetailTextureError("HFN fingernail UV mask is empty")
+    size = (bbox[2] - bbox[0], bbox[3] - bbox[1])
+    if size[0] < 1 or size[1] < 1:
+        raise HandsFeetNailsDetailTextureError("HFN fingernail UV mask has invalid bounds")
+    source = patch.resize(size, Image.Resampling.LANCZOS).convert("RGB")
+    target = base.crop(bbox).convert("RGB")
+    mask_bytes = mask.crop(bbox).tobytes()
+    source_bytes = source.tobytes()
+    target_bytes = bytearray(target.tobytes())
+    for pixel_index, coverage in enumerate(mask_bytes):
+        if coverage == 0:
+            continue
+        start = pixel_index * 3
+        alpha = (coverage / 255.0) * NAIL_BLEND_STRENGTH
+        for channel in range(3):
+            before = int(target_bytes[start + channel])
+            desired = int(source_bytes[start + channel])
+            delta = int(round((desired - before) * alpha))
+            delta = max(-MAX_CHANNEL_DELTA_LEVELS, min(MAX_CHANNEL_DELTA_LEVELS, delta))
+            target_bytes[start + channel] = max(0, min(255, before + delta))
+    result = base.copy()
+    result.paste(Image.frombytes("RGB", size, bytes(target_bytes)), bbox[:2])
+    return result
+
+
+def _change_metrics(
+    before: Image.Image,
+    after: Image.Image,
+    *,
+    mask: Image.Image,
+) -> tuple[int, int]:
+    if before.size != after.size or before.size != mask.size:
+        raise HandsFeetNailsDetailTextureError("HFN change-metric image sizes differ")
+    left = before.convert("RGB").tobytes()
+    right = after.convert("RGB").tobytes()
+    mask_bytes = mask.tobytes()
+    changed = 0
+    observed_max = 0
+    for pixel_index, coverage in enumerate(mask_bytes):
+        if coverage == 0:
+            continue
+        start = pixel_index * 3
+        observed = max(abs(int(right[start + i]) - int(left[start + i])) for i in range(3))
+        if observed:
+            changed += 1
+            observed_max = max(observed_max, observed)
+    return changed, observed_max
 
 
 def _encode_png(image: Image.Image) -> bytes:
@@ -256,6 +494,15 @@ def apply_source_details(
     if width < 64 or height < 64 or width > 8192 or height > 8192:
         raise HandsFeetNailsDetailTextureError("HFN active base-color dimensions are unsupported")
     masks = _region_masks(document, binary, uv_evidence, width=width, height=height)
+    nail_masks = _fingernail_masks(
+        document,
+        binary,
+        uv_evidence,
+        masks,
+        width=width,
+        height=height,
+    )
+    landmark_evidence = _read_landmark_evidence(source_root, uv_evidence)
     current = base
     metrics: dict[str, dict[str, Any]] = {}
     total_changed = 0
@@ -285,11 +532,41 @@ def apply_source_details(
             raise HandsFeetNailsDetailTextureError(
                 f"{region} source closeup is not canonical 1024x1024"
             )
-        current, changed, observed_max = _apply_region(
+
+        before_region = current
+        current, _residual_changed, _residual_max = _apply_region(
             current,
             mask=masks[region],
             source=source_image,
         )
+        if region in HAND_NAIL_JOINTS:
+            projection = landmark_evidence["regions"][region]["projection"]
+            landmarks = projection.get("landmarks") if isinstance(projection, Mapping) else None
+            if not isinstance(landmarks, Mapping):
+                raise HandsFeetNailsDetailTextureError(
+                    f"{region} fingernail landmarks are missing"
+                )
+            for label in HAND_NAIL_JOINTS[region]:
+                landmark = landmarks.get(label)
+                if not isinstance(landmark, Mapping):
+                    raise HandsFeetNailsDetailTextureError(
+                        f"{region} {label} fingernail landmark is missing"
+                    )
+                current = _apply_nail_patch(
+                    current,
+                    mask=nail_masks[region][label],
+                    patch=_landmark_patch(source_image, landmark),
+                )
+
+        changed, observed_max = _change_metrics(before_region, current, mask=masks[region])
+        if changed < MIN_REGION_CHANGED_PIXELS:
+            raise HandsFeetNailsDetailTextureError(
+                f"{region} source detail did not produce enough bounded target changes"
+            )
+        if observed_max > MAX_CHANNEL_DELTA_LEVELS:
+            raise HandsFeetNailsDetailTextureError(
+                f"{region} source detail exceeded global channel-delta cap"
+            )
         metrics[region] = {
             "source_image_sha256": item["image_sha256"],
             "uv_set_sha256": uv_evidence["regions"][region]["uv_set_sha256"],
