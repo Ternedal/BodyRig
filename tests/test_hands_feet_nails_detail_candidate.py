@@ -16,6 +16,7 @@ from bodyrig.hands_feet_nails_detail_candidate import (
     HandsFeetNailsDetailCandidateError,
     apply_hfn_detail_to_avatar,
 )
+from bodyrig.hands_feet_nails_landmark_evidence import HandsFeetNailsLandmarkEvidenceError
 from bodyrig.photoidentity_nail_landmarks import (
     FORMAT as PROJECTION_FORMAT,
     POLICY_REVISION as PROJECTION_POLICY_REVISION,
@@ -155,7 +156,9 @@ def _avatar(*, broad_thumb: bool = False) -> bytes:
         row = group // columns
         col = group % columns
         if broad_thumb and group == 0:
-            tri = ((0.02, 0.02), (0.98, 0.02), (0.02, 0.98))
+            # Large enough to exceed the bounded-domain guard while staying below
+            # the seam-span rejection threshold on both UV axes.
+            tri = ((0.05, 0.05), (0.48, 0.05), (0.05, 0.48))
         else:
             cx = 0.10 + col * 0.22
             cy = 0.12 + row * 0.24
