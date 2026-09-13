@@ -25,6 +25,10 @@ function Read-JsonFile {
     try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json }
     catch { throw "$Label is not valid JSON: $Path" }
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [IO.Path]::GetFullPath($AcceptanceDir)
@@ -85,8 +89,8 @@ try {
 
     $probe = Read-JsonFile $stagedProbe "Quest staged machine probe"
     $deformation = Read-JsonFile $stagedDeformation "Quest staged deformation probe"
-    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "android-quest-class") { throw "Quest staged machine probe format/platform mismatch." }
-    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "android-quest-class") { throw "Quest staged deformation probe format/platform mismatch." }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne "android-quest-class") { throw "Quest staged machine probe format/platform mismatch." }
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne "android-quest-class") { throw "Quest staged deformation probe format/platform mismatch." }
     if ([string]$probe.active_renderer.name -ne [string]$contract.renderer_name -or [string]$probe.active_renderer.version -ne [string]$contract.renderer_version) { throw "Quest staged renderer identity does not match renderer-contract.json." }
     if ([string]$probe.unity_version -ne [string]$contract.unity_editor_version -or [string]$deformation.unity_version -ne [string]$contract.unity_editor_version) { throw "Quest staged evidence was not produced by the pinned Unity version." }
     if ([string]$deformation.sequence_revision -ne [string]$contract.deformation_sequence_revision) { throw "Quest staged deformation sequence does not match renderer-contract.json." }
