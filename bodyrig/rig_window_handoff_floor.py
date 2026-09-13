@@ -13,6 +13,8 @@ from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 
 _PATCH_LOCK = threading.RLock()
 _ORIGINAL_ENFORCE_EXISTING_AUTHORITY = component.authority.enforce_existing_authority
+_ORIGINAL_RESCUE_CANDIDATES = component.authority.policy._rescue_candidates
+_ORIGINAL_INTERRUPTED_CANDIDATES = component.authority.policy._interrupted_candidates
 _PHYSICAL_EVIDENCE_KINDS = frozenset({"ui-acceptance", "physical-session"})
 
 
@@ -30,6 +32,17 @@ def _revision_meets_current_handoff_floor(repo_root: Path, revision: str) -> boo
         return False
     ancestry = base._git(repo_root, "merge-base", "--is-ancestor", floor, revision)
     return ancestry.returncode == 0
+
+
+def _floor_reason(*, label: str, revision: str) -> dict[str, str]:
+    return {
+        "evidence": label,
+        "reason": (
+            f"historical physical evidence revision {revision or '<unproven>'} predates or cannot prove the current "
+            f"minimum physical handoff revision {MINIMUM_PHYSICAL_HANDOFF_REVISION}; it cannot prove the current "
+            "HFN fingernail-geometry/runtime contract"
+        ),
+    }
 
 
 def enforce_existing_authority(
@@ -59,31 +72,84 @@ def enforce_existing_authority(
                 or candidate.get("session_report")
                 or "historical physical evidence"
             )
-            rejected_out.append(
+            rejected_out.append(_floor_reason(label=label, revision=revision))
+            continue
+        filtered.append(candidate)
+    return filtered, rejected_out
+
+
+def _rescue_candidates(
+    rows: list[dict[str, Any]],
+    *,
+    preferred_job_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    candidates, rejected = _ORIGINAL_RESCUE_CANDIDATES(rows, preferred_job_id=preferred_job_id)
+    repo_root = Path.cwd().resolve()
+    head = component.authority.policy.base._head(repo_root)
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        revision = str(candidate.get("evidence_revision") or "").strip().lower()
+        if revision != head and not _revision_meets_current_handoff_floor(repo_root, revision):
+            rejected.append(
                 {
-                    "evidence": label,
-                    "reason": (
-                        f"historical physical evidence revision {revision} predates the current minimum physical "
-                        f"handoff revision {MINIMUM_PHYSICAL_HANDOFF_REVISION}; it cannot prove the current "
-                        "HFN fingernail-geometry/runtime contract"
-                    ),
+                    "job_id": str(candidate.get("job_id") or ""),
+                    "reason": _floor_reason(label="historical Gate A rescue", revision=revision)["reason"],
                 }
             )
             continue
         filtered.append(candidate)
-    return filtered, rejected_out
+    return filtered, rejected
+
+
+def _interrupted_candidates(
+    repo_root: Path,
+    rows: list[dict[str, Any]],
+    *,
+    preferred_job_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    candidates, rejected = _ORIGINAL_INTERRUPTED_CANDIDATES(
+        repo_root,
+        rows,
+        preferred_job_id=preferred_job_id,
+    )
+    head = component.authority.policy.base._head(repo_root)
+    revisions = {
+        str(row.get("job_id") or ""): str(row.get("bodyrig_revision") or "").strip().lower()
+        for row in rows
+    }
+    filtered: list[dict[str, Any]] = []
+    for candidate in candidates:
+        job_id = str(candidate.get("job_id") or "")
+        revision = revisions.get(job_id, "")
+        if revision != head and not _revision_meets_current_handoff_floor(repo_root, revision):
+            rejected.append(
+                {
+                    "job_id": job_id,
+                    "reason": _floor_reason(label="historical interrupted recovery", revision=revision)["reason"],
+                }
+            )
+            continue
+        filtered.append(candidate)
+    return filtered, rejected
 
 
 @contextmanager
 def _handoff_floor_guard() -> Iterator[None]:
     with _PATCH_LOCK:
         authority = component.authority
-        previous = authority.enforce_existing_authority
+        policy = authority.policy
+        previous_existing = authority.enforce_existing_authority
+        previous_rescue = policy._rescue_candidates
+        previous_interrupted = policy._interrupted_candidates
         authority.enforce_existing_authority = enforce_existing_authority
+        policy._rescue_candidates = _rescue_candidates
+        policy._interrupted_candidates = _interrupted_candidates
         try:
             yield
         finally:
-            authority.enforce_existing_authority = previous
+            authority.enforce_existing_authority = previous_existing
+            policy._rescue_candidates = previous_rescue
+            policy._interrupted_candidates = previous_interrupted
 
 
 def build_plan(**kwargs: Any) -> dict[str, Any]:
