@@ -48,7 +48,7 @@ function New-DirectoriesSince {
             if ($item.Name.StartsWith($Prefix, [System.StringComparison]::OrdinalIgnoreCase) -and -not $Before.ContainsKey($item.FullName)) { $result += $item.FullName }
         }
     }
-    return @($result)
+    Write-Output -NoEnumerate $result
 }
 function Next-Seed {
     param([int]$FullRebuildNumber)
@@ -617,8 +617,8 @@ function Restore-CheckpointState {
         "full-rebuild" = @($state.phase_timings.'full-rebuild' | ForEach-Object { [double]$_ })
         "resume-refinement" = @($state.phase_timings.'resume-refinement' | ForEach-Object { [double]$_ })
         "gate-a" = @($state.phase_timings.'gate-a' | ForEach-Object { [double]$_ })
-        "render" = @($state.phase_timings.'render' | ForEach-Object { [double]$_ })
-        "evaluate" = @($state.phase_timings.'evaluate' | ForEach-Object { [double]$_ })
+        "render" = @($state.phase_timings.render | ForEach-Object { [double]$_ })
+        "evaluate" = @($state.phase_timings.evaluate | ForEach-Object { [double]$_ })
     }
     $script:latestScores = $state.latest_scores
     $script:bestScores = $state.best_scores
