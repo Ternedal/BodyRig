@@ -29,6 +29,11 @@ function Read-JsonFile {
     }
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Read-TailText {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -322,7 +327,7 @@ function Get-AbBaselineContinuation {
     $retention = $plan.ab_baseline_retention
     $matches = (
         [string]$plan.format -eq "bodyrig-dual-candidate-ab-baseline-plan" -and
-        [int]$plan.version -eq 1 -and
+        (Test-V1Version $plan.version) -and
         [string]$plan.baseline_job_id -eq $jobId -and
         [string]$plan.person_id -match '^person-[0-9a-f]{32}$' -and
         [string]$plan.person_id -eq [string]$Job.person_id -and
@@ -335,7 +340,7 @@ function Get-AbBaselineContinuation {
         $plan.throughput_candidate.separate_candidate_body_build_required -eq $true -and
         $null -ne $retention -and
         [string]$retention.format -eq "bodyrig-ab-baseline-retention" -and
-        [int]$retention.version -eq 1 -and
+        (Test-V1Version $retention.version) -and
         $retention.retain_private_workspace -eq $true -and
         [string]$retention.job_id -eq $jobId -and
         [string]$retention.expected_bodyrig_revision -eq [string]$Job.bodyrig_revision -and
