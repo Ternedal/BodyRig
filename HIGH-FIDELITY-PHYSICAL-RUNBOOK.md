@@ -1,10 +1,10 @@
 # BodyRig high-fidelity physical acceptance runbook
 
-Updated: 2026-09-05.
+Updated: 2026-09-13.
 
 This is the operator path from a persisted high-fidelity continuation to canonical production release. It deliberately does **not** manufacture human or hardware evidence. Run exactly one gate at a time and re-read status after every gate.
 
-For a **new** physical acceptance session, canonical software authority is the exact clean current `main` revision. PR #54 and PR #83 are merged historical integration lineage; their feature branches are not operator checkout authority anymore. Historical physical evidence remains bound to the exact revision recorded in that evidence.
+For a **new** physical acceptance session, canonical software authority is the exact clean current `main` revision. The minimum safe fresh physical handoff includes the mandatory source-grounded hands/feet/nails (HFN) continuation and persisted-authority hardening. Historical physical evidence remains bound to the exact revision recorded in that evidence.
 
 ## 0. Synchronize and preflight the operator checkout
 
@@ -21,10 +21,16 @@ git rev-parse HEAD
 pwsh -NoProfile -File .\high-fidelity-rig-preflight.ps1
 ```
 
-Both `git status --short` calls must be empty. The revision printed by `git rev-parse HEAD` is the software revision that a new Gate A may bind if the later status/preparation checks still accept it. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
+Both `git status --short` calls must be empty. The revision printed by `git rev-parse HEAD` is the software revision that a new Gate A may bind if the later status/preparation checks still accept it. The preflight must end in `PASS` before creating Gate A. It verifies the exact clean checkout, the HFN-safe minimum handoff ancestry and checkout-bound Python, then delegates renderer authority to the canonical `check-reference-renderer-ready.ps1` checker. That checker cross-validates the renderer contract against Unity `ProjectVersion.txt`, the complete pinned package manifest, UniVRM revision, Unity Android SDK/NDK/OpenJDK and the pinned Unity-SDK `adb.exe`. The high-fidelity preflight uses that same pinned `adb.exe` for device discovery; an arbitrary `adb` from `PATH` is not physical authority.
 
-Preflight also requires the complete human-review/recovery and canonical reference-wrapper chain to be present:
+Preflight also requires the complete HFN continuation, package-review/recovery and canonical reference-wrapper chain to be present:
 
+- `prepare-hands-feet-nails-source-capture.ps1`;
+- `prepare-hands-feet-nails-landmark-evidence.ps1`;
+- `prepare-hands-feet-nails-uv-domain-evidence.ps1`;
+- `prepare-hands-feet-nails-detail-candidate.ps1`;
+- `prepare-hands-feet-nails-render-review.ps1`;
+- `record-high-fidelity-hfn-review.ps1`;
 - `record-high-fidelity-human-review.ps1`;
 - `archive-invalid-high-fidelity-human-review.ps1`;
 - `run-reference-windows-renderer-probe.ps1`;
@@ -69,7 +75,7 @@ The listing is read-only. It does not reconcile, rerun or mutate preview jobs.
 pwsh -NoProfile -File .\high-fidelity-physical-status.ps1 -PreviewJobId $preview
 ```
 
-Run this again **after every successful command below**. It validates the current promoted package, package-bound review, transitive handoff authority, fresh Gate A/QA/runtime hashes, source Gate A lineage, canonical reference-renderer policy, physical evidence and the clean operator checkout before it exposes an executable next command.
+Run this again **after every successful command below**. Before any fresh Gate A can be created, status requires the promoted high-fidelity component chain to pass through the source-grounded HFN detail-bearing candidate, canonical four-view HFN render and package-bound HFN human review. It then validates the exact current package, package-wide review, transitive handoff authority, fresh Gate A/QA/runtime hashes, source Gate A lineage, canonical reference-renderer policy, physical evidence and the clean operator checkout before it exposes an executable next command.
 
 The status layer receives raw physical state from the low-level state machine, but it never exposes those low-level physical commands directly. It rewrites physical progression onto the same canonical reference wrappers used by BodyRig V1 and blocks if `reference_acceptance_policy` rejects legacy layout or renderer-contract drift.
 
@@ -89,9 +95,45 @@ If status is `BLOCKED` with no recovery command, stop. Do not delete/recreate ev
 
 ## 3. Possible next gates
 
+### `hfn_detail_candidate`
+
+This is the first mandatory HFN gate after face-secondary promotion. The exact face-secondary promoted package remains the source package until a source-grounded HFN detail-bearing candidate has been materialized. Status will print a command based on:
+
+```powershell
+.\prepare-hands-feet-nails-detail-candidate.ps1 -Root '<person-library>' -PersonId '<person-id>' -BodyRevision '<body-revision>' -CaptureId <CAPTURE_ID> -UvEvidence <UV_EVIDENCE_PATH> -PackagePath '<exact-face-secondary-package>'
+```
+
+Select only exact source capture / landmark / UV evidence for the same Person, body revision, package and BodyRig revision. If usable source detail is unavailable, this gate must remain unresolved; do not invent identity-specific nail or hand/foot detail. The candidate application is bounded to exact HFN UV/skin domains, preserves protected anatomy/rig fingerprints, requires a clean appearance-only A/B and remains `production_activation=false`.
+
+After candidate creation, rerun status. From this point onward, the HFN detail-bearing `.mrbody` bytes are the continuation package that later review and physical handoff must bind.
+
+### `hfn_render_review`
+
+Once the detail-bearing candidate exists, status will require the canonical four-view HFN render from those exact candidate bytes and expose a command equivalent to:
+
+```powershell
+.\prepare-hands-feet-nails-render-review.ps1 -PackagePath '<exact-hfn-candidate>' -OutputDir '<continuation-hfn-render-dir>'
+```
+
+The render authority is comparison-only and must contain exactly the canonical `left_hand`, `right_hand`, `left_foot`, `right_foot` 1024x1024 views bound to the exact body id, candidate package SHA-256 and BodyRig revision. It does not grant human or physical PASS and cannot activate production.
+
+Rerun status after the render completes.
+
+### `hfn_human_review`
+
+Review the exact HFN candidate against all four canonical renders and the source closeups. The package-bound M2 checklist covers hand/finger geometry, foot/toe geometry, skin detail, fingernails, toenails and left/right source/render consistency. Use only the command emitted by status; it routes through:
+
+```powershell
+.\record-high-fidelity-hfn-review.ps1 ... -ConfirmDetailChecklist -QualityNote <QUALITY_NOTE>
+```
+
+Replace `<QUALITY_NOTE>` with a real observation. Every canonical M2 checklist item must pass. This review is source-grounded and package-bound but still review-only: `package_application_authority=false` for the human receipt and `production_activation=false`.
+
+Only after `hfn_detail_candidate`, `hfn_render_review` and `hfn_human_review` all pass does continuation re-audit the exact HFN candidate package and allow the broader package-wide high-fidelity review path to proceed.
+
 ### `high_fidelity_human_review_recovery`
 
-This gate appears only when the exact promoted package is still high-fidelity-ready but an existing create-only human-review sidecar is present and the current canonical `read_review()` rejects it (for example because it is stale, tampered or still contains a generated placeholder).
+This gate appears only when the exact promoted HFN-reviewed package is still high-fidelity-ready but an existing create-only package-wide human-review sidecar is present and the current canonical `read_review()` rejects it (for example because it is stale, tampered or still contains a generated placeholder).
 
 Do **not** delete or edit that sidecar. Run only the exact recovery command printed by status. It will route through:
 
@@ -105,7 +147,7 @@ After recovery completes, rerun status. The expected next state is ordinary `hig
 
 ### `high_fidelity_human_review`
 
-Review the exact promoted package evidence in Person Studio. The review must cover source identity, anatomy, skin, hair, eyes/iris, face-secondary, full-body multiview and face close-up. Then use the exact command printed by the status tool and replace only the quality-note placeholder with what you actually reviewed.
+Review the exact HFN-reviewed promoted package evidence in Person Studio. The package-wide review must cover source identity, anatomy, skin, hair, eyes/iris, face-secondary, hands/feet/nails, full-body multiview and face close-up. Then use the exact command printed by the status tool and replace only the quality-note placeholder with what you actually reviewed.
 
 This gate is package-bound and non-activating. A generated `<...>` quality-note placeholder is rejected by both the PowerShell wrapper and the canonical Python review writer/reader.
 
@@ -117,7 +159,7 @@ Run the printed command. It will be equivalent to:
 .\prepare-high-fidelity-physical-acceptance.ps1 -PreviewJobId $preview
 ```
 
-The command creates a new acceptance directory atomically from the exact promoted package, reuses only hash-bound physical session/readiness as source lineage, recomputes skin/topology QA, materializes a fresh runtime and stops at Windows probe. It does not reuse old package/runtime authority.
+The command creates a new acceptance directory atomically from the exact HFN-reviewed promoted package, reuses only hash-bound physical session/readiness as source lineage, recomputes skin/topology QA, materializes a fresh runtime and stops at Windows probe. It does not reuse old package/runtime authority. Before fresh Gate A can be created, both the status CLI and preparation wrapper require the HFN-safe minimum physical-handoff revision to be an ancestor of the current clean checkout.
 
 **The checkout freeze starts here.**
 
@@ -202,15 +244,17 @@ production_ready=true
 production_activation=true
 ```
 
-Those flags are valid only because the exact promoted package and handoff chain have passed package-bound human review, fresh Gate A, canonical reference-policy Windows physical acceptance, canonical reference-policy Quest physical acceptance and canonical final release.
+Those flags are valid only because the exact source-grounded HFN detail-bearing package and handoff chain have passed canonical HFN four-view review, package-bound HFN human review, package-wide human review, fresh Gate A, canonical reference-policy Windows physical acceptance, canonical reference-policy Quest physical acceptance and canonical final release.
 
 ## 5. Things not to do during this run
 
 - Do not rerun retained reconstruction just to create new authority.
+- Do not invent HFN detail when exact source evidence is missing or insufficient.
+- Do not bypass `hfn_detail_candidate`, `hfn_render_review` or `hfn_human_review` to create Gate A from face-secondary-only bytes.
 - Do not point an old Gate A/package/runtime receipt at promoted bytes.
 - Do not use `accept-reconciled-physical-clone.ps1` for this flow.
 - Do not edit JSON evidence by hand.
-- Do not manually delete or overwrite a high-fidelity human-review sidecar; use the status-exposed content-preserving recovery gate only when it is offered.
+- Do not manually delete or overwrite an HFN review or high-fidelity human-review sidecar; use only the status-exposed create-only/recovery path.
 - Do not manually delete a create-only acceptance directory to make a command rerunnable.
 - Do not pull/switch/edit the repo after fresh Gate A creation.
 - Do not substitute a PATH `adb` for the pinned Unity Android SDK adb in the Quest evidence path.
