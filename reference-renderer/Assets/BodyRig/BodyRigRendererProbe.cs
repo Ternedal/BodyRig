@@ -12,6 +12,18 @@ namespace BodyRig.ReferenceRenderer
         [Serializable]
         private sealed class RendererIdentity { public string name; public string version; }
 
+        private sealed class ExpectedRenderPayload
+        {
+            public readonly string Label;
+            public readonly string NodeName;
+
+            public ExpectedRenderPayload(string label, string nodeName)
+            {
+                Label = label;
+                NodeName = nodeName;
+            }
+        }
+
         [Serializable]
         private sealed class ProbeReport
         {
@@ -43,6 +55,13 @@ namespace BodyRig.ReferenceRenderer
             HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot,
             HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand,
             HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand,
+        };
+
+        private static readonly ExpectedRenderPayload[] ExpectedRenderPayloads =
+        {
+            new ExpectedRenderPayload("hair", "BodyRigSourceHairReview"),
+            new ExpectedRenderPayload("eyes", "BodyRigSourceEyeReview"),
+            new ExpectedRenderPayload("face-secondary", "BodyRigFaceSecondaryReview"),
         };
 
         [SerializeField] private BodyRigAvatarLoader loader;
@@ -108,6 +127,13 @@ namespace BodyRig.ReferenceRenderer
             if (!string.Equals(bodyprintHash, loader.ActiveBodyprintSha256, StringComparison.Ordinal))
                 throw new InvalidDataException("Renderer probe bodyprint.json bytes no longer match the Gate A runtime manifest");
 
+            // A valid Humanoid is not enough for high-fidelity acceptance. If the
+            // exact VRM bytes carry one of BodyRig's promoted component nodes, UniVRM
+            // must also have instantiated that node as an active skinned renderer.
+            // This closes the gap where metadata/GLB payload could be correct while
+            // the physical Unity render still showed the legacy mannequin only.
+            RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject);
+
             var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
             var platform = ResolvePhysicalPlatform(deviceModel);
@@ -152,6 +178,65 @@ namespace BodyRig.ReferenceRenderer
             LastProbePath = fullOutputPath;
             Debug.Log($"BodyRig renderer probe: PASS | {report.platform} | revision {report.bodyrig_revision} | {report.device_model} | {fullOutputPath}", this);
             return fullOutputPath;
+        }
+
+        private static void RequireExpectedComponentRenderers(string avatarPath, GameObject activeRoot)
+        {
+            if (activeRoot == null) throw new InvalidDataException("Renderer probe active VRM root is missing");
+            if (!File.Exists(avatarPath)) throw new FileNotFoundException("Renderer probe avatar.vrm is missing", avatarPath);
+            var bytes = File.ReadAllBytes(avatarPath);
+            foreach (var expected in ExpectedRenderPayloads)
+            {
+                if (!ContainsAscii(bytes, expected.NodeName)) continue;
+
+                Transform matched = null;
+                foreach (var transform in activeRoot.GetComponentsInChildren<Transform>(true))
+                {
+                    if (!string.Equals(transform.name, expected.NodeName, StringComparison.Ordinal)) continue;
+                    if (matched != null)
+                        throw new InvalidDataException($"Renderer probe found multiple instantiated {expected.Label} nodes named {expected.NodeName}");
+                    matched = transform;
+                }
+                if (matched == null)
+                    throw new InvalidDataException($"Renderer probe VRM carries {expected.Label} payload {expected.NodeName}, but UniVRM did not instantiate that node");
+                if (!matched.gameObject.activeInHierarchy)
+                    throw new InvalidDataException($"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but its GameObject is inactive");
+
+                var renderers = matched.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                var visible = false;
+                foreach (var renderer in renderers)
+                {
+                    if (renderer == null || !renderer.enabled || renderer.forceRenderingOff || !renderer.gameObject.activeInHierarchy)
+                        continue;
+                    if (renderer.sharedMesh == null || renderer.sharedMesh.vertexCount <= 0)
+                        continue;
+                    if (renderer.sharedMaterials == null || renderer.sharedMaterials.Length == 0)
+                        continue;
+                    visible = true;
+                    break;
+                }
+                if (!visible)
+                    throw new InvalidDataException($"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but no active skinned renderer with mesh/materials is visible");
+            }
+        }
+
+        private static bool ContainsAscii(byte[] haystack, string value)
+        {
+            if (haystack == null || string.IsNullOrEmpty(value)) return false;
+            var needle = Encoding.UTF8.GetBytes(value);
+            if (needle.Length == 0 || needle.Length > haystack.Length) return false;
+            for (var start = 0; start <= haystack.Length - needle.Length; start++)
+            {
+                var matches = true;
+                for (var offset = 0; offset < needle.Length; offset++)
+                {
+                    if (haystack[start + offset] == needle[offset]) continue;
+                    matches = false;
+                    break;
+                }
+                if (matches) return true;
+            }
+            return false;
         }
 
         private static string ResolvePhysicalPlatform(string deviceModel)
