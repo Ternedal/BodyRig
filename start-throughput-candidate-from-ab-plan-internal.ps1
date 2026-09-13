@@ -67,7 +67,7 @@ function Invoke-CheckoutPythonJson {
         }
         $expectedPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot $ExpectedModulePath))
         $actualPath = [IO.Path]::GetFullPath(([string]$probeRaw[0]).Trim())
-        if (-not [string]::Equals($actualPath,$expectedPath,[StringComparison]::OrdinalIgnoreCase)) {
+        if (-not [string]::Equals($actualPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
             throw "$Label module imported from wrong checkout: $actualPath"
         }
 
