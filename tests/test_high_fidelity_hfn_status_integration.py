@@ -10,6 +10,7 @@ JOB_ID = "hfpreview-" + "a" * 32
 PERSON = "person-" + "1" * 32
 BODY = "body-r0001"
 REVISION = "b" * 40
+CURRENT_HFN_REVISION = "c" * 40
 
 
 def _legacy_complete(package: Path) -> dict:
@@ -43,6 +44,14 @@ def _preview_identity() -> dict:
     }
 
 
+def _install_current_hfn_authority(monkeypatch) -> None:
+    monkeypatch.setattr(
+        status,
+        "_integration_checkout_state",
+        lambda: (CURRENT_HFN_REVISION, True, True),
+    )
+
+
 def test_face_complete_cannot_be_high_fidelity_complete_before_hfn_candidate(monkeypatch, tmp_path: Path) -> None:
     face = tmp_path / "face.mrbody"
     face.write_bytes(b"face package")
@@ -51,6 +60,7 @@ def test_face_complete_cannot_be_high_fidelity_complete_before_hfn_candidate(mon
     monkeypatch.setattr(status._legacy.preview_manager, "get", lambda _job: _preview_identity())
     monkeypatch.setattr(status, "_preview_root", lambda _job: tmp_path / "preview")
     monkeypatch.setattr(status, "person_library", lambda: tmp_path / "people")
+    _install_current_hfn_authority(monkeypatch)
     monkeypatch.setattr(
         status,
         "inspect_hfn_continuation",
@@ -83,6 +93,8 @@ def test_face_complete_cannot_be_high_fidelity_complete_before_hfn_candidate(mon
     assert result["next_gate"]["gate"] == status.CANDIDATE_GATE
     assert "prepare-hands-feet-nails-detail-candidate.ps1" in result["next_gate"]["command"]
     assert result["gates"][-1]["id"] == status.CANDIDATE_GATE
+    assert result["source_bodyrig_revision"] == REVISION
+    assert result["hfn_bodyrig_revision"] == CURRENT_HFN_REVISION
     assert result["production_activation"] is False
 
 
@@ -96,6 +108,7 @@ def test_hfn_reviewed_candidate_becomes_exact_final_package(monkeypatch, tmp_pat
     monkeypatch.setattr(status._legacy.preview_manager, "get", lambda _job: _preview_identity())
     monkeypatch.setattr(status, "_preview_root", lambda _job: tmp_path / "preview")
     monkeypatch.setattr(status, "person_library", lambda: tmp_path / "people")
+    _install_current_hfn_authority(monkeypatch)
     monkeypatch.setattr(
         status,
         "inspect_hfn_continuation",
@@ -134,6 +147,8 @@ def test_hfn_reviewed_candidate_becomes_exact_final_package(monkeypatch, tmp_pat
     assert result["high_fidelity_complete"] is True
     assert result["current_package_path"] == str(candidate.resolve())
     assert result["current_package_sha256"] == candidate_sha
+    assert result["source_bodyrig_revision"] == REVISION
+    assert result["hfn_bodyrig_revision"] == CURRENT_HFN_REVISION
     assert [gate["id"] for gate in result["gates"][-3:]] == [
         status.CANDIDATE_GATE,
         status.RENDER_GATE,
@@ -154,6 +169,7 @@ def test_hfn_candidate_final_audit_failure_is_fail_closed(monkeypatch, tmp_path:
     monkeypatch.setattr(status._legacy.preview_manager, "get", lambda _job: _preview_identity())
     monkeypatch.setattr(status, "_preview_root", lambda _job: tmp_path / "preview")
     monkeypatch.setattr(status, "person_library", lambda: tmp_path / "people")
+    _install_current_hfn_authority(monkeypatch)
     monkeypatch.setattr(
         status,
         "inspect_hfn_continuation",
@@ -183,6 +199,8 @@ def test_hfn_candidate_final_audit_failure_is_fail_closed(monkeypatch, tmp_path:
 
     assert result["state"] == "blocked"
     assert result["high_fidelity_complete"] is False
+    assert result["source_bodyrig_revision"] == REVISION
+    assert result["hfn_bodyrig_revision"] == CURRENT_HFN_REVISION
     assert result["next_gate"]["gate"] == status.CANDIDATE_GATE
     assert result["next_gate"]["command"] is None
     candidate_gate = next(gate for gate in result["gates"] if gate["id"] == status.CANDIDATE_GATE)
