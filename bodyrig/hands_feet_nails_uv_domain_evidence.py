@@ -335,8 +335,8 @@ def validate_uv_domain_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
         if (
             not isinstance(indices, list)
             or len(indices) != len(expected_names)
-            or len(set(indices)) != len(indices)
             or any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in indices)
+            or len(set(indices)) != len(indices)
         ):
             raise HandsFeetNailsUvDomainEvidenceError(f"{capture_region} UV joint indices are invalid")
         vertex_count = _int(item.get("vertex_count"), label=f"{capture_region} vertex count", minimum=3)
