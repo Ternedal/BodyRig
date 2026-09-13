@@ -61,14 +61,16 @@ def test_complete_historical_evidence_requires_current_origin_main_ancestry_now(
     assert "complete historical evidence revision is not proven as an ancestor" in AUTHORITY
 
 
-def test_historical_physical_evidence_must_meet_current_handoff_floor_before_ranking() -> None:
+def test_historical_physical_and_recovery_evidence_must_meet_current_handoff_floor_before_ranking() -> None:
     assert "MINIMUM_PHYSICAL_HANDOFF_REVISION" in HANDOFF_FLOOR
     assert "_PHYSICAL_EVIDENCE_KINDS" in HANDOFF_FLOOR
     assert '"ui-acceptance"' in HANDOFF_FLOOR
     assert '"physical-session"' in HANDOFF_FLOOR
     assert '"merge-base", "--is-ancestor", floor, revision' in HANDOFF_FLOOR
-    assert "predates the current minimum physical " in HANDOFF_FLOOR
-    assert "handoff revision" in HANDOFF_FLOOR
+    assert "_filter_rescue_candidates" in HANDOFF_FLOOR
+    assert "_filter_interrupted_candidates" in HANDOFF_FLOOR
+    assert "predates or cannot prove the current" in HANDOFF_FLOOR
+    assert "minimum physical handoff revision" in HANDOFF_FLOOR
     assert "HFN fingernail-geometry/runtime contract" in HANDOFF_FLOOR
 
 
