@@ -15,6 +15,10 @@ function Need-File {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -97,7 +101,7 @@ $leftObj = Need-File -Path (Join-Path $OutputDir "left_eye.obj") -Label "Left ey
 $rightObj = Need-File -Path (Join-Path $OutputDir "right_eye.obj") -Label "Right eye OBJ"
 try { $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Eye component evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-eye-component-candidate" -or [int]$evidence.version -ne 1 -or
+if ([string]$evidence.format -ne "bodyrig-eye-component-candidate" -or -not (Test-V1Version $evidence.version) -or
     $evidence.explicitEyeGeometry -ne $true -or $evidence.sourceDerivedIrisAppearance -ne $false -or
     [string]$evidence.componentStatus -ne "partial" -or $evidence.bodyTopologyModified -ne $false -or
     $evidence.generativeIdentitySynthesis -ne $false -or $evidence.humanReviewRequired -ne $true -or
