@@ -20,6 +20,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -145,7 +149,7 @@ catch { throw "Subject anatomy v3 evidence is unreadable." }
 $expectedMethod = "explicit-family-smplx-betas-icp-bake-surface-normal-aware-to-retained-sith-source-v3"
 $expectedNormalAuthority = "sith-closest-source-triangle-face-normal-v1"
 $expectedSampleMethod = "deterministic-smplx-face-centroids-v1"
-if ([string]$evidence.format -ne "bodyrig-subject-anatomy-refit" -or [int]$evidence.version -ne 1 -or [string]$evidence.method -ne $expectedMethod) {
+if ([string]$evidence.format -ne "bodyrig-subject-anatomy-refit" -or -not (Test-V1Version $evidence.version) -or [string]$evidence.method -ne $expectedMethod) {
     throw "Subject anatomy v3 evidence has an unexpected contract."
 }
 if ([string]$evidence.targetModelFamily -ne $TargetFamily) { throw "Subject anatomy v3 target-family evidence mismatch." }
