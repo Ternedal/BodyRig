@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,15 @@ ADDRESSABLE_CHECKS = frozenset({
     "face_secondary",
     "small_anatomical_detail",
 })
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _body_convergence(plan: dict[str, Any]) -> dict[str, Any]:
@@ -131,9 +142,7 @@ def _route_small_detail(plan: dict[str, Any]) -> dict[str, Any]:
 
     if status != "succeeded":
         routed.update(
-            rationale=(
-                f"Exact historical preview is {status}; start/resume it on its producer revision before HFN migration."
-            ),
+            rationale=f"Exact historical preview is {status}; start/resume it on its producer revision before HFN migration.",
             next_command=component._preview_start_command(
                 person_id=person_id,
                 body_job_id=body_job_id,
@@ -170,8 +179,8 @@ def _route_small_detail(plan: dict[str, Any]) -> dict[str, Any]:
     if (
         package_path is None
         or not package_path.is_file()
-        or not component.authority.policy.base.SHA256.fullmatch(package_sha)
-        or component.authority.policy.base._sha256(package_path) != package_sha
+        or not SHA256_RE.fullmatch(package_sha)
+        or _sha256(package_path) != package_sha
     ):
         return component._block(plan, "Historical promoted package bytes are missing or no longer match continuation authority.")
 
