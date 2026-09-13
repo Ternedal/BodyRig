@@ -32,6 +32,7 @@ def _candidate(root: Path, *, capture: str, candidate: str, source_sha: str = SO
         "bodyrig_revision": REVISION,
     }))
     return {
+        "version": 1,
         "person_id": PERSON,
         "body_revision": BODY,
         "capture_id": capture,
