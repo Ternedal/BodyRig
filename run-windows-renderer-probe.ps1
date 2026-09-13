@@ -34,6 +34,10 @@ function Need-Revision {
     if ($normalized -notmatch '^[0-9a-f]{40}$') { throw "$Label is not a canonical 40-character Git SHA." }
     return $normalized
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-NativeProcessWait {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -89,7 +93,7 @@ foreach ($required in @($acceptancePath, $runtimeManifest)) {
 }
 
 try { $acceptance = Get-Content -LiteralPath $acceptancePath -Raw | ConvertFrom-Json } catch { throw "Gate A acceptance report is not valid JSON: $acceptancePath" }
-if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or [int]$acceptance.version -ne 1 -or $acceptance.automated_pass -ne $true -or $acceptance.production_activation -ne $false) {
+if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or -not (Test-V1Version $acceptance.version) -or $acceptance.automated_pass -ne $true -or $acceptance.production_activation -ne $false) {
     throw "Gate A acceptance is not a valid non-activating automated PASS."
 }
 $acceptedRevision = Need-Revision ([string]$acceptance.bodyrig_revision) "acceptance.bodyrig_revision"
@@ -176,7 +180,7 @@ try {
     }
 
     try { $probe = Get-Content -LiteralPath $stagedProbe -Raw | ConvertFrom-Json } catch { throw "Windows machine probe is not valid JSON: $stagedProbe" }
-    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "windows-unity-univrm" -or [string]$probe.unity_platform -ne "WindowsPlayer") { throw "Windows machine probe has the wrong format/platform." }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne "windows-unity-univrm" -or [string]$probe.unity_platform -ne "WindowsPlayer") { throw "Windows machine probe has the wrong format/platform." }
     if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Windows player was not built from the exact Gate A BodyRig revision." }
     if ([string]::IsNullOrWhiteSpace([string]$probe.build_guid)) { throw "Windows machine probe has no Unity build GUID." }
     if ([string]$probe.active_renderer.name -ne $contractRendererName -or [string]$probe.active_renderer.version -ne $contractRendererVersion) { throw "Windows machine probe renderer identity does not match the reference renderer contract." }
@@ -184,7 +188,7 @@ try {
     if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $actualRuntimeHash) { throw "Windows machine probe does not identify the Gate A runtime manifest bytes." }
 
     try { $deformation = Get-Content -LiteralPath $stagedDeformation -Raw | ConvertFrom-Json } catch { throw "Windows deformation probe is not valid JSON: $stagedDeformation" }
-    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "windows-unity-univrm" -or [string]$deformation.unity_platform -ne "WindowsPlayer") { throw "Windows deformation probe has the wrong format/platform." }
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne "windows-unity-univrm" -or [string]$deformation.unity_platform -ne "WindowsPlayer") { throw "Windows deformation probe has the wrong format/platform." }
     if ((Need-Revision ([string]$deformation.bodyrig_revision) "deformation.bodyrig_revision") -ne $acceptedRevision -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Windows deformation evidence was not produced by the same exact BodyRig revision as Gate A/machine probe." }
     if ([string]$deformation.unity_version -ne $expectedUnityVersion) { throw "Windows deformation probe Unity version does not match the reference renderer contract." }
     if ([string]$deformation.sequence_revision -ne $expectedDeformationRevision -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Windows deformation probe did not complete the fixed BodyRig pose sequence." }
