@@ -75,7 +75,14 @@ $initialHead = Assert-CheckoutAuthority -RepoRoot $repoRoot
 $contract = (Read-JsonFile (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract").Value
 $expectedContractFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
 if (@(Compare-Object -ReferenceObject $expectedContractFields -DifferenceObject @($contract.PSObject.Properties.Name)).Count -ne 0) { throw "Reference renderer contract fields are not canonical." }
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) { throw "Unsupported reference renderer contract format/version." }
 foreach ($field in @("renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")) {
     if ([string]::IsNullOrWhiteSpace([string]$contract.$field)) { throw "Reference renderer contract is missing '$field'." }
 }
