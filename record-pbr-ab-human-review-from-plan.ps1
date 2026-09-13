@@ -236,7 +236,7 @@ Refresh-ExactRefs -RepoRoot $repoRoot -PbrRef $pbrRef -MainRevision $mainRevisio
 
 $runAuthority = Read-Json -Path $runAuthorityPath -Label "PBR A/B run authority"
 if (
-    [string]$runAuthority.format -ne "bodyrig-pbr-ab-run" -or [int]$runAuthority.version -ne 1 -or
+    [string]$runAuthority.format -ne "bodyrig-pbr-ab-run" -or -not (Test-V1Version $runAuthority.version) -or
     (Need-Revision -Value ([string]$runAuthority.baseline_revision) -Label "PBR run baseline revision") -ne $mainRevision -or
     (Need-Revision -Value ([string]$runAuthority.candidate_revision) -Label "PBR run candidate revision") -ne $pbrRevision -or
     $runAuthority.comparison_only -ne $true -or $runAuthority.physical_acceptance_authority -ne $false -or $runAuthority.production_activation -ne $false
@@ -244,7 +244,7 @@ if (
 
 $sourceAuthority = Read-Json -Path $sourceAuthorityPath -Label "PBR body-job source authority"
 if (
-    [string]$sourceAuthority.format -ne "bodyrig-pbr-ab-body-job-source-authority" -or [int]$sourceAuthority.version -ne 1 -or
+    [string]$sourceAuthority.format -ne "bodyrig-pbr-ab-body-job-source-authority" -or -not (Test-V1Version $sourceAuthority.version) -or
     [string]$sourceAuthority.body_job_id -ne $BaselineJobId -or [string]$sourceAuthority.person_id -ne [string]$plan.person_id -or
     (Need-Revision -Value ([string]$sourceAuthority.bodyrig_revision) -Label "PBR source authority revision") -ne $mainRevision -or
     [string]$sourceAuthority.body_revision -notmatch '^body-r[0-9]{4}$' -or [string]::IsNullOrWhiteSpace([string]$sourceAuthority.canonical_body_id) -or
@@ -259,7 +259,7 @@ $sourceBeforeReview = Invoke-SourceProbe -RepoRoot $repoRoot -Python $BodyRigPyt
 Assert-SourceProbeMatchesAuthority -Probe $sourceBeforeReview -Authority $sourceAuthority
 
 $planAuthority = Read-Json -Path $planAuthorityPath -Label "PBR body-job plan authority"
-if ([string]$planAuthority.format -ne "bodyrig-pbr-ab-body-job-plan-authority" -or [int]$planAuthority.version -ne 1) { throw "PBR body-job plan authority format/version mismatch." }
+if ([string]$planAuthority.format -ne "bodyrig-pbr-ab-body-job-plan-authority" -or -not (Test-V1Version $planAuthority.version)) { throw "PBR body-job plan authority format/version mismatch." }
 Require-PlanBoundary -Value $planAuthority -Label "PBR body-job plan authority"
 if (
     (Need-Sha256 -Value ([string]$planAuthority.baseline_plan_sha256) -Label "PBR plan authority baseline-plan SHA") -ne $planSha -or
@@ -311,7 +311,7 @@ try {
 
 $review = Read-Json -Path $humanReviewPath -Label "PBR human review receipt"
 if (
-    [string]$review.format -ne "bodyrig-fidelity-ab-human-review" -or [int]$review.version -ne 1 -or
+    [string]$review.format -ne "bodyrig-fidelity-ab-human-review" -or -not (Test-V1Version $review.version) -or
     [string]$review.decision -ne $Decision -or [string]$review.quality_note -ne $QualityNote.Trim() -or
     (Need-Sha256 -Value ([string]$review.ab_evidence_sha256) -Label "human review A/B evidence SHA") -ne (File-Sha256 -Path $machineAbPath) -or
     (Need-Revision -Value ([string]$review.renderer_revision) -Label "human review renderer revision") -ne $mainRevision -or
