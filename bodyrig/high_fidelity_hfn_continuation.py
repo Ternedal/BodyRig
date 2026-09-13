@@ -113,8 +113,6 @@ def _find_candidate(
             raise HighFidelityHfnContinuationError(
                 f"matching HFN detail candidate is invalid: {exc}"
             ) from exc
-        if not _is_v1(candidate.get("version")):
-            raise HighFidelityHfnContinuationError("matching HFN detail candidate version is not canonical v1")
         if candidate["source_package_sha256"] != source_package_sha256:
             raise HighFidelityHfnContinuationError(
                 "validated HFN detail candidate source package changed during discovery"
