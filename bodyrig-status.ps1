@@ -13,6 +13,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required for the BodyRig operator status router."
 }
@@ -69,7 +74,7 @@ if ($hasPerformer -and $hasBodyId) {
     }
     try { $storage = ([string]$storageRaw[0]) | ConvertFrom-Json -Depth 8 }
     catch { throw "Persistent storage-auth status returned unreadable JSON." }
-    if ([string]$storage.format -ne "bodyrig-storage-auth-status" -or [int]$storage.version -ne 1) {
+    if ([string]$storage.format -ne "bodyrig-storage-auth-status" -or -not (Test-V1Version $storage.version)) {
         throw "Persistent storage-auth status returned an unexpected contract."
     }
     if ($storage.qualified -ne $true -or [string]$storage.state -ne "qualified") {
