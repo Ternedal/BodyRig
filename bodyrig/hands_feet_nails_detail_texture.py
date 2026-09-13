@@ -30,7 +30,8 @@ DETAIL_STRENGTH = 0.50
 GAUSSIAN_RADIUS = 2.0
 EDGE_SUPPRESS_LEVEL = 40
 RESIDUAL_MAX_CHANNEL_DELTA_LEVELS = 8
-MAX_CHANNEL_DELTA_LEVELS = 24
+NAIL_MAX_CHANNEL_DELTA_LEVELS = 16
+MAX_CHANNEL_DELTA_LEVELS = RESIDUAL_MAX_CHANNEL_DELTA_LEVELS + NAIL_MAX_CHANNEL_DELTA_LEVELS
 NAIL_BLEND_STRENGTH = 0.58
 NAIL_PATCH_RADIUS_FRACTION = 0.055
 NAIL_DISTAL_WEIGHT_THRESHOLD = 0.10
@@ -275,8 +276,6 @@ def _fingernail_masks(
             )
             nail = ImageChops.multiply(distal, ellipse)
             if nail.histogram()[255] < MIN_NAIL_MASK_PIXELS:
-                # Keep the implementation fail-closed but avoid rejecting a valid
-                # tiny UV island merely because the conservative inset removed it.
                 nail = distal
             if nail.histogram()[255] < MIN_NAIL_MASK_PIXELS:
                 raise HandsFeetNailsDetailTextureError(
@@ -431,7 +430,10 @@ def _apply_nail_patch(
             before = int(target_bytes[start + channel])
             desired = int(source_bytes[start + channel])
             delta = int(round((desired - before) * alpha))
-            delta = max(-MAX_CHANNEL_DELTA_LEVELS, min(MAX_CHANNEL_DELTA_LEVELS, delta))
+            delta = max(
+                -NAIL_MAX_CHANNEL_DELTA_LEVELS,
+                min(NAIL_MAX_CHANNEL_DELTA_LEVELS, delta),
+            )
             target_bytes[start + channel] = max(0, min(255, before + delta))
     result = base.copy()
     result.paste(Image.frombytes("RGB", size, bytes(target_bytes)), bbox[:2])
