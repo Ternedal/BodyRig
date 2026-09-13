@@ -21,6 +21,11 @@ function Need-File {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Invoke-CandidateAuthority {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -66,7 +71,7 @@ function Invoke-CandidateAuthority {
         catch { throw "Dual-candidate A/B validator returned unreadable JSON." }
         if (
             [string]$result.format -ne "bodyrig-ab-baseline-candidate-authority" -or
-            [int]$result.version -ne 1 -or
+            -not (Test-V1Version $result.version) -or
             $result.comparison_only -ne $true -or
             $result.human_visual_authority_required -ne $true -or
             $result.physical_acceptance_authority -ne $false -or
@@ -191,7 +196,7 @@ catch {
 }
 if (
     [string]$physical.format -ne "bodyrig-ab-baseline-physical-preflight" -or
-    [int]$physical.version -ne 1 -or
+    -not (Test-V1Version $physical.version) -or
     $physical.ready -ne $true -or
     [string]$physical.person_id -ne $resolvedPersonId -or
     [string]$physical.performer_id -ne $resolvedPerformerId -or
