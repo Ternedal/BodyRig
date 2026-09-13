@@ -13,6 +13,11 @@ function Need-Revision {
     return $normalized
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Invoke-GhJson {
     param(
         [Parameter(Mandatory = $true)][string]$ApiPath,
@@ -110,7 +115,7 @@ try {
     if ($resultRaw.Count -ne 1) { throw "Repository-authority evaluator did not return exactly one JSON result." }
     try { $result = ([string]$resultRaw[0]) | ConvertFrom-Json -Depth 60 }
     catch { throw "Repository-authority evaluator returned unreadable JSON." }
-    if ([string]$result.format -ne "bodyrig-repository-authority" -or [int]$result.version -ne 1) {
+    if ([string]$result.format -ne "bodyrig-repository-authority" -or -not (Test-V1Version $result.version)) {
         throw "Repository-authority evaluator returned unexpected format/version."
     }
 
