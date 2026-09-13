@@ -259,7 +259,7 @@ $runAuthorityPath = Need-File -Path (Join-Path $OutputDir "run-authority.json") 
 $runAuthority = Read-JsonObject -Path $runAuthorityPath -Label "PBR A/B run authority"
 if (
     [string]$runAuthority.format -ne "bodyrig-pbr-ab-run" -or
-    [int]$runAuthority.version -ne 1 -or
+    -not (Test-V1Version $runAuthority.version) -or
     ([string]$runAuthority.baseline_revision).ToLowerInvariant() -ne $mainRevision -or
     ([string]$runAuthority.candidate_revision).ToLowerInvariant() -ne $pbrRevision -or
     $runAuthority.comparison_only -ne $true -or
