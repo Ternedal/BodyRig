@@ -26,6 +26,11 @@ function Read-JsonObject {
     return $value
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Require-ExactFields {
     param(
         [Parameter(Mandatory = $true)]$Value,
@@ -138,7 +143,7 @@ Require-ExactFields -Value $plan -Label "shared A/B baseline plan" -Expected @(
 )
 if (
     [string]$plan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or
-    [int]$plan.version -ne 1 -or
+    -not (Test-V1Version $plan.version) -or
     [string]$plan.baseline_job_id -ne $BaselineJobId -or
     [string]$plan.person_id -notmatch '^person-[0-9a-f]{32}$' -or
     [string]$plan.baseline_bodyrig_revision -notmatch '^[0-9a-f]{40}$' -or
@@ -169,7 +174,7 @@ if (
     $throughputRevision -notmatch '^[0-9a-f]{40}$' -or
     $plan.throughput_candidate.separate_candidate_body_build_required -ne $true -or
     [string]$plan.ab_baseline_retention.format -ne "bodyrig-ab-baseline-retention" -or
-    [int]$plan.ab_baseline_retention.version -ne 1 -or
+    -not (Test-V1Version $plan.ab_baseline_retention.version) -or
     $plan.ab_baseline_retention.retain_private_workspace -ne $true -or
     ([string]$plan.ab_baseline_retention.expected_bodyrig_revision).ToLowerInvariant() -ne $mainRevision -or
     [string]$plan.ab_baseline_retention.job_id -ne $BaselineJobId
@@ -215,7 +220,7 @@ $candidateAuthority = Invoke-CheckoutPythonJson `
     )
 if (
     [string]$candidateAuthority.format -ne "bodyrig-ab-baseline-candidate-authority" -or
-    [int]$candidateAuthority.version -ne 1 -or
+    -not (Test-V1Version $candidateAuthority.version) -or
     [string]$candidateAuthority.main_revision -ne $mainRevision -or
     [string]$candidateAuthority.contract_sha256 -ne ([string]$plan.candidate_contract_sha256).ToLowerInvariant() -or
     [string]$candidateAuthority.candidates.pbr_v3.ref -ne $pbrRef -or
