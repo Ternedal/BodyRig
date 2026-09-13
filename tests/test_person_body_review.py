@@ -80,6 +80,12 @@ def _profile(person_id: str, body_id: str, package_sha: str) -> dict:
     }
 
 
+def _set_version(path: Path, value: object) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = value
+    _write_json(path, payload)
+
+
 def test_persisted_body_review_is_bound_to_exact_package_and_four_views(tmp_path: Path) -> None:
     person_id = "person-" + "1" * 32
     body_id = "bodyid-" + "2" * 24
@@ -155,3 +161,58 @@ def test_fidelity_output_rejects_wrong_candidate_package(tmp_path: Path) -> None
 
     with pytest.raises(PersonBodyReviewError, match="package SHA does not match"):
         validate_fidelity_output(source, body_id=body_id, package_sha256="9" * 64)
+
+
+@pytest.mark.parametrize("invalid_version", [True, "1", None])
+def test_fidelity_comparison_authority_rejects_non_numeric_v1(tmp_path: Path, invalid_version: object) -> None:
+    body_id = "bodyid-" + "d" * 24
+    package_sha = "e" * 64
+    source = _fidelity_output(tmp_path, body_id=body_id, package_sha256=package_sha)
+    _set_version(source / "comparison-authority.json", invalid_version)
+
+    with pytest.raises(PersonBodyReviewError, match="comparison authority format/version mismatch"):
+        validate_fidelity_output(source, body_id=body_id, package_sha256=package_sha)
+
+
+@pytest.mark.parametrize("invalid_version", [True, "1", None])
+def test_fidelity_render_manifest_rejects_non_numeric_v1(tmp_path: Path, invalid_version: object) -> None:
+    body_id = "bodyid-" + "f" * 24
+    package_sha = "1" * 64
+    source = _fidelity_output(tmp_path, body_id=body_id, package_sha256=package_sha)
+    _set_version(source / "snapshots" / "fidelity-render-set.json", invalid_version)
+
+    with pytest.raises(PersonBodyReviewError, match="render-set format/version mismatch"):
+        validate_fidelity_output(source, body_id=body_id, package_sha256=package_sha)
+
+
+def test_fidelity_v1_accepts_numeric_json_one_point_zero(tmp_path: Path) -> None:
+    body_id = "bodyid-" + "2" * 24
+    package_sha = "3" * 64
+    source = _fidelity_output(tmp_path, body_id=body_id, package_sha256=package_sha)
+    _set_version(source / "comparison-authority.json", 1.0)
+    _set_version(source / "snapshots" / "fidelity-render-set.json", 1.0)
+
+    validated = validate_fidelity_output(source, body_id=body_id, package_sha256=package_sha)
+
+    assert validated["package_sha256"] == package_sha
+
+
+@pytest.mark.parametrize("invalid_version", [True, "1", None])
+def test_persisted_body_review_receipt_rejects_non_numeric_v1(tmp_path: Path, invalid_version: object) -> None:
+    person_id = "person-" + "4" * 32
+    body_id = "bodyid-" + "5" * 24
+    package_sha = "6" * 64
+    source = _fidelity_output(tmp_path, body_id=body_id, package_sha256=package_sha)
+    library = tmp_path / "people"
+    persist_review(
+        library,
+        person_id=person_id,
+        fidelity_output_dir=source,
+        body_id=body_id,
+        package_sha256=package_sha,
+    )
+    receipt = library / ".body-reviews" / person_id / package_sha / "review.json"
+    _set_version(receipt, invalid_version)
+
+    with pytest.raises(PersonBodyReviewError, match="body review receipt format/fields mismatch"):
+        read_review(library, _profile(person_id, body_id, package_sha), body_revision="body-r0001")
