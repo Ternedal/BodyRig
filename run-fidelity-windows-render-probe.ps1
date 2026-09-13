@@ -30,6 +30,10 @@ function Need-Revision {
     if ($normalized -notmatch '^[0-9a-f]{40}$') { throw "$Label is not a canonical Git SHA." }
     return $normalized
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Read-Json {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -103,7 +107,7 @@ try {
         $acceptancePath = Join-Path $AcceptanceDir "bodyrig-acceptance.json"
         $runtimeManifest = Join-Path (Join-Path $AcceptanceDir "runtime") "runtime-manifest.json"
         $acceptance = Read-Json $acceptancePath "Gate A acceptance report"
-        if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or [int]$acceptance.version -ne 1 -or $acceptance.automated_pass -ne $true) {
+        if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or -not (Test-V1Version $acceptance.version) -or $acceptance.automated_pass -ne $true) {
             throw "Fidelity rendering requires a valid Gate A automated PASS."
         }
         if ($acceptance.production_activation -ne $false -or [string]$acceptance.physical_renderer_acceptance -ne "pending") {
@@ -173,7 +177,7 @@ try {
         if (@(Compare-Object -ReferenceObject $expectedReviewAuthorityFields -DifferenceObject @($reviewAuthority.PSObject.Properties.Name)).Count -ne 0) {
             throw "Hair+eye review runtime authority fields do not match v1."
         }
-        if ([string]$reviewAuthority.format -ne "bodyrig-source-hair-eye-preview-runtime" -or [int]$reviewAuthority.version -ne 1) {
+        if ([string]$reviewAuthority.format -ne "bodyrig-source-hair-eye-preview-runtime" -or -not (Test-V1Version $reviewAuthority.version)) {
             throw "Hair+eye review runtime authority format/version mismatch."
         }
         $acceptedRevision = Need-Revision ([string]$reviewAuthority.bodyrigRevision) "reviewRuntime.bodyrigRevision"
@@ -192,7 +196,7 @@ try {
         $actualRuntimeSha = (Get-FileHash -LiteralPath $runtimeManifest -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actualRuntimeSha -ne $expectedRuntimeSha) { throw "Hair+eye review runtime manifest changed after materialization." }
         $runtime = Read-Json $runtimeManifest "Hair+eye review runtime manifest"
-        if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or [int]$runtime.version -ne 1 -or
+        if ([string]$runtime.format -ne "bodyrig-runtime-assets" -or -not (Test-V1Version $runtime.version) -or
             [string]$runtime.body_id -ne [string]$reviewAuthority.bodyId -or
             (Need-Sha256 ([string]$runtime.package_sha256) "review runtime package SHA") -ne $reviewPackageSha -or
             [string]$runtime.avatar -ne "avatar.vrm" -or [string]$runtime.bodyprint -ne "bodyprint.json" -or
@@ -273,7 +277,7 @@ try {
     $manifestPath = Join-Path $snapshotDir "fidelity-render-set.json"
     $manifest = Read-Json $manifestPath "Fidelity render-set manifest"
 
-    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [string]$probe.platform -ne "windows-unity-univrm") { throw "Fidelity machine probe format/platform mismatch." }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne "windows-unity-univrm") { throw "Fidelity machine probe format/platform mismatch." }
     if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Fidelity player was not built from current comparison revision." }
     if ([string]$probe.unity_version -ne $expectedUnityVersion) { throw "Fidelity player Unity version does not match renderer contract." }
     if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $expectedRuntimeSha) { throw "Fidelity machine probe is not bound to exact runtime bytes." }
@@ -284,7 +288,10 @@ try {
             throw "Fidelity player did not load the exact source hair+eye review avatar/runtime bytes."
         }
     }
-    if ([string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or [string]$deformation.build_guid -ne [string]$probe.build_guid -or $deformation.complete -ne $true) {
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or
+        [string]$deformation.platform -ne "windows-unity-univrm" -or
+        [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or
+        [string]$deformation.build_guid -ne [string]$probe.build_guid -or $deformation.complete -ne $true) {
         throw "Fidelity deformation probe is not complete and build-bound to the machine probe."
     }
 
@@ -293,7 +300,7 @@ try {
     if ($usingReviewRuntime) {
         $hairDeformation = Read-Json $hairDeformationPath "Source hair deformation probe"
         $hairDeformationSha = (Get-FileHash -LiteralPath $hairDeformationPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ([string]$hairDeformation.format -ne "bodyrig-hair-deformation-probe" -or [int]$hairDeformation.version -ne 1 -or
+        if ([string]$hairDeformation.format -ne "bodyrig-hair-deformation-probe" -or -not (Test-V1Version $hairDeformation.version) -or
             [string]$hairDeformation.platform -ne "windows-unity-univrm" -or
             [string]$hairDeformation.bodyrig_revision -ne [string]$probe.bodyrig_revision -or
             [string]$hairDeformation.build_guid -ne [string]$probe.build_guid -or
@@ -322,7 +329,7 @@ try {
         }
     }
 
-    if ([string]$manifest.format -ne "bodyrig-fidelity-render-set" -or [int]$manifest.version -ne 1 -or [string]$manifest.semantics -ne "visual-fidelity-not-identity-verification") {
+    if ([string]$manifest.format -ne "bodyrig-fidelity-render-set" -or -not (Test-V1Version $manifest.version) -or [string]$manifest.semantics -ne "visual-fidelity-not-identity-verification") {
         throw "Fidelity render-set manifest format/semantics mismatch."
     }
     if ([string]$manifest.body_id -ne [string]$probe.body_id -or (Need-Sha256 ([string]$manifest.package_sha256) "render-set.package_sha256") -ne (Need-Sha256 ([string]$probe.package_sha256) "probe.package_sha256")) {

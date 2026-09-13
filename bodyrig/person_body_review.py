@@ -26,6 +26,10 @@ class PersonBodyReviewError(ValueError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _sha(value: Any, label: str) -> str:
     text = str(value or "").strip().lower()
     if not SHA256_RE.fullmatch(text):
@@ -101,7 +105,7 @@ def validate_fidelity_output(
     }
     if set(comparison) != expected_comparison_fields:
         raise PersonBodyReviewError("fidelity comparison authority fields are invalid")
-    if comparison.get("format") != COMPARISON_FORMAT or comparison.get("version") != COMPARISON_VERSION:
+    if comparison.get("format") != COMPARISON_FORMAT or not _v1(comparison.get("version")):
         raise PersonBodyReviewError("fidelity comparison authority format/version mismatch")
     if comparison.get("authority") != "gate-a-pending-candidate":
         raise PersonBodyReviewError("fidelity render set is not backed by Gate A pending-candidate authority")
@@ -121,7 +125,7 @@ def validate_fidelity_output(
     manifest = _read_json(manifest_path, "fidelity render-set manifest")
     if set(manifest) != {"format", "version", "body_id", "package_sha256", "semantics", "snapshots"}:
         raise PersonBodyReviewError("fidelity render-set fields are invalid")
-    if manifest.get("format") != FIDELITY_FORMAT or manifest.get("version") != FIDELITY_VERSION:
+    if manifest.get("format") != FIDELITY_FORMAT or not _v1(manifest.get("version")):
         raise PersonBodyReviewError("fidelity render-set format/version mismatch")
     if manifest.get("semantics") != SEMANTICS:
         raise PersonBodyReviewError("fidelity render-set semantics mismatch")
@@ -258,7 +262,7 @@ def read_review_by_package(
         "comparison_authority_sha256",
         "views",
     }
-    if set(receipt) != expected_fields or receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    if set(receipt) != expected_fields or receipt.get("format") != FORMAT or not _v1(receipt.get("version")):
         raise PersonBodyReviewError("body review receipt format/fields mismatch")
     if receipt.get("person_id") != _person_id(person_id):
         raise PersonBodyReviewError("body review person identity mismatch")
