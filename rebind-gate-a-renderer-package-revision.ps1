@@ -69,7 +69,14 @@ if ($ExpectedSourceRevision -notmatch '^[0-9a-f]{40}$') { throw "ExpectedSourceR
 
 $sourceAcceptancePath = Join-Path $SourceAcceptanceDir "bodyrig-acceptance.json"
 $sourceAcceptance = Read-Json -Path $sourceAcceptancePath -Label "Source renderer-assembly-bound Gate A acceptance report"
-if ([string]$sourceAcceptance.format -ne "bodyrig-rig-acceptance" -or [int]$sourceAcceptance.version -ne 1) { throw "Source Gate A acceptance format/version is unsupported." }
+$sourceVersion = $sourceAcceptance.version
+if (
+    [string]$sourceAcceptance.format -ne "bodyrig-rig-acceptance" -or
+    $null -eq $sourceVersion -or
+    $sourceVersion -is [bool] -or
+    $sourceVersion -isnot [ValueType] -or
+    [decimal]$sourceVersion -ne [decimal]1
+) { throw "Source Gate A acceptance format/version is unsupported." }
 if ($sourceAcceptance.automated_pass -ne $true -or $sourceAcceptance.production_activation -ne $false -or [string]$sourceAcceptance.physical_renderer_acceptance -ne "pending") {
     throw "Source Gate A acceptance is not a pending non-activating automated PASS."
 }
