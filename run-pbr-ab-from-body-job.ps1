@@ -27,6 +27,11 @@ function Need-Revision {
     return $normalized
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Read-JsonObject {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     try { $value = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json }
@@ -123,7 +128,7 @@ function Validate-CandidateAuthority {
         )
     if (
         [string]$authority.format -ne "bodyrig-ab-baseline-candidate-authority" -or
-        [int]$authority.version -ne 1 -or
+        -not (Test-V1Version $authority.version) -or
         [string]$authority.main_revision -ne $MainRevision -or
         [string]$authority.contract_sha256 -ne $ContractSha256 -or
         [string]$authority.candidates.pbr_v3.ref -ne $PbrRef -or
@@ -173,7 +178,7 @@ Require-ExactFields -Value $plan -Label "shared A/B baseline plan" -Expected @(
 )
 if (
     [string]$plan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or
-    [int]$plan.version -ne 1 -or
+    -not (Test-V1Version $plan.version) -or
     [string]$plan.baseline_job_id -ne $BaselineJobId -or
     [string]$plan.person_id -notmatch '^person-[0-9a-f]{32}$' -or
     [string]$plan.baseline_bodyrig_revision -notmatch '^[0-9a-f]{40}$' -or
@@ -202,7 +207,7 @@ if (
     $plan.pbr_candidate.retained_reconstruction_reuse -ne $true -or
     $plan.throughput_candidate.separate_candidate_body_build_required -ne $true -or
     [string]$plan.ab_baseline_retention.format -ne "bodyrig-ab-baseline-retention" -or
-    [int]$plan.ab_baseline_retention.version -ne 1 -or
+    -not (Test-V1Version $plan.ab_baseline_retention.version) -or
     $plan.ab_baseline_retention.retain_private_workspace -ne $true -or
     ([string]$plan.ab_baseline_retention.expected_bodyrig_revision).ToLowerInvariant() -ne $mainRevision -or
     [string]$plan.ab_baseline_retention.job_id -ne $BaselineJobId
