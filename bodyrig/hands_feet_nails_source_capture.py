@@ -16,7 +16,7 @@ from .person_voice_source import PersonVoiceSourceError, source_files_for_body
 
 FORMAT = "bodyrig-hands-feet-nails-source-capture"
 VERSION = 1
-POLICY_REVISION = "bodyrig-hands-feet-nails-source-capture-v1"
+POLICY_REVISION = "bodyrig-hands-feet-nails-source-capture-exact-crop-v1"
 REQUIRED_REGIONS = ("left_hand", "right_hand", "left_foot", "right_foot")
 PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
 BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
@@ -175,7 +175,7 @@ def capture_dir(root: str | os.PathLike[str], person_id: str, body_revision: str
 def _ffmpeg_filter(crop: Sequence[float]) -> str:
     x, y, width, height = crop
     return (
-        f"crop=iw*{width:.8f}:ih*{height:.8f}:iw*{x:.8f}:ih*{y:.8f},"
+        f"crop=iw*{width:.8f}:ih*{height:.8f}:iw*{x:.8f}:ih*{y:.8f}:exact=1,"
         "scale=1024:1024:force_original_aspect_ratio=decrease,"
         "pad=1024:1024:(ow-iw)/2:(oh-ih)/2"
     )
