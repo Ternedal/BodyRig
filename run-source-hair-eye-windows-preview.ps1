@@ -30,6 +30,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Need-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
     $normalized = $Value.Trim().ToLowerInvariant()
@@ -69,7 +73,7 @@ $ReviewRuntimeDir = Need-Directory -Path $ReviewRuntimeDir -Label "Combined sour
 $sourceReviewReceipt = Need-File -Path (Join-Path $ReviewRuntimeDir "source-hair-eye-review-runtime.json") -Label "Combined source hair+eye runtime receipt"
 $sourceReviewVrm = Need-File -Path (Join-Path $ReviewRuntimeDir "source-hair-eye-review.vrm") -Label "Combined source hair+eye review VRM"
 $sourceReview = Read-Json -Path $sourceReviewReceipt -Label "Combined source hair+eye runtime receipt"
-if ([string]$sourceReview.format -ne "bodyrig-source-hair-eye-review-runtime" -or [int]$sourceReview.version -ne 1 -or
+if ([string]$sourceReview.format -ne "bodyrig-source-hair-eye-review-runtime" -or -not (Test-V1Version $sourceReview.version) -or
     [string]$sourceReview.bodyrigRevision -ne $head -or [string]$sourceReview.reviewVrmSha256 -ne (Sha256 $sourceReviewVrm) -or
     $sourceReview.sourceHairRuntimeApplied -ne $true -or $sourceReview.sourceEyeSurfaceApplied -ne $true -or
     [string]$sourceReview.cornealMaterialStatus -ne "runtime-applied" -or
@@ -108,7 +112,7 @@ try {
     $runtimeManifest = Need-File -Path (Join-Path $previewRuntime "runtime-manifest.json") -Label "Hair+eye preview runtime manifest"
     $previewAvatar = Need-File -Path (Join-Path $previewRuntime "avatar.vrm") -Label "Hair+eye preview avatar"
     $authority = Read-Json -Path $authorityPath -Label "Hair+eye preview runtime authority"
-    if ([string]$authority.format -ne "bodyrig-source-hair-eye-preview-runtime" -or [int]$authority.version -ne 1 -or
+    if ([string]$authority.format -ne "bodyrig-source-hair-eye-preview-runtime" -or -not (Test-V1Version $authority.version) -or
         [string]$authority.bodyrigRevision -ne $head -or [string]$authority.reviewVrmSha256 -ne (Sha256 $previewAvatar) -or
         [string]$authority.runtimeManifestSha256 -ne (Sha256 $runtimeManifest) -or
         $authority.sourceHairRuntimeApplied -ne $true -or $authority.sourceEyeSurfaceApplied -ne $true -or
@@ -141,7 +145,7 @@ try {
         $comparison.physical_acceptance_authority -ne $false -or $comparison.production_activation -ne $false) {
         throw "Hair+eye preview render comparison authority is invalid or lacks exact hair deformation evidence."
     }
-    if ([string]$hairProbe.format -ne "bodyrig-hair-deformation-probe" -or [int]$hairProbe.version -ne 1 -or
+    if ([string]$hairProbe.format -ne "bodyrig-hair-deformation-probe" -or -not (Test-V1Version $hairProbe.version) -or
         [string]$hairProbe.platform -ne "windows-unity-univrm" -or
         [string]$hairProbe.bodyrig_revision -ne $head -or
         [string]$hairProbe.package_sha256 -ne [string]$sourceReview.packageSha256 -or

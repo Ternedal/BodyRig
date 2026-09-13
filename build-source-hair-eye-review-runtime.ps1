@@ -27,6 +27,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -207,7 +211,7 @@ try {
     $receiptPath = Need-File -Path (Join-Path $partial "source-hair-eye-review-runtime.json") -Label "Combined hair+eye runtime receipt"
     try { $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
     catch { throw "Combined hair+eye runtime receipt is unreadable." }
-    if ([string]$receipt.format -ne "bodyrig-source-hair-eye-review-runtime" -or [int]$receipt.version -ne 1 -or
+    if ([string]$receipt.format -ne "bodyrig-source-hair-eye-review-runtime" -or -not (Test-V1Version $receipt.version) -or
         [string]$receipt.bodyrigRevision -ne $head -or
         [string]$receipt.bridgeScriptSha256 -ne $bridgeScriptSha -or
         [string]$receipt.reviewVrmSha256 -ne (Sha256 $reviewVrmPath) -or
