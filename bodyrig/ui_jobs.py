@@ -53,6 +53,10 @@ class UiJobError(RuntimeError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -89,7 +93,7 @@ def _read_job(path: Path) -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UiJobError(f"invalid UI job state: {path}") from exc
-    if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION:
+    if not isinstance(value, dict) or value.get("format") != FORMAT or not _v1(value.get("version")):
         raise UiJobError(f"unsupported UI job state: {path}")
     return value
 
@@ -108,7 +112,7 @@ def _bound_body_source(job: dict[str, Any]) -> tuple[dict[str, Any], str] | None
         return None
     if not isinstance(marker, dict) or set(marker) != _SOURCE_ENQUEUE_FIELDS:
         raise UiJobError("revision-bound body-build source enqueue authority is malformed")
-    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or marker.get("version") != 1:
+    if marker.get("format") != "bodyrig-body-build-source-enqueue-authority" or not _v1(marker.get("version")):
         raise UiJobError("revision-bound body-build source enqueue authority format/version mismatch")
     if str(marker.get("job_id") or "") != str(job.get("job_id") or ""):
         raise UiJobError("revision-bound body-build source enqueue authority job identity mismatch")
@@ -274,7 +278,7 @@ def _body_source_evidence(clone_output: str, *, performer_id: str) -> tuple[Path
         manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise UiJobError("physical body build Stash source manifest is unreadable") from exc
-    if not isinstance(manifest, dict) or manifest.get("format") != "bodyrig-stash-source-manifest" or manifest.get("version") != 1:
+    if not isinstance(manifest, dict) or manifest.get("format") != "bodyrig-stash-source-manifest" or not _v1(manifest.get("version")):
         raise UiJobError("physical body build Stash source manifest format/version mismatch")
     performer = manifest.get("performer")
     if not isinstance(performer, dict) or str(performer.get("id") or "") != str(performer_id):
