@@ -40,6 +40,7 @@ from .high_fidelity_hair_promotion import (
     promotion_status as hair_promotion_status,
     read_promotion as read_hair_promotion,
 )
+from .high_fidelity_hfn_detail import HighFidelityHfnDetailError, read_hfn_detail
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
 from .high_fidelity_preview_jobs import HighFidelityPreviewError, manager as preview_manager
 from .source_iris_isolation import SourceIrisIsolationError, read_candidate as read_iris_candidate
@@ -69,6 +70,7 @@ GATE_ORDER = (
     "face_secondary_preview",
     "face_secondary_review",
     "face_secondary_promotion",
+    "hands_feet_nails_detail",
 )
 
 GATE_LABELS = {
@@ -88,6 +90,7 @@ GATE_LABELS = {
     "face_secondary_preview": "Face-secondary Windows review preview",
     "face_secondary_review": "Face-secondary human review",
     "face_secondary_promotion": "Face-secondary package promotion",
+    "hands_feet_nails_detail": "Hands/feet/nails source-grounded package detail",
 }
 
 
@@ -140,6 +143,7 @@ def continuation_paths(preview_job_id: str) -> dict[str, Path]:
         "face_render": face_preview / "render",
         "face_review": face / "human-review",
         "face_promotion": face / "promotion",
+        "hfn_detail": continuation / "hands-feet-nails-detail",
     }
 
 
@@ -266,6 +270,17 @@ def _next_action(
             f"-PreparationDir {_quote(paths['face_preparation'])} -RuntimeDir {_quote(paths['face_runtime'])} "
             f"-RenderDir {_quote(paths['face_render'])} -HumanReviewDir {_quote(paths['face_review'])} "
             f"-SourcePackage {_quote(ctx['eyes_package'])} -OutputDir {_quote(paths['face_promotion'])}",
+        }
+    if gate == "hands_feet_nails_detail":
+        return {
+            **common,
+            "command": f'.\\prepare-high-fidelity-hfn-detail.ps1 -PreviewJobId {_quote(job_id)} '
+            "-CaptureId <HFN_CAPTURE_ID> -LandmarkEvidence <HFN_LANDMARK_EVIDENCE>",
+            "operator_input_required": True,
+            "reason": (
+                "Select the exact Person/body-bound HFN source capture and canonical landmark-evidence JSON. "
+                "The operator will re-derive UV authority against the exact face-promoted package before applying detail."
+            ),
         }
     return {**common, "command": None}
 
@@ -539,6 +554,30 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         gates.append(_gate("face_secondary_promotion", _missing_or_invalid(exc, paths["face_promotion"]), reason=str(exc)))
         return _result(job_id, gates, paths, current_package, current_sha, components, context)
 
+    try:
+        hfn = read_hfn_detail(job_id, source_package_path=current_package)
+        hfn_package = Path(str(hfn.get("package_path") or "")).expanduser().resolve()
+        hfn_sha = str(hfn.get("candidate_package_sha256") or "").lower()
+        if not hfn_package.is_file() or not SHA_RE.fullmatch(hfn_sha) or _sha256(hfn_package) != hfn_sha:
+            raise HighFidelityHfnDetailError("HFN continuation no longer binds exact candidate package bytes")
+        current_package = hfn_package
+        current_sha = hfn_sha
+        gates.append(
+            _gate(
+                "hands_feet_nails_detail",
+                "pass",
+                evidence={
+                    "capture_id": hfn.get("capture_id"),
+                    "uv_evidence_sha256": hfn.get("uv_evidence_sha256"),
+                    "candidate_id": hfn.get("candidate_id"),
+                    "candidate_package_sha256": hfn_sha,
+                },
+            )
+        )
+    except HighFidelityHfnDetailError as exc:
+        gates.append(_gate("hands_feet_nails_detail", _missing_or_invalid(exc, paths["hfn_detail"]), reason=str(exc)))
+        return _result(job_id, gates, paths, current_package, current_sha, components, context)
+
     return _result(job_id, gates, paths, current_package, current_sha, components, context)
 
 
@@ -567,8 +606,8 @@ def _result(
         except (OSError, HighFidelityPackageAuditError) as exc:
             audit = None
             components = {}
-            gates[-1] = _gate("face_secondary_promotion", "invalid", reason=f"final package audit failed: {exc}")
-            next_gate = "face_secondary_promotion"
+            gates[-1] = _gate("hands_feet_nails_detail", "invalid", reason=f"final package audit failed: {exc}")
+            next_gate = "hands_feet_nails_detail"
         else:
             components = dict(audit["components"])
             high_fidelity_complete = bool(
@@ -577,8 +616,8 @@ def _result(
                 and all(value == "complete" for value in components.values())
             )
             if not high_fidelity_complete:
-                gates[-1] = _gate("face_secondary_promotion", "invalid", reason="all continuation gates passed but final package is not high-fidelity component complete")
-                next_gate = "face_secondary_promotion"
+                gates[-1] = _gate("hands_feet_nails_detail", "invalid", reason="all continuation gates passed but final HFN-bearing package is not high-fidelity component complete")
+                next_gate = "hands_feet_nails_detail"
     state = "complete" if high_fidelity_complete else (
         "blocked" if gates and gates[-1]["state"] in {"blocked", "invalid"} else "incomplete"
     )
