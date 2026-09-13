@@ -29,6 +29,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-Checked {
     param([Parameter(Mandatory = $true)][string]$Script,[Parameter(Mandatory = $true)][hashtable]$Arguments,[Parameter(Mandatory = $true)][string]$Label)
     & $Script @Arguments
@@ -53,7 +57,7 @@ $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained id
 $summaryPath = Need-File -Path (Join-Path $AnatomyRunRoot "subject-anatomy-physical-gate.json") -Label "Subject anatomy physical gate summary"
 $summary = Read-Json -Path $summaryPath -Label "Subject anatomy physical gate summary"
 
-if ([string]$summary.format -ne "bodyrig-subject-anatomy-physical-gate" -or [int]$summary.version -ne 1) {
+if ([string]$summary.format -ne "bodyrig-subject-anatomy-physical-gate" -or -not (Test-V1Version $summary.version)) {
     throw "Subject anatomy physical gate summary has an unsupported contract."
 }
 if ([string]$summary.bodyrig_revision -ne $head) {
@@ -83,7 +87,7 @@ if ([string]$summary.package_sha256 -ne $packageSha) {
 $packageResultPath = Need-File -Path (Join-Path $packageDir "subject-anatomy-candidate-result.json") -Label "Subject anatomy candidate result"
 $packageResult = Read-Json -Path $packageResultPath -Label "Subject anatomy candidate result"
 if ([string]$packageResult.format -ne "bodyrig-subject-anatomy-candidate-result" -or
-    [int]$packageResult.version -ne 1 -or
+    -not (Test-V1Version $packageResult.version) -or
     [string]$packageResult.bodyrig_revision -ne $head -or
     [string]$packageResult.package_sha256 -ne $packageSha -or
     [string]$packageResult.canonical_body_id -ne [string]$summary.canonical_body_id -or
@@ -105,7 +109,7 @@ $candidateReconstructionAuthority = Read-Json -Path $candidateReconstructionAuth
 $candidateReconstructionSha = Sha256 $candidateReconstructionPath
 $candidateReconstructionAuthoritySha = Sha256 $candidateReconstructionAuthorityPath
 if ([string]$workspaceReceipt.format -ne "bodyrig-subject-anatomy-workspace" -or
-    [int]$workspaceReceipt.version -ne 1 -or
+    -not (Test-V1Version $workspaceReceipt.version) -or
     [string]$workspaceReceipt.candidateReconstructionSha256 -ne $candidateReconstructionSha -or
     [string]$workspaceReceipt.candidateReconstructionAuthoritySha256 -ne $candidateReconstructionAuthoritySha -or
     [string]$workspaceReceipt.targetModelFamily -ne $targetFamily -or
@@ -118,7 +122,7 @@ if ([string]$workspaceReceipt.format -ne "bodyrig-subject-anatomy-workspace" -or
     throw "Subject anatomy candidate workspace does not bind the exact gate reconstruction authority."
 }
 if ([string]$candidateReconstructionAuthority.format -ne "bodyrig-sith-reconstruction-authority" -or
-    [int]$candidateReconstructionAuthority.version -ne 1 -or
+    -not (Test-V1Version $candidateReconstructionAuthority.version) -or
     [string]$candidateReconstructionAuthority.body_model_gender -ne $targetFamily -or
     [string]$candidateReconstructionAuthority.smplx_fit_profile -ne "gender-aware-final-params-canonical-obj-v1" -or
     [string]$candidateReconstructionAuthority.reconstruction_sha256 -ne $candidateReconstructionSha) {
@@ -132,7 +136,7 @@ $refit = Read-Json -Path $refitEvidencePath -Label "Subject anatomy refit eviden
 $candidateAudit = Read-Json -Path $candidateAuditPath -Label "Candidate anatomy audit evidence"
 $donorSha = Sha256 $donorObj
 
-if ([string]$refit.format -ne "bodyrig-subject-anatomy-refit" -or [int]$refit.version -ne 1 -or
+if ([string]$refit.format -ne "bodyrig-subject-anatomy-refit" -or -not (Test-V1Version $refit.version) -or
     [string]$refit.targetModelFamily -ne $targetFamily -or
     [string]$refit.derivedSmplxObjSha256 -ne $donorSha -or
     $refit.retainedReconstructionModified -ne $false -or
@@ -143,7 +147,7 @@ if ([string]$refit.format -ne "bodyrig-subject-anatomy-refit" -or [int]$refit.ve
     $refit.productionReady -ne $false) {
     throw "Subject anatomy refit evidence does not bind the exact comparison donor."
 }
-if ([string]$candidateAudit.format -ne "bodyrig-anatomy-geometry-audit" -or [int]$candidateAudit.version -ne 1 -or
+if ([string]$candidateAudit.format -ne "bodyrig-anatomy-geometry-audit" -or -not (Test-V1Version $candidateAudit.version) -or
     [string]$candidateAudit.donorObjSha256 -ne $donorSha -or
     $candidateAudit.grossAnatomyPass -ne $true -or
     $candidateAudit.humanReviewRequired -ne $true) {
@@ -204,7 +208,7 @@ $hair = Read-Json -Path $hairEvidencePath -Label "Hair candidate evidence"
 $eyes = Read-Json -Path $eyeEvidencePath -Label "Eye candidate evidence"
 $eyeAppearance = Read-Json -Path $eyeAppearanceEvidencePath -Label "Eye appearance evidence"
 
-if ([string]$hair.format -ne "bodyrig-source-hair-candidate" -or [int]$hair.version -ne 1 -or
+if ([string]$hair.format -ne "bodyrig-source-hair-candidate" -or -not (Test-V1Version $hair.version) -or
     [string]$hair.donorObjSha256 -ne $donorSha -or
     [string]$hair.sourceReconstructionSha256 -ne $candidateReconstructionSha -or
     $hair.sourceDerived -ne $true -or $hair.generativeGeometry -ne $false -or
@@ -212,7 +216,7 @@ if ([string]$hair.format -ne "bodyrig-source-hair-candidate" -or [int]$hair.vers
     $hair.humanReviewRequired -ne $true -or $hair.productionReady -ne $false) {
     throw "Hair discovery evidence is not bound to the exact subject donor/authority boundary."
 }
-if ([string]$eyes.format -ne "bodyrig-eye-component-candidate" -or [int]$eyes.version -ne 1 -or
+if ([string]$eyes.format -ne "bodyrig-eye-component-candidate" -or -not (Test-V1Version $eyes.version) -or
     [string]$eyes.donorObjSha256 -ne $donorSha -or
     [string]$eyes.targetModelFamily -ne $targetFamily -or
     $eyes.explicitEyeGeometry -ne $true -or $eyes.sourceDerivedIrisAppearance -ne $false -or
@@ -221,7 +225,7 @@ if ([string]$eyes.format -ne "bodyrig-eye-component-candidate" -or [int]$eyes.ve
     $eyes.humanReviewRequired -ne $true -or $eyes.productionReady -ne $false) {
     throw "Eye discovery evidence is not bound to the exact subject donor/authority boundary."
 }
-if ([string]$eyeAppearance.format -ne "bodyrig-eye-appearance-candidate" -or [int]$eyeAppearance.version -ne 1 -or
+if ([string]$eyeAppearance.format -ne "bodyrig-eye-appearance-candidate" -or -not (Test-V1Version $eyeAppearance.version) -or
     [string]$eyeAppearance.donorObjSha256 -ne $donorSha -or
     [string]$eyeAppearance.sourceReconstructionSha256 -ne $candidateReconstructionSha -or
     [string]$eyeAppearance.targetModelFamily -ne $targetFamily -or
@@ -250,7 +254,7 @@ Invoke-Checked -Script $runtimeScript -Arguments $runtimeArgs -Label "Combined v
 $runtimeReceiptPath = Need-File -Path (Join-Path $runtimeDir "source-hair-eye-review-runtime.json") -Label "Combined hair+eye runtime receipt"
 $runtimeVrmPath = Need-File -Path (Join-Path $runtimeDir "source-hair-eye-review.vrm") -Label "Combined hair+eye review VRM"
 $runtime = Read-Json -Path $runtimeReceiptPath -Label "Combined hair+eye runtime receipt"
-if ([string]$runtime.format -ne "bodyrig-source-hair-eye-review-runtime" -or [int]$runtime.version -ne 1 -or
+if ([string]$runtime.format -ne "bodyrig-source-hair-eye-review-runtime" -or -not (Test-V1Version $runtime.version) -or
     [string]$runtime.bodyrigRevision -ne $head -or
     [string]$runtime.packageSha256 -ne $packageSha -or
     [string]$runtime.reviewVrmSha256 -ne (Sha256 $runtimeVrmPath) -or
