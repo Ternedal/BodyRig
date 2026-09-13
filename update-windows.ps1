@@ -195,10 +195,11 @@ $actual = (& git rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $actual -ne $target) {
     throw "Checkout mismatch: expected $target, got $actual."
 }
-$currentBranch = (& git branch --show-current).Trim()
+$currentBranchOutput = @(& git branch --show-current)
 if ($LASTEXITCODE -ne 0) {
     throw "Kunne ikke verificere checkout branch-mode efter update."
 }
+$currentBranch = if ($currentBranchOutput.Count -eq 0) { "" } else { ([string]$currentBranchOutput[0]).Trim() }
 if ($targetMode -eq "branch" -and $currentBranch -ne $Branch) {
     throw "Branch-mode update er ikke attached til expected branch $Branch."
 }
