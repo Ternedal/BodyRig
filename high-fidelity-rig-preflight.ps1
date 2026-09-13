@@ -13,7 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required."
 }
 
-$minimumPhysicalHandoffRevision = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
+$minimumPhysicalHandoffRevision = "827e336e11e0f1b19bc513660c449ea439d0bd2a"
 
 function Need-File([string]$Path, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -110,6 +110,7 @@ foreach ($relative in @(
     "prepare-hands-feet-nails-landmark-evidence.ps1",
     "prepare-hands-feet-nails-uv-domain-evidence.ps1",
     "prepare-hands-feet-nails-detail-candidate.ps1",
+    "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1",
     "prepare-hands-feet-nails-render-review.ps1",
     "record-high-fidelity-hfn-review.ps1",
     "record-high-fidelity-human-review.ps1",
