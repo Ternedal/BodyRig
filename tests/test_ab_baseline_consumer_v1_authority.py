@@ -17,7 +17,13 @@ SCRIPTS = {
 
 def test_scoped_ab_baseline_consumers_use_bool_safe_numeric_v1_authority() -> None:
     expected = {
-        "pbr_review": ("$plan.version",),
+        "pbr_review": (
+            "$plan.version",
+            "$runAuthority.version",
+            "$sourceAuthority.version",
+            "$planAuthority.version",
+            "$review.version",
+        ),
         "pbr_run": (
             "$authority.version",
             "$plan.version",
