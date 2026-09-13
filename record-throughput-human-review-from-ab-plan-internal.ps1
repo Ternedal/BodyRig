@@ -62,6 +62,11 @@ function Read-Json {
     return $value
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Need-Revision {
     param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
     $normalized = $Value.Trim().ToLowerInvariant()
@@ -117,7 +122,7 @@ function Invoke-ReceiptProbe {
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "$Label validation failed: $($raw -join ' ')" }
         try { $value = ([string]$raw[0]) | ConvertFrom-Json -Depth 40 }
         catch { throw "$Label validator returned unreadable JSON." }
-        if ([string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or [int]$value.version -ne 1) {
+        if ([string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or -not (Test-V1Version $value.version)) {
             throw "$Label validator returned wrong format/version."
         }
         Require-ComparisonBoundary -Value $value -Label $Label
@@ -279,7 +284,7 @@ $humanScript = Need-File -Path (Join-Path $RepoRoot "record-recovery-throughput-
 $contractPath = Need-File -Path (Join-Path $RepoRoot "contracts\ab-baseline-candidates-v1.json") -Label "candidate byte contract"
 
 $continuation = Read-Json -Path $continuationPath -Label "throughput continuation authority"
-if ([string]$continuation.format -ne "bodyrig-throughput-plan-bound-review-continuation" -or [int]$continuation.version -ne 1) {
+if ([string]$continuation.format -ne "bodyrig-throughput-plan-bound-review-continuation" -or -not (Test-V1Version $continuation.version)) {
     throw "Throughput continuation authority format/version mismatch."
 }
 Require-ComparisonBoundary -Value $continuation -Label "throughput continuation authority"
@@ -306,8 +311,8 @@ $sharedPlan = Read-Json -Path $sharedPlanPath -Label "shared A/B baseline plan"
 $runPlan = Read-Json -Path $runPlanPath -Label "throughput candidate run plan"
 $sharedPlanSha = File-Sha256 -Path $sharedPlanPath
 $runPlanSha = File-Sha256 -Path $runPlanPath
-if ([string]$sharedPlan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or [int]$sharedPlan.version -ne 1) { throw "Shared A/B baseline plan format/version mismatch." }
-if ([string]$runPlan.format -ne "bodyrig-throughput-candidate-run-plan" -or [int]$runPlan.version -ne 1) { throw "Throughput candidate run plan format/version mismatch." }
+if ([string]$sharedPlan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or -not (Test-V1Version $sharedPlan.version)) { throw "Shared A/B baseline plan format/version mismatch." }
+if ([string]$runPlan.format -ne "bodyrig-throughput-candidate-run-plan" -or -not (Test-V1Version $runPlan.version)) { throw "Throughput candidate run plan format/version mismatch." }
 Require-ComparisonBoundary -Value $sharedPlan -Label "shared A/B baseline plan"
 Require-ComparisonBoundary -Value $runPlan -Label "throughput candidate run plan"
 if (
