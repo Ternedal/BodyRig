@@ -32,6 +32,7 @@ def test_gate_order_is_complete_and_stable() -> None:
         "face_secondary_preview",
         "face_secondary_review",
         "face_secondary_promotion",
+        "hands_feet_nails_detail",
     )
 
 
@@ -47,6 +48,7 @@ def test_continuation_paths_stay_inside_one_preview_job(monkeypatch, tmp_path: P
     assert paths["iris_candidate"] == root / "continuation" / "iris-candidate"
     assert paths["eye_only_runtime"] == root / "continuation" / "eye-only-runtime"
     assert paths["face_promotion"] == root / "continuation" / "face-secondary" / "promotion"
+    assert paths["hfn_detail"] == root / "continuation" / "hands-feet-nails-detail"
     for key, path in paths.items():
         if key != "preview_root":
             path.relative_to(root)
@@ -139,7 +141,7 @@ def test_final_audit_cannot_turn_partial_components_into_complete(monkeypatch, t
 
     assert result["state"] == "blocked"
     assert result["high_fidelity_complete"] is False
-    assert result["next_gate"]["gate"] == "face_secondary_promotion"
+    assert result["next_gate"]["gate"] == "hands_feet_nails_detail"
     assert result["next_gate"]["command"] is None
     assert result["production_ready"] is False
 
@@ -149,6 +151,7 @@ def test_human_input_next_actions_stay_explicit() -> None:
 
     iris = status._next_action(JOB_ID, "iris_candidate", paths)
     face = status._next_action(JOB_ID, "face_secondary_review", paths)
+    hfn = status._next_action(JOB_ID, "hands_feet_nails_detail", paths)
 
     assert iris["operator_input_required"] is True
     assert "<LEFT_CX>" in iris["command"]
@@ -158,6 +161,10 @@ def test_human_input_next_actions_stay_explicit() -> None:
     assert "-NeutralFacePreserved" in face["command"]
     assert "-MouthOpenPoseReviewed" in face["command"]
     assert "-EyelashesNoObviousEyeSurfaceClipping" in face["command"]
+    assert hfn["operator_input_required"] is True
+    assert "prepare-high-fidelity-hfn-detail.ps1" in hfn["command"]
+    assert "<HFN_CAPTURE_ID>" in hfn["command"]
+    assert "<HFN_LANDMARK_EVIDENCE>" in hfn["command"]
 
 
 @pytest.mark.parametrize("stage,switch", [
@@ -231,6 +238,7 @@ def test_final_component_status_binds_exact_package_through_audit(monkeypatch, t
 
     assert result["state"] == "blocked"
     assert result["high_fidelity_complete"] is False
+    assert result["next_gate"]["gate"] == "hands_feet_nails_detail"
     assert result["next_gate"]["command"] is None
     assert result["final_audit"] is None
     assert result["components"] == {}
