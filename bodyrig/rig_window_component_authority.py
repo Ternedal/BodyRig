@@ -20,6 +20,13 @@ HIGH_FIDELITY_COMPONENT_CHECKS = frozenset(
         "small_anatomical_detail",
     }
 )
+BROAD_COMPONENT_REBUILD_CHECKS = frozenset(
+    {
+        "hair_appearance",
+        "eye_appearance",
+        "small_anatomical_detail",
+    }
+)
 _PREVIEW_ACTIVE = frozenset({"queued", "running", "succeeded"})
 _PREVIEW_RETRYABLE = frozenset({"failed", "interrupted"})
 _TARGET_FAMILIES = frozenset({"female", "male", "neutral"})
@@ -268,6 +275,24 @@ def _route_to_preview_authority(
         preview_job_id = str(selected.get("job_id") or "")
         target_family = str(selected.get("target_family") or "").strip().lower()
         status = str(selected.get("status") or "")
+        component_failures = frozenset(str(value) for value in (plan.get("component_failed_checks") or []))
+        if status == "succeeded" and BROAD_COMPONENT_REBUILD_CHECKS.issubset(component_failures):
+            escalated = dict(plan)
+            escalated.update(
+                path="human-fidelity-rework",
+                preview_job_id=preview_job_id,
+                target_family=target_family,
+                body_job_id=body_job_id,
+                expensive_reconstruction_rerun=True,
+                fitter_rerun=True,
+                operator_input_required=False,
+                rationale=(
+                    "Human review rejected hair, eyes and small anatomical detail after this exact high-fidelity "
+                    "preview already succeeded. Re-entering the same retained preview can only repeat the rejected "
+                    "visual base, so escalate to the existing profiled reconstruction/fitter rework path instead."
+                ),
+            )
+            return escalated
         routed["preview_job_id"] = preview_job_id
         routed["target_family"] = target_family
         if status == "succeeded":
@@ -367,8 +392,11 @@ def route_component_fidelity_rework(plan: dict[str, Any]) -> dict[str, Any]:
             "revision for high-fidelity continuation.",
         )
 
+    route_seed = dict(plan)
+    route_seed["failed_checks"] = sorted(failed_checks)
+    route_seed["component_failed_checks"] = sorted(component_failures)
     routed = _route_to_preview_authority(
-        plan,
+        route_seed,
         person_id=person_id,
         body_job_id=body_job_id,
         revision=revision,
