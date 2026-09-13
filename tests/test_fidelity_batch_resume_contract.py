@@ -61,3 +61,13 @@ def test_full_rebuild_cleanup_waits_for_newer_checkpoint() -> None:
     checkpoint = text.index('Write-FidelityCheckpoint -CheckpointStage "post-reconstruction"')
     cleanup = text.index("Remove-PrivateWorkspaceIfNeeded -Path $retiredIdentityWorkspace")
     assert checkpoint < cleanup
+
+
+def test_directory_discovery_preserves_array_shape_for_single_workspace() -> None:
+    text = source()
+    start = text.index("function New-DirectoriesSince")
+    end = text.index("function Next-Seed", start)
+    function = text[start:end]
+    assert "Write-Output -NoEnumerate $result" in function
+    assert "return @($result)" not in function
+    assert "$newIdentity.Count -ne 1" in text
