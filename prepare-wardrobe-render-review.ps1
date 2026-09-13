@@ -26,6 +26,10 @@ function Need-Sha256 {
     if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
     return $normalized
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Resolve-BodyRigPython {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venv -PathType Leaf) { return (Resolve-Path -LiteralPath $venv).Path }
@@ -66,7 +70,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $lineageRaw.Count -ne 1) { throw "Wardrobe package-lineage inspection failed." }
     try { $lineage = ([string]$lineageRaw[0]) | ConvertFrom-Json }
     catch { throw "Wardrobe package-lineage CLI returned unreadable JSON." }
-    if ([string]$lineage.format -ne "bodyrig-wardrobe-package-lineage" -or [int]$lineage.version -ne 1 -or
+    if ([string]$lineage.format -ne "bodyrig-wardrobe-package-lineage" -or -not (Test-V1Version $lineage.version) -or
         [string]$lineage.policy_revision -ne "bodyrig-wardrobe-package-lineage-v1" -or
         (Need-Sha256 ([string]$lineage.package_sha256) "lineage.package_sha256") -ne $packageSha -or
         $lineage.source_outer_surface_used -ne $true -or $lineage.source_grounded -ne $true -or
@@ -91,7 +95,7 @@ try {
     }
     $comparison = Get-Content -LiteralPath $comparisonPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $runtimeSha = Need-Sha256 ([string]$comparison.runtime_manifest_sha256) "comparison.runtime_manifest_sha256"
-    if ([string]$comparison.format -ne "bodyrig-fidelity-comparison-authority" -or [int]$comparison.version -ne 1 -or
+    if ([string]$comparison.format -ne "bodyrig-fidelity-comparison-authority" -or -not (Test-V1Version $comparison.version) -or
         [string]$comparison.authority -ne "validated-package-comparison-only" -or [string]$comparison.bodyrig_revision -ne $revision -or
         (Need-Sha256 ([string]$comparison.package_sha256) "comparison.package_sha256") -ne $packageSha -or
         $comparison.physical_acceptance_authority -ne $false -or $comparison.comparison_only -ne $true -or
@@ -101,7 +105,7 @@ try {
 
     $machine = Get-Content -LiteralPath $machinePath -Raw -Encoding UTF8 | ConvertFrom-Json
     $deformation = Get-Content -LiteralPath $deformationPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ([string]$machine.format -ne "bodyrig-renderer-probe" -or [int]$machine.version -ne 1 -or
+    if ([string]$machine.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $machine.version) -or
         [string]$machine.bodyrig_revision -ne $revision -or [string]$machine.platform -ne "windows-unity-univrm" -or
         (Need-Sha256 ([string]$machine.package_sha256) "machine.package_sha256") -ne $packageSha -or
         (Need-Sha256 ([string]$machine.runtime_manifest_sha256) "machine.runtime_manifest_sha256") -ne $runtimeSha -or
@@ -119,7 +123,7 @@ try {
 
     $expectedPoses = @("neutral","arms_abduction","elbows_flexed","arms_forward","left_leg_lift","knee_flexion")
     $actualPoses = @($deformation.poses | ForEach-Object { [string]$_.id })
-    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or
         [string]$deformation.bodyrig_revision -ne $revision -or [string]$deformation.platform -ne "windows-unity-univrm" -or
         [string]$deformation.body_id -ne $bodyId -or
         (Need-Sha256 ([string]$deformation.package_sha256) "deformation.package_sha256") -ne $packageSha -or
@@ -139,7 +143,7 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $expectedViews = @("front","left_side","right_side","back")
     $actualViews = @($manifest.snapshots | ForEach-Object { [string]$_.view })
-    if ([string]$manifest.format -ne "bodyrig-wardrobe-render-set" -or [int]$manifest.version -ne 1 -or
+    if ([string]$manifest.format -ne "bodyrig-wardrobe-render-set" -or -not (Test-V1Version $manifest.version) -or
         [string]$manifest.semantics -ne "human-review-diagnostic-not-physical-pass" -or
         [string]$manifest.body_id -ne $bodyId -or
         (Need-Sha256 ([string]$manifest.package_sha256) "wardrobe.package_sha256") -ne $packageSha -or
