@@ -95,14 +95,51 @@ def test_current_revision_physical_evidence_does_not_need_historical_floor_probe
     assert kept == [candidate]
 
 
-def test_handoff_floor_guard_is_scoped_and_restores_existing_authority(monkeypatch) -> None:
+def test_pre_floor_gate_a_rescue_is_rejected_before_progress_ranking(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(floor.component.authority.policy.base, "_head", lambda _root: HEAD)
+    monkeypatch.setattr(floor, "_revision_meets_current_handoff_floor", lambda _root, _revision: False)
+    candidate = {
+        "kind": "gate-a-rescue",
+        "job_id": "job-" + "1" * 32,
+        "evidence_revision": HISTORICAL,
+    }
+
+    kept, rejected = floor._filter_rescue_candidates(tmp_path, [candidate], [])
+
+    assert kept == []
+    assert rejected[0]["job_id"] == candidate["job_id"]
+    assert "fingernail-geometry/runtime contract" in rejected[0]["reason"]
+
+
+def test_interrupted_recovery_requires_proven_floor_compatible_job_revision(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(floor.component.authority.policy.base, "_head", lambda _root: HEAD)
+    monkeypatch.setattr(floor, "_revision_meets_current_handoff_floor", lambda _root, _revision: False)
+    job_id = "job-" + "2" * 32
+    rows = [{"job_id": job_id, "bodyrig_revision": HISTORICAL}]
+    candidate = {"kind": "interrupted-body-recovery", "job_id": job_id}
+
+    kept, rejected = floor._filter_interrupted_candidates(tmp_path, rows, [candidate], [])
+
+    assert kept == []
+    assert rejected[0]["job_id"] == job_id
+    assert HISTORICAL in rejected[0]["reason"]
+
+
+def test_handoff_floor_guard_is_scoped_and_restores_all_planner_hooks(tmp_path: Path, monkeypatch) -> None:
     authority = floor.component.authority
-    original = authority.enforce_existing_authority
+    policy = authority.policy
+    original_existing = authority.enforce_existing_authority
+    original_rescue = policy._rescue_candidates
+    original_interrupted = policy._interrupted_candidates
 
     def fake_component_build_plan(**_kwargs):
         assert authority.enforce_existing_authority is floor.enforce_existing_authority
+        assert policy._rescue_candidates is not original_rescue
+        assert policy._interrupted_candidates is not original_interrupted
         return {"path": "fresh-profiled-physical-preflight"}
 
     monkeypatch.setattr(floor.component, "build_plan", fake_component_build_plan)
-    assert floor.build_plan(repo_root=Path(".")) == {"path": "fresh-profiled-physical-preflight"}
-    assert authority.enforce_existing_authority is original
+    assert floor.build_plan(repo_root=tmp_path) == {"path": "fresh-profiled-physical-preflight"}
+    assert authority.enforce_existing_authority is original_existing
+    assert policy._rescue_candidates is original_rescue
+    assert policy._interrupted_candidates is original_interrupted
