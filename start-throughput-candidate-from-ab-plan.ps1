@@ -86,7 +86,7 @@ function Invoke-PbrGateProbe {
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR human-review gate validation failed: $($raw -join ' ')" }
         try { $value = ([string]$raw[0]) | ConvertFrom-Json -Depth 30 }
         catch { throw "PBR human-review gate validator returned unreadable JSON." }
-        if ([string]$value.format -ne "bodyrig-pbr-human-review-gate-context" -or [int]$value.version -ne 1) { throw "PBR human-review gate validator returned wrong format/version." }
+        if ([string]$value.format -ne "bodyrig-pbr-human-review-gate-context" -or -not (Test-V1Version $value.version)) { throw "PBR human-review gate validator returned wrong format/version." }
         if ($value.comparison_only -ne $true -or $value.human_visual_authority_recorded -ne $true -or $value.physical_acceptance_authority -ne $false -or $value.promotion_authority -ne $false -or $value.production_activation -ne $false) {
             throw "PBR human-review gate crossed the comparison-only authority boundary."
         }
@@ -124,7 +124,7 @@ function Invoke-BaselineReceiptProbe {
         catch { throw "Baseline body-job receipt validator returned unreadable JSON." }
         if (
             [string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or
-            [int]$value.version -ne 1 -or
+            -not (Test-V1Version $value.version) -or
             [string]$value.body_job_id -ne $JobId -or
             [string]$value.person_id -ne [string]$Gate.person_id -or
             [string]$value.bodyrig_revision -ne [string]$Gate.baseline_revision -or
@@ -156,7 +156,7 @@ function Assert-BaselineReceiptMatchesPbrSource {
         throw "PBR plan-bound human-review authority changed after gate validation."
     }
     $humanAuthority = Read-Json -Path $humanAuthorityPath -Label "PBR plan-bound human-review authority"
-    if ([string]$humanAuthority.format -ne "bodyrig-pbr-plan-bound-human-review-authority" -or [int]$humanAuthority.version -ne 1) {
+    if ([string]$humanAuthority.format -ne "bodyrig-pbr-plan-bound-human-review-authority" -or -not (Test-V1Version $humanAuthority.version)) {
         throw "PBR plan-bound human-review authority format/version mismatch."
     }
     $reviewedSourceSha = ([string]$humanAuthority.source_authority_sha256).Trim().ToLowerInvariant()
@@ -175,7 +175,7 @@ function Assert-BaselineReceiptMatchesPbrSource {
     }
     if (
         [string]$sourceAuthority.format -ne "bodyrig-pbr-ab-body-job-source-authority" -or
-        [int]$sourceAuthority.version -ne 1 -or
+        -not (Test-V1Version $sourceAuthority.version) -or
         [string]$sourceAuthority.body_job_id -ne [string]$Gate.baseline_job_id -or
         [string]$sourceAuthority.person_id -ne [string]$Gate.person_id -or
         [string]$sourceAuthority.stash_performer_id -ne [string]$Gate.stash_performer_id -or
@@ -287,7 +287,7 @@ try {
         ([string]$candidateJob.bodyrig_revision).ToLowerInvariant() -ne ([string]$gateBefore.throughput_candidate_revision).ToLowerInvariant() -or
         $null -eq $sourceAuthority -or
         [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
-        [int]$sourceAuthority.version -ne 1 -or
+        -not (Test-V1Version $sourceAuthority.version) -or
         [string]$sourceAuthority.job_id -ne $candidateJobId -or
         [string]$sourceAuthority.person_id -ne [string]$gateBefore.person_id -or
         [string]$sourceAuthority.stash_performer_id -ne [string]$gateBefore.stash_performer_id -or
