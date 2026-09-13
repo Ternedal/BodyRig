@@ -222,7 +222,12 @@ def validate_render_manifest(
         raise HandsFeetNailsAuthorityError("hands/feet/nails render manifest is unreadable") from exc
     if not isinstance(value, dict) or set(value) != RENDER_FIELDS:
         raise HandsFeetNailsAuthorityError("hands/feet/nails render manifest fields are not canonical")
-    if value.get("format") != RENDER_FORMAT or value.get("version") != RENDER_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != RENDER_FORMAT
+        or isinstance(version, bool)
+        or version != RENDER_VERSION
+    ):
         raise HandsFeetNailsAuthorityError("hands/feet/nails render manifest format/version mismatch")
     if value.get("semantics") != RENDER_SEMANTICS:
         raise HandsFeetNailsAuthorityError("hands/feet/nails render manifest semantics crossed the human-review-only boundary")
