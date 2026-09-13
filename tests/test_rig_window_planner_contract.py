@@ -67,7 +67,8 @@ def test_historical_physical_evidence_must_meet_current_handoff_floor_before_ran
     assert '"ui-acceptance"' in HANDOFF_FLOOR
     assert '"physical-session"' in HANDOFF_FLOOR
     assert '"merge-base", "--is-ancestor", floor, revision' in HANDOFF_FLOOR
-    assert "predates the current minimum physical handoff revision" in HANDOFF_FLOOR
+    assert "predates the current minimum physical " in HANDOFF_FLOOR
+    assert "handoff revision" in HANDOFF_FLOOR
     assert "HFN fingernail-geometry/runtime contract" in HANDOFF_FLOOR
 
 
