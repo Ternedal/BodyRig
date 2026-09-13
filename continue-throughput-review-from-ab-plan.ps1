@@ -29,6 +29,11 @@ function Read-Json {
     return $value
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Need-Revision {
     param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
     $normalized = $Value.Trim().ToLowerInvariant()
@@ -81,7 +86,7 @@ function Invoke-ReceiptProbe {
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "$Label validation failed: $($raw -join ' ')" }
         try { $value = ([string]$raw[0]) | ConvertFrom-Json }
         catch { throw "$Label validator returned unreadable JSON." }
-        if ([string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or [int]$value.version -ne 1) {
+        if ([string]$value.format -ne "bodyrig-succeeded-body-job-receipt-authority" -or -not (Test-V1Version $value.version)) {
             throw "$Label validator returned wrong format/version."
         }
         Require-AuthorityBoundary -Value $value -Label $Label
@@ -137,7 +142,7 @@ function Invoke-PbrSequencingGateProbe {
     $gateReceiptPath = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\ab-baseline-plans\$BaselineJobId-throughput-$CandidateJobId-pbr-gate.json") -Label "PBR-to-throughput sequencing gate receipt"
     $gateReceiptSha = (Get-FileHash -LiteralPath $gateReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $gateReceipt = Read-Json -Path $gateReceiptPath -Label "PBR-to-throughput sequencing gate receipt"
-    if ([string]$gateReceipt.format -ne "bodyrig-throughput-pbr-human-review-gate" -or [int]$gateReceipt.version -ne 1) {
+    if ([string]$gateReceipt.format -ne "bodyrig-throughput-pbr-human-review-gate" -or -not (Test-V1Version $gateReceipt.version)) {
         throw "PBR-to-throughput sequencing gate receipt format/version mismatch."
     }
     if (
@@ -186,7 +191,7 @@ function Invoke-PbrSequencingGateProbe {
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR human-review gate replay failed: $($raw -join ' ')" }
         try { $live = ([string]$raw[0]) | ConvertFrom-Json -Depth 40 }
         catch { throw "PBR human-review gate replay returned unreadable JSON." }
-        if ([string]$live.format -ne "bodyrig-pbr-human-review-gate-context" -or [int]$live.version -ne 1) {
+        if ([string]$live.format -ne "bodyrig-pbr-human-review-gate-context" -or -not (Test-V1Version $live.version)) {
             throw "PBR human-review gate replay returned wrong format/version."
         }
         if (
@@ -299,11 +304,11 @@ $runPlan = Read-Json -Path $runPlanPath -Label "throughput candidate run plan"
 $sharedPlanSha = (Get-FileHash -LiteralPath $sharedPlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $runPlanSha = (Get-FileHash -LiteralPath $runPlanPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-if ([string]$sharedPlan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or [int]$sharedPlan.version -ne 1) {
+if ([string]$sharedPlan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or -not (Test-V1Version $sharedPlan.version)) {
     throw "Shared A/B baseline plan format/version mismatch."
 }
 Require-AuthorityBoundary -Value $sharedPlan -Label "shared A/B baseline plan"
-if ([string]$runPlan.format -ne "bodyrig-throughput-candidate-run-plan" -or [int]$runPlan.version -ne 1) {
+if ([string]$runPlan.format -ne "bodyrig-throughput-candidate-run-plan" -or -not (Test-V1Version $runPlan.version)) {
     throw "Throughput candidate run plan format/version mismatch."
 }
 Require-AuthorityBoundary -Value $runPlan -Label "throughput candidate run plan"
@@ -377,7 +382,7 @@ if ((Need-Sha256 -Value ([string]$runPlan.baseline_job_json_sha256) -Label "run 
     throw "Baseline job JSON changed after candidate-run authority was created."
 }
 if (
-    [string]$baselineJob.format -ne "bodyrig-ui-job" -or [int]$baselineJob.version -ne 1 -or
+    [string]$baselineJob.format -ne "bodyrig-ui-job" -or -not (Test-V1Version $baselineJob.version) -or
     [string]$baselineJob.kind -ne "body-build" -or [string]$baselineJob.status -ne "succeeded" -or
     [string]$baselineJob.job_id -ne $BaselineJobId -or [string]$baselineJob.person_id -ne $personId -or
     (Need-Revision -Value ([string]$baselineJob.bodyrig_revision) -Label "baseline job revision") -ne $mainRevision
@@ -387,7 +392,7 @@ if (
 $retention = $baselineJob.ab_baseline_retention
 if (
     $null -eq $retention -or
-    [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or [int]$retention.version -ne 1 -or
+    [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or -not (Test-V1Version $retention.version) -or
     $retention.retain_private_workspace -ne $true -or
     (Need-Revision -Value ([string]$retention.expected_bodyrig_revision) -Label "baseline retention revision") -ne $mainRevision -or
     [string]$retention.job_id -ne $BaselineJobId
@@ -395,7 +400,7 @@ if (
     throw "Baseline body-build no longer carries exact A/B retention authority."
 }
 if (
-    [string]$candidateJob.format -ne "bodyrig-ui-job" -or [int]$candidateJob.version -ne 1 -or
+    [string]$candidateJob.format -ne "bodyrig-ui-job" -or -not (Test-V1Version $candidateJob.version) -or
     [string]$candidateJob.kind -ne "body-build" -or [string]$candidateJob.status -ne "succeeded" -or
     [string]$candidateJob.job_id -ne $CandidateJobId -or [string]$candidateJob.person_id -ne $personId -or
     (Need-Revision -Value ([string]$candidateJob.bodyrig_revision) -Label "candidate job revision") -ne $throughputRevision
@@ -455,7 +460,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Plan-bound recovery throughput machine A/B did not PASS." }
     $machine = Read-Json -Path $machinePath -Label "plan-bound machine A/B audit"
     if (
-        [string]$machine.format -ne "bodyrig-recovery-throughput-sampling-audit" -or [int]$machine.version -ne 1 -or
+        [string]$machine.format -ne "bodyrig-recovery-throughput-sampling-audit" -or -not (Test-V1Version $machine.version) -or
         $machine.machine_evidence_pass -ne $true -or [string]$machine.decision -ne "eligible-for-human-ab-review" -or
         [string]$machine.baseline_job_id -ne $BaselineJobId -or [string]$machine.candidate_job_id -ne $CandidateJobId -or
         (Need-Revision -Value ([string]$machine.baseline_bodyrig_revision) -Label "machine baseline revision") -ne $mainRevision -or
@@ -470,7 +475,7 @@ try {
     $bundleReceiptPath = Need-File -Path (Join-Path $bundleDir "review-bundle.json") -Label "immutable review bundle receipt"
     $bundle = Read-Json -Path $bundleReceiptPath -Label "immutable review bundle receipt"
     if (
-        [string]$bundle.format -ne "bodyrig-recovery-throughput-review-bundle" -or [int]$bundle.version -ne 1 -or
+        [string]$bundle.format -ne "bodyrig-recovery-throughput-review-bundle" -or -not (Test-V1Version $bundle.version) -or
         [string]$bundle.baseline_job_id -ne $BaselineJobId -or [string]$bundle.candidate_job_id -ne $CandidateJobId -or
         (Need-Revision -Value ([string]$bundle.baseline_bodyrig_revision) -Label "bundle baseline revision") -ne $mainRevision -or
         (Need-Revision -Value ([string]$bundle.candidate_bodyrig_revision) -Label "bundle candidate revision") -ne $throughputRevision -or
