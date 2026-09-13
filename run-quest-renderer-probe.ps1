@@ -52,6 +52,10 @@ function Need-Revision {
     if ($normalized -notmatch '^[0-9a-f]{40}$') { throw "$Label is not a canonical 40-character Git SHA." }
     return $normalized
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    return [decimal]$Value -eq [decimal]1
+}
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $AcceptanceDir = [System.IO.Path]::GetFullPath($AcceptanceDir)
@@ -93,7 +97,7 @@ foreach ($required in @($acceptancePath, $runtimeManifest)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Required Gate A artifact missing: $required" }
 }
 try { $acceptance = Get-Content -LiteralPath $acceptancePath -Raw | ConvertFrom-Json } catch { throw "Gate A acceptance report is not valid JSON: $acceptancePath" }
-if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or [int]$acceptance.version -ne 1 -or $acceptance.automated_pass -ne $true -or $acceptance.production_activation -ne $false) { throw "Gate A acceptance is not a valid non-activating automated PASS." }
+if ([string]$acceptance.format -ne "bodyrig-rig-acceptance" -or -not (Test-V1Version $acceptance.version) -or $acceptance.automated_pass -ne $true -or $acceptance.production_activation -ne $false) { throw "Gate A acceptance is not a valid non-activating automated PASS." }
 $acceptedRevision = Need-Revision ([string]$acceptance.bodyrig_revision) "acceptance.bodyrig_revision"
 $currentHeadLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $currentHeadLines.Count -ne 1) { throw "Could not resolve current BodyRig Git revision." }
@@ -197,7 +201,7 @@ try {
     foreach ($required in @($stagedProbe, $stagedDeformation)) { if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "adb reported staged evidence pull success but local evidence is missing: $required" } }
 
     try { $probe = Get-Content -LiteralPath $stagedProbe -Raw | ConvertFrom-Json } catch { throw "Quest machine probe is not valid JSON: $stagedProbe" }
-    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or [int]$probe.version -ne 1 -or [string]$probe.platform -ne "android-quest-class" -or [string]$probe.unity_platform -ne "Android") { throw "Quest machine probe has the wrong format/platform." }
+    if ([string]$probe.format -ne "bodyrig-renderer-probe" -or -not (Test-V1Version $probe.version) -or [string]$probe.platform -ne "android-quest-class" -or [string]$probe.unity_platform -ne "Android") { throw "Quest machine probe has the wrong format/platform." }
     if ((Need-Revision ([string]$probe.bodyrig_revision) "probe.bodyrig_revision") -ne $acceptedRevision) { throw "Quest player was not built from the exact Gate A BodyRig revision." }
     if ([string]$probe.device_model -notmatch '(?i)quest|oculus') { throw "Quest machine probe does not identify Quest/Oculus hardware." }
     if ([string]::IsNullOrWhiteSpace([string]$probe.build_guid)) { throw "Quest machine probe has no Unity build GUID." }
@@ -205,7 +209,7 @@ try {
     if ((Need-Sha256 ([string]$probe.runtime_manifest_sha256) "probe.runtime_manifest_sha256") -ne $actualRuntimeHash) { throw "Quest machine probe does not identify the Gate A runtime manifest bytes." }
 
     try { $deformation = Get-Content -LiteralPath $stagedDeformation -Raw | ConvertFrom-Json } catch { throw "Quest deformation probe is not valid JSON: $stagedDeformation" }
-    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or [int]$deformation.version -ne 1 -or [string]$deformation.platform -ne "android-quest-class" -or [string]$deformation.unity_platform -ne "Android") { throw "Quest deformation probe has the wrong format/platform." }
+    if ([string]$deformation.format -ne "bodyrig-deformation-probe" -or -not (Test-V1Version $deformation.version) -or [string]$deformation.platform -ne "android-quest-class" -or [string]$deformation.unity_platform -ne "Android") { throw "Quest deformation probe has the wrong format/platform." }
     if ((Need-Revision ([string]$deformation.bodyrig_revision) "deformation.bodyrig_revision") -ne $acceptedRevision -or [string]$deformation.bodyrig_revision -ne [string]$probe.bodyrig_revision) { throw "Quest deformation evidence was not produced by the same exact BodyRig revision as Gate A/machine probe." }
     if ([string]$deformation.device_model -notmatch '(?i)quest|oculus') { throw "Quest deformation probe does not identify Quest/Oculus hardware." }
     if ([string]$deformation.sequence_revision -ne "humanoid-muscle-sweep-v1" -or [int]$deformation.pose_count -ne 6 -or $deformation.required_muscles_resolved -ne $true -or $deformation.restored_neutral -ne $true -or $deformation.complete -ne $true -or $deformation.manual_review_required -ne $true) { throw "Quest deformation probe did not complete the fixed BodyRig pose sequence." }
