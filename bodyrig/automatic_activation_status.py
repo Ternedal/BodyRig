@@ -35,7 +35,11 @@ class AutomaticActivationStatus:
 
 def _renderer_contract(repo_root: Path) -> dict[str, Any]:
     contract = _read_json(repo_root / "reference-renderer" / "renderer-contract.json", "Reference renderer contract")
-    if contract.get("format") != "bodyrig-reference-renderer-contract" or contract.get("version") != 1:
+    if (
+        contract.get("format") != "bodyrig-reference-renderer-contract"
+        or isinstance(contract.get("version"), bool)
+        or contract.get("version") != 1
+    ):
         raise AutomaticReleaseGateError("reference renderer contract format/version mismatch")
     if contract.get("deformation_sequence_revision") != "humanoid-muscle-sweep-v1":
         raise AutomaticReleaseGateError("reference renderer deformation sequence mismatch")

@@ -60,7 +60,11 @@ def _load_contract() -> dict[str, Any] | None:
     }
     if set(contract) != expected_fields:
         return None
-    if contract.get("format") != "bodyrig-reference-renderer-contract" or contract.get("version") != 1:
+    if (
+        contract.get("format") != "bodyrig-reference-renderer-contract"
+        or isinstance(contract.get("version"), bool)
+        or contract.get("version") != 1
+    ):
         return None
     for field in expected_fields - {"format", "version"}:
         if not str(contract.get(field) or "").strip():
