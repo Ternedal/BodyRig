@@ -21,6 +21,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -137,7 +141,7 @@ if ((Sha256 $reconstruction) -ne $reconstructionShaBefore -or
 $OutputFile = Need-File -Path $OutputFile -Label "Exact anatomy bake score evidence"
 try { $evidence = Get-Content -LiteralPath $OutputFile -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Exact anatomy bake score evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-exact-anatomy-bake-score" -or [int]$evidence.version -ne 1) {
+if ([string]$evidence.format -ne "bodyrig-exact-anatomy-bake-score" -or -not (Test-V1Version $evidence.version)) {
     throw "Exact anatomy bake score evidence has an unexpected contract."
 }
 if ($evidence.exactProductionBakePath -ne $true -or $evidence.comparisonOnly -ne $true -or

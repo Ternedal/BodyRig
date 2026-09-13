@@ -20,6 +20,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -120,7 +124,7 @@ if ((Sha256 $reconstruction) -ne $reconstructionShaBefore -or (Sha256 $sourceObj
 if (-not (Test-Path -LiteralPath $OutputFile -PathType Leaf)) { throw "Anatomy candidate audit did not publish JSON evidence." }
 try { $evidence = Get-Content -LiteralPath $OutputFile -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Anatomy candidate audit JSON evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-anatomy-geometry-audit" -or [int]$evidence.version -ne 1) {
+if ([string]$evidence.format -ne "bodyrig-anatomy-geometry-audit" -or -not (Test-V1Version $evidence.version)) {
     throw "Anatomy candidate audit JSON evidence has an unexpected contract."
 }
 if ([string]$evidence.donorObjSha256 -ne $donorSha -or [string]$evidence.sourceObjSha256 -ne $sourceShaBefore) {
