@@ -13,7 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required."
 }
 
-$minimumPhysicalHandoffRevision = "ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7"
+$minimumPhysicalHandoffRevision = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
 
 function Need-File([string]$Path, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -99,6 +99,12 @@ $adbExe = Need-File $adbCandidate "Pinned Unity Android adb"
 
 foreach ($relative in @(
     "check-reference-renderer-ready.ps1",
+    "prepare-hands-feet-nails-source-capture.ps1",
+    "prepare-hands-feet-nails-landmark-evidence.ps1",
+    "prepare-hands-feet-nails-uv-domain-evidence.ps1",
+    "prepare-hands-feet-nails-detail-candidate.ps1",
+    "prepare-hands-feet-nails-render-review.ps1",
+    "record-high-fidelity-hfn-review.ps1",
     "record-high-fidelity-human-review.ps1",
     "archive-invalid-high-fidelity-human-review.ps1",
     "prepare-high-fidelity-physical-acceptance.ps1",

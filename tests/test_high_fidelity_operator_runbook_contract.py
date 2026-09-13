@@ -38,7 +38,8 @@ def test_operator_runbook_starts_new_physical_sessions_from_main() -> None:
     assert "git switch main" in runbook
     assert "git pull --ff-only origin main" in runbook
     assert "agent/high-fidelity-integration-20260904" not in runbook
-    assert "merged historical integration lineage" in runbook
+    assert "minimum safe fresh physical handoff includes the mandatory source-grounded hands/feet/nails" in runbook
+    assert "Historical physical evidence remains bound to the exact revision recorded in that evidence" in runbook
 
 
 def test_preview_listing_wrapper_is_read_only_checkout_bound_discovery() -> None:

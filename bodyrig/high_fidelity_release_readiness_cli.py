@@ -15,7 +15,7 @@ from .reference_acceptance_policy import apply_reference_policy
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 QUEST_SERIAL = re.compile(r"^[A-Za-z0-9._:-]+$")
 UNITY_VERSION = re.compile(r"^6000\.3\.\d+f\d+$")
-MINIMUM_PHYSICAL_HANDOFF_REVISION = "ed3bb6cd0329b26fc4771ed7bda02964b42e9fa7"
+MINIMUM_PHYSICAL_HANDOFF_REVISION = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
 
 
 class HighFidelityReleaseReadinessCliError(RuntimeError):
