@@ -14,6 +14,10 @@ from .hands_feet_nails_detail_candidate import (
     HandsFeetNailsDetailCandidateError,
     read_detail_candidate,
 )
+from .hands_feet_nails_fingernail_geometry_candidate import (
+    HandsFeetNailsFingernailGeometryError,
+    read_fingernail_geometry_candidate,
+)
 from .hands_feet_nails_source_capture import (
     HandsFeetNailsSourceCaptureError,
     capture_dir,
@@ -138,6 +142,48 @@ def _read_candidate_strict(
     return candidate
 
 
+def _read_geometry_strict(root: Path, detail: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        geometry = read_fingernail_geometry_candidate(
+            root,
+            str(detail["person_id"]),
+            body_revision=str(detail["body_revision"]),
+            capture_id=str(detail["capture_id"]),
+            candidate_id=str(detail["candidate_id"]),
+        )
+    except HandsFeetNailsFingernailGeometryError as exc:
+        raise HighFidelityHfnReviewError(
+            f"HFN human review requires exact fingernail geometry authority: {exc}"
+        ) from exc
+    if not _is_v1(geometry.get("version")):
+        raise HighFidelityHfnReviewError("HFN fingernail geometry version is not canonical v1")
+    detail_receipt = Path(str(detail["receipt_path"])).expanduser().resolve()
+    if (
+        geometry.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
+        or geometry.get("source_detail_receipt_sha256") != _sha256(detail_receipt)
+        or geometry.get("body_id") != detail.get("body_id")
+        or geometry.get("bodyrig_revision") != detail.get("bodyrig_revision")
+        or geometry.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
+    ):
+        raise HighFidelityHfnReviewError(
+            "HFN fingernail geometry no longer binds the exact detail candidate authority"
+        )
+    return geometry
+
+
+def _review_candidate(detail: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        **dict(detail),
+        "candidate_package_sha256": str(geometry["geometry_package_sha256"]),
+        "candidate_avatar_sha256": str(geometry["geometry_avatar_sha256"]),
+        "package_path": str(geometry["package_path"]),
+        "receipt_path": str(geometry["receipt_path"]),
+        "fingernail_geometry_package_sha256": str(geometry["geometry_package_sha256"]),
+        "fingernail_geometry_receipt_sha256": _sha256(Path(str(geometry["receipt_path"])).resolve()),
+        "fingernail_plate_count": int(geometry["plate_count"]),
+    }
+
+
 def _read_source_capture_strict(
     root: Path,
     *,
@@ -169,7 +215,7 @@ def _candidate_and_render(
     render_manifest_path: Path,
     bodyrig_revision: str,
 ) -> tuple[dict[str, Any], str, dict[str, Any]]:
-    candidate = _read_candidate_strict(
+    detail = _read_candidate_strict(
         root,
         person_id=person_id,
         body_revision=body_revision,
@@ -177,8 +223,10 @@ def _candidate_and_render(
         candidate_id=candidate_id,
     )
     revision = _revision(bodyrig_revision)
-    if candidate["bodyrig_revision"] != revision:
+    if detail["bodyrig_revision"] != revision:
         raise HighFidelityHfnReviewError("HFN candidate was produced by a different BodyRig revision")
+    geometry = _read_geometry_strict(root, detail)
+    candidate = _review_candidate(detail, geometry)
     receipt_path = Path(candidate["receipt_path"]).resolve()
     candidate_receipt_sha = _sha256(receipt_path)
     try:

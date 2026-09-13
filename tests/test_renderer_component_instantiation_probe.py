@@ -12,6 +12,7 @@ def test_physical_probe_requires_promoted_component_renderers_when_vrm_carries_t
         "BodyRigSourceHairReview",
         "BodyRigSourceEyeReview",
         "BodyRigFaceSecondaryReview",
+        "BodyRigFingernailPlates",
     ):
         assert node in source
 
