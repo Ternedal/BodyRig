@@ -14,6 +14,7 @@ BODY = "body-r0001"
 REVISION = "a" * 40
 SOURCE_SHA = hashlib.sha256(b"source package").hexdigest()
 CANDIDATE_SHA = hashlib.sha256(b"candidate package").hexdigest()
+GEOMETRY_SHA = hashlib.sha256(b"geometry package").hexdigest()
 
 
 def _source_package(tmp_path: Path) -> Path:
@@ -42,8 +43,29 @@ def _candidate(root: Path, *, capture: str, candidate: str, source_sha: str = SO
         "source_package_sha256": source_sha,
         "candidate_package_sha256": CANDIDATE_SHA,
         "package_path": str(receipt.with_suffix(".mrbody")),
+        "receipt_path": str(receipt),
+        "candidate_basecolor_sha256": "b" * 64,
         "clean_appearance_ab": True,
     }
+
+
+def _install_geometry(monkeypatch, tmp_path: Path, candidate: dict[str, object]) -> Path:
+    package = tmp_path / "geometry.mrbody"
+    package.write_bytes(b"geometry package")
+    receipt = tmp_path / "geometry.json"
+    receipt.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(subject, "geometry_paths", lambda *args, **kwargs: (package, receipt))
+    monkeypatch.setattr(subject, "_geometry_review_candidate", lambda *args, **kwargs: {
+        **candidate,
+        "package_path": str(package),
+        "receipt_path": str(receipt),
+        "candidate_package_sha256": GEOMETRY_SHA,
+        "candidate_avatar_sha256": "c" * 64,
+        "detail_candidate_package_sha256": CANDIDATE_SHA,
+        "fingernail_geometry_package_sha256": GEOMETRY_SHA,
+        "fingernail_plate_count": 10,
+    })
+    return package
 
 
 def test_missing_candidate_returns_exact_source_bound_operator_action(tmp_path: Path) -> None:
@@ -73,7 +95,7 @@ def test_missing_candidate_returns_exact_source_bound_operator_action(tmp_path: 
     assert str(source) in action["command"]
 
 
-def test_matching_candidate_becomes_current_package_and_requires_canonical_render(tmp_path: Path, monkeypatch) -> None:
+def test_matching_candidate_with_geometry_becomes_current_package_and_requires_canonical_render(tmp_path: Path, monkeypatch) -> None:
     source = _source_package(tmp_path)
     root = tmp_path / "people"
     capture = "hfncap-" + "2" * 32
@@ -81,6 +103,7 @@ def test_matching_candidate_becomes_current_package_and_requires_canonical_rende
     candidate = _candidate(root, capture=capture, candidate=candidate_id)
     candidate_path = Path(candidate["package_path"])
     candidate_path.write_bytes(b"candidate package")
+    geometry_path = _install_geometry(monkeypatch, tmp_path, candidate)
     monkeypatch.setattr(subject, "read_detail_candidate", lambda *args, **kwargs: dict(candidate))
 
     result = subject.inspect_hfn_continuation(
@@ -96,13 +119,15 @@ def test_matching_candidate_becomes_current_package_and_requires_canonical_rende
 
     assert [gate["id"] for gate in result["gates"]] == [subject.CANDIDATE_GATE, subject.RENDER_GATE]
     assert result["gates"][0]["state"] == "pass"
+    assert result["gates"][0]["evidence"]["fingernail_plate_count"] == 10
     assert result["gates"][1]["state"] == "required"
-    assert result["package_path"] == candidate_path
-    assert result["package_sha256"] == CANDIDATE_SHA
+    assert result["package_path"] == geometry_path.resolve()
+    assert result["package_sha256"] == GEOMETRY_SHA
     action = result["actions"][subject.RENDER_GATE]
     assert action["operator_input_required"] is False
     assert "prepare-hands-feet-nails-render-review.ps1" in action["command"]
-    assert str(candidate_path) in action["command"]
+    assert str(geometry_path.resolve()) in action["command"]
+    assert str(candidate_path.resolve()) not in action["command"]
 
 
 def test_multiple_matching_candidates_fail_closed_as_ambiguous(tmp_path: Path, monkeypatch) -> None:
@@ -141,7 +166,7 @@ def test_multiple_matching_candidates_fail_closed_as_ambiguous(tmp_path: Path, m
     assert result["actions"] == {}
 
 
-def test_review_gate_requires_operator_input_after_exact_render_pass(tmp_path: Path, monkeypatch) -> None:
+def test_review_gate_requires_operator_input_after_exact_geometry_render_pass(tmp_path: Path, monkeypatch) -> None:
     source = _source_package(tmp_path)
     root = tmp_path / "people"
     capture = "hfncap-" + "2" * 32
@@ -149,6 +174,7 @@ def test_review_gate_requires_operator_input_after_exact_render_pass(tmp_path: P
     candidate = _candidate(root, capture=capture, candidate=candidate_id)
     candidate_path = Path(candidate["package_path"])
     candidate_path.write_bytes(b"candidate package")
+    _install_geometry(monkeypatch, tmp_path, candidate)
     render_dir = tmp_path / "render"
     render_dir.mkdir()
     monkeypatch.setattr(subject, "read_detail_candidate", lambda *args, **kwargs: dict(candidate))
@@ -171,6 +197,7 @@ def test_review_gate_requires_operator_input_after_exact_render_pass(tmp_path: P
     )
 
     assert [gate["state"] for gate in result["gates"]] == ["pass", "pass", "required"]
+    assert result["gates"][1]["evidence"]["fingernail_geometry_package_sha256"] == GEOMETRY_SHA
     action = result["actions"][subject.HUMAN_GATE]
     assert action["operator_input_required"] is True
     assert "record-high-fidelity-hfn-review.ps1" in action["command"]
