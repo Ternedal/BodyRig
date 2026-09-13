@@ -26,6 +26,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -149,7 +153,7 @@ foreach ($path in $authorityFiles) {
 $summaryPath = Need-File -Path (Join-Path $OutputDir "line-search.json") -Label "Exact-bake anatomy line-search evidence"
 try { $evidence = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
 catch { throw "Exact-bake anatomy line-search evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-subject-anatomy-exact-bake-line-search" -or [int]$evidence.version -ne 1) {
+if ([string]$evidence.format -ne "bodyrig-subject-anatomy-exact-bake-line-search" -or -not (Test-V1Version $evidence.version)) {
     throw "Exact-bake anatomy line-search evidence has an unexpected contract."
 }
 if ($evidence.exactProductionBakePath -ne $true -or $evidence.comparisonOnly -ne $true -or
