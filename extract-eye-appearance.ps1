@@ -25,6 +25,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -60,6 +64,9 @@ $reconstruction = Need-File -Path (Join-Path $stage "reconstruction.json") -Labe
 $sourceMesh = Need-File -Path (Join-Path $stage "meshes\000_reco.obj") -Label "Retained source mesh"
 try { $reconstructionValue = Get-Content -LiteralPath $reconstruction -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Retained reconstruction authority is unreadable." }
+if ([string]$reconstructionValue.format -ne "bodyrig-sith-reconstruction" -or -not (Test-V1Version $reconstructionValue.version)) {
+    throw "Retained reconstruction authority format/version mismatch."
+}
 $textureName = [string]$reconstructionValue.reconstruction.mesh_texture_name
 if ([string]::IsNullOrWhiteSpace($textureName) -or [IO.Path]::GetFileName($textureName) -ne $textureName) {
     throw "Retained reconstruction texture reference is invalid."
@@ -141,7 +148,7 @@ $rightPath = Need-File -Path (Join-Path $OutputDir "right_eye_appearance.png") -
 try { $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Eye appearance evidence is unreadable." }
 
-if ([string]$evidence.format -ne "bodyrig-eye-appearance-candidate" -or [int]$evidence.version -ne 1 -or
+if ([string]$evidence.format -ne "bodyrig-eye-appearance-candidate" -or -not (Test-V1Version $evidence.version) -or
     [string]$evidence.targetModelFamily -ne $TargetFamily -or
     [string]$evidence.donorObjSha256 -ne $donorShaBefore -or
     [string]$evidence.sourceReconstructionSha256 -ne $reconstructionShaBefore -or
