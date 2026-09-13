@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,6 +19,7 @@ FORMAT = _legacy.FORMAT
 VERSION = _legacy.VERSION
 JOB_RE = _legacy.JOB_RE
 SHA_RE = _legacy.SHA_RE
+GIT_RE = re.compile(r"^[0-9a-f]{40}$")
 HighFidelityContinuationStatusError = _legacy.HighFidelityContinuationStatusError
 
 GATE_ORDER = (*_legacy.GATE_ORDER, CANDIDATE_GATE, RENDER_GATE, HUMAN_GATE)
@@ -321,7 +323,7 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
             gate_id=CANDIDATE_GATE,
             reason=reason,
         )
-    if not _legacy.SHA_RE.fullmatch(bodyrig_revision):
+    if not GIT_RE.fullmatch(bodyrig_revision):
         source = Path(package_value).expanduser().resolve()
         gates = list(base.get("gates") or [])
         return _blocked_hfn_result(
