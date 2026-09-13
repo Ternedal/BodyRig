@@ -33,6 +33,11 @@ function Read-Json {
     return $value
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Write-CreateOnlyJson {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)]$Value)
     if (Test-Path -LiteralPath $Path) { throw "Refusing to overwrite PBR-to-throughput gate receipt: $Path" }
@@ -253,7 +258,7 @@ $machineResults = @(
             $fields -contains "format" -and
             $fields -contains "version" -and
             [string]$candidateResult.format -eq "bodyrig-throughput-candidate-run-plan" -and
-            [int]$candidateResult.version -eq 1
+            (Test-V1Version $candidateResult.version)
         ) {
             $candidateResult
         }
