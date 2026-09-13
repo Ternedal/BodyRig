@@ -61,7 +61,7 @@ try {
     $env:PYTHONPATH = $repoRoot
     $imported = (& $python -c "import pathlib, bodyrig; print(pathlib.Path(bodyrig.__file__).resolve())").Trim()
     if ($LASTEXITCODE -ne 0) { throw "Could not import BodyRig from the operator checkout." }
-    $expectedRoot = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\\') + '\\'
+    $expectedRoot = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\') + '\'
     $actualModule = [System.IO.Path]::GetFullPath($imported)
     if (-not $actualModule.StartsWith($expectedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Python imported BodyRig outside the current checkout: $actualModule"
