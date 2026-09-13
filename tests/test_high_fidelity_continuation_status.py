@@ -32,6 +32,9 @@ def test_gate_order_is_complete_and_stable() -> None:
         "face_secondary_preview",
         "face_secondary_review",
         "face_secondary_promotion",
+        "hfn_detail_candidate",
+        "hfn_render_review",
+        "hfn_human_review",
     )
 
 
@@ -47,6 +50,8 @@ def test_continuation_paths_stay_inside_one_preview_job(monkeypatch, tmp_path: P
     assert paths["iris_candidate"] == root / "continuation" / "iris-candidate"
     assert paths["eye_only_runtime"] == root / "continuation" / "eye-only-runtime"
     assert paths["face_promotion"] == root / "continuation" / "face-secondary" / "promotion"
+    assert paths["hfn_render"] == root / "continuation" / "hands-feet-nails" / "render"
+    assert paths["hfn_review"] == root / "continuation" / "hands-feet-nails" / "human-review"
     for key, path in paths.items():
         if key != "preview_root":
             path.relative_to(root)
@@ -139,7 +144,7 @@ def test_final_audit_cannot_turn_partial_components_into_complete(monkeypatch, t
 
     assert result["state"] == "blocked"
     assert result["high_fidelity_complete"] is False
-    assert result["next_gate"]["gate"] == "face_secondary_promotion"
+    assert result["next_gate"]["gate"] == "hfn_detail_candidate"
     assert result["next_gate"]["command"] is None
     assert result["production_ready"] is False
 
