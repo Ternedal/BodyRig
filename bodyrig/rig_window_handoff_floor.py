@@ -78,13 +78,11 @@ def enforce_existing_authority(
     return filtered, rejected_out
 
 
-def _rescue_candidates(
-    rows: list[dict[str, Any]],
-    *,
-    preferred_job_id: str,
+def _filter_rescue_candidates(
+    repo_root: Path,
+    candidates: list[dict[str, Any]],
+    rejected: list[dict[str, str]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    candidates, rejected = _ORIGINAL_RESCUE_CANDIDATES(rows, preferred_job_id=preferred_job_id)
-    repo_root = Path.cwd().resolve()
     head = component.authority.policy.base._head(repo_root)
     filtered: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -101,17 +99,12 @@ def _rescue_candidates(
     return filtered, rejected
 
 
-def _interrupted_candidates(
+def _filter_interrupted_candidates(
     repo_root: Path,
     rows: list[dict[str, Any]],
-    *,
-    preferred_job_id: str,
+    candidates: list[dict[str, Any]],
+    rejected: list[dict[str, str]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    candidates, rejected = _ORIGINAL_INTERRUPTED_CANDIDATES(
-        repo_root,
-        rows,
-        preferred_job_id=preferred_job_id,
-    )
     head = component.authority.policy.base._head(repo_root)
     revisions = {
         str(row.get("job_id") or ""): str(row.get("bodyrig_revision") or "").strip().lower()
@@ -134,16 +127,42 @@ def _interrupted_candidates(
 
 
 @contextmanager
-def _handoff_floor_guard() -> Iterator[None]:
+def _handoff_floor_guard(repo_root: Path) -> Iterator[None]:
+    root = Path(repo_root).expanduser().resolve()
     with _PATCH_LOCK:
         authority = component.authority
         policy = authority.policy
         previous_existing = authority.enforce_existing_authority
         previous_rescue = policy._rescue_candidates
         previous_interrupted = policy._interrupted_candidates
+
+        def guarded_rescue(
+            rows: list[dict[str, Any]],
+            *,
+            preferred_job_id: str,
+        ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+            candidates, rejected = _ORIGINAL_RESCUE_CANDIDATES(
+                rows,
+                preferred_job_id=preferred_job_id,
+            )
+            return _filter_rescue_candidates(root, candidates, rejected)
+
+        def guarded_interrupted(
+            candidate_root: Path,
+            rows: list[dict[str, Any]],
+            *,
+            preferred_job_id: str,
+        ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+            candidates, rejected = _ORIGINAL_INTERRUPTED_CANDIDATES(
+                candidate_root,
+                rows,
+                preferred_job_id=preferred_job_id,
+            )
+            return _filter_interrupted_candidates(root, rows, candidates, rejected)
+
         authority.enforce_existing_authority = enforce_existing_authority
-        policy._rescue_candidates = _rescue_candidates
-        policy._interrupted_candidates = _interrupted_candidates
+        policy._rescue_candidates = guarded_rescue
+        policy._interrupted_candidates = guarded_interrupted
         try:
             yield
         finally:
@@ -153,7 +172,8 @@ def _handoff_floor_guard() -> Iterator[None]:
 
 
 def build_plan(**kwargs: Any) -> dict[str, Any]:
-    with _handoff_floor_guard():
+    repo_root = Path(kwargs["repo_root"]).expanduser().resolve()
+    with _handoff_floor_guard(repo_root):
         return component.build_plan(**kwargs)
 
 
