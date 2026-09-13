@@ -14,6 +14,7 @@ from .high_fidelity_hfn_continuation import (
     inspect_hfn_continuation,
 )
 from .high_fidelity_package_audit import HighFidelityPackageAuditError
+from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library
 
 FORMAT = _legacy.FORMAT
@@ -21,7 +22,7 @@ VERSION = _legacy.VERSION
 JOB_RE = _legacy.JOB_RE
 SHA_RE = _legacy.SHA_RE
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
-MINIMUM_HFN_INTEGRATION_REVISION = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
+MINIMUM_HFN_INTEGRATION_REVISION = MINIMUM_PHYSICAL_HANDOFF_REVISION
 HighFidelityContinuationStatusError = _legacy.HighFidelityContinuationStatusError
 
 GATE_ORDER = (*_legacy.GATE_ORDER, CANDIDATE_GATE, RENDER_GATE, HUMAN_GATE)

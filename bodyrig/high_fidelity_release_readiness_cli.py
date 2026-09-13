@@ -10,12 +10,12 @@ from typing import Any
 from .acceptance_status import AcceptanceStatusError, inspect_acceptance_dir
 from .acceptance_status_cli import CANONICAL_OPERATOR_FILES
 from .high_fidelity_release_readiness import HighFidelityReleaseReadinessError, inspect_release_readiness
+from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .reference_acceptance_policy import apply_reference_policy
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 QUEST_SERIAL = re.compile(r"^[A-Za-z0-9._:-]+$")
 UNITY_VERSION = re.compile(r"^6000\.3\.\d+f\d+$")
-MINIMUM_PHYSICAL_HANDOFF_REVISION = "7196ceafbbc9d6eaf35cc561f90c18203c4e853a"
 
 
 class HighFidelityReleaseReadinessCliError(RuntimeError):
