@@ -132,7 +132,12 @@ def _quest_adb(root: Path) -> Path:
         contract = json.loads(contract_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HighFidelityReleaseReadinessCliError(f"reference renderer contract is unreadable: {contract_path}") from exc
-    if not isinstance(contract, dict) or contract.get("format") != "bodyrig-reference-renderer-contract" or contract.get("version") != 1:
+    if (
+        not isinstance(contract, dict)
+        or contract.get("format") != "bodyrig-reference-renderer-contract"
+        or isinstance(contract.get("version"), bool)
+        or contract.get("version") != 1
+    ):
         raise HighFidelityReleaseReadinessCliError("reference renderer contract format/version is non-canonical")
     unity_version = str(contract.get("unity_editor_version") or "").strip()
     if not UNITY_VERSION.fullmatch(unity_version):
