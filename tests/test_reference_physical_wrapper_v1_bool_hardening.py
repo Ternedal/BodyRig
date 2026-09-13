@@ -38,7 +38,7 @@ def test_reference_wrapper_scope_is_explicit() -> None:
     discovered = tuple(
         sorted(
             path.name
-            for path in ROOT.glob("*reference*renderer*.ps1")
+            for path in ROOT.glob("*reference*.ps1")
             if "bodyrig-renderer-probe" in path.read_text(encoding="utf-8")
             and "bodyrig-deformation-probe" in path.read_text(encoding="utf-8")
             and path.name in WRAPPERS
