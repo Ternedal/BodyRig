@@ -41,6 +41,10 @@ class HighFidelityHfnReviewError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise HighFidelityHfnReviewError(f"required HFN review evidence is missing: {path}")
@@ -111,16 +115,14 @@ def _checklist(value: Any) -> dict[str, bool]:
     return normalized
 
 
-def _candidate_and_render(
-    *,
+def _read_candidate_strict(
     root: Path,
+    *,
     person_id: str,
     body_revision: str,
     capture_id: str,
     candidate_id: str,
-    render_manifest_path: Path,
-    bodyrig_revision: str,
-) -> tuple[dict[str, Any], str, dict[str, Any]]:
+) -> dict[str, Any]:
     try:
         candidate = read_detail_candidate(
             root,
@@ -131,6 +133,49 @@ def _candidate_and_render(
         )
     except HandsFeetNailsDetailCandidateError as exc:
         raise HighFidelityHfnReviewError(str(exc)) from exc
+    if not _is_v1(candidate.get("version")):
+        raise HighFidelityHfnReviewError("HFN candidate version is not canonical v1")
+    return candidate
+
+
+def _read_source_capture_strict(
+    root: Path,
+    *,
+    person_id: str,
+    body_revision: str,
+    capture_id: str,
+) -> dict[str, Any]:
+    try:
+        source = read_source_capture(
+            root,
+            person_id,
+            body_revision=body_revision,
+            capture_id=capture_id,
+        )
+    except HandsFeetNailsSourceCaptureError as exc:
+        raise HighFidelityHfnReviewError(str(exc)) from exc
+    if not _is_v1(source.get("version")):
+        raise HighFidelityHfnReviewError("HFN source-capture version is not canonical v1")
+    return source
+
+
+def _candidate_and_render(
+    *,
+    root: Path,
+    person_id: str,
+    body_revision: str,
+    capture_id: str,
+    candidate_id: str,
+    render_manifest_path: Path,
+    bodyrig_revision: str,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    candidate = _read_candidate_strict(
+        root,
+        person_id=person_id,
+        body_revision=body_revision,
+        capture_id=capture_id,
+        candidate_id=candidate_id,
+    )
     revision = _revision(bodyrig_revision)
     if candidate["bodyrig_revision"] != revision:
         raise HighFidelityHfnReviewError("HFN candidate was produced by a different BodyRig revision")
@@ -144,6 +189,9 @@ def _candidate_and_render(
         )
     except HandsFeetNailsAuthorityError as exc:
         raise HighFidelityHfnReviewError(str(exc)) from exc
+    manifest = render.get("manifest")
+    if not isinstance(manifest, Mapping) or not _is_v1(manifest.get("version")):
+        raise HighFidelityHfnReviewError("HFN render-manifest version is not canonical v1")
     return candidate, candidate_receipt_sha, render
 
 
@@ -176,15 +224,12 @@ def write_review(
         render_manifest_path=render_path,
         bodyrig_revision=bodyrig_revision,
     )
-    try:
-        source = read_source_capture(
-            root_path,
-            candidate["person_id"],
-            body_revision=candidate["body_revision"],
-            capture_id=candidate["capture_id"],
-        )
-    except HandsFeetNailsSourceCaptureError as exc:
-        raise HighFidelityHfnReviewError(str(exc)) from exc
+    source = _read_source_capture_strict(
+        root_path,
+        person_id=candidate["person_id"],
+        body_revision=candidate["body_revision"],
+        capture_id=candidate["capture_id"],
+    )
     source_manifest = capture_dir(
         root_path,
         candidate["person_id"],
@@ -253,8 +298,11 @@ def validate_review_structure(value: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise HighFidelityHfnReviewError("HFN human-review fields are not canonical")
     if (
-        value.get("format"), value.get("version"), value.get("policy_revision"), value.get("state")
-    ) != (FORMAT, VERSION, POLICY_REVISION, "pass"):
+        value.get("format") != FORMAT
+        or not _is_v1(value.get("version"))
+        or value.get("policy_revision") != POLICY_REVISION
+        or value.get("state") != "pass"
+    ):
         raise HighFidelityHfnReviewError("HFN human-review format/version/policy/state mismatch")
     review_id = str(value.get("review_id") or "").lower()
     if not REVIEW_RE.fullmatch(review_id):
@@ -306,8 +354,9 @@ def read_review(
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HighFidelityHfnReviewError("HFN human-review receipt is missing or unreadable") from exc
     receipt = validate_review_structure(raw)
+    root_path = Path(root).expanduser().resolve()
     candidate, candidate_receipt_sha, render = _candidate_and_render(
-        root=Path(root).expanduser().resolve(),
+        root=root_path,
         person_id=person_id,
         body_revision=body_revision,
         capture_id=capture_id,
@@ -315,8 +364,14 @@ def read_review(
         render_manifest_path=Path(render_manifest_path).expanduser().resolve(),
         bodyrig_revision=bodyrig_revision,
     )
+    _read_source_capture_strict(
+        root_path,
+        person_id=candidate["person_id"],
+        body_revision=candidate["body_revision"],
+        capture_id=candidate["capture_id"],
+    )
     source_manifest = capture_dir(
-        Path(root).expanduser().resolve(),
+        root_path,
         candidate["person_id"],
         candidate["body_revision"],
         candidate["capture_id"],

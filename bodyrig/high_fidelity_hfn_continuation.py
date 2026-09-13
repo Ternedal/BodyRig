@@ -31,6 +31,10 @@ class HighFidelityHfnContinuationError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == 1
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -66,7 +70,7 @@ def _gate(gate_id: str, state: str, *, reason: str = "", evidence: dict[str, Any
 def _candidate_receipt_matches(raw: Mapping[str, Any], *, source_package_sha256: str, bodyrig_revision: str) -> bool:
     return (
         raw.get("format") == "bodyrig-hands-feet-nails-detail-candidate"
-        and raw.get("version") == 1
+        and _is_v1(raw.get("version"))
         and str(raw.get("source_package_sha256") or "").lower() == source_package_sha256
         and str(raw.get("bodyrig_revision") or "").lower() == bodyrig_revision
     )
@@ -109,6 +113,8 @@ def _find_candidate(
             raise HighFidelityHfnContinuationError(
                 f"matching HFN detail candidate is invalid: {exc}"
             ) from exc
+        if not _is_v1(candidate.get("version")):
+            raise HighFidelityHfnContinuationError("matching HFN detail candidate version is not canonical v1")
         if candidate["source_package_sha256"] != source_package_sha256:
             raise HighFidelityHfnContinuationError(
                 "validated HFN detail candidate source package changed during discovery"
@@ -136,6 +142,9 @@ def _validate_render_authority(
         )
     except HandsFeetNailsAuthorityError as exc:
         raise HighFidelityHfnContinuationError(str(exc)) from exc
+    render_manifest = render.get("manifest")
+    if not isinstance(render_manifest, Mapping) or not _is_v1(render_manifest.get("version")):
+        raise HighFidelityHfnContinuationError("HFN render-manifest version is not canonical v1")
     comparison_path = render_dir / "comparison-authority.json"
     authority_path = render_dir / "hands-feet-nails-render-authority.json"
     comparison = _read_json(comparison_path, label="HFN comparison authority")
@@ -145,7 +154,7 @@ def _validate_render_authority(
     package_sha = str(candidate["candidate_package_sha256"])
     if (
         comparison.get("format") != "bodyrig-fidelity-comparison-authority"
-        or comparison.get("version") != 1
+        or not _is_v1(comparison.get("version"))
         or comparison.get("authority") != "validated-package-comparison-only"
         or comparison.get("bodyrig_revision") != bodyrig_revision
         or comparison.get("package_sha256") != package_sha
@@ -153,12 +162,12 @@ def _validate_render_authority(
         or comparison.get("comparison_only") is not True
         or comparison.get("production_activation") is not False
     ):
-        raise HighFidelityHfnContinuationError("HFN comparison authority is stale or crossed its review-only boundary")
+        raise HighFidelityHfnContinuationError("HFN comparison-authority is stale or crossed its review-only boundary")
     if set(authority) != RENDER_AUTHORITY_FIELDS:
         raise HighFidelityHfnContinuationError("HFN render-authority fields are not canonical")
     if (
         authority.get("format") != "bodyrig-hands-feet-nails-render-authority"
-        or authority.get("version") != 1
+        or not _is_v1(authority.get("version"))
         or authority.get("bodyrig_revision") != bodyrig_revision
         or authority.get("body_id") != candidate["body_id"]
         or authority.get("package_sha256") != package_sha
@@ -170,7 +179,7 @@ def _validate_render_authority(
         or authority.get("human_review_required") is not True
         or authority.get("production_activation") is not False
     ):
-        raise HighFidelityHfnContinuationError("HFN render authority is stale, mismatched or crossed its review-only boundary")
+        raise HighFidelityHfnContinuationError("HFN render-authority is stale, mismatched or crossed its review-only boundary")
     return {
         "manifest_path": str(manifest),
         "manifest_sha256": render["manifest_sha256"],
