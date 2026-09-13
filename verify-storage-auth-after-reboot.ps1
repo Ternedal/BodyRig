@@ -7,6 +7,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig post-reboot storage verification is Windows-only."
 }
@@ -27,7 +32,7 @@ try { $storage = Get-Content -LiteralPath $storagePath -Raw -Encoding UTF8 | Con
 catch { throw "Saved storage configuration is unreadable JSON." }
 try { $pre = Get-Content -LiteralPath $prePath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Pre-reboot storage proof is unreadable JSON." }
-if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
+if ([string]$storage.format -ne "bodyrig-local-storage-config" -or -not (Test-V1Version $storage.version)) {
     throw "Saved storage configuration has an unexpected format/version."
 }
 if ($storage.credential_write_completed -ne $true) {
@@ -39,7 +44,7 @@ if ($credentialGeneration -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 }
 if (
     [string]$pre.format -ne "bodyrig-storage-pre-reboot-proof" -or
-    [int]$pre.version -ne 1 -or
+    -not (Test-V1Version $pre.version) -or
     $pre.fresh_smb_session_proved -ne $true -or
     $pre.real_stash_source_decode -ne $true -or
     $pre.secret_persisted_in_proof -ne $false
@@ -80,7 +85,7 @@ try { $session = Get-Content -LiteralPath $sessionPath -Raw -Encoding UTF8 | Con
 catch { throw "Post-reboot storage session proof is unreadable JSON." }
 if (
     [string]$session.format -ne "bodyrig-storage-session-proof" -or
-    [int]$session.version -ne 1 -or
+    -not (Test-V1Version $session.version) -or
     [string]$session.host -ne [string]$pre.host -or
     [string]$session.credential_target -ne [string]$pre.credential_target -or
     [string]$session.credential_generation -ne $credentialGeneration -or
@@ -103,7 +108,7 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
     catch { throw "Existing cold-boot qualification is unreadable JSON." }
     if (
         [string]$cold.format -ne "bodyrig-storage-cold-boot-proof" -or
-        [int]$cold.version -ne 1 -or
+        -not (Test-V1Version $cold.version) -or
         [string]$cold.host -ne [string]$pre.host -or
         [string]$cold.credential_target -ne [string]$pre.credential_target -or
         [string]$cold.credential_generation -ne $credentialGeneration -or

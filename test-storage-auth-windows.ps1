@@ -9,6 +9,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig storage authentication proof is Windows-only."
 }
@@ -45,13 +50,13 @@ try { $storage = Get-Content -LiteralPath $storageConfigPath -Raw -Encoding UTF8
 catch { throw "Saved BodyRig storage configuration is unreadable JSON." }
 try { $stash = Get-Content -LiteralPath $stashConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Saved BodyRig Stash configuration is unreadable JSON." }
-if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
+if ([string]$storage.format -ne "bodyrig-local-storage-config" -or -not (Test-V1Version $storage.version)) {
     throw "Saved storage configuration has an unexpected format/version."
 }
 if ($storage.credential_write_completed -ne $true) {
     throw "Saved storage credential bootstrap is incomplete; re-run setup-storage-auth-windows.ps1 before collecting proof."
 }
-if ([string]$stash.format -ne "bodyrig-local-stash-config" -or [int]$stash.version -ne 1) {
+if ([string]$stash.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $stash.version)) {
     throw "Saved Stash configuration has an unexpected format/version."
 }
 
