@@ -8,6 +8,7 @@ WRAPPER = (ROOT / "plan-rig-window.ps1").read_text(encoding="utf-8")
 CORE = (ROOT / "bodyrig" / "rig_window_plan.py").read_text(encoding="utf-8")
 POLICY = (ROOT / "bodyrig" / "rig_window_policy.py").read_text(encoding="utf-8")
 AUTHORITY = (ROOT / "bodyrig" / "rig_window_authority_policy.py").read_text(encoding="utf-8")
+COMPONENT_AUTHORITY = (ROOT / "bodyrig" / "rig_window_component_authority.py").read_text(encoding="utf-8")
 INTERRUPTED = (ROOT / "resume-interrupted-body-job.ps1").read_text(encoding="utf-8")
 
 
@@ -18,7 +19,9 @@ def test_rig_window_wrapper_requires_clean_checkout_bound_authority() -> None:
     assert "BodyRig checkout is dirty" in WRAPPER
     assert "bodyrig.__file__" in WRAPPER
     assert "unexpected location" in WRAPPER
-    assert '"-m", "bodyrig.rig_window_authority_policy"' in WRAPPER
+    assert '"-m", "bodyrig.rig_window_component_authority"' in WRAPPER
+    assert "rig_window_authority_policy as authority" in COMPONENT_AUTHORITY
+    assert "authority.build_plan(**kwargs)" in COMPONENT_AUTHORITY
 
 
 def test_wrapper_exposes_explicit_person_scope() -> None:

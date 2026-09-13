@@ -38,6 +38,10 @@ class HighFidelityPreviewError(RuntimeError):
     pass
 
 
+def _is_v1(value: object) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -93,7 +97,7 @@ def _write_job(job: dict[str, Any]) -> None:
 
 def _read_job(path: Path) -> dict[str, Any]:
     value = _read_json(path, label="High-fidelity preview job")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    if value.get("format") != FORMAT or not _is_v1(value.get("version")):
         raise HighFidelityPreviewError(f"unsupported high-fidelity preview job: {path}")
     job_id = str(value.get("job_id") or "")
     if path != _job_path(job_id):
@@ -206,7 +210,7 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     summary = _read_json(summary_path, label="Anatomy gate summary")
     if (
         summary.get("format") != "bodyrig-subject-anatomy-physical-gate"
-        or summary.get("version") != 1
+        or not _is_v1(summary.get("version"))
         or str(summary.get("bodyrig_revision") or "").lower() != expected_revision
         or summary.get("target_model_family") != target_family
         or summary.get("canonical_body_id") != canonical_body_id
@@ -231,7 +235,7 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
         raise HighFidelityPreviewError("component discovery receipt lacks hair/eye runtime authority")
     if (
         component.get("format") != "bodyrig-subject-component-discovery"
-        or component.get("version") != 1
+        or not _is_v1(component.get("version"))
         or str(component.get("bodyrig_revision") or "").lower() != expected_revision
         or component.get("target_model_family") != target_family
         or component.get("anatomy_gate_summary_sha256") != _sha256(summary_path)
@@ -257,7 +261,7 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     runtime_value = _read_json(runtime_receipt, label="Combined hair+eye runtime receipt")
     if (
         runtime_value.get("format") != "bodyrig-source-hair-eye-review-runtime"
-        or runtime_value.get("version") != 1
+        or not _is_v1(runtime_value.get("version"))
         or str(runtime_value.get("bodyrigRevision") or "").lower() != expected_revision
         or runtime_value.get("packageSha256") != candidate_sha
         or runtime_value.get("reviewVrmSha256") != review_vrm_sha
