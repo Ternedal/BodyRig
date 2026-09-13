@@ -35,6 +35,10 @@ function Read-Json([string]$Path,[string]$Label) {
     catch { throw "$Label is not valid JSON: $resolved" }
     return [pscustomobject]@{ Path=$resolved; Value=$value; Hash=(Sha256 $resolved) }
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    return [decimal]$Value -eq [decimal]1
+}
 function Copy-Exact([string]$Source,[string]$Destination,[string]$Label) {
     Copy-Item -LiteralPath $Source -Destination $Destination
     if ((Sha256 $Source) -ne (Sha256 $Destination)) { throw "$Label changed while copying into acceptance bundle." }
@@ -96,7 +100,7 @@ $readinessPath = [System.IO.Path]::ChangeExtension($SessionReport, "readiness.js
 $readinessFile = Read-Json $readinessPath "Physical clone readiness report"
 $readiness = $readinessFile.Value
 if ($readinessFile.Hash -ne ([string]$session.readiness_sha256).ToLowerInvariant()) { throw "Readiness report SHA-256 no longer matches the physical clone session." }
-if ([string]$readiness.format -ne "bodyrig-rig-readiness" -or [int]$readiness.version -ne 1 -or $readiness.ready -ne $true) { throw "Physical clone readiness report is not a valid READY v1 report." }
+if ([string]$readiness.format -ne "bodyrig-rig-readiness" -or -not (Test-V1Version $readiness.version) -or $readiness.ready -ne $true) { throw "Physical clone readiness report is not a valid READY v1 report." }
 if (([string]$readiness.rig_setup_sha256).ToLowerInvariant() -ne ([string]$session.rig_setup_sha256).ToLowerInvariant()) { throw "Rig setup SHA-256 differs between session and readiness evidence." }
 
 $cloneRoot = Resolve-InputDirectory -Path ([string]$session.clone_output) -Label "Physical clone output"
@@ -253,7 +257,7 @@ $skinQaPath = Join-Path $OutputDir "bodyrig-skin-qa.json"
 if ($LASTEXITCODE -ne 0) { throw "Anatomical skin QA failed; high-fidelity Gate A cannot continue." }
 $skinQaFile = Read-Json $skinQaPath "Anatomical skin QA report"
 $skinQa = $skinQaFile.Value
-if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or [int]$skinQa.version -ne 1) { throw "Anatomical skin QA report format/version mismatch." }
+if ([string]$skinQa.format -ne "bodyrig-skin-qa" -or -not (Test-V1Version $skinQa.version)) { throw "Anatomical skin QA report format/version mismatch." }
 if ([string]$skinQa.body_id -ne $bodyId -or ([string]$skinQa.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Anatomical skin QA is not bound to the accepted package." }
 if ($skinQa.structural_pass -ne $true -or $skinQa.manual_review_required -ne $true) { throw "Anatomical skin QA did not produce the required structural/manual-review state." }
 $skinAssessment = [string]$skinQa.automated_assessment
@@ -265,7 +269,7 @@ $topologyQaPath = Join-Path $OutputDir "bodyrig-mesh-topology-qa.json"
 if ($LASTEXITCODE -ne 0) { throw "Mesh topology QA failed; high-fidelity Gate A cannot continue." }
 $topologyQaFile = Read-Json $topologyQaPath "Mesh topology QA report"
 $topologyQa = $topologyQaFile.Value
-if ([string]$topologyQa.format -ne "bodyrig-mesh-topology-qa" -or [int]$topologyQa.version -ne 1) { throw "Mesh topology QA report format/version mismatch." }
+if ([string]$topologyQa.format -ne "bodyrig-mesh-topology-qa" -or -not (Test-V1Version $topologyQa.version)) { throw "Mesh topology QA report format/version mismatch." }
 if ([string]$topologyQa.body_id -ne $bodyId -or ([string]$topologyQa.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Mesh topology QA is not bound to the accepted package." }
 if ($topologyQa.structural_pass -ne $true -or $topologyQa.manual_review_required -ne $true) { throw "Mesh topology QA rejected the package structure." }
 $topologyAssessment = [string]$topologyQa.automated_assessment
@@ -276,7 +280,7 @@ $runtimeDir = Join-Path $OutputDir "runtime"
 if ($LASTEXITCODE -ne 0) { throw "Runtime materialization from accepted high-fidelity .mrbody failed." }
 $runtimeManifestPath = Resolve-InputFile -Path (Join-Path $runtimeDir "runtime-manifest.json") -Label "Materialized runtime manifest"
 $runtimeManifest = Get-Content -LiteralPath $runtimeManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ([string]$runtimeManifest.format -ne "bodyrig-runtime-assets" -or [int]$runtimeManifest.version -ne 1 -or [string]$runtimeManifest.body_id -ne $bodyId -or ([string]$runtimeManifest.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Materialized runtime identity does not match the accepted high-fidelity package." }
+if ([string]$runtimeManifest.format -ne "bodyrig-runtime-assets" -or -not (Test-V1Version $runtimeManifest.version) -or [string]$runtimeManifest.body_id -ne $bodyId -or ([string]$runtimeManifest.package_sha256).ToLowerInvariant() -ne $packageHash) { throw "Materialized runtime identity does not match the accepted high-fidelity package." }
 $runtimeHash = Sha256 $runtimeManifestPath
 
 try {
