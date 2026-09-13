@@ -36,7 +36,14 @@ $contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
 $contract = Read-JsonFile -Path $contractPath -Label "Reference renderer contract"
 $expectedFields = @("format","version","renderer_name","renderer_version","unity_editor_version","univrm_version","univrm_revision","application_id","deformation_sequence_revision")
 if (@(Compare-Object -ReferenceObject $expectedFields -DifferenceObject @($contract.PSObject.Properties.Name)).Count -ne 0) { throw "Reference renderer contract fields are not canonical." }
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) { throw "Unsupported reference renderer contract format/version." }
 $unityVersion = ([string]$contract.unity_editor_version).Trim()
 $univrmRevision = ([string]$contract.univrm_revision).Trim().ToLowerInvariant()
 if ($unityVersion -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract has an invalid Unity version." }
