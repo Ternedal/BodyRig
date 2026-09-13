@@ -10,14 +10,14 @@ def _subtle_source(size: int = 64) -> Image.Image:
     pixels = image.load()
     for y in range(size):
         for x in range(size):
-            value = 104 if (x + y) % 2 == 0 else 120
+            value = 104 if ((x // 8) + (y // 8)) % 2 == 0 else 120
             pixels[x, y] = (value, value, value)
     return image
 
 
 def test_residual_map_is_bounded_and_source_derived() -> None:
     residual = subject._residual_map(_subtle_source())
-    values = list(residual.getdata())
+    values = list(residual.tobytes())
 
     assert min(values) >= 128 - subject.MAX_CHANNEL_DELTA_LEVELS
     assert max(values) <= 128 + subject.MAX_CHANNEL_DELTA_LEVELS
