@@ -19,6 +19,11 @@ function Need-File {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Invoke-CandidateAuthority {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -64,7 +69,7 @@ function Invoke-CandidateAuthority {
         catch { throw "Dual-candidate A/B validator returned unreadable JSON." }
         if (
             [string]$result.format -ne "bodyrig-ab-baseline-candidate-authority" -or
-            [int]$result.version -ne 1 -or
+            -not (Test-V1Version $result.version) -or
             $result.comparison_only -ne $true -or
             $result.human_visual_authority_required -ne $true -or
             $result.physical_acceptance_authority -ne $false -or
@@ -165,7 +170,7 @@ $physicalPreflight = $null
 for ($i = $physicalPreflightRaw.Count - 1; $i -ge 0; $i--) {
     try {
         $candidate = ([string]$physicalPreflightRaw[$i]) | ConvertFrom-Json
-        if ([string]$candidate.format -eq "bodyrig-ab-baseline-preflight" -and [int]$candidate.version -eq 1) {
+        if ([string]$candidate.format -eq "bodyrig-ab-baseline-preflight" -and (Test-V1Version $candidate.version)) {
             $physicalPreflight = $candidate
             break
         }
@@ -227,7 +232,7 @@ $sourceAuthority = $started.source_enqueue_authority
 if (
     $null -eq $sourceAuthority -or
     [string]$sourceAuthority.format -ne "bodyrig-body-build-source-enqueue-authority" -or
-    [int]$sourceAuthority.version -ne 1 -or
+    -not (Test-V1Version $sourceAuthority.version) -or
     [string]$sourceAuthority.job_id -ne $jobId -or
     [string]$sourceAuthority.person_id -ne $preflightPersonId -or
     [string]$sourceAuthority.stash_performer_id -ne $preflightPerformerId -or
@@ -240,7 +245,7 @@ $retention = $started.ab_baseline_retention
 if (
     $null -eq $retention -or
     [string]$retention.format -ne "bodyrig-ab-baseline-retention" -or
-    [int]$retention.version -ne 1 -or
+    -not (Test-V1Version $retention.version) -or
     $retention.retain_private_workspace -ne $true -or
     [string]$retention.expected_bodyrig_revision -ne $mainRevision -or
     [string]$retention.job_id -ne $jobId
