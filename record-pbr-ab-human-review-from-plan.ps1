@@ -62,6 +62,11 @@ function File-Sha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Require-PlanBoundary {
     param([Parameter(Mandatory = $true)]$Value,[Parameter(Mandatory = $true)][string]$Label)
     if (
@@ -213,7 +218,7 @@ if (Test-Path -LiteralPath $humanReviewPath) { throw "Human A/B review already e
 if (Test-Path -LiteralPath $humanAuthorityPath) { throw "Plan-bound PBR human-review authority already exists: $humanAuthorityPath" }
 
 $plan = Read-Json -Path $planPath -Label "shared A/B baseline plan"
-if ([string]$plan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or [int]$plan.version -ne 1) { throw "Shared A/B baseline plan format/version mismatch." }
+if ([string]$plan.format -ne "bodyrig-dual-candidate-ab-baseline-plan" -or -not (Test-V1Version $plan.version)) { throw "Shared A/B baseline plan format/version mismatch." }
 Require-PlanBoundary -Value $plan -Label "shared A/B baseline plan"
 if ([string]$plan.baseline_job_id -ne $BaselineJobId -or [string]$plan.person_id -notmatch '^person-[0-9a-f]{32}$') { throw "Shared A/B baseline plan identity mismatch." }
 $mainRevision = Need-Revision -Value ([string]$plan.baseline_bodyrig_revision) -Label "baseline plan main revision"
