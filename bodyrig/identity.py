@@ -14,6 +14,10 @@ class VisualIdentityError(ValueError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == VERSION
+
+
 def _integer(value: Any, *, field: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
         raise VisualIdentityError(f"{field} must be an integer in {minimum}..{maximum}")
@@ -60,7 +64,7 @@ def validate_visual_identity(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
     if not isinstance(value, Mapping) or set(value) != required:
         raise VisualIdentityError("visual identity fields must match v1 exactly")
-    if value["format"] != FORMAT or value["version"] != VERSION:
+    if value["format"] != FORMAT or not _is_v1(value["version"]):
         raise VisualIdentityError("unsupported visual identity format/version")
 
     _nonempty(value["adapter"], field="adapter", maximum=80)
