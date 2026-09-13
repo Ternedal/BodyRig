@@ -113,7 +113,14 @@ $projectRoot = (Resolve-Path $PSScriptRoot).Path
 $repoRoot = (Resolve-Path (Join-Path $projectRoot "..")).Path
 $contractPath = Join-Path $projectRoot "renderer-contract.json"
 $contract = Read-JsonFile -Path $contractPath -Label "Reference renderer contract"
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) { throw "Unsupported reference renderer contract format/version." }
 $expectedUnityVersion = ([string]$contract.unity_editor_version).Trim()
 if ($expectedUnityVersion -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an invalid Unity editor version." }
 $expectedUniVrmVersion = ([string]$contract.univrm_version).Trim()

@@ -61,7 +61,14 @@ $contractPath = Join-Path $repoRoot "reference-renderer\renderer-contract.json"
 if (-not (Test-Path -LiteralPath $contractPath -PathType Leaf)) { throw "Reference renderer contract not found: $contractPath" }
 try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Reference renderer contract is not valid JSON: $contractPath" }
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) { throw "Unsupported reference renderer contract format/version." }
 if ([string]$contract.unity_editor_version -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an unsupported Unity editor version." }
 if ([string]$contract.application_id -ne $ApplicationId) { throw "Reference renderer contract has an unsupported Quest application id." }
 if ([string]$contract.renderer_name -ne $RendererName -or [string]$contract.renderer_version -ne $RendererVersion) { throw "Quest renderer identity does not match reference-renderer/renderer-contract.json." }

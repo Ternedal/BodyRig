@@ -71,7 +71,14 @@ if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; M5 Windows evidence 
 $contractPath = Join-Path $script:RepoRoot "reference-renderer\renderer-contract.json"
 try { $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Reference renderer contract is not valid JSON: $contractPath" }
-if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) { throw "Unsupported reference renderer contract format/version." }
+$contractVersion = $contract.version
+if (
+    [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
+) { throw "Unsupported reference renderer contract format/version." }
 $rendererName = [string]$contract.renderer_name
 $rendererVersion = [string]$contract.renderer_version
 if ([string]::IsNullOrWhiteSpace($rendererName) -or [string]::IsNullOrWhiteSpace($rendererVersion)) { throw "Reference renderer identity is incomplete." }

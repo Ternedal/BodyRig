@@ -223,7 +223,14 @@ try {
     }
 
     $contract = Read-Json (Join-Path $repoRoot "reference-renderer\renderer-contract.json") "Reference renderer contract"
-    if ([string]$contract.format -ne "bodyrig-reference-renderer-contract" -or [int]$contract.version -ne 1) {
+    $contractVersion = $contract.version
+    if (
+        [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
+        $null -eq $contractVersion -or
+        $contractVersion -is [bool] -or
+        $contractVersion -isnot [ValueType] -or
+        [decimal]$contractVersion -ne [decimal]1
+    ) {
         throw "Unsupported reference renderer contract."
     }
     $rendererName = [string]$contract.renderer_name
