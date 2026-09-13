@@ -20,6 +20,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -118,7 +122,7 @@ $evidencePath = Need-File -Path (Join-Path $OutputDir "source-hair-candidate.jso
 $hairObj = Need-File -Path (Join-Path $OutputDir "hair_source.obj") -Label "Source-derived hair OBJ"
 try { $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Source hair candidate evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-source-hair-candidate" -or [int]$evidence.version -ne 1 -or
+if ([string]$evidence.format -ne "bodyrig-source-hair-candidate" -or -not (Test-V1Version $evidence.version) -or
     $evidence.sourceDerived -ne $true -or $evidence.generativeGeometry -ne $false -or
     $evidence.bodyTopologyModified -ne $false -or $evidence.comparisonOnly -ne $true -or
     $evidence.humanReviewRequired -ne $true -or $evidence.productionReady -ne $false) {
