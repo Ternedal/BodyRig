@@ -317,8 +317,11 @@ def orchestrate_sith_fitter(
                 f"SiTH reconstruction authority commit failed: {exc}"
             ) from exc
 
-    bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_gender.py"
+    gender_bridge = Path(__file__).resolve().parent / "bridges" / "sith_smplx_vrm_fitter_gender.py"
+    bridge = Path(__file__).resolve().parent / "bridges" / "sith_fitter_request_guard.py"
     if not bridge.is_file():
+        raise SithFitterOrchestratorError("builtin SiTH fitter request guard is missing")
+    if not gender_bridge.is_file():
         raise SithFitterOrchestratorError("builtin gender-aware SiTH SMPL-X VRM bridge is missing")
     linux_bridge = _wsl_path(bridge, distribution=distribution, wsl_exe=wsl_exe)
     linux_request = _wsl_path(request_path, distribution=distribution, wsl_exe=wsl_exe)
