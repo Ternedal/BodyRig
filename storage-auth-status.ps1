@@ -6,6 +6,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig storage authentication status is Windows-only."
 }
@@ -75,8 +80,12 @@ try { $storage = Get-Content -LiteralPath $storagePath -Raw -Encoding UTF8 | Con
 catch { Emit-Status -State "blocked" -Stage "storage-config" -Message "Saved storage config is unreadable JSON."; exit 0 }
 try { $stash = Get-Content -LiteralPath $stashPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { Emit-Status -State "blocked" -Stage "stash-config" -Message "Saved Stash config is unreadable JSON."; exit 0 }
-if ([string]$storage.format -ne "bodyrig-local-storage-config" -or [int]$storage.version -ne 1) {
+if ([string]$storage.format -ne "bodyrig-local-storage-config" -or -not (Test-V1Version $storage.version)) {
     Emit-Status -State "blocked" -Stage "storage-config" -Message "Saved storage config has an unexpected format/version."
+    exit 0
+}
+if ([string]$stash.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $stash.version)) {
+    Emit-Status -State "blocked" -Stage "stash-config" -Message "Saved Stash config has an unexpected format/version."
     exit 0
 }
 try { $stashUri = [Uri]([string]$stash.url) }
@@ -121,7 +130,7 @@ try { $pre = Get-Content -LiteralPath $prePath -Raw -Encoding UTF8 | ConvertFrom
 catch { Emit-Status -State "blocked" -Stage "pre-reboot-proof" -Host $hostName -CredentialPresent $true -Message "Pre-reboot storage proof is unreadable JSON."; exit 0 }
 if (
     [string]$pre.format -ne "bodyrig-storage-pre-reboot-proof" -or
-    [int]$pre.version -ne 1 -or
+    -not (Test-V1Version $pre.version) -or
     [string]$pre.host -ne $hostName -or
     [string]$pre.credential_target -ne $target -or
     [string]$pre.credential_generation -ne $credentialGeneration -or
@@ -142,7 +151,7 @@ if (Test-Path -LiteralPath $coldPath -PathType Leaf) {
     catch { Emit-Status -State "blocked" -Stage "cold-boot-proof" -Host $hostName -CredentialPresent $true -Message "Cold-boot proof is unreadable JSON."; exit 0 }
     if (
         [string]$cold.format -ne "bodyrig-storage-cold-boot-proof" -or
-        [int]$cold.version -ne 1 -or
+        -not (Test-V1Version $cold.version) -or
         [string]$cold.host -ne $hostName -or
         [string]$cold.credential_target -ne $target -or
         [string]$cold.credential_generation -ne $credentialGeneration -or
