@@ -36,7 +36,7 @@ function Need-Revision {
 }
 function Test-V1Version($Value) {
     if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
-    return [decimal]$Value -eq [decimal]1
+    return $Value -eq 1
 }
 function Invoke-NativeProcessWait {
     param(
@@ -76,7 +76,7 @@ if (
     $null -eq $contractVersion -or
     $contractVersion -is [bool] -or
     $contractVersion -isnot [ValueType] -or
-    [decimal]$contractVersion -ne [decimal]1
+    $contractVersion -ne 1
 ) { throw "Unsupported reference renderer contract format/version." }
 $contractRendererName = [string]$contract.renderer_name
 $contractRendererVersion = [string]$contract.renderer_version

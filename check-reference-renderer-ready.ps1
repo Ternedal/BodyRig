@@ -42,7 +42,7 @@ if (
     $null -eq $contractVersion -or
     $contractVersion -is [bool] -or
     $contractVersion -isnot [ValueType] -or
-    $contractVersion -ne 1
+    [decimal]$contractVersion -ne [decimal]1
 ) { throw "Unsupported reference renderer contract format/version." }
 $unityVersion = ([string]$contract.unity_editor_version).Trim()
 $univrmRevision = ([string]$contract.univrm_revision).Trim().ToLowerInvariant()

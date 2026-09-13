@@ -40,7 +40,7 @@ function Require-Sha([string]$Value, [string]$Field) {
 }
 function Test-V1Version($Value) {
     if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
-    return [decimal]$Value -eq [decimal]1
+    return $Value -eq 1
 }
 function Read-PackageJson([string]$PackagePath,[string]$EntryName,[string]$Label) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem

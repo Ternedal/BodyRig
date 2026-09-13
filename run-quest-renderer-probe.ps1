@@ -54,7 +54,7 @@ function Need-Revision {
 }
 function Test-V1Version($Value) {
     if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
-    return [decimal]$Value -eq [decimal]1
+    return $Value -eq 1
 }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
@@ -71,7 +71,7 @@ if (
     $null -eq $contractVersion -or
     $contractVersion -is [bool] -or
     $contractVersion -isnot [ValueType] -or
-    [decimal]$contractVersion -ne [decimal]1
+    $contractVersion -ne 1
 ) { throw "Unsupported reference renderer contract format/version." }
 if ([string]$contract.unity_editor_version -notmatch '^6000\.3\.\d+f\d+$') { throw "Reference renderer contract contains an unsupported Unity editor version." }
 if ([string]$contract.application_id -ne $ApplicationId) { throw "Reference renderer contract has an unsupported Quest application id." }
