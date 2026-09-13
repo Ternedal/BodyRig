@@ -24,6 +24,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -139,7 +143,7 @@ $derivedObj = Need-File -Path (Join-Path $OutputDir "subject_smplx.obj") -Label 
 $derivedFit = Need-File -Path (Join-Path $OutputDir "subject_fit.json") -Label "Derived subject fit params"
 try { $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Subject anatomy refit evidence is unreadable." }
-if ([string]$evidence.format -ne "bodyrig-subject-anatomy-refit" -or [int]$evidence.version -ne 1) {
+if ([string]$evidence.format -ne "bodyrig-subject-anatomy-refit" -or -not (Test-V1Version $evidence.version)) {
     throw "Subject anatomy refit evidence has an unexpected contract."
 }
 if ([string]$evidence.targetModelFamily -ne $TargetFamily) { throw "Subject anatomy refit target-family evidence mismatch." }
