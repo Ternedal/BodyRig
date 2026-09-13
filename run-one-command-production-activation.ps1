@@ -38,6 +38,11 @@ function Test-V1Version($Value) {
     try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
 }
 
+function Test-V2Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]2 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig one-command production activation is Windows-only."
 }
@@ -244,7 +249,7 @@ if ($LASTEXITCODE -ne 0) { throw "Automatic Windows/Quest production gate failed
 if (-not (Test-Path -LiteralPath $finalReceipt -PathType Leaf)) { throw "Final production receipt was not written: $finalReceipt" }
 try { $release = Get-Content -LiteralPath $finalReceipt -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Final production receipt is invalid JSON: $finalReceipt" }
-if ([string]$release.format -ne "bodyrig-release-acceptance" -or [int]$release.version -ne 2 -or $release.release_gate_pass -ne $true -or $release.production_activation -ne $true) {
+if ([string]$release.format -ne "bodyrig-release-acceptance" -or -not (Test-V2Version $release.version) -or $release.release_gate_pass -ne $true -or $release.production_activation -ne $true) {
     throw "Final receipt is not an automatic production PASS."
 }
 if (([string]$release.bodyrig_revision).ToLowerInvariant() -ne $head) {
