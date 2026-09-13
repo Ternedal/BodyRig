@@ -67,7 +67,7 @@ function Invoke-CheckoutPythonJson {
         }
         $expectedPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot $ExpectedModulePath))
         $actualPath = [IO.Path]::GetFullPath(([string]$probeRaw[0]).Trim())
-        if (-not [string]::Equals($actualPath, $expectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not [string]::Equals($actualPath,$expectedPath,[StringComparison]::OrdinalIgnoreCase)) {
             throw "$Label module imported from wrong checkout: $actualPath"
         }
 
@@ -245,7 +245,7 @@ $baselineSource = Invoke-CheckoutPythonJson `
     -Arguments @("--job-id", $BaselineJobId, "--repo-root", $repoRoot, "--expected-revision", $mainRevision)
 if (
     [string]$baselineSource.format -ne "bodyrig-pbr-ab-body-job-source" -or
-    [int]$baselineSource.version -ne 1 -or
+    -not (Test-V1Version $baselineSource.version) -or
     [string]$baselineSource.body_job_id -ne $BaselineJobId -or
     [string]$baselineSource.person_id -ne $personId -or
     [string]$baselineSource.bodyrig_revision -ne $mainRevision -or
