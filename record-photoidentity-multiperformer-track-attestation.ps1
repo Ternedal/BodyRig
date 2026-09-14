@@ -19,6 +19,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig multi-performer track attestation is Windows-only."
@@ -50,7 +54,7 @@ try {
     $publicReview = Get-Content -LiteralPath $publicReviewPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50
     $privateReview = Get-Content -LiteralPath $privateReviewPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50
 } catch { throw "Prepared multi-performer track review evidence is unreadable JSON." }
-if ([string]$publicReview.format -ne "bodyrig-photoidentity-multiperformer-track-review-candidates" -or [int]$publicReview.version -ne 1) {
+if ([string]$publicReview.format -ne "bodyrig-photoidentity-multiperformer-track-review-candidates" -or -not (Test-V1Version $publicReview.version)) {
     throw "Public track review manifest format/version is invalid."
 }
 if ([string]$publicReview.bodyrig_revision -ne $head) {
@@ -115,7 +119,7 @@ if ($LASTEXITCODE -ne 0) { throw "Human multi-performer track attestation failed
 $receiptPath = Need-File -Path $receiptPath -Label "Human track attestation receipt"
 try { $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50 }
 catch { throw "Human track attestation receipt is unreadable JSON." }
-if ([string]$receipt.format -ne "bodyrig-photoidentity-multiperformer-track-attestation" -or [int]$receipt.version -ne 1) {
+if ([string]$receipt.format -ne "bodyrig-photoidentity-multiperformer-track-attestation" -or -not (Test-V1Version $receipt.version)) {
     throw "Human track attestation receipt format/version is invalid."
 }
 if ([string]$receipt.bodyrig_revision -ne $head -or [string]$receipt.track_candidate_id -ne $TrackCandidateId) {
