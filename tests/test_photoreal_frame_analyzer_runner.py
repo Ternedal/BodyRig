@@ -14,6 +14,8 @@ from bodyrig.photoreal_frame_analyzer_runner import (
     validate_analyzer_result,
 )
 
+MODEL_SET_SHA = "c" * 64
+
 
 def _scan_plan() -> dict[str, object]:
     return {
@@ -47,13 +49,18 @@ def _scan_plan() -> dict[str, object]:
     }
 
 
-def _result(adapter: str = "test-analyzer", revision: str = "r1") -> dict[str, object]:
+def _result(
+    adapter: str = "test-analyzer",
+    revision: str = "r1",
+    model_set_sha256: str = MODEL_SET_SHA,
+) -> dict[str, object]:
     return {
         "format": "bodyrig-photoreal-frame-observations",
         "version": 1,
         "performer_id": "42",
         "analyzer": adapter,
         "analyzer_revision": revision,
+        "analyzer_model_set_sha256": model_set_sha256,
         "observations": [
             {
                 "source_key": "scene:s1:E:/source.mp4",
@@ -83,10 +90,16 @@ def _result(adapter: str = "test-analyzer", revision: str = "r1") -> dict[str, o
 
 
 def test_build_request_keeps_adapter_measurement_only() -> None:
-    request = build_analyzer_request(_scan_plan(), adapter="test-analyzer", revision="r1")
+    request = build_analyzer_request(
+        _scan_plan(),
+        adapter="test-analyzer",
+        revision="r1",
+        model_set_sha256=MODEL_SET_SHA,
+    )
 
     assert request["adapter"] == "test-analyzer"
     assert request["revision"] == "r1"
+    assert request["model_set_sha256"] == MODEL_SET_SHA
     assert request["measurement_only"] is True
     assert request["train_evaluation_authority"] is False
     assert request["photoreal_acceptance_authority"] is False
@@ -103,13 +116,16 @@ def test_config_loader_is_exact_and_bool_safe(tmp_path: Path) -> None:
                 "version": 1,
                 "adapter": "test-analyzer",
                 "revision": "r1",
+                "model_set_sha256": MODEL_SET_SHA,
                 "command": [sys.executable, "adapter.py"],
                 "timeout_seconds": 30,
             }
         ),
         encoding="utf-8",
     )
-    assert load_analyzer_config(path)["adapter"] == "test-analyzer"
+    loaded = load_analyzer_config(path)
+    assert loaded["adapter"] == "test-analyzer"
+    assert loaded["model_set_sha256"] == MODEL_SET_SHA
 
     value = json.loads(path.read_text(encoding="utf-8"))
     value["version"] = True
@@ -118,13 +134,25 @@ def test_config_loader_is_exact_and_bool_safe(tmp_path: Path) -> None:
         load_analyzer_config(path)
 
 
-def test_result_rejects_provenance_mismatch() -> None:
+def test_result_rejects_revision_provenance_mismatch() -> None:
     with pytest.raises(PhotorealFrameAnalyzerError, match="provenance mismatch"):
         validate_analyzer_result(
             _result(revision="wrong"),
             performer_id="42",
             adapter="test-analyzer",
             revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
+        )
+
+
+def test_result_rejects_model_set_provenance_mismatch() -> None:
+    with pytest.raises(PhotorealFrameAnalyzerError, match="model-set provenance mismatch"):
+        validate_analyzer_result(
+            _result(model_set_sha256="d" * 64),
+            performer_id="42",
+            adapter="test-analyzer",
+            revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
         )
 
 
@@ -141,6 +169,7 @@ p.add_argument('--bodyrig-request', required=True)
 p.add_argument('--bodyrig-output', required=True)
 p.add_argument('--bodyrig-adapter', required=True)
 p.add_argument('--bodyrig-revision', required=True)
+p.add_argument('--bodyrig-model-set-sha256', required=True)
 a = p.parse_args()
 request = json.loads(Path(a.bodyrig_request).read_text(encoding='utf-8'))
 source = request['sources'][0]
@@ -150,6 +179,7 @@ result = {
     'performer_id': request['performer_id'],
     'analyzer': a.bodyrig_adapter,
     'analyzer_revision': a.bodyrig_revision,
+    'analyzer_model_set_sha256': a.bodyrig_model_set_sha256,
     'observations': [{
         'source_key': source['source_key'],
         'source_sha256': source['source_sha256'],
@@ -183,6 +213,7 @@ out = Path(a.bodyrig_output)
     config = {
         "adapter": "test-analyzer",
         "revision": "r1",
+        "model_set_sha256": MODEL_SET_SHA,
         "command": [sys.executable, str(adapter_script)],
         "timeout_seconds": 30,
     }
@@ -191,6 +222,7 @@ out = Path(a.bodyrig_output)
 
     assert result["analyzer"] == "test-analyzer"
     assert result["analyzer_revision"] == "r1"
+    assert result["analyzer_model_set_sha256"] == MODEL_SET_SHA
     assert len(result["observations"]) == 1
     assert (tmp_path / "workspace" / "request.json").is_file()
     assert (tmp_path / "workspace" / "output" / "observations.json").is_file()
@@ -208,6 +240,7 @@ p.add_argument('--bodyrig-request', required=True)
 p.add_argument('--bodyrig-output', required=True)
 p.add_argument('--bodyrig-adapter', required=True)
 p.add_argument('--bodyrig-revision', required=True)
+p.add_argument('--bodyrig-model-set-sha256', required=True)
 a = p.parse_args()
 out = Path(a.bodyrig_output)
 (out / 'observations.json').write_text('{}', encoding='utf-8')
@@ -219,6 +252,7 @@ out = Path(a.bodyrig_output)
     config = {
         "adapter": "test-analyzer",
         "revision": "r1",
+        "model_set_sha256": MODEL_SET_SHA,
         "command": [sys.executable, str(adapter_script)],
         "timeout_seconds": 30,
     }
