@@ -10,7 +10,7 @@ PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
 PLAN_VERSION = 1
 RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
 RECEIPT_VERSION = 1
-OBSERVATIONS_FORMAT = "bodyrig-photoreal-frame-observations"
+OBSERVATIONS_FORMAT = "bodyrig-photoreal-frame-authorized-observations"
 OBSERVATIONS_VERSION = 1
 FORMAT = "bodyrig-photoreal-frame-index"
 VERSION = 1
@@ -25,6 +25,11 @@ VALID_VIEW_BINS = {
     "profile-right",
     "rear",
     "unknown",
+}
+VALID_IDENTITY_AUTHORITIES = {
+    "stash-single-performer-target-binding-v1",
+    "calibrated-identity-bank-v1",
+    "identity-unresolved-v1",
 }
 PERCEPTUAL_HASH_HEX_LENGTH = 16
 MAX_CROSS_SPLIT_HASH_DISTANCE = 4
@@ -130,6 +135,20 @@ def _unit(value: Any, *, label: str) -> float:
         raise PhotorealFrameIndexError(f"{label} is invalid") from exc
     if not math.isfinite(result) or not 0.0 <= result <= 1.0:
         raise PhotorealFrameIndexError(f"{label} is outside its valid range")
+    return result
+
+
+def _cosine_or_none(value: Any, *, label: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if not math.isfinite(result) or not -1.0 <= result <= 1.0:
+        raise PhotorealFrameIndexError(f"{label} is outside cosine range")
     return result
 
 
@@ -285,10 +304,26 @@ def _normalize_observation(
     motion = _unit(raw.get("motion"), label="frame motion")
     occlusion = _unit(raw.get("occlusion"), label="frame occlusion")
     person_fraction = _unit(raw.get("person_fraction"), label="person fraction")
-    identity_confidence = _unit(raw.get("identity_confidence"), label="identity confidence")
+    identity_status = _text(raw.get("identity_measurement_status"), label="identity measurement status", maximum=32)
+    if identity_status not in {"available", "unavailable"}:
+        raise PhotorealFrameIndexError("identity_measurement_status is unsupported")
+    identity_similarity = _cosine_or_none(raw.get("identity_similarity"), label="identity similarity")
+    if identity_status == "available" and identity_similarity is None:
+        raise PhotorealFrameIndexError("available identity measurement lacks core similarity")
+    if identity_status == "unavailable" and identity_similarity is not None:
+        raise PhotorealFrameIndexError("unavailable identity measurement must not have similarity")
+    identity_authority = _text(raw.get("identity_authority"), label="identity authority", maximum=128)
+    if identity_authority not in VALID_IDENTITY_AUTHORITIES:
+        raise PhotorealFrameIndexError(f"identity authority is unsupported: {identity_authority}")
     target_verified = raw.get("target_identity_verified")
     if not isinstance(target_verified, bool):
         raise PhotorealFrameIndexError("target_identity_verified must be boolean")
+    if target_verified and identity_authority == "identity-unresolved-v1":
+        raise PhotorealFrameIndexError("verified target identity cannot use unresolved authority")
+    if not target_verified and identity_authority != "identity-unresolved-v1":
+        raise PhotorealFrameIndexError("unverified target identity must use unresolved authority")
+    if identity_authority == "calibrated-identity-bank-v1" and identity_similarity is None:
+        raise PhotorealFrameIndexError("calibrated identity authority requires similarity measurement")
 
     eligible = target_verified and sharpness >= MIN_SHARPNESS and occlusion <= MAX_OCCLUSION
     return {
@@ -311,7 +346,9 @@ def _normalize_observation(
         "sharpness": round(sharpness, 6),
         "motion": round(motion, 6),
         "occlusion": round(occlusion, 6),
-        "identity_confidence": round(identity_confidence, 6),
+        "identity_measurement_status": identity_status,
+        "identity_similarity": None if identity_similarity is None else round(identity_similarity, 9),
+        "identity_authority": identity_authority,
         "target_identity_verified": target_verified,
         "eligible_for_teacher": eligible,
         "coverage": _coverage(view_bin, face, body) if eligible else [],
@@ -358,7 +395,7 @@ def _cross_split_near_duplicates(observations: Iterable[Mapping[str, Any]]) -> l
 def build_frame_index(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
-    analyzer_output: Mapping[str, Any],
+    authorized_observations: Mapping[str, Any],
 ) -> dict[str, Any]:
     plan_sources = _plan_sources(plan)
     receipt_sources = _receipt_sources(receipt)
@@ -373,23 +410,48 @@ def build_frame_index(
     if performer_id != str(receipt.get("performer_id") or ""):
         raise PhotorealFrameIndexError("dataset plan/source receipt performer mismatch")
 
-    if analyzer_output.get("format") != OBSERVATIONS_FORMAT or analyzer_output.get("version") != OBSERVATIONS_VERSION:
-        raise PhotorealFrameIndexError("photoreal frame observations format/version mismatch")
-    if analyzer_output.get("build_only") is not True or analyzer_output.get("production_activation") is not False:
-        raise PhotorealFrameIndexError("photoreal frame observations authority boundary is invalid")
-    if str(analyzer_output.get("performer_id") or "") != performer_id:
-        raise PhotorealFrameIndexError("photoreal frame observations performer mismatch")
-    analyzer = _text(analyzer_output.get("analyzer"), label="frame analyzer", maximum=256)
-    analyzer_revision = _text(analyzer_output.get("analyzer_revision"), label="frame analyzer revision", maximum=256)
+    if authorized_observations.get("format") != OBSERVATIONS_FORMAT or authorized_observations.get("version") != OBSERVATIONS_VERSION:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations format/version mismatch")
+    if authorized_observations.get("identity_authority_is_core_derived") is not True:
+        raise PhotorealFrameIndexError("frame observations do not carry core-derived identity authority")
+    if authorized_observations.get("photoreal_acceptance_authority") is not False:
+        raise PhotorealFrameIndexError("frame observations crossed photoreal acceptance authority")
+    if authorized_observations.get("build_only") is not True or authorized_observations.get("production_activation") is not False:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations authority boundary is invalid")
+    if str(authorized_observations.get("performer_id") or "") != performer_id:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations performer mismatch")
+    analyzer = _text(authorized_observations.get("analyzer"), label="frame analyzer", maximum=256)
+    analyzer_revision = _text(authorized_observations.get("analyzer_revision"), label="frame analyzer revision", maximum=256)
     analyzer_model_set_sha256 = _hex(
-        analyzer_output.get("analyzer_model_set_sha256"),
+        authorized_observations.get("analyzer_model_set_sha256"),
         length=64,
         label="frame analyzer model-set SHA-256",
     )
+    identity_bank_sha256 = _hex(
+        authorized_observations.get("identity_bank_sha256"),
+        length=64,
+        label="frame identity bank SHA-256",
+    )
+    identity_calibration_sha256 = _hex(
+        authorized_observations.get("identity_calibration_sha256"),
+        length=64,
+        label="frame identity calibration SHA-256",
+    )
+    identity_matching_calibrated = authorized_observations.get("identity_matching_calibrated")
+    if not isinstance(identity_matching_calibrated, bool):
+        raise PhotorealFrameIndexError("identity_matching_calibrated must be boolean")
+    identity_match_threshold = _cosine_or_none(
+        authorized_observations.get("identity_match_threshold"),
+        label="identity match threshold",
+    )
+    if identity_matching_calibrated and identity_match_threshold is None:
+        raise PhotorealFrameIndexError("calibrated identity matching lacks threshold")
+    if not identity_matching_calibrated and identity_match_threshold is not None:
+        raise PhotorealFrameIndexError("uncalibrated identity matching must not expose threshold")
 
-    raw_observations = analyzer_output.get("observations")
+    raw_observations = authorized_observations.get("observations")
     if not isinstance(raw_observations, list) or not raw_observations:
-        raise PhotorealFrameIndexError("photoreal frame observations are empty")
+        raise PhotorealFrameIndexError("photoreal authorized frame observations are empty")
     if len(raw_observations) > MAX_OBSERVATIONS:
         raise PhotorealFrameIndexError(f"photoreal frame observations exceed explicit safety bound {MAX_OBSERVATIONS}")
 
@@ -459,6 +521,11 @@ def build_frame_index(
         "analyzer": analyzer,
         "analyzer_revision": analyzer_revision,
         "analyzer_model_set_sha256": analyzer_model_set_sha256,
+        "identity_bank_sha256": identity_bank_sha256,
+        "identity_calibration_sha256": identity_calibration_sha256,
+        "identity_matching_calibrated": identity_matching_calibrated,
+        "identity_match_threshold": identity_match_threshold,
+        "identity_authority_is_core_derived": True,
         "source_count": len(plan_sources),
         "observed_source_count": len(observed_sources),
         "observation_count": len(normalized),
@@ -497,7 +564,7 @@ def build_frame_index_files(
 ) -> dict[str, Any]:
     plan = _read_json(plan_path, label="photoreal dataset plan")
     receipt = _read_json(receipt_path, label="photoreal source receipt")
-    observations = _read_json(observations_path, label="photoreal frame observations")
+    observations = _read_json(observations_path, label="photoreal core-authorized frame observations")
     result = build_frame_index(plan, receipt, observations)
     output = Path(output_path).expanduser().resolve()
     if output.exists():
