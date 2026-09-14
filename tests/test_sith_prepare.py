@@ -153,3 +153,23 @@ def test_prepare_runs_pinned_centralizer_then_hardened_openpose(monkeypatch, tmp
 def test_prepare_rejects_nonstandard_openpose_layout():
     with pytest.raises(prepare.SithPrepareError, match="standard"):
         prepare._openpose_model_root("/opt/openpose/openpose.bin")
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 0, 2])
+def test_load_stage_rejects_noncanonical_v1_versions(tmp_path: Path, version: object) -> None:
+    workspace = _workspace(tmp_path)
+    path = workspace / "sith-input-v1" / "stage.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = version
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(prepare.SithPrepareError, match="unsupported SiTH stage format/version"):
+        prepare.load_stage(workspace)
+
+
+def test_load_stage_preserves_numeric_float_v1(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    path = workspace / "sith-input-v1" / "stage.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = 1.0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _, manifest, _ = prepare.load_stage(workspace)
+    assert manifest["version"] == 1.0

@@ -129,7 +129,13 @@ def load_prepared_input(workspace: str | Path) -> tuple[Path, dict[str, Any], st
     required = {"format", "version", "stage_manifest_sha256", "subject_track_id", "sith_revision", "centralizer_blob", "centralized_image_sha256", "openpose_keypoints_sha256", "centralized_size", "openpose_quality"}
     if set(prep) != required:
         raise SithReconstructError("SiTH prepared-input fields must match v1 exactly")
-    if prep["format"] != "bodyrig-sith-prepared-input" or prep["version"] != 1:
+    version = prep["version"]
+    if (
+        prep["format"] != "bodyrig-sith-prepared-input"
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != 1
+    ):
         raise SithReconstructError("unsupported SiTH prepared-input format/version")
     if prep["stage_manifest_sha256"] != stage_sha:
         raise SithReconstructError("SiTH prepared input is not bound to current stage manifest")
