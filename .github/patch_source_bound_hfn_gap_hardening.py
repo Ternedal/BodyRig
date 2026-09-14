@@ -19,7 +19,7 @@ if module.count(old) != 1:
 module = module.replace(old, new, 1)
 
 old = '''    completed = runner(commands[0], check=False)\n    code = int(getattr(completed, "returncode", 1))\n'''
-new = '''    runner_kwargs: dict[str, Any] = {"check": False}\n    working_directory = execution.get("working_directory")\n    if working_directory is not None:\n        workdir = Path(str(working_directory)).expanduser().resolve()\n        if not workdir.is_dir():\n            raise FidelityComponentGapExecutionError("component gap execution working directory is missing")\n        runner_kwargs["cwd"] = str(workdir)\n    completed = runner(commands[0], **runner_kwargs)\n    code = int(getattr(completed, "returncode", 1))\n'''
+new = '''    runner_kwargs: dict[str, Any] = {"check": False}\n    working_directory = execution.get("working_directory")\n    if working_directory is not None:\n        workdir = os.path.abspath(os.path.expanduser(str(working_directory)))\n        if not os.path.isdir(workdir):\n            raise FidelityComponentGapExecutionError("component gap execution working directory is missing")\n        runner_kwargs["cwd"] = workdir\n    completed = runner(commands[0], **runner_kwargs)\n    code = int(getattr(completed, "returncode", 1))\n'''
 if module.count(old) != 1:
     raise SystemExit("executor runner working-directory anchor drifted")
 module = module.replace(old, new, 1)
