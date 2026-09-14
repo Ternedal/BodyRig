@@ -19,6 +19,11 @@ function Test-SamePath([string]$Left, [string]$Right) {
     }
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Get-BodyRigHealth {
     try {
         return Invoke-RestMethod -Uri "http://127.0.0.1:8775/api/v1/health" -TimeoutSec 1
@@ -88,7 +93,7 @@ function Restore-StashLocalConfig {
     } catch {
         return
     }
-    if ([string]$config.format -ne "bodyrig-local-stash-config" -or [int]$config.version -ne 1) { return }
+    if ([string]$config.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $config.version)) { return }
     $savedUrl = [string]$config.url
     if ([string]::IsNullOrWhiteSpace($savedUrl) -or [string]::IsNullOrWhiteSpace([string]$config.api_key_dpapi)) { return }
 
@@ -123,7 +128,7 @@ function Read-LaunchState {
     } catch {
         return $null
     }
-    if ([string]$state.format -ne "bodyrig-ui-service" -or [int]$state.version -ne 1) { return $null }
+    if ([string]$state.format -ne "bodyrig-ui-service" -or -not (Test-V1Version $state.version)) { return $null }
     return $state
 }
 
