@@ -31,7 +31,8 @@ def test_evening_command_delegates_to_canonical_current_floor_review() -> None:
 def test_evening_summary_v1_guard_is_bool_safe_before_summary_authority() -> None:
     text = source()
 
-    assert "function Test-V1Version($Value)" in text
+    assert "function Test-V1Version" in text
+    assert "param($Value)" in text
     assert "$Value -is [bool]" in text
     assert "$Value -isnot [ValueType]" in text
     assert "[decimal]$Value -eq [decimal]1" in text
@@ -47,7 +48,7 @@ def test_evening_summary_v1_guard_is_bool_safe_before_summary_authority() -> Non
 
 def _v1_helper_source() -> str:
     text = source()
-    start = text.index("function Test-V1Version($Value)")
+    start = text.index("function Test-V1Version")
     end = text.index("\n}\n", start) + 3
     return text[start:end]
 
@@ -84,11 +85,14 @@ def test_evening_command_recomputes_exact_component_gap_before_reuse() -> None:
     assert "differs from freshly recomputed authority; refusing stale/tampered reuse" in text
 
 
-def test_evening_command_binds_gap_to_current_floor_package_and_revision() -> None:
+def test_evening_command_binds_gap_to_final_physical_package_and_revision() -> None:
     text = source()
 
     assert '[string]$gap.bodyrig_revision -ne $head' in text
-    assert '[string]$gap.package_sha256 -ne [string]$summary.current_floor_package_sha256' in text
+    assert '[string]$gap.package_sha256 -ne $physicalPackageSha' in text
+    assert "physical_component_authority_package_sha256" in text
+    assert "face_secondary_preview_summary_sha256" in text
+    assert "Face-secondary preview summary bytes differ from current-floor summary authority." in text
     assert "$gap.human_visual_authority_required -ne $true" in text
     assert "$gap.production_activation -ne $false" in text
 
@@ -121,3 +125,15 @@ def test_evening_command_does_not_introduce_clone_or_reconstruction_paths() -> N
         "SithSeed",
     ):
         assert forbidden not in text
+
+
+def test_evening_command_uses_face_secondary_probe_without_relabeling_source_package() -> None:
+    text = source()
+
+    assert '$currentFloorPackageSha = Need-Sha256 -Value ([string]$summary.current_floor_package_sha256)' in text
+    assert '$physicalPackageSha = Need-Sha256 -Value ([string]$summary.physical_component_authority_package_sha256)' in text
+    assert '$physicalRoot = $faceRoot' in text
+    assert '[string]$faceSummary.source_package_sha256 -ne $currentFloorPackageSha' in text
+    assert '$facePackageSha -ne $physicalPackageSha' in text
+    assert 'comparison_only' in text
+    assert 'production_activation' in text
