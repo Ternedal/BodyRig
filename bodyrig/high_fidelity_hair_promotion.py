@@ -74,6 +74,10 @@ class HighFidelityHairPromotionError(RuntimeError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -164,7 +168,7 @@ def _preview_inputs(preview_job_id: str) -> dict[str, Any]:
     job = _read_json(job_path, label="High-fidelity preview job")
     if (
         job.get("format") != "bodyrig-high-fidelity-preview-job"
-        or job.get("version") != 1
+        or not _v1(job.get("version"))
         or job.get("job_id") != job_id
         or job.get("status") != "succeeded"
     ):
@@ -196,7 +200,7 @@ def _preview_inputs(preview_job_id: str) -> dict[str, Any]:
     candidate_sha = _sha256_file(candidate_package)
     if (
         anatomy_summary.get("format") != "bodyrig-subject-anatomy-physical-gate"
-        or anatomy_summary.get("version") != 1
+        or not _v1(anatomy_summary.get("version"))
         or str(anatomy_summary.get("bodyrig_revision") or "").lower() != source_revision
         or anatomy_summary.get("canonical_body_id") != canonical_body_id
         or anatomy_summary.get("target_model_family") != target_family
@@ -229,7 +233,7 @@ def _preview_inputs(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityHairPromotionError("component discovery lacks canonical hair/runtime authority")
     if (
         component.get("format") != "bodyrig-subject-component-discovery"
-        or component.get("version") != 1
+        or not _v1(component.get("version"))
         or str(component.get("bodyrig_revision") or "").lower() != source_revision
         or component.get("candidate_package_sha256") != candidate_sha
         or component.get("comparison_only") is not True
@@ -269,7 +273,7 @@ def _preview_inputs(preview_job_id: str) -> dict[str, Any]:
     )
     if (
         combined_bridge.get("format") != "bodyrig-source-hair-eye-review-bridge"
-        or combined_bridge.get("version") != 1
+        or not _v1(combined_bridge.get("version"))
         or combined_bridge.get("sourceHairRuntimeApplied") is not True
         or combined_bridge.get("sourceEyeSurfaceApplied") is not True
         or combined_bridge.get("irisIdentityIsolated") is not False
@@ -281,7 +285,7 @@ def _preview_inputs(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityHairPromotionError("combined hair+eye bridge is not canonical review-only authority")
     if (
         combined_runtime.get("format") != "bodyrig-source-hair-eye-review-runtime"
-        or combined_runtime.get("version") != 1
+        or not _v1(combined_runtime.get("version"))
         or combined_runtime.get("packageSha256") != candidate_sha
         or combined_runtime.get("reviewVrmSha256") != combined_review_sha
         or combined_runtime.get("bridgeResultSha256") != _sha256_file(combined_bridge_path)
@@ -441,7 +445,7 @@ def _validated_rebuilt_hair_runtime(
 
     if (
         bridge.get("format") != "bodyrig-source-hair-review-bridge"
-        or bridge.get("version") != 1
+        or not _v1(bridge.get("version"))
         or bridge.get("reviewVrmSha256") != vrm_sha
         or bridge.get("sourceHairBodyBindingSha256") != binding_sha
         or bridge.get("comparisonOnly") is not True
@@ -452,7 +456,7 @@ def _validated_rebuilt_hair_runtime(
         raise HighFidelityHairPromotionError("rebuilt hair bridge crossed or lost the review-only authority boundary")
     if (
         runtime.get("format") != "bodyrig-source-hair-review-runtime"
-        or runtime.get("version") != 1
+        or not _v1(runtime.get("version"))
         or runtime.get("bodyrigRevision") != promotion_bodyrig_revision
         or runtime.get("bodyId") != preview["canonical_body_id"]
         or runtime.get("packageSha256") != preview["candidate_package_sha256"]
@@ -798,7 +802,7 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityHairPromotionError("hair promotion receipt fields are not canonical")
     if (
         value.get("format") != FORMAT
-        or value.get("version") != VERSION
+        or not _v1(value.get("version"))
         or value.get("policy_revision") != POLICY_REVISION
         or value.get("production_activation") is not False
         or value.get("promotion_component") != "hair"
@@ -835,7 +839,7 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
     runtime = _read_json(paths["hair_runtime"], label="Persisted rebuilt hair runtime")
     if (
         runtime.get("format") != "bodyrig-source-hair-review-runtime"
-        or runtime.get("version") != 1
+        or not _v1(runtime.get("version"))
         or runtime.get("bodyrigRevision") != value["promotion_bodyrig_revision"]
         or runtime.get("bodyId") != value["canonical_body_id"]
         or runtime.get("packageSha256") != value["source_candidate_package_sha256"]
@@ -883,7 +887,13 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
             raise HighFidelityHairPromotionError("hair promotion changed component authority beyond hair")
 
     embedded, promoted_bodyrig = _embedded_hair_promotion(paths["package"])
-    if promoted_bodyrig.get("bodyAnatomyPromotion") != _embedded_anatomy_promotion(anatomy_package):
+    anatomy_embedded = _embedded_anatomy_promotion(anatomy_package)
+    promoted_anatomy_embedded = promoted_bodyrig.get("bodyAnatomyPromotion")
+    if (
+        not isinstance(promoted_anatomy_embedded, dict)
+        or not _v1(promoted_anatomy_embedded.get("version"))
+        or promoted_anatomy_embedded != anatomy_embedded
+    ):
         raise HighFidelityHairPromotionError("promoted hair package did not preserve exact embedded anatomy authority")
     expected_embedded = {
         "format": EMBEDDED_FORMAT,
@@ -905,7 +915,7 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
         "eyesImported": False,
         "productionActivation": False,
     }
-    if embedded != expected_embedded:
+    if not _v1(embedded.get("version")) or embedded != expected_embedded:
         raise HighFidelityHairPromotionError("embedded hair promotion authority is stale or tampered")
     if value.get("promoted_avatar_sha256") != _sha256_bytes(_extract_avatar(paths["package"])):
         raise HighFidelityHairPromotionError("promoted avatar hash no longer matches receipt")
