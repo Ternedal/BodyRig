@@ -116,6 +116,8 @@ def _observations(plan: dict[str, object], receipt: dict[str, object]) -> dict[s
         "format": "bodyrig-photoreal-frame-observations",
         "version": 1,
         "performer_id": "42",
+        "analyzer": "synthetic-photoreal-frame-analyzer",
+        "analyzer_revision": "test-v1",
         "observations": [
             _observation(train_key, sha[train_key], timestamp=1.0, view="front", face=0.9, body=0.9, phash="0000000000000000"),
             _observation(front_key, sha[front_key], timestamp=2.0, view="front", face=0.9, body=0.9, phash="1111111111111111"),
@@ -133,6 +135,8 @@ def test_frame_index_authorizes_training_only_after_held_out_coverage() -> None:
     result = build_frame_index(plan, receipt, _observations(plan, receipt))
 
     assert result["teacher_training_authorized"] is True
+    assert result["analyzer"] == "synthetic-photoreal-frame-analyzer"
+    assert result["analyzer_revision"] == "test-v1"
     assert result["cross_split_near_duplicate_count"] == 0
     assert result["held_out_view_coverage_missing"] == []
     assert set(result["held_out_view_coverage_observed"]) >= {
@@ -151,7 +155,6 @@ def test_frame_index_blocks_cross_split_perceptual_near_duplicate() -> None:
     plan = _plan()
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
-    # Hamming distance 1 from the train hash, despite being a different Stash scene.
     observations["observations"][1]["perceptual_hash"] = "0000000000000001"
 
     result = build_frame_index(plan, receipt, observations)
@@ -209,3 +212,13 @@ def test_frame_index_rejects_plan_receipt_universe_mismatch() -> None:
 
     with pytest.raises(PhotorealFrameIndexError, match="disagree on exact source universe"):
         build_frame_index(plan, receipt, _observations(plan, _receipt(plan)))
+
+
+def test_frame_index_rejects_missing_analyzer_provenance() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations.pop("analyzer_revision")
+
+    with pytest.raises(PhotorealFrameIndexError, match="frame analyzer revision"):
+        build_frame_index(plan, receipt, observations)
