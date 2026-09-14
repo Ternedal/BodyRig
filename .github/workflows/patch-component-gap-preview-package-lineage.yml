@@ -1,0 +1,44 @@
+name: patch-component-gap-preview-package-lineage
+on:
+  push:
+    branches: [fix/component-gap-preview-package-lineage]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install locked environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply exact candidate package lineage patch
+        run: python tools/patch_component_gap_preview_package_lineage.py
+      - name: Compile changed Python
+        run: python -m py_compile bodyrig/high_fidelity_preview_jobs.py bodyrig/fidelity_component_gap_executor.py tests/test_fidelity_component_gap_executor.py tests/test_component_gap_face_preview_lineage.py tests/test_high_fidelity_preview_candidate_resolution.py
+      - name: Run focused regressions
+        run: python -m pytest -q tests/test_fidelity_component_gap_executor.py tests/test_component_gap_face_preview_lineage.py tests/test_high_fidelity_preview_candidate_resolution.py
+      - name: Validate patch boundary
+        shell: bash
+        run: |
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'bodyrig/fidelity_component_gap_executor.py\nbodyrig/high_fidelity_preview_jobs.py\ntests/test_component_gap_face_preview_lineage.py\ntests/test_fidelity_component_gap_executor.py\ntests/test_high_fidelity_preview_candidate_resolution.py'
+          if [[ "$changed" != "$expected" ]]; then
+            echo "Unexpected product diff before helper cleanup:"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+      - name: Commit product patch and remove helpers
+        shell: bash
+        run: |
+          git rm .github/workflows/patch-component-gap-preview-package-lineage.yml tools/patch_component_gap_preview_package_lineage.py
+          git add bodyrig/fidelity_component_gap_executor.py bodyrig/high_fidelity_preview_jobs.py tests/test_fidelity_component_gap_executor.py tests/test_component_gap_face_preview_lineage.py tests/test_high_fidelity_preview_candidate_resolution.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Bind face gap execution to exact preview candidate package"
+          git push origin HEAD:fix/component-gap-preview-package-lineage
