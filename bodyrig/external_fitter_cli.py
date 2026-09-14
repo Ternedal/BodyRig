@@ -67,7 +67,13 @@ def validate_external_fitter_config(value: Any) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise ExternalFitterConfigError("external fitter config fields must match v1 exactly")
-    if value["format"] != CONFIG_FORMAT or value["version"] != CONFIG_VERSION:
+    version = value["version"]
+    if (
+        value["format"] != CONFIG_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != CONFIG_VERSION
+    ):
         raise ExternalFitterConfigError("unsupported external fitter config format/version")
 
     adapter = value["adapter"]
