@@ -88,6 +88,10 @@ class HandsFeetNailsReleaseAuthorityError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value == VERSION
+
+
 def _sha(value: Any, label: str) -> str:
     text = str(value or "").strip().lower()
     if not SHA256_RE.fullmatch(text):
@@ -155,7 +159,7 @@ def release_authority_dir(
 def _validate_comparison(value: Mapping[str, Any], *, review: Mapping[str, Any]) -> dict[str, str]:
     if set(value) != COMPARISON_FIELDS:
         raise HandsFeetNailsReleaseAuthorityError("M2 comparison authority fields are not canonical")
-    if value.get("format") != "bodyrig-fidelity-comparison-authority" or value.get("version") != 1:
+    if value.get("format") != "bodyrig-fidelity-comparison-authority" or not _is_v1(value.get("version")):
         raise HandsFeetNailsReleaseAuthorityError("M2 comparison authority format/version mismatch")
     if value.get("authority") != "validated-package-comparison-only":
         raise HandsFeetNailsReleaseAuthorityError("M2 render provenance is not the canonical validated-package comparison path")
@@ -185,7 +189,7 @@ def _validate_render_authority_bundle(
     value = _read_json(path, "M2 render authority")
     if set(value) != RENDER_AUTHORITY_FIELDS:
         raise HandsFeetNailsReleaseAuthorityError("M2 render authority fields are not canonical")
-    if value.get("format") != RENDER_AUTHORITY_FORMAT or value.get("version") != 1:
+    if value.get("format") != RENDER_AUTHORITY_FORMAT or not _is_v1(value.get("version")):
         raise HandsFeetNailsReleaseAuthorityError("M2 render authority format/version mismatch")
     if str(value.get("bodyrig_revision") or "").lower() != str(review["bodyrig_revision"]).lower():
         raise HandsFeetNailsReleaseAuthorityError("M2 detail renders were produced by a different BodyRig revision")
@@ -246,7 +250,7 @@ def validate_release_authority_structure(
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsReleaseAuthorityError("hands/feet/nails finalized authority fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HandsFeetNailsReleaseAuthorityError("hands/feet/nails finalized authority format/version/policy mismatch")
     try:
         assembly = _assembly_identity(assembly_receipt)
@@ -465,7 +469,7 @@ def read_release_authority(
     if _sha256_file(comparison_path) != value["comparison_authority_sha256"]:
         raise HandsFeetNailsReleaseAuthorityError("frozen M2 comparison-authority bytes changed after finalization")
     render_value = _read_json(render_path, "frozen M2 render authority")
-    if set(render_value) != RENDER_AUTHORITY_FIELDS or render_value.get("format") != RENDER_AUTHORITY_FORMAT or render_value.get("version") != 1:
+    if set(render_value) != RENDER_AUTHORITY_FIELDS or render_value.get("format") != RENDER_AUTHORITY_FORMAT or not _is_v1(render_value.get("version")):
         raise HandsFeetNailsReleaseAuthorityError("frozen M2 render authority is invalid")
     if str(render_value.get("bodyrig_revision") or "").lower() != str(value["bodyrig_revision"]).lower():
         raise HandsFeetNailsReleaseAuthorityError("frozen M2 render revision no longer matches final authority")
