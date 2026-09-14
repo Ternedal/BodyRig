@@ -34,6 +34,10 @@ function Assert-SemanticallyEqualJson {
     $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress
     if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig evening command is Windows-only." }
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." }
@@ -92,7 +96,7 @@ $tag = $head.Substring(0, 8)
 $eveningRoot = Need-Directory -Path (Join-Path $WorkRoot "evening-current-floor-$tag") -Label "Current-floor evening output"
 $summaryPath = Need-File -Path (Join-Path $eveningRoot "evening-review-summary.json") -Label "Current-floor evening summary"
 $summary = Read-Json -Path $summaryPath -Label "Current-floor evening summary"
-if ([string]$summary.format -ne "bodyrig-fidelity-current-floor-evening-review" -or [int]$summary.version -ne 1 -or
+if ([string]$summary.format -ne "bodyrig-fidelity-current-floor-evening-review" -or -not (Test-V1Version $summary.version) -or
     [string]$summary.bodyrig_revision -ne $head -or $summary.current_floor_refit_repackage -ne $true -or
     $summary.expensive_reconstruction_rerun -ne $false -or $summary.diagnostic_only -ne $true -or
     $summary.physical_acceptance_authority -ne $false -or $summary.human_visual_authority_required -ne $true -or

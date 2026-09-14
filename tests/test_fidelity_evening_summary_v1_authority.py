@@ -1,23 +1,4 @@
-from pathlib import Path
-
-root = Path(__file__).resolve().parents[1]
-script = root / "run-fidelity-evening.ps1"
-text = script.read_text(encoding="utf-8")
-anchor = '''function Assert-SemanticallyEqualJson {\n    param([Parameter(Mandatory = $true)]$Expected,[Parameter(Mandatory = $true)]$Actual,[Parameter(Mandatory = $true)][string]$Label)\n    $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress\n    $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress\n    if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }\n}\n\nif ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig evening command is Windows-only." }\n'''
-replacement = '''function Assert-SemanticallyEqualJson {\n    param([Parameter(Mandatory = $true)]$Expected,[Parameter(Mandatory = $true)]$Actual,[Parameter(Mandatory = $true)][string]$Label)\n    $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress\n    $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress\n    if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }\n}\nfunction Test-V1Version($Value) {\n    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }\n    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }\n}\n\nif ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig evening command is Windows-only." }\n'''
-if text.count(anchor) != 1:
-    raise SystemExit("evening summary helper insertion anchor drifted")
-text = text.replace(anchor, replacement)
-old = '[int]$summary.version -ne 1'
-new = '-not (Test-V1Version $summary.version)'
-if text.count(old) != 1:
-    raise SystemExit("evening summary version guard drifted")
-script.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
-
-test = root / "tests" / "test_fidelity_evening_summary_v1_authority.py"
-if test.exists():
-    raise SystemExit("evening summary v1 regression already exists")
-test.write_text("""from __future__ import annotations
+from __future__ import annotations
 
 import json
 import shutil
@@ -64,7 +45,7 @@ def test_evening_summary_preserves_recomputed_gap_and_non_authorizing_boundaries
 
 def _helper_source() -> str:
     start = SCRIPT.index("function Test-V1Version($Value)")
-    end = SCRIPT.index("\\n}\\n", start) + 3
+    end = SCRIPT.index("\n}\n", start) + 3
     return SCRIPT[start:end]
 
 
@@ -85,4 +66,3 @@ $results | ConvertTo-Json -Compress
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout.strip()) == [True, True, False, False, False, False, False]
-""", encoding="utf-8", newline="\n")
