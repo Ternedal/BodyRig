@@ -12,6 +12,10 @@ from typing import Any, Mapping
 
 from .fidelity_component_gap import FORMAT as GAP_FORMAT
 from .fidelity_component_gap import SEMANTICS as GAP_SEMANTICS
+from .hfn_existing_authority import (
+    HfnExistingAuthorityError,
+    find_reusable_hfn_source_uv_authorities,
+)
 from .high_fidelity_continuation_status import continuation_paths, inspect_continuation
 from .high_fidelity_hfn_continuation import (
     CANDIDATE_GATE as HFN_CANDIDATE_GATE,
@@ -319,6 +323,96 @@ def _hfn_context_path(value: Any, *, label: str) -> Path:
     return raw.resolve()
 
 
+def _reusable_hfn_detail_execution(
+    plan: Mapping[str, Any],
+    *,
+    hfn_root: Path,
+    person_id: str,
+    body_revision: str,
+    status_package: Path,
+    status_sha: str,
+    repo_root: Path,
+) -> dict[str, Any] | None:
+    try:
+        matches = find_reusable_hfn_source_uv_authorities(
+            hfn_root,
+            person_id,
+            body_revision=body_revision,
+            package_path=status_package,
+            package_sha256=status_sha,
+        )
+    except HfnExistingAuthorityError as exc:
+        raise FidelityComponentGapExecutionError(
+            f"existing HFN source/UV authority discovery failed closed: {exc}"
+        ) from exc
+    if len(matches) != 1:
+        return None
+
+    authority = matches[0]
+    if authority.get("package_sha256") != status_sha or status_sha != plan["package_sha256"]:
+        raise FidelityComponentGapExecutionError(
+            "reusable HFN source/UV authority targets different package bytes than the Unity gap plan"
+        )
+    if authority.get("body_id") != plan["body_id"]:
+        raise FidelityComponentGapExecutionError(
+            "reusable HFN source/UV authority targets a different canonical body than the Unity gap plan"
+        )
+    capture_id = _canonical_hfn_id(
+        authority.get("capture_id"), pattern=HFN_CAPTURE_RE, field="reusable HFN capture_id"
+    )
+    uv_path = _need_file(authority.get("uv_evidence_path"), label="reusable HFN UV evidence")
+    expected_uv_root = (
+        hfn_root
+        / "hands-feet-nails-uv-domain-evidence"
+        / person_id
+        / body_revision
+        / capture_id
+    ).resolve()
+    if uv_path.parent != expected_uv_root:
+        raise FidelityComponentGapExecutionError(
+            "reusable HFN UV evidence escaped the exact Person/body/capture authority path"
+        )
+    uv_sha = _canonical_sha(
+        authority.get("uv_evidence_sha256"), field="reusable HFN UV evidence SHA", length=64
+    )
+    if _sha256_file(uv_path) != uv_sha:
+        raise FidelityComponentGapExecutionError(
+            "reusable HFN UV evidence bytes changed after exact authority discovery"
+        )
+    source_capture_sha = _canonical_sha(
+        authority.get("source_capture_sha256"), field="reusable HFN source-capture SHA", length=64
+    )
+    landmark_sha = _canonical_sha(
+        authority.get("landmark_evidence_sha256"), field="reusable HFN landmark-evidence SHA", length=64
+    )
+    argv = _pwsh(
+        repo_root,
+        "prepare-hands-feet-nails-detail-candidate.ps1",
+        "-Root", str(hfn_root),
+        "-PersonId", person_id,
+        "-BodyRevision", body_revision,
+        "-CaptureId", capture_id,
+        "-UvEvidence", str(uv_path),
+        "-PackagePath", str(status_package),
+    )
+    return {
+        "mode": "machine-executable",
+        "commands": [argv],
+        "operator_input_required": False,
+        "hfn_gate": HFN_CANDIDATE_GATE,
+        "hfn_substep": "detail-candidate",
+        "hfn_current_package_sha256": status_sha,
+        "hfn_reused_existing_source_uv_authority": True,
+        "hfn_capture_id": capture_id,
+        "hfn_uv_evidence_path": str(uv_path),
+        "hfn_uv_evidence_sha256": uv_sha,
+        "hfn_source_capture_sha256": source_capture_sha,
+        "hfn_landmark_evidence_sha256": landmark_sha,
+        "person_id": person_id,
+        "body_revision": body_revision,
+    }
+
+
 def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_root: Path) -> dict[str, Any]:
     required_context = (
         "package_path",
@@ -396,6 +490,18 @@ def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_roo
     if operator_required:
         if gate not in {HFN_CANDIDATE_GATE, HFN_HUMAN_GATE}:
             raise FidelityComponentGapExecutionError(f"unexpected operator-required HFN gate: {gate}")
+        if gate == HFN_CANDIDATE_GATE:
+            reusable = _reusable_hfn_detail_execution(
+                plan,
+                hfn_root=hfn_root,
+                person_id=person_id,
+                body_revision=body_revision,
+                status_package=status_package,
+                status_sha=status_sha,
+                repo_root=repo_root,
+            )
+            if reusable is not None:
+                return reusable
         return {
             "mode": "operator-stop",
             "commands": [],
