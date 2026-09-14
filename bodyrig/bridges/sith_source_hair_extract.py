@@ -19,6 +19,12 @@ MIN_DISTANCE_BODY_RATIO = 0.008
 SEED_DISTANCE_BODY_RATIO = 0.006
 MIN_Y_BODY_RATIO = 0.60
 SEED_Y_BODY_RATIO = 0.79
+SHORT_HAIR_MIN_DISTANCE_BODY_RATIO = 0.003
+SHORT_HAIR_SEED_DISTANCE_BODY_RATIO = 0.0025
+SHORT_HAIR_MIN_Y_BODY_RATIO = 0.72
+SHORT_HAIR_SEED_Y_BODY_RATIO = 0.80
+MIN_HEAD_FOOTPRINT_BODY_RATIO = 0.035
+MIN_VERTICAL_SPAN_BODY_RATIO = 0.012
 
 
 class SourceHairExtractError(ValueError):
@@ -107,82 +113,137 @@ def select_hair_faces(
     donor_head_radius = _quantile(donor_head_radius_values, 0.95)
     search_radius = min(max(donor_head_radius * 1.85, body_height * 0.08), body_height * 0.25)
 
-    min_distance = body_height * MIN_DISTANCE_BODY_RATIO
-    seed_distance = body_height * SEED_DISTANCE_BODY_RATIO
-    candidate_vertices: set[int] = set()
-    seed_vertices: set[int] = set()
-    normalized_y: list[float] = []
-    radial: list[float] = []
-    for index, row in enumerate(source):
-        yn = (row[1] - y_min) / body_height
-        radius = math.hypot(row[0] - center_x, row[2] - center_z)
-        normalized_y.append(yn)
-        radial.append(radius)
-        if yn >= MIN_Y_BODY_RATIO and radius <= search_radius and distances[index] >= min_distance:
-            candidate_vertices.add(index)
-        if yn >= SEED_Y_BODY_RATIO and radius <= search_radius and distances[index] >= seed_distance:
-            seed_vertices.add(index)
-
-    candidate_faces: list[int] = []
-    seed_faces: list[int] = []
+    normalized_y = [(row[1] - y_min) / body_height for row in source]
+    radial = [math.hypot(row[0] - center_x, row[2] - center_z) for row in source]
     face_vertices: list[tuple[int, int, int]] = []
-    for face_index, face in enumerate(source_faces):
+    for face in source_faces:
         if len(face) != 3:
             raise SourceHairExtractError("hair candidate source topology is not triangular")
         vertices = tuple(int(corner[0]) for corner in face)
         if any(vertex < 0 or vertex >= len(source) for vertex in vertices):
             raise SourceHairExtractError("hair candidate source face index is outside range")
         face_vertices.append(vertices)
-        in_candidate = sum(vertex in candidate_vertices for vertex in vertices)
-        mean_y = sum(normalized_y[vertex] for vertex in vertices) / 3.0
-        if in_candidate >= 2 and mean_y >= MIN_Y_BODY_RATIO:
-            candidate_faces.append(face_index)
-            if any(vertex in seed_vertices for vertex in vertices):
-                seed_faces.append(face_index)
 
-    if not seed_faces:
-        raise SourceHairExtractError("retained source exposes no geometric hair seed above the fitted head")
+    def run_pass(
+        *,
+        mode: str,
+        minimum_distance_ratio: float,
+        seed_distance_ratio: float,
+        minimum_y_ratio: float,
+        seed_y_ratio: float,
+    ) -> dict[str, Any] | None:
+        minimum_distance = body_height * minimum_distance_ratio
+        seed_distance = body_height * seed_distance_ratio
+        candidate_vertices = {
+            index
+            for index in range(len(source))
+            if normalized_y[index] >= minimum_y_ratio
+            and radial[index] <= search_radius
+            and distances[index] >= minimum_distance
+        }
+        seed_vertices = {
+            index
+            for index in range(len(source))
+            if normalized_y[index] >= seed_y_ratio
+            and radial[index] <= search_radius
+            and distances[index] >= seed_distance
+        }
+        candidate_faces: list[int] = []
+        seed_faces: list[int] = []
+        for face_index, vertices in enumerate(face_vertices):
+            in_candidate = sum(vertex in candidate_vertices for vertex in vertices)
+            mean_y = sum(normalized_y[vertex] for vertex in vertices) / 3.0
+            if in_candidate >= 2 and mean_y >= minimum_y_ratio:
+                candidate_faces.append(face_index)
+                if any(vertex in seed_vertices for vertex in vertices):
+                    seed_faces.append(face_index)
+        if not seed_faces:
+            return None
 
-    by_vertex: dict[int, list[int]] = {}
-    candidate_set = set(candidate_faces)
-    for face_index in candidate_faces:
-        for vertex in face_vertices[face_index]:
-            by_vertex.setdefault(vertex, []).append(face_index)
+        by_vertex: dict[int, list[int]] = {}
+        candidate_set = set(candidate_faces)
+        for face_index in candidate_faces:
+            for vertex in face_vertices[face_index]:
+                by_vertex.setdefault(vertex, []).append(face_index)
+        selected: set[int] = set(seed_faces)
+        queue: deque[int] = deque(seed_faces)
+        while queue:
+            face_index = queue.popleft()
+            for vertex in face_vertices[face_index]:
+                for neighbor in by_vertex.get(vertex, []):
+                    if neighbor in candidate_set and neighbor not in selected:
+                        selected.add(neighbor)
+                        queue.append(neighbor)
 
-    selected: set[int] = set(seed_faces)
-    queue: deque[int] = deque(seed_faces)
-    while queue:
-        face_index = queue.popleft()
-        for vertex in face_vertices[face_index]:
-            for neighbor in by_vertex.get(vertex, []):
-                if neighbor in candidate_set and neighbor not in selected:
-                    selected.add(neighbor)
-                    queue.append(neighbor)
+        selected_faces = sorted(selected)
+        selected_vertices = sorted({vertex for face_index in selected_faces for vertex in face_vertices[face_index]})
+        selected_distances = [distances[index] for index in selected_vertices]
+        selected_y = [normalized_y[index] for index in selected_vertices]
+        xs = [source[index][0] for index in selected_vertices]
+        ys = [source[index][1] for index in selected_vertices]
+        zs = [source[index][2] for index in selected_vertices]
+        footprint = max(max(xs) - min(xs), max(zs) - min(zs)) / body_height
+        vertical_span = (max(ys) - min(ys)) / body_height
+        return {
+            "selected_face_indices": selected_faces,
+            "selected_vertex_indices": selected_vertices,
+            "body_height": body_height,
+            "head_center_x": center_x,
+            "head_center_z": center_z,
+            "search_radius": search_radius,
+            "distance_p50": _quantile(selected_distances, 0.50),
+            "distance_p95": _quantile(selected_distances, 0.95),
+            "distance_max": max(selected_distances),
+            "minimum_y_ratio": min(selected_y),
+            "maximum_y_ratio": max(selected_y),
+            "seed_face_count": len(seed_faces),
+            "selection_mode": mode,
+            "minimum_distance_body_ratio": minimum_distance_ratio,
+            "seed_distance_body_ratio": seed_distance_ratio,
+            "minimum_y_body_ratio": minimum_y_ratio,
+            "seed_y_body_ratio": seed_y_ratio,
+            "head_footprint_span_body_ratio": footprint,
+            "vertical_span_body_ratio": vertical_span,
+        }
 
-    if len(selected) < MIN_FACE_COUNT:
-        raise SourceHairExtractError(
-            f"source-derived hair shell is too small for review ({len(selected)} faces < {MIN_FACE_COUNT})"
+    def adequate(result: dict[str, Any] | None) -> bool:
+        return bool(
+            result is not None
+            and len(result["selected_face_indices"]) >= MIN_FACE_COUNT
+            and result["head_footprint_span_body_ratio"] >= MIN_HEAD_FOOTPRINT_BODY_RATIO
+            and result["vertical_span_body_ratio"] >= MIN_VERTICAL_SPAN_BODY_RATIO
         )
 
-    selected_faces = sorted(selected)
-    selected_vertices = sorted({vertex for face_index in selected_faces for vertex in face_vertices[face_index]})
-    selected_distances = [distances[index] for index in selected_vertices]
-    selected_y = [normalized_y[index] for index in selected_vertices]
-    return {
-        "selected_face_indices": selected_faces,
-        "selected_vertex_indices": selected_vertices,
-        "body_height": body_height,
-        "head_center_x": center_x,
-        "head_center_z": center_z,
-        "search_radius": search_radius,
-        "distance_p50": _quantile(selected_distances, 0.50),
-        "distance_p95": _quantile(selected_distances, 0.95),
-        "distance_max": max(selected_distances),
-        "minimum_y_ratio": min(selected_y),
-        "maximum_y_ratio": max(selected_y),
-        "seed_face_count": len(seed_faces),
-    }
+    strict = run_pass(
+        mode="strict-shell",
+        minimum_distance_ratio=MIN_DISTANCE_BODY_RATIO,
+        seed_distance_ratio=SEED_DISTANCE_BODY_RATIO,
+        minimum_y_ratio=MIN_Y_BODY_RATIO,
+        seed_y_ratio=SEED_Y_BODY_RATIO,
+    )
+    if adequate(strict):
+        assert strict is not None
+        return strict
 
+    fallback = run_pass(
+        mode="short-hair-fallback",
+        minimum_distance_ratio=SHORT_HAIR_MIN_DISTANCE_BODY_RATIO,
+        seed_distance_ratio=SHORT_HAIR_SEED_DISTANCE_BODY_RATIO,
+        minimum_y_ratio=SHORT_HAIR_MIN_Y_BODY_RATIO,
+        seed_y_ratio=SHORT_HAIR_SEED_Y_BODY_RATIO,
+    )
+    candidate = fallback if fallback is not None else strict
+    if candidate is None:
+        raise SourceHairExtractError("retained source exposes no geometric hair seed above the fitted head")
+    if len(candidate["selected_face_indices"]) < MIN_FACE_COUNT:
+        raise SourceHairExtractError(
+            f"source-derived hair shell is too small for review ({len(candidate['selected_face_indices'])} faces < {MIN_FACE_COUNT})"
+        )
+    if candidate["head_footprint_span_body_ratio"] < MIN_HEAD_FOOTPRINT_BODY_RATIO:
+        raise SourceHairExtractError("source-derived hair shell head footprint is too narrow for review")
+    if candidate["vertical_span_body_ratio"] < MIN_VERTICAL_SPAN_BODY_RATIO:
+        raise SourceHairExtractError("source-derived hair shell vertical span is too small for review")
+    return candidate
 
 def _source_face_materials(path: Path) -> list[str | None]:
     materials: list[str | None] = []
@@ -315,7 +376,7 @@ def extract(*, workspace: Path, donor_obj: Path, output_dir: Path) -> dict[str, 
     receipt = {
         "format": FORMAT,
         "version": VERSION,
-        "method": "retained-sith-connected-head-shell-v1",
+        "method": "retained-sith-connected-head-shell-v2",
         "sourceReconstructionSha256": _sha256(reconstruction_path),
         "sourceMeshSha256": _sha256(source_obj),
         "sourceMaterialSha256": _sha256(source_mtl),
@@ -327,6 +388,13 @@ def extract(*, workspace: Path, donor_obj: Path, output_dir: Path) -> dict[str, 
         "selectedFaceCount": len(selection["selected_face_indices"]),
         "selectedVertexCount": len(selection["selected_vertex_indices"]),
         "seedFaceCount": selection["seed_face_count"],
+        "selectionMode": selection["selection_mode"],
+        "minimumDistanceBodyRatio": round(float(selection["minimum_distance_body_ratio"]), 9),
+        "seedDistanceBodyRatio": round(float(selection["seed_distance_body_ratio"]), 9),
+        "minimumYBodyRatio": round(float(selection["minimum_y_body_ratio"]), 9),
+        "seedYBodyRatio": round(float(selection["seed_y_body_ratio"]), 9),
+        "headFootprintSpanBodyRatio": round(float(selection["head_footprint_span_body_ratio"]), 9),
+        "verticalSpanBodyRatio": round(float(selection["vertical_span_body_ratio"]), 9),
         "bodyHeight": round(float(selection["body_height"]), 9),
         "headSearchRadius": round(float(selection["search_radius"]), 9),
         "sourceToDonorDistanceP50": round(float(selection["distance_p50"]), 9),

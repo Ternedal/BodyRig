@@ -60,6 +60,9 @@ def test_hair_selector_keeps_connected_external_head_shell() -> None:
     assert result["seed_face_count"] > 0
     assert result["distance_p95"] == pytest.approx(0.035)
     assert result["minimum_y_ratio"] >= 0.60
+    assert result["selection_mode"] == "strict-shell"
+    assert result["head_footprint_span_body_ratio"] >= 0.035
+    assert result["vertical_span_body_ratio"] >= 0.012
 
 
 def test_hair_selector_rejects_skin_close_to_donor_as_hair() -> None:
@@ -97,3 +100,34 @@ def test_hair_selector_does_not_bridge_disconnected_candidate_island() -> None:
 
     assert len(result["selected_face_indices"]) == 40
     assert max(result["selected_face_indices"]) < 40
+
+def test_hair_selector_recovers_short_hair_close_to_scalp() -> None:
+    source, faces = _hair_grid()
+    distances = [0.008] * len(source)
+
+    result = select_hair_faces(
+        donor_positions=_donor(),
+        source_positions=source,
+        source_faces=faces,
+        source_to_donor_distance=distances,
+    )
+
+    assert len(result["selected_face_indices"]) == 40
+    assert result["selection_mode"] == "short-hair-fallback"
+    assert result["minimum_distance_body_ratio"] == pytest.approx(0.003)
+    assert result["seed_distance_body_ratio"] == pytest.approx(0.0025)
+    assert result["minimum_y_body_ratio"] == pytest.approx(0.72)
+    assert result["seed_y_body_ratio"] == pytest.approx(0.80)
+
+
+def test_hair_selector_rejects_spatially_tiny_head_fragment() -> None:
+    source, faces = _hair_grid()
+    tiny = [(x * 0.04, y, z) for x, y, z in source]
+
+    with pytest.raises(SourceHairExtractError, match="head footprint is too narrow"):
+        select_hair_faces(
+            donor_positions=_donor(),
+            source_positions=tiny,
+            source_faces=faces,
+            source_to_donor_distance=[0.035] * len(tiny),
+        )

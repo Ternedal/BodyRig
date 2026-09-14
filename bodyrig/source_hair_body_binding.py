@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 import zipfile
@@ -79,7 +80,9 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
         "format", "version", "method", "sourceReconstructionSha256", "sourceMeshSha256",
         "sourceMaterialSha256", "sourceTextureSha256", "donorObjSha256", "hairObjSha256",
         "hairMaterialSha256", "hairTextureSha256", "selectedFaceCount", "selectedVertexCount",
-        "seedFaceCount", "bodyHeight", "headSearchRadius", "sourceToDonorDistanceP50",
+        "seedFaceCount", "selectionMode", "minimumDistanceBodyRatio", "seedDistanceBodyRatio",
+        "minimumYBodyRatio", "seedYBodyRatio", "headFootprintSpanBodyRatio", "verticalSpanBodyRatio",
+        "bodyHeight", "headSearchRadius", "sourceToDonorDistanceP50",
         "sourceToDonorDistanceP95", "sourceToDonorDistanceMax", "minimumBodyHeightRatio",
         "maximumBodyHeightRatio", "sourceDerived", "generativeGeometry", "bodyTopologyModified",
         "candidateBinding", "comparisonOnly", "humanReviewRequired", "productionReady",
@@ -88,7 +91,7 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
         raise SourceHairBodyBindingError("source hair candidate fields do not match v1")
     if receipt.get("format") != CANDIDATE_FORMAT or receipt.get("version") != CANDIDATE_VERSION:
         raise SourceHairBodyBindingError("source hair candidate format/version mismatch")
-    if receipt.get("method") != "retained-sith-connected-head-shell-v1":
+    if receipt.get("method") != "retained-sith-connected-head-shell-v2":
         raise SourceHairBodyBindingError("source hair candidate extraction method mismatch")
     if (
         receipt.get("sourceDerived") is not True
@@ -109,6 +112,29 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
         value = receipt.get(field)
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise SourceHairBodyBindingError(f"source hair candidate {field} is invalid")
+
+    mode = receipt.get("selectionMode")
+    thresholds = {
+        "strict-shell": (0.008, 0.006, 0.60, 0.79),
+        "short-hair-fallback": (0.003, 0.0025, 0.72, 0.80),
+    }
+    if mode not in thresholds:
+        raise SourceHairBodyBindingError("source hair candidate selectionMode is invalid")
+    observed = (
+        receipt.get("minimumDistanceBodyRatio"),
+        receipt.get("seedDistanceBodyRatio"),
+        receipt.get("minimumYBodyRatio"),
+        receipt.get("seedYBodyRatio"),
+    )
+    for value in observed:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise SourceHairBodyBindingError("source hair candidate selector thresholds are invalid")
+    if tuple(float(value) for value in observed) != thresholds[str(mode)]:
+        raise SourceHairBodyBindingError("source hair candidate selector thresholds do not match selectionMode")
+    for field, minimum in (("headFootprintSpanBodyRatio", 0.035), ("verticalSpanBodyRatio", 0.012)):
+        value = receipt.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) < minimum:
+            raise SourceHairBodyBindingError(f"source hair candidate {field} is below the v2 review floor")
 
     try:
         mtl_text = material.read_text(encoding="utf-8", errors="strict")
