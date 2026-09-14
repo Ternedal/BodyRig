@@ -36,7 +36,13 @@ def _load_config(path: str | Path) -> dict:
         "timeout_seconds",
     }:
         raise ObservationError("observation analyzer config fields must match v1 exactly")
-    if config["format"] != CONFIG_FORMAT or config["version"] != CONFIG_VERSION:
+    version = config["version"]
+    if (
+        config["format"] != CONFIG_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != CONFIG_VERSION
+    ):
         raise ObservationError("unsupported observation analyzer config format/version")
     command = config["command"]
     if not isinstance(command, list) or not command or any(not isinstance(item, str) or not item for item in command):
