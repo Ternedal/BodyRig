@@ -35,6 +35,10 @@ class HighFidelityFaceSecondaryRuntimeError(RuntimeError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -81,7 +85,7 @@ def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[
     if face["faceSecondaryReady"] is True or top["components"].get("face_secondary") == "complete":
         raise HighFidelityFaceSecondaryRuntimeError("face-secondary is already complete")
     eye = bodyrig.get("eyePromotion")
-    if not isinstance(eye, dict) or eye.get("format") != EYE_PROMOTION_FORMAT or eye.get("version") != 1:
+    if not isinstance(eye, dict) or eye.get("format") != EYE_PROMOTION_FORMAT or not _is_version(eye.get("version"), 1):
         raise HighFidelityFaceSecondaryRuntimeError("canonical embedded eye promotion authority is required")
     if eye.get("sourceHairRuntimeImported") is not False or eye.get("productionActivation") is not False:
         raise HighFidelityFaceSecondaryRuntimeError("eye promotion crossed the review-only source boundary")
@@ -402,7 +406,7 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
         value = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HighFidelityFaceSecondaryRuntimeError("face-secondary runtime receipt is unreadable") from exc
-    if not isinstance(value, dict) or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if not isinstance(value, dict) or value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityFaceSecondaryRuntimeError("face-secondary runtime receipt format/version is invalid")
     if value.get("reviewVrmSha256") != _sha256_file(vrm_path):
         raise HighFidelityFaceSecondaryRuntimeError("face-secondary review VRM bytes changed")
@@ -414,6 +418,26 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
         raise HighFidelityFaceSecondaryRuntimeError(str(exc)) from exc
     bodyrig = _bodyrig(document)
     embedded = bodyrig.get("faceSecondaryReviewRuntime")
-    if not isinstance(embedded, dict) or embedded.get("sourcePackageSha256") != value.get("sourcePackageSha256") or embedded.get("bodyrigRevision") != value.get("bodyrigRevision"):
+    if (
+        not isinstance(embedded, dict)
+        or embedded.get("format") != REVIEW_METADATA_FORMAT
+        or not _is_version(embedded.get("version"), VERSION)
+        or embedded.get("policyRevision") != POLICY_REVISION
+        or embedded.get("sourcePackageSha256") != value.get("sourcePackageSha256")
+        or embedded.get("sourceAvatarSha256") != value.get("sourceAvatarSha256")
+        or embedded.get("appearanceTransferSha256") != value.get("appearanceTransferSha256")
+        or embedded.get("eyePromotionSha256") != value.get("eyePromotionSha256")
+        or embedded.get("canonicalBodyId") != value.get("canonicalBodyId")
+        or embedded.get("bodyrigRevision") != value.get("bodyrigRevision")
+    ):
         raise HighFidelityFaceSecondaryRuntimeError("embedded face-secondary runtime authority is stale")
+    if (
+        embedded.get("sourceDerivedIdentitySynthesis") is not False
+        or embedded.get("generativeIdentitySynthesis") is not False
+        or embedded.get("comparisonOnly") is not True
+        or embedded.get("humanReviewRequired") is not True
+        or embedded.get("faceSecondaryComponentAuthority") is not False
+        or embedded.get("productionActivation") is not False
+    ):
+        raise HighFidelityFaceSecondaryRuntimeError("embedded face-secondary runtime crossed review-only authority")
     return {**value, "reviewVrmPath": str(vrm_path), "receiptPath": str(receipt_path)}
