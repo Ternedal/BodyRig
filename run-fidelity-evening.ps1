@@ -6,6 +6,9 @@ param(
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
     [string]$ExecutionContext = "",
+    [string]$HfnRoot = "",
+    [string]$HfnPersonId = "",
+    [string]$HfnBodyRevision = "",
     [switch]$ExecuteNextAction,
     [switch]$SkipBuild,
     [switch]$OpenSnapshots
@@ -144,6 +147,16 @@ if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
 }
 $BodyRigPython = Need-File -Path $BodyRigPython -Label "BodyRig Python"
 $currentFloorRunner = Need-File -Path (Join-Path $repoRoot "run-fidelity-evening-current-floor-review.ps1") -Label "Current-floor evening review runner"
+
+$hfnIdentityValues = @($HfnRoot,$HfnPersonId,$HfnBodyRevision)
+$hfnIdentityPresent = @($hfnIdentityValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+if (-not [string]::IsNullOrWhiteSpace($ExecutionContext) -and $hfnIdentityPresent -gt 0) {
+    throw "ExecutionContext cannot be combined with HfnRoot/HfnPersonId/HfnBodyRevision."
+}
+if ($hfnIdentityPresent -ne 0 -and $hfnIdentityPresent -ne 3) {
+    throw "HfnRoot, HfnPersonId and HfnBodyRevision must be supplied together or omitted together."
+}
+$hasExplicitHfnIdentity = $hfnIdentityPresent -eq 3
 
 $runnerArgs = @{
     WorkRoot = $WorkRoot
@@ -296,9 +309,39 @@ $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\sn
 
 $temporaryExecutionContext = ""
 if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
-    $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context.empty-" + [Guid]::NewGuid().ToString("N") + ".json")
-    [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
-    $contextPath = $temporaryExecutionContext
+    if ($expectedActionId -eq "source-bound-hfn-continuation" -and $hasExplicitHfnIdentity) {
+        if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
+            throw "Derived HFN execution context requires exact face-secondary comparison physical authority."
+        }
+        $comparisonPackagePath = Need-File -Path (Join-Path $physicalRoot "comparison\face-secondary-hair-eye-comparison.mrbody") -Label "Final face-secondary comparison package"
+        if ((Sha256 $comparisonPackagePath) -ne $physicalPackageSha -or [string]$gap.package_sha256 -ne $physicalPackageSha) {
+            throw "Final face-secondary comparison package bytes differ from the component-gap package authority."
+        }
+        $resolvedHfnRoot = Need-Directory -Path $HfnRoot -Label "HFN authority root"
+        $hfnRenderDir = Join-Path $eveningRoot ("hfn-" + $selected + "\render-review")
+        $hfnHumanReviewDir = Join-Path $eveningRoot ("hfn-" + $selected + "\human-review")
+        $derivedContext = [ordered]@{
+            package_path = $comparisonPackagePath
+            hfn_root = $resolvedHfnRoot
+            person_id = $HfnPersonId.Trim()
+            body_revision = $HfnBodyRevision.Trim()
+            hfn_render_dir = $hfnRenderDir
+            hfn_human_review_dir = $hfnHumanReviewDir
+        }
+        $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context.hfn-" + [Guid]::NewGuid().ToString("N") + ".json")
+        [IO.File]::WriteAllText(
+            $temporaryExecutionContext,
+            ($derivedContext | ConvertTo-Json -Depth 10 -Compress),
+            [Text.UTF8Encoding]::new($false)
+        )
+        $contextPath = $temporaryExecutionContext
+    } elseif ($hasExplicitHfnIdentity) {
+        throw "HFN identity parameters are only valid when source-bound-hfn-continuation is the first qualified gap action."
+    } else {
+        $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context.empty-" + [Guid]::NewGuid().ToString("N") + ".json")
+        [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
+        $contextPath = $temporaryExecutionContext
+    }
 } else {
     $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
 }
