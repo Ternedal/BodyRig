@@ -6,7 +6,7 @@ import bodyrig.high_fidelity_release_readiness_cli as cli
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HFN_SAFE_HANDOFF = "1ed3661ad61d92090e3f28222282e53163c28144"
+HFN_SAFE_HANDOFF = "fe04ab113c3c57ed1f3d502242fc0e51b0629b04"
 HFN_OPERATOR_SCRIPTS = (
     "prepare-hands-feet-nails-source-capture.ps1",
     "prepare-hands-feet-nails-landmark-evidence.ps1",

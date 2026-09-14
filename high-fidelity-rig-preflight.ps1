@@ -13,7 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required."
 }
 
-$minimumPhysicalHandoffRevision = "1ed3661ad61d92090e3f28222282e53163c28144"
+$minimumPhysicalHandoffRevision = "fe04ab113c3c57ed1f3d502242fc0e51b0629b04"
 
 function Need-File([string]$Path, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
