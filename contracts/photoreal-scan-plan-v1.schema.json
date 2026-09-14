@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-scan-plan-v1.schema.json",
+  "title": "BodyRig Photoreal Scan Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "performer_name", "strategy",
+    "target_video_interval_seconds", "minimum_video_scout_samples",
+    "maximum_video_scout_samples", "source_count", "planned_observation_count",
+    "sources", "all_sources_sha256_bound", "train_evaluation_assignment_inherited",
+    "frame_analyzer_required", "teacher_training_authorized", "build_only",
+    "runtime_dependency", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-scan-plan"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string"},
+    "strategy": {"const": "uniform-midpoint-scout-v1"},
+    "target_video_interval_seconds": {"type": "number", "exclusiveMinimum": 0},
+    "minimum_video_scout_samples": {"type": "integer", "minimum": 1},
+    "maximum_video_scout_samples": {"type": "integer", "minimum": 1},
+    "source_count": {"type": "integer", "minimum": 1},
+    "planned_observation_count": {"type": "integer", "minimum": 1, "maximum": 120000},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "all_sources_sha256_bound": {"const": true},
+    "train_evaluation_assignment_inherited": {"const": true},
+    "frame_analyzer_required": {"const": true},
+    "teacher_training_authorized": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp_seconds", "eye"],
+      "properties": {
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key", "source_sha256", "resolved_path", "kind", "split",
+        "group_id", "projection", "stereo_layout", "decode_mode",
+        "sample_count", "samples"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_path": {"type": "string", "minLength": 1, "maxLength": 32768},
+        "kind": {"enum": ["video", "image"]},
+        "split": {"enum": ["train", "evaluation"]},
+        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "projection": {"enum": ["flat", "vr180", "vr360", "equirectangular"]},
+        "stereo_layout": {"enum": ["mono", "side-by-side", "over-under"]},
+        "decode_mode": {
+          "enum": [
+            "image-direct",
+            "rectilinear-mono",
+            "rectilinear-stereo-split",
+            "spatial-deprojection-required"
+          ]
+        },
+        "sample_count": {"type": "integer", "minimum": 1},
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/sample"}
+        }
+      }
+    }
+  }
+}
