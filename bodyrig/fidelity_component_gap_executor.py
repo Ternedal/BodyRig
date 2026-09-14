@@ -518,7 +518,7 @@ def main(argv: list[str] | None = None) -> int:
         plan = _read_json(Path(args.plan).expanduser().resolve(), label="component gap plan")
         context = _read_json(Path(args.context).expanduser().resolve(), label="component gap execution context")
         result = build_execution(plan, context=context, repo_root=Path(args.repo_root))
-        if args.execute:
+        if args.execute and result.get("mode") == "machine-executable":
             result = execute(result)
     except (FidelityComponentGapExecutionError, OSError) as exc:
         print(f"BodyRig fidelity component gap execution: FAIL: {exc}", file=sys.stderr)
