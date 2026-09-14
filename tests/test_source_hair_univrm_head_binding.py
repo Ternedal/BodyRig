@@ -7,26 +7,30 @@ ROOT = Path(__file__).resolve().parents[1]
 HAIR_PROBE = ROOT / "reference-renderer" / "Assets" / "BodyRig" / "BodyRigHairDeformationProbe.cs"
 
 
-def test_hair_probe_accepts_only_proven_normalized_univrm_head_equivalence() -> None:
+def test_hair_probe_accepts_only_canonical_smplx_normalized_equivalence() -> None:
     source = HAIR_PROBE.read_text(encoding="utf-8")
 
     for marker in (
         "ResolveRendererHeadBone(bones, animator, head)",
         "bone == humanoidHead",
-        "HumanBodyBones.Neck",
-        "string.Equals(bone.name, humanoidHead.name, StringComparison.Ordinal)",
-        "Vector3.Distance(bone.position, humanoidHead.position) > MaximumEquivalentHeadOffsetMeters",
-        "HasNamedAncestor(bone.parent, humanoidNeck.name, MaximumEquivalentNeckAncestorDepth)",
-        "Source hair review renderer has ambiguous normalized Head skin bindings",
-        "Source hair review renderer is not bound to the canonical Humanoid Head hierarchy",
+        "CanonicalSmplxNeckJointIndex = 12",
+        "CanonicalSmplxHeadJointIndex = 15",
+        "var canonicalNeck = bones[CanonicalSmplxNeckJointIndex]",
+        "var canonicalHead = bones[CanonicalSmplxHeadJointIndex]",
+        "Vector3.Distance(canonicalHead.position, humanoidHead.position)",
+        "Vector3.Distance(canonicalNeck.position, humanoidNeck.position)",
+        "Canonical SMPL-X Head is not position-equivalent to Humanoid Head",
+        "Canonical SMPL-X Neck is not position-equivalent to Humanoid Neck",
     ):
         assert marker in source
 
     assert "MaximumEquivalentHeadOffsetMeters = 0.05f" in source
-    assert "MaximumEquivalentNeckAncestorDepth = 3" in source
+    assert "MaximumEquivalentNeckOffsetMeters = 0.05f" in source
+    assert "HasNamedAncestor" not in source
+    assert "string.Equals(bone.name, humanoidHead.name" not in source
 
 
-def test_normalized_head_equivalence_does_not_replace_real_motion_proof() -> None:
+def test_canonical_head_equivalence_does_not_replace_real_motion_proof() -> None:
     source = HAIR_PROBE.read_text(encoding="utf-8")
 
     resolve = source.index("ResolveRendererHeadBone(bones, animator, head)")
