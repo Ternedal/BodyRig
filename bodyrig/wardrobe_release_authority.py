@@ -86,7 +86,14 @@ def release_authority_dir(root: str | os.PathLike[str], person_id: str, person_r
 def validate_release_authority_structure(value: Mapping[str, Any], *, assembly_receipt: Mapping[str, Any], body_release_status: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise WardrobeReleaseAuthorityError("finalized wardrobe authority fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise WardrobeReleaseAuthorityError("finalized wardrobe authority format/version/policy mismatch")
     try:
         assembly = _assembly_identity(assembly_receipt)
