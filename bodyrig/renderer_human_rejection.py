@@ -177,7 +177,14 @@ def read_rejection(
         raise RendererHumanRejectionError(f"renderer human rejection is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != FIELDS:
         raise RendererHumanRejectionError("renderer human rejection fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise RendererHumanRejectionError("renderer human rejection format/version/policy mismatch")
     if not str(value.get("rejected_at") or "").strip():
         raise RendererHumanRejectionError("renderer human rejection has no rejected_at timestamp")
