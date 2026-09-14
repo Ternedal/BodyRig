@@ -287,6 +287,31 @@ foreach ($label in @("hair","eyes")) {
     }
 }
 
+$renderSet = Need-File -Path (Join-Path $retainedOutput "windows-preview\snapshots\fidelity-render-set.json") -Label "Retained preview fidelity render set"
+$visibilitySha = Sha256 $visibilityPath
+$renderSetSha = Sha256 $renderSet
+$gapPlanPath = Join-Path $eveningRoot ("component-gap-plan-" + $visibilitySha.Substring(0,16) + "-" + $renderSetSha.Substring(0,16) + ".json")
+if (Test-Path -LiteralPath $gapPlanPath -PathType Leaf) {
+    Write-Host "Reusing component gap plan: $gapPlanPath"
+} else {
+    & $BodyRigPython -m bodyrig.fidelity_component_gap `
+        --visibility-probe $visibilityPath `
+        --render-set $renderSet `
+        --out $gapPlanPath
+    if ($LASTEXITCODE -ne 0) { throw "Physical component gap planning failed with exit code $LASTEXITCODE" }
+    Assert-HeadPinned -RepoRoot $repoRoot -Expected $head
+}
+$gapPlan = Read-Json -Path $gapPlanPath -Label "Physical component gap plan"
+if ([string]$gapPlan.bodyrig_revision -ne $head -or
+    [string]$gapPlan.body_id -ne $bodyId -or
+    [string]$gapPlan.package_sha256 -ne $selectedPackageSha -or
+    [string]$gapPlan.state -notin @("composition-required", "machine-component-complete-human-review-required") -or
+    $gapPlan.human_visual_authority_required -ne $true -or
+    $gapPlan.production_activation -ne $false) {
+    throw "Physical component gap plan is stale or crossed its machine-only authority boundary."
+}
+$gapPlanSha = Sha256 $gapPlanPath
+
 Write-Host ""
 Write-Host "=== 3/3 DIAGNOSTIC-ONLY V5 SCORE OF HAIR + EYE PREVIEW ==="
 $diagnosticEvaluation = Join-Path $eveningRoot "hair-eye-diagnostic-v5-$selectedLabel.json"
@@ -295,7 +320,6 @@ if (Test-Path -LiteralPath $diagnosticEvaluation -PathType Leaf) {
 } else {
     $referenceSet = Need-File -Path (Join-Path $WorkRoot "references\reference-set.json") -Label "Frozen fidelity reference set"
     $bodyReference = Resolve-BodyReference -BaselineEvaluation $baselineEvaluation.FullName -IdentityRootPath $IdentityRoot
-    $renderSet = Need-File -Path (Join-Path $retainedOutput "windows-preview\snapshots\fidelity-render-set.json") -Label "Retained preview fidelity render set"
     $rigSetup = Need-File -Path (Join-Path $env:LOCALAPPDATA "BodyRig\bodyrig-rig-setup.json") -Label "BodyRig rig setup"
     & $BodyRigPython -m bodyrig.fidelity_evaluator_cli `
         --rig-setup $rigSetup `
@@ -311,7 +335,6 @@ if (Test-Path -LiteralPath $diagnosticEvaluation -PathType Leaf) {
 
 $diagnostic = Read-Json -Path $diagnosticEvaluation -Label "Diagnostic-only hair+eye evaluation"
 $summaryPath = Join-Path $eveningRoot "evening-review-summary.json"
-$visibilitySha = Sha256 $visibilityPath
 $decisionSha = Sha256 $decisionPath
 $retainedSummaryPath = Need-File -Path (Join-Path $retainedOutput "retained-hair-eye-preview.json") -Label "Retained preview summary"
 $summary = [ordered]@{
@@ -326,6 +349,11 @@ $summary = [ordered]@{
     v5_convergence_decision_sha256 = $decisionSha
     retained_preview_summary_sha256 = Sha256 $retainedSummaryPath
     component_visibility_probe_sha256 = $visibilitySha
+    component_gap_render_set_sha256 = $renderSetSha
+    component_gap_plan_sha256 = $gapPlanSha
+    component_gap_state = [string]$gapPlan.state
+    missing_components = @($gapPlan.missing_components)
+    next_actions = @($gapPlan.next_actions)
     diagnostic_evaluation_sha256 = Sha256 $diagnosticEvaluation
     diagnostic_only = $true
     diagnostic_scores = [ordered]@{
@@ -344,14 +372,15 @@ $summary = [ordered]@{
         fingernails = $(if ($componentMap.ContainsKey("fingernails")) { [bool]$componentMap["fingernails"].visible_skinned_renderer } else { $false })
         toenails = $(if ($componentMap.ContainsKey("toenails")) { [bool]$componentMap["toenails"].visible_skinned_renderer } else { $false })
     }
-    full_fidelity_component_complete = $false
+    full_fidelity_component_complete = [bool]$gapPlan.strict_machine_scoring_ready
     human_visual_authority_required = $true
     production_activation = $false
-    semantics = "retained-hair-eye-physical-preview-plus-diagnostic-score-not-full-fidelity-acceptance"
+    semantics = "retained-physical-preview-plus-component-gap-plan-and-diagnostic-score-not-visual-or-release-acceptance"
 }
 if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
     $existing = Read-Json -Path $summaryPath -Label "Existing evening review summary"
-    if ([string]$existing.bodyrig_revision -ne $head -or [string]$existing.selected_package_sha256 -ne $selectedPackageSha -or [string]$existing.component_visibility_probe_sha256 -ne $visibilitySha) {
+    if ([string]$existing.bodyrig_revision -ne $head -or [string]$existing.selected_package_sha256 -ne $selectedPackageSha -or
+        [string]$existing.component_visibility_probe_sha256 -ne $visibilitySha -or [string]$existing.component_gap_plan_sha256 -ne $gapPlanSha) {
         throw "Existing evening review summary targets different authority bytes; refusing overwrite."
     }
 } else {
@@ -368,7 +397,10 @@ Write-Host "Face diag:      $($diagnostic.measurement.scores.face_appearance)"
 Write-Host "Body diag:      $($diagnostic.measurement.scores.body_silhouette)"
 Write-Host "Hair drawable:  $([bool]$componentMap['hair'].visible_skinned_renderer)"
 Write-Host "Eyes drawable:  $([bool]$componentMap['eyes'].visible_skinned_renderer)"
-Write-Host "Full fidelity:  FALSE - face-secondary/HFN completeness still required"
+Write-Host "Component state: $([string]$gapPlan.state)"
+Write-Host "Missing:         $(@($gapPlan.missing_components) -join ', ')"
+Write-Host "Machine ready:   $([bool]$gapPlan.strict_machine_scoring_ready)"
+Write-Host "Human visual QA: REQUIRED"
 Write-Host "Summary:        $summaryPath"
 Write-Host "Snapshots:      $(Join-Path $retainedOutput 'windows-preview\snapshots')"
 Write-Host "============================================================"
