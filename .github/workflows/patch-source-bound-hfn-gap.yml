@@ -1,0 +1,50 @@
+name: patch-source-bound-hfn-gap
+
+on:
+  push:
+    branches:
+      - feat/source-bound-hfn-gap-continuation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/source-bound-hfn-gap-continuation
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install locked environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply source-bound HFN gap patch
+        run: python .github/patch_source_bound_hfn_gap.py
+      - name: Compile focused Python
+        run: python -m py_compile bodyrig/fidelity_component_gap_executor.py tests/test_fidelity_component_gap_executor.py
+      - name: Run focused HFN regressions
+        run: >-
+          python -m pytest -q
+          tests/test_fidelity_component_gap_executor.py
+          tests/test_high_fidelity_hfn_continuation.py
+          tests/test_hfn_fingernail_geometry_continuation.py
+          tests/test_hfn_toenail_materialization_contract.py
+          tests/test_hfn_continuation_version_bool.py
+          tests/test_face_secondary_hair_eye_review.py
+          tests/test_face_secondary_hair_eye_operator.py
+      - name: Validate patch boundary
+        run: |
+          git diff --check -- bodyrig/fidelity_component_gap_executor.py tests/test_fidelity_component_gap_executor.py
+          actual="$( { git diff --name-only; git ls-files --others --exclude-standard; } | grep -v '^\.github/patch_source_bound_hfn_gap\.py$' | grep -v '^\.github/workflows/patch-source-bound-hfn-gap\.yml$' | sort -u )"
+          expected="$(printf '%s\n' bodyrig/fidelity_component_gap_executor.py tests/test_fidelity_component_gap_executor.py | sort)"
+          test "$actual" = "$expected"
+      - name: Commit product patch and remove helpers
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/patch_source_bound_hfn_gap.py .github/workflows/patch-source-bound-hfn-gap.yml
+          git add bodyrig/fidelity_component_gap_executor.py tests/test_fidelity_component_gap_executor.py
+          git commit -m 'Advance source-bound HFN machine gates'
+          git push origin HEAD:feat/source-bound-hfn-gap-continuation
