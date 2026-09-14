@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 import zipfile
@@ -18,7 +19,28 @@ FORMAT = "bodyrig-source-hair-body-binding"
 VERSION = 1
 CANDIDATE_FORMAT = "bodyrig-source-hair-candidate"
 CANDIDATE_VERSION = 1
+CANDIDATE_METHOD = "retained-sith-connected-head-shell-v2"
 SHA256_LENGTH = 64
+MIN_FOOTPRINT_SPAN_BODY_RATIO = 0.018
+MIN_VERTICAL_SPAN_BODY_RATIO = 0.015
+SELECTOR_THRESHOLDS = {
+    "strict-shell": {
+        "candidateDistanceBodyRatio": 0.008,
+        "seedDistanceBodyRatio": 0.006,
+        "minimumYBodyRatio": 0.60,
+        "seedYBodyRatio": 0.79,
+        "minimumFootprintSpanBodyRatio": MIN_FOOTPRINT_SPAN_BODY_RATIO,
+        "minimumVerticalSpanBodyRatio": MIN_VERTICAL_SPAN_BODY_RATIO,
+    },
+    "short-hair-fallback": {
+        "candidateDistanceBodyRatio": 0.003,
+        "seedDistanceBodyRatio": 0.0025,
+        "minimumYBodyRatio": 0.76,
+        "seedYBodyRatio": 0.82,
+        "minimumFootprintSpanBodyRatio": MIN_FOOTPRINT_SPAN_BODY_RATIO,
+        "minimumVerticalSpanBodyRatio": MIN_VERTICAL_SPAN_BODY_RATIO,
+    },
+}
 
 
 class SourceHairBodyBindingError(ValueError):
@@ -47,6 +69,15 @@ def _sha(value: Any, *, label: str) -> str:
     return value
 
 
+def _number(value: Any, *, label: str, minimum: float | None = None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SourceHairBodyBindingError(f"{label} is invalid")
+    number = float(value)
+    if not math.isfinite(number) or (minimum is not None and number < minimum):
+        raise SourceHairBodyBindingError(f"{label} is invalid")
+    return number
+
+
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
     try:
         value = json.loads(
@@ -69,6 +100,35 @@ def _safe_leaf(value: Any, *, label: str) -> str:
     return name
 
 
+def _validate_selector(receipt: dict[str, Any]) -> None:
+    selector = receipt.get("selector")
+    if not isinstance(selector, str) or selector not in SELECTOR_THRESHOLDS:
+        raise SourceHairBodyBindingError("source hair candidate selector is invalid")
+    thresholds = receipt.get("selectorThresholds")
+    expected = SELECTOR_THRESHOLDS[selector]
+    if not isinstance(thresholds, dict) or set(thresholds) != set(expected):
+        raise SourceHairBodyBindingError("source hair candidate selector thresholds do not match v2")
+    for field, expected_value in expected.items():
+        if _number(thresholds.get(field), label=f"source hair selector threshold {field}", minimum=0.0) != expected_value:
+            raise SourceHairBodyBindingError("source hair candidate selector thresholds do not match v2")
+
+    metrics = receipt.get("selectionMetrics")
+    required_metrics = {
+        "horizontalXSpanBodyRatio",
+        "horizontalZSpanBodyRatio",
+        "verticalSpanBodyRatio",
+    }
+    if not isinstance(metrics, dict) or set(metrics) != required_metrics:
+        raise SourceHairBodyBindingError("source hair candidate selection metrics do not match v2")
+    x_span = _number(metrics.get("horizontalXSpanBodyRatio"), label="source hair horizontal X span", minimum=0.0)
+    z_span = _number(metrics.get("horizontalZSpanBodyRatio"), label="source hair horizontal Z span", minimum=0.0)
+    y_span = _number(metrics.get("verticalSpanBodyRatio"), label="source hair vertical span", minimum=0.0)
+    if x_span < MIN_FOOTPRINT_SPAN_BODY_RATIO or z_span < MIN_FOOTPRINT_SPAN_BODY_RATIO:
+        raise SourceHairBodyBindingError("source hair candidate footprint is below the v2 review floor")
+    if y_span < MIN_VERTICAL_SPAN_BODY_RATIO:
+        raise SourceHairBodyBindingError("source hair candidate vertical span is below the v2 review floor")
+
+
 def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, Path, Path]:
     root = Path(candidate_dir).expanduser().resolve()
     receipt_path = root / "source-hair-candidate.json"
@@ -76,20 +136,22 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
     material = root / "000.mtl"
     receipt = _load_json(receipt_path, label="source hair candidate receipt")
     required = {
-        "format", "version", "method", "sourceReconstructionSha256", "sourceMeshSha256",
-        "sourceMaterialSha256", "sourceTextureSha256", "donorObjSha256", "hairObjSha256",
-        "hairMaterialSha256", "hairTextureSha256", "selectedFaceCount", "selectedVertexCount",
-        "seedFaceCount", "bodyHeight", "headSearchRadius", "sourceToDonorDistanceP50",
-        "sourceToDonorDistanceP95", "sourceToDonorDistanceMax", "minimumBodyHeightRatio",
-        "maximumBodyHeightRatio", "sourceDerived", "generativeGeometry", "bodyTopologyModified",
-        "candidateBinding", "comparisonOnly", "humanReviewRequired", "productionReady",
+        "format", "version", "method", "selector", "selectorThresholds", "selectionMetrics",
+        "sourceReconstructionSha256", "sourceMeshSha256", "sourceMaterialSha256",
+        "sourceTextureSha256", "donorObjSha256", "hairObjSha256", "hairMaterialSha256",
+        "hairTextureSha256", "selectedFaceCount", "selectedVertexCount", "seedFaceCount",
+        "bodyHeight", "headSearchRadius", "sourceToDonorDistanceP50", "sourceToDonorDistanceP95",
+        "sourceToDonorDistanceMax", "minimumBodyHeightRatio", "maximumBodyHeightRatio",
+        "sourceDerived", "generativeGeometry", "bodyTopologyModified", "candidateBinding",
+        "comparisonOnly", "humanReviewRequired", "productionReady",
     }
     if set(receipt) != required:
-        raise SourceHairBodyBindingError("source hair candidate fields do not match v1")
+        raise SourceHairBodyBindingError("source hair candidate fields do not match v2")
     if receipt.get("format") != CANDIDATE_FORMAT or receipt.get("version") != CANDIDATE_VERSION:
         raise SourceHairBodyBindingError("source hair candidate format/version mismatch")
-    if receipt.get("method") != "retained-sith-connected-head-shell-v1":
+    if receipt.get("method") != CANDIDATE_METHOD:
         raise SourceHairBodyBindingError("source hair candidate extraction method mismatch")
+    _validate_selector(receipt)
     if (
         receipt.get("sourceDerived") is not True
         or receipt.get("generativeGeometry") is not False
