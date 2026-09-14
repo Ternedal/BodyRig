@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-bank-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Bank v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "performer_name",
+    "extractor",
+    "extractor_revision",
+    "model_set_sha256",
+    "embedding_dimension",
+    "reference_count",
+    "source_group_count",
+    "references",
+    "centroid_embedding",
+    "reference_to_centroid_cosine_min",
+    "reference_to_centroid_cosine_median",
+    "reference_to_centroid_cosine_max",
+    "train_only",
+    "evaluation_reference_count",
+    "match_threshold_calibrated",
+    "identity_matching_authorized",
+    "identity_bank_ready_for_calibration",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "identity_bank_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-bank"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string"},
+    "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "embedding_dimension": {"type": "integer", "minimum": 32, "maximum": 4096},
+    "reference_count": {"type": "integer", "minimum": 4},
+    "source_group_count": {"type": "integer", "minimum": 2},
+    "references": {
+      "type": "array",
+      "minItems": 4,
+      "items": {"$ref": "#/$defs/reference"}
+    },
+    "centroid_embedding": {"$ref": "#/$defs/embedding"},
+    "reference_to_centroid_cosine_min": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+    "reference_to_centroid_cosine_median": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+    "reference_to_centroid_cosine_max": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+    "train_only": {"const": true},
+    "evaluation_reference_count": {"const": 0},
+    "match_threshold_calibrated": {"const": false},
+    "identity_matching_authorized": {"const": false},
+    "identity_bank_ready_for_calibration": {"const": true},
+    "teacher_training_authorized": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "identity_bank_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "embedding": {
+      "type": "array",
+      "minItems": 32,
+      "maxItems": 4096,
+      "items": {"type": "number"}
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key",
+        "source_sha256",
+        "group_id",
+        "timestamp_seconds",
+        "eye",
+        "frame_sha256",
+        "embedding"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0.0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]},
+        "frame_sha256": {"$ref": "#/$defs/sha256"},
+        "embedding": {"$ref": "#/$defs/embedding"}
+      }
+    }
+  }
+}
