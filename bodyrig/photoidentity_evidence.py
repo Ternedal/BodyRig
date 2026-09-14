@@ -254,7 +254,14 @@ def validate_observation_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
         "generic_guessing_permitted",
         "production_activation",
     }
-    if set(value) != required or value.get("format") != OBSERVATION_FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if (
+        set(value) != required
+        or value.get("format") != OBSERVATION_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+    ):
         raise PhotoIdentityEvidenceError("photoidentity observation evidence fields/format are invalid")
     analyzer = value.get("analyzer")
     if not isinstance(analyzer, Mapping) or set(analyzer) != {"adapter", "revision", "capabilities"}:
@@ -427,7 +434,14 @@ def validate_bundle(
         report = json.loads(report_file.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PhotoIdentityEvidenceError("photoidentity sufficiency report is invalid JSON") from exc
-    if not isinstance(report, dict) or report.get("format") != REPORT_FORMAT or report.get("version") != VERSION:
+    report_version = report.get("version") if isinstance(report, dict) else None
+    if (
+        not isinstance(report, dict)
+        or report.get("format") != REPORT_FORMAT
+        or isinstance(report_version, bool)
+        or not isinstance(report_version, (int, float))
+        or report_version != VERSION
+    ):
         raise PhotoIdentityEvidenceError("photoidentity sufficiency report format/version is invalid")
     observations_file = (
         Path(observation_path).expanduser().resolve()
