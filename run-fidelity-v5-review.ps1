@@ -105,10 +105,56 @@ if (Test-DiagnosticsComplete -Path $diagnosticOutput) {
 
 Assert-HeadPinned -RepoRoot $repoRoot -Expected $pinnedHead
 
+$scoreSpecs = @(
+    @{ Label = "baseline"; File = "iteration-01-baseline.json" },
+    @{ Label = "refit1"; File = "iteration-02-refit1.json" },
+    @{ Label = "reconstruction2"; File = "iteration-03-reconstruction2.json" }
+)
+$scoreRows = foreach ($spec in $scoreSpecs) {
+    $evaluation = Get-Content -LiteralPath (Join-Path $reanalysisOutput $spec.File) -Raw -Encoding UTF8 | ConvertFrom-Json
+    [pscustomobject]@{
+        Candidate = $spec.Label
+        Overall = $evaluation.measurement.scores.overall
+        Body = $evaluation.measurement.scores.body_silhouette
+        Face = $evaluation.measurement.scores.face_appearance
+        Hair = $evaluation.measurement.scores.hair_appearance
+        Skin = $evaluation.measurement.scores.skin_material
+        Photo = $evaluation.measurement.scores.photorealism
+        Plausible = $evaluation.measurement.scores.human_plausibility
+        HeadShoulder = $evaluation.plausibility.head_shoulder_ratio
+    }
+}
+
+$diagnosticRows = foreach ($label in @("baseline", "refit1", "reconstruction2")) {
+    $report = Get-Content -LiteralPath (Join-Path $diagnosticOutput "$label\silhouette-diagnostic.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    [pscustomobject]@{
+        Candidate = $label
+        Similarity = $report.profile_similarity
+        HeadShoulder = $report.candidate.head_shoulder_ratio
+        Foreground = $report.candidate.mask.foreground_fraction
+        BBoxAspect = $report.candidate.mask.bbox_aspect_width_over_height
+        BBoxFill = $report.candidate.mask.bbox_fill_fraction
+    }
+}
+
+$decision = Get-Content -LiteralPath (Join-Path $reanalysisOutput "convergence-decision.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+
 Write-Host ""
 Write-Host "============================================================"
 Write-Host "BODYRIG V5 REVIEW COMPLETE"
 Write-Host "Revision:    $pinnedHead"
 Write-Host "Reanalysis:  $reanalysisOutput"
 Write-Host "Diagnostics: $diagnosticOutput"
+Write-Host ""
+Write-Host "V5 scores"
+$scoreRows | Format-Table -AutoSize
+Write-Host ""
+Write-Host "Silhouette diagnostics"
+$diagnosticRows | Format-Table -AutoSize
+Write-Host ""
+Write-Host "Best iteration: $($decision.best_iteration)"
+Write-Host "Best overall:   $($decision.best_overall)"
+Write-Host "State:          $($decision.state)"
+Write-Host "Strategy:       $($decision.strategy)"
+Write-Host "Next focus:     $($decision.next_focus)"
 Write-Host "============================================================"
