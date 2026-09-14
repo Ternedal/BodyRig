@@ -207,7 +207,14 @@ def read_review(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityComponentReviewError(f"component visual review is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HighFidelityComponentReviewError("component visual review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise HighFidelityComponentReviewError("component visual review format/version/policy mismatch")
 
     exact_fields = (
