@@ -24,8 +24,10 @@ namespace BodyRig.ReferenceRenderer
         private const float MinimumMotionMaxMeters = 0.001f;
         private const float MaximumRestorationRmsMeters = 0.00025f;
         private const float MaximumRestorationMaxMeters = 0.001f;
+        private const int CanonicalSmplxNeckJointIndex = 12;
+        private const int CanonicalSmplxHeadJointIndex = 15;
         private const float MaximumEquivalentHeadOffsetMeters = 0.05f;
-        private const int MaximumEquivalentNeckAncestorDepth = 3;
+        private const float MaximumEquivalentNeckOffsetMeters = 0.05f;
 
         [Serializable]
         private sealed class HairDeformationReport
@@ -103,7 +105,7 @@ namespace BodyRig.ReferenceRenderer
             var rendererHead = ResolveRendererHeadBone(bones, animator, head);
             status?.Invoke(rendererHead == head
                 ? "Hair deformation: direct Humanoid Head skin binding resolved."
-                : "Hair deformation: normalized UniVRM Head skin binding resolved; proving functional motion next.");
+                : "Hair deformation: canonical SMPL-X Head skin binding resolved through UniVRM normalization; proving functional motion next.");
 
             var baselineRotation = head.localRotation;
             var baselineWorldRotation = head.rotation;
@@ -226,30 +228,25 @@ namespace BodyRig.ReferenceRenderer
             var humanoidNeck = animator.GetBoneTransform(HumanBodyBones.Neck);
             if (humanoidNeck == null)
                 throw new InvalidDataException("Hair deformation probe could not resolve the Humanoid Neck bone for normalized Head binding");
+            if (bones.Length <= CanonicalSmplxHeadJointIndex)
+                throw new InvalidDataException($"Source hair review renderer exposes only {bones.Length} skin bones; canonical SMPL-X Head joint {CanonicalSmplxHeadJointIndex} is unavailable");
 
-            Transform semanticMatch = null;
-            foreach (var bone in bones)
-            {
-                if (bone == null || !string.Equals(bone.name, humanoidHead.name, StringComparison.Ordinal)) continue;
-                if (Vector3.Distance(bone.position, humanoidHead.position) > MaximumEquivalentHeadOffsetMeters) continue;
-                if (!HasNamedAncestor(bone.parent, humanoidNeck.name, MaximumEquivalentNeckAncestorDepth)) continue;
-                if (semanticMatch != null && semanticMatch != bone)
-                    throw new InvalidDataException("Source hair review renderer has ambiguous normalized Head skin bindings");
-                semanticMatch = bone;
-            }
+            var canonicalNeck = bones[CanonicalSmplxNeckJointIndex];
+            var canonicalHead = bones[CanonicalSmplxHeadJointIndex];
+            if (canonicalNeck == null || canonicalHead == null)
+                throw new InvalidDataException("Source hair review renderer is missing canonical SMPL-X Neck/Head skin bones");
+            if (canonicalNeck == canonicalHead)
+                throw new InvalidDataException("Source hair review renderer canonical SMPL-X Neck and Head resolve to the same Transform");
 
-            if (semanticMatch == null)
-                throw new InvalidDataException("Source hair review renderer is not bound to the canonical Humanoid Head hierarchy");
-            return semanticMatch;
-        }
+            var headOffset = Vector3.Distance(canonicalHead.position, humanoidHead.position);
+            if (headOffset > MaximumEquivalentHeadOffsetMeters)
+                throw new InvalidDataException($"Canonical SMPL-X Head is not position-equivalent to Humanoid Head (offset={headOffset:F6}m, skin='{canonicalHead.name}', humanoid='{humanoidHead.name}')");
 
-        private static bool HasNamedAncestor(Transform current, string expectedName, int maximumDepth)
-        {
-            for (var depth = 0; current != null && depth < maximumDepth; depth++, current = current.parent)
-            {
-                if (string.Equals(current.name, expectedName, StringComparison.Ordinal)) return true;
-            }
-            return false;
+            var neckOffset = Vector3.Distance(canonicalNeck.position, humanoidNeck.position);
+            if (neckOffset > MaximumEquivalentNeckOffsetMeters)
+                throw new InvalidDataException($"Canonical SMPL-X Neck is not position-equivalent to Humanoid Neck (offset={neckOffset:F6}m, skin='{canonicalNeck.name}', humanoid='{humanoidNeck.name}')");
+
+            return canonicalHead;
         }
 
         private static Vector3[] BakeVertices(SkinnedMeshRenderer renderer)
