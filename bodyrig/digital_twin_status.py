@@ -205,7 +205,13 @@ def _platform_acceptance_gate(status: Mapping[str, Any] | None) -> dict[str, Any
             "state": "missing",
             "blockers": ["M5 Windows/Quest digital-twin composition acceptance has not been recorded for this Person Revision"],
         }
-    if status.get("format") != "bodyrig-digital-twin-platform-status" or status.get("version") != 1:
+    version = status.get("version")
+    if (
+        status.get("format") != "bodyrig-digital-twin-platform-status"
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != 1
+    ):
         return {
             "ready": False,
             "state": "blocked",
