@@ -152,7 +152,13 @@ def _read_request(path: Path, adapter: str, revision: str) -> dict[str, Any]:
     required = {"format", "version", "adapter", "revision", "source_count", "subject_track_id", "observed_frames"}
     if not isinstance(request, dict) or set(request) != required:
         raise RuntimeError("identity capture request fields do not match v1")
-    if request["format"] != "bodyrig-identity-capture-request" or request["version"] != 1:
+    version = request["version"]
+    if (
+        request["format"] != "bodyrig-identity-capture-request"
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != 1
+    ):
         raise RuntimeError("unsupported identity capture request")
     if request["adapter"] != adapter or request["revision"] != revision:
         raise RuntimeError("identity capture adapter/revision mismatch")
