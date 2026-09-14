@@ -185,6 +185,33 @@ def test_candidate_rejects_unsafe_texture_reference(monkeypatch, tmp_path: Path)
         binding.build_binding(package, candidate)
 
 
+@pytest.mark.parametrize("version", (True, False, "1", None, 2))
+def test_candidate_rejects_boolean_or_non_numeric_v1(tmp_path: Path, version: object) -> None:
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = version
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(binding.SourceHairBodyBindingError, match="format/version mismatch"):
+        binding._candidate(candidate)
+
+
+@pytest.mark.parametrize("version", (1, 1.0))
+def test_candidate_accepts_numeric_v1(tmp_path: Path, version: object) -> None:
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = version
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    parsed, *_ = binding._candidate(candidate)
+    assert parsed["version"] == version
+    assert parsed["comparisonOnly"] is True
+    assert parsed["humanReviewRequired"] is True
+    assert parsed["productionReady"] is False
+
+
 def test_write_binding_is_create_only(monkeypatch, tmp_path: Path) -> None:
     package = tmp_path / "body.mrbody"
     package.write_bytes(b"package-fixture")
