@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import sys
 import uuid
@@ -13,6 +14,8 @@ from .bodyprint_adjustment import BodyprintAdjustmentEvidenceError, build_adjust
 FORMAT = "bodyrig-fidelity-adjustment-plan"
 VERSION = 1
 SEMANTICS = "visual-fidelity-not-identity-verification"
+MIN_TRUSTED_HEAD_SHOULDER_RATIO = 0.20
+MAX_TRUSTED_HEAD_SHOULDER_RATIO = 0.90
 
 
 class FidelityAdjustmentError(ValueError):
@@ -41,6 +44,43 @@ def _direction(value: Any, *, field: str) -> str:
     return str(value)
 
 
+def _no_adjustment_plan(evaluation: Mapping[str, Any], *, feedback: str = "") -> dict[str, Any]:
+    return {
+        "format": FORMAT,
+        "version": VERSION,
+        "evaluation_sha256": _canonical_sha256(dict(evaluation)),
+        "applicable": False,
+        "feedback": feedback,
+        "adjustment_request": None,
+        "semantics": SEMANTICS,
+    }
+
+
+def _shape_hint_is_trustworthy(evaluation: Mapping[str, Any]) -> bool:
+    """Reject automatic geometry edits when silhouette diagnostics are grossly implausible.
+
+    Revision-4+ evaluators expose a head/shoulder ratio derived from the same
+    candidate silhouette profile used to create shoulder/hip shape hints.  If
+    that ratio is far outside a deliberately generous human range, the profile
+    is more likely to be contaminated by pose/masking/framing than to represent
+    useful body geometry.  Legacy evaluation records without plausibility
+    diagnostics preserve their historical behavior.
+    """
+
+    plausibility = evaluation.get("plausibility")
+    if plausibility is None:
+        return True
+    if not isinstance(plausibility, Mapping):
+        raise FidelityAdjustmentError("fidelity evaluation plausibility must be an object")
+    ratio = plausibility.get("head_shoulder_ratio")
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)):
+        raise FidelityAdjustmentError("plausibility.head_shoulder_ratio must be numeric")
+    numeric = float(ratio)
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise FidelityAdjustmentError("plausibility.head_shoulder_ratio must be finite and non-negative")
+    return MIN_TRUSTED_HEAD_SHOULDER_RATIO <= numeric <= MAX_TRUSTED_HEAD_SHOULDER_RATIO
+
+
 def build_fidelity_adjustment_plan(evaluation: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(evaluation, Mapping):
         raise FidelityAdjustmentError("fidelity evaluation must be an object")
@@ -56,15 +96,7 @@ def build_fidelity_adjustment_plan(evaluation: Mapping[str, Any] | Any) -> dict[
         raise FidelityAdjustmentError("fidelity evaluation scores are missing")
     hint = evaluation.get("shape_hint")
     if hint is None:
-        return {
-            "format": FORMAT,
-            "version": VERSION,
-            "evaluation_sha256": _canonical_sha256(dict(evaluation)),
-            "applicable": False,
-            "feedback": "",
-            "adjustment_request": None,
-            "semantics": SEMANTICS,
-        }
+        return _no_adjustment_plan(evaluation)
     if not isinstance(hint, Mapping) or set(hint) != {
         "shoulder_direction",
         "hip_direction",
@@ -72,6 +104,15 @@ def build_fidelity_adjustment_plan(evaluation: Mapping[str, Any] | Any) -> dict[
         "hip_profile_delta",
     }:
         raise FidelityAdjustmentError("shape_hint fields must match evaluator v1 exactly")
+
+    if not _shape_hint_is_trustworthy(evaluation):
+        return _no_adjustment_plan(
+            evaluation,
+            feedback=(
+                "automatic silhouette adjustment suppressed because evaluator "
+                "head/shoulder geometry is outside the trusted range"
+            ),
+        )
 
     shoulder = _direction(hint.get("shoulder_direction"), field="shape_hint.shoulder_direction")
     hip = _direction(hint.get("hip_direction"), field="shape_hint.hip_direction")
