@@ -10,9 +10,12 @@ Photoreal V2 reverses the architecture:
 
 ```text
 Stash source universe
-  -> exhaustive calibrated observations
+  -> byte-bound exhaustive observations
+  -> leakage-safe train/evaluation split
+  -> deterministic scout/deprojection plan
+  -> identity/view/quality measurement
   -> photoreal teacher reconstruction
-  -> photoreal validation
+  -> held-out photoreal validation
   -> animation/deformation model
   -> animated photoreal validation
   -> device distillation
@@ -42,11 +45,24 @@ Before reconstruction, BodyRig must account for the complete performer-bound sou
 - all matching scenes, not the top ten;
 - every local video file and its native resolution/frame rate;
 - VR180/VR360/SBS/OU/stereo material retained and classified rather than rejected;
+- projection and stereo layout preserved independently;
 - all directly performer-bound still images;
 - all performer-bound galleries and their images;
+- every media file resolved through the verified Stash path map and SHA-256 bound;
 - exact source paths remain build-private and never enter `.mrbody`.
 
-`photoreal-stash-inventory.ps1` is the first implementation of this gate.
+The implemented P0 chain is:
+
+```text
+photoreal Stash inventory
+  -> source-group-disjoint dataset plan
+  -> exact byte/source receipt
+  -> deterministic scout scan plan
+  -> external measurement adapter
+  -> core frame-index/leakage/coverage gate
+```
+
+The external analyzer is measurement-only. It cannot choose train/evaluation assignment, grant photoreal acceptance or activate production.
 
 ### Gate P1 - static photoreal teacher
 
@@ -90,6 +106,54 @@ Only after P2 passes:
 - preserve an explicit fidelity delta against the teacher.
 
 A runtime build cannot claim fidelity greater than its measured teacher delta.
+
+## Source analysis authority
+
+Photoreal V2 separates measurement from authority.
+
+The external frame analyzer may measure:
+
+- target identity confidence;
+- head/body view bin;
+- face and full-body visibility;
+- sharpness;
+- motion;
+- occlusion;
+- person screen fraction;
+- frame/perceptual hashes.
+
+BodyRig core owns:
+
+- exact source-byte binding;
+- source-group-disjoint train/evaluation assignment;
+- cross-split perceptual near-duplicate rejection;
+- held-out view coverage requirements;
+- the decision whether teacher training may start.
+
+The current core frame-index gate rejects train/evaluation frames with a 64-bit perceptual-hash Hamming distance of four or less. It also requires front, three-quarter and profile face evidence plus front and three-quarter full-body evidence in the held-out evaluation split. Rear full-body evidence becomes mandatory when rear evidence is observable in the source universe.
+
+Even a clean frame index grants **teacher-training authority only**. It never grants photoreal, human or production acceptance.
+
+## Stereo and spatial source handling
+
+Spatial material is evidence, not noise.
+
+Photoreal inventory records projection and stereo layout independently. A source may therefore be, for example:
+
+```text
+projection = vr180
+stereo_layout = side-by-side
+```
+
+The scout planner:
+
+- samples all planned source groups deterministically;
+- splits side-by-side and over-under material into left/right observations;
+- preserves train/evaluation assignment;
+- requires deprojection for VR180/VR360/equirectangular material;
+- fails closed on unknown stereo layout or unresolved ~2:1 projection ambiguity.
+
+No aspect-ratio guess is allowed to become source authority.
 
 ## Teacher representation
 
@@ -153,19 +217,30 @@ Lighting baked into source images must be separated from material appearance as 
 
 ## Quest targets
 
-### Quest 3 / 3S
+### Quest 2 - first physical standalone proof target
 
-This is the primary photoreal standalone target.
+Quest 2 is the first BodyRig standalone proof target because it is the headset currently available for physical validation.
 
-Meta's Spatial SDK supports native Gaussian splats on Quest 3/3S and currently recommends optimized splats below roughly 150k primitives. That is useful as a rendering option, not a complete animated-avatar solution.
+That does **not** mean Quest 2 defines the teacher quality ceiling. The PC teacher remains uncompromised; Quest 2 receives a deliberately distilled student and its fidelity loss must be reported against the accepted teacher.
 
-The product target remains VR-safe frame pacing. A research result at 24 FPS proves feasibility of compact high-detail avatars but is not an acceptable final BodyRig VR target.
+The likely Quest 2 direction is:
 
-### Quest 2
+- aggressively optimized skinned mesh where geometry is sufficient;
+- neural/high-frequency appearance textures or residuals where conventional PBR loses likeness;
+- specialized eye rendering;
+- teacher-derived hair representation;
+- device-specific LOD and foveated/VR-safe rendering;
+- no assumption of native Meta Gaussian-splat support.
 
-Quest 2 remains a compatibility target, but its practical photoreal representation will likely need to be more aggressively distilled toward conventional rasterization, neural textures and LOD. Native Spatial SDK splat support must not be assumed for Quest 2.
+The first Quest 2 milestone is proof that a distilled student can preserve identity under real-time head/body motion. If that requires a materially lower visual ceiling than the teacher, the delta must be explicit rather than hidden behind a generic "photoreal" label.
 
-Photoreal V2 must report target-device fidelity separately. It must not call Quest 2 and Quest 3 output equivalent if their teacher deltas differ materially.
+### Quest 3 / 3S - higher-fidelity standalone target
+
+Quest 3/3S is the higher-headroom standalone target and may use rendering paths unavailable on Quest 2, including native Gaussian-splat support where it proves useful.
+
+It is not allowed to redefine the source/teacher pipeline. Both headset generations descend from the same accepted teacher and are measured independently against it.
+
+The product target remains VR-safe frame pacing. A research result at low frame rate may prove feasibility but is not final BodyRig runtime acceptance.
 
 ## Distillation direction
 
@@ -191,6 +266,7 @@ The new inventory stage explicitly records:
 - still megapixel budget;
 - performer binding;
 - scene/gallery provenance;
+- projection and stereo layout;
 - information-priority scores without discarding low-ranked data.
 
 Ranking is used to schedule expensive analysis. Ranking does **not** erase the rest of the source universe.
@@ -205,18 +281,20 @@ Automatic clustering may propose epochs, but human review owns the final epoch b
 
 ## Planned implementation sequence
 
-1. `P0`: exhaustive Stash video/image/gallery inventory.
-2. Add media hashing, local-path verification and source-universe receipt.
-3. Decode/classify stereo and VR layouts instead of rejecting them.
-4. Build frame-index inventory with perceptual deduplication and quality metrics.
-5. Add camera/intrinsics estimation and shot grouping.
-6. Add appearance-epoch proposal/report.
-7. Build a teacher adapter contract independent of VRM/SMPL-X.
-8. Reconstruct performer 42 as the first teacher benchmark.
-9. Render fixed canonical views plus held-out-reference comparisons.
-10. Stop until human visual review says the static teacher is genuinely photographic.
-11. Add body/face animation correspondence.
-12. Distill the accepted animated teacher to Quest targets.
+1. `P0`: exhaustive Stash video/image/gallery inventory. **Implemented on the Photoreal V2 branch.**
+2. Media hashing, local-path verification and source-universe receipt. **Implemented.**
+3. Independent projection/stereo classification and deterministic scout plan. **Implemented.**
+4. External measurement-only frame-analyzer contract. **Implemented.**
+5. Core frame index with perceptual leakage and held-out view gates. **Implemented.**
+6. Implement and pin the first high-quality identity/view/quality analyzer stack.
+7. Add camera/intrinsics estimation and shot grouping.
+8. Add appearance-epoch proposal/report.
+9. Build a teacher adapter contract independent of VRM/SMPL-X.
+10. Reconstruct performer 42 as the first teacher benchmark.
+11. Render fixed canonical views plus held-out-reference comparisons.
+12. Stop until human visual review says the static teacher is genuinely photographic.
+13. Add body/face animation correspondence.
+14. Distill the accepted animated teacher to Quest 2, then Quest 3/3S.
 
 ## What is deliberately frozen
 
