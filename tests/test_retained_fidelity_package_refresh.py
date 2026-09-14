@@ -58,6 +58,28 @@ def test_refresh_rehydrates_historical_fitter_command_onto_current_python() -> N
     assert "current_fitter_config_sha256 = $currentFitterConfigSha" in text
 
 
+def test_refresh_rehydrates_reboot_safe_sith_resume_environment_from_validated_authority() -> None:
+    text = source()
+
+    assert "[string]$RigSetupReport" in text
+    assert '"BODYRIG_RIG_SETUP_REPORT"' in text
+    assert '"BodyRig\\bodyrig-rig-setup.json"' in text
+    assert "-m bodyrig.rig_setup $RigSetupReport" in text
+    assert "-m bodyrig.sith_setup $sithSetupReport" in text
+    assert "$sith.checkpoints.recon_model.sha256" in text
+    assert "$sith.checkpoints.smplerx.sha256" in text
+    assert '"bodyrig-sith-reconstruction-authority"' in text
+    assert "validate_reconstruction_authority" in text
+    assert '"BODYRIG_SITH_RECON_CHECKPOINT_SHA256"' in text
+    assert '"BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256"' in text
+    assert '"BODYRIG_SITH_BODY_MODEL_GENDER"' in text
+    assert "$previousEnvironment = @{}" in text
+    assert "Remove-Item -Path \"Env:$name\"" in text
+    assert "rig_setup_sha256 = $rigSetupSha" in text
+    assert "sith_setup_sha256 = $sithSetupSha" in text
+    assert "body_model_gender = $bodyModelGender" in text
+
+
 def test_refresh_hash_binds_all_reused_authority_before_and_after_fitter() -> None:
     text = source()
 

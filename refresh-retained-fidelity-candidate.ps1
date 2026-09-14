@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory = $true)][string]$IdentityWorkspace,
     [Parameter(Mandatory = $true)][string]$OutputDir,
     [string]$AdjustmentEvidence = "",
+    [string]$RigSetupReport = "",
     [string]$BodyRigPython = ""
 )
 
@@ -26,6 +27,12 @@ function Need-Directory {
 function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath (Need-File -Path $Path -Label "Hash input") -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Need-Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
+    $clean = $Value.Trim().ToLowerInvariant()
+    if ($clean -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
+    return $clean
 }
 function Invoke-Checked {
     param([Parameter(Mandatory = $true)][string]$Executable,[Parameter(Mandatory = $true)][object[]]$Arguments,[Parameter(Mandatory = $true)][string]$Step)
@@ -76,6 +83,31 @@ if ($floor -notmatch '^[0-9a-f]{40}$') { throw "Current physical fidelity floor 
 & git -C $repoRoot merge-base --is-ancestor $floor $head 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Current checkout $head does not meet the physical fidelity floor $floor." }
 
+if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
+    $RigSetupReport = [string][Environment]::GetEnvironmentVariable("BODYRIG_RIG_SETUP_REPORT")
+}
+if ([string]::IsNullOrWhiteSpace($RigSetupReport) -and -not [string]::IsNullOrWhiteSpace([string]$env:LOCALAPPDATA)) {
+    $candidate = Join-Path $env:LOCALAPPDATA "BodyRig\bodyrig-rig-setup.json"
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $RigSetupReport = $candidate }
+}
+if ([string]::IsNullOrWhiteSpace($RigSetupReport)) {
+    throw "BodyRig rig setup report is required to rehydrate reboot-safe SiTH resume authority."
+}
+$RigSetupReport = Need-File -Path $RigSetupReport -Label "BodyRig rig setup report"
+$rigRaw = @(& $BodyRigPython -m bodyrig.rig_setup $RigSetupReport 2>&1)
+if ($LASTEXITCODE -ne 0 -or $rigRaw.Count -lt 1) { throw "BodyRig rig setup report failed live validation." }
+try { $rig = (($rigRaw -join "`n").Trim() | ConvertFrom-Json -Depth 50) }
+catch { throw "BodyRig rig setup validator returned unreadable JSON." }
+$sithSetupReport = Need-File -Path ([string]$rig.high_fidelity.setup_report) -Label "Nested SiTH setup report"
+$sithRaw = @(& $BodyRigPython -m bodyrig.sith_setup $sithSetupReport 2>&1)
+if ($LASTEXITCODE -ne 0 -or $sithRaw.Count -lt 1) { throw "Nested SiTH setup report failed live validation." }
+try { $sith = (($sithRaw -join "`n").Trim() | ConvertFrom-Json -Depth 50) }
+catch { throw "SiTH setup validator returned unreadable JSON." }
+$reconCheckpointSha = Need-Sha256 -Value ([string]$sith.checkpoints.recon_model.sha256) -Label "SiTH recon checkpoint SHA-256"
+$smplxCheckpointSha = Need-Sha256 -Value ([string]$sith.checkpoints.smplerx.sha256) -Label "SiTH SMPL-X checkpoint SHA-256"
+$rigSetupSha = Sha256 $RigSetupReport
+$sithSetupSha = Sha256 $sithSetupReport
+
 $BaselineCloneOutput = Need-Directory -Path $BaselineCloneOutput -Label "Baseline clone output"
 $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained identity workspace"
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
@@ -98,6 +130,24 @@ try {
     $sourceMesh = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\meshes\000_reco.obj") -Label "Retained source mesh"
     $donorObj = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\smplx\000_smplx.obj") -Label "Retained fitted donor OBJ"
     $fitParams = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\smplx\000_fit.json") -Label "Retained fitted donor parameters"
+
+    try { $reconstructionAuthorityValue = Get-Content -LiteralPath $reconstructionAuthority -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
+    catch { throw "Retained SiTH reconstruction authority is unreadable." }
+    $bodyModelGender = ([string]$reconstructionAuthorityValue.body_model_gender).Trim().ToLowerInvariant()
+    if ([string]$reconstructionAuthorityValue.format -ne "bodyrig-sith-reconstruction-authority" -or
+        -not (Test-V1Version $reconstructionAuthorityValue.version) -or
+        $bodyModelGender -notin @("female","male","neutral")) {
+        throw "Retained SiTH reconstruction authority cannot provide canonical body-model gender."
+    }
+    $authorityProbeCode = @'
+import json,sys
+from bodyrig.sith_reconstruction_authority import validate_reconstruction_authority
+print(json.dumps(validate_reconstruction_authority(sys.argv[1],expected_body_model_gender=sys.argv[2]),separators=(",",":")))
+'@
+    $authorityProbe = @(& $BodyRigPython -c $authorityProbeCode $IdentityWorkspace $bodyModelGender 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $authorityProbe.Count -ne 1) {
+        throw "Retained SiTH reconstruction authority failed current strict validation."
+    }
 
     $sourcePackageMatches = @(Get-ChildItem -LiteralPath $cloneDir -Filter "*.mrbody" -File)
     if ($sourcePackageMatches.Count -ne 1) { throw "Baseline clone must contain exactly one .mrbody package; found $($sourcePackageMatches.Count)." }
@@ -212,13 +262,34 @@ print(json.dumps({"body_id":v.manifest["id"],"name":v.manifest["name"],"builder_
     Write-Host "BodyRig module: $actualBodyRigModule"
     Write-Host "Source package: $sourcePackageSha"
     Write-Host "Reconstruction: $reconstructionShaBefore"
+    Write-Host "SMPL-X gender:  $bodyModelGender"
     Write-Host "Adjustment:     $(if ($adjustmentEvidenceSha) { $adjustmentEvidenceSha } else { '<none>' })"
     Write-Host "SiTH rerun:     FALSE"
     Write-Host "Fitter rerun:   TRUE (current checkout orchestrator)"
     Write-Host "Production:     FALSE"
     Write-Host ""
 
-    Invoke-Checked -Executable $BodyRigPython -Arguments $fitArgs -Step "Refit/repackage retained SiTH reconstruction on current fidelity floor"
+    $environmentNames = @(
+        "BODYRIG_SITH_RECON_CHECKPOINT_SHA256",
+        "BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256",
+        "BODYRIG_SITH_BODY_MODEL_GENDER"
+    )
+    $previousEnvironment = @{}
+    foreach ($name in $environmentNames) {
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, [EnvironmentVariableTarget]::Process)
+    }
+    try {
+        Set-Item -Path "Env:BODYRIG_SITH_RECON_CHECKPOINT_SHA256" -Value $reconCheckpointSha
+        Set-Item -Path "Env:BODYRIG_SITH_SMPLX_CHECKPOINT_SHA256" -Value $smplxCheckpointSha
+        Set-Item -Path "Env:BODYRIG_SITH_BODY_MODEL_GENDER" -Value $bodyModelGender
+        Invoke-Checked -Executable $BodyRigPython -Arguments $fitArgs -Step "Refit/repackage retained SiTH reconstruction on current fidelity floor"
+    } finally {
+        foreach ($name in $environmentNames) {
+            $prior = $previousEnvironment[$name]
+            if ($null -eq $prior) { Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue }
+            else { Set-Item -Path "Env:$name" -Value ([string]$prior) }
+        }
+    }
 
     if ((Sha256 $reconstruction) -ne $reconstructionShaBefore -or
         (Sha256 $reconstructionAuthority) -ne $reconstructionAuthorityShaBefore -or
@@ -276,6 +347,11 @@ print(json.dumps(v.provenance["pipeline"],separators=(",",":")))
         portable_identity_sha256 = $portableIdentityShaBefore
         baseline_fitter_config_sha256 = $baselineFitterConfigShaBefore
         current_fitter_config_sha256 = $currentFitterConfigSha
+        rig_setup_sha256 = $rigSetupSha
+        sith_setup_sha256 = $sithSetupSha
+        sith_recon_checkpoint_sha256 = $reconCheckpointSha
+        sith_smplx_checkpoint_sha256 = $smplxCheckpointSha
+        body_model_gender = $bodyModelGender
         refreshed_package_sha256 = [string]$refreshed.package_sha256
         refreshed_builder_revision = [string]$refreshed.builder_revision
         reconstruction_sha256 = $reconstructionShaBefore
