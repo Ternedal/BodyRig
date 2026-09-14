@@ -9,6 +9,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig multi-performer source discovery is Windows-only."
 }
@@ -59,7 +64,7 @@ $stashConfigPath = Join-Path $env:LOCALAPPDATA "BodyRig\config\stash.json"
 if (-not (Test-Path -LiteralPath $stashConfigPath -PathType Leaf)) { throw "Saved Stash config is missing: $stashConfigPath" }
 try { $stash = Get-Content -LiteralPath $stashConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 10 }
 catch { throw "Saved Stash config is unreadable JSON." }
-if ([string]$stash.format -ne "bodyrig-local-stash-config" -or [int]$stash.version -ne 1) {
+if ([string]$stash.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $stash.version)) {
     throw "Saved Stash config has an unexpected format/version."
 }
 $stashUrl = ([string]$stash.url).Trim()
