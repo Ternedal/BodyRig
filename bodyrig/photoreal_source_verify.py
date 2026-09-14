@@ -89,7 +89,11 @@ def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
         raise PhotorealSourceVerifyError("photoreal source inventory crossed runtime/production authority")
 
     result: list[dict[str, Any]] = []
-    for kind, key, id_field in (("video", "videos", "scene_id"), ("image", "images", "image_id")):
+    seen_keys: set[str] = set()
+    for kind, key, id_field, prefix in (
+        ("video", "videos", "scene_id", "scene"),
+        ("image", "images", "image_id", "image"),
+    ):
         values = inventory.get(key)
         if not isinstance(values, list):
             raise PhotorealSourceVerifyError(f"photoreal source inventory {key} is invalid")
@@ -100,10 +104,16 @@ def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
             path = str(item.get("path") or "").strip()
             if not source_id or not path:
                 raise PhotorealSourceVerifyError(f"photoreal {kind} source lacks id/path")
+            source_key = f"{prefix}:{source_id}:{path}"
+            normalized_key = source_key.casefold()
+            if normalized_key in seen_keys:
+                raise PhotorealSourceVerifyError(f"duplicate photoreal source key: {source_key}")
+            seen_keys.add(normalized_key)
             result.append(
                 {
                     "kind": kind,
                     "source_id": source_id,
+                    "source_key": source_key,
                     "catalog_path": path,
                     "expected_size_bytes": _expected_size(item),
                 }
@@ -156,6 +166,7 @@ def verify_inventory_sources(
             {
                 "kind": source["kind"],
                 "source_id": source["source_id"],
+                "source_key": source["source_key"],
                 "catalog_path": source["catalog_path"],
                 "resolved_path": str(local),
                 "size_bytes": observed_size,
@@ -163,7 +174,7 @@ def verify_inventory_sources(
             }
         )
 
-    verified.sort(key=lambda item: (item["kind"], item["source_id"], item["catalog_path"].lower()))
+    verified.sort(key=lambda item: (item["kind"], item["source_key"].casefold()))
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -176,6 +187,7 @@ def verify_inventory_sources(
         "sources": verified,
         "all_sources_readable": True,
         "all_sources_sha256_bound": True,
+        "source_keys_path_specific": True,
         "build_only": True,
         "teacher_input_authority": True,
         "runtime_dependency": False,
