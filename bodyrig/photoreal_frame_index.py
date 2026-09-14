@@ -26,7 +26,7 @@ VALID_VIEW_BINS = {
     "rear",
     "unknown",
 }
-PERCEPTUAL_HASH_HEX_LENGTH = 16  # 64-bit pHash/dHash class fingerprint
+PERCEPTUAL_HASH_HEX_LENGTH = 16
 MAX_CROSS_SPLIT_HASH_DISTANCE = 4
 MIN_FACE_VISIBILITY = 0.72
 MIN_FULL_BODY_VISIBILITY = 0.72
@@ -291,11 +291,7 @@ def _normalize_observation(
         "eye": eye,
         "projection": str(raw.get("projection") or "unknown"),
         "frame_sha256": _hex(raw.get("frame_sha256"), length=64, label="frame SHA-256"),
-        "perceptual_hash": _hex(
-            raw.get("perceptual_hash"),
-            length=PERCEPTUAL_HASH_HEX_LENGTH,
-            label="frame perceptual hash",
-        ),
+        "perceptual_hash": _hex(raw.get("perceptual_hash"), length=PERCEPTUAL_HASH_HEX_LENGTH, label="frame perceptual hash"),
         "width": _integer(raw.get("width"), label="frame width"),
         "height": _integer(raw.get("height"), label="frame height"),
         "view_bin": view_bin,
@@ -325,10 +321,7 @@ def _cross_split_near_duplicates(observations: Iterable[Mapping[str, Any]]) -> l
     pairs: list[dict[str, Any]] = []
     seen_pairs: set[tuple[str, str, str, str]] = set()
     for item in train:
-        for distance, payload in tree.query(
-            int(str(item["perceptual_hash"]), 16),
-            MAX_CROSS_SPLIT_HASH_DISTANCE,
-        ):
+        for distance, payload in tree.query(int(str(item["perceptual_hash"]), 16), MAX_CROSS_SPLIT_HASH_DISTANCE):
             other = eval_by_payload[payload]
             key = (
                 str(item["source_key"]),
@@ -348,13 +341,7 @@ def _cross_split_near_duplicates(observations: Iterable[Mapping[str, Any]]) -> l
                     "evaluation_frame_sha256": other["frame_sha256"],
                 }
             )
-    pairs.sort(
-        key=lambda item: (
-            int(item["distance"]),
-            str(item["train_source_key"]),
-            str(item["evaluation_source_key"]),
-        )
-    )
+    pairs.sort(key=lambda item: (int(item["distance"]), str(item["train_source_key"]), str(item["evaluation_source_key"])))
     return pairs
 
 
@@ -381,14 +368,14 @@ def build_frame_index(
         raise PhotorealFrameIndexError("photoreal frame observations authority boundary is invalid")
     if str(analyzer_output.get("performer_id") or "") != str(plan.get("performer_id") or ""):
         raise PhotorealFrameIndexError("photoreal frame observations performer mismatch")
+    analyzer = _safe_text(analyzer_output.get("analyzer"), label="frame analyzer", maximum=256)
+    analyzer_revision = _safe_text(analyzer_output.get("analyzer_revision"), label="frame analyzer revision", maximum=256)
 
     raw_observations = analyzer_output.get("observations")
     if not isinstance(raw_observations, list) or not raw_observations:
         raise PhotorealFrameIndexError("photoreal frame observations are empty")
     if len(raw_observations) > MAX_OBSERVATIONS:
-        raise PhotorealFrameIndexError(
-            f"photoreal frame observations exceed explicit safety bound {MAX_OBSERVATIONS}"
-        )
+        raise PhotorealFrameIndexError(f"photoreal frame observations exceed explicit safety bound {MAX_OBSERVATIONS}")
 
     normalized: list[dict[str, Any]] = []
     observed_sources: set[str] = set()
@@ -411,9 +398,7 @@ def build_frame_index(
 
     missing_sources = sorted(set(plan_sources) - observed_sources)
     if missing_sources:
-        raise PhotorealFrameIndexError(
-            f"frame analyzer did not cover every planned source ({len(missing_sources)} missing)"
-        )
+        raise PhotorealFrameIndexError(f"frame analyzer did not cover every planned source ({len(missing_sources)} missing)")
 
     normalized.sort(
         key=lambda item: (
@@ -426,9 +411,7 @@ def build_frame_index(
     )
     duplicates = _cross_split_near_duplicates(normalized)
 
-    eval_eligible = [
-        item for item in normalized if item["split"] == "evaluation" and item["eligible_for_teacher"]
-    ]
+    eval_eligible = [item for item in normalized if item["split"] == "evaluation" and item["eligible_for_teacher"]]
     train_eligible = [item for item in normalized if item["split"] == "train" and item["eligible_for_teacher"]]
     eval_coverage = sorted({label for item in eval_eligible for label in item["coverage"]})
     all_coverage = sorted({label for item in normalized if item["eligible_for_teacher"] for label in item["coverage"]})
@@ -464,6 +447,8 @@ def build_frame_index(
         "version": VERSION,
         "performer_id": str(plan.get("performer_id") or ""),
         "performer_name": str(plan.get("performer_name") or ""),
+        "analyzer": analyzer,
+        "analyzer_revision": analyzer_revision,
         "source_count": len(plan_sources),
         "observed_source_count": len(observed_sources),
         "observation_count": len(normalized),
