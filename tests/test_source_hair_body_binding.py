@@ -48,7 +48,21 @@ def _candidate(tmp_path: Path) -> Path:
     receipt = {
         "format": "bodyrig-source-hair-candidate",
         "version": 1,
-        "method": "retained-sith-connected-head-shell-v1",
+        "method": "retained-sith-connected-head-shell-v2",
+        "selector": "strict-shell",
+        "selectorThresholds": {
+            "candidateDistanceBodyRatio": 0.008,
+            "seedDistanceBodyRatio": 0.006,
+            "minimumYBodyRatio": 0.60,
+            "seedYBodyRatio": 0.79,
+            "minimumFootprintSpanBodyRatio": 0.018,
+            "minimumVerticalSpanBodyRatio": 0.015,
+        },
+        "selectionMetrics": {
+            "horizontalXSpanBodyRatio": 0.10,
+            "horizontalZSpanBodyRatio": 0.08,
+            "verticalSpanBodyRatio": 0.12,
+        },
         "sourceReconstructionSha256": "a" * 64,
         "sourceMeshSha256": "d" * 64,
         "sourceMaterialSha256": "e" * 64,
@@ -120,6 +134,48 @@ def test_build_binding_requires_five_exact_body_source_links(monkeypatch, tmp_pa
     assert value["comparisonOnly"] is True
     assert value["humanReviewRequired"] is True
     assert value["productionActivation"] is False
+
+
+def test_candidate_rejects_legacy_v1_selector_method(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "body.mrbody"
+    package.write_bytes(b"package-fixture")
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["method"] = "retained-sith-connected-head-shell-v1"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    _patch_body(monkeypatch)
+
+    with pytest.raises(binding.SourceHairBodyBindingError, match="extraction method mismatch"):
+        binding.build_binding(package, candidate)
+
+
+def test_candidate_rejects_noncanonical_selector_thresholds(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "body.mrbody"
+    package.write_bytes(b"package-fixture")
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["selectorThresholds"]["candidateDistanceBodyRatio"] = 0.0001
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    _patch_body(monkeypatch)
+
+    with pytest.raises(binding.SourceHairBodyBindingError, match="selector thresholds"):
+        binding.build_binding(package, candidate)
+
+
+def test_candidate_rejects_tiny_persisted_footprint(monkeypatch, tmp_path: Path) -> None:
+    package = tmp_path / "body.mrbody"
+    package.write_bytes(b"package-fixture")
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["selectionMetrics"]["horizontalZSpanBodyRatio"] = 0.001
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    _patch_body(monkeypatch)
+
+    with pytest.raises(binding.SourceHairBodyBindingError, match="footprint"):
+        binding.build_binding(package, candidate)
 
 
 @pytest.mark.parametrize(
