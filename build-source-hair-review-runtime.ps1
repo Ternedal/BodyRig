@@ -25,6 +25,10 @@ function Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Invoke-WslRaw {
     param([Parameter(Mandatory = $true)][object[]]$Arguments)
     $lines = @(& $WslExe -d $Distribution -- @Arguments 2>&1)
@@ -124,7 +128,7 @@ try {
     $avatarPath = Need-File -Path (Join-Path $partial "base-avatar.vrm") -Label "Prepared base avatar"
     try { $binding = Get-Content -LiteralPath $bindingPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
     catch { throw "Prepared source hair/body binding is unreadable." }
-    if ([string]$binding.format -ne "bodyrig-source-hair-body-binding" -or [int]$binding.version -ne 1 -or
+    if ([string]$binding.format -ne "bodyrig-source-hair-body-binding" -or -not (Test-V1Version $binding.version) -or
         [string]$binding.avatarVrmSha256 -ne (Sha256 $avatarPath) -or
         $binding.runtimeIntegrationRequired -ne $true -or
         $binding.physicalSilhouetteReviewRequired -ne $true -or
@@ -209,7 +213,7 @@ try {
     $receiptPath = Need-File -Path (Join-Path $partial "source-hair-review-runtime.json") -Label "Source hair review runtime receipt"
     try { $receipt = Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
     catch { throw "Source hair review runtime receipt is unreadable." }
-    if ([string]$receipt.format -ne "bodyrig-source-hair-review-runtime" -or [int]$receipt.version -ne 1 -or
+    if ([string]$receipt.format -ne "bodyrig-source-hair-review-runtime" -or -not (Test-V1Version $receipt.version) -or
         [string]$receipt.bodyrigRevision -ne $head -or
         [string]$receipt.bridgeScriptSha256 -ne $bridgeScriptSha -or
         [string]$receipt.reviewVrmSha256 -ne (Sha256 $reviewVrmPath) -or
