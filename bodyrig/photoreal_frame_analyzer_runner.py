@@ -128,6 +128,8 @@ def build_analyzer_request(
         "sources": scan_plan["sources"],
         "build_only": True,
         "measurement_only": True,
+        "identity_measurement_only": True,
+        "identity_matching_authority": False,
         "train_evaluation_authority": False,
         "photoreal_acceptance_authority": False,
         "production_activation": False,
@@ -157,6 +159,7 @@ def validate_analyzer_result(
         "analyzer",
         "analyzer_revision",
         "analyzer_model_set_sha256",
+        "identity_embedding_dimension",
         "observations",
         "build_only",
         "production_activation",
@@ -177,11 +180,29 @@ def validate_analyzer_result(
     expected_model_sha = _sha(model_set_sha256, label="photoreal analyzer model-set SHA-256")
     if observed_model_sha != expected_model_sha:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer result model-set provenance mismatch")
+    dimension = value.get("identity_embedding_dimension")
+    if isinstance(dimension, bool) or not isinstance(dimension, int) or not 32 <= dimension <= 4096:
+        raise PhotorealFrameAnalyzerError("photoreal frame analyzer identity_embedding_dimension is invalid")
     observations = value.get("observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned no observations")
     if value.get("build_only") is not True or value.get("production_activation") is not False:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer crossed its authority boundary")
+    for raw in observations:
+        if not isinstance(raw, Mapping):
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned a non-object observation")
+        if "target_identity_verified" in raw or "identity_confidence" in raw:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer attempted to assert identity authority")
+        status = raw.get("identity_measurement_status")
+        embedding = raw.get("identity_embedding")
+        if status == "available":
+            if not isinstance(embedding, list) or len(embedding) != dimension:
+                raise PhotorealFrameAnalyzerError("available identity embedding has wrong dimension")
+        elif status == "unavailable":
+            if embedding is not None:
+                raise PhotorealFrameAnalyzerError("unavailable identity measurement must have null embedding")
+        else:
+            raise PhotorealFrameAnalyzerError("identity_measurement_status is invalid")
     return dict(value)
 
 
