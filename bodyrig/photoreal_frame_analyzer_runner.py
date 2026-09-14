@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -36,9 +35,24 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _sha(value: Any, *, label: str) -> str:
+    result = str(value or "").strip().lower()
+    if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
+        raise PhotorealFrameAnalyzerError(f"{label} is invalid")
+    return result
+
+
 def load_analyzer_config(path: str | Path) -> dict[str, Any]:
     value = _read_json(path, label="photoreal frame analyzer config")
-    required = {"format", "version", "adapter", "revision", "command", "timeout_seconds"}
+    required = {
+        "format",
+        "version",
+        "adapter",
+        "revision",
+        "model_set_sha256",
+        "command",
+        "timeout_seconds",
+    }
     if set(value) != required:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer config fields must match v1 exactly")
     version = value.get("version")
@@ -50,6 +64,7 @@ def load_analyzer_config(path: str | Path) -> dict[str, Any]:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer adapter is invalid")
     if not revision or len(revision) > 160:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer revision is invalid")
+    model_set_sha256 = _sha(value.get("model_set_sha256"), label="photoreal analyzer model-set SHA-256")
     command = value.get("command")
     if (
         not isinstance(command, list)
@@ -65,6 +80,7 @@ def load_analyzer_config(path: str | Path) -> dict[str, Any]:
         "version": CONFIG_VERSION,
         "adapter": adapter,
         "revision": revision,
+        "model_set_sha256": model_set_sha256,
         "command": list(command),
         "timeout_seconds": timeout,
     }
@@ -95,6 +111,7 @@ def build_analyzer_request(
     *,
     adapter: str,
     revision: str,
+    model_set_sha256: str,
 ) -> dict[str, Any]:
     _validate_scan_plan(scan_plan)
     performer_id = str(scan_plan.get("performer_id") or "").strip()
@@ -105,6 +122,7 @@ def build_analyzer_request(
         "version": REQUEST_VERSION,
         "adapter": adapter,
         "revision": revision,
+        "model_set_sha256": _sha(model_set_sha256, label="photoreal analyzer model-set SHA-256"),
         "performer_id": performer_id,
         "strategy": str(scan_plan.get("strategy") or ""),
         "sources": scan_plan["sources"],
@@ -130,6 +148,7 @@ def validate_analyzer_result(
     performer_id: str,
     adapter: str,
     revision: str,
+    model_set_sha256: str,
 ) -> dict[str, Any]:
     required = {
         "format",
@@ -137,6 +156,7 @@ def validate_analyzer_result(
         "performer_id",
         "analyzer",
         "analyzer_revision",
+        "analyzer_model_set_sha256",
         "observations",
         "build_only",
         "production_activation",
@@ -150,6 +170,13 @@ def validate_analyzer_result(
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer result performer mismatch")
     if value.get("analyzer") != adapter or value.get("analyzer_revision") != revision:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer result provenance mismatch")
+    observed_model_sha = _sha(
+        value.get("analyzer_model_set_sha256"),
+        label="photoreal analyzer result model-set SHA-256",
+    )
+    expected_model_sha = _sha(model_set_sha256, label="photoreal analyzer model-set SHA-256")
+    if observed_model_sha != expected_model_sha:
+        raise PhotorealFrameAnalyzerError("photoreal frame analyzer result model-set provenance mismatch")
     observations = value.get("observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned no observations")
@@ -166,6 +193,7 @@ def run_external_frame_analyzer(
 ) -> dict[str, Any]:
     adapter = str(config.get("adapter") or "").strip()
     revision = str(config.get("revision") or "").strip()
+    model_set_sha256 = _sha(config.get("model_set_sha256"), label="photoreal analyzer model-set SHA-256")
     command = config.get("command")
     timeout = config.get("timeout_seconds")
     if not adapter or not revision or not isinstance(command, Sequence) or isinstance(command, (str, bytes)):
@@ -173,7 +201,12 @@ def run_external_frame_analyzer(
     if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 1:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer timeout is invalid")
 
-    request = build_analyzer_request(scan_plan, adapter=adapter, revision=revision)
+    request = build_analyzer_request(
+        scan_plan,
+        adapter=adapter,
+        revision=revision,
+        model_set_sha256=model_set_sha256,
+    )
     root = Path(workspace).expanduser().resolve()
     if root.exists():
         raise PhotorealFrameAnalyzerError(f"photoreal frame analyzer workspace already exists: {root}")
@@ -198,6 +231,8 @@ def run_external_frame_analyzer(
         adapter,
         "--bodyrig-revision",
         revision,
+        "--bodyrig-model-set-sha256",
+        model_set_sha256,
     ]
     try:
         completed = run_logged_process(invoke, log_path=log_path, timeout_seconds=timeout)
@@ -231,6 +266,7 @@ def run_external_frame_analyzer(
         performer_id=str(scan_plan.get("performer_id") or "").strip(),
         adapter=adapter,
         revision=revision,
+        model_set_sha256=model_set_sha256,
     )
 
 
