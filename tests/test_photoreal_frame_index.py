@@ -6,6 +6,8 @@ import pytest
 
 from bodyrig.photoreal_frame_index import PhotorealFrameIndexError, build_frame_index
 
+MODEL_SET_SHA = "c" * 64
+
 
 def _source(key: str, group: str, kind: str = "video") -> dict[str, object]:
     return {
@@ -23,9 +25,7 @@ def _plan() -> dict[str, object]:
         "version": 1,
         "performer_id": "42",
         "performer_name": "Performer 42",
-        "train": [
-            _source("scene:s-train:E:/train.mp4", "scene:s-train"),
-        ],
+        "train": [_source("scene:s-train:E:/train.mp4", "scene:s-train")],
         "evaluation": [
             _source("scene:s-eval-front:E:/eval-front.mp4", "scene:s-eval-front"),
             _source("scene:s-eval-34:E:/eval-34.mp4", "scene:s-eval-34"),
@@ -118,6 +118,7 @@ def _observations(plan: dict[str, object], receipt: dict[str, object]) -> dict[s
         "performer_id": "42",
         "analyzer": "synthetic-photoreal-frame-analyzer",
         "analyzer_revision": "test-v1",
+        "analyzer_model_set_sha256": MODEL_SET_SHA,
         "observations": [
             _observation(train_key, sha[train_key], timestamp=1.0, view="front", face=0.9, body=0.9, phash="0000000000000000"),
             _observation(front_key, sha[front_key], timestamp=2.0, view="front", face=0.9, body=0.9, phash="1111111111111111"),
@@ -137,6 +138,7 @@ def test_frame_index_authorizes_training_only_after_held_out_coverage() -> None:
     assert result["teacher_training_authorized"] is True
     assert result["analyzer"] == "synthetic-photoreal-frame-analyzer"
     assert result["analyzer_revision"] == "test-v1"
+    assert result["analyzer_model_set_sha256"] == MODEL_SET_SHA
     assert result["cross_split_near_duplicate_count"] == 0
     assert result["held_out_view_coverage_missing"] == []
     assert set(result["held_out_view_coverage_observed"]) >= {
@@ -156,9 +158,7 @@ def test_frame_index_blocks_cross_split_perceptual_near_duplicate() -> None:
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
     observations["observations"][1]["perceptual_hash"] = "0000000000000001"
-
     result = build_frame_index(plan, receipt, observations)
-
     assert result["teacher_training_authorized"] is False
     assert result["cross_split_near_duplicate_count"] >= 1
     assert "cross-split perceptual near-duplicates detected" in result["training_blockers"]
@@ -173,9 +173,7 @@ def test_frame_index_requires_rear_in_eval_when_rear_is_source_observable() -> N
     observations["observations"].append(
         _observation(train_key, train_sha, timestamp=5.0, view="rear", face=0.0, body=0.95, phash="aaaaaaaaaaaaaaaa")
     )
-
     result = build_frame_index(plan, receipt, observations)
-
     assert result["rear_view_source_observable"] is True
     assert "full-body-rear" in result["held_out_view_coverage_missing"]
     assert result["teacher_training_authorized"] is False
@@ -186,10 +184,7 @@ def test_frame_index_rejects_unanalyzed_planned_source() -> None:
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
     missing_key = str(plan["evaluation"][2]["source_id"])
-    observations["observations"] = [
-        item for item in observations["observations"] if item["source_key"] != missing_key
-    ]
-
+    observations["observations"] = [item for item in observations["observations"] if item["source_key"] != missing_key]
     with pytest.raises(PhotorealFrameIndexError, match="did not cover every planned source"):
         build_frame_index(plan, receipt, observations)
 
@@ -199,7 +194,6 @@ def test_frame_index_rejects_source_byte_mismatch() -> None:
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
     observations["observations"][0]["source_sha256"] = "f" * 64
-
     with pytest.raises(PhotorealFrameIndexError, match="different source bytes"):
         build_frame_index(plan, receipt, observations)
 
@@ -209,7 +203,6 @@ def test_frame_index_rejects_plan_receipt_universe_mismatch() -> None:
     receipt = _receipt(plan)
     receipt = copy.deepcopy(receipt)
     receipt["sources"].pop()
-
     with pytest.raises(PhotorealFrameIndexError, match="disagree on exact source universe"):
         build_frame_index(plan, receipt, _observations(plan, _receipt(plan)))
 
@@ -219,6 +212,14 @@ def test_frame_index_rejects_missing_analyzer_provenance() -> None:
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
     observations.pop("analyzer_revision")
-
     with pytest.raises(PhotorealFrameIndexError, match="frame analyzer revision"):
+        build_frame_index(plan, receipt, observations)
+
+
+def test_frame_index_rejects_missing_model_set_provenance() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations.pop("analyzer_model_set_sha256")
+    with pytest.raises(PhotorealFrameIndexError, match="model-set SHA-256"):
         build_frame_index(plan, receipt, observations)
