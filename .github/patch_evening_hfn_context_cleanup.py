@@ -27,4 +27,4 @@ test = TEST.read_text(encoding="utf-8")
 addition = '''\n\ndef test_temporary_context_creation_is_inside_cleanup_try() -> None:\n    text = source()\n    anchor = text.index('$temporaryExecutionContext = ""')\n    try_pos = text.index('try {', anchor)\n    derived_write_pos = text.index('[IO.File]::WriteAllText($temporaryExecutionContext, $derivedContextJson', anchor)\n    empty_write_pos = text.index('[IO.File]::WriteAllText($temporaryExecutionContext, "{}"', anchor)\n    finally_pos = text.index('} finally {', try_pos)\n    cleanup_pos = text.index('Remove-Item -LiteralPath $temporaryExecutionContext -Force', finally_pos)\n    assert try_pos < derived_write_pos < finally_pos\n    assert try_pos < empty_write_pos < finally_pos\n    assert cleanup_pos > finally_pos\n'''
 if "def test_temporary_context_creation_is_inside_cleanup_try" in test:
     raise SystemExit("cleanup regression already present")
-TEST.write_text(test.rstrip() + addition + "\n", encoding="utf-8", newline="\n")
+TEST.write_text(test.rstrip() + addition.rstrip() + "\n", encoding="utf-8", newline="\n")
