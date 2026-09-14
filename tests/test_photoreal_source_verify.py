@@ -44,7 +44,7 @@ def test_translate_remote_stash_drive_to_verified_share() -> None:
     assert translate_stash_path("F:\\VR\\b.jpg", mapping) == r"\\192.168.1.21\VR_F\VR\b.jpg"
 
 
-def test_verify_inventory_binds_every_source_to_sha256() -> None:
+def test_verify_inventory_binds_every_source_to_sha256_and_path_specific_key() -> None:
     inventory = _inventory()
     mapping = {"E:": r"\\stash\VR_E", "F:": r"\\stash\VR_F"}
     sizes = {
@@ -70,9 +70,42 @@ def test_verify_inventory_binds_every_source_to_sha256() -> None:
     assert result["total_bytes"] == 150
     assert result["all_sources_readable"] is True
     assert result["all_sources_sha256_bound"] is True
+    assert result["source_keys_path_specific"] is True
     assert result["teacher_input_authority"] is True
     assert result["production_activation"] is False
     assert {item["sha256"] for item in result["sources"]} == {"a" * 64, "b" * 64}
+    assert {item["source_key"] for item in result["sources"]} == {
+        "scene:s1:E:/VR/source.mp4",
+        "image:i1:F:/VR/source.jpg",
+    }
+
+
+def test_verify_inventory_distinguishes_multiple_files_in_same_scene() -> None:
+    inventory = _inventory()
+    inventory["videos"] = [
+        {"scene_id": "s1", "path": "E:/VR/left.mp4", "size_bytes": 10},
+        {"scene_id": "s1", "path": "E:/VR/right.mp4", "size_bytes": 20},
+    ]
+    mapping = {"E:": r"\\stash\VR_E", "F:": r"\\stash\VR_F"}
+    sizes = {
+        r"\\stash\VR_E\VR\left.mp4": 10,
+        r"\\stash\VR_E\VR\right.mp4": 20,
+        r"\\stash\VR_F\VR\source.jpg": 50,
+    }
+
+    result = verify_inventory_sources(
+        inventory,
+        path_mapping=mapping,
+        exists_file=lambda path: str(path) in sizes,
+        file_size=lambda path: sizes[str(path)],
+        hash_file=lambda path: ("a" if str(path).endswith("left.mp4") else "b") * 64,
+    )
+
+    video_keys = {item["source_key"] for item in result["sources"] if item["kind"] == "video"}
+    assert video_keys == {
+        "scene:s1:E:/VR/left.mp4",
+        "scene:s1:E:/VR/right.mp4",
+    }
 
 
 def test_verify_inventory_rejects_changed_size() -> None:
