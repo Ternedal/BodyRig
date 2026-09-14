@@ -99,7 +99,7 @@ function Set-BodyRigStashPathMap {
     }
     $env:BODYRIG_STASH_PATH_MAP = $mapJson
     if ($PersistUser) {
-        [Environment]::SetEnvironmentVariableTarget]::User)
+        [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
     }
 }
 
