@@ -10,9 +10,10 @@ namespace BodyRig.ReferenceRenderer
     /// <summary>
     /// Comparison-only machine evidence that the exact source-hair review mesh is
     /// genuinely skinned into the loaded Humanoid. The probe turns the real Head
-    /// bone, bakes the SkinnedMeshRenderer before/after, requires measurable vertex
-    /// motion, restores neutral, and binds the report to the exact runtime bytes.
-    /// It never grades hairstyle quality and never grants component/production authority.
+    /// bone, requires the canonical SMPL-X Head skin joint to follow that motion,
+    /// bakes the SkinnedMeshRenderer before/after, restores neutral, and binds the
+    /// report to the exact runtime bytes. It never grades hairstyle quality and
+    /// never grants component/production authority.
     /// </summary>
     public sealed class BodyRigHairDeformationProbe : MonoBehaviour
     {
@@ -26,8 +27,8 @@ namespace BodyRig.ReferenceRenderer
         private const float MaximumRestorationMaxMeters = 0.001f;
         private const int CanonicalSmplxNeckJointIndex = 12;
         private const int CanonicalSmplxHeadJointIndex = 15;
-        private const float MaximumEquivalentHeadOffsetMeters = 0.05f;
-        private const float MaximumEquivalentNeckOffsetMeters = 0.05f;
+        private const string CanonicalSmplxNeckName = "smplx_neck";
+        private const string CanonicalSmplxHeadName = "smplx_head";
 
         [Serializable]
         private sealed class HairDeformationReport
@@ -102,29 +103,38 @@ namespace BodyRig.ReferenceRenderer
             var bones = hair.bones;
             if (bones == null || bones.Length < 1)
                 throw new InvalidDataException("Source hair review renderer has no skin bones");
-            var rendererHead = ResolveRendererHeadBone(bones, animator, head);
+            var rendererHead = ResolveRendererHeadBone(bones);
             status?.Invoke(rendererHead == head
-                ? "Hair deformation: direct Humanoid Head skin binding resolved."
-                : "Hair deformation: canonical SMPL-X Head skin binding resolved through UniVRM normalization; proving functional motion next.");
+                ? "Hair deformation: canonical SMPL-X Head is the Humanoid Head skin bone."
+                : "Hair deformation: canonical SMPL-X Head skin joint resolved; proving UniVRM Humanoid control drives it next.");
 
             var baselineRotation = head.localRotation;
             var baselineWorldRotation = head.rotation;
+            var baselineRendererHeadWorldRotation = rendererHead.rotation;
             Vector3[] neutral = null;
             Vector3[] turned = null;
             Vector3[] restored = null;
             float observedHeadTurn = 0f;
+            float observedRendererHeadTurn = 0f;
             try
             {
                 status?.Invoke("Hair deformation: sampling neutral source hair...");
                 await WaitFramesAsync(2);
                 neutral = BakeVertices(hair);
 
-                status?.Invoke("Hair deformation: applying deterministic Head turn...");
+                status?.Invoke("Hair deformation: applying deterministic Humanoid Head turn...");
                 head.localRotation = baselineRotation * Quaternion.Euler(0f, HeadTurnDegrees, 0f);
                 await WaitFramesAsync(3);
                 observedHeadTurn = Quaternion.Angle(baselineWorldRotation, head.rotation);
                 if (observedHeadTurn < HeadTurnDegrees * 0.65f)
                     throw new InvalidDataException($"Humanoid Head turn was not applied strongly enough ({observedHeadTurn:F4} degrees)");
+
+                observedRendererHeadTurn = Quaternion.Angle(baselineRendererHeadWorldRotation, rendererHead.rotation);
+                if (observedRendererHeadTurn < HeadTurnDegrees * 0.65f)
+                    throw new InvalidDataException(
+                        $"Canonical SMPL-X Head skin joint did not follow Humanoid Head control " +
+                        $"(skin={observedRendererHeadTurn:F4} degrees, humanoid={observedHeadTurn:F4} degrees, skin_node='{rendererHead.name}', humanoid_node='{head.name}')");
+
                 turned = BakeVertices(hair);
             }
             finally
@@ -198,7 +208,8 @@ namespace BodyRig.ReferenceRenderer
             }
 
             LastReportPath = fullOutputPath;
-            status?.Invoke($"Hair deformation machine evidence: PASS | rms={motionRms:F5}m max={motionMax:F5}m");
+            status?.Invoke(
+                $"Hair deformation machine evidence: PASS | humanoid_head={observedHeadTurn:F2}deg | skin_head={observedRendererHeadTurn:F2}deg | rms={motionRms:F5}m max={motionMax:F5}m");
             Debug.Log($"BodyRig hair deformation probe: PASS | {report.platform} | {fullOutputPath}", this);
             return fullOutputPath;
         }
@@ -218,16 +229,8 @@ namespace BodyRig.ReferenceRenderer
             return match;
         }
 
-        private static Transform ResolveRendererHeadBone(Transform[] bones, Animator animator, Transform humanoidHead)
+        private static Transform ResolveRendererHeadBone(Transform[] bones)
         {
-            foreach (var bone in bones)
-            {
-                if (bone == humanoidHead) return bone;
-            }
-
-            var humanoidNeck = animator.GetBoneTransform(HumanBodyBones.Neck);
-            if (humanoidNeck == null)
-                throw new InvalidDataException("Hair deformation probe could not resolve the Humanoid Neck bone for normalized Head binding");
             if (bones.Length <= CanonicalSmplxHeadJointIndex)
                 throw new InvalidDataException($"Source hair review renderer exposes only {bones.Length} skin bones; canonical SMPL-X Head joint {CanonicalSmplxHeadJointIndex} is unavailable");
 
@@ -237,14 +240,10 @@ namespace BodyRig.ReferenceRenderer
                 throw new InvalidDataException("Source hair review renderer is missing canonical SMPL-X Neck/Head skin bones");
             if (canonicalNeck == canonicalHead)
                 throw new InvalidDataException("Source hair review renderer canonical SMPL-X Neck and Head resolve to the same Transform");
-
-            var headOffset = Vector3.Distance(canonicalHead.position, humanoidHead.position);
-            if (headOffset > MaximumEquivalentHeadOffsetMeters)
-                throw new InvalidDataException($"Canonical SMPL-X Head is not position-equivalent to Humanoid Head (offset={headOffset:F6}m, skin='{canonicalHead.name}', humanoid='{humanoidHead.name}')");
-
-            var neckOffset = Vector3.Distance(canonicalNeck.position, humanoidNeck.position);
-            if (neckOffset > MaximumEquivalentNeckOffsetMeters)
-                throw new InvalidDataException($"Canonical SMPL-X Neck is not position-equivalent to Humanoid Neck (offset={neckOffset:F6}m, skin='{canonicalNeck.name}', humanoid='{humanoidNeck.name}')");
+            if (!string.Equals(canonicalNeck.name, CanonicalSmplxNeckName, StringComparison.Ordinal))
+                throw new InvalidDataException($"Canonical SMPL-X Neck skin joint name mismatch at index {CanonicalSmplxNeckJointIndex}: '{canonicalNeck.name}'");
+            if (!string.Equals(canonicalHead.name, CanonicalSmplxHeadName, StringComparison.Ordinal))
+                throw new InvalidDataException($"Canonical SMPL-X Head skin joint name mismatch at index {CanonicalSmplxHeadJointIndex}: '{canonicalHead.name}'");
 
             return canonicalHead;
         }
