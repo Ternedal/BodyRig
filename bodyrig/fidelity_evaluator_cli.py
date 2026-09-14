@@ -13,6 +13,9 @@ from .sith_setup import SithSetupError, load_setup_report
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 
+SUPPORTED_EXTENDED_REVISIONS = {"4", "5"}
+
+
 class FidelityEvaluatorRunnerError(RuntimeError):
     pass
 
@@ -42,7 +45,7 @@ def _validate_plausibility(value: object) -> dict:
         "semantics",
     }
     if not isinstance(value, dict) or set(value) != expected:
-        raise FidelityEvaluatorRunnerError("fidelity evaluator plausibility fields must match revision 4 exactly")
+        raise FidelityEvaluatorRunnerError("fidelity evaluator plausibility fields must match the extended v1 contract exactly")
     if value.get("semantics") != "broad-render-plausibility-and-definition-not-age-or-identity-classification":
         raise FidelityEvaluatorRunnerError("fidelity evaluator plausibility semantics mismatch")
     for field in (
@@ -68,7 +71,7 @@ def _validate_facial_definition(value: object) -> dict:
         "semantics",
     }
     if not isinstance(value, dict) or set(value) != expected:
-        raise FidelityEvaluatorRunnerError("fidelity evaluator facial_definition fields must match revision 4 exactly")
+        raise FidelityEvaluatorRunnerError("fidelity evaluator facial_definition fields must match the extended v1 contract exactly")
     if value.get("semantics") != "reference-relative-local-feature-definition-not-biometric-identification":
         raise FidelityEvaluatorRunnerError("fidelity evaluator facial_definition semantics mismatch")
     for field in ("score", "photorealism_raw", "photorealism_definition_cap"):
@@ -79,7 +82,7 @@ def _validate_facial_definition(value: object) -> dict:
     candidate = value.get("candidate")
     expected_candidate = {"detail", "local_contrast", "eye_edge_density", "midface_edge_density"}
     if not isinstance(candidate, dict) or set(candidate) != expected_candidate:
-        raise FidelityEvaluatorRunnerError("fidelity evaluator facial_definition candidate fields must match revision 4 exactly")
+        raise FidelityEvaluatorRunnerError("fidelity evaluator facial_definition candidate fields must match the extended v1 contract exactly")
     for field in expected_candidate:
         _number(candidate.get(field), field=f"facial_definition.candidate.{field}", minimum=0.0)
     return value
@@ -102,9 +105,9 @@ def _read_result(path: Path) -> dict:
         "human_visual_authority_required",
         "semantics",
     }
-    revision4_expected = legacy_expected | {"plausibility", "facial_definition"}
+    extended_expected = legacy_expected | {"plausibility", "facial_definition"}
     fields = set(value)
-    if fields not in (legacy_expected, revision4_expected):
+    if fields not in (legacy_expected, extended_expected):
         raise FidelityEvaluatorRunnerError("fidelity evaluator result fields must match a supported v1 contract exactly")
     if (
         value.get("format") != "bodyrig-fidelity-evaluation"
@@ -120,10 +123,11 @@ def _read_result(path: Path) -> dict:
         value["measurement"] = validate_measurement(value.get("measurement"))
     except FidelityConvergenceError as exc:
         raise FidelityEvaluatorRunnerError(str(exc)) from exc
-    if fields == revision4_expected:
+    if fields == extended_expected:
         evaluator = value["measurement"].get("evaluator")
-        if not isinstance(evaluator, dict) or str(evaluator.get("revision") or "") != "4":
-            raise FidelityEvaluatorRunnerError("extended fidelity evaluator result requires evaluator revision 4")
+        revision = str(evaluator.get("revision") or "") if isinstance(evaluator, dict) else ""
+        if revision not in SUPPORTED_EXTENDED_REVISIONS:
+            raise FidelityEvaluatorRunnerError("extended fidelity evaluator result requires evaluator revision 4 or 5")
         value["plausibility"] = _validate_plausibility(value.get("plausibility"))
         value["facial_definition"] = _validate_facial_definition(value.get("facial_definition"))
     return value
@@ -154,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
             raise FidelityEvaluatorRunnerError("rig setup does not contain a canonical WSL recovery runtime")
 
         converter = make_wsl_path_converter(args.wsl_exe, distribution)
-        bridge = Path(__file__).resolve().parent / "bridges" / "opencv_fidelity_evaluator.py"
+        bridge = Path(__file__).resolve().parent / "bridges" / "opencv_fidelity_evaluator_v5.py"
         if not bridge.is_file():
             raise FidelityEvaluatorRunnerError("built-in fidelity evaluator bridge is missing")
         reference = Path(args.reference_set).expanduser().resolve()
