@@ -8,6 +8,7 @@ from bodyrig.fidelity_component_gap import (
     build_gap_plan,
     validate_visibility_report,
 )
+from bodyrig.high_fidelity_face_secondary_runtime import NODE_NAME as FACE_SECONDARY_RUNTIME_NODE
 
 
 REVISION = "a" * 40
@@ -89,15 +90,17 @@ def test_missing_hair_and_eyes_routes_to_existing_retained_composition() -> None
     assert plan["next_actions"][0]["implementation_required"] is False
 
 
-def test_missing_face_secondary_is_explicit_implementation_gap_not_fake_promotion() -> None:
+def test_missing_face_secondary_routes_to_existing_review_composer_without_fake_promotion() -> None:
     plan = build_gap_plan(report("face-secondary"), render_set=render_set())
 
     action = plan["next_actions"][0]
     assert action["id"] == "face-secondary-review-composition"
     assert action["components"] == ["face-secondary"]
     assert action["operator_input_required"] is False
-    assert action["implementation_required"] is True
+    assert action["implementation_required"] is False
+    assert "existing comparison-only face-secondary runtime composer" in action["reason"]
     assert "without promotion or release authority" in action["reason"]
+    assert dict(REQUIRED_COMPONENTS)["face-secondary"] == FACE_SECONDARY_RUNTIME_NODE
 
 
 def test_missing_nails_routes_to_source_bound_hfn_with_operator_evidence_boundary() -> None:
