@@ -1,0 +1,61 @@
+name: patch-evening-face-secondary-continuation
+
+on:
+  push:
+    branches:
+      - feat/evening-face-secondary-continuation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/evening-face-secondary-continuation
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install locked environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply evening face-secondary continuation patch
+        run: python .github/patch_evening_face_secondary_continuation.py
+      - name: Parse PowerShell and compile regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($path in @('run-fidelity-evening-current-floor-review.ps1','run-fidelity-evening.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
+          python -m py_compile tests/test_fidelity_evening_face_secondary_continuation.py
+      - name: Run focused regressions
+        run: >-
+          python -m pytest -q
+          tests/test_fidelity_evening_current_floor_review.py
+          tests/test_fidelity_evening_command.py
+          tests/test_fidelity_evening_face_secondary_continuation.py
+          tests/test_face_secondary_hair_eye_operator.py
+          tests/test_face_secondary_hair_eye_v1_authority.py
+          tests/test_face_secondary_hair_eye_review.py
+      - name: Validate patch boundary
+        run: |
+          git diff --check -- run-fidelity-evening-current-floor-review.ps1 run-fidelity-evening.ps1 tests/test_fidelity_evening_command.py tests/test_fidelity_evening_face_secondary_continuation.py
+          actual="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
+          expected="$(printf '%s\n' run-fidelity-evening-current-floor-review.ps1 run-fidelity-evening.ps1 tests/test_fidelity_evening_command.py tests/test_fidelity_evening_face_secondary_continuation.py | sort)"
+          test "$actual" = "$expected"
+      - name: Commit product patch and remove helpers
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/patch_evening_face_secondary_continuation.py .github/workflows/patch-evening-face-secondary-continuation.yml
+          git add run-fidelity-evening-current-floor-review.ps1 run-fidelity-evening.ps1 tests/test_fidelity_evening_command.py tests/test_fidelity_evening_face_secondary_continuation.py
+          git commit -m 'Advance evening flow through face-secondary comparison'
+          git push origin HEAD:feat/evening-face-secondary-continuation
