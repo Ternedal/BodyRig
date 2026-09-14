@@ -64,7 +64,7 @@ $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained id
 $reconstruction = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\reconstruction.json") -Label "Retained reconstruction authority"
 $sourceMesh = Need-File -Path (Join-Path $IdentityWorkspace "sith-input-v1\meshes\000_reco.obj") -Label "Retained SiTH source mesh"
 $DonorObj = Need-File -Path $DonorObj -Label "Hair extraction donor OBJ"
-$extractScript = Need-File -Path (Join-Path $repoRoot "bodyrig\bridges\sith_source_hair_extract.py") -Label "BodyRig source hair extraction bridge"
+$extractScript = Need-File -Path (Join-Path $repoRoot "bodyrig\bridges\sith_source_hair_extract_v2.py") -Label "BodyRig source hair extraction bridge"
 
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if (Test-Path -LiteralPath $OutputDir) { throw "Hair extraction output already exists: $OutputDir" }
@@ -123,6 +123,9 @@ $hairObj = Need-File -Path (Join-Path $OutputDir "hair_source.obj") -Label "Sour
 try { $evidence = Get-Content -LiteralPath $evidencePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20 }
 catch { throw "Source hair candidate evidence is unreadable." }
 if ([string]$evidence.format -ne "bodyrig-source-hair-candidate" -or -not (Test-V1Version $evidence.version) -or
+    [string]$evidence.method -ne "retained-sith-connected-head-shell-v2" -or
+    ([string]$evidence.selector -notin @("strict-shell", "short-hair-fallback")) -or
+    $null -eq $evidence.selectorThresholds -or $null -eq $evidence.selectionMetrics -or
     $evidence.sourceDerived -ne $true -or $evidence.generativeGeometry -ne $false -or
     $evidence.bodyTopologyModified -ne $false -or $evidence.comparisonOnly -ne $true -or
     $evidence.humanReviewRequired -ne $true -or $evidence.productionReady -ne $false) {
@@ -137,6 +140,7 @@ if ([string]$evidence.sourceReconstructionSha256 -ne $reconstructionShaBefore -o
 Write-Host ""
 Write-Host "BodyRig retained source hair extraction: CANDIDATE PASS"
 Write-Host "Hair OBJ:       $hairObj"
+Write-Host "Selector:       $([string]$evidence.selector)"
 Write-Host "Faces:          $([int]$evidence.selectedFaceCount)"
 Write-Host "Vertices:       $([int]$evidence.selectedVertexCount)"
 Write-Host "Distance p95:   $([double]$evidence.sourceToDonorDistanceP95)"
