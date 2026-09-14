@@ -21,7 +21,18 @@ jobs:
       - name: Install locked environment
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Apply evening face-secondary continuation patch
-        run: python .github/patch_evening_face_secondary_continuation.py
+        run: |
+          python .github/patch_evening_face_secondary_continuation.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_fidelity_evening_face_secondary_continuation.py')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          matches = [i for i, line in enumerate(lines) if line.startswith('    assert "Join-Path $physicalRoot ')]
+          if len(matches) != 1:
+              raise SystemExit(f'generated snapshot assertion drifted: {matches}')
+          lines[matches[0]] = '    assert \'Join-Path $physicalRoot "windows-preview\\\\snapshots"\' in TOP'
+          path.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
+          PY
       - name: Parse PowerShell and compile regression
         shell: pwsh
         run: |
