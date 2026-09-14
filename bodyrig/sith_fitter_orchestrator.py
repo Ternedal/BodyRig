@@ -184,7 +184,13 @@ def _validate_resume_reconstruction(
     }
     if set(evidence) != required:
         raise SithFitterOrchestratorError("SiTH resume reconstruction evidence fields do not match v1")
-    if evidence["format"] != RECON_FORMAT or evidence["version"] != RECON_VERSION:
+    evidence_version = evidence["version"]
+    if (
+        evidence["format"] != RECON_FORMAT
+        or isinstance(evidence_version, bool)
+        or not isinstance(evidence_version, (int, float))
+        or evidence_version != RECON_VERSION
+    ):
         raise SithFitterOrchestratorError("SiTH resume reconstruction evidence format/version mismatch")
     if evidence["prepared_input_sha256"] != prep_sha256:
         raise SithFitterOrchestratorError("SiTH resume reconstruction is not bound to current prepared input")
