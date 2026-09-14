@@ -10,10 +10,13 @@ namespace BodyRig.ReferenceRenderer
     /// <summary>
     /// Comparison-only machine evidence that the exact source-hair review mesh is
     /// genuinely skinned into the loaded Humanoid. The probe drives the real Unity
-    /// Humanoid through HumanPose, requires the canonical SMPL-X Head skin joint to
-    /// follow that motion, bakes the SkinnedMeshRenderer before/after, restores
-    /// neutral, and binds the report to the exact runtime bytes. It never grades
-    /// hairstyle quality and never grants component/production authority.
+    /// Humanoid through HumanPose, verifies the canonical SMPL-X Neck/Head skin-joint
+    /// identities, bakes the SkinnedMeshRenderer before/after, restores neutral, and
+    /// requires functional hair-vertex motion/restoration. Raw skin-joint world
+    /// rotation is retained as diagnostic evidence only because Unity Humanoid pose
+    /// evaluation does not guarantee that it is surfaced through that Transform.
+    /// The probe never grades hairstyle quality and never grants component/production
+    /// authority.
     /// </summary>
     public sealed class BodyRigHairDeformationProbe : MonoBehaviour
     {
@@ -137,10 +140,8 @@ namespace BodyRig.ReferenceRenderer
                 poseHandler.SetHumanPose(ref turnedPose);
                 await WaitFramesAsync(3);
                 observedHeadTurn = Quaternion.Angle(baselineRendererHeadWorldRotation, rendererHead.rotation);
-                if (observedHeadTurn < HeadTurnDegrees * 0.65f)
-                    throw new InvalidDataException(
-                        $"Canonical SMPL-X Head skin joint did not follow Unity Humanoid Head yaw strongly enough " +
-                        $"({observedHeadTurn:F4} degrees, skin_node='{rendererHead.name}', muscle='{HumanTrait.MuscleName[headYawMuscleIndex]}')");
+                status?.Invoke(
+                    $"Hair deformation: canonical skin-head transform diagnostic={observedHeadTurn:F4}deg; validating actual baked hair motion next.");
                 turned = BakeVertices(hair);
             }
             finally
@@ -168,7 +169,9 @@ namespace BodyRig.ReferenceRenderer
             var motionObserved = motionRms >= MinimumMotionRmsMeters && motionMax >= MinimumMotionMaxMeters;
             var restoredNeutral = restorationRms <= MaximumRestorationRmsMeters && restorationMax <= MaximumRestorationMaxMeters;
             if (!motionObserved)
-                throw new InvalidDataException($"Source hair did not deform with Head turn (rms={motionRms:F7}m max={motionMax:F7}m)");
+                throw new InvalidDataException(
+                    $"Source hair did not deform with Humanoid Head pose (rms={motionRms:F7}m max={motionMax:F7}m, " +
+                    $"skin_head_transform={observedHeadTurn:F4}deg, muscle='{HumanTrait.MuscleName[headYawMuscleIndex]}')");
             if (!restoredNeutral)
                 throw new InvalidDataException($"Source hair did not restore after Head turn (rms={restorationRms:F7}m max={restorationMax:F7}m)");
 
@@ -223,7 +226,7 @@ namespace BodyRig.ReferenceRenderer
 
             LastReportPath = fullOutputPath;
             status?.Invoke(
-                $"Hair deformation machine evidence: PASS | skin_head={observedHeadTurn:F2}deg | rms={motionRms:F5}m max={motionMax:F5}m");
+                $"Hair deformation machine evidence: PASS | skin_head_transform={observedHeadTurn:F2}deg | rms={motionRms:F5}m max={motionMax:F5}m");
             Debug.Log($"BodyRig hair deformation probe: PASS | {report.platform} | {fullOutputPath}", this);
             return fullOutputPath;
         }
