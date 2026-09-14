@@ -11,33 +11,40 @@ def _inventory() -> dict[str, object]:
         "version": 1,
         "performer_id": "42",
         "performer_name": "Performer 42",
+        "performer": {"id": "42", "name": "Performer 42", "disambiguation": ""},
         "videos": [
             {
                 "scene_id": "s1",
                 "path": "E:/stash/a.mp4",
                 "information_score": 120.0,
                 "projection": "vr180",
+                "stereo_layout": "side-by-side",
                 "width": 7680,
                 "height": 3840,
                 "duration_seconds": 3600.0,
+                "frame_rate": 60.0,
             },
             {
                 "scene_id": "s1",
                 "path": "E:/stash/a-alt.mkv",
                 "information_score": 80.0,
                 "projection": "vr180",
+                "stereo_layout": "side-by-side",
                 "width": 7680,
                 "height": 3840,
                 "duration_seconds": 3600.0,
+                "frame_rate": 60.0,
             },
             {
                 "scene_id": "s2",
                 "path": "E:/stash/b.mp4",
                 "information_score": 90.0,
                 "projection": "flat",
+                "stereo_layout": "mono",
                 "width": 3840,
                 "height": 2160,
                 "duration_seconds": 1800.0,
+                "frame_rate": 30.0,
             },
         ],
         "images": [
@@ -87,10 +94,14 @@ def test_plan_is_source_group_disjoint_and_deterministic() -> None:
     train_groups = {item["group_id"] for item in first["train"]}
     eval_groups = {item["group_id"] for item in first["evaluation"]}
     assert train_groups.isdisjoint(eval_groups)
+    assert first["performer_id"] == "42"
+    assert first["performer_name"] == "Performer 42"
     assert first["leakage_policy"] == "source-group-disjoint-v1"
     assert first["teacher_training_authorized"] is False
     assert first["view_analysis_required"] is True
     assert first["production_activation"] is False
+    video_records = [item for split in ("train", "evaluation") for item in first[split] if item["kind"] == "video"]
+    assert {item["stereo_layout"] for item in video_records} == {"side-by-side", "mono"}
 
 
 def test_all_files_from_same_scene_stay_together() -> None:
@@ -131,4 +142,12 @@ def test_plan_refuses_authority_boundary_violation() -> None:
     inventory["production_activation"] = True
 
     with pytest.raises(PhotorealDatasetPlanError, match="authority boundary"):
+        build_dataset_plan(inventory)
+
+
+def test_plan_refuses_inconsistent_performer_identity() -> None:
+    inventory = _inventory()
+    inventory["performer"]["id"] = "99"
+
+    with pytest.raises(PhotorealDatasetPlanError, match="performer identity is inconsistent"):
         build_dataset_plan(inventory)
