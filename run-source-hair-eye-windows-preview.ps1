@@ -40,6 +40,27 @@ function Need-Sha256 {
     if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
     return $normalized
 }
+function Assert-PhysicallyDrawableComponent {
+    param(
+        [Parameter(Mandatory = $true)]$Visibility,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$NodeName
+    )
+    $matches = @($Visibility.components | Where-Object { [string]$_.label -eq $Label })
+    if ($matches.Count -ne 1) { throw "Component visibility evidence must contain exactly one $Label entry." }
+    $entry = $matches[0]
+    if ([string]$entry.node_name -ne $NodeName -or
+        $entry.present_in_avatar_bytes -ne $true -or
+        $entry.instantiated -ne $true -or
+        $entry.active_in_hierarchy -ne $true -or
+        $entry.visible_skinned_renderer -ne $true) {
+        throw "Hair+eye preview cannot be READY: $Label is not physically present and drawable in Unity."
+    }
+    $count = $entry.visible_renderer_count
+    if ($null -eq $count -or $count -is [bool] -or $count -isnot [ValueType] -or [int]$count -lt 1) {
+        throw "Hair+eye preview cannot be READY: $Label has no physically drawable skinned renderer."
+    }
+}
 function Resolve-BodyRigPython {
     param([Parameter(Mandatory = $true)][string]$RepoRoot,[string]$Requested = "")
     if (-not [string]::IsNullOrWhiteSpace($Requested)) { return Need-File -Path $Requested -Label "BodyRig Python" }
@@ -131,9 +152,11 @@ try {
 
     $comparisonPath = Need-File -Path (Join-Path $OutputDir "comparison-authority.json") -Label "Hair+eye preview comparison authority"
     $hairProbePath = Need-File -Path (Join-Path $OutputDir "hair-deformation-probe.json") -Label "Hair deformation machine probe"
+    $componentVisibilityPath = Need-File -Path (Join-Path $OutputDir "component-visibility-probe.json") -Label "Physical component visibility probe"
     $snapshotManifestPath = Need-File -Path (Join-Path $OutputDir "snapshots\fidelity-render-set.json") -Label "Hair+eye preview snapshot manifest"
     $comparison = Read-Json -Path $comparisonPath -Label "Hair+eye preview comparison authority"
     $hairProbe = Read-Json -Path $hairProbePath -Label "Hair deformation machine probe"
+    $componentVisibility = Read-Json -Path $componentVisibilityPath -Label "Physical component visibility probe"
     $snapshotManifest = Read-Json -Path $snapshotManifestPath -Label "Hair+eye preview snapshot manifest"
     $hairProbeSha = Sha256 $hairProbePath
     if ([string]$comparison.authority -ne "source-hair-eye-review-runtime" -or
@@ -145,6 +168,19 @@ try {
         $comparison.physical_acceptance_authority -ne $false -or $comparison.production_activation -ne $false) {
         throw "Hair+eye preview render comparison authority is invalid or lacks exact hair deformation evidence."
     }
+    if ([string]$componentVisibility.format -ne "bodyrig-component-visibility-probe" -or -not (Test-V1Version $componentVisibility.version) -or
+        [string]$componentVisibility.bodyrig_revision -ne $head -or
+        [string]$componentVisibility.platform -ne "windows-unity-univrm" -or
+        [string]$componentVisibility.package_sha256 -ne [string]$sourceReview.packageSha256 -or
+        [string]$componentVisibility.avatar_sha256 -ne (Sha256 $sourceReviewVrm) -or
+        $componentVisibility.human_visual_authority_required -ne $true -or
+        $componentVisibility.production_activation -ne $false -or
+        [string]$componentVisibility.semantics -ne "component-presence-and-runtime-visibility-not-visual-quality-acceptance") {
+        throw "Physical component visibility probe is stale or crossed its machine-only authority boundary."
+    }
+    Assert-PhysicallyDrawableComponent -Visibility $componentVisibility -Label "hair" -NodeName "BodyRigSourceHairReview"
+    Assert-PhysicallyDrawableComponent -Visibility $componentVisibility -Label "eyes" -NodeName "BodyRigSourceEyeReview"
+
     if ([string]$hairProbe.format -ne "bodyrig-hair-deformation-probe" -or -not (Test-V1Version $hairProbe.version) -or
         [string]$hairProbe.platform -ne "windows-unity-univrm" -or
         [string]$hairProbe.bodyrig_revision -ne $head -or
@@ -178,18 +214,19 @@ try {
 
     Write-Host ""
     Write-Host "BodyRig source hair + eye Windows preview: READY"
-    Write-Host "Hair:        RENDERED"
+    Write-Host "Hair:        PHYSICALLY DRAWABLE"
     Write-Host "Hair move:   MACHINE PASS; human clipping/attachment review still required"
     Write-Host "Hair probe:  $hairProbePath"
-    Write-Host "Eye surface: RENDERED"
+    Write-Host "Eye surface: PHYSICALLY DRAWABLE"
     Write-Host "Cornea:      RENDERED"
+    Write-Host "Visibility:  $componentVisibilityPath"
     Write-Host "Front:       $(Join-Path $OutputDir 'snapshots\front-full.png')"
     Write-Host "3/4:         $(Join-Path $OutputDir 'snapshots\three-quarter-full.png')"
     Write-Host "Side:        $(Join-Path $OutputDir 'snapshots\side-full.png')"
     Write-Host "Face:        $(Join-Path $OutputDir 'snapshots\face-front.png')"
     Write-Host "Face zoom:   $faceZoomPath"
     Write-Host "Eyes close:  $eyesCloseupPath"
-    Write-Host "Authority:   REVIEW ONLY; hair component FALSE; physical acceptance FALSE; production FALSE"
+    Write-Host "Authority:   REVIEW ONLY; human visual review REQUIRED; physical acceptance FALSE; production FALSE"
     exit 0
 } finally {
     $env:PYTHONPATH = $priorPythonPath
