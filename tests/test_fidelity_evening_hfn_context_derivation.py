@@ -9,13 +9,12 @@ def source() -> str:
     return SCRIPT.read_text(encoding="utf-8")
 
 
-def test_evening_exposes_only_explicit_hfn_identity_authority() -> None:
+def test_evening_does_not_expose_redundant_hfn_identity_inputs() -> None:
     text = source()
     assert '[string]$HfnRoot = ""' not in text
-    assert '[string]$HfnPersonId = ""' in text
-    assert '[string]$HfnBodyRevision = ""' in text
-    assert "HfnPersonId and HfnBodyRevision together" in text
-    assert "partial identity authority is refused" in text
+    assert '[string]$HfnPersonId = ""' not in text
+    assert '[string]$HfnBodyRevision = ""' not in text
+    assert '[string]$ExecutionContext = ""' in text
 
 
 def test_evening_derives_hfn_root_from_exact_current_checkout_person_library() -> None:
@@ -31,6 +30,18 @@ def test_evening_derives_hfn_root_from_exact_current_checkout_person_library() -
     assert "$env:PYTHONPATH = $previousPythonPath" in text
 
 
+def test_evening_auto_resolves_identity_from_source_current_floor_authority() -> None:
+    text = source()
+    assert "function Resolve-HfnIdentityBinding" in text
+    assert "-m bodyrig.hfn_identity_binding" in text
+    assert '-BodyId ([string]$gap.body_id)' in text
+    assert '-SourcePackageSha $currentFloorPackageSha' in text
+    assert '-SourcePackageSha $physicalPackageSha' not in text
+    assert '[string]$binding.source_package_sha256 -ne $SourcePackageSha' in text
+    assert '$binding.source_authority_required -ne $true' in text
+    assert '$binding.production_activation -ne $false' in text
+
+
 def test_derived_hfn_context_is_bound_to_exact_final_face_secondary_package() -> None:
     text = source()
     assert '$physicalKind -ne "face-secondary-hair-eye-comparison"' in text
@@ -40,30 +51,44 @@ def test_derived_hfn_context_is_bound_to_exact_final_face_secondary_package() ->
     assert 'package_path = $hfnPackagePath' in text
 
 
-def test_derived_hfn_context_uses_explicit_identity_and_deterministic_outputs() -> None:
+def test_unique_identity_match_populates_context_and_outputs_are_deterministic() -> None:
     text = source()
+    assert '$hfnIdentityMatch = @($hfnIdentity.matches)[0]' in text
+    assert '$contextFields.person_id = ([string]$hfnIdentityMatch.person_id).Trim()' in text
+    assert '$contextFields.body_revision = ([string]$hfnIdentityMatch.body_revision).Trim()' in text
     assert 'hfn_root = $hfnRootPath' in text
-    assert 'person_id = $HfnPersonId.Trim()' in text
-    assert 'body_revision = $HfnBodyRevision.Trim()' in text
     assert '$hfnTag = $physicalPackageSha.Substring(0, 12)' in text
     assert 'hfn_render_dir = (Join-Path $eveningRoot "hfn-render-$selected-$hfnTag")' in text
     assert 'hfn_human_review_dir = (Join-Path $eveningRoot "hfn-human-review-$selected-$hfnTag")' in text
 
 
-def test_generic_and_derived_context_authorities_are_mutually_exclusive() -> None:
+def test_non_unique_identity_stays_operator_controlled_without_guessing() -> None:
     text = source()
-    assert "ExecutionContext cannot be combined with HfnPersonId/HfnBodyRevision" in text
-    assert '$hfnExplicitCount -eq 2 -and $expectedActionId -ne "source-bound-hfn-continuation"' in text
-    assert "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action." in text
+    assert '$state -notin @("resolved", "unresolved", "blocked", "ambiguous")' in text
+    assert 'if ([string]$hfnIdentity.state -eq "resolved")' in text
+    assert "HFN identity auto-resolution stopped fail-closed" in text
+    resolved = text.index('if ([string]$hfnIdentity.state -eq "resolved")')
+    person_assignment = text.index('$contextFields.person_id =', resolved)
+    else_pos = text.index('} else {', person_assignment)
+    assert resolved < person_assignment < else_pos
+    blocked_segment = text[else_pos:text.index('$derivedContextJson =', else_pos)]
+    assert '$contextFields.person_id' not in blocked_segment
+    assert '$contextFields.body_revision' not in blocked_segment
+
+
+def test_execution_context_remains_explicit_expert_override() -> None:
+    text = source()
+    assert '$contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"' in text
+    assert 'if ([string]::IsNullOrWhiteSpace($ExecutionContext))' in text
 
 
 def test_evening_does_not_synthesize_hfn_capture_or_uv_evidence() -> None:
     text = source()
-    derived_start = text.index('$derivedContext = [ordered]@{')
-    derived_end = text.index('}', derived_start)
-    derived = text[derived_start:derived_end]
+    context_start = text.index('$contextFields = [ordered]@{')
+    context_end = text.index('}', context_start)
+    context = text[context_start:context_end]
     for forbidden in ("capture_id", "CaptureId", "uv_evidence", "UvEvidence", "hfncap-", "hfncand-"):
-        assert forbidden not in derived
+        assert forbidden not in context
 
 
 def test_temporary_hfn_context_is_create_then_cleaned_by_existing_finally() -> None:
@@ -81,6 +106,7 @@ def test_derived_context_preserves_one_step_executor_and_human_boundaries() -> N
     assert 'Rerun this evening command to recompute physical evidence before any further action.' in text
     assert 'record-high-fidelity-hfn-review.ps1' not in text
     assert 'record-high-fidelity-human-review.ps1' not in text
+
 
 def test_temporary_context_creation_is_inside_cleanup_try() -> None:
     text = source()
