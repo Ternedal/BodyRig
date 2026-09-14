@@ -325,7 +325,14 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityAnatomyPromotionError("anatomy promotion receipt is unreadable") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HighFidelityAnatomyPromotionError("anatomy promotion receipt fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise HighFidelityAnatomyPromotionError("anatomy promotion format/version/policy mismatch")
     review_path_value = _review_receipt_path(review)
     expected = {
