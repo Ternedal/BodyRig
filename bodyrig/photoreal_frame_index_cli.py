@@ -22,12 +22,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_frame_index_files(
-            args.plan,
-            args.receipt,
-            args.observations,
-            args.out,
-        )
+        result = build_frame_index_files(args.plan, args.receipt, args.observations, args.out)
     except PhotorealFrameIndexError as exc:
         print(f"BodyRig photoreal frame index: FAIL: {exc}", file=sys.stderr)
         return 1
@@ -38,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
                 "format": result["format"],
                 "version": result["version"],
                 "performer_id": result["performer_id"],
+                "analyzer": result["analyzer"],
+                "analyzer_revision": result["analyzer_revision"],
+                "analyzer_model_set_sha256": result["analyzer_model_set_sha256"],
                 "observation_count": result["observation_count"],
                 "eligible_train_observation_count": result["eligible_train_observation_count"],
                 "eligible_evaluation_observation_count": result["eligible_evaluation_observation_count"],
