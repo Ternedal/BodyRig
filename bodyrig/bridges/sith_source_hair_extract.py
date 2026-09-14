@@ -165,16 +165,32 @@ def select_hair_faces(
         for face_index in candidate_faces:
             for vertex in face_vertices[face_index]:
                 by_vertex.setdefault(vertex, []).append(face_index)
-        selected: set[int] = set(seed_faces)
-        queue: deque[int] = deque(seed_faces)
-        while queue:
-            face_index = queue.popleft()
-            for vertex in face_vertices[face_index]:
-                for neighbor in by_vertex.get(vertex, []):
-                    if neighbor in candidate_set and neighbor not in selected:
-                        selected.add(neighbor)
-                        queue.append(neighbor)
 
+        # The v2 authority is one connected head shell. Do not union separate
+        # high/distant seed islands (for example facial reconstruction artifacts)
+        # into the emitted hair mesh merely because each island satisfies the
+        # seed thresholds independently.
+        visited: set[int] = set()
+        seed_components: list[set[int]] = []
+        for seed_face in seed_faces:
+            if seed_face in visited:
+                continue
+            component: set[int] = {seed_face}
+            visited.add(seed_face)
+            queue: deque[int] = deque([seed_face])
+            while queue:
+                face_index = queue.popleft()
+                for vertex in face_vertices[face_index]:
+                    for neighbor in by_vertex.get(vertex, []):
+                        if neighbor in candidate_set and neighbor not in visited:
+                            visited.add(neighbor)
+                            component.add(neighbor)
+                            queue.append(neighbor)
+            seed_components.append(component)
+
+        if not seed_components:
+            return None
+        selected = max(seed_components, key=lambda component: (len(component), -min(component)))
         selected_faces = sorted(selected)
         selected_vertices = sorted({vertex for face_index in selected_faces for vertex in face_vertices[face_index]})
         selected_distances = [distances[index] for index in selected_vertices]
@@ -196,7 +212,7 @@ def select_hair_faces(
             "distance_max": max(selected_distances),
             "minimum_y_ratio": min(selected_y),
             "maximum_y_ratio": max(selected_y),
-            "seed_face_count": len(seed_faces),
+            "seed_face_count": sum(face_index in selected for face_index in seed_faces),
             "selection_mode": mode,
             "minimum_distance_body_ratio": minimum_distance_ratio,
             "seed_distance_body_ratio": seed_distance_ratio,
@@ -244,6 +260,7 @@ def select_hair_faces(
     if candidate["vertical_span_body_ratio"] < MIN_VERTICAL_SPAN_BODY_RATIO:
         raise SourceHairExtractError("source-derived hair shell vertical span is too small for review")
     return candidate
+
 
 def _source_face_materials(path: Path) -> list[str | None]:
     materials: list[str | None] = []
