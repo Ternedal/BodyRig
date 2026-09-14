@@ -7,6 +7,8 @@ import pytest
 from bodyrig.photoreal_frame_index import PhotorealFrameIndexError, build_frame_index
 
 MODEL_SET_SHA = "c" * 64
+BANK_SHA = "d" * 64
+CALIBRATION_SHA = "e" * 64
 
 
 def _source(key: str, group: str, kind: str = "video") -> dict[str, object]:
@@ -82,6 +84,7 @@ def _observation(
     face: float,
     body: float,
     phash: str,
+    verified: bool = True,
 ) -> dict[str, object]:
     return {
         "source_key": source_key,
@@ -101,8 +104,10 @@ def _observation(
         "sharpness": 0.9,
         "motion": 0.1,
         "occlusion": 0.05,
-        "identity_confidence": 0.99,
-        "target_identity_verified": True,
+        "identity_measurement_status": "available",
+        "identity_similarity": 0.95 if verified else 0.2,
+        "identity_authority": "calibrated-identity-bank-v1" if verified else "identity-unresolved-v1",
+        "target_identity_verified": verified,
     }
 
 
@@ -113,18 +118,24 @@ def _observations(plan: dict[str, object], receipt: dict[str, object]) -> dict[s
     q34_key = str(plan["evaluation"][1]["source_id"])
     profile_key = str(plan["evaluation"][2]["source_id"])
     return {
-        "format": "bodyrig-photoreal-frame-observations",
+        "format": "bodyrig-photoreal-frame-authorized-observations",
         "version": 1,
         "performer_id": "42",
         "analyzer": "synthetic-photoreal-frame-analyzer",
         "analyzer_revision": "test-v1",
         "analyzer_model_set_sha256": MODEL_SET_SHA,
+        "identity_bank_sha256": BANK_SHA,
+        "identity_calibration_sha256": CALIBRATION_SHA,
+        "identity_matching_calibrated": True,
+        "identity_match_threshold": 0.8,
         "observations": [
             _observation(train_key, sha[train_key], timestamp=1.0, view="front", face=0.9, body=0.9, phash="0000000000000000"),
             _observation(front_key, sha[front_key], timestamp=2.0, view="front", face=0.9, body=0.9, phash="1111111111111111"),
             _observation(q34_key, sha[q34_key], timestamp=3.0, view="three-quarter-left", face=0.9, body=0.9, phash="3333333333333333"),
             _observation(profile_key, sha[profile_key], timestamp=4.0, view="profile-right", face=0.9, body=0.2, phash="7777777777777777"),
         ],
+        "identity_authority_is_core_derived": True,
+        "photoreal_acceptance_authority": False,
         "build_only": True,
         "production_activation": False,
     }
@@ -139,6 +150,9 @@ def test_frame_index_authorizes_training_only_after_held_out_coverage() -> None:
     assert result["analyzer"] == "synthetic-photoreal-frame-analyzer"
     assert result["analyzer_revision"] == "test-v1"
     assert result["analyzer_model_set_sha256"] == MODEL_SET_SHA
+    assert result["identity_bank_sha256"] == BANK_SHA
+    assert result["identity_calibration_sha256"] == CALIBRATION_SHA
+    assert result["identity_authority_is_core_derived"] is True
     assert result["cross_split_near_duplicate_count"] == 0
     assert result["held_out_view_coverage_missing"] == []
     assert set(result["held_out_view_coverage_observed"]) >= {
@@ -177,6 +191,52 @@ def test_frame_index_requires_rear_in_eval_when_rear_is_source_observable() -> N
     assert result["rear_view_source_observable"] is True
     assert "full-body-rear" in result["held_out_view_coverage_missing"]
     assert result["teacher_training_authorized"] is False
+
+
+def test_frame_index_excludes_identity_unresolved_observation() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations["observations"][1] = _observation(
+        str(plan["evaluation"][0]["source_id"]),
+        "b" * 64,
+        timestamp=2.0,
+        view="front",
+        face=0.9,
+        body=0.9,
+        phash="1111111111111111",
+        verified=False,
+    )
+    result = build_frame_index(plan, receipt, observations)
+    assert result["teacher_training_authorized"] is False
+    assert "held-out evaluation view coverage is incomplete" in result["training_blockers"]
+
+
+def test_frame_index_rejects_raw_analyzer_observations_without_core_authority() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations["format"] = "bodyrig-photoreal-frame-observations"
+    with pytest.raises(PhotorealFrameIndexError, match="authorized frame observations format/version"):
+        build_frame_index(plan, receipt, observations)
+
+
+def test_frame_index_rejects_false_core_authority_marker() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations["identity_authority_is_core_derived"] = False
+    with pytest.raises(PhotorealFrameIndexError, match="core-derived identity authority"):
+        build_frame_index(plan, receipt, observations)
+
+
+def test_frame_index_rejects_inconsistent_identity_authority() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations["observations"][0]["target_identity_verified"] = False
+    with pytest.raises(PhotorealFrameIndexError, match="unverified target identity"):
+        build_frame_index(plan, receipt, observations)
 
 
 def test_frame_index_rejects_unanalyzed_planned_source() -> None:
