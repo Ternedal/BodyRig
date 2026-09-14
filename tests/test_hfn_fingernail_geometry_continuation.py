@@ -84,6 +84,11 @@ def test_hfn_render_uses_geometry_package_not_texture_only_detail(monkeypatch, t
     geometry_receipt = tmp_path / "geometry.json"
     geometry_receipt.write_text("{}\n", encoding="utf-8")
     geometry_sha = _sha(geometry)
+    toenail = tmp_path / "toenail.mrbody"
+    toenail.write_bytes(b"toenail")
+    toenail_receipt = tmp_path / "toenail.json"
+    toenail_receipt.write_text("{}\n", encoding="utf-8")
+    toenail_sha = _sha(toenail)
 
     monkeypatch.setattr(continuation, "_find_candidate", lambda *args, **kwargs: detail)
     monkeypatch.setattr(
@@ -93,15 +98,34 @@ def test_hfn_render_uses_geometry_package_not_texture_only_detail(monkeypatch, t
     )
     monkeypatch.setattr(
         continuation,
-        "_geometry_review_candidate",
+        "read_fingernail_geometry_candidate",
         lambda *args, **kwargs: {
             **detail,
             "package_path": str(geometry),
-            "candidate_package_sha256": geometry_sha,
+            "receipt_path": str(geometry_receipt),
+            "geometry_package_sha256": geometry_sha,
+            "plate_count": 10,
+        },
+    )
+    monkeypatch.setattr(
+        continuation,
+        "toenail_geometry_paths",
+        lambda *args, **kwargs: (toenail, toenail_receipt),
+    )
+    monkeypatch.setattr(
+        continuation,
+        "_geometry_review_candidate",
+        lambda *args, **kwargs: {
+            **detail,
+            "package_path": str(toenail),
+            "candidate_package_sha256": toenail_sha,
             "candidate_avatar_sha256": "c" * 64,
             "detail_candidate_package_sha256": detail["candidate_package_sha256"],
             "fingernail_geometry_package_sha256": geometry_sha,
             "fingernail_plate_count": 10,
+            "toenail_geometry_package_sha256": toenail_sha,
+            "toenail_plate_count": 10,
+            "individual_middle_toe_landmarks_observed": False,
         },
     )
 
@@ -122,10 +146,10 @@ def test_hfn_render_uses_geometry_package_not_texture_only_detail(monkeypatch, t
     assert result["gates"][1]["id"] == continuation.RENDER_GATE
     assert result["gates"][1]["state"] == "required"
     command = result["actions"][continuation.RENDER_GATE]["command"]
-    assert str(geometry.resolve()) in command
+    assert str(toenail.resolve()) in command
     assert str(Path(detail["package_path"]).resolve()) not in command
-    assert result["package_path"] == geometry.resolve()
-    assert result["package_sha256"] == geometry_sha
+    assert result["package_path"] == toenail.resolve()
+    assert result["package_sha256"] == toenail_sha
 
 
 def test_hfn_human_review_is_geometry_package_bound() -> None:

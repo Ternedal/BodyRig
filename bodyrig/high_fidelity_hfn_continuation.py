@@ -15,6 +15,11 @@ from .hands_feet_nails_fingernail_geometry_candidate import (
     geometry_paths,
     read_fingernail_geometry_candidate,
 )
+from .hands_feet_nails_toenail_geometry_candidate import (
+    HandsFeetNailsToenailGeometryError,
+    geometry_paths as toenail_geometry_paths,
+    read_toenail_geometry_candidate,
+)
 from .high_fidelity_hfn_review import HighFidelityHfnReviewError, read_review
 
 CANDIDATE_GATE = "hfn_detail_candidate"
@@ -134,7 +139,7 @@ def _find_candidate(
 
 def _geometry_review_candidate(root: Path, detail: Mapping[str, Any], *, bodyrig_revision: str) -> dict[str, Any]:
     try:
-        geometry = read_fingernail_geometry_candidate(
+        fingernail = read_fingernail_geometry_candidate(
             root,
             str(detail["person_id"]),
             body_revision=str(detail["body_revision"]),
@@ -145,25 +150,51 @@ def _geometry_review_candidate(root: Path, detail: Mapping[str, Any], *, bodyrig
         raise HighFidelityHfnContinuationError(f"HFN fingernail geometry authority is invalid: {exc}") from exc
     detail_receipt = Path(str(detail["receipt_path"])).expanduser().resolve()
     if (
-        geometry.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
-        or geometry.get("source_detail_receipt_sha256") != _sha256(detail_receipt)
-        or geometry.get("body_id") != detail.get("body_id")
-        or geometry.get("bodyrig_revision") != bodyrig_revision
-        or geometry.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
-        or geometry.get("plate_count") != 10
+        fingernail.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
+        or fingernail.get("source_detail_receipt_sha256") != _sha256(detail_receipt)
+        or fingernail.get("body_id") != detail.get("body_id")
+        or fingernail.get("bodyrig_revision") != bodyrig_revision
+        or fingernail.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
+        or fingernail.get("plate_count") != 10
     ):
         raise HighFidelityHfnContinuationError(
             "HFN fingernail geometry no longer binds the exact detail candidate/body/revision authority"
         )
+    try:
+        toenail = read_toenail_geometry_candidate(
+            root,
+            str(detail["person_id"]),
+            body_revision=str(detail["body_revision"]),
+            capture_id=str(detail["capture_id"]),
+            candidate_id=str(detail["candidate_id"]),
+        )
+    except HandsFeetNailsToenailGeometryError as exc:
+        raise HighFidelityHfnContinuationError(f"HFN toenail geometry authority is invalid: {exc}") from exc
+    fingernail_receipt = Path(str(fingernail["receipt_path"])).expanduser().resolve()
+    if (
+        toenail.get("source_fingernail_package_sha256") != fingernail.get("geometry_package_sha256")
+        or toenail.get("source_fingernail_receipt_sha256") != _sha256(fingernail_receipt)
+        or toenail.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
+        or toenail.get("body_id") != detail.get("body_id")
+        or toenail.get("bodyrig_revision") != bodyrig_revision
+        or toenail.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
+        or toenail.get("plate_count") != 10
+    ):
+        raise HighFidelityHfnContinuationError(
+            "HFN toenail geometry no longer binds the exact fingernail/detail/body/revision authority"
+        )
     return {
         **dict(detail),
-        "candidate_package_sha256": str(geometry["geometry_package_sha256"]),
-        "candidate_avatar_sha256": str(geometry["geometry_avatar_sha256"]),
-        "package_path": str(geometry["package_path"]),
-        "receipt_path": str(geometry["receipt_path"]),
+        "candidate_package_sha256": str(toenail["geometry_package_sha256"]),
+        "candidate_avatar_sha256": str(toenail["geometry_avatar_sha256"]),
+        "package_path": str(toenail["package_path"]),
+        "receipt_path": str(toenail["receipt_path"]),
         "detail_candidate_package_sha256": str(detail["candidate_package_sha256"]),
-        "fingernail_geometry_package_sha256": str(geometry["geometry_package_sha256"]),
-        "fingernail_plate_count": int(geometry["plate_count"]),
+        "fingernail_geometry_package_sha256": str(fingernail["geometry_package_sha256"]),
+        "fingernail_plate_count": int(fingernail["plate_count"]),
+        "toenail_geometry_package_sha256": str(toenail["geometry_package_sha256"]),
+        "toenail_plate_count": int(toenail["plate_count"]),
+        "individual_middle_toe_landmarks_observed": bool(toenail["individual_middle_toe_landmarks_observed"]),
     }
 
 
@@ -289,7 +320,7 @@ def inspect_hfn_continuation(
                 f"-CaptureId {_quote(detail['capture_id'])} -CandidateId {_quote(detail['candidate_id'])}"
             ),
             "operator_input_required": False,
-            "reason": "Materialize the source-bound skinned fingernail plate geometry on the exact HFN detail candidate before any render or human review.",
+            "reason": "Materialize the source-bound skinned fingernail plate geometry on the exact HFN detail candidate before toenail materialization.",
         }
         gates.append(_gate(
             CANDIDATE_GATE,
@@ -317,6 +348,63 @@ def inspect_hfn_continuation(
             "candidate": detail,
         }
     try:
+        fingernail = read_fingernail_geometry_candidate(
+            root,
+            str(detail["person_id"]),
+            body_revision=str(detail["body_revision"]),
+            capture_id=str(detail["capture_id"]),
+            candidate_id=str(detail["candidate_id"]),
+        )
+    except HandsFeetNailsFingernailGeometryError as exc:
+        gates.append(_gate(CANDIDATE_GATE, "invalid", reason=f"HFN fingernail geometry authority is invalid: {exc}"))
+        return {"gates": gates, "actions": actions, "package_path": Path(detail["package_path"]).resolve(), "package_sha256": str(detail["candidate_package_sha256"]), "candidate": detail}
+
+    toenail_package, toenail_receipt = toenail_geometry_paths(
+        root,
+        str(detail["person_id"]),
+        str(detail["body_revision"]),
+        str(detail["capture_id"]),
+        str(detail["candidate_id"]),
+    )
+    if not toenail_package.is_file() and not toenail_receipt.is_file():
+        actions[CANDIDATE_GATE] = {
+            "gate": CANDIDATE_GATE,
+            "command": (
+                ".\\prepare-hands-feet-nails-toenail-geometry-candidate.ps1 "
+                f"-Root {_quote(root)} -PersonId {_quote(person_id)} -BodyRevision {_quote(body_revision)} "
+                f"-CaptureId {_quote(detail['capture_id'])} -CandidateId {_quote(detail['candidate_id'])}"
+            ),
+            "operator_input_required": False,
+            "reason": "Materialize source-bound skinned toenail plate geometry on the exact fingernail-geometry package before any render or human review.",
+        }
+        gates.append(_gate(
+            CANDIDATE_GATE,
+            "required",
+            reason="HFN fingernail geometry exists, but its exact toenail geometry candidate has not been materialized",
+            evidence={
+                "candidate_id": detail["candidate_id"],
+                "detail_candidate_package_sha256": detail["candidate_package_sha256"],
+                "fingernail_geometry_package_sha256": fingernail["geometry_package_sha256"],
+                "fingernail_plate_count": fingernail["plate_count"],
+            },
+        ))
+        return {
+            "gates": gates,
+            "actions": actions,
+            "package_path": Path(str(fingernail["package_path"])).resolve(),
+            "package_sha256": str(fingernail["geometry_package_sha256"]),
+            "candidate": {**dict(detail), "fingernail_geometry_package_sha256": fingernail["geometry_package_sha256"], "fingernail_plate_count": fingernail["plate_count"]},
+        }
+    if toenail_package.is_file() != toenail_receipt.is_file():
+        gates.append(_gate(CANDIDATE_GATE, "invalid", reason="HFN toenail geometry package/receipt authority is incomplete"))
+        return {
+            "gates": gates,
+            "actions": actions,
+            "package_path": Path(str(fingernail["package_path"])).resolve(),
+            "package_sha256": str(fingernail["geometry_package_sha256"]),
+            "candidate": detail,
+        }
+    try:
         candidate = _geometry_review_candidate(root, detail, bodyrig_revision=bodyrig_revision)
     except HighFidelityHfnContinuationError as exc:
         gates.append(_gate(CANDIDATE_GATE, "invalid", reason=str(exc)))
@@ -337,6 +425,9 @@ def inspect_hfn_continuation(
         "detail_candidate_package_sha256": candidate["detail_candidate_package_sha256"],
         "fingernail_geometry_package_sha256": candidate["fingernail_geometry_package_sha256"],
         "fingernail_plate_count": candidate["fingernail_plate_count"],
+        "toenail_geometry_package_sha256": candidate["toenail_geometry_package_sha256"],
+        "toenail_plate_count": candidate["toenail_plate_count"],
+        "individual_middle_toe_landmarks_observed": candidate["individual_middle_toe_landmarks_observed"],
         "source_package_sha256": candidate["source_package_sha256"],
         "clean_appearance_ab": candidate["clean_appearance_ab"],
     }))
@@ -350,9 +441,9 @@ def inspect_hfn_continuation(
                 f"-PackagePath {_quote(candidate_package)} -OutputDir {_quote(render_dir)}"
             ),
             "operator_input_required": False,
-            "reason": "Render the canonical four HFN detail views from the exact fingernail-geometry candidate package.",
+            "reason": "Render the canonical four HFN detail views from the exact fingernail+toenail geometry candidate package.",
         }
-        gates.append(_gate(RENDER_GATE, "required", reason="canonical HFN fingernail-geometry render review has not been created"))
+        gates.append(_gate(RENDER_GATE, "required", reason="canonical HFN fingernail+toenail geometry render review has not been created"))
         return {"gates": gates, "actions": actions, "package_path": candidate_package, "package_sha256": candidate_sha, "candidate": candidate}
     try:
         render = _validate_render_authority(
@@ -366,7 +457,8 @@ def inspect_hfn_continuation(
     gates.append(_gate(RENDER_GATE, "pass", evidence={
         "render_manifest_sha256": render["manifest_sha256"],
         "render_authority_sha256": render["render_authority_sha256"],
-        "fingernail_geometry_package_sha256": candidate_sha,
+        "fingernail_geometry_package_sha256": candidate["fingernail_geometry_package_sha256"],
+        "toenail_geometry_package_sha256": candidate["toenail_geometry_package_sha256"],
     }))
 
     if not human_review_dir.exists():
@@ -380,7 +472,7 @@ def inspect_hfn_continuation(
                 "-ConfirmDetailChecklist -QualityNote <QUALITY_NOTE>"
             ),
             "operator_input_required": True,
-            "reason": "Review the exact fingernail-geometry candidate against the four canonical HFN views and source closeups, then confirm every M2 checklist item with a real quality note.",
+            "reason": "Review the exact fingernail+toenail geometry candidate against the four canonical HFN views and source closeups, then confirm every M2 checklist item with a real quality note.",
         }
         gates.append(_gate(HUMAN_GATE, "required", reason="geometry-package-bound HFN human review has not been recorded"))
         return {"gates": gates, "actions": actions, "package_path": candidate_package, "package_sha256": candidate_sha, "candidate": candidate}
