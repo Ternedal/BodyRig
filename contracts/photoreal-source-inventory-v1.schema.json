@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-source-inventory-v1.schema.json",
+  "title": "BodyRig Photoreal Source Inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer",
+    "stash_version",
+    "scene_count",
+    "gallery_count",
+    "image_count",
+    "video_file_count",
+    "image_file_count",
+    "summary",
+    "videos",
+    "images",
+    "galleries",
+    "build_only",
+    "photoreal_teacher_input",
+    "runtime_dependency",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-source-inventory"},
+    "version": {"const": 1},
+    "performer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "disambiguation"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "disambiguation": {"type": "string"}
+      }
+    },
+    "stash_version": {"type": "string", "minLength": 1},
+    "scene_count": {"type": "integer", "minimum": 0},
+    "gallery_count": {"type": "integer", "minimum": 0},
+    "image_count": {"type": "integer", "minimum": 0},
+    "video_file_count": {"type": "integer", "minimum": 0},
+    "image_file_count": {"type": "integer", "minimum": 0},
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flat_video_hours",
+        "spatial_or_projection_video_hours",
+        "high_resolution_image_count",
+        "total_still_megapixels",
+        "source_universe_exhaustive"
+      ],
+      "properties": {
+        "flat_video_hours": {"type": "number", "minimum": 0},
+        "spatial_or_projection_video_hours": {"type": "number", "minimum": 0},
+        "high_resolution_image_count": {"type": "integer", "minimum": 0},
+        "total_still_megapixels": {"type": "number", "minimum": 0},
+        "source_universe_exhaustive": {"const": true}
+      }
+    },
+    "videos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scene_id", "scene_title", "path", "width", "height", "duration_seconds",
+          "frame_rate", "video_codec", "size_bytes", "performer_count", "projection",
+          "tags", "information_score"
+        ],
+        "properties": {
+          "scene_id": {"type": "string", "minLength": 1},
+          "scene_title": {"type": "string"},
+          "path": {"type": "string", "minLength": 1},
+          "width": {"type": "integer", "minimum": 0},
+          "height": {"type": "integer", "minimum": 0},
+          "duration_seconds": {"type": "number", "minimum": 0},
+          "frame_rate": {"type": "number", "minimum": 0},
+          "video_codec": {"type": "string"},
+          "size_bytes": {"type": "integer", "minimum": 0},
+          "performer_count": {"type": "integer", "minimum": 0},
+          "projection": {
+            "enum": [
+              "flat", "vr180", "vr360", "stereo-over-under", "stereo-side-by-side",
+              "equirectangular", "projection-ambiguous-2to1"
+            ]
+          },
+          "tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "information_score": {"type": "number"}
+        }
+      }
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "image_id", "title", "path", "width", "height", "megapixels", "size_bytes",
+          "format", "performer_count", "source_binding", "gallery_ids", "tags", "information_score"
+        ],
+        "properties": {
+          "image_id": {"type": "string", "minLength": 1},
+          "title": {"type": "string"},
+          "path": {"type": "string", "minLength": 1},
+          "width": {"type": "integer", "minimum": 0},
+          "height": {"type": "integer", "minimum": 0},
+          "megapixels": {"type": "number", "minimum": 0},
+          "size_bytes": {"type": "integer", "minimum": 0},
+          "format": {"type": "string"},
+          "performer_count": {"type": "integer", "minimum": 0},
+          "source_binding": {"enum": ["direct-performer", "performer-gallery"]},
+          "gallery_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "information_score": {"type": "number"}
+        }
+      }
+    },
+    "galleries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gallery_id", "title", "image_count", "performer_count", "tags", "files"],
+        "properties": {
+          "gallery_id": {"type": "string", "minLength": 1},
+          "title": {"type": "string"},
+          "image_count": {"type": "integer", "minimum": 0},
+          "performer_count": {"type": "integer", "minimum": 0},
+          "tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "basename", "size_bytes"],
+              "properties": {
+                "path": {"type": "string"},
+                "basename": {"type": "string"},
+                "size_bytes": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    },
+    "build_only": {"const": true},
+    "photoreal_teacher_input": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  }
+}
