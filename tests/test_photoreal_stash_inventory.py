@@ -149,6 +149,9 @@ def test_photoreal_inventory_keeps_spatial_video_and_gallery_images() -> None:
     result = fetch_photoreal_source_inventory(client, "42")
 
     assert result["format"] == "bodyrig-photoreal-source-inventory"
+    assert result["performer_id"] == "42"
+    assert result["performer_name"] == "Performer 42"
+    assert result["performer"]["id"] == result["performer_id"]
     assert result["scene_count"] == 2
     assert result["video_file_count"] == 2
     assert result["gallery_count"] == 1
@@ -157,6 +160,10 @@ def test_photoreal_inventory_keeps_spatial_video_and_gallery_images() -> None:
     assert result["summary"]["flat_video_hours"] == 0.5
     assert result["summary"]["spatial_or_projection_video_hours"] == 1.0
     assert result["videos"][0]["projection"] == "vr180"
+    assert result["videos"][0]["stereo_layout"] == "side-by-side"
+    flat = next(item for item in result["videos"] if item["path"].endswith("4k-flat.mp4"))
+    assert flat["projection"] == "flat"
+    assert flat["stereo_layout"] == "mono"
     assert {item["source_binding"] for item in result["images"]} == {
         "direct-performer",
         "performer-gallery",
