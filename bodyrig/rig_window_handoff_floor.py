@@ -40,7 +40,7 @@ def _floor_reason(*, label: str, revision: str) -> dict[str, str]:
         "reason": (
             f"historical physical evidence revision {revision or '<unproven>'} predates or cannot prove the current "
             f"minimum physical handoff revision {MINIMUM_PHYSICAL_HANDOFF_REVISION}; it cannot prove the current "
-            "HFN fingernail+toenail-geometry/runtime contract"
+            "drawable hair/eye + complete component visibility + adaptive short-hair-v2 contract"
         ),
     }
 
