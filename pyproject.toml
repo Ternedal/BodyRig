@@ -53,6 +53,7 @@ bodyrig-photoreal-identity-extract = "bodyrig.photoreal_identity_extractor_cli:m
 bodyrig-photoreal-identity-bank = "bodyrig.photoreal_identity_bank_cli:main"
 bodyrig-photoreal-identity-negative-inventory = "bodyrig.photoreal_identity_negative_inventory_cli:main"
 bodyrig-photoreal-identity-negative-verify = "bodyrig.photoreal_identity_negative_verify_cli:main"
+bodyrig-photoreal-identity-calibration-plan = "bodyrig.photoreal_identity_calibration_plan_cli:main"
 bodyrig-photoreal-model-set-digest = "bodyrig.photoreal_model_set_cli:main"
 bodyrig-photoreal-frame-analyze = "bodyrig.photoreal_frame_analyzer_cli:main"
 bodyrig-photoreal-frame-index = "bodyrig.photoreal_frame_index_cli:main"
