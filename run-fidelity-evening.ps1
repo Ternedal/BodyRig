@@ -309,7 +309,8 @@ if ($hfnExplicitCount -ne 0 -and $hfnExplicitCount -ne 3) {
 if ($hfnExplicitCount -eq 3 -and $expectedActionId -ne "source-bound-hfn-continuation") {
     throw "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action."
 }
-if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
+try {
+    if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
     $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context-" + [Guid]::NewGuid().ToString("N") + ".json")
     if ($hfnExplicitCount -eq 3) {
         if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
@@ -336,10 +337,9 @@ if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
         [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
     }
     $contextPath = $temporaryExecutionContext
-} else {
-    $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
-}
-try {
+    } else {
+        $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
+    }
     $execution = Invoke-GapExecutor -Python $BodyRigPython -PlanPath $gapPath -ContextPath $contextPath -RepoRoot $repoRoot -Execute:$ExecuteNextAction
     $executionMode = Assert-GapExecutorResult `
         -Value $execution `
