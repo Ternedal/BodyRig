@@ -103,7 +103,13 @@ def validate_adjustment_evidence(value: Any) -> dict[str, Any]:
     expected = {"format", "version", "recovery_proof_sha256", "adjustment"}
     if not isinstance(value, dict) or set(value) != expected:
         raise BodyprintAdjustmentEvidenceError("BodyPrint adjustment evidence fields must match v1 exactly")
-    if value.get("format") != EVIDENCE_FORMAT or value.get("version") != EVIDENCE_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != EVIDENCE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != EVIDENCE_VERSION
+    ):
         raise BodyprintAdjustmentEvidenceError("unsupported BodyPrint adjustment evidence format/version")
     proof_hash = value.get("recovery_proof_sha256")
     if (
