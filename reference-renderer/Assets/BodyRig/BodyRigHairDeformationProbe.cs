@@ -9,11 +9,11 @@ namespace BodyRig.ReferenceRenderer
 {
     /// <summary>
     /// Comparison-only machine evidence that the exact source-hair review mesh is
-    /// genuinely skinned into the loaded Humanoid. The probe turns the real Head
-    /// bone, requires the canonical SMPL-X Head skin joint to follow that motion,
-    /// bakes the SkinnedMeshRenderer before/after, restores neutral, and binds the
-    /// report to the exact runtime bytes. It never grades hairstyle quality and
-    /// never grants component/production authority.
+    /// genuinely skinned into the loaded Humanoid. The probe drives the real Unity
+    /// Humanoid through HumanPose, requires the canonical SMPL-X Head skin joint to
+    /// follow that motion, bakes the SkinnedMeshRenderer before/after, restores
+    /// neutral, and binds the report to the exact runtime bytes. It never grades
+    /// hairstyle quality and never grants component/production authority.
     /// </summary>
     public sealed class BodyRigHairDeformationProbe : MonoBehaviour
     {
@@ -29,6 +29,8 @@ namespace BodyRig.ReferenceRenderer
         private const int CanonicalSmplxHeadJointIndex = 15;
         private const string CanonicalSmplxNeckName = "smplx_neck";
         private const string CanonicalSmplxHeadName = "smplx_head";
+        private const string HumanoidHeadBoneName = "Head";
+        private const int HeadYawDofIndex = 1;
 
         [Serializable]
         private sealed class HairDeformationReport
@@ -94,8 +96,6 @@ namespace BodyRig.ReferenceRenderer
             var animator = _loader.Animator;
             if (animator == null || animator.avatar == null || !animator.avatar.isValid || !animator.avatar.isHuman)
                 throw new InvalidDataException("Hair deformation probe requires the loaded valid Unity Humanoid avatar");
-            var head = animator.GetBoneTransform(HumanBodyBones.Head);
-            if (head == null) throw new InvalidDataException("Hair deformation probe could not resolve the Humanoid Head bone");
 
             var hair = FindHairRenderer();
             if (hair.sharedMesh == null || hair.sharedMesh.vertexCount < 3)
@@ -104,44 +104,58 @@ namespace BodyRig.ReferenceRenderer
             if (bones == null || bones.Length < 1)
                 throw new InvalidDataException("Source hair review renderer has no skin bones");
             var rendererHead = ResolveRendererHeadBone(bones);
-            status?.Invoke(rendererHead == head
-                ? "Hair deformation: canonical SMPL-X Head is the Humanoid Head skin bone."
-                : "Hair deformation: canonical SMPL-X Head skin joint resolved; proving UniVRM Humanoid control drives it next.");
+            status?.Invoke("Hair deformation: canonical SMPL-X Head skin joint resolved; driving Unity Humanoid Head through HumanPose next.");
 
-            var baselineRotation = head.localRotation;
-            var baselineWorldRotation = head.rotation;
-            var baselineRendererHeadWorldRotation = rendererHead.rotation;
+            var poseHandler = new HumanPoseHandler(animator.avatar, animator.transform);
+            var baselinePose = new HumanPose();
+            poseHandler.GetHumanPose(ref baselinePose);
+            if (baselinePose.muscles == null || baselinePose.muscles.Length != HumanTrait.MuscleCount)
+            {
+                poseHandler.Dispose();
+                throw new InvalidDataException("Hair deformation probe received an invalid Unity Humanoid muscle array");
+            }
+            baselinePose.muscles = (float[])baselinePose.muscles.Clone();
+            var headYawMuscleIndex = ResolveHeadYawMuscleIndex();
+            var turnedPose = CopyPose(baselinePose);
+            turnedPose.muscles[headYawMuscleIndex] = ResolveHeadYawTarget(
+                headYawMuscleIndex,
+                baselinePose.muscles[headYawMuscleIndex]);
+
             Vector3[] neutral = null;
             Vector3[] turned = null;
             Vector3[] restored = null;
             float observedHeadTurn = 0f;
-            float observedRendererHeadTurn = 0f;
+            Quaternion baselineRendererHeadWorldRotation = default;
             try
             {
                 status?.Invoke("Hair deformation: sampling neutral source hair...");
                 await WaitFramesAsync(2);
+                baselineRendererHeadWorldRotation = rendererHead.rotation;
                 neutral = BakeVertices(hair);
 
-                status?.Invoke("Hair deformation: applying deterministic Humanoid Head turn...");
-                head.localRotation = baselineRotation * Quaternion.Euler(0f, HeadTurnDegrees, 0f);
+                status?.Invoke($"Hair deformation: applying deterministic Humanoid Head yaw through {HumanTrait.MuscleName[headYawMuscleIndex]}...");
+                poseHandler.SetHumanPose(ref turnedPose);
                 await WaitFramesAsync(3);
-                observedHeadTurn = Quaternion.Angle(baselineWorldRotation, head.rotation);
+                observedHeadTurn = Quaternion.Angle(baselineRendererHeadWorldRotation, rendererHead.rotation);
                 if (observedHeadTurn < HeadTurnDegrees * 0.65f)
-                    throw new InvalidDataException($"Humanoid Head turn was not applied strongly enough ({observedHeadTurn:F4} degrees)");
-
-                observedRendererHeadTurn = Quaternion.Angle(baselineRendererHeadWorldRotation, rendererHead.rotation);
-                if (observedRendererHeadTurn < HeadTurnDegrees * 0.65f)
                     throw new InvalidDataException(
-                        $"Canonical SMPL-X Head skin joint did not follow Humanoid Head control " +
-                        $"(skin={observedRendererHeadTurn:F4} degrees, humanoid={observedHeadTurn:F4} degrees, skin_node='{rendererHead.name}', humanoid_node='{head.name}')");
-
+                        $"Canonical SMPL-X Head skin joint did not follow Unity Humanoid Head yaw strongly enough " +
+                        $"({observedHeadTurn:F4} degrees, skin_node='{rendererHead.name}', muscle='{HumanTrait.MuscleName[headYawMuscleIndex]}')");
                 turned = BakeVertices(hair);
             }
             finally
             {
-                head.localRotation = baselineRotation;
-                await WaitFramesAsync(3);
-                restored = BakeVertices(hair);
+                try
+                {
+                    var restorePose = CopyPose(baselinePose);
+                    poseHandler.SetHumanPose(ref restorePose);
+                    await WaitFramesAsync(3);
+                    restored = BakeVertices(hair);
+                }
+                finally
+                {
+                    poseHandler.Dispose();
+                }
             }
 
             if (neutral == null || turned == null || restored == null)
@@ -209,7 +223,7 @@ namespace BodyRig.ReferenceRenderer
 
             LastReportPath = fullOutputPath;
             status?.Invoke(
-                $"Hair deformation machine evidence: PASS | humanoid_head={observedHeadTurn:F2}deg | skin_head={observedRendererHeadTurn:F2}deg | rms={motionRms:F5}m max={motionMax:F5}m");
+                $"Hair deformation machine evidence: PASS | skin_head={observedHeadTurn:F2}deg | rms={motionRms:F5}m max={motionMax:F5}m");
             Debug.Log($"BodyRig hair deformation probe: PASS | {report.platform} | {fullOutputPath}", this);
             return fullOutputPath;
         }
@@ -246,6 +260,64 @@ namespace BodyRig.ReferenceRenderer
                 throw new InvalidDataException($"Canonical SMPL-X Head skin joint name mismatch at index {CanonicalSmplxHeadJointIndex}: '{canonicalHead.name}'");
 
             return canonicalHead;
+        }
+
+        private static int ResolveHeadYawMuscleIndex()
+        {
+            var headBoneIndex = -1;
+            for (var index = 0; index < HumanTrait.BoneName.Length; index++)
+            {
+                if (string.Equals(HumanTrait.BoneName[index], HumanoidHeadBoneName, StringComparison.Ordinal))
+                {
+                    headBoneIndex = index;
+                    break;
+                }
+            }
+            if (headBoneIndex < 0)
+                throw new InvalidDataException("Unity HumanTrait does not expose the canonical Head bone");
+
+            var muscleIndex = HumanTrait.MuscleFromBone(headBoneIndex, HeadYawDofIndex);
+            if (muscleIndex < 0 || muscleIndex >= HumanTrait.MuscleCount)
+                throw new InvalidDataException("Unity HumanTrait does not expose a Head Y-axis muscle");
+            return muscleIndex;
+        }
+
+        private static float ResolveHeadYawTarget(int muscleIndex, float baseline)
+        {
+            if (float.IsNaN(baseline) || float.IsInfinity(baseline) || baseline < -1.0f || baseline > 1.0f)
+                throw new InvalidDataException("Unity Humanoid Head yaw baseline is invalid");
+
+            var maximumDegrees = HumanTrait.GetMuscleDefaultMax(muscleIndex);
+            var minimumDegrees = HumanTrait.GetMuscleDefaultMin(muscleIndex);
+            if (float.IsNaN(maximumDegrees) || float.IsInfinity(maximumDegrees) ||
+                float.IsNaN(minimumDegrees) || float.IsInfinity(minimumDegrees))
+                throw new InvalidDataException("Unity Humanoid Head yaw limits are non-finite");
+
+            if (maximumDegrees > 0.001f)
+            {
+                var delta = HeadTurnDegrees / maximumDegrees;
+                if (delta > 0.0f && baseline + delta <= 1.0f)
+                    return baseline + delta;
+            }
+            if (minimumDegrees < -0.001f)
+            {
+                var delta = HeadTurnDegrees / -minimumDegrees;
+                if (delta > 0.0f && baseline - delta >= -1.0f)
+                    return baseline - delta;
+            }
+            throw new InvalidDataException(
+                $"Unity Humanoid Head yaw limits cannot express the requested {HeadTurnDegrees:F1} degree proof " +
+                $"(min={minimumDegrees:F4}, max={maximumDegrees:F4}, baseline={baseline:F4})");
+        }
+
+        private static HumanPose CopyPose(HumanPose source)
+        {
+            return new HumanPose
+            {
+                bodyPosition = source.bodyPosition,
+                bodyRotation = source.bodyRotation,
+                muscles = (float[])source.muscles.Clone(),
+            };
         }
 
         private static Vector3[] BakeVertices(SkinnedMeshRenderer renderer)
