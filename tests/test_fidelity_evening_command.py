@@ -1,4 +1,11 @@
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +26,49 @@ def test_evening_command_delegates_to_canonical_current_floor_review() -> None:
     assert "physical_acceptance_authority" in text
     assert "human_visual_authority_required" in text
     assert "production_activation" in text
+
+
+def test_evening_summary_v1_guard_is_bool_safe_before_summary_authority() -> None:
+    text = source()
+
+    assert "function Test-V1Version($Value)" in text
+    assert "$Value -is [bool]" in text
+    assert "$Value -isnot [ValueType]" in text
+    assert "[decimal]$Value -eq [decimal]1" in text
+    assert "Test-V1Version $summary.version" in text
+    assert "[int]$summary.version" not in text
+
+    summary_read = text.index('$summary = Read-Json -Path $summaryPath -Label "Current-floor evening summary"')
+    version_guard = text.index("Test-V1Version $summary.version", summary_read)
+    package_guard = text.index("[string]$summary.bodyrig_revision -ne $head", version_guard)
+    selected = text.index("$summary.selected_candidate", package_guard)
+    assert summary_read < version_guard < package_guard < selected
+
+
+def _v1_helper_source() -> str:
+    text = source()
+    start = text.index("function Test-V1Version($Value)")
+    end = text.index("\n}\n", start) + 3
+    return text[start:end]
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell 7 is not installed")
+def test_evening_summary_v1_guard_runtime_rejects_coercive_values() -> None:
+    script = _v1_helper_source() + r'''
+$values = ConvertFrom-Json -InputObject '[1,1.0,true,false,"1",null,2]'
+$results = @()
+foreach ($value in @($values)) { $results += [bool](Test-V1Version $value) }
+$results | ConvertTo-Json -Compress
+'''
+    completed = subprocess.run(
+        ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == [True, True, False, False, False, False, False]
 
 
 def test_evening_command_recomputes_exact_component_gap_before_reuse() -> None:
