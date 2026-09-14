@@ -29,7 +29,7 @@ def test_hair_probe_uses_canonical_smplx_skin_joint_identity() -> None:
     assert "HasNamedAncestor" not in source
 
 
-def test_humanoid_head_is_driven_through_human_pose_and_measured_on_skin_head() -> None:
+def test_humanoid_head_is_driven_through_human_pose_and_skin_head_rotation_is_diagnostic_only() -> None:
     source = HAIR_PROBE.read_text(encoding="utf-8")
 
     for marker in (
@@ -40,24 +40,24 @@ def test_humanoid_head_is_driven_through_human_pose_and_measured_on_skin_head() 
         "HumanTrait.GetMuscleDefaultMin(muscleIndex)",
         "poseHandler.SetHumanPose(ref turnedPose)",
         "observedHeadTurn = Quaternion.Angle(baselineRendererHeadWorldRotation, rendererHead.rotation)",
-        "Canonical SMPL-X Head skin joint did not follow Unity Humanoid Head yaw strongly enough",
+        "canonical skin-head transform diagnostic",
         "poseHandler.SetHumanPose(ref restorePose)",
     ):
         assert marker in source
 
     assert "head.localRotation =" not in source
     assert "HeadYawDofIndex = 1" in source
-    assert "HeadTurnDegrees * 0.65f" in source
+    assert "Canonical SMPL-X Head skin joint did not follow Unity Humanoid Head yaw strongly enough" not in source
+    assert "HeadTurnDegrees * 0.65f" not in source
 
 
-def test_human_pose_head_proof_does_not_replace_real_hair_motion_and_restoration() -> None:
+def test_functional_hair_motion_and_restoration_are_the_authoritative_machine_gates() -> None:
     source = HAIR_PROBE.read_text(encoding="utf-8")
 
     resolve = source.index("ResolveRendererHeadBone(bones)")
     neutral = source.index("neutral = BakeVertices(hair)")
     human_pose = source.index("poseHandler.SetHumanPose(ref turnedPose)")
     skin_measure = source.index("observedHeadTurn = Quaternion.Angle")
-    skin_gate = source.index("Canonical SMPL-X Head skin joint did not follow Unity Humanoid Head yaw strongly enough")
     turned = source.index("turned = BakeVertices(hair)")
     restore_pose = source.index("poseHandler.SetHumanPose(ref restorePose)")
     restored = source.index("restored = BakeVertices(hair)")
@@ -65,9 +65,13 @@ def test_human_pose_head_proof_does_not_replace_real_hair_motion_and_restoration
     restore_gate = source.index("if (!restoredNeutral)")
     report_bound = source.index("head_bone_bound = true")
 
-    assert resolve < neutral < human_pose < skin_measure < skin_gate < turned < restore_pose < restored < motion_gate < restore_gate < report_bound
-    assert "Source hair did not deform with Head turn" in source
+    assert resolve < neutral < human_pose < skin_measure < turned < restore_pose < restored < motion_gate < restore_gate < report_bound
+    assert "Source hair did not deform with Humanoid Head pose" in source
     assert "Source hair did not restore after Head turn" in source
+    assert "MinimumMotionRmsMeters = 0.00025f" in source
+    assert "MinimumMotionMaxMeters = 0.001f" in source
+    assert "MaximumRestorationRmsMeters = 0.00025f" in source
+    assert "MaximumRestorationMaxMeters = 0.001f" in source
     assert "human_review_required = true" in source
     assert "comparison_only = true" in source
     assert "hair_component_authority = false" in source
