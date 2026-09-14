@@ -86,6 +86,44 @@ def test_rejection_fails_closed_after_evidence_binding_tamper(tmp_path: Path) ->
         read_rejection(tmp_path, **{**_kwargs(), "probe_report_sha256": "9" * 64})
 
 
+@pytest.mark.parametrize("version", (True, False, "1", None, 2))
+def test_rejection_readback_rejects_boolean_or_non_numeric_v1(
+    tmp_path: Path, version: object
+) -> None:
+    write_rejection(
+        tmp_path,
+        **_kwargs(),
+        failed_checks=["source_identity"],
+        quality_note="Identity does not match the source.",
+    )
+    path = rejection_path(tmp_path, PLATFORM)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = version
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(RendererHumanRejectionError, match="format/version/policy mismatch"):
+        read_rejection(tmp_path, **_kwargs())
+
+
+@pytest.mark.parametrize("version", (1, 1.0))
+def test_rejection_readback_accepts_numeric_v1(tmp_path: Path, version: object) -> None:
+    write_rejection(
+        tmp_path,
+        **_kwargs(),
+        failed_checks=["source_identity"],
+        quality_note="Identity does not match the source.",
+    )
+    path = rejection_path(tmp_path, PLATFORM)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = version
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    reread = read_rejection(tmp_path, **_kwargs())
+    assert reread["version"] == version
+    assert reread["human_review_pass"] is False
+    assert reread["production_activation"] is False
+
+
 def test_rejection_rejects_noncanonical_failed_check_bytes(tmp_path: Path) -> None:
     write_rejection(
         tmp_path,
