@@ -273,7 +273,13 @@ def _read_request() -> list[Path]:
         raise RuntimeError("invalid request JSON") from exc
     if not isinstance(payload, dict) or set(payload) != {"format", "version", "sources"}:
         raise RuntimeError("request fields must match BodyRig recovery request v1")
-    if payload["format"] != "bodyrig-recovery-request" or payload["version"] != 1:
+    version = payload["version"]
+    if (
+        payload["format"] != "bodyrig-recovery-request"
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != 1
+    ):
         raise RuntimeError("unsupported recovery request")
     raw_sources = payload["sources"]
     if not isinstance(raw_sources, list) or not 1 <= len(raw_sources) <= 10:
