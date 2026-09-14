@@ -8,6 +8,7 @@ param(
 
 $ErrorActionPreference="Stop"
 Set-StrictMode -Version Latest
+function Test-V1Version($Value) { if($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]){return $false}; try{return [decimal]$Value -eq [decimal]1}catch{return $false} }
 function Need-File { param([string]$Path,[string]$Label); if(-not(Test-Path -LiteralPath $Path -PathType Leaf)){throw "$Label not found: $Path"}; (Resolve-Path -LiteralPath $Path).Path }
 function Need-Directory { param([string]$Path,[string]$Label); if(-not(Test-Path -LiteralPath $Path -PathType Container)){throw "$Label not found: $Path"}; (Resolve-Path -LiteralPath $Path).Path }
 function Need-CommandArgument { param([object[]]$Command,[string]$Name,[string]$Label); $indices=@(); for($i=0;$i -lt $Command.Count;$i++){if([string]$Command[$i] -eq $Name){$indices += $i}}; if($indices.Count -ne 1){throw "$Label requires exactly one $Name binding."}; $valueIndex=[int]$indices[0]+1; if($valueIndex -ge $Command.Count){throw "$Label has incomplete $Name binding."}; $value=([string]$Command[$valueIndex]).Trim(); if([string]::IsNullOrWhiteSpace($value)){throw "$Label has empty $Name binding."}; return $value }
@@ -26,7 +27,7 @@ $null=Need-File -Path (Join-Path $CandidateRoot "photoidentity-multiperformer-ta
 $BaselineCloneOutput=Need-Directory -Path $BaselineCloneOutput -Label "Baseline Stash clone output"
 $fitterConfig=Need-File -Path (Join-Path $BaselineCloneOutput "bodyrig-sith-fitter-config.json") -Label "Baseline pinned SiTH fitter config"
 $fitter=Get-Content -LiteralPath $fitterConfig -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 20
-if([string]$fitter.format -ne "bodyrig-external-fitter-config" -or [int]$fitter.version -ne 1 -or [string]$fitter.adapter -ne "sith-smplx-vrm" -or [string]$fitter.revision -ne "1"){throw "Target-crop enrichment requires exact built-in pinned SiTH fitter authority."}
+if([string]$fitter.format -ne "bodyrig-external-fitter-config" -or -not (Test-V1Version $fitter.version) -or [string]$fitter.adapter -ne "sith-smplx-vrm" -or [string]$fitter.revision -ne "1"){throw "Target-crop enrichment requires exact built-in pinned SiTH fitter authority."}
 $command=@($fitter.command)
 $distribution=Need-CommandArgument -Command $command -Name "--distribution" -Label "SiTH/OpenPose runtime"
 $sithRepo=Need-CommandArgument -Command $command -Name "--sith-repo" -Label "SiTH/OpenPose runtime"
