@@ -382,7 +382,14 @@ def read_source_capture(
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture is unreadable") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture format/version/policy mismatch")
     revision = str(value.get("bodyrig_revision") or "").lower()
     _canonical_identity(person, body, revision)
