@@ -53,12 +53,19 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def preview(*, body_id: str = BODY_ID, revision: str = REVISION, status: str = "succeeded") -> dict:
+def preview(
+    *,
+    body_id: str = BODY_ID,
+    revision: str = REVISION,
+    candidate_sha: str = "b" * 64,
+    status: str = "succeeded",
+) -> dict:
     return {
         "job_id": "hfpreview-" + "1" * 32,
         "person_id": "person-7",
         "canonical_body_id": body_id,
         "bodyrig_revision": revision,
+        "candidate_package_sha256": candidate_sha,
         "status": status,
         "comparison_only": True,
         "production_activation": False,
@@ -106,6 +113,8 @@ def test_face_execution_binds_preview_person_body_and_revision_before_continuati
     assert result["person_id"] == "person-7"
     assert result["canonical_body_id"] == BODY_ID
     assert result["preview_bodyrig_revision"] == REVISION
+    assert result["preview_candidate_package_sha256"] == "b" * 64
+    assert result["preview_lineage_resolution"] == "explicit"
     assert result["preview_job_id"] == "hfpreview-" + "1" * 32
     assert str(current_package.resolve()) in result["commands"][0]
     assert str(face_runtime.resolve()) in result["commands"][0]
@@ -142,3 +151,51 @@ def test_face_execution_rejects_cross_revision_or_incomplete_preview(
     monkeypatch.setattr(executor.preview_manager, "get", lambda _job: preview(status="running"))
     with pytest.raises(executor.FidelityComponentGapExecutionError, match="succeeded high-fidelity preview"):
         executor.build_execution(plan(), context={"preview_job_id": "hfpreview-" + "1" * 32}, repo_root=root)
+
+
+def test_face_execution_rejects_cross_candidate_preview_before_continuation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = repo(tmp_path)
+    monkeypatch.setattr(executor.preview_manager, "get", lambda _job: preview(candidate_sha="c" * 64))
+    called = False
+
+    def inspect(_job: str) -> dict:
+        nonlocal called
+        called = True
+        raise AssertionError("continuation must not be inspected for the wrong candidate package")
+
+    monkeypatch.setattr(executor, "inspect_continuation", inspect)
+    with pytest.raises(executor.FidelityComponentGapExecutionError, match="different candidate package"):
+        executor.build_execution(plan(), context={"preview_job_id": "hfpreview-" + "1" * 32}, repo_root=root)
+    assert called is False
+
+
+def test_face_execution_auto_resolves_only_exact_candidate_lineage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = repo(tmp_path)
+    current_package, _face_runtime = configure_continuation(monkeypatch, tmp_path)
+    calls: list[dict[str, str]] = []
+
+    def resolve(**kwargs: str) -> dict:
+        calls.append(kwargs)
+        return preview()
+
+    monkeypatch.setattr(executor.preview_manager, "resolve_succeeded_candidate", resolve)
+    monkeypatch.setattr(
+        executor.preview_manager,
+        "get",
+        lambda _job: (_ for _ in ()).throw(AssertionError("explicit get must not run during auto-resolution")),
+    )
+
+    result = executor.build_execution(plan(), context={}, repo_root=root)
+
+    assert calls == [{
+        "canonical_body_id": BODY_ID,
+        "bodyrig_revision": REVISION,
+        "candidate_package_sha256": "b" * 64,
+    }]
+    assert result["preview_lineage_resolution"] == "auto-exact-candidate"
+    assert result["preview_candidate_package_sha256"] == "b" * 64
+    assert str(current_package.resolve()) in result["commands"][0]

@@ -654,6 +654,59 @@ class HighFidelityPreviewManager:
                     current["error"] = str(exc)[:4000]
                     _write_job(current)
 
+
+    def resolve_succeeded_candidate(
+        self,
+        *,
+        canonical_body_id: str,
+        bodyrig_revision: str,
+        candidate_package_sha256: str,
+    ) -> dict[str, Any]:
+        body_id = str(canonical_body_id or "").strip()
+        revision = str(bodyrig_revision or "").strip().lower()
+        candidate_sha = str(candidate_package_sha256 or "").strip().lower()
+        if not body_id or len(body_id) > 160:
+            raise HighFidelityPreviewError("canonical body id is missing or invalid for preview resolution")
+        if not SHA_RE.fullmatch(revision):
+            raise HighFidelityPreviewError("BodyRig revision is invalid for preview resolution")
+        if len(candidate_sha) != 64 or any(ch not in "0123456789abcdef" for ch in candidate_sha):
+            raise HighFidelityPreviewError("candidate package SHA-256 is invalid for preview resolution")
+
+        with self._lock:
+            root = _store_root()
+            if not root.exists():
+                raise HighFidelityPreviewError("no high-fidelity preview store exists for exact candidate resolution")
+            matches: list[dict[str, Any]] = []
+            for path in root.glob("*/job.json"):
+                try:
+                    job = _read_job(path)
+                except HighFidelityPreviewError:
+                    continue
+                if (
+                    job.get("status") != "succeeded"
+                    or str(job.get("canonical_body_id") or "").strip() != body_id
+                    or str(job.get("bodyrig_revision") or "").strip().lower() != revision
+                ):
+                    continue
+                try:
+                    public = _public(job)
+                except HighFidelityPreviewError as exc:
+                    raise HighFidelityPreviewError(
+                        "matching succeeded high-fidelity preview lineage is invalid"
+                    ) from exc
+                if str(public.get("candidate_package_sha256") or "").strip().lower() == candidate_sha:
+                    matches.append(public)
+
+            if not matches:
+                raise HighFidelityPreviewError(
+                    "no succeeded high-fidelity preview matches the exact body, BodyRig revision and candidate package"
+                )
+            if len(matches) != 1:
+                raise HighFidelityPreviewError(
+                    "multiple succeeded high-fidelity previews match the exact candidate; pass preview_job_id explicitly"
+                )
+            return matches[0]
+
     def get(self, job_id: str) -> dict[str, Any]:
         path = _job_path(job_id)
         if not path.is_file():

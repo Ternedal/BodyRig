@@ -61,6 +61,7 @@ def preview_lineage() -> dict:
         "person_id": "person-42",
         "canonical_body_id": "performer-42",
         "bodyrig_revision": REVISION,
+        "candidate_package_sha256": PACKAGE_SHA,
         "status": "succeeded",
         "comparison_only": True,
         "production_activation": False,
