@@ -9,6 +9,9 @@ namespace BodyRig.ReferenceRenderer
 {
     public sealed class BodyRigRendererProbe : MonoBehaviour
     {
+        private const float MinimumDrawableBoundsSqrMagnitude = 0.000001f;
+        private const float MinimumMaterialAlpha = 0.001f;
+
         [Serializable]
         private sealed class RendererIdentity { public string name; public string version; }
 
@@ -16,11 +19,19 @@ namespace BodyRig.ReferenceRenderer
         {
             public readonly string Label;
             public readonly string NodeName;
+            public readonly bool RequireHeadProximity;
+            public readonly float MaximumHeadDistanceMeters;
 
-            public ExpectedRenderPayload(string label, string nodeName)
+            public ExpectedRenderPayload(
+                string label,
+                string nodeName,
+                bool requireHeadProximity = false,
+                float maximumHeadDistanceMeters = 0f)
             {
                 Label = label;
                 NodeName = nodeName;
+                RequireHeadProximity = requireHeadProximity;
+                MaximumHeadDistanceMeters = maximumHeadDistanceMeters;
             }
         }
 
@@ -59,8 +70,8 @@ namespace BodyRig.ReferenceRenderer
 
         private static readonly ExpectedRenderPayload[] ExpectedRenderPayloads =
         {
-            new ExpectedRenderPayload("hair", "BodyRigSourceHairReview"),
-            new ExpectedRenderPayload("eyes", "BodyRigSourceEyeReview"),
+            new ExpectedRenderPayload("hair", "BodyRigSourceHairReview", true, 0.60f),
+            new ExpectedRenderPayload("eyes", "BodyRigSourceEyeReview", true, 0.30f),
             new ExpectedRenderPayload("face-secondary", "BodyRigFaceSecondaryReview"),
             new ExpectedRenderPayload("fingernails", "BodyRigFingernailPlates"),
             new ExpectedRenderPayload("toenails", "BodyRigToenailPlates"),
@@ -131,10 +142,12 @@ namespace BodyRig.ReferenceRenderer
 
             // A valid Humanoid is not enough for high-fidelity acceptance. If the
             // exact VRM bytes carry one of BodyRig's promoted component nodes, UniVRM
-            // must also have instantiated that node as an active skinned renderer.
-            // This closes the gap where metadata/GLB payload could be correct while
-            // the physical Unity render still showed the legacy mannequin only.
-            RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject);
+            // must instantiate a physically drawable renderer. Hair and eyes must
+            // additionally occupy finite, non-degenerate bounds close to the actual
+            // Humanoid Head bone. This blocks zero-size, fully transparent or detached
+            // payloads from masquerading as visible components while preserving the
+            // separate human-review authority boundary.
+            RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);
 
             var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
@@ -182,9 +195,10 @@ namespace BodyRig.ReferenceRenderer
             return fullOutputPath;
         }
 
-        private static void RequireExpectedComponentRenderers(string avatarPath, GameObject activeRoot)
+        private static void RequireExpectedComponentRenderers(string avatarPath, GameObject activeRoot, Animator animator)
         {
             if (activeRoot == null) throw new InvalidDataException("Renderer probe active VRM root is missing");
+            if (animator == null) throw new InvalidDataException("Renderer probe Humanoid animator is missing");
             if (!File.Exists(avatarPath)) throw new FileNotFoundException("Renderer probe avatar.vrm is missing", avatarPath);
             var bytes = File.ReadAllBytes(avatarPath);
             foreach (var expected in ExpectedRenderPayloads)
@@ -204,22 +218,84 @@ namespace BodyRig.ReferenceRenderer
                 if (!matched.gameObject.activeInHierarchy)
                     throw new InvalidDataException($"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but its GameObject is inactive");
 
+                Transform head = null;
+                if (expected.RequireHeadProximity)
+                {
+                    head = animator.GetBoneTransform(HumanBodyBones.Head);
+                    if (head == null)
+                        throw new InvalidDataException($"Renderer probe cannot spatially validate {expected.Label} without the Humanoid Head bone");
+                }
+
                 var renderers = matched.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-                var visible = false;
+                var drawable = false;
                 foreach (var renderer in renderers)
                 {
                     if (renderer == null || !renderer.enabled || renderer.forceRenderingOff || !renderer.gameObject.activeInHierarchy)
                         continue;
                     if (renderer.sharedMesh == null || renderer.sharedMesh.vertexCount <= 0)
                         continue;
-                    if (renderer.sharedMaterials == null || renderer.sharedMaterials.Length == 0)
+                    if (!HasDrawableMaterial(renderer))
                         continue;
-                    visible = true;
+
+                    var bounds = renderer.bounds;
+                    if (!IsFinite(bounds.center) || !IsFinite(bounds.size))
+                        continue;
+                    if (bounds.extents.sqrMagnitude < MinimumDrawableBoundsSqrMagnitude)
+                        continue;
+                    if (head != null && bounds.SqrDistance(head.position) > expected.MaximumHeadDistanceMeters * expected.MaximumHeadDistanceMeters)
+                        continue;
+
+                    drawable = true;
                     break;
                 }
-                if (!visible)
-                    throw new InvalidDataException($"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but no active skinned renderer with mesh/materials is visible");
+                if (!drawable)
+                {
+                    var spatial = expected.RequireHeadProximity
+                        ? $", non-degenerate world bounds within {expected.MaximumHeadDistanceMeters:F2}m of the Humanoid Head"
+                        : ", non-degenerate world bounds";
+                    throw new InvalidDataException(
+                        $"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but no active physically drawable skinned renderer has a usable mesh/material{spatial}");
+                }
             }
+        }
+
+        private static bool HasDrawableMaterial(Renderer renderer)
+        {
+            var materials = renderer.sharedMaterials;
+            if (materials == null || materials.Length == 0) return false;
+            foreach (var material in materials)
+            {
+                if (material == null || material.shader == null || material.passCount <= 0) continue;
+                if (TryMaterialAlpha(material, out var alpha) && (!IsFinite(alpha) || alpha <= MinimumMaterialAlpha)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryMaterialAlpha(Material material, out float alpha)
+        {
+            if (material.HasProperty("_BaseColor"))
+            {
+                alpha = material.GetColor("_BaseColor").a;
+                return true;
+            }
+            if (material.HasProperty("_Color"))
+            {
+                alpha = material.GetColor("_Color").a;
+                return true;
+            }
+            alpha = 1f;
+            return false;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private static bool ContainsAscii(byte[] haystack, string value)
