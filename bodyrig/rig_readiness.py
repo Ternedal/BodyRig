@@ -85,7 +85,13 @@ def _timestamp(value: Any, *, field: str) -> str:
 def validate_readiness(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise RigReadinessError("rig readiness fields must match v1 exactly")
-    if value["format"] != FORMAT or value["version"] != VERSION:
+    version = value["version"]
+    if (
+        value["format"] != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+    ):
         raise RigReadinessError("unsupported rig readiness format/version")
 
     try:

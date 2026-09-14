@@ -98,3 +98,39 @@ def test_load_readiness_rejects_nonfinite_json(tmp_path: Path) -> None:
     report.write_text(json.dumps(_report()).replace("10", "NaN", 1), encoding="utf-8")
     with pytest.raises(RigReadinessError, match="invalid JSON"):
         load_readiness(report)
+
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 0, 2])
+def test_readiness_rejects_noncanonical_v1_versions(version: object) -> None:
+    report = _report()
+    report["version"] = version
+    with pytest.raises(RigReadinessError, match="unsupported rig readiness format/version"):
+        validate_readiness(report)
+
+
+def test_readiness_preserves_numeric_v1_compatibility() -> None:
+    integer = _report()
+    assert validate_readiness(integer)["version"] == 1
+
+    floating = _report()
+    floating["version"] = 1.0
+    assert validate_readiness(floating)["version"] == 1
+
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 2])
+def test_load_readiness_rejects_noncanonical_v1_versions(tmp_path: Path, version: object) -> None:
+    report = _report()
+    report["version"] = version
+    path = tmp_path / "readiness.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(RigReadinessError, match="unsupported rig readiness format/version"):
+        load_readiness(path)
+
+
+def test_load_readiness_preserves_numeric_float_v1(tmp_path: Path) -> None:
+    report = _report()
+    report["version"] = 1.0
+    path = tmp_path / "readiness.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    loaded = load_readiness(path)
+    assert loaded["version"] == 1
