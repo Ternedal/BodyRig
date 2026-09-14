@@ -66,6 +66,14 @@ class WardrobeSourceCaptureError(RuntimeError):
     pass
 
 
+def _is_numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == expected
+    )
+
+
 def _canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
@@ -299,7 +307,11 @@ def read_source_capture(root: str | os.PathLike[str], person_id: str, *, body_re
         raise WardrobeSourceCaptureError("wardrobe source capture receipt is unreadable") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise WardrobeSourceCaptureError("wardrobe source capture fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if (
+        value.get("format") != FORMAT
+        or not _is_numeric_version(value.get("version"), VERSION)
+        or value.get("policy_revision") != POLICY_REVISION
+    ):
         raise WardrobeSourceCaptureError("wardrobe source capture format/version/policy mismatch")
     if value.get("capture_id") != capture or value.get("person_id") != person or value.get("body_revision") != body:
         raise WardrobeSourceCaptureError("wardrobe source capture identity/path mismatch")
