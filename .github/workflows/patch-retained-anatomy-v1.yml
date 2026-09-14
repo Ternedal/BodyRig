@@ -29,12 +29,8 @@ jobs:
         run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
       - name: Apply focused product patch and regressions
         shell: bash
-        env:
-          TEST_APPEND_B64: CgpJTlZBTElEX1YxX1ZBTFVFUyA9IChUcnVlLCBGYWxzZSwgIjEiLCBOb25lLCAyKQpWQUxJRF9WMV9WQUxVRVMgPSAoMSwgMS4wKQoKCmRlZiBfc2V0X3JlY29uc3RydWN0aW9uX3ZlcnNpb24oc291cmNlOiBQYXRoLCB2ZXJzaW9uOiBvYmplY3QpIC0+IE5vbmU6CiAgICBzdGFnZSA9IHNvdXJjZSAvICJzaXRoLWlucHV0LXYxIgogICAgcmVjb25zdHJ1Y3Rpb25fcGF0aCA9IHN0YWdlIC8gInJlY29uc3RydWN0aW9uLmpzb24iCiAgICByZWNvbnN0cnVjdGlvbiA9IGpzb24ubG9hZHMocmVjb25zdHJ1Y3Rpb25fcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikpCiAgICByZWNvbnN0cnVjdGlvblsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgcmVjb25zdHJ1Y3Rpb25fcGF0aC53cml0ZV90ZXh0KGpzb24uZHVtcHMocmVjb25zdHJ1Y3Rpb24pLCBlbmNvZGluZz0idXRmLTgiKQoKICAgIGF1dGhvcml0eV9wYXRoID0gc3RhZ2UgLyBBVVRIT1JJVFlfRklMRU5BTUUKICAgIGF1dGhvcml0eSA9IGpzb24ubG9hZHMoYXV0aG9yaXR5X3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpKQogICAgYXV0aG9yaXR5WyJyZWNvbnN0cnVjdGlvbl9zaGEyNTYiXSA9IF9zaGEyNTYocmVjb25zdHJ1Y3Rpb25fcGF0aCkKICAgIGF1dGhvcml0eV9wYXRoLndyaXRlX3RleHQoanNvbi5kdW1wcyhhdXRob3JpdHkpLCBlbmNvZGluZz0idXRmLTgiKQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIElOVkFMSURfVjFfVkFMVUVTKQpkZWYgdGVzdF9wdWJsaXNoX3JlamVjdHNfbm9uY2Fub25pY2FsX3JlY29uc3RydWN0aW9uX3YxKAogICAgdG1wX3BhdGg6IFBhdGgsCiAgICB2ZXJzaW9uOiBvYmplY3QsCikgLT4gTm9uZToKICAgIHNvdXJjZSA9IF9zb3VyY2Vfd29ya3NwYWNlKHRtcF9wYXRoKQogICAgb3V0cHV0ID0gdG1wX3BhdGggLyAicmV0YWluZWQiCiAgICBfc2V0X3JlY29uc3RydWN0aW9uX3ZlcnNpb24oc291cmNlLCB2ZXJzaW9uKQoKICAgIHdpdGggcHl0ZXN0LnJhaXNlcyhSZXRhaW5lZEFuYXRvbXlTb3VyY2VFcnJvciwgbWF0Y2g9InJlY29uc3RydWN0aW9uIGV2aWRlbmNlIGZvcm1hdC92ZXJzaW9uIG1pc21hdGNoIik6CiAgICAgICAgcHVibGlzaF9yZXRhaW5lZF9hbmF0b215X3NvdXJjZShzb3VyY2UsIG91dHB1dCkKCiAgICBhc3NlcnQgbm90IG91dHB1dC5leGlzdHMoKQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIFZBTElEX1YxX1ZBTFVFUykKZGVmIHRlc3RfcHVibGlzaF9hY2NlcHRzX251bWVyaWNfcmVjb25zdHJ1Y3Rpb25fdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIF9zZXRfcmVjb25zdHJ1Y3Rpb25fdmVyc2lvbihzb3VyY2UsIHZlcnNpb24pCgogICAgcmVjZWlwdCA9IHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IHJlY2VpcHRbInByb2R1Y3Rpb25fYWN0aXZhdGlvbiJdIGlzIEZhbHNlCiAgICBhc3NlcnQgcmVjZWlwdFsiaHVtYW5fcmV2aWV3X3JlcXVpcmVkIl0gaXMgVHJ1ZQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIElOVkFMSURfVjFfVkFMVUVTKQpkZWYgdGVzdF9wdWJsaXNoX3JlamVjdHNfbm9uY2Fub25pY2FsX21vZGVsX2ZhbWlseV9hdXRob3JpdHlfdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIGF1dGhvcml0eV9wYXRoID0gc291cmNlIC8gInNpdGgtaW5wdXQtdjEiIC8gQVVUSE9SSVRZX0ZJTEVOQU1FCiAgICBhdXRob3JpdHkgPSBqc29uLmxvYWRzKGF1dGhvcml0eV9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIGF1dGhvcml0eVsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgYXV0aG9yaXR5X3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKGF1dGhvcml0eSksIGVuY29kaW5nPSJ1dGYtOCIpCgogICAgd2l0aCBweXRlc3QucmFpc2VzKFJldGFpbmVkQW5hdG9teVNvdXJjZUVycm9yLCBtYXRjaD0ibW9kZWwtZmFtaWx5IGF1dGhvcml0eSBmb3JtYXQvdmVyc2lvbiBtaXNtYXRjaCIpOgogICAgICAgIHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IG5vdCBvdXRwdXQuZXhpc3RzKCkKCgpAcHl0ZXN0Lm1hcmsucGFyYW1ldHJpemUoInZlcnNpb24iLCBWQUxJRF9WMV9WQUxVRVMpCmRlZiB0ZXN0X3B1Ymxpc2hfYWNjZXB0c19udW1lcmljX21vZGVsX2ZhbWlseV9hdXRob3JpdHlfdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIGF1dGhvcml0eV9wYXRoID0gc291cmNlIC8gInNpdGgtaW5wdXQtdjEiIC8gQVVUSE9SSVRZX0ZJTEVOQU1FCiAgICBhdXRob3JpdHkgPSBqc29uLmxvYWRzKGF1dGhvcml0eV9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIGF1dGhvcml0eVsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgYXV0aG9yaXR5X3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKGF1dGhvcml0eSksIGVuY29kaW5nPSJ1dGYtOCIpCgogICAgcmVjZWlwdCA9IHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IHJlY2VpcHRbInByb2R1Y3Rpb25fYWN0aXZhdGlvbiJdIGlzIEZhbHNlCiAgICBhc3NlcnQgcmVjZWlwdFsiaHVtYW5fcmV2aWV3X3JlcXVpcmVkIl0gaXMgVHJ1ZQo==
         run: |
           python - <<'PY'
-          import base64
-          import os
           from pathlib import Path
 
           product = Path("bodyrig/retained_anatomy_source.py")
@@ -61,17 +57,104 @@ jobs:
           )
           if text.count(old_authority) != 1 or text.count(old_reconstruction) != 1:
               raise SystemExit("retained anatomy v1 authority source moved")
-          text = text.replace(old_authority, new_authority, 1)
-          text = text.replace(old_reconstruction, new_reconstruction, 1)
-          product.write_text(text, encoding="utf-8")
+          product.write_text(
+              text.replace(old_authority, new_authority, 1).replace(old_reconstruction, new_reconstruction, 1),
+              encoding="utf-8",
+          )
 
           tests = Path("tests/test_retained_anatomy_source.py")
           current = tests.read_text(encoding="utf-8")
           marker = "test_publish_rejects_noncanonical_reconstruction_v1"
           if marker in current:
               raise SystemExit("retained anatomy v1 regressions already present")
-          append = base64.b64decode(os.environ["TEST_APPEND_B64"]).decode("utf-8")
-          tests.write_text(current.rstrip() + append + "\n", encoding="utf-8")
+          append = r'''
+
+          INVALID_V1_VALUES = (True, False, "1", None, 2)
+          VALID_V1_VALUES = (1, 1.0)
+
+
+          def _set_reconstruction_version(source: Path, version: object) -> None:
+              stage = source / "sith-input-v1"
+              reconstruction_path = stage / "reconstruction.json"
+              reconstruction = json.loads(reconstruction_path.read_text(encoding="utf-8"))
+              reconstruction["version"] = version
+              reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+
+              authority_path = stage / AUTHORITY_FILENAME
+              authority = json.loads(authority_path.read_text(encoding="utf-8"))
+              authority["reconstruction_sha256"] = _sha256(reconstruction_path)
+              authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+
+          @pytest.mark.parametrize("version", INVALID_V1_VALUES)
+          def test_publish_rejects_noncanonical_reconstruction_v1(
+              tmp_path: Path,
+              version: object,
+          ) -> None:
+              source = _source_workspace(tmp_path)
+              output = tmp_path / "retained"
+              _set_reconstruction_version(source, version)
+
+              with pytest.raises(RetainedAnatomySourceError, match="reconstruction evidence format/version mismatch"):
+                  publish_retained_anatomy_source(source, output)
+
+              assert not output.exists()
+
+
+          @pytest.mark.parametrize("version", VALID_V1_VALUES)
+          def test_publish_accepts_numeric_reconstruction_v1(
+              tmp_path: Path,
+              version: object,
+          ) -> None:
+              source = _source_workspace(tmp_path)
+              output = tmp_path / "retained"
+              _set_reconstruction_version(source, version)
+
+              receipt = publish_retained_anatomy_source(source, output)
+
+              assert receipt["production_activation"] is False
+              assert receipt["human_review_required"] is True
+
+
+          @pytest.mark.parametrize("version", INVALID_V1_VALUES)
+          def test_publish_rejects_noncanonical_model_family_authority_v1(
+              tmp_path: Path,
+              version: object,
+          ) -> None:
+              source = _source_workspace(tmp_path)
+              output = tmp_path / "retained"
+              authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+              authority = json.loads(authority_path.read_text(encoding="utf-8"))
+              authority["version"] = version
+              authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+              with pytest.raises(RetainedAnatomySourceError, match="model-family authority format/version mismatch"):
+                  publish_retained_anatomy_source(source, output)
+
+              assert not output.exists()
+
+
+          @pytest.mark.parametrize("version", VALID_V1_VALUES)
+          def test_publish_accepts_numeric_model_family_authority_v1(
+              tmp_path: Path,
+              version: object,
+          ) -> None:
+              source = _source_workspace(tmp_path)
+              output = tmp_path / "retained"
+              authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+              authority = json.loads(authority_path.read_text(encoding="utf-8"))
+              authority["version"] = version
+              authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+              receipt = publish_retained_anatomy_source(source, output)
+
+              assert receipt["production_activation"] is False
+              assert receipt["human_review_required"] is True
+          '''
+          # Dedent the workflow-embedded regression and force exactly one EOF newline.
+          import textwrap
+          append = textwrap.dedent(append).rstrip()
+          tests.write_text(current.rstrip() + "\n\n" + append + "\n", encoding="utf-8")
           PY
       - name: Compile focused files
         run: python -m py_compile bodyrig/retained_anatomy_source.py tests/test_retained_anatomy_source.py
