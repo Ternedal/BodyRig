@@ -7,6 +7,8 @@
   "required": [
     "format",
     "version",
+    "performer_id",
+    "performer_name",
     "performer",
     "stash_version",
     "scene_count",
@@ -26,6 +28,8 @@
   "properties": {
     "format": {"const": "bodyrig-photoreal-source-inventory"},
     "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string", "minLength": 1, "maxLength": 1024},
     "performer": {
       "type": "object",
       "additionalProperties": false,
@@ -68,7 +72,7 @@
         "required": [
           "scene_id", "scene_title", "path", "width", "height", "duration_seconds",
           "frame_rate", "video_codec", "size_bytes", "performer_count", "projection",
-          "tags", "information_score"
+          "stereo_layout", "tags", "information_score"
         ],
         "properties": {
           "scene_id": {"type": "string", "minLength": 1},
@@ -83,9 +87,11 @@
           "performer_count": {"type": "integer", "minimum": 0},
           "projection": {
             "enum": [
-              "flat", "vr180", "vr360", "stereo-over-under", "stereo-side-by-side",
-              "equirectangular", "projection-ambiguous-2to1"
+              "flat", "vr180", "vr360", "equirectangular", "projection-ambiguous-2to1"
             ]
+          },
+          "stereo_layout": {
+            "enum": ["mono", "side-by-side", "over-under", "stereo-unknown", "unknown"]
           },
           "tags": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
           "information_score": {"type": "number"}
