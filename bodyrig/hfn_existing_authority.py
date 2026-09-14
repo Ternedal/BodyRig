@@ -220,16 +220,12 @@ def find_reusable_hfn_source_uv_authorities(
     if not root_path.is_dir() or root_path.is_symlink():
         raise HfnExistingAuthorityError(f"HFN existing-authority root is missing or symlinked: {root_path}")
     person, body = _identity(person_id, body_revision)
-    _package, body_id, exact_package_sha = _package_authority(
-        Path(package_path),
-        package_sha256,
-    )
 
     captures_root = root_path / "hands-feet-nails-source-captures" / person / body
     if not captures_root.is_dir() or captures_root.is_symlink():
         return []
 
-    matches: list[dict[str, str]] = []
+    structural_candidates: list[tuple[str, Path]] = []
     for capture_path in sorted(captures_root.iterdir(), key=lambda item: item.name):
         capture_id = capture_path.name.lower()
         if (
@@ -255,15 +251,30 @@ def find_reusable_hfn_source_uv_authorities(
         for uv_path in sorted(uv_root.glob("*.json"), key=lambda item: item.name):
             if not uv_path.is_file() or uv_path.is_symlink() or not GIT_RE.fullmatch(uv_path.stem):
                 continue
-            match = _validate_chain(
-                root_path,
-                person_id=person,
-                body_revision=body,
-                capture_id=capture_id,
-                uv_path=uv_path,
-                expected_body_id=body_id,
-                expected_package_sha256=exact_package_sha,
-            )
-            if match is not None:
-                matches.append(match)
+            structural_candidates.append((capture_id, uv_path))
+
+    # Zero structurally eligible source/UV tuples is the normal operator-stop
+    # state. Do not demand package parsing merely to establish that nothing can
+    # be reused; exact package authority is required only before a candidate is
+    # allowed to count as reusable.
+    if not structural_candidates:
+        return []
+
+    _package, body_id, exact_package_sha = _package_authority(
+        Path(package_path),
+        package_sha256,
+    )
+    matches: list[dict[str, str]] = []
+    for capture_id, uv_path in structural_candidates:
+        match = _validate_chain(
+            root_path,
+            person_id=person,
+            body_revision=body,
+            capture_id=capture_id,
+            uv_path=uv_path,
+            expected_body_id=body_id,
+            expected_package_sha256=exact_package_sha,
+        )
+        if match is not None:
+            matches.append(match)
     return matches
