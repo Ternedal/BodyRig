@@ -97,7 +97,13 @@ def load_captured_identity(workspace: str | Path) -> CapturedIdentityInput:
     required = {"format", "version", "adapter", "revision", "subject_track_id", "primary"}
     if set(capture) != required:
         raise SithInputError("private identity capture manifest fields must match v1 exactly")
-    if capture["format"] != CAPTURE_FORMAT or capture["version"] != VERSION:
+    version = capture["version"]
+    if (
+        capture["format"] != CAPTURE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+    ):
         raise SithInputError("unsupported private identity capture format/version")
     if capture["adapter"] != EXPECTED_CAPTURE_ADAPTER or capture["revision"] != EXPECTED_CAPTURE_REVISION:
         raise SithInputError("SiTH staging currently requires built-in opencv-identity-rgba v1 capture")

@@ -105,3 +105,21 @@ def test_sith_input_rejects_non_png_even_with_matching_hash(tmp_path: Path):
 
     with pytest.raises(SithInputError, match="not a canonical PNG"):
         load_captured_identity(workspace)
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 0, 2])
+def test_load_captured_identity_rejects_noncanonical_v1_versions(tmp_path: Path, version: object) -> None:
+    workspace, capture_json, _, _ = _workspace(tmp_path)
+    manifest = json.loads(capture_json.read_text(encoding="utf-8"))
+    manifest["version"] = version
+    capture_json.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(SithInputError, match="unsupported private identity capture format/version"):
+        load_captured_identity(workspace)
+
+
+def test_load_captured_identity_preserves_numeric_float_v1(tmp_path: Path) -> None:
+    workspace, capture_json, _, _ = _workspace(tmp_path)
+    manifest = json.loads(capture_json.read_text(encoding="utf-8"))
+    manifest["version"] = 1.0
+    capture_json.write_text(json.dumps(manifest), encoding="utf-8")
+    loaded = load_captured_identity(workspace)
+    assert loaded.capture_manifest["version"] == 1.0
