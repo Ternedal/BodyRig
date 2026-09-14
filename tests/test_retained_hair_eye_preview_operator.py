@@ -12,12 +12,13 @@ def source() -> str:
 def test_retained_preview_reuses_exact_reconstruction_without_rerun() -> None:
     text = source()
 
+    assert '$stage = Need-Directory -Path (Join-Path $IdentityWorkspace "sith-input-v1")' in text
     for exact_input in (
-        '"sith-input-v1\\reconstruction.json"',
-        '"sith-input-v1\\reconstruction-authority.json"',
-        '"sith-input-v1\\meshes\\000_reco.obj"',
-        '"sith-input-v1\\smplx\\000_smplx.obj"',
-        '"sith-input-v1\\smplx\\000_fit.json"',
+        'Join-Path $stage "reconstruction.json"',
+        'Join-Path $stage "reconstruction-authority.json"',
+        'Join-Path $stage "meshes\\000_reco.obj"',
+        'Join-Path $stage "smplx\\000_smplx.obj"',
+        'Join-Path $stage "smplx\\000_fit.json"',
     ):
         assert exact_input in text
 
