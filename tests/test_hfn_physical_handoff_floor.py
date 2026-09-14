@@ -6,7 +6,8 @@ import bodyrig.high_fidelity_release_readiness_cli as cli
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HFN_SAFE_HANDOFF = "1ed3661ad61d92090e3f28222282e53163c28144"
+HFN_SAFE_HANDOFF = "fe04ab113c3c57ed1f3d502242fc0e51b0629b04"
+LEGACY_TOENAIL_HANDOFF = "1ed3661ad61d92090e3f28222282e53163c28144"
 HFN_OPERATOR_SCRIPTS = (
     "prepare-hands-feet-nails-source-capture.ps1",
     "prepare-hands-feet-nails-landmark-evidence.ps1",
@@ -24,13 +25,15 @@ HFN_GATES = (
 )
 
 
-def test_fresh_physical_handoff_floor_is_hfn_safe_baseline_everywhere() -> None:
+def test_fresh_physical_handoff_floor_is_drawable_short_hair_baseline_everywhere() -> None:
     prepare = (ROOT / "prepare-high-fidelity-physical-acceptance.ps1").read_text(encoding="utf-8")
     preflight = (ROOT / "high-fidelity-rig-preflight.ps1").read_text(encoding="utf-8")
 
     assert cli.MINIMUM_PHYSICAL_HANDOFF_REVISION == HFN_SAFE_HANDOFF
     assert HFN_SAFE_HANDOFF in prepare
     assert HFN_SAFE_HANDOFF in preflight
+    assert LEGACY_TOENAIL_HANDOFF not in prepare
+    assert LEGACY_TOENAIL_HANDOFF not in preflight
 
 
 def test_rig_preflight_requires_complete_hfn_operator_chain() -> None:
