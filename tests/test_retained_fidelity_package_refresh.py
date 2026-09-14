@@ -24,7 +24,8 @@ def test_refresh_uses_retained_sith_without_reconstruction_launcher() -> None:
     for forbidden in (
         "clone-body-from-stash",
         "run-profiled-fidelity-convergence",
-        "sith_reconstruct",
+        '"-m", "bodyrig.sith_reconstruct"',
+        "reconstruct_sith(",
         "SithSeed",
     ):
         assert forbidden not in text
