@@ -64,6 +64,18 @@ def _positive_number(value: Any, *, label: str) -> float:
     return result
 
 
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealScanPlanError(f"{label} is invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealScanPlanError(f"{label} is invalid") from exc
+    if result < 0:
+        raise PhotorealScanPlanError(f"{label} cannot be negative")
+    return result
+
+
 def _plan_sources(plan: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
         raise PhotorealScanPlanError("photoreal dataset plan format/version mismatch")
@@ -73,6 +85,8 @@ def _plan_sources(plan: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         raise PhotorealScanPlanError("photoreal dataset plan crossed production authority")
     if plan.get("teacher_training_authorized") is not False:
         raise PhotorealScanPlanError("scout scan requires a pre-training dataset plan")
+    if plan.get("identity_bootstrap_policy") != "train-only-single-performer-direct-binding-v1":
+        raise PhotorealScanPlanError("photoreal dataset plan identity bootstrap policy mismatch")
 
     sources: dict[str, dict[str, Any]] = {}
     for split in ("train", "evaluation"):
@@ -88,12 +102,16 @@ def _plan_sources(plan: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             kind = _text(raw.get("kind"), label="dataset source kind")
             if kind not in {"video", "image"}:
                 raise PhotorealScanPlanError(f"unsupported dataset source kind: {kind}")
+            source_binding = _text(raw.get("source_binding"), label="dataset source binding", maximum=128)
+            performer_count = _nonnegative_int(raw.get("performer_count"), label="dataset performer_count")
             sources[source_key] = {
                 **dict(raw),
                 "source_key": source_key,
                 "split": split,
                 "group_id": _text(raw.get("group_id"), label="dataset source group"),
                 "kind": kind,
+                "source_binding": source_binding,
+                "performer_count": performer_count,
             }
     return sources
 
@@ -134,7 +152,6 @@ def _video_sample_count(duration_seconds: float) -> int:
 
 
 def _video_timestamps(duration_seconds: float, sample_count: int) -> list[float]:
-    # Midpoint sampling avoids title cards/black tails while covering the entire source deterministically.
     return [round(duration_seconds * (index + 0.5) / sample_count, 6) for index in range(sample_count)]
 
 
@@ -164,6 +181,14 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
     if projection == "flat":
         return "rectilinear-stereo-split"
     return "spatial-deprojection-required"
+
+
+def _identity_bootstrap_eligible(source: Mapping[str, Any]) -> bool:
+    if source["split"] != "train" or int(source["performer_count"]) != 1:
+        return False
+    if source["kind"] == "video":
+        return source["source_binding"] == "scene-performer"
+    return source["source_binding"] == "direct-performer"
 
 
 def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict[str, Any]:
@@ -208,22 +233,25 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
                 f"scout plan exceeds explicit observation safety bound {MAX_TOTAL_PLANNED_OBSERVATIONS}"
             )
 
-        sources.append(
-            {
-                "source_key": source_key,
-                "source_sha256": verified["sha256"],
-                "resolved_path": verified["resolved_path"],
-                "kind": planned["kind"],
-                "split": planned["split"],
-                "group_id": planned["group_id"],
-                "projection": projection,
-                "stereo_layout": stereo_layout,
-                "decode_mode": decode_mode,
-                "sample_count": len(samples),
-                "samples": samples,
-            }
-        )
+        source = {
+            "source_key": source_key,
+            "source_sha256": verified["sha256"],
+            "resolved_path": verified["resolved_path"],
+            "kind": planned["kind"],
+            "split": planned["split"],
+            "group_id": planned["group_id"],
+            "source_binding": planned["source_binding"],
+            "performer_count": planned["performer_count"],
+            "projection": projection,
+            "stereo_layout": stereo_layout,
+            "decode_mode": decode_mode,
+            "sample_count": len(samples),
+            "samples": samples,
+        }
+        source["identity_bootstrap_eligible"] = _identity_bootstrap_eligible(source)
+        sources.append(source)
 
+    bootstrap_sources = [item for item in sources if item["identity_bootstrap_eligible"]]
     return {
         "format": FORMAT,
         "version": VERSION,
@@ -235,6 +263,9 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
         "maximum_video_scout_samples": MAX_VIDEO_SCOUT_SAMPLES,
         "source_count": len(sources),
         "planned_observation_count": total_observations,
+        "identity_bootstrap_policy": "train-only-single-performer-direct-binding-v1",
+        "identity_bootstrap_source_count": len(bootstrap_sources),
+        "identity_bootstrap_group_count": len({item["group_id"] for item in bootstrap_sources}),
         "sources": sources,
         "all_sources_sha256_bound": True,
         "train_evaluation_assignment_inherited": True,
