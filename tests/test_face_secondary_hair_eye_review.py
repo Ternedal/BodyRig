@@ -63,6 +63,10 @@ def _source_vrm() -> bytes:
                     "eyeComponentAuthority": False,
                     "productionActivation": False,
                 },
+                "appearanceTransfer": {
+                    "activeBaseColorSha256": "9" * 64,
+                    "policyRevision": "test-promoted-appearance-v1",
+                },
                 "keepMe": {"authority": "hair-eye-source"},
             }
         },
@@ -137,6 +141,10 @@ def test_build_adds_face_secondary_without_promoting_hair_eyes_or_package(tmp_pa
     document, _binary = _read_glb((output / review.VRM_NAME).read_bytes())
     bodyrig = document["extras"]["bodyrig"]
     assert bodyrig["keepMe"] == {"authority": "hair-eye-source"}
+    assert bodyrig["appearanceTransfer"] == {
+        "activeBaseColorSha256": "9" * 64,
+        "policyRevision": "test-promoted-appearance-v1",
+    }
     assert bodyrig["hairReviewRuntime"]["hairComponentAuthority"] is False
     assert bodyrig["eyeReviewRuntime"]["eyeComponentAuthority"] is False
     embedded = bodyrig[review.EMBEDDED_KEY]
@@ -185,3 +193,21 @@ def test_runtime_detects_review_vrm_tamper(tmp_path, monkeypatch: pytest.MonkeyP
 
     with pytest.raises(review.FaceSecondaryHairEyeReviewError, match="bytes changed"):
         review.read_runtime(output)
+
+
+def test_build_rejects_hair_eye_runtime_that_lost_promoted_appearance_authority(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    package = tmp_path / "body.mrbody"
+    package.write_bytes(b"package")
+    package_sha = _sha(package.read_bytes())
+    monkeypatch.setattr(review, "_package_authority", lambda _path: ("body-1", package_sha))
+    source_root, receipt, _vrm = _source_runtime(tmp_path, package_sha=package_sha)
+    vrm_path = source_root / review.SOURCE_VRM_NAME
+    document, binary = _read_glb(vrm_path.read_bytes())
+    del document["extras"]["bodyrig"]["appearanceTransfer"]
+    broken = _write_glb(document, binary)
+    vrm_path.write_bytes(broken)
+    receipt["reviewVrmSha256"] = _sha(broken)
+    (source_root / review.SOURCE_RECEIPT_NAME).write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(review.FaceSecondaryHairEyeReviewError, match="appearanceTransfer authority required by HFN"):
+        review.build(package, source_root, tmp_path / "out-missing-appearance", bodyrig_revision="a" * 40)

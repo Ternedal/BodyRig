@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,6 +13,13 @@ from typing import Any, Mapping
 from .fidelity_component_gap import FORMAT as GAP_FORMAT
 from .fidelity_component_gap import SEMANTICS as GAP_SEMANTICS
 from .high_fidelity_continuation_status import continuation_paths, inspect_continuation
+from .high_fidelity_hfn_continuation import (
+    CANDIDATE_GATE as HFN_CANDIDATE_GATE,
+    HUMAN_GATE as HFN_HUMAN_GATE,
+    RENDER_GATE as HFN_RENDER_GATE,
+    HighFidelityHfnContinuationError,
+    inspect_hfn_continuation,
+)
 from .high_fidelity_preview_jobs import manager as preview_manager
 
 FORMAT = "bodyrig-fidelity-component-gap-execution"
@@ -46,6 +54,11 @@ ACTION_AUTHORITY = {
     "human-visual-qa": (True, False),
 }
 FACE_MACHINE_GATES = {"face_secondary_runtime", "face_secondary_preview"}
+HFN_MACHINE_GATES = {HFN_CANDIDATE_GATE, HFN_RENDER_GATE}
+PERSON_RE = re.compile(r"^person-[0-9a-f]{32}$")
+BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
+HFN_CAPTURE_RE = re.compile(r"^hfncap-[0-9a-f]{32}$")
+HFN_CANDIDATE_RE = re.compile(r"^hfncand-[0-9a-f]{32}$")
 
 
 class FidelityComponentGapExecutionError(RuntimeError):
@@ -289,6 +302,160 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
     }
 
 
+def _canonical_hfn_id(value: Any, *, pattern: re.Pattern[str], field: str) -> str:
+    text = str(value or "").strip().lower()
+    if not pattern.fullmatch(text):
+        raise FidelityComponentGapExecutionError(f"{field} is not canonical")
+    return text
+
+
+def _hfn_context_path(value: Any, *, label: str) -> Path:
+    text = str(value or "").strip()
+    if not text:
+        raise FidelityComponentGapExecutionError(f"{label} is required")
+    raw = Path(text).expanduser()
+    if raw.is_symlink():
+        raise FidelityComponentGapExecutionError(f"{label} is symlinked: {raw}")
+    return raw.resolve()
+
+
+def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_root: Path) -> dict[str, Any]:
+    required_context = (
+        "package_path",
+        "hfn_root",
+        "person_id",
+        "body_revision",
+        "hfn_render_dir",
+        "hfn_human_review_dir",
+    )
+    missing_context = [name for name in required_context if not str(context.get(name) or "").strip()]
+    if missing_context:
+        return {
+            "mode": "operator-stop",
+            "commands": [],
+            "operator_input_required": True,
+            "reason": (
+                "HFN continuation requires explicit source-bound context before it can distinguish "
+                "manual source selection from machine-safe geometry/render gates: " + ", ".join(missing_context)
+            ),
+        }
+
+    package = _need_file(context.get("package_path"), label="HFN gap source package")
+    if _sha256_file(package) != plan["package_sha256"]:
+        raise FidelityComponentGapExecutionError("HFN source package bytes differ from the Unity gap-plan package SHA")
+    hfn_root = _need_dir(context.get("hfn_root"), label="HFN person library root")
+    person_id = _canonical_hfn_id(context.get("person_id"), pattern=PERSON_RE, field="HFN person_id")
+    body_revision = _canonical_hfn_id(
+        context.get("body_revision"), pattern=BODY_REVISION_RE, field="HFN body_revision"
+    )
+    render_dir = _hfn_context_path(context.get("hfn_render_dir"), label="HFN render directory")
+    human_review_dir = _hfn_context_path(
+        context.get("hfn_human_review_dir"), label="HFN human-review directory"
+    )
+
+    try:
+        status = inspect_hfn_continuation(
+            root=hfn_root,
+            person_id=person_id,
+            body_revision=body_revision,
+            bodyrig_revision=plan["bodyrig_revision"],
+            source_package_path=package,
+            source_package_sha256=plan["package_sha256"],
+            render_dir=render_dir,
+            human_review_dir=human_review_dir,
+        )
+    except (HighFidelityHfnContinuationError, OSError) as exc:
+        raise FidelityComponentGapExecutionError(f"canonical HFN continuation is invalid: {exc}") from exc
+
+    status_package = _need_file(status.get("package_path"), label="HFN continuation current package")
+    status_sha = _canonical_sha(
+        status.get("package_sha256"), field="HFN continuation current package SHA", length=64
+    )
+    if _sha256_file(status_package) != status_sha:
+        raise FidelityComponentGapExecutionError("HFN continuation current package bytes changed after inspection")
+
+    actions = status.get("actions")
+    if not isinstance(actions, Mapping):
+        raise FidelityComponentGapExecutionError("canonical HFN continuation actions are invalid")
+    if not actions:
+        raise FidelityComponentGapExecutionError(
+            "canonical HFN continuation has no pending action; a fresh Unity component probe is required"
+        )
+    if len(actions) != 1:
+        raise FidelityComponentGapExecutionError("canonical HFN continuation exposed multiple pending actions")
+    subaction = next(iter(actions.values()))
+    if not isinstance(subaction, Mapping):
+        raise FidelityComponentGapExecutionError("canonical HFN continuation action is invalid")
+    gate = str(subaction.get("gate") or "").strip()
+    operator_required = subaction.get("operator_input_required")
+    reason = str(subaction.get("reason") or "").strip()
+    operator_command = str(subaction.get("command") or "").strip()
+    if not gate or not reason or not operator_command or not isinstance(operator_required, bool):
+        raise FidelityComponentGapExecutionError("canonical HFN continuation action fields are invalid")
+
+    if operator_required:
+        if gate not in {HFN_CANDIDATE_GATE, HFN_HUMAN_GATE}:
+            raise FidelityComponentGapExecutionError(f"unexpected operator-required HFN gate: {gate}")
+        return {
+            "mode": "operator-stop",
+            "commands": [],
+            "operator_input_required": True,
+            "reason": reason,
+            "operator_command": operator_command,
+            "hfn_gate": gate,
+            "hfn_current_package_sha256": status_sha,
+        }
+
+    if gate not in HFN_MACHINE_GATES:
+        raise FidelityComponentGapExecutionError(f"canonical HFN continuation is not at a machine-safe gate: {gate}")
+
+    if gate == HFN_CANDIDATE_GATE:
+        candidate = status.get("candidate")
+        if not isinstance(candidate, Mapping):
+            raise FidelityComponentGapExecutionError("machine-safe HFN geometry gate lacks exact candidate authority")
+        capture_id = _canonical_hfn_id(
+            candidate.get("capture_id"), pattern=HFN_CAPTURE_RE, field="HFN capture_id"
+        )
+        candidate_id = _canonical_hfn_id(
+            candidate.get("candidate_id"), pattern=HFN_CANDIDATE_RE, field="HFN candidate_id"
+        )
+        if candidate.get("fingernail_geometry_package_sha256"):
+            script = "prepare-hands-feet-nails-toenail-geometry-candidate.ps1"
+            substep = "toenail-geometry"
+        else:
+            script = "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1"
+            substep = "fingernail-geometry"
+        argv = _pwsh(
+            repo_root,
+            script,
+            "-Root", str(hfn_root),
+            "-PersonId", person_id,
+            "-BodyRevision", body_revision,
+            "-CaptureId", capture_id,
+            "-CandidateId", candidate_id,
+        )
+    else:
+        output = _need_absent(render_dir, label="HFN canonical render-review output")
+        argv = _pwsh(
+            repo_root,
+            "prepare-hands-feet-nails-render-review.ps1",
+            "-PackagePath", str(status_package),
+            "-OutputDir", str(output),
+        )
+        substep = "render-review"
+
+    return {
+        "mode": "machine-executable",
+        "commands": [argv],
+        "operator_input_required": False,
+        "hfn_gate": gate,
+        "hfn_substep": substep,
+        "hfn_current_package_sha256": status_sha,
+        "person_id": person_id,
+        "body_revision": body_revision,
+    }
+
+
 def build_execution(plan: Mapping[str, Any], *, context: Mapping[str, Any], repo_root: Path) -> dict[str, Any]:
     validated = validate_plan(plan)
     root = repo_root.expanduser().resolve()
@@ -300,6 +467,8 @@ def build_execution(plan: Mapping[str, Any], *, context: Mapping[str, Any], repo
         route = _hair_eye_execution(validated, context, root)
     elif action_id == "face-secondary-review-composition":
         route = _face_execution(validated, context, root)
+    elif action_id == "source-bound-hfn-continuation":
+        route = _hfn_execution(validated, context, root)
     else:
         route = {
             "mode": "operator-stop",

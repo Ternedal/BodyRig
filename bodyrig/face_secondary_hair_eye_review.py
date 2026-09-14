@@ -199,6 +199,15 @@ def build(package_path: str | Path, hair_eye_runtime_dir: str | Path, output_dir
     except PbrMaterialError as exc:
         raise FaceSecondaryHairEyeReviewError(str(exc)) from exc
     bodyrig = _bodyrig(document)
+    appearance_transfer = bodyrig.get("appearanceTransfer")
+    if not isinstance(appearance_transfer, dict):
+        raise FaceSecondaryHairEyeReviewError(
+            "hair+eye review VRM lacks promoted appearanceTransfer authority required by HFN continuation"
+        )
+    _sha(appearance_transfer.get("activeBaseColorSha256"), label="appearanceTransfer active base-color SHA-256")
+    appearance_transfer_before = json.loads(
+        json.dumps(appearance_transfer, ensure_ascii=False, sort_keys=True, allow_nan=False)
+    )
     if EMBEDDED_KEY in bodyrig or "faceSecondaryReviewRuntime" in bodyrig:
         raise FaceSecondaryHairEyeReviewError("hair+eye review VRM already contains face-secondary review metadata")
     hair_metadata = bodyrig.get("hairReviewRuntime")
@@ -227,6 +236,10 @@ def build(package_path: str | Path, hair_eye_runtime_dir: str | Path, output_dir
     except (PbrMaterialError, RuntimeError, ValueError) as exc:
         raise FaceSecondaryHairEyeReviewError(str(exc)) from exc
     review_bodyrig = _bodyrig(review_document)
+    if review_bodyrig.get("appearanceTransfer") != appearance_transfer_before:
+        raise FaceSecondaryHairEyeReviewError(
+            "face-secondary composition changed promoted appearanceTransfer authority required by HFN continuation"
+        )
     metadata = {
         "format": REVIEW_METADATA_FORMAT,
         "version": VERSION,

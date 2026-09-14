@@ -50,6 +50,9 @@ def repo(tmp_path: Path) -> Path:
         "run-retained-hair-eye-preview.ps1",
         "build-high-fidelity-face-secondary-review-runtime.ps1",
         "run-high-fidelity-face-secondary-windows-preview.ps1",
+        "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1",
+        "prepare-hands-feet-nails-toenail-geometry-candidate.ps1",
+        "prepare-hands-feet-nails-render-review.ps1",
     ):
         (root / name).write_text("exit 0\n", encoding="utf-8")
     return root
@@ -279,3 +282,155 @@ def test_execute_runs_exactly_one_command_and_requires_windows(monkeypatch: pyte
 
     with pytest.raises(executor.FidelityComponentGapExecutionError, match="operator/human input"):
         executor.execute({"mode": "operator-stop", "commands": []}, runner=runner)
+
+
+def _hfn_context(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
+    package = tmp_path / "hfn-source.mrbody"
+    package.write_bytes(b"package")
+    root = tmp_path / "hfn-library"
+    root.mkdir()
+    render_dir = root / "render-review"
+    human_dir = root / "human-review"
+    return {
+        "package_path": str(package),
+        "hfn_root": str(root),
+        "person_id": "person-" + "1" * 32,
+        "body_revision": "body-r0007",
+        "hfn_render_dir": str(render_dir),
+        "hfn_human_review_dir": str(human_dir),
+    }, package, root
+
+
+def test_hfn_exact_source_selection_and_human_review_remain_operator_stops(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    source_action = {
+        "gate": executor.HFN_CANDIDATE_GATE,
+        "command": ".\\prepare-hands-feet-nails-detail-candidate.ps1 -CaptureId <CAPTURE_ID> -UvEvidence <UV_EVIDENCE_PATH>",
+        "operator_input_required": True,
+        "reason": "select exact HFN source evidence",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_CANDIDATE_GATE: source_action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+    })
+    stopped = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert stopped["mode"] == "operator-stop"
+    assert stopped["hfn_gate"] == executor.HFN_CANDIDATE_GATE
+    assert stopped["operator_command"] == source_action["command"]
+    assert stopped["commands"] == []
+    assert stopped["reprobe_required_after_execution"] is False
+
+    human_action = {
+        "gate": executor.HFN_HUMAN_GATE,
+        "command": ".\\record-high-fidelity-hfn-review.ps1 -ConfirmDetailChecklist -QualityNote <QUALITY_NOTE>",
+        "operator_input_required": True,
+        "reason": "human HFN review required",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_HUMAN_GATE: human_action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+    })
+    stopped = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert stopped["mode"] == "operator-stop"
+    assert stopped["hfn_gate"] == executor.HFN_HUMAN_GATE
+    assert stopped["operator_command"] == human_action["command"]
+    assert stopped["production_activation"] is False
+
+
+def test_hfn_source_bound_geometry_substeps_are_machine_executable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    candidate = {
+        "capture_id": "hfncap-" + "2" * 32,
+        "candidate_id": "hfncand-" + "3" * 32,
+    }
+    action = {
+        "gate": executor.HFN_CANDIDATE_GATE,
+        "command": ".\\prepare-hands-feet-nails-fingernail-geometry-candidate.ps1 ...",
+        "operator_input_required": False,
+        "reason": "materialize fingernails",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_CANDIDATE_GATE: action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+        "candidate": candidate,
+    })
+    result = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert result["mode"] == "machine-executable"
+    assert result["hfn_substep"] == "fingernail-geometry"
+    assert result["commands"][0][3] == str(root / "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1")
+    assert result["reprobe_required_after_execution"] is True
+
+    toenail_candidate = {**candidate, "fingernail_geometry_package_sha256": "4" * 64}
+    toenail_action = {**action, "command": ".\\prepare-hands-feet-nails-toenail-geometry-candidate.ps1 ...", "reason": "materialize toenails"}
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_CANDIDATE_GATE: toenail_action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+        "candidate": toenail_candidate,
+    })
+    result = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert result["hfn_substep"] == "toenail-geometry"
+    assert result["commands"][0][3] == str(root / "prepare-hands-feet-nails-toenail-geometry-candidate.ps1")
+
+
+def test_hfn_source_bound_render_review_is_machine_executable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    action = {
+        "gate": executor.HFN_RENDER_GATE,
+        "command": ".\\prepare-hands-feet-nails-render-review.ps1 ...",
+        "operator_input_required": False,
+        "reason": "render exact HFN candidate",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_RENDER_GATE: action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+        "candidate": {"candidate_id": "hfncand-" + "3" * 32},
+    })
+    result = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert result["mode"] == "machine-executable"
+    assert result["hfn_substep"] == "render-review"
+    command = result["commands"][0]
+    assert command[3] == str(root / "prepare-hands-feet-nails-render-review.ps1")
+    assert str(package.resolve()) in command
+    assert str(Path(context["hfn_render_dir"]).resolve()) in command
+    assert result["production_activation"] is False
+
+
+def test_hfn_context_rejects_cross_package_bytes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    package.write_bytes(b"wrong-package")
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: pytest.fail("continuation must not run"))
+    with pytest.raises(executor.FidelityComponentGapExecutionError, match="differ from the Unity gap-plan package SHA"):
+        executor.build_execution(
+            plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+            context=context,
+            repo_root=root,
+        )
