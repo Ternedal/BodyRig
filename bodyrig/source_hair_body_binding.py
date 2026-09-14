@@ -20,6 +20,10 @@ VERSION = 1
 CANDIDATE_FORMAT = "bodyrig-source-hair-candidate"
 CANDIDATE_VERSION = 1
 SHA256_LENGTH = 64
+SUPPORTED_METHODS = {
+    "retained-sith-connected-head-shell-v2": False,
+    "retained-sith-source-guided-hair-cards-v1": True,
+}
 
 
 class SourceHairBodyBindingError(ValueError):
@@ -91,11 +95,13 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
         raise SourceHairBodyBindingError("source hair candidate fields do not match v1")
     if receipt.get("format") != CANDIDATE_FORMAT or receipt.get("version") != CANDIDATE_VERSION:
         raise SourceHairBodyBindingError("source hair candidate format/version mismatch")
-    if receipt.get("method") != "retained-sith-connected-head-shell-v2":
+    method = receipt.get("method")
+    if method not in SUPPORTED_METHODS:
         raise SourceHairBodyBindingError("source hair candidate extraction method mismatch")
+    expected_generative = SUPPORTED_METHODS[str(method)]
     if (
         receipt.get("sourceDerived") is not True
-        or receipt.get("generativeGeometry") is not False
+        or receipt.get("generativeGeometry") is not expected_generative
         or receipt.get("bodyTopologyModified") is not False
         or receipt.get("candidateBinding") != "head-accessory-review-only"
         or receipt.get("comparisonOnly") is not True
