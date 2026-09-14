@@ -722,7 +722,14 @@ def read_fingernail_geometry_candidate(
 ) -> dict[str, Any]:
     package_path, receipt_path = geometry_paths(root, person_id, body_revision, capture_id, candidate_id)
     receipt = _read_json(receipt_path, label="HFN fingernail geometry receipt")
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION or receipt.get("policy_revision") != POLICY_REVISION:
+    version = receipt.get("version")
+    if (
+        receipt.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+        or receipt.get("policy_revision") != POLICY_REVISION
+    ):
         raise HandsFeetNailsFingernailGeometryError("HFN fingernail geometry receipt format/version/policy mismatch")
     for field in (
         "source_detail_receipt_sha256", "source_detail_package_sha256", "geometry_package_sha256",
