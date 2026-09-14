@@ -1,0 +1,101 @@
+name: patch-retained-anatomy-v1
+
+on:
+  push:
+    branches:
+      - fix/retained-anatomy-v1-publication
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - name: Assert exact checkout authority
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || { echo "checkout mismatch: $actual != $EXPECTED_SHA" >&2; exit 1; }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply focused product patch and regressions
+        shell: bash
+        env:
+          TEST_APPEND_B64: CgpJTlZBTElEX1YxX1ZBTFVFUyA9IChUcnVlLCBGYWxzZSwgIjEiLCBOb25lLCAyKQpWQUxJRF9WMV9WQUxVRVMgPSAoMSwgMS4wKQoKCmRlZiBfc2V0X3JlY29uc3RydWN0aW9uX3ZlcnNpb24oc291cmNlOiBQYXRoLCB2ZXJzaW9uOiBvYmplY3QpIC0+IE5vbmU6CiAgICBzdGFnZSA9IHNvdXJjZSAvICJzaXRoLWlucHV0LXYxIgogICAgcmVjb25zdHJ1Y3Rpb25fcGF0aCA9IHN0YWdlIC8gInJlY29uc3RydWN0aW9uLmpzb24iCiAgICByZWNvbnN0cnVjdGlvbiA9IGpzb24ubG9hZHMocmVjb25zdHJ1Y3Rpb25fcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikpCiAgICByZWNvbnN0cnVjdGlvblsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgcmVjb25zdHJ1Y3Rpb25fcGF0aC53cml0ZV90ZXh0KGpzb24uZHVtcHMocmVjb25zdHJ1Y3Rpb24pLCBlbmNvZGluZz0idXRmLTgiKQoKICAgIGF1dGhvcml0eV9wYXRoID0gc3RhZ2UgLyBBVVRIT1JJVFlfRklMRU5BTUUKICAgIGF1dGhvcml0eSA9IGpzb24ubG9hZHMoYXV0aG9yaXR5X3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpKQogICAgYXV0aG9yaXR5WyJyZWNvbnN0cnVjdGlvbl9zaGEyNTYiXSA9IF9zaGEyNTYocmVjb25zdHJ1Y3Rpb25fcGF0aCkKICAgIGF1dGhvcml0eV9wYXRoLndyaXRlX3RleHQoanNvbi5kdW1wcyhhdXRob3JpdHkpLCBlbmNvZGluZz0idXRmLTgiKQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIElOVkFMSURfVjFfVkFMVUVTKQpkZWYgdGVzdF9wdWJsaXNoX3JlamVjdHNfbm9uY2Fub25pY2FsX3JlY29uc3RydWN0aW9uX3YxKAogICAgdG1wX3BhdGg6IFBhdGgsCiAgICB2ZXJzaW9uOiBvYmplY3QsCikgLT4gTm9uZToKICAgIHNvdXJjZSA9IF9zb3VyY2Vfd29ya3NwYWNlKHRtcF9wYXRoKQogICAgb3V0cHV0ID0gdG1wX3BhdGggLyAicmV0YWluZWQiCiAgICBfc2V0X3JlY29uc3RydWN0aW9uX3ZlcnNpb24oc291cmNlLCB2ZXJzaW9uKQoKICAgIHdpdGggcHl0ZXN0LnJhaXNlcyhSZXRhaW5lZEFuYXRvbXlTb3VyY2VFcnJvciwgbWF0Y2g9InJlY29uc3RydWN0aW9uIGV2aWRlbmNlIGZvcm1hdC92ZXJzaW9uIG1pc21hdGNoIik6CiAgICAgICAgcHVibGlzaF9yZXRhaW5lZF9hbmF0b215X3NvdXJjZShzb3VyY2UsIG91dHB1dCkKCiAgICBhc3NlcnQgbm90IG91dHB1dC5leGlzdHMoKQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIFZBTElEX1YxX1ZBTFVFUykKZGVmIHRlc3RfcHVibGlzaF9hY2NlcHRzX251bWVyaWNfcmVjb25zdHJ1Y3Rpb25fdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIF9zZXRfcmVjb25zdHJ1Y3Rpb25fdmVyc2lvbihzb3VyY2UsIHZlcnNpb24pCgogICAgcmVjZWlwdCA9IHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IHJlY2VpcHRbInByb2R1Y3Rpb25fYWN0aXZhdGlvbiJdIGlzIEZhbHNlCiAgICBhc3NlcnQgcmVjZWlwdFsiaHVtYW5fcmV2aWV3X3JlcXVpcmVkIl0gaXMgVHJ1ZQoKCkBweXRlc3QubWFyay5wYXJhbWV0cml6ZSgidmVyc2lvbiIsIElOVkFMSURfVjFfVkFMVUVTKQpkZWYgdGVzdF9wdWJsaXNoX3JlamVjdHNfbm9uY2Fub25pY2FsX21vZGVsX2ZhbWlseV9hdXRob3JpdHlfdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIGF1dGhvcml0eV9wYXRoID0gc291cmNlIC8gInNpdGgtaW5wdXQtdjEiIC8gQVVUSE9SSVRZX0ZJTEVOQU1FCiAgICBhdXRob3JpdHkgPSBqc29uLmxvYWRzKGF1dGhvcml0eV9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIGF1dGhvcml0eVsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgYXV0aG9yaXR5X3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKGF1dGhvcml0eSksIGVuY29kaW5nPSJ1dGYtOCIpCgogICAgd2l0aCBweXRlc3QucmFpc2VzKFJldGFpbmVkQW5hdG9teVNvdXJjZUVycm9yLCBtYXRjaD0ibW9kZWwtZmFtaWx5IGF1dGhvcml0eSBmb3JtYXQvdmVyc2lvbiBtaXNtYXRjaCIpOgogICAgICAgIHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IG5vdCBvdXRwdXQuZXhpc3RzKCkKCgpAcHl0ZXN0Lm1hcmsucGFyYW1ldHJpemUoInZlcnNpb24iLCBWQUxJRF9WMV9WQUxVRVMpCmRlZiB0ZXN0X3B1Ymxpc2hfYWNjZXB0c19udW1lcmljX21vZGVsX2ZhbWlseV9hdXRob3JpdHlfdjEoCiAgICB0bXBfcGF0aDogUGF0aCwKICAgIHZlcnNpb246IG9iamVjdCwKKSAtPiBOb25lOgogICAgc291cmNlID0gX3NvdXJjZV93b3Jrc3BhY2UodG1wX3BhdGgpCiAgICBvdXRwdXQgPSB0bXBfcGF0aCAvICJyZXRhaW5lZCIKICAgIGF1dGhvcml0eV9wYXRoID0gc291cmNlIC8gInNpdGgtaW5wdXQtdjEiIC8gQVVUSE9SSVRZX0ZJTEVOQU1FCiAgICBhdXRob3JpdHkgPSBqc29uLmxvYWRzKGF1dGhvcml0eV9wYXRoLnJlYWRfdGV4dChlbmNvZGluZz0idXRmLTgiKSkKICAgIGF1dGhvcml0eVsidmVyc2lvbiJdID0gdmVyc2lvbgogICAgYXV0aG9yaXR5X3BhdGgud3JpdGVfdGV4dChqc29uLmR1bXBzKGF1dGhvcml0eSksIGVuY29kaW5nPSJ1dGYtOCIpCgogICAgcmVjZWlwdCA9IHB1Ymxpc2hfcmV0YWluZWRfYW5hdG9teV9zb3VyY2Uoc291cmNlLCBvdXRwdXQpCgogICAgYXNzZXJ0IHJlY2VpcHRbInByb2R1Y3Rpb25fYWN0aXZhdGlvbiJdIGlzIEZhbHNlCiAgICBhc3NlcnQgcmVjZWlwdFsiaHVtYW5fcmV2aWV3X3JlcXVpcmVkIl0gaXMgVHJ1ZQo==
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          product = Path("bodyrig/retained_anatomy_source.py")
+          text = product.read_text(encoding="utf-8")
+          old_authority = '    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:\n'
+          new_authority = (
+              '    version = value.get("version")\n'
+              '    if (\n'
+              '        value.get("format") != AUTHORITY_FORMAT\n'
+              '        or isinstance(version, bool)\n'
+              '        or not isinstance(version, (int, float))\n'
+              '        or version != AUTHORITY_VERSION\n'
+              '    ):\n'
+          )
+          old_reconstruction = '    if reconstruction["format"] != RECON_FORMAT or reconstruction["version"] != RECON_VERSION:\n'
+          new_reconstruction = (
+              '    reconstruction_version = reconstruction["version"]\n'
+              '    if (\n'
+              '        reconstruction["format"] != RECON_FORMAT\n'
+              '        or isinstance(reconstruction_version, bool)\n'
+              '        or not isinstance(reconstruction_version, (int, float))\n'
+              '        or reconstruction_version != RECON_VERSION\n'
+              '    ):\n'
+          )
+          if text.count(old_authority) != 1 or text.count(old_reconstruction) != 1:
+              raise SystemExit("retained anatomy v1 authority source moved")
+          text = text.replace(old_authority, new_authority, 1)
+          text = text.replace(old_reconstruction, new_reconstruction, 1)
+          product.write_text(text, encoding="utf-8")
+
+          tests = Path("tests/test_retained_anatomy_source.py")
+          current = tests.read_text(encoding="utf-8")
+          marker = "test_publish_rejects_noncanonical_reconstruction_v1"
+          if marker in current:
+              raise SystemExit("retained anatomy v1 regressions already present")
+          append = base64.b64decode(os.environ["TEST_APPEND_B64"]).decode("utf-8")
+          tests.write_text(current.rstrip() + append + "\n", encoding="utf-8")
+          PY
+      - name: Compile focused files
+        run: python -m py_compile bodyrig/retained_anatomy_source.py tests/test_retained_anatomy_source.py
+      - name: Run focused retained-anatomy tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m pytest -q tests/test_retained_anatomy_source.py tests/test_retained_anatomy_source_integration.py tests/test_sith_reconstruction_v1_authority_routes.py
+      - name: Enforce exact two-file product boundary
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(bodyrig/retained_anatomy_source.py tests/test_retained_anatomy_source.py)
+          printf 'changed: %s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          for i in "${!expected[@]}"; do
+            test "${changed[$i]}" = "${expected[$i]}"
+          done
+      - name: Commit validated product bytes and remove helper workflow
+        shell: bash
+        run: |
+          rm .github/workflows/patch-retained-anatomy-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Harden retained anatomy v1 publication boundary"
+          git push origin HEAD:fix/retained-anatomy-v1-publication
