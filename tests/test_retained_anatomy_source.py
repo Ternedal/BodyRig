@@ -173,6 +173,60 @@ def test_publish_rejects_missing_or_mismatched_model_family_authority(tmp_path: 
     assert not output.exists()
 
 
+@pytest.mark.parametrize("invalid_version", [True, False, "1", None, [], {}, 2])
+def test_publish_rejects_non_numeric_reconstruction_v1(tmp_path: Path, invalid_version: object) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    reconstruction_path = source / "sith-input-v1/reconstruction.json"
+    reconstruction = json.loads(reconstruction_path.read_text(encoding="utf-8"))
+    reconstruction["version"] = invalid_version
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+
+    with pytest.raises(RetainedAnatomySourceError, match="reconstruction evidence format/version mismatch"):
+        publish_retained_anatomy_source(source, output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("invalid_version", [True, False, "1", None, [], {}, 2])
+def test_publish_rejects_non_numeric_model_family_authority_v1(
+    tmp_path: Path, invalid_version: object
+) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = invalid_version
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    with pytest.raises(RetainedAnatomySourceError, match="model-family authority format/version mismatch"):
+        publish_retained_anatomy_source(source, output)
+
+    assert not output.exists()
+
+
+def test_publish_accepts_numeric_float_v1_at_both_persisted_boundaries(tmp_path: Path) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    stage = source / "sith-input-v1"
+    reconstruction_path = stage / "reconstruction.json"
+    reconstruction = json.loads(reconstruction_path.read_text(encoding="utf-8"))
+    reconstruction["version"] = 1.0
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+
+    authority_path = stage / AUTHORITY_FILENAME
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = 1.0
+    authority["reconstruction_sha256"] = _sha256(reconstruction_path)
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    receipt = publish_retained_anatomy_source(source, output)
+
+    assert receipt["source_reconstruction_sha256"] == _sha256(reconstruction_path)
+    assert receipt["reconstruction_authority_sha256"] == _sha256(authority_path)
+    assert receipt["production_activation"] is False
+
+
 def test_publish_rejects_unsafe_texture_reference_before_copy(tmp_path: Path) -> None:
     source = _source_workspace(tmp_path, texture_name="../escape.png")
     output = tmp_path / "retained"
