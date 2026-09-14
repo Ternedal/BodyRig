@@ -23,7 +23,11 @@ def test_measurement_reference_authority_binds_stash_and_private_body_reference(
 
 def test_evaluator_requires_explicit_photorealism_human_plausibility_and_definition() -> None:
     source = text("bodyrig/bridges/opencv_fidelity_evaluator.py")
+    revision5 = text("bodyrig/bridges/opencv_fidelity_evaluator_v5.py")
+    runner = text("bodyrig/fidelity_evaluator_cli.py")
     assert 'REVISION = "4"' in source
+    assert 'REVISION = "5"' in revision5
+    assert 'opencv_fidelity_evaluator_v5.py' in runner
     assert '"photorealism"' in source
     assert '"human_plausibility"' in source
     assert "photo_statistics_similarity" in source
