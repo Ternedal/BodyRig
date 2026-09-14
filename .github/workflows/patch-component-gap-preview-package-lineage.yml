@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           git diff --check
-          changed="$(git diff --name-only | sort)"
+          changed="$({ git diff --name-only; git ls-files --others --exclude-standard; } | sort)"
           expected=$'bodyrig/fidelity_component_gap_executor.py\nbodyrig/high_fidelity_preview_jobs.py\ntests/test_component_gap_face_preview_lineage.py\ntests/test_fidelity_component_gap_executor.py\ntests/test_high_fidelity_preview_candidate_resolution.py'
           if [[ "$changed" != "$expected" ]]; then
             echo "Unexpected product diff before helper cleanup:"
