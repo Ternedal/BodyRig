@@ -204,3 +204,87 @@ def test_publish_refuses_destination_inside_private_workspace(tmp_path: Path) ->
         publish_retained_anatomy_source(source, output)
 
     assert not output.exists()
+
+
+
+INVALID_V1_VALUES = (True, False, "1", None, 2)
+VALID_V1_VALUES = (1, 1.0)
+
+
+def _set_reconstruction_version(source: Path, version: object) -> None:
+    stage = source / "sith-input-v1"
+    reconstruction_path = stage / "reconstruction.json"
+    reconstruction = json.loads(reconstruction_path.read_text(encoding="utf-8"))
+    reconstruction["version"] = version
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+
+    authority_path = stage / AUTHORITY_FILENAME
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["reconstruction_sha256"] = _sha256(reconstruction_path)
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+
+@pytest.mark.parametrize("version", INVALID_V1_VALUES)
+def test_publish_rejects_noncanonical_reconstruction_v1(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    _set_reconstruction_version(source, version)
+
+    with pytest.raises(RetainedAnatomySourceError, match="reconstruction evidence format/version mismatch"):
+        publish_retained_anatomy_source(source, output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("version", VALID_V1_VALUES)
+def test_publish_accepts_numeric_reconstruction_v1(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    _set_reconstruction_version(source, version)
+
+    receipt = publish_retained_anatomy_source(source, output)
+
+    assert receipt["production_activation"] is False
+    assert receipt["human_review_required"] is True
+
+
+@pytest.mark.parametrize("version", INVALID_V1_VALUES)
+def test_publish_rejects_noncanonical_model_family_authority_v1(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = version
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    with pytest.raises(RetainedAnatomySourceError, match="model-family authority format/version mismatch"):
+        publish_retained_anatomy_source(source, output)
+
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("version", VALID_V1_VALUES)
+def test_publish_accepts_numeric_model_family_authority_v1(
+    tmp_path: Path,
+    version: object,
+) -> None:
+    source = _source_workspace(tmp_path)
+    output = tmp_path / "retained"
+    authority_path = source / "sith-input-v1" / AUTHORITY_FILENAME
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    authority["version"] = version
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+
+    receipt = publish_retained_anatomy_source(source, output)
+
+    assert receipt["production_activation"] is False
+    assert receipt["human_review_required"] is True

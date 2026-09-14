@@ -126,7 +126,13 @@ def _model_family_authority(stage: Path, *, reconstruction_sha256: str) -> tuple
     }
     if set(value) != required:
         raise RetainedAnatomySourceError("SiTH reconstruction model-family authority fields do not match v1")
-    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != AUTHORITY_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != AUTHORITY_VERSION
+    ):
         raise RetainedAnatomySourceError("SiTH reconstruction model-family authority format/version mismatch")
     gender = str(value.get("body_model_gender") or "").strip().lower()
     if gender not in SMPLX_GENDERS:
@@ -184,7 +190,13 @@ def publish_retained_anatomy_source(
     }
     if set(reconstruction) != required:
         raise RetainedAnatomySourceError("SiTH reconstruction evidence fields do not match v1")
-    if reconstruction["format"] != RECON_FORMAT or reconstruction["version"] != RECON_VERSION:
+    reconstruction_version = reconstruction["version"]
+    if (
+        reconstruction["format"] != RECON_FORMAT
+        or isinstance(reconstruction_version, bool)
+        or not isinstance(reconstruction_version, (int, float))
+        or reconstruction_version != RECON_VERSION
+    ):
         raise RetainedAnatomySourceError("SiTH reconstruction evidence format/version mismatch")
 
     reconstruction_sha = _sha256(reconstruction_path)
