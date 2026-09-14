@@ -187,3 +187,122 @@ def test_checkpoint_is_invalidated_when_source_bytes_change(tmp_path: Path, monk
 def test_builtin_source_timeout_is_never_the_old_two_hour_whole_run_limit() -> None:
     assert runner._BUILTIN_SOURCE_TIMEOUT_SECONDS == 86_400
     assert runner._BUILTIN_SOURCE_TIMEOUT_SECONDS > 7200
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 0, 2])
+def test_checkpoint_rejects_noncanonical_v1_and_reruns_source(
+    tmp_path: Path, monkeypatch, version: object
+) -> None:
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    source_file = tmp_path / "source.mp4"
+    source_file.write_bytes(b"video")
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(manifest)
+    command = ["python", "bridge.py", "--bodyrig-stash-manifest", str(manifest)]
+    sources = [{"source_id": "s001", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
+
+    seed_calls: list[str] = []
+
+    def seed_source(*args, **kwargs):
+        seed_calls.append(str(kwargs["source"]["source_id"]))
+        return [_observation(str(kwargs["source"]["source_id"]))]
+
+    monkeypatch.setattr(runner, "_run_single_source", seed_source)
+    workspace1 = tmp_path / "workspace-1"
+    workspace1.mkdir()
+    first = runner._run_checkpointed_builtin(
+        command,
+        sources=sources,
+        performer_id="42",
+        source_manifest_sha256="a" * 64,
+        workspace=workspace1,
+        adapter="opencv-hog-haar",
+        revision="1",
+        timeout_seconds=7200,
+    )
+    assert first is not None and len(first) == 1
+    assert seed_calls == ["s001"]
+
+    checkpoints = list((local / "BodyRig" / "observation-checkpoints").rglob("*.json"))
+    assert len(checkpoints) == 1
+    checkpoint = checkpoints[0]
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["version"] = version
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+
+    rerun_calls: list[str] = []
+
+    def rerun_source(*args, **kwargs):
+        rerun_calls.append(str(kwargs["source"]["source_id"]))
+        return [_observation(str(kwargs["source"]["source_id"]))]
+
+    monkeypatch.setattr(runner, "_run_single_source", rerun_source)
+    workspace2 = tmp_path / "workspace-2"
+    workspace2.mkdir()
+    second = runner._run_checkpointed_builtin(
+        command,
+        sources=sources,
+        performer_id="42",
+        source_manifest_sha256="a" * 64,
+        workspace=workspace2,
+        adapter="opencv-hog-haar",
+        revision="1",
+        timeout_seconds=7200,
+    )
+    assert second is not None and len(second) == 1
+    assert rerun_calls == ["s001"]
+
+
+def test_checkpoint_preserves_numeric_float_v1_cache_reuse(tmp_path: Path, monkeypatch) -> None:
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    source_file = tmp_path / "source.mp4"
+    source_file.write_bytes(b"video")
+    manifest = tmp_path / "manifest.json"
+    _write_manifest(manifest)
+    command = ["python", "bridge.py", "--bodyrig-stash-manifest", str(manifest)]
+    sources = [{"source_id": "s001", "scene_id": "scene-1", "path": str(source_file), "duration": 100.0}]
+
+    monkeypatch.setattr(
+        runner,
+        "_run_single_source",
+        lambda *args, **kwargs: [_observation(str(kwargs["source"]["source_id"]))],
+    )
+    workspace1 = tmp_path / "workspace-1"
+    workspace1.mkdir()
+    first = runner._run_checkpointed_builtin(
+        command,
+        sources=sources,
+        performer_id="42",
+        source_manifest_sha256="a" * 64,
+        workspace=workspace1,
+        adapter="opencv-hog-haar",
+        revision="1",
+        timeout_seconds=7200,
+    )
+    assert first is not None and len(first) == 1
+
+    checkpoints = list((local / "BodyRig" / "observation-checkpoints").rglob("*.json"))
+    assert len(checkpoints) == 1
+    checkpoint = checkpoints[0]
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    payload["version"] = 1.0
+    checkpoint.write_text(json.dumps(payload), encoding="utf-8")
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("numeric 1.0 checkpoint should remain reusable")
+
+    monkeypatch.setattr(runner, "_run_single_source", must_not_run)
+    workspace2 = tmp_path / "workspace-2"
+    workspace2.mkdir()
+    second = runner._run_checkpointed_builtin(
+        command,
+        sources=sources,
+        performer_id="42",
+        source_manifest_sha256="a" * 64,
+        workspace=workspace2,
+        adapter="opencv-hog-haar",
+        revision="1",
+        timeout_seconds=7200,
+    )
+    assert second is not None and len(second) == 1

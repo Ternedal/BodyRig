@@ -186,9 +186,12 @@ def _load_checkpoint(
         "observations",
     }:
         return None
+    version = value["version"]
     if (
         value["format"] != _CHECKPOINT_FORMAT
-        or value["version"] != _CHECKPOINT_VERSION
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != _CHECKPOINT_VERSION
         or value["adapter"] != adapter
         or value["revision"] != revision
         or value["fingerprint_sha256"] != fingerprint
