@@ -59,18 +59,19 @@ if (Test-Path -LiteralPath $outputRoot) { throw "V5 reanalysis output already ex
 New-Item -ItemType Directory -Path $outputRoot | Out-Null
 
 $evaluations = @(
-    Join-Path $outputRoot "iteration-01-baseline.json",
-    Join-Path $outputRoot "iteration-02-refit1.json",
-    Join-Path $outputRoot "iteration-03-reconstruction2.json"
+    (Join-Path $outputRoot "iteration-01-baseline.json")
+    (Join-Path $outputRoot "iteration-02-refit1.json")
+    (Join-Path $outputRoot "iteration-03-reconstruction2.json")
 )
 $renders = @($baselineRender, $refitRender, $reconstruction2Render)
+$rigSetup = Join-Path $env:LOCALAPPDATA "BodyRig\bodyrig-rig-setup.json"
 
 for ($index = 0; $index -lt $renders.Count; $index++) {
     $iteration = $index + 1
     Write-Host ""
     Write-Host "=== V5 EVALUATION $iteration/3 ==="
     & $BodyRigPython -m bodyrig.fidelity_evaluator_cli `
-        --rig-setup (Join-Path $env:LOCALAPPDATA "BodyRig\bodyrig-rig-setup.json") `
+        --rig-setup $rigSetup `
         --reference-set $referenceSet `
         --render-set $renders[$index] `
         --body-reference-rgba $bodyReference `
