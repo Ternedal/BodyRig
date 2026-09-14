@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from bodyrig.photoreal_frame_analyzer_runner import (
 )
 
 MODEL_SET_SHA = "c" * 64
+IDENTITY_DIMENSION = 32
 
 
 def _scan_plan() -> dict[str, object]:
@@ -61,6 +63,7 @@ def _result(
         "analyzer": adapter,
         "analyzer_revision": revision,
         "analyzer_model_set_sha256": model_set_sha256,
+        "identity_embedding_dimension": IDENTITY_DIMENSION,
         "observations": [
             {
                 "source_key": "scene:s1:E:/source.mp4",
@@ -80,8 +83,8 @@ def _result(
                 "sharpness": 0.8,
                 "motion": 0.1,
                 "occlusion": 0.1,
-                "identity_confidence": 0.99,
-                "target_identity_verified": True,
+                "identity_measurement_status": "available",
+                "identity_embedding": [1.0] + [0.0] * 31,
             }
         ],
         "build_only": True,
@@ -101,6 +104,8 @@ def test_build_request_keeps_adapter_measurement_only() -> None:
     assert request["revision"] == "r1"
     assert request["model_set_sha256"] == MODEL_SET_SHA
     assert request["measurement_only"] is True
+    assert request["identity_measurement_only"] is True
+    assert request["identity_matching_authority"] is False
     assert request["train_evaluation_authority"] is False
     assert request["photoreal_acceptance_authority"] is False
     assert request["production_activation"] is False
@@ -156,6 +161,49 @@ def test_result_rejects_model_set_provenance_mismatch() -> None:
         )
 
 
+def test_result_rejects_external_identity_authority_assertion() -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["target_identity_verified"] = True
+
+    with pytest.raises(PhotorealFrameAnalyzerError, match="attempted to assert identity authority"):
+        validate_analyzer_result(
+            result,
+            performer_id="42",
+            adapter="test-analyzer",
+            revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
+        )
+
+
+def test_result_requires_available_embedding_dimension() -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["identity_embedding"] = [1.0, 0.0]
+
+    with pytest.raises(PhotorealFrameAnalyzerError, match="wrong dimension"):
+        validate_analyzer_result(
+            result,
+            performer_id="42",
+            adapter="test-analyzer",
+            revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
+        )
+
+
+def test_result_allows_unavailable_identity_measurement() -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["identity_measurement_status"] = "unavailable"
+    result["observations"][0]["identity_embedding"] = None
+
+    validated = validate_analyzer_result(
+        result,
+        performer_id="42",
+        adapter="test-analyzer",
+        revision="r1",
+        model_set_sha256=MODEL_SET_SHA,
+    )
+    assert validated["observations"][0]["identity_measurement_status"] == "unavailable"
+
+
 def test_external_runner_enforces_real_process_contract(tmp_path: Path) -> None:
     adapter_script = tmp_path / "adapter.py"
     adapter_script.write_text(
@@ -180,6 +228,7 @@ result = {
     'analyzer': a.bodyrig_adapter,
     'analyzer_revision': a.bodyrig_revision,
     'analyzer_model_set_sha256': a.bodyrig_model_set_sha256,
+    'identity_embedding_dimension': 32,
     'observations': [{
         'source_key': source['source_key'],
         'source_sha256': source['source_sha256'],
@@ -198,8 +247,8 @@ result = {
         'sharpness': 0.8,
         'motion': 0.1,
         'occlusion': 0.1,
-        'identity_confidence': 0.99,
-        'target_identity_verified': True,
+        'identity_measurement_status': 'available',
+        'identity_embedding': [1.0] + [0.0] * 31,
     }],
     'build_only': True,
     'production_activation': False,
@@ -223,6 +272,7 @@ out = Path(a.bodyrig_output)
     assert result["analyzer"] == "test-analyzer"
     assert result["analyzer_revision"] == "r1"
     assert result["analyzer_model_set_sha256"] == MODEL_SET_SHA
+    assert result["identity_embedding_dimension"] == 32
     assert len(result["observations"]) == 1
     assert (tmp_path / "workspace" / "request.json").is_file()
     assert (tmp_path / "workspace" / "output" / "observations.json").is_file()
