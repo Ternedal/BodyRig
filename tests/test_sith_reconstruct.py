@@ -285,3 +285,23 @@ def test_reconstruct_rejects_model_digest_mismatch_before_research_commands(monk
             diffusion_model_sha256="b" * 64,
         )
     assert calls == []
+
+@pytest.mark.parametrize("version", [True, False, "1", None, 0, 2])
+def test_load_prepared_input_rejects_noncanonical_v1_versions(tmp_path: Path, version: object) -> None:
+    workspace = _workspace(tmp_path)
+    path = workspace / "sith-input-v1" / "prep.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = version
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(reconstruct.SithReconstructError, match="unsupported SiTH prepared-input format/version"):
+        reconstruct.load_prepared_input(workspace)
+
+
+def test_load_prepared_input_preserves_numeric_float_v1(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    path = workspace / "sith-input-v1" / "prep.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["version"] = 1.0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _, prep, _ = reconstruct.load_prepared_input(workspace)
+    assert prep["version"] == 1.0

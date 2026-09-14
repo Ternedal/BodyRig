@@ -139,7 +139,13 @@ def load_stage(workspace: str | Path) -> tuple[Path, dict[str, Any], str]:
     }
     if set(manifest) != required:
         raise SithPrepareError("SiTH stage manifest fields must match v1 exactly")
-    if manifest["format"] != STAGE_FORMAT or manifest["version"] != VERSION:
+    version = manifest["version"]
+    if (
+        manifest["format"] != STAGE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+    ):
         raise SithPrepareError("unsupported SiTH stage format/version")
     if manifest["capture_manifest_sha256"] != captured.capture_manifest_sha256:
         raise SithPrepareError("SiTH stage is not bound to the current private capture manifest")
