@@ -446,6 +446,8 @@ def fetch_photoreal_source_inventory(
     return {
         "format": FORMAT,
         "version": VERSION,
+        "performer_id": performer_id,
+        "performer_name": performer["name"],
         "performer": {
             "id": performer_id,
             "name": performer["name"],
