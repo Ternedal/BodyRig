@@ -10,6 +10,10 @@ from .hands_feet_nails_detail_candidate import (
     HandsFeetNailsDetailCandidateError,
     read_detail_candidate,
 )
+from .hfn_reusable_detail_authority import (
+    HfnReusableDetailAuthorityError,
+    resolve_reusable_detail_authority,
+)
 from .hands_feet_nails_fingernail_geometry_candidate import (
     HandsFeetNailsFingernailGeometryError,
     geometry_paths,
@@ -289,6 +293,50 @@ def inspect_hfn_continuation(
         gates.append(_gate(CANDIDATE_GATE, "invalid", reason=str(exc)))
         return {"gates": gates, "actions": actions, "package_path": source_package_path, "package_sha256": source_package_sha256}
     if detail is None:
+        try:
+            reusable = resolve_reusable_detail_authority(
+                root,
+                person_id=person_id,
+                body_revision=body_revision,
+                source_package_path=source_package_path,
+                source_package_sha256=source_package_sha256,
+            )
+        except HfnReusableDetailAuthorityError as exc:
+            gates.append(_gate(CANDIDATE_GATE, "invalid", reason=f"HFN reusable source/UV authority is invalid: {exc}"))
+            return {"gates": gates, "actions": actions, "package_path": source_package_path, "package_sha256": source_package_sha256}
+        if reusable["state"] == "resolved":
+            match = reusable["matches"][0]
+            command = (
+                ".\\prepare-hands-feet-nails-detail-candidate.ps1 "
+                f"-Root {_quote(root)} -PersonId {_quote(person_id)} -BodyRevision {_quote(body_revision)} "
+                f"-CaptureId {_quote(match['capture_id'])} -UvEvidence {_quote(match['uv_evidence_path'])} "
+                f"-PackagePath {_quote(source_package_path)}"
+            )
+            actions[CANDIDATE_GATE] = {
+                "gate": CANDIDATE_GATE,
+                "command": command,
+                "operator_input_required": False,
+                "reason": "Reuse the one exact existing source-capture/landmark/UV authority chain and materialize its detail-bearing candidate.",
+            }
+            gates.append(_gate(
+                CANDIDATE_GATE,
+                "required",
+                reason="one exact existing HFN source/UV authority chain can materialize the missing detail candidate",
+                evidence={
+                    "capture_id": match["capture_id"],
+                    "uv_evidence_sha256": match["uv_evidence_sha256"],
+                    "source_capture_sha256": match["source_capture_sha256"],
+                    "landmark_evidence_sha256": match["landmark_evidence_sha256"],
+                    "reuse_resolution": "unique-exact-existing-authority",
+                },
+            ))
+            return {
+                "gates": gates,
+                "actions": actions,
+                "package_path": source_package_path,
+                "package_sha256": source_package_sha256,
+                "reusable_detail_authority": dict(match),
+            }
         command = (
             ".\\prepare-hands-feet-nails-detail-candidate.ps1 "
             f"-Root {_quote(root)} -PersonId {_quote(person_id)} -BodyRevision {_quote(body_revision)} "
@@ -302,7 +350,13 @@ def inspect_hfn_continuation(
             "reason": "Select the exact source-grounded HFN capture/UV evidence for this promoted package, then materialize its detail-bearing candidate.",
         }
         gates.append(_gate(CANDIDATE_GATE, "required", reason="no exact HFN detail candidate targets the face-secondary promoted package"))
-        return {"gates": gates, "actions": actions, "package_path": source_package_path, "package_sha256": source_package_sha256}
+        return {
+            "gates": gates,
+            "actions": actions,
+            "package_path": source_package_path,
+            "package_sha256": source_package_sha256,
+            "reusable_detail_resolution": reusable,
+        }
 
     geometry_package, geometry_receipt = geometry_paths(
         root,

@@ -411,29 +411,58 @@ def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_roo
 
     if gate == HFN_CANDIDATE_GATE:
         candidate = status.get("candidate")
-        if not isinstance(candidate, Mapping):
-            raise FidelityComponentGapExecutionError("machine-safe HFN geometry gate lacks exact candidate authority")
-        capture_id = _canonical_hfn_id(
-            candidate.get("capture_id"), pattern=HFN_CAPTURE_RE, field="HFN capture_id"
-        )
-        candidate_id = _canonical_hfn_id(
-            candidate.get("candidate_id"), pattern=HFN_CANDIDATE_RE, field="HFN candidate_id"
-        )
-        if candidate.get("fingernail_geometry_package_sha256"):
-            script = "prepare-hands-feet-nails-toenail-geometry-candidate.ps1"
-            substep = "toenail-geometry"
+        if isinstance(candidate, Mapping):
+            capture_id = _canonical_hfn_id(
+                candidate.get("capture_id"), pattern=HFN_CAPTURE_RE, field="HFN capture_id"
+            )
+            candidate_id = _canonical_hfn_id(
+                candidate.get("candidate_id"), pattern=HFN_CANDIDATE_RE, field="HFN candidate_id"
+            )
+            if candidate.get("fingernail_geometry_package_sha256"):
+                script = "prepare-hands-feet-nails-toenail-geometry-candidate.ps1"
+                substep = "toenail-geometry"
+            else:
+                script = "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1"
+                substep = "fingernail-geometry"
+            argv = _pwsh(
+                repo_root,
+                script,
+                "-Root", str(hfn_root),
+                "-PersonId", person_id,
+                "-BodyRevision", body_revision,
+                "-CaptureId", capture_id,
+                "-CandidateId", candidate_id,
+            )
         else:
-            script = "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1"
-            substep = "fingernail-geometry"
-        argv = _pwsh(
-            repo_root,
-            script,
-            "-Root", str(hfn_root),
-            "-PersonId", person_id,
-            "-BodyRevision", body_revision,
-            "-CaptureId", capture_id,
-            "-CandidateId", candidate_id,
-        )
+            reusable = status.get("reusable_detail_authority")
+            if not isinstance(reusable, Mapping):
+                raise FidelityComponentGapExecutionError(
+                    "machine-safe HFN candidate gate lacks exact detail-candidate or reusable source/UV authority"
+                )
+            if reusable.get("person_id") != person_id or reusable.get("body_revision") != body_revision:
+                raise FidelityComponentGapExecutionError("reusable HFN detail authority belongs to a different Person/body")
+            if reusable.get("body_id") != plan["body_id"] or reusable.get("source_package_sha256") != status_sha:
+                raise FidelityComponentGapExecutionError("reusable HFN detail authority targets different body/package bytes")
+            capture_id = _canonical_hfn_id(
+                reusable.get("capture_id"), pattern=HFN_CAPTURE_RE, field="reusable HFN capture_id"
+            )
+            uv_evidence = _need_file(reusable.get("uv_evidence_path"), label="reusable HFN UV evidence")
+            uv_sha = _canonical_sha(
+                reusable.get("uv_evidence_sha256"), field="reusable HFN UV evidence SHA", length=64
+            )
+            if _sha256_file(uv_evidence) != uv_sha:
+                raise FidelityComponentGapExecutionError("reusable HFN UV evidence bytes changed after continuation inspection")
+            argv = _pwsh(
+                repo_root,
+                "prepare-hands-feet-nails-detail-candidate.ps1",
+                "-Root", str(hfn_root),
+                "-PersonId", person_id,
+                "-BodyRevision", body_revision,
+                "-CaptureId", capture_id,
+                "-UvEvidence", str(uv_evidence),
+                "-PackagePath", str(status_package),
+            )
+            substep = "detail-candidate"
     else:
         output = _need_absent(render_dir, label="HFN canonical render-review output")
         argv = _pwsh(

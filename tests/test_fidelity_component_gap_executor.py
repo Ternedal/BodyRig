@@ -51,6 +51,7 @@ def repo(tmp_path: Path) -> Path:
         "run-retained-hair-eye-preview.ps1",
         "build-high-fidelity-face-secondary-review-runtime.ps1",
         "run-high-fidelity-face-secondary-windows-preview.ps1",
+        "prepare-hands-feet-nails-detail-candidate.ps1",
         "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1",
         "prepare-hands-feet-nails-toenail-geometry-candidate.ps1",
         "prepare-hands-feet-nails-render-review.ps1",
@@ -477,3 +478,79 @@ def test_cli_execute_runs_machine_route_once(monkeypatch: pytest.MonkeyPatch, ca
     output = json.loads(capsys.readouterr().out)
     assert output["executed"] is True
     assert output["exit_code"] == 0
+
+
+
+def test_hfn_one_exact_existing_source_uv_chain_makes_detail_candidate_machine_executable(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    capture = "hfncap-" + "7" * 32
+    uv = tmp_path / "exact-uv.json"
+    uv.write_text("exact uv\n", encoding="utf-8")
+    uv_sha = hashlib.sha256(uv.read_bytes()).hexdigest()
+    action = {
+        "gate": executor.HFN_CANDIDATE_GATE,
+        "command": ".\\prepare-hands-feet-nails-detail-candidate.ps1 exact",
+        "operator_input_required": False,
+        "reason": "reuse exact existing source UV authority",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_CANDIDATE_GATE: action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+        "reusable_detail_authority": {
+            "person_id": context["person_id"],
+            "body_revision": context["body_revision"],
+            "body_id": "performer-42",
+            "capture_id": capture,
+            "uv_evidence_path": str(uv),
+            "uv_evidence_sha256": uv_sha,
+            "source_package_sha256": PACKAGE_SHA,
+        },
+    })
+    result = executor.build_execution(
+        plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+        context=context,
+        repo_root=root,
+    )
+    assert result["mode"] == "machine-executable"
+    assert result["hfn_substep"] == "detail-candidate"
+    command = result["commands"][0]
+    assert command[3] == str(root / "prepare-hands-feet-nails-detail-candidate.ps1")
+    assert "-CaptureId" in command and capture in command
+    assert "-UvEvidence" in command and str(uv.resolve()) in command
+    assert "-PackagePath" in command and str(package.resolve()) in command
+    assert result["reprobe_required_after_execution"] is True
+
+
+def test_hfn_reusable_source_uv_authority_rejects_changed_uv_bytes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context, package, _hfn_root = _hfn_context(tmp_path)
+    uv = tmp_path / "exact-uv.json"
+    uv.write_text("changed\n", encoding="utf-8")
+    action = {
+        "gate": executor.HFN_CANDIDATE_GATE,
+        "command": ".\\prepare-hands-feet-nails-detail-candidate.ps1 exact",
+        "operator_input_required": False,
+        "reason": "reuse exact existing source UV authority",
+    }
+    monkeypatch.setattr(executor, "inspect_hfn_continuation", lambda **_kwargs: {
+        "actions": {executor.HFN_CANDIDATE_GATE: action},
+        "package_path": package,
+        "package_sha256": PACKAGE_SHA,
+        "reusable_detail_authority": {
+            "person_id": context["person_id"],
+            "body_revision": context["body_revision"],
+            "body_id": "performer-42",
+            "capture_id": "hfncap-" + "7" * 32,
+            "uv_evidence_path": str(uv),
+            "uv_evidence_sha256": "0" * 64,
+            "source_package_sha256": PACKAGE_SHA,
+        },
+    })
+    with pytest.raises(executor.FidelityComponentGapExecutionError, match="UV evidence bytes changed"):
+        executor.build_execution(
+            plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+            context=context,
+            repo_root=root,
+        )

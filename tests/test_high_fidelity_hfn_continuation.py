@@ -223,3 +223,68 @@ def test_review_gate_requires_operator_input_after_exact_geometry_render_pass(tm
     assert "record-high-fidelity-hfn-review.ps1" in action["command"]
     assert "-ConfirmDetailChecklist" in action["command"]
     assert "<QUALITY_NOTE>" in action["command"]
+
+
+
+def test_missing_candidate_reuses_one_exact_existing_source_uv_authority(tmp_path: Path, monkeypatch) -> None:
+    source = _source_package(tmp_path)
+    root = tmp_path / "people"
+    capture = "hfncap-" + "7" * 32
+    uv = tmp_path / "exact-uv.json"
+    uv.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(subject, "resolve_reusable_detail_authority", lambda *args, **kwargs: {
+        "state": "resolved",
+        "matches": [{
+            "person_id": PERSON,
+            "body_revision": BODY,
+            "body_id": "body-example",
+            "capture_id": capture,
+            "uv_evidence_path": str(uv.resolve()),
+            "uv_evidence_sha256": hashlib.sha256(uv.read_bytes()).hexdigest(),
+            "source_capture_sha256": "8" * 64,
+            "landmark_evidence_sha256": "9" * 64,
+            "source_package_sha256": SOURCE_SHA,
+        }],
+    })
+    result = subject.inspect_hfn_continuation(
+        root=root,
+        person_id=PERSON,
+        body_revision=BODY,
+        bodyrig_revision=REVISION,
+        source_package_path=source,
+        source_package_sha256=SOURCE_SHA,
+        render_dir=tmp_path / "render",
+        human_review_dir=tmp_path / "review",
+    )
+    action = result["actions"][subject.CANDIDATE_GATE]
+    assert action["operator_input_required"] is False
+    assert "<CAPTURE_ID>" not in action["command"]
+    assert "<UV_EVIDENCE_PATH>" not in action["command"]
+    assert capture in action["command"]
+    assert str(uv.resolve()) in action["command"]
+    assert result["reusable_detail_authority"]["capture_id"] == capture
+    assert result["gates"][0]["evidence"]["reuse_resolution"] == "unique-exact-existing-authority"
+
+
+def test_ambiguous_existing_source_uv_authority_keeps_operator_stop(tmp_path: Path, monkeypatch) -> None:
+    source = _source_package(tmp_path)
+    monkeypatch.setattr(subject, "resolve_reusable_detail_authority", lambda *args, **kwargs: {
+        "state": "ambiguous",
+        "matches": [{}, {}],
+        "match_count": 2,
+    })
+    result = subject.inspect_hfn_continuation(
+        root=tmp_path / "people",
+        person_id=PERSON,
+        body_revision=BODY,
+        bodyrig_revision=REVISION,
+        source_package_path=source,
+        source_package_sha256=SOURCE_SHA,
+        render_dir=tmp_path / "render",
+        human_review_dir=tmp_path / "review",
+    )
+    action = result["actions"][subject.CANDIDATE_GATE]
+    assert action["operator_input_required"] is True
+    assert "<CAPTURE_ID>" in action["command"]
+    assert "<UV_EVIDENCE_PATH>" in action["command"]
+    assert result["reusable_detail_resolution"]["state"] == "ambiguous"
