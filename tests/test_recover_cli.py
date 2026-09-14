@@ -191,6 +191,89 @@ def test_wsl_file_protocol_replaces_malformed_utf8_and_retains_failure_staging(m
     assert (staging / "status.json").is_file()
 
 
+@pytest.mark.parametrize("invalid_version", [True, "1", None, [], {}])
+def test_wsl_file_protocol_rejects_boolean_and_non_numeric_status_versions(
+    monkeypatch, tmp_path, invalid_version
+):
+    staging = tmp_path / "invalid-status-version"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            status_path = Path(command[command.index("--status-file") + 1])
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "format": "bodyrig-file-command-status",
+                        "version": invalid_version,
+                        "returncode": 9,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
+
+    with pytest.raises(Exception, match="completion status is invalid"):
+        recover_cli._run_wsl_file_protocol(
+            wsl_exe="wsl.exe",
+            distribution="Ubuntu-22.04",
+            external_python="/usr/bin/python3",
+            target_command=["/usr/bin/python3", "/tmp/bridge.py"],
+            request={"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+            converter=lambda value: value,
+        )
+    assert staging.is_dir()
+
+
+def test_wsl_file_protocol_accepts_numeric_float_v1_status_version(monkeypatch, tmp_path):
+    staging = tmp_path / "float-status-version"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            stdout_path = Path(command[command.index("--stdout-file") + 1])
+            stderr_path = Path(command[command.index("--stderr-file") + 1])
+            status_path = Path(command[command.index("--status-file") + 1])
+            stdout_path.write_text("", encoding="utf-8")
+            stderr_path.write_text("", encoding="utf-8")
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "format": "bodyrig-file-command-status",
+                        "version": 1.0,
+                        "returncode": 9,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
+
+    returncode, stdout, stderr, retained = recover_cli._run_wsl_file_protocol(
+        wsl_exe="wsl.exe",
+        distribution="Ubuntu-22.04",
+        external_python="/usr/bin/python3",
+        target_command=["/usr/bin/python3", "/tmp/bridge.py"],
+        request={"format": "bodyrig-recovery-request", "version": 1, "sources": ["/tmp/a.mp4"]},
+        converter=lambda value: value,
+    )
+
+    assert returncode == 9
+    assert stdout == ""
+    assert stderr == ""
+    assert retained == staging
+    assert staging.is_dir()
+
+
 def test_wsl_file_protocol_rejects_transport_exit_without_status(monkeypatch, tmp_path):
     staging = tmp_path / "missing-status"
     staging.mkdir()
