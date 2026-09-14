@@ -148,7 +148,14 @@ def _binding(path: Path, *, avatar_sha: str, geometry: Mapping[str, Any]) -> dic
         "runtimeIntegrationRequired", "physicalSilhouetteReviewRequired", "comparisonOnly",
         "humanReviewRequired", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BINDING_FORMAT or value.get("version") != BINDING_VERSION:
+    binding_version = value.get("version")
+    if (
+        set(value) != required
+        or value.get("format") != BINDING_FORMAT
+        or isinstance(binding_version, bool)
+        or not isinstance(binding_version, (int, float))
+        or binding_version != BINDING_VERSION
+    ):
         raise HairReviewRuntimeError("source hair body binding fields do not match v1")
     if value.get("avatarVrmSha256") != avatar_sha:
         raise HairReviewRuntimeError("source hair body binding targets different avatar bytes")
