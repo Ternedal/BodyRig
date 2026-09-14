@@ -23,10 +23,29 @@ function Score {
     return ("{0:N3}" -f [double]$property.Value)
 }
 function Parse-Utc {
-    param([string]$Value)
-    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    param($Value)
+    if ($null -eq $Value) { return $null }
+
+    if ($Value -is [DateTimeOffset]) {
+        return ([DateTimeOffset]$Value).ToUniversalTime()
+    }
+
+    if ($Value -is [DateTime]) {
+        $dateTime = [DateTime]$Value
+        if ($dateTime.Kind -eq [DateTimeKind]::Unspecified) {
+            $dateTime = [DateTime]::SpecifyKind($dateTime, [DateTimeKind]::Utc)
+        }
+        return ([DateTimeOffset]$dateTime).ToUniversalTime()
+    }
+
+    if ($Value -isnot [string]) { return $null }
+    $text = [string]$Value
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+
     $parsed = [DateTimeOffset]::MinValue
-    if (-not [DateTimeOffset]::TryParse($Value, [ref]$parsed)) { return $null }
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $styles = [Globalization.DateTimeStyles]::AllowWhiteSpaces -bor [Globalization.DateTimeStyles]::RoundtripKind
+    if (-not [DateTimeOffset]::TryParse($text, $culture, $styles, [ref]$parsed)) { return $null }
     return $parsed.ToUniversalTime()
 }
 
@@ -48,8 +67,8 @@ while ($true) {
         continue
     }
     $now = [DateTimeOffset]::UtcNow
-    $started = Parse-Utc ([string]$p.started_at)
-    $stageStarted = Parse-Utc ([string]$p.stage_started_at)
+    $started = Parse-Utc $p.started_at
+    $stageStarted = Parse-Utc $p.stage_started_at
     $liveElapsed = $(if ($null -ne $started -and [string]$p.state -eq "running") { ($now - $started).TotalSeconds } else { [double]$p.elapsed_seconds })
     $liveStageElapsed = $(if ($null -ne $stageStarted -and [string]$p.state -eq "running") { ($now - $stageStarted).TotalSeconds } else { $null })
     if (-not $NoClear) { Clear-Host }
