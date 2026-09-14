@@ -25,13 +25,21 @@ jobs:
           python .github/patch_evening_face_secondary_continuation.py
           python - <<'PY'
           from pathlib import Path
-          path = Path('tests/test_fidelity_evening_face_secondary_continuation.py')
-          lines = path.read_text(encoding='utf-8').splitlines()
+          test_path = Path('tests/test_fidelity_evening_face_secondary_continuation.py')
+          lines = test_path.read_text(encoding='utf-8').splitlines()
           matches = [i for i, line in enumerate(lines) if line.startswith('    assert "Join-Path $physicalRoot ')]
           if len(matches) != 1:
               raise SystemExit(f'generated snapshot assertion drifted: {matches}')
           lines[matches[0]] = '    assert \'Join-Path $physicalRoot "windows-preview\\\\snapshots"\' in TOP'
-          path.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
+          test_path.write_text('\n'.join(lines) + '\n', encoding='utf-8', newline='\n')
+
+          review_path = Path('run-fidelity-evening-current-floor-review.ps1')
+          review = review_path.read_text(encoding='utf-8')
+          old = 'Retained component gap authority targets different current-floor bytes/revision.'
+          new = 'Component gap authority targets different current-floor bytes/revision.'
+          if review.count(old) != 1:
+              raise SystemExit('retained gap error contract drifted')
+          review_path.write_text(review.replace(old, new, 1), encoding='utf-8', newline='\n')
           PY
       - name: Parse PowerShell and compile regression
         shell: pwsh
