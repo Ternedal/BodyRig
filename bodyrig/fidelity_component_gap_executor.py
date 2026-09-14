@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from .fidelity_component_gap import FORMAT as GAP_FORMAT
 from .fidelity_component_gap import SEMANTICS as GAP_SEMANTICS
 from .high_fidelity_continuation_status import continuation_paths, inspect_continuation
+from .high_fidelity_preview_jobs import manager as preview_manager
 
 FORMAT = "bodyrig-fidelity-component-gap-execution"
 VERSION = 1
@@ -198,6 +199,25 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
     preview_job_id = str(context.get("preview_job_id") or "").strip()
     if not preview_job_id:
         raise FidelityComponentGapExecutionError("face-secondary execution requires preview_job_id for canonical continuation lineage")
+    try:
+        preview = preview_manager.get(preview_job_id)
+    except Exception as exc:
+        raise FidelityComponentGapExecutionError("face-secondary preview lineage is unavailable or invalid") from exc
+    if preview.get("status") != "succeeded":
+        raise FidelityComponentGapExecutionError("face-secondary execution requires a succeeded high-fidelity preview")
+    preview_body_id = str(preview.get("canonical_body_id") or "").strip()
+    preview_revision = _canonical_sha(
+        preview.get("bodyrig_revision"),
+        field="preview bodyrig_revision",
+        length=40,
+    )
+    preview_person_id = str(preview.get("person_id") or "").strip()
+    if not preview_person_id:
+        raise FidelityComponentGapExecutionError("face-secondary preview lacks canonical person lineage")
+    if preview_body_id != plan["body_id"]:
+        raise FidelityComponentGapExecutionError("face-secondary preview belongs to a different canonical body than the gap plan")
+    if preview_revision != plan["bodyrig_revision"]:
+        raise FidelityComponentGapExecutionError("face-secondary preview targets a different BodyRig revision than the gap plan")
     status = inspect_continuation(preview_job_id)
     if status.get("production_activation") is not False or status.get("production_ready") is not False:
         raise FidelityComponentGapExecutionError("high-fidelity continuation crossed the non-production boundary")
@@ -242,6 +262,9 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
         "operator_input_required": False,
         "continuation_gate": gate,
         "preview_job_id": preview_job_id,
+        "person_id": preview_person_id,
+        "canonical_body_id": preview_body_id,
+        "preview_bodyrig_revision": preview_revision,
     }
 
 

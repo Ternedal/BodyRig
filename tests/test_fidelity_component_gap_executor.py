@@ -55,6 +55,18 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
+def preview_lineage() -> dict:
+    return {
+        "job_id": "preview-42",
+        "person_id": "person-42",
+        "canonical_body_id": "performer-42",
+        "bodyrig_revision": REVISION,
+        "status": "succeeded",
+        "comparison_only": True,
+        "production_activation": False,
+    }
+
+
 def test_validate_plan_is_bool_safe_and_preserves_authority_boundaries() -> None:
     value = plan("retained-source-hair-eye-composition")
     assert executor.validate_plan(value)["version"] == 1
@@ -121,6 +133,7 @@ def test_face_secondary_routes_only_through_canonical_machine_safe_continuation(
     face_runtime = continuation / "face-secondary" / "runtime"
     face_preview = continuation / "face-secondary" / "windows-preview"
 
+    monkeypatch.setattr(executor.preview_manager, "get", lambda _job: preview_lineage())
     monkeypatch.setattr(
         executor,
         "inspect_continuation",
@@ -187,6 +200,7 @@ def test_face_secondary_preview_uses_existing_runtime_and_refuses_reuse(monkeypa
     face_runtime.mkdir(parents=True)
     face_preview = continuation / "face-secondary" / "windows-preview"
 
+    monkeypatch.setattr(executor.preview_manager, "get", lambda _job: preview_lineage())
     monkeypatch.setattr(executor, "inspect_continuation", lambda _job: {
         "production_activation": False,
         "production_ready": False,
