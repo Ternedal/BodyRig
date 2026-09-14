@@ -74,7 +74,13 @@ def _utterance(value: Any, *, field: str) -> str:
 def validate_candidate_report(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != CANDIDATE_FIELDS:
         raise PersonalityExemplarApprovalError("candidate report fields must match v1 exactly")
-    if value.get("format") != CANDIDATE_FORMAT or value.get("version") != CANDIDATE_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != CANDIDATE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != CANDIDATE_VERSION
+    ):
         raise PersonalityExemplarApprovalError("unsupported candidate report format/version")
 
     source_count = value.get("source_count")
@@ -170,7 +176,13 @@ def build_approval(
 def validate_approval(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != APPROVAL_FIELDS:
         raise PersonalityExemplarApprovalError("approval fields must match v1 exactly")
-    if value.get("format") != APPROVAL_FORMAT or value.get("version") != APPROVAL_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != APPROVAL_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != APPROVAL_VERSION
+    ):
         raise PersonalityExemplarApprovalError("unsupported approval format/version")
     report_sha = value.get("candidate_report_sha256")
     if not isinstance(report_sha, str) or SHA256_RE.fullmatch(report_sha) is None:
