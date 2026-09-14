@@ -48,3 +48,14 @@ def test_review_only_removes_incomplete_cheap_outputs() -> None:
     assert diagnostic_test < diagnostic_remove
     assert "Unity" in text
     assert "SiTH" in text
+
+
+def test_review_always_prints_persisted_score_and_mask_summary() -> None:
+    text = source()
+    assert "$scoreRows = foreach ($spec in $scoreSpecs)" in text
+    assert "$diagnosticRows = foreach ($label in" in text
+    assert '$scoreRows | Format-Table -AutoSize' in text
+    assert '$diagnosticRows | Format-Table -AutoSize' in text
+    assert 'Write-Host "Best iteration: $($decision.best_iteration)"' in text
+    assert 'Write-Host "Best overall:   $($decision.best_overall)"' in text
+    assert 'Write-Host "Next focus:     $($decision.next_focus)"' in text
