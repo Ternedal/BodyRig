@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 from pathlib import Path
 
@@ -48,6 +49,25 @@ def _source(tmp_path: Path) -> dict:
 
 def _fake_png(path: Path, suffix: bytes = b"") -> None:
     path.write_bytes(b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 1024, 1024) + suffix)
+
+
+def _prepare_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+    source = _source(tmp_path)
+    monkeypatch.setattr(wardrobe, "_source_authority", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(wardrobe, "_run_version", lambda *_args, **_kwargs: "ffmpeg version fixture")
+    monkeypatch.setattr(
+        wardrobe,
+        "_extract",
+        lambda *, output, media, **_kwargs: _fake_png(output, media.name.encode("utf-8")),
+    )
+    return wardrobe.prepare_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        bodyrig_revision=BODYRIG_REVISION,
+        views=_views(),
+        garments=_garments(),
+    )
 
 
 def test_prepare_and_readback_bind_four_real_source_views_and_inventory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,3 +146,45 @@ def test_inventory_never_infers_footwear_when_not_listed(tmp_path: Path, monkeyp
     )
 
     assert receipt["footwear_present"] is False
+
+
+@pytest.mark.parametrize("version", (True, False, "1", None, 2))
+def test_readback_rejects_boolean_or_non_numeric_v1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: object
+) -> None:
+    receipt = _prepare_capture(tmp_path, monkeypatch)
+    manifest = wardrobe.capture_dir(
+        tmp_path, PERSON_ID, BODY_REVISION, receipt["capture_id"]
+    ) / "source-capture.json"
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    value["version"] = version
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(wardrobe.WardrobeSourceCaptureError, match="format/version/policy mismatch"):
+        wardrobe.read_source_capture(
+            tmp_path,
+            PERSON_ID,
+            body_revision=BODY_REVISION,
+            capture_id=receipt["capture_id"],
+        )
+
+
+@pytest.mark.parametrize("version", (1, 1.0))
+def test_readback_accepts_numeric_v1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: object
+) -> None:
+    receipt = _prepare_capture(tmp_path, monkeypatch)
+    manifest = wardrobe.capture_dir(
+        tmp_path, PERSON_ID, BODY_REVISION, receipt["capture_id"]
+    ) / "source-capture.json"
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    value["version"] = version
+    manifest.write_text(json.dumps(value), encoding="utf-8")
+
+    reread = wardrobe.read_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        capture_id=receipt["capture_id"],
+    )
+    assert reread["version"] == version
