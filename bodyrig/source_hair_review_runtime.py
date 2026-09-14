@@ -56,6 +56,10 @@ def _revision(value: Any) -> str:
     return _hex(value, length=REVISION_LENGTH, label="BodyRig revision")
 
 
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value == 1
+
+
 def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     try:
         value = json.loads(
@@ -155,7 +159,7 @@ def _bridge_result(path: Path) -> dict[str, Any]:
         "physicalSilhouetteReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+    if set(value) != required or value.get("format") != BRIDGE_FORMAT or not _v1(value.get("version")):
         raise SourceHairReviewRuntimeError("source hair review bridge result fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "sourceHairBodyBindingSha256", "reviewVrmSha256"):
         _sha(value.get(field), label=f"bridge {field}")
@@ -197,7 +201,7 @@ def _runtime_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise SourceHairReviewRuntimeError("review VRM runtime metadata fields do not match v1")
-    if value.get("format") != METADATA_FORMAT or value.get("version") != METADATA_VERSION:
+    if value.get("format") != METADATA_FORMAT or not _v1(value.get("version")):
         raise SourceHairReviewRuntimeError("review VRM runtime metadata format/version mismatch")
     return dict(value)
 
@@ -234,6 +238,8 @@ def finalize(
         fresh_binding = build_binding(package, candidate)
     except SourceHairBodyBindingError as exc:
         raise SourceHairReviewRuntimeError(f"post-build source hair/body revalidation failed: {exc}") from exc
+    if persisted_binding.get("format") != fresh_binding.get("format") or not _v1(persisted_binding.get("version")):
+        raise SourceHairReviewRuntimeError("source hair/body binding format/version mismatch")
     if persisted_binding != fresh_binding:
         raise SourceHairReviewRuntimeError("source hair/body authority changed during review runtime build")
     binding_sha = _sha256(binding_path)
