@@ -224,8 +224,8 @@ def build_gap_plan(report: Mapping[str, Any], *, render_set: Mapping[str, Any] |
                 "id": "face-secondary-review-composition",
                 "components": ["face-secondary"],
                 "operator_input_required": False,
-                "implementation_required": True,
-                "reason": "Compose comparison-only mouth/teeth/eyelash secondary geometry onto the same review avatar without promotion or release authority.",
+                "implementation_required": False,
+                "reason": "Run the existing comparison-only face-secondary runtime composer for mouth/teeth/eyelash geometry on the same review avatar without promotion or release authority.",
             }
         )
     hfn_missing = [label for label in ("fingernails", "toenails") if label in missing]
