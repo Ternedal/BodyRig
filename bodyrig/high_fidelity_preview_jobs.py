@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .person_profiles import PersonProfileError, load_profile
+from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library, ui_jobs_dir
 from .ui_jobs import UiJobError, manager as ui_jobs, operator_checkout_status
 
@@ -48,6 +49,39 @@ def _now() -> str:
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _revision_meets_current_fidelity_floor(revision: str) -> bool:
+    revision = str(revision or "").strip().lower()
+    if not SHA_RE.fullmatch(revision):
+        return False
+    root = _repo_root()
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+    if git("cat-file", "-e", f"{MINIMUM_PHYSICAL_HANDOFF_REVISION}^{{commit}}").returncode != 0:
+        return False
+    if git("cat-file", "-e", f"{revision}^{{commit}}").returncode != 0:
+        return False
+    return git("merge-base", "--is-ancestor", MINIMUM_PHYSICAL_HANDOFF_REVISION, revision).returncode == 0
+
+
+def _require_current_fidelity_floor(revision: str, *, label: str) -> None:
+    revision = str(revision or "").strip().lower()
+    if _revision_meets_current_fidelity_floor(revision):
+        return
+    raise HighFidelityPreviewError(
+        f"{label} BodyRig revision {revision or '<unproven>'} predates or cannot prove the current "
+        f"high-fidelity preview floor {MINIMUM_PHYSICAL_HANDOFF_REVISION}; rebuild the baseline body "
+        "on a current fidelity-capable BodyRig revision before continuing"
+    )
 
 
 def _store_root() -> Path:
@@ -204,6 +238,7 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     canonical_body_id = str(job.get("canonical_body_id") or "")
     if target_family not in TARGET_FAMILIES or not SHA_RE.fullmatch(expected_revision):
         raise HighFidelityPreviewError("persisted high-fidelity target/revision authority is invalid")
+    _require_current_fidelity_floor(expected_revision, label="persisted high-fidelity preview")
 
     anatomy_dir = _need_dir(root, str(job.get("anatomy_run_root") or ""), label="Anatomy run root")
     summary_path = _need_file(root, anatomy_dir / "subject-anatomy-physical-gate.json", label="Anatomy gate summary")
@@ -398,6 +433,7 @@ class HighFidelityPreviewManager:
             raise HighFidelityPreviewError("target_family must be explicitly female, male or neutral")
         body_job, profile, retained = _body_job_authority(person_id, body_job_id)
         bodyrig_revision = str(body_job["bodyrig_revision"]).lower()
+        _require_current_fidelity_floor(bodyrig_revision, label="baseline body-build")
         _checkout_revision(bodyrig_revision)
 
         with self._lock:
