@@ -11,11 +11,24 @@ def source() -> str:
 
 def test_evening_exposes_only_explicit_hfn_identity_authority() -> None:
     text = source()
-    assert '[string]$HfnRoot = ""' in text
+    assert '[string]$HfnRoot = ""' not in text
     assert '[string]$HfnPersonId = ""' in text
     assert '[string]$HfnBodyRevision = ""' in text
-    assert "HfnRoot, HfnPersonId and HfnBodyRevision together" in text
+    assert "HfnPersonId and HfnBodyRevision together" in text
     assert "partial identity authority is refused" in text
+
+
+def test_evening_derives_hfn_root_from_exact_current_checkout_person_library() -> None:
+    text = source()
+    assert "function Resolve-CanonicalPersonLibrary" in text
+    assert "$env:PYTHONPATH = $RepoRoot" in text
+    assert "from bodyrig.storage import person_library" in text
+    assert "bodyrig.__file__" in text
+    assert '$expectedModulePath = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\\__init__.py"))' in text
+    assert "did not import the exact current-checkout package" in text
+    assert 'Need-Directory -Path $rootText -Label "Canonical BodyRig person library root"' in text
+    assert '$hfnRootPath = Resolve-CanonicalPersonLibrary -Python $BodyRigPython -RepoRoot $repoRoot' in text
+    assert "$env:PYTHONPATH = $previousPythonPath" in text
 
 
 def test_derived_hfn_context_is_bound_to_exact_final_face_secondary_package() -> None:
@@ -39,8 +52,8 @@ def test_derived_hfn_context_uses_explicit_identity_and_deterministic_outputs() 
 
 def test_generic_and_derived_context_authorities_are_mutually_exclusive() -> None:
     text = source()
-    assert "ExecutionContext cannot be combined with HfnRoot/HfnPersonId/HfnBodyRevision" in text
-    assert '$hfnExplicitCount -eq 3 -and $expectedActionId -ne "source-bound-hfn-continuation"' in text
+    assert "ExecutionContext cannot be combined with HfnPersonId/HfnBodyRevision" in text
+    assert '$hfnExplicitCount -eq 2 -and $expectedActionId -ne "source-bound-hfn-continuation"' in text
     assert "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action." in text
 
 

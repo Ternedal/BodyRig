@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -27,8 +28,8 @@ def test_evening_empty_context_does_not_invent_hfn_identity_or_source_fields() -
     text = source()
     assert '[IO.File]::WriteAllText($temporaryExecutionContext, "{}"' in text
     assert '$contextPath = Need-File -Path $ExecutionContext' in text
+    assert re.search(r"person-[0-9a-f]{32}", text) is None
     for forbidden in (
-        'person-',
         'hfncap-',
         'hfncand-',
         'body-r0001',
