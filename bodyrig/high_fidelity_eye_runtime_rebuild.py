@@ -38,6 +38,10 @@ class HighFidelityEyeRuntimeRebuildError(RuntimeError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -253,7 +257,7 @@ def read_preparation(
         "sourceFingerprintReceiptSha256", "sourceFingerprintSha256", "reviewVrmSha256",
         "eyeComponentAuthority", "packageMutationPerformed", "productionActivation",
     }
-    if set(value) != required or value.get("format") != PREPARATION_FORMAT or value.get("version") != PREPARATION_VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if set(value) != required or value.get("format") != PREPARATION_FORMAT or not _is_version(value.get("version"), PREPARATION_VERSION) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityEyeRuntimeRebuildError("eye-only rebuild preparation fields/format are invalid")
     _revision(value.get("bodyrigRevision"), label="preparation BodyRig revision")
     fingerprint, fingerprint_file = _fingerprint_authority(
@@ -303,7 +307,7 @@ def _bridge(path: Path, *, vrm_path: Path, preparation: Mapping[str, Any], sourc
         "irisIdentityIsolated", "irisAppearanceStatus", "cornealMaterialStatus", "eyelashStatus",
         "comparisonOnly", "humanReviewRequired", "eyeComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+    if set(value) != required or value.get("format") != BRIDGE_FORMAT or not _is_version(value.get("version"), BRIDGE_VERSION):
         raise HighFidelityEyeRuntimeRebuildError("eye-only bridge fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "eyeComponentReceiptSha256", "eyeAppearanceReceiptSha256", "canonicalEyeBakeSha256", "reviewVrmSha256"):
         _sha(value.get(field), label=f"eye-only bridge {field}")
@@ -500,7 +504,7 @@ def read_rebuild(
         "sourceHairRuntimeImported", "eyeOnlyRuntimeVerified", "eyeComponentAuthority",
         "packageMutationPerformed", "eyesPromoted", "humanReviewRequired", "productionActivation",
     }
-    if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if set(value) != required or value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityEyeRuntimeRebuildError("eye-only runtime rebuild receipt fields/format are invalid")
     exact = {
         "previewJobId": _job(preview_job_id),

@@ -28,6 +28,10 @@ class HighFidelityEyesPromotionEligibilityError(RuntimeError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -260,7 +264,7 @@ def read_eligibility(
     }
     if not isinstance(value, dict) or set(value) != required:
         raise HighFidelityEyesPromotionEligibilityError("eyes promotion eligibility fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _v1(value.get("version")) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityEyesPromotionEligibilityError("eyes promotion eligibility format/version/policy mismatch")
     _revision(value.get("bodyrigRevision"))
     exact = {
