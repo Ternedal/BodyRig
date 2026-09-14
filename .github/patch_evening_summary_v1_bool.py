@@ -64,14 +64,14 @@ def test_evening_summary_preserves_recomputed_gap_and_non_authorizing_boundaries
 
 def _helper_source() -> str:
     start = SCRIPT.index("function Test-V1Version($Value)")
-    end = SCRIPT.index("\n}\n", start) + 3
+    end = SCRIPT.index("\\n}\\n", start) + 3
     return SCRIPT[start:end]
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell 7 is not installed")
 def test_evening_summary_v1_helper_runtime_rejects_coercive_values() -> None:
     ps = _helper_source() + r'''
-$values = ConvertFrom-Json -InputObject '[1,1.0,true,false,"1",null,2]'.Replace('\"','"')
+$values = ConvertFrom-Json -InputObject '[1,1.0,true,false,"1",null,2]'
 $results = @()
 foreach ($value in @($values)) { $results += [bool](Test-V1Version $value) }
 $results | ConvertTo-Json -Compress
