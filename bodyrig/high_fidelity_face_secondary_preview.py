@@ -29,6 +29,10 @@ class HighFidelityFaceSecondaryPreviewError(RuntimeError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -170,7 +174,7 @@ def read_preparation(output_dir: str | Path) -> dict[str, Any]:
     if not preparation.is_file() or not comparison.is_file():
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation evidence is missing")
     value = _read_json(preparation, label="face-secondary preview preparation")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    if value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION):
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview preparation format/version mismatch")
     _revision(value.get("bodyrigRevision"))
     for field in ("sourcePackageSha256", "sourceRuntimeReceiptSha256", "sourceReviewVrmSha256", "comparisonPackageSha256"):
@@ -200,7 +204,7 @@ def _render_evidence(preparation_dir: Path, runtime_dir: Path, render_dir: Path)
     if not comparison_authority_path.is_file() or not manifest_path.is_file():
         raise HighFidelityFaceSecondaryPreviewError("face-secondary Windows render evidence is incomplete")
     comparison = _read_json(comparison_authority_path, label="face-secondary renderer comparison authority")
-    if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or comparison.get("version") != 1 or comparison.get("authority") != "validated-package-comparison-only":
+    if comparison.get("format") != "bodyrig-fidelity-comparison-authority" or not _is_version(comparison.get("version"), 1) or comparison.get("authority") != "validated-package-comparison-only":
         raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority is not canonical package-comparison evidence")
     if comparison.get("bodyrig_revision") != prep["bodyrigRevision"] or comparison.get("package_sha256") != prep["comparisonPackageSha256"]:
         raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority targets different revision/package bytes")
@@ -208,7 +212,7 @@ def _render_evidence(preparation_dir: Path, runtime_dir: Path, render_dir: Path)
         raise HighFidelityFaceSecondaryPreviewError("renderer comparison authority crossed the review-only boundary")
 
     manifest = _read_json(manifest_path, label="face-secondary renderer snapshot manifest")
-    if manifest.get("format") != "bodyrig-fidelity-render-set" or manifest.get("version") != 1 or manifest.get("semantics") != "visual-fidelity-not-identity-verification":
+    if manifest.get("format") != "bodyrig-fidelity-render-set" or not _is_version(manifest.get("version"), 1) or manifest.get("semantics") != "visual-fidelity-not-identity-verification":
         raise HighFidelityFaceSecondaryPreviewError("renderer snapshot manifest format/semantics mismatch")
     if manifest.get("body_id") != prep["canonicalBodyId"] or manifest.get("package_sha256") != prep["comparisonPackageSha256"]:
         raise HighFidelityFaceSecondaryPreviewError("renderer snapshot manifest targets different body/package bytes")
@@ -282,6 +286,8 @@ def read_preview(preparation_dir: str | Path, runtime_dir: str | Path, render_di
     if not path.is_file():
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority is missing")
     value = _read_json(path, label="face-secondary preview authority")
+    if value.get("format") != PREVIEW_FORMAT or not _is_version(value.get("version"), PREVIEW_VERSION):
+        raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority format/version mismatch")
     expected = _render_evidence(prep_root, Path(runtime_dir).expanduser().resolve(), Path(render_dir).expanduser().resolve())
     if set(value) != set(expected) | {"finalizedUtc"}:
         raise HighFidelityFaceSecondaryPreviewError("face-secondary preview authority fields are not canonical")

@@ -47,6 +47,10 @@ class HighFidelityFaceSecondaryReviewError(RuntimeError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -214,7 +218,7 @@ def read_review(
     }
     if set(value) != required_fields:
         raise HighFidelityFaceSecondaryReviewError("face-secondary human review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityFaceSecondaryReviewError("face-secondary human review format/version/policy mismatch")
     for field, expected in authority.items():
         if value.get(field) != expected:

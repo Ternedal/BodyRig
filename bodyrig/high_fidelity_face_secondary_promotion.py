@@ -47,6 +47,10 @@ class HighFidelityFaceSecondaryPromotionError(RuntimeError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -200,8 +204,13 @@ def _build_promoted_avatar(
     if promoted_bodyrig.get("fidelityComponents") != source_bodyrig.get("fidelityComponents") or promoted_bodyrig.get("faceSecondaryFidelity") != source_bodyrig.get("faceSecondaryFidelity"):
         raise HighFidelityFaceSecondaryPromotionError("review runtime changed fidelity authority before promotion")
     review_meta = promoted_bodyrig.get("faceSecondaryReviewRuntime")
-    if not isinstance(review_meta, dict):
-        raise HighFidelityFaceSecondaryPromotionError("review VRM lacks embedded face-secondary review metadata")
+    if (
+        not isinstance(review_meta, dict)
+        or review_meta.get("format") != "bodyrig-face-secondary-review-runtime"
+        or not _is_version(review_meta.get("version"), 1)
+        or review_meta.get("policyRevision") != "bodyrig-high-fidelity-face-secondary-runtime-v1"
+    ):
+        raise HighFidelityFaceSecondaryPromotionError("review VRM lacks canonical embedded face-secondary review metadata")
     if review_meta.get("sourcePackageSha256") != source_package_sha or review_meta.get("bodyrigRevision") != runtime.get("bodyrigRevision"):
         raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary review metadata is stale")
     if review_meta.get("genericSecondaryAnatomy") is not None:
@@ -395,7 +404,7 @@ def read_promotion(
         "genericSecondaryAnatomy", "sourceDerivedDentalIdentity", "sourceDerivedIdentitySynthesis",
         "generativeIdentitySynthesis", "highFidelityReadyAfter", "humanReviewRequired", "productionActivation",
     }
-    if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if set(value) != required or value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityFaceSecondaryPromotionError("face-secondary promotion receipt fields/format are invalid")
     _revision(value.get("promotionBodyRigRevision"))
     source_avatar, body_id = _package_avatar(source)
@@ -426,7 +435,12 @@ def read_promotion(
     if "faceSecondaryReviewRuntime" in bodyrig:
         raise HighFidelityFaceSecondaryPromotionError("promoted avatar retained review-only face-secondary metadata")
     embedded = bodyrig.get("faceSecondaryPromotion")
-    if not isinstance(embedded, dict) or embedded.get("format") != EMBEDDED_FORMAT or embedded.get("version") != VERSION:
+    if (
+        not isinstance(embedded, dict)
+        or embedded.get("format") != EMBEDDED_FORMAT
+        or not _is_version(embedded.get("version"), VERSION)
+        or embedded.get("policyRevision") != POLICY_REVISION
+    ):
         raise HighFidelityFaceSecondaryPromotionError("promoted avatar lacks canonical embedded face-secondary promotion")
     if embedded.get("sourcePackageSha256") != source_sha or embedded.get("humanReviewReceiptSha256") != expected_exact["humanReviewReceiptSha256"]:
         raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary promotion lineage is stale")
