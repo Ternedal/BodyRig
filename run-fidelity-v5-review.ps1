@@ -82,7 +82,7 @@ if (Test-ReanalysisComplete -Path $reanalysisOutput) {
     & $reanalysis -WorkRoot $WorkRoot -BodyRigPython $BodyRigPython
     Assert-HeadPinned -RepoRoot $repoRoot -Expected $pinnedHead
     if (-not (Test-ReanalysisComplete -Path $reanalysisOutput)) {
-        throw "V5 reanalysis returned without complete evidence."
+        throw "V5 review completed without convergence decision evidence."
     }
 }
 
@@ -99,7 +99,7 @@ if (Test-DiagnosticsComplete -Path $diagnosticOutput) {
     & $diagnostics -WorkRoot $WorkRoot -BodyRigPython $BodyRigPython
     Assert-HeadPinned -RepoRoot $repoRoot -Expected $pinnedHead
     if (-not (Test-DiagnosticsComplete -Path $diagnosticOutput)) {
-        throw "Silhouette diagnostics returned without complete evidence."
+        throw "V5 review completed without silhouette diagnostic evidence."
     }
 }
 
