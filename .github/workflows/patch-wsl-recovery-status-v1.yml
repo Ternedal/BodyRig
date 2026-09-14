@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           git diff --check
-          mapfile -t changed < <(git diff --name-only | sort)
+          mapfile -t changed < <({ git diff --name-only; git ls-files --others --exclude-standard; } | sort)
           expected=(bodyrig/recover_cli.py tests/test_recovery_status_version_authority.py)
           printf 'changed: %s\n' "${changed[@]}"
           test "${#changed[@]}" -eq "${#expected[@]}"
