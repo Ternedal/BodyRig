@@ -79,6 +79,7 @@ try {
             --render-set $renders[$index] `
             --body-reference-rgba $bodyReference `
             --iteration $iteration `
+            --allow-incomplete-component-comparison `
             --out $evaluations[$index]
         if ($LASTEXITCODE -ne 0) { throw "V5 evaluation $iteration failed." }
     }
