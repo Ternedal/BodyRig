@@ -1,0 +1,61 @@
+name: temporary-bridge-v1-authority-patch
+
+on:
+  push:
+    branches:
+      - fix/hair-eye-bridge-v1-bool-authority
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply exact bridge authority patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("bodyrig/bridges/sith_hair_eye_review_runtime.py")
+          text = path.read_text(encoding="utf-8")
+          old_component = '''    if component.get("format") != "bodyrig-eye-component-candidate" or component.get("version") != 1:
+              raise HairEyeReviewRuntimeError("eye component candidate format/version mismatch")
+          '''
+          new_component = '''    component_version = component.get("version")
+          if (
+              component.get("format") != "bodyrig-eye-component-candidate"
+              or isinstance(component_version, bool)
+              or not isinstance(component_version, (int, float))
+              or component_version != 1
+          ):
+              raise HairEyeReviewRuntimeError("eye component candidate format/version mismatch")
+          '''
+          old_appearance = '''    if appearance.get("format") != "bodyrig-eye-appearance-candidate" or appearance.get("version") != 1:
+              raise HairEyeReviewRuntimeError("eye appearance candidate format/version mismatch")
+          '''
+          new_appearance = '''    appearance_version = appearance.get("version")
+          if (
+              appearance.get("format") != "bodyrig-eye-appearance-candidate"
+              or isinstance(appearance_version, bool)
+              or not isinstance(appearance_version, (int, float))
+              or appearance_version != 1
+          ):
+              raise HairEyeReviewRuntimeError("eye appearance candidate format/version mismatch")
+          '''
+          if text.count(old_component) != 1 or text.count(old_appearance) != 1:
+              raise SystemExit("expected bridge v1 checks were not found exactly once")
+          text = text.replace(old_component, new_component).replace(old_appearance, new_appearance)
+          path.write_text(text, encoding="utf-8")
+          Path(".github/workflows/_temporary_bridge_v1_patch.yml").unlink()
+      - name: Commit exact patch
+        shell: bash
+        run: |
+          git config user.name "Ternedal"
+          git config user.email "a.nielbaek@gmail.com"
+          git add bodyrig/bridges/sith_hair_eye_review_runtime.py .github/workflows/_temporary_bridge_v1_patch.yml
+          git commit -m "Reject boolean v1 in hair eye bridge inputs"
+          git push origin HEAD:fix/hair-eye-bridge-v1-bool-authority
