@@ -361,6 +361,10 @@ def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_roo
     final_appearance_sha, final_body_id, final_package_sha = _appearance_transfer_authority(package)
     if final_package_sha != plan["package_sha256"]:
         raise FidelityComponentGapExecutionError("HFN final package hash changed during appearance authority inspection")
+    if source_package_sha == final_package_sha:
+        raise FidelityComponentGapExecutionError(
+            "HFN appearance preservation requires a distinct pre-face-secondary source package"
+        )
     if source_body_id != final_body_id or final_body_id != plan["body_id"]:
         raise FidelityComponentGapExecutionError("HFN appearance source/final package body identity disagrees with the gap plan")
     if source_appearance_sha != final_appearance_sha:
@@ -438,6 +442,7 @@ def _hfn_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_roo
     return {
         "mode": "machine-executable",
         "commands": [["pwsh", "-NoProfile", "-Command", command]],
+        "working_directory": str(repo_root),
         "operator_input_required": False,
         "reason": reason,
         "hfn_gate": gate_id,
@@ -491,7 +496,14 @@ def execute(execution: Mapping[str, Any], *, runner=subprocess.run) -> dict[str,
     commands = execution.get("commands")
     if not isinstance(commands, list) or len(commands) != 1 or not isinstance(commands[0], list):
         raise FidelityComponentGapExecutionError("component gap execution must contain exactly one canonical command")
-    completed = runner(commands[0], check=False)
+    runner_kwargs: dict[str, Any] = {"check": False}
+    working_directory = execution.get("working_directory")
+    if working_directory is not None:
+        workdir = os.path.abspath(os.path.expanduser(str(working_directory)))
+        if not os.path.isdir(workdir):
+            raise FidelityComponentGapExecutionError("component gap execution working directory is missing")
+        runner_kwargs["cwd"] = workdir
+    completed = runner(commands[0], **runner_kwargs)
     code = int(getattr(completed, "returncode", 1))
     if code != 0:
         raise FidelityComponentGapExecutionError(f"component gap operator failed with exit code {code}")

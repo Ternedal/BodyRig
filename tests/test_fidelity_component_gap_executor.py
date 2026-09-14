@@ -307,6 +307,23 @@ def test_hfn_preserves_appearance_authority_and_stops_at_source_selection(monkey
     assert result["production_activation"] is False
 
 
+def test_hfn_rejects_trivial_same_package_appearance_self_proof(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    context = _hfn_context(tmp_path)
+    context["appearance_source_package_path"] = context["package_path"]
+    monkeypatch.setattr(executor, "_appearance_transfer_authority", lambda path: (
+        "d" * 64,
+        "performer-42",
+        executor._sha256_file(path),
+    ))
+    with pytest.raises(executor.FidelityComponentGapExecutionError, match="distinct pre-face-secondary source package"):
+        executor.build_execution(
+            plan("source-bound-hfn-continuation", missing=["fingernails", "toenails"]),
+            context=context,
+            repo_root=root,
+        )
+
+
 def test_hfn_rejects_appearance_transfer_drift(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = repo(tmp_path)
     context = _hfn_context(tmp_path)
@@ -357,6 +374,7 @@ def test_hfn_executes_exactly_one_canonical_machine_step(monkeypatch: pytest.Mon
     )
     assert result["mode"] == "machine-executable"
     assert result["commands"] == [["pwsh", "-NoProfile", "-Command", command]]
+    assert result["working_directory"] == str(root)
     assert result["hfn_gate"] == gate_id
     assert result["hfn_status_reinspect_required_after_execution"] is True
     assert result["reprobe_required_after_execution"] is True
@@ -394,6 +412,27 @@ def test_hfn_human_review_never_auto_executes(monkeypatch: pytest.MonkeyPatch, t
     assert result["commands"] == []
     assert "record-high-fidelity-hfn-review.ps1" in result["operator_command"]
     assert result["reprobe_required_after_execution"] is False
+
+
+def test_execute_honors_exact_working_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(executor.os, "name", "nt")
+    calls: list[tuple[list[str], str | None]] = []
+
+    class Result:
+        returncode = 0
+
+    def runner(argv: list[str], *, check: bool, cwd: str | None = None):
+        assert check is False
+        calls.append((argv, cwd))
+        return Result()
+
+    command = ["pwsh", "-NoProfile", "-Command", ".\\prepare-hands-feet-nails-render-review.ps1 -PackagePath 'x'"]
+    result = executor.execute(
+        {"mode": "machine-executable", "commands": [command], "working_directory": str(tmp_path)},
+        runner=runner,
+    )
+    assert result["executed"] is True
+    assert calls == [(command, str(tmp_path.resolve()))]
 
 
 def test_execute_runs_exactly_one_command_and_requires_windows(monkeypatch: pytest.MonkeyPatch) -> None:
