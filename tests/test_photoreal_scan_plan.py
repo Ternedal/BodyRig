@@ -15,6 +15,7 @@ def _video(
     stereo_layout: str,
     duration: float,
     split: str,
+    performer_count: int = 1,
 ) -> tuple[str, dict[str, object]]:
     return split, {
         "kind": "video",
@@ -28,17 +29,27 @@ def _video(
         "height": 3840 if stereo_layout != "mono" else 2160,
         "duration_seconds": duration,
         "frame_rate": 60.0,
+        "performer_count": performer_count,
+        "source_binding": "scene-performer",
     }
 
 
-def _image(source_key: str, group_id: str, *, split: str) -> tuple[str, dict[str, object]]:
+def _image(
+    source_key: str,
+    group_id: str,
+    *,
+    split: str,
+    source_binding: str = "direct-performer",
+    performer_count: int = 1,
+) -> tuple[str, dict[str, object]]:
     return split, {
         "kind": "image",
         "source_id": source_key,
         "group_id": group_id,
         "path": source_key.split(":", 2)[-1],
         "information_score": 100.0,
-        "source_binding": "direct-performer",
+        "source_binding": source_binding,
+        "performer_count": performer_count,
         "width": 6000,
         "height": 4000,
         "megapixels": 24.0,
@@ -55,6 +66,16 @@ def _plan() -> dict[str, object]:
             duration=50.0,
             split="train",
         ),
+        _video(
+            "scene:s-multi:E:/multi.mp4",
+            "scene:s-multi",
+            projection="flat",
+            stereo_layout="mono",
+            duration=100.0,
+            split="train",
+            performer_count=2,
+        ),
+        _image("image:i-train:F:/portrait-train.jpg", "image:i-train", split="train"),
         _video(
             "scene:s-vr:E:/vr180-sbs.mp4",
             "scene:s-vr",
@@ -74,6 +95,7 @@ def _plan() -> dict[str, object]:
         "performer_name": "Performer 42",
         "train": train,
         "evaluation": evaluation,
+        "identity_bootstrap_policy": "train-only-single-performer-direct-binding-v1",
         "teacher_training_authorized": False,
         "build_only": True,
         "runtime_dependency": False,
@@ -86,13 +108,14 @@ def _receipt(plan: dict[str, object]) -> dict[str, object]:
     for split_name in ("train", "evaluation"):
         for index, item in enumerate(plan[split_name]):
             key = str(item["source_id"])
+            nibble = format((index + (1 if split_name == "train" else 8)) % 16, "x")
             sources.append(
                 {
                     "kind": item["kind"],
                     "source_id": key.split(":", 2)[1],
                     "source_key": key,
                     "resolved_path": rf"\\stash\verified\{split_name}-{index}.bin",
-                    "sha256": format(index + (1 if split_name == "train" else 8), "x") * 64,
+                    "sha256": nibble * 64,
                 }
             )
     return {
@@ -117,16 +140,14 @@ def test_scan_plan_is_deterministic_and_covers_every_source() -> None:
     second = build_scan_plan(plan, receipt)
 
     assert first == second
-    assert first["source_count"] == 3
+    assert first["source_count"] == 5
     assert first["all_sources_sha256_bound"] is True
     assert first["train_evaluation_assignment_inherited"] is True
     assert first["teacher_training_authorized"] is False
     assert first["production_activation"] is False
-    assert {item["source_key"] for item in first["sources"]} == {
-        "scene:s-flat:E:/flat.mp4",
-        "scene:s-vr:E:/vr180-sbs.mp4",
-        "image:i1:F:/portrait.jpg",
-    }
+    assert first["identity_bootstrap_policy"] == "train-only-single-performer-direct-binding-v1"
+    assert first["identity_bootstrap_source_count"] == 2
+    assert first["identity_bootstrap_group_count"] == 2
 
 
 def test_scan_plan_splits_stereo_eyes_and_caps_long_video_sampling() -> None:
@@ -136,7 +157,7 @@ def test_scan_plan_splits_stereo_eyes_and_caps_long_video_sampling() -> None:
     assert vr["projection"] == "vr180"
     assert vr["stereo_layout"] == "side-by-side"
     assert vr["decode_mode"] == "spatial-deprojection-required"
-    assert vr["sample_count"] == 240  # 120 timestamps x two eyes
+    assert vr["sample_count"] == 240
     assert {item["eye"] for item in vr["samples"]} == {"left", "right"}
     timestamps = sorted({item["timestamp_seconds"] for item in vr["samples"]})
     assert len(timestamps) == 120
@@ -157,7 +178,7 @@ def test_scan_plan_uses_minimum_midpoint_samples_for_short_mono_video() -> None:
 
 def test_scan_plan_treats_still_image_as_one_direct_sample() -> None:
     result = build_scan_plan(_plan(), _receipt(_plan()))
-    image = next(item for item in result["sources"] if item["kind"] == "image")
+    image = next(item for item in result["sources"] if item["source_key"].startswith("image:i1:"))
 
     assert image["decode_mode"] == "image-direct"
     assert image["projection"] == "flat"
@@ -165,9 +186,37 @@ def test_scan_plan_treats_still_image_as_one_direct_sample() -> None:
     assert image["samples"] == [{"timestamp_seconds": None, "eye": "mono"}]
 
 
+def test_identity_bootstrap_is_train_only_and_requires_single_performer_direct_binding() -> None:
+    result = build_scan_plan(_plan(), _receipt(_plan()))
+    by_key = {item["source_key"]: item for item in result["sources"]}
+
+    assert by_key["scene:s-flat:E:/flat.mp4"]["identity_bootstrap_eligible"] is True
+    assert by_key["image:i-train:F:/portrait-train.jpg"]["identity_bootstrap_eligible"] is True
+    assert by_key["scene:s-multi:E:/multi.mp4"]["identity_bootstrap_eligible"] is False
+    assert by_key["scene:s-vr:E:/vr180-sbs.mp4"]["identity_bootstrap_eligible"] is False
+    assert by_key["image:i1:F:/portrait.jpg"]["identity_bootstrap_eligible"] is False
+
+
+def test_gallery_only_image_never_bootstraps_identity() -> None:
+    plan = copy.deepcopy(_plan())
+    plan["train"].append(
+        _image(
+            "image:i-gallery:F:/gallery.jpg",
+            "gallery:g1",
+            split="train",
+            source_binding="performer-gallery",
+            performer_count=1,
+        )[1]
+    )
+    receipt = _receipt(plan)
+    result = build_scan_plan(plan, receipt)
+    gallery = next(item for item in result["sources"] if item["source_key"].startswith("image:i-gallery:"))
+
+    assert gallery["identity_bootstrap_eligible"] is False
+
+
 def test_scan_plan_refuses_projection_ambiguity_instead_of_guessing() -> None:
-    plan = _plan()
-    plan = copy.deepcopy(plan)
+    plan = copy.deepcopy(_plan())
     plan["train"][0]["projection"] = "projection-ambiguous-2to1"
 
     with pytest.raises(PhotorealScanPlanError, match="cannot enter frame analysis"):
@@ -175,8 +224,7 @@ def test_scan_plan_refuses_projection_ambiguity_instead_of_guessing() -> None:
 
 
 def test_scan_plan_refuses_unknown_stereo_layout() -> None:
-    plan = _plan()
-    plan = copy.deepcopy(plan)
+    plan = copy.deepcopy(_plan())
     plan["evaluation"][0]["stereo_layout"] = "stereo-unknown"
 
     with pytest.raises(PhotorealScanPlanError, match="cannot enter frame analysis"):
