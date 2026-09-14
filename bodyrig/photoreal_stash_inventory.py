@@ -59,26 +59,46 @@ def _performer_ids(item: Mapping[str, Any]) -> set[str]:
     }
 
 
-def _projection(tags: Iterable[str], *, width: int, height: int) -> str:
+def _projection_metadata(tags: Iterable[str], *, width: int, height: int) -> tuple[str, str]:
     normalized = " ".join(str(tag).lower().replace("_", " ").replace("-", " ") for tag in tags)
     compact = "".join(normalized.split())
     words = set(normalized.split())
+
+    if "sidebyside" in compact or "sbs" in words:
+        stereo_layout = "side-by-side"
+    elif "overunder" in compact or "topbottom" in compact or "ou" in words:
+        stereo_layout = "over-under"
+    elif "stereo" in words or "stereoscopic" in compact:
+        stereo_layout = "stereo-unknown"
+    else:
+        stereo_layout = "mono"
+
     if "vr180" in compact:
-        return "vr180"
-    if "vr360" in compact or "360vr" in compact:
-        return "vr360"
-    if "overunder" in compact or "topbottom" in compact or "ou" in words:
-        return "stereo-over-under"
-    if "sidebyside" in compact or "sbs" in words or "stereo" in words or "stereoscopic" in compact:
-        return "stereo-side-by-side"
-    if "equirectangular" in compact or "panorama" in compact or "panoramic" in compact:
-        return "equirectangular"
-    if width >= 2880 and height >= 1440 and height > 0 and 1.95 <= width / height <= 2.05:
-        return "projection-ambiguous-2to1"
-    return "flat"
+        projection = "vr180"
+    elif "vr360" in compact or "360vr" in compact:
+        projection = "vr360"
+    elif "equirectangular" in compact or "panorama" in compact or "panoramic" in compact:
+        projection = "equirectangular"
+    elif width >= 2880 and height >= 1440 and height > 0 and 1.95 <= width / height <= 2.05:
+        projection = "projection-ambiguous-2to1"
+    else:
+        projection = "flat"
+
+    if projection == "projection-ambiguous-2to1" and stereo_layout == "mono":
+        stereo_layout = "unknown"
+    return projection, stereo_layout
 
 
-def _video_score(*, width: int, height: int, duration: float, fps: float, performer_count: int, projection: str) -> float:
+def _video_score(
+    *,
+    width: int,
+    height: int,
+    duration: float,
+    fps: float,
+    performer_count: int,
+    projection: str,
+    stereo_layout: str,
+) -> float:
     megapixels = (width * height) / 1_000_000.0
     score = min(megapixels, 40.0) * 10.0
     if height >= 4320:
@@ -99,7 +119,7 @@ def _video_score(*, width: int, height: int, duration: float, fps: float, perfor
         score += 60.0
     elif performer_count > 1:
         score -= min(40.0, 8.0 * (performer_count - 1))
-    if projection.startswith("stereo-") or projection in {"vr180", "vr360"}:
+    if projection != "flat" or stereo_layout != "mono":
         score += 35.0
     if 30.0 <= duration <= 7200.0:
         score += 12.0
@@ -144,7 +164,7 @@ def _fetch_paged(
     while True:
         payload = dict(variables)
         payload.update({"page": page, "limit": page_size})
-        data = client._graphql(query, payload)  # noqa: SLF001 - same-package Stash transport authority
+        data = client._graphql(query, payload)  # noqa: SLF001
         root = data.get(root_key)
         if not isinstance(root, Mapping):
             raise PhotorealStashInventoryError(f"Stash {root_key} result is missing")
@@ -311,7 +331,7 @@ def fetch_photoreal_source_inventory(
             height = _int(file_info.get("height"))
             duration = _number(file_info.get("duration"))
             fps = _number(file_info.get("frame_rate"))
-            projection = _projection(tags, width=width, height=height)
+            projection, stereo_layout = _projection_metadata(tags, width=width, height=height)
             videos.append(
                 {
                     "scene_id": str(scene["id"]),
@@ -325,6 +345,7 @@ def fetch_photoreal_source_inventory(
                     "size_bytes": _int(file_info.get("size")),
                     "performer_count": performer_count,
                     "projection": projection,
+                    "stereo_layout": stereo_layout,
                     "tags": tags,
                     "information_score": _video_score(
                         width=width,
@@ -333,6 +354,7 @@ def fetch_photoreal_source_inventory(
                         fps=fps,
                         performer_count=performer_count,
                         projection=projection,
+                        stereo_layout=stereo_layout,
                     ),
                 }
             )
@@ -408,8 +430,16 @@ def fetch_photoreal_source_inventory(
     images.sort(key=lambda item: (-float(item["information_score"]), str(item["path"]).lower()))
     gallery_records.sort(key=lambda item: str(item["gallery_id"]))
 
-    flat_seconds = sum(float(item["duration_seconds"]) for item in videos if item["projection"] == "flat")
-    spatial_seconds = sum(float(item["duration_seconds"]) for item in videos if item["projection"] != "flat")
+    flat_seconds = sum(
+        float(item["duration_seconds"])
+        for item in videos
+        if item["projection"] == "flat" and item["stereo_layout"] == "mono"
+    )
+    spatial_seconds = sum(
+        float(item["duration_seconds"])
+        for item in videos
+        if item["projection"] != "flat" or item["stereo_layout"] != "mono"
+    )
     high_res_images = sum(1 for item in images if max(int(item["width"]), int(item["height"])) >= 3840)
     total_still_megapixels = sum(float(item["megapixels"]) for item in images)
 
