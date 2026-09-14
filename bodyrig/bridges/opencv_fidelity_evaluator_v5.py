@@ -6,7 +6,7 @@ That made the silhouette metric depend on horizontal arm span: the same torso in
 an A/T/rest pose could look much narrower than a source frame with relaxed arms.
 
 Revision 5 deliberately reuses the complete revision-4 evaluator and changes
-only width-profile normalization to subject height.  The controlled BodyPrint
+only width-profile normalization to subject height. The controlled BodyPrint
 fields driven by these hints are shoulder_to_height and hip_to_height, so height
 is also the dimensionally correct normalization authority.
 """
@@ -18,6 +18,7 @@ from types import ModuleType
 from typing import Any
 
 
+REVISION = "5"
 BASE_PATH = Path(__file__).resolve().with_name("opencv_fidelity_evaluator.py")
 
 
@@ -38,7 +39,7 @@ def width_profile(cv2: Any, mask: Any) -> list[float]:
 
     Height normalization makes the torso profile invariant to unrelated
     horizontal arm span while retaining scale invariance between source capture
-    and canonical render.  Values therefore correspond to the semantics of the
+    and canonical render. Values therefore correspond to the semantics of the
     BodyPrint shoulder_to_height / hip_to_height controls.
     """
 
@@ -59,7 +60,7 @@ def width_profile(cv2: Any, mask: Any) -> list[float]:
 
 
 def main() -> int:
-    _BASE.REVISION = "5"
+    _BASE.REVISION = REVISION
     _BASE.width_profile = width_profile
     return int(_BASE.main())
 
