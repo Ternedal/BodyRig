@@ -6,8 +6,6 @@ param(
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
     [string]$ExecutionContext = "",
-    [string]$HfnPersonId = "",
-    [string]$HfnBodyRevision = "",
     [switch]$ExecuteNextAction,
     [switch]$SkipBuild,
     [switch]$OpenSnapshots
@@ -83,6 +81,73 @@ function Resolve-CanonicalPersonLibrary {
     } finally {
         $env:PYTHONPATH = $previousPythonPath
     }
+}
+
+function Resolve-HfnIdentityBinding {
+    param(
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$HfnRoot,
+        [Parameter(Mandatory = $true)][string]$BodyId,
+        [Parameter(Mandatory = $true)][string]$SourcePackageSha
+    )
+    $previousPythonPath = $env:PYTHONPATH
+    try {
+        $env:PYTHONPATH = $RepoRoot
+        $raw = @(
+            & $Python -m bodyrig.hfn_identity_binding `
+                --root $HfnRoot `
+                --body-id $BodyId `
+                --package-sha256 $SourcePackageSha 2>&1
+        )
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
+            throw "HFN identity binding resolver failed or returned unexpected output: $($raw -join ' ')"
+        }
+        try { $binding = ([string]$raw[0]) | ConvertFrom-Json -Depth 20 }
+        catch { throw "HFN identity binding resolver returned unreadable JSON." }
+    } finally {
+        $env:PYTHONPATH = $previousPythonPath
+    }
+    if ([string]$binding.format -ne "bodyrig-hfn-identity-binding" -or -not (Test-V1Version $binding.version) -or
+        [string]$binding.policy_revision -ne "bodyrig-hfn-identity-binding-v1" -or
+        [string]$binding.body_id -ne $BodyId -or [string]$binding.source_package_sha256 -ne $SourcePackageSha -or
+        $binding.source_authority_required -ne $true -or $binding.human_review_required -ne $true -or
+        $binding.production_activation -ne $false) {
+        throw "HFN identity binding resolver crossed its exact source/non-production authority boundary."
+    }
+    $state = ([string]$binding.state).Trim()
+    if ($state -notin @("resolved", "unresolved", "blocked", "ambiguous")) {
+        throw "HFN identity binding resolver returned an unsupported state: $state"
+    }
+    $matches = @($binding.matches)
+    if ($binding.match_count -is [bool] -or $binding.match_count -isnot [ValueType] -or
+        $binding.metadata_match_count -is [bool] -or $binding.metadata_match_count -isnot [ValueType] -or
+        $binding.rejected_match_count -is [bool] -or $binding.rejected_match_count -isnot [ValueType]) {
+        throw "HFN identity binding counts are not exact numeric values."
+    }
+    try {
+        $matchCount = [int]$binding.match_count
+        $metadataCount = [int]$binding.metadata_match_count
+        $rejectedCount = [int]$binding.rejected_match_count
+    } catch { throw "HFN identity binding counts are invalid." }
+    if ($matchCount -lt 0 -or $metadataCount -lt 0 -or $rejectedCount -lt 0 -or
+        $matches.Count -ne $matchCount -or $metadataCount -lt ($matchCount + $rejectedCount)) {
+        throw "HFN identity binding counts disagree with its evidence payload."
+    }
+    if ($state -eq "resolved") {
+        if ($matchCount -ne 1 -or $matches.Count -ne 1) { throw "Resolved HFN identity binding is not unique." }
+        $match = $matches[0]
+        if ([string]$match.person_id -notmatch '^person-[0-9a-f]{32}$' -or
+            [string]$match.body_revision -notmatch '^body-r[0-9]{4}$' -or
+            [string]$match.source_manifest_sha256 -notmatch '^[0-9a-f]{64}$' -or
+            $match.source_file_count -is [bool] -or $match.source_file_count -isnot [ValueType] -or
+            [int]$match.source_file_count -lt 1) {
+            throw "Resolved HFN identity binding match is not canonical/source-backed."
+        }
+    } elseif ($matchCount -eq 1) {
+        throw "Non-resolved HFN identity binding unexpectedly contains one authoritative match."
+    }
+    return $binding
 }
 
 function Invoke-GapExecutor {
@@ -328,45 +393,45 @@ if ([string]::IsNullOrWhiteSpace($expectedActionId)) { throw "Current-floor comp
 $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
 
 $temporaryExecutionContext = ""
-$hfnExplicitValues = @($HfnPersonId, $HfnBodyRevision)
-$hfnExplicitCount = @($hfnExplicitValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
-if (-not [string]::IsNullOrWhiteSpace($ExecutionContext) -and $hfnExplicitCount -gt 0) {
-    throw "ExecutionContext cannot be combined with HfnPersonId/HfnBodyRevision; choose one explicit context authority."
-}
-if ($hfnExplicitCount -ne 0 -and $hfnExplicitCount -ne 2) {
-    throw "Derived HFN context requires HfnPersonId and HfnBodyRevision together; partial identity authority is refused."
-}
-if ($hfnExplicitCount -eq 2 -and $expectedActionId -ne "source-bound-hfn-continuation") {
-    throw "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action."
-}
 try {
     if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
-    $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context-" + [Guid]::NewGuid().ToString("N") + ".json")
-    if ($hfnExplicitCount -eq 2) {
-        if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
-            throw "Derived HFN context requires the exact final face-secondary comparison package authority."
+        $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context-" + [Guid]::NewGuid().ToString("N") + ".json")
+        if ($expectedActionId -eq "source-bound-hfn-continuation") {
+            if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
+                throw "Derived HFN context requires the exact final face-secondary comparison package authority."
+            }
+            $hfnPackagePath = Need-File -Path (Join-Path $physicalRoot "comparison\face-secondary-hair-eye-comparison.mrbody") -Label "Final face-secondary package for HFN continuation"
+            if ((Sha256 $hfnPackagePath) -ne $physicalPackageSha) {
+                throw "Derived HFN context package bytes differ from the final component-gap package authority."
+            }
+            $hfnRootPath = Resolve-CanonicalPersonLibrary -Python $BodyRigPython -RepoRoot $repoRoot
+            $hfnIdentity = Resolve-HfnIdentityBinding `
+                -Python $BodyRigPython `
+                -RepoRoot $repoRoot `
+                -HfnRoot $hfnRootPath `
+                -BodyId ([string]$gap.body_id) `
+                -SourcePackageSha $currentFloorPackageSha
+            $hfnTag = $physicalPackageSha.Substring(0, 12)
+            $contextFields = [ordered]@{
+                package_path = $hfnPackagePath
+                hfn_root = $hfnRootPath
+                hfn_render_dir = (Join-Path $eveningRoot "hfn-render-$selected-$hfnTag")
+                hfn_human_review_dir = (Join-Path $eveningRoot "hfn-human-review-$selected-$hfnTag")
+            }
+            if ([string]$hfnIdentity.state -eq "resolved") {
+                $hfnIdentityMatch = @($hfnIdentity.matches)[0]
+                $contextFields.person_id = ([string]$hfnIdentityMatch.person_id).Trim()
+                $contextFields.body_revision = ([string]$hfnIdentityMatch.body_revision).Trim()
+                Write-Host "Auto-resolved exact source-bound HFN identity: $($contextFields.person_id) / $($contextFields.body_revision)"
+            } else {
+                Write-Host "HFN identity auto-resolution stopped fail-closed: state=$([string]$hfnIdentity.state), metadata_matches=$([int]$hfnIdentity.metadata_match_count), authoritative_matches=$([int]$hfnIdentity.match_count)."
+            }
+            $derivedContextJson = $contextFields | ConvertTo-Json -Depth 10 -Compress
+            [IO.File]::WriteAllText($temporaryExecutionContext, $derivedContextJson, [Text.UTF8Encoding]::new($false))
+        } else {
+            [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
         }
-        $hfnPackagePath = Need-File -Path (Join-Path $physicalRoot "comparison\face-secondary-hair-eye-comparison.mrbody") -Label "Final face-secondary package for HFN continuation"
-        if ((Sha256 $hfnPackagePath) -ne $physicalPackageSha) {
-            throw "Derived HFN context package bytes differ from the final component-gap package authority."
-        }
-        $hfnRootPath = Resolve-CanonicalPersonLibrary -Python $BodyRigPython -RepoRoot $repoRoot
-        $hfnTag = $physicalPackageSha.Substring(0, 12)
-        $derivedContext = [ordered]@{
-            package_path = $hfnPackagePath
-            hfn_root = $hfnRootPath
-            person_id = $HfnPersonId.Trim()
-            body_revision = $HfnBodyRevision.Trim()
-            hfn_render_dir = (Join-Path $eveningRoot "hfn-render-$selected-$hfnTag")
-            hfn_human_review_dir = (Join-Path $eveningRoot "hfn-human-review-$selected-$hfnTag")
-        }
-        $derivedContextJson = $derivedContext | ConvertTo-Json -Depth 10 -Compress
-        [IO.File]::WriteAllText($temporaryExecutionContext, $derivedContextJson, [Text.UTF8Encoding]::new($false))
-        Write-Host "Derived exact HFN executor context from final physical package plus explicit HFN identity authority."
-    } else {
-        [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
-    }
-    $contextPath = $temporaryExecutionContext
+        $contextPath = $temporaryExecutionContext
     } else {
         $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
     }
