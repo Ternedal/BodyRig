@@ -62,10 +62,29 @@ def test_evening_review_scores_new_preview_as_diagnostic_only() -> None:
     assert "--allow-incomplete-component-comparison" in text
     assert "--iteration 9001" in text
     assert "diagnostic_only = $true" in text
-    assert "full_fidelity_component_complete = $false" in text
+    assert "full_fidelity_component_complete = [bool]$gapPlan.strict_machine_scoring_ready" in text
     assert "human_visual_authority_required = $true" in text
     assert "production_activation = $false" in text
-    assert 'semantics = "retained-hair-eye-physical-preview-plus-diagnostic-score-not-full-fidelity-acceptance"' in text
+    assert 'semantics = "retained-physical-preview-plus-component-gap-plan-and-diagnostic-score-not-visual-or-release-acceptance"' in text
+    assert "Full fidelity:  FALSE - face-secondary/HFN completeness still required" not in text
+
+
+def test_evening_review_persists_gap_plan_from_exact_unity_visibility() -> None:
+    text = source()
+
+    assert "-m bodyrig.fidelity_component_gap" in text
+    assert "--visibility-probe $visibilityPath" in text
+    assert "--render-set $renderSet" in text
+    assert "--out $gapPlanPath" in text
+    assert '"component-gap-plan-" + $visibilitySha.Substring(0,16) + "-" + $renderSetSha.Substring(0,16)' in text
+    assert 'component_gap_render_set_sha256 = $renderSetSha' in text
+    assert 'component_gap_plan_sha256 = $gapPlanSha' in text
+    assert 'component_gap_state = [string]$gapPlan.state' in text
+    assert 'missing_components = @($gapPlan.missing_components)' in text
+    assert 'next_actions = @($gapPlan.next_actions)' in text
+    assert '$gapPlan.human_visual_authority_required -ne $true' in text
+    assert '$gapPlan.production_activation -ne $false' in text
+    assert '[string]$gapPlan.component_visibility_probe_sha256' not in text
 
 
 def test_evening_review_is_resume_aware_without_overwriting_authority() -> None:
@@ -74,6 +93,7 @@ def test_evening_review_is_resume_aware_without_overwriting_authority() -> None:
     assert "Test-RetainedPreviewComplete" in text
     assert "Reusing complete retained preview" in text
     assert "Retained preview output exists but is incomplete; refusing to overwrite evidence" in text
+    assert "Reusing component gap plan" in text
     assert "Reusing diagnostic-only evaluation" in text
     assert "Existing evening review summary targets different authority bytes; refusing overwrite." in text
     assert "Assert-HeadPinned" in text
