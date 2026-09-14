@@ -101,6 +101,42 @@ def test_rejection_rejects_noncanonical_failed_check_bytes(tmp_path: Path) -> No
         read_rejection(tmp_path, **_kwargs())
 
 
+@pytest.mark.parametrize("version", [True, False, "1", None, [], {}, 2, 2.0])
+def test_rejection_readback_rejects_non_numeric_v1(tmp_path: Path, version: object) -> None:
+    write_rejection(
+        tmp_path,
+        **_kwargs(),
+        failed_checks=["source_identity"],
+        quality_note="Source identity does not match the reviewed presentation.",
+    )
+    path = rejection_path(tmp_path, PLATFORM)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = version
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(RendererHumanRejectionError, match="format/version/policy mismatch"):
+        read_rejection(tmp_path, **_kwargs())
+
+
+def test_rejection_readback_preserves_numeric_float_v1(tmp_path: Path) -> None:
+    write_rejection(
+        tmp_path,
+        **_kwargs(),
+        failed_checks=["source_identity"],
+        quality_note="Source identity does not match the reviewed presentation.",
+    )
+    path = rejection_path(tmp_path, PLATFORM)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1.0
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    loaded = read_rejection(tmp_path, **_kwargs())
+    assert loaded["version"] == 1.0
+    assert loaded["human_review_pass"] is False
+    assert loaded["production_activation"] is False
+    assert loaded["failed_checks"] == ["source_identity"]
+
+
 def test_cli_rolls_back_new_receipt_if_evidence_drifts_after_write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     receipt_path = tmp_path / "bodyrig-renderer-rejection-windows.json"
     calls = 0

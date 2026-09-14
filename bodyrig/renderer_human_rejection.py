@@ -54,6 +54,10 @@ class RendererHumanRejectionError(RuntimeError):
     pass
 
 
+def _is_numeric_version(value: Any, expected: int = VERSION) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value == expected
+
+
 def rejection_path(acceptance_dir: str | Path, platform: str) -> Path:
     prefix = PLATFORMS.get(str(platform or "").strip())
     if not prefix:
@@ -177,7 +181,7 @@ def read_rejection(
         raise RendererHumanRejectionError(f"renderer human rejection is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != FIELDS:
         raise RendererHumanRejectionError("renderer human rejection fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_version(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise RendererHumanRejectionError("renderer human rejection format/version/policy mismatch")
     if not str(value.get("rejected_at") or "").strip():
         raise RendererHumanRejectionError("renderer human rejection has no rejected_at timestamp")
