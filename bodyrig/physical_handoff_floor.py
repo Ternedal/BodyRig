@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 
-# First main revision where the normal HFN continuation renders/reviews the
-# hash-bound additive skinned fingernail + toenail geometry package and the Unity runtime
-# probe requires both BodyRigFingernailPlates and BodyRigToenailPlates as active renderers.
-MINIMUM_PHYSICAL_HANDOFF_REVISION = "1ed3661ad61d92090e3f28222282e53163c28144"
+# First main revision where fresh physical handoff has the complete current
+# high-fidelity visibility baseline: source-grounded fingernail + toenail
+# materialization, physically drawable promoted hair/eye renderers, strict
+# five-component visibility gating for fresh fidelity scoring, and adaptive
+# short-hair source extraction v2.
+MINIMUM_PHYSICAL_HANDOFF_REVISION = "fe04ab113c3c57ed1f3d502242fc0e51b0629b04"
