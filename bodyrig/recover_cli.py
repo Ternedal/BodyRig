@@ -308,9 +308,12 @@ def _run_wsl_file_protocol(
         raise RecoveryError(
             f"WSL recovery completion status has invalid fields; staging retained: {staging}"
         )
+    version = status_payload["version"]
     if (
         status_payload["format"] != _FILE_COMMAND_STATUS_FORMAT
-        or status_payload["version"] != _FILE_COMMAND_STATUS_VERSION
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != _FILE_COMMAND_STATUS_VERSION
         or isinstance(status_payload["returncode"], bool)
         or not isinstance(status_payload["returncode"], int)
     ):
