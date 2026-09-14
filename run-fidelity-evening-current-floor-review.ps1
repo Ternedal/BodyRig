@@ -411,7 +411,9 @@ $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
 if (-not ($drawable -contains "hair") -or -not ($drawable -contains "eyes")) { throw "Current-floor retained preview lacks physically drawable hair/eyes authority." }
 
 $physicalOutput = $retainedOutput
+$physicalAuthorityKind = "retained-hair-eye"
 $physicalAuthorityPackageSha = $currentPackageSha
+$physicalComparisonPackageSha = ""
 $faceSecondarySummaryPath = ""
 if (-not ($drawable -contains "face-secondary")) {
     Write-Host ""
@@ -444,7 +446,9 @@ if (-not ($drawable -contains "face-secondary")) {
     }
     $faceSecondarySummaryPath = Need-File -Path (Join-Path $faceSecondaryOutput "face-secondary-hair-eye-preview.json") -Label "Face-secondary physical comparison summary"
     $faceSummary = Read-Json -Path $faceSecondarySummaryPath -Label "Face-secondary physical comparison summary"
+    $physicalAuthorityKind = "face-secondary-hair-eye-comparison"
     $physicalAuthorityPackageSha = Need-Sha256 -Value ([string]$faceSummary.comparison_package_sha256) -Label "Face-secondary comparison package SHA-256"
+    $physicalComparisonPackageSha = $physicalAuthorityPackageSha
     $physicalOutput = $faceSecondaryOutput
     $visibilityPath = Need-File -Path (Join-Path $faceSecondaryOutput "windows-preview\component-visibility-probe.json") -Label "Face-secondary component visibility probe"
     $renderSet = Need-File -Path (Join-Path $faceSecondaryOutput "windows-preview\snapshots\fidelity-render-set.json") -Label "Face-secondary physical render set"
@@ -507,6 +511,7 @@ $summary = [ordered]@{
     selected_iteration = $best
     selected_candidate = $selectedLabel
     historical_selected_package_sha256 = $historicalPackageSha
+    source_current_floor_package_sha256 = $currentPackageSha
     current_floor_package_sha256 = $currentPackageSha
     selected_package_sha256 = $currentPackageSha
     package_refresh_receipt_sha256 = Sha256 $refreshReceiptPath
@@ -515,9 +520,14 @@ $summary = [ordered]@{
     v5_historical_selection_decision_sha256 = Sha256 $decisionPath
     retained_preview_summary_sha256 = Sha256 (Need-File -Path (Join-Path $retainedOutput "retained-hair-eye-preview.json") -Label "Retained preview summary")
     face_secondary_preview_summary_sha256 = $(if ([string]::IsNullOrWhiteSpace($faceSecondarySummaryPath)) { "" } else { Sha256 $faceSecondarySummaryPath })
+    physical_authority_kind = $physicalAuthorityKind
     physical_component_authority_package_sha256 = $physicalAuthorityPackageSha
+    physical_component_package_sha256 = $physicalAuthorityPackageSha
+    physical_comparison_package_sha256 = $physicalComparisonPackageSha
     component_visibility_probe_sha256 = Sha256 $visibilityPath
+    physical_component_visibility_probe_sha256 = Sha256 $visibilityPath
     component_gap_render_set_sha256 = Sha256 $renderSet
+    physical_render_set_sha256 = Sha256 $renderSet
     diagnostic_render_set_sha256 = Sha256 $diagnosticRenderSet
     diagnostic_evaluation_sha256 = Sha256 $diagnosticEvaluation
     current_floor_refit_repackage = $true
