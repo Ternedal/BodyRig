@@ -11,6 +11,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -50,7 +54,7 @@ $DiscoveryRoot = Need-Directory -Path $DiscoveryRoot -Label "Multi-performer dis
 $discoveryManifest = Need-File -Path (Join-Path $DiscoveryRoot "multiperformer-source-candidates.json") -Label "Multi-performer discovery manifest"
 try { $discovery = Get-Content -LiteralPath $discoveryManifest -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 30 }
 catch { throw "Multi-performer discovery manifest is unreadable JSON." }
-if ([string]$discovery.format -ne "bodyrig-photoidentity-multiperformer-source-discovery" -or [int]$discovery.version -ne 1) {
+if ([string]$discovery.format -ne "bodyrig-photoidentity-multiperformer-source-discovery" -or -not (Test-V1Version $discovery.version)) {
     throw "Multi-performer discovery manifest format/version is invalid."
 }
 if ([string]$discovery.bodyrig_revision -ne $head) {
