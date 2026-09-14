@@ -5,6 +5,8 @@ param(
     [string]$IdentityRoot = "",
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
+    [string]$ComponentGapContext = "",
+    [switch]$ExecuteQualifiedNextAction,
     [switch]$SkipBuild,
     [switch]$OpenSnapshots
 )
@@ -54,6 +56,12 @@ if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
 if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7+ is required." }
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
+$componentGapContextPath = ""
+if (-not [string]::IsNullOrWhiteSpace($ComponentGapContext)) {
+    $componentGapContextPath = Need-File -Path $ComponentGapContext -Label "Component-gap execution context"
+} elseif ($ExecuteQualifiedNextAction) {
+    throw "ExecuteQualifiedNextAction requires an explicit ComponentGapContext; BodyRig will not invent package/workspace/HFN source authority."
+}
 $branchRaw = @(& git -C $repoRoot branch --show-current 2>&1)
 if ($LASTEXITCODE -ne 0 -or $branchRaw.Count -ne 1 -or ([string]$branchRaw[0]).Trim() -ne "main") {
     throw "BodyRig evening command must run from canonical main."
@@ -224,6 +232,76 @@ $missing = @($gap.missing_components | ForEach-Object { [string]$_ })
 $actions = @($gap.next_actions)
 $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
 
+$qualifiedGapExecution = $null
+if (-not [string]::IsNullOrWhiteSpace($componentGapContextPath)) {
+    $executorArgs = @(
+        "-m", "bodyrig.fidelity_component_gap_executor",
+        "--plan", $gapPath,
+        "--context", $componentGapContextPath,
+        "--repo-root", $repoRoot
+    )
+    $executorRaw = @(& $BodyRigPython @executorArgs 2>&1)
+    $executorExit = $LASTEXITCODE
+    if ($executorExit -ne 0) {
+        throw "Qualified component-gap executor dry-run failed with exit code ${executorExit}: $($executorRaw -join [Environment]::NewLine)"
+    }
+    if ($executorRaw.Count -ne 1) { throw "Qualified component-gap executor dry-run must emit exactly one JSON result." }
+    try { $qualifiedGapExecution = ([string]$executorRaw[0]) | ConvertFrom-Json -Depth 50 }
+    catch { throw "Qualified component-gap executor dry-run returned unreadable JSON." }
+
+    $firstAction = @($gap.next_actions)[0]
+    if ([string]$qualifiedGapExecution.format -ne "bodyrig-fidelity-component-gap-execution" -or
+        -not (Test-V1Version $qualifiedGapExecution.version) -or
+        [string]$qualifiedGapExecution.bodyrig_revision -ne $head -or
+        [string]$qualifiedGapExecution.source_gap_package_sha256 -ne $physicalPackageSha -or
+        [string]$qualifiedGapExecution.action_id -ne [string]$firstAction.id -or
+        $qualifiedGapExecution.human_visual_authority_required -ne $true -or
+        $qualifiedGapExecution.production_activation -ne $false -or
+        [string]$qualifiedGapExecution.semantics -ne "execute-one-machine-safe-component-gap-action-then-reprobe") {
+        throw "Qualified component-gap executor result targets different authority or crossed its non-production boundary."
+    }
+    $executorMode = ([string]$qualifiedGapExecution.mode).Trim()
+    if ($executorMode -eq "machine-executable") {
+        if ($qualifiedGapExecution.operator_input_required -ne $false -or
+            $qualifiedGapExecution.reprobe_required_after_execution -ne $true -or
+            @($qualifiedGapExecution.commands).Count -ne 1) {
+            throw "Machine-executable component-gap route is not canonical."
+        }
+    } elseif ($executorMode -eq "operator-stop") {
+        if ($qualifiedGapExecution.operator_input_required -ne $true -or
+            $qualifiedGapExecution.reprobe_required_after_execution -ne $false -or
+            @($qualifiedGapExecution.commands).Count -ne 0 -or
+            [string]::IsNullOrWhiteSpace([string]$qualifiedGapExecution.reason)) {
+            throw "Operator-stop component-gap route is not canonical."
+        }
+    } else {
+        throw "Qualified component-gap executor returned unsupported mode: $executorMode"
+    }
+
+    if ($ExecuteQualifiedNextAction -and $executorMode -eq "machine-executable") {
+        Write-Host ""
+        Write-Host "Executing exactly one qualified machine-safe component-gap action..."
+        $executeArgs = @($executorArgs)
+        $executeArgs += "--execute"
+        & $BodyRigPython @executeArgs
+        if ($LASTEXITCODE -ne 0) { throw "Qualified component-gap execution failed." }
+
+        $headAfterExecutionRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+        $headAfterExecutionCode = $LASTEXITCODE
+        $dirtyAfterExecution = @(& git -C $repoRoot status --porcelain 2>&1)
+        $dirtyAfterExecutionCode = $LASTEXITCODE
+        if ($headAfterExecutionCode -ne 0 -or $headAfterExecutionRaw.Count -ne 1 -or
+            ([string]$headAfterExecutionRaw[0]).Trim().ToLowerInvariant() -ne $head -or
+            $dirtyAfterExecutionCode -ne 0 -or $dirtyAfterExecution.Count -gt 0) {
+            throw "BodyRig checkout changed during qualified component-gap execution."
+        }
+        Write-Host "Executed exactly one qualified machine-safe component-gap action."
+        Write-Host "Fresh Unity/component status is required before another action; re-run the evening command."
+        if ($OpenSnapshots) { Start-Process explorer.exe -ArgumentList @($snapshotDir) }
+        exit 0
+    }
+}
+
 Write-Host ""
 Write-Host "============================================================"
 Write-Host "BODYRIG EVENING RESULT"
@@ -240,6 +318,18 @@ Write-Host "Qualified next actions:"
 foreach ($action in $actions) {
     $components = @($action.components | ForEach-Object { [string]$_ }) -join ", "
     Write-Host "- $([string]$action.id) [$components]: $([string]$action.reason)"
+}
+if ($null -ne $qualifiedGapExecution) {
+    Write-Host ""
+    Write-Host "Qualified executor route: $([string]$qualifiedGapExecution.mode)"
+    if ([string]$qualifiedGapExecution.mode -eq "operator-stop") {
+        Write-Host "Executor stop: $([string]$qualifiedGapExecution.reason)"
+        $operatorCommand = ([string]$qualifiedGapExecution.operator_command).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($operatorCommand)) { Write-Host "Operator command: $operatorCommand" }
+        if ($ExecuteQualifiedNextAction) { Write-Host "Execution: BLOCKED at explicit operator/human authority boundary." }
+    } elseif (-not $ExecuteQualifiedNextAction) {
+        Write-Host "Execution: DRY-RUN only; pass -ExecuteQualifiedNextAction to execute exactly one machine-safe action."
+    }
 }
 Write-Host ""
 Write-Host "Human visual QA: REQUIRED"
