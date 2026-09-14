@@ -89,7 +89,13 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
     }
     if set(receipt) != required:
         raise SourceHairBodyBindingError("source hair candidate fields do not match v1")
-    if receipt.get("format") != CANDIDATE_FORMAT or receipt.get("version") != CANDIDATE_VERSION:
+    version = receipt.get("version")
+    if (
+        receipt.get("format") != CANDIDATE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != CANDIDATE_VERSION
+    ):
         raise SourceHairBodyBindingError("source hair candidate format/version mismatch")
     if receipt.get("method") != "retained-sith-connected-head-shell-v2":
         raise SourceHairBodyBindingError("source hair candidate extraction method mismatch")

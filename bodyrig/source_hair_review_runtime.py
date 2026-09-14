@@ -155,7 +155,14 @@ def _bridge_result(path: Path) -> dict[str, Any]:
         "physicalSilhouetteReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+    version = value.get("version")
+    if (
+        set(value) != required
+        or value.get("format") != BRIDGE_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != BRIDGE_VERSION
+    ):
         raise SourceHairReviewRuntimeError("source hair review bridge result fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "sourceHairBodyBindingSha256", "reviewVrmSha256"):
         _sha(value.get(field), label=f"bridge {field}")
@@ -197,7 +204,13 @@ def _runtime_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise SourceHairReviewRuntimeError("review VRM runtime metadata fields do not match v1")
-    if value.get("format") != METADATA_FORMAT or value.get("version") != METADATA_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != METADATA_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != METADATA_VERSION
+    ):
         raise SourceHairReviewRuntimeError("review VRM runtime metadata format/version mismatch")
     return dict(value)
 

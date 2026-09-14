@@ -79,7 +79,14 @@ def _validate_source_receipt(receipt: Mapping[str, Any]) -> None:
         "physicalFaceCloseupReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "eyeComponentAuthority", "productionActivation",
     }
-    if set(receipt) != required or receipt.get("format") != SOURCE_FORMAT or receipt.get("version") != SOURCE_VERSION:
+    source_version = receipt.get("version")
+    if (
+        set(receipt) != required
+        or receipt.get("format") != SOURCE_FORMAT
+        or isinstance(source_version, bool)
+        or not isinstance(source_version, (int, float))
+        or source_version != SOURCE_VERSION
+    ):
         raise SourceHairEyePreviewRuntimeError("source hair+eye review receipt fields/format do not match v1")
     _hex(receipt.get("bodyrigRevision"), length=40, label="source review BodyRig revision")
     for field in (
