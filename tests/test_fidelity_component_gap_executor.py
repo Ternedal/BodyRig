@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -434,3 +435,45 @@ def test_hfn_context_rejects_cross_package_bytes(monkeypatch: pytest.MonkeyPatch
             context=context,
             repo_root=root,
         )
+
+
+def test_cli_execute_surfaces_operator_stop_without_calling_execute(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(executor, "_read_json", lambda *args, **kwargs: {})
+    stop = {
+        "mode": "operator-stop",
+        "commands": [],
+        "operator_input_required": True,
+        "reason": "human/source input required",
+    }
+    monkeypatch.setattr(executor, "build_execution", lambda *args, **kwargs: dict(stop))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("operator-stop must never reach execute()")
+
+    monkeypatch.setattr(executor, "execute", forbidden)
+    rc = executor.main(["--plan", "plan.json", "--context", "context.json", "--execute"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == stop
+
+
+def test_cli_execute_runs_machine_route_once(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(executor, "_read_json", lambda *args, **kwargs: {})
+    route = {
+        "mode": "machine-executable",
+        "commands": [["pwsh", "-NoProfile", "-File", "operator.ps1"]],
+        "operator_input_required": False,
+    }
+    monkeypatch.setattr(executor, "build_execution", lambda *args, **kwargs: dict(route))
+    calls = []
+
+    def fake_execute(value, **kwargs):
+        calls.append(dict(value))
+        return {**dict(value), "executed": True, "exit_code": 0}
+
+    monkeypatch.setattr(executor, "execute", fake_execute)
+    rc = executor.main(["--plan", "plan.json", "--context", "context.json", "--execute"])
+    assert rc == 0
+    assert calls == [route]
+    output = json.loads(capsys.readouterr().out)
+    assert output["executed"] is True
+    assert output["exit_code"] == 0

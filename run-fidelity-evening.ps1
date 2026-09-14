@@ -5,6 +5,8 @@ param(
     [string]$IdentityRoot = "",
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
+    [string]$ExecutionContext = "",
+    [switch]$ExecuteNextAction,
     [switch]$SkipBuild,
     [switch]$OpenSnapshots
 )
@@ -48,6 +50,71 @@ function Assert-SemanticallyEqualJson {
     $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress
     $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress
     if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }
+}
+
+function Invoke-GapExecutor {
+    param(
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$PlanPath,
+        [Parameter(Mandatory = $true)][string]$ContextPath,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [switch]$Execute
+    )
+    $arguments = @(
+        "-m", "bodyrig.fidelity_component_gap_executor",
+        "--plan", $PlanPath,
+        "--context", $ContextPath,
+        "--repo-root", $RepoRoot
+    )
+    if ($Execute) { $arguments += "--execute" }
+    $raw = @(& $Python @arguments 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Component-gap executor failed with exit code $LASTEXITCODE`: $($raw -join ' ')" }
+    if ($raw.Count -ne 1) { throw "Component-gap executor returned unexpected non-JSON output." }
+    try { return ([string]$raw[0]) | ConvertFrom-Json -Depth 50 }
+    catch { throw "Component-gap executor returned unreadable JSON." }
+}
+function Assert-GapExecutorResult {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][string]$ExpectedBodyId,
+        [Parameter(Mandatory = $true)][string]$ExpectedPackageSha,
+        [Parameter(Mandatory = $true)][string]$ExpectedActionId,
+        [switch]$ExecutionRequested
+    )
+    if ([string]$Value.format -ne "bodyrig-fidelity-component-gap-execution" -or -not (Test-V1Version $Value.version) -or
+        [string]$Value.bodyrig_revision -ne $ExpectedHead -or [string]$Value.body_id -ne $ExpectedBodyId -or
+        [string]$Value.source_gap_package_sha256 -ne $ExpectedPackageSha -or [string]$Value.action_id -ne $ExpectedActionId -or
+        $Value.human_visual_authority_required -ne $true -or $Value.production_activation -ne $false) {
+        throw "Component-gap executor result targets different plan/package/revision authority or crossed its review-only boundary."
+    }
+    $mode = ([string]$Value.mode).Trim()
+    $hasExecuted = $Value.PSObject.Properties.Name -contains "executed"
+    $hasExitCode = $Value.PSObject.Properties.Name -contains "exit_code"
+    if ($mode -eq "operator-stop") {
+        if ($Value.operator_input_required -ne $true -or $Value.reprobe_required_after_execution -ne $false -or
+            [string]::IsNullOrWhiteSpace([string]$Value.reason) -or $hasExecuted -or $hasExitCode) {
+            throw "Component-gap executor operator-stop result crossed its authority boundary."
+        }
+        return $mode
+    }
+    if ($mode -ne "machine-executable" -or $Value.operator_input_required -ne $false -or
+        $Value.reprobe_required_after_execution -ne $true) {
+        throw "Component-gap executor returned an unsupported execution mode/boundary."
+    }
+    if ($ExecutionRequested) {
+        if (-not $hasExecuted -or -not $hasExitCode -or $Value.executed -ne $true) {
+            throw "Component-gap executor did not confirm the requested one-step execution."
+        }
+        if ($Value.exit_code -is [bool] -or $Value.exit_code -isnot [ValueType]) {
+            throw "Component-gap executor exit_code is not exact numeric zero."
+        }
+        try { $exitCode = [decimal]$Value.exit_code } catch { throw "Component-gap executor exit_code is not numeric." }
+        if ($exitCode -ne [decimal]0) { throw "Component-gap executor reported non-zero execution status." }
+    } elseif ($hasExecuted -or $hasExitCode) {
+        throw "Dry-run component-gap routing unexpectedly executed work."
+    }
+    return $mode
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig evening command is Windows-only." }
@@ -222,7 +289,46 @@ if ([string]$gap.bodyrig_revision -ne $head -or [string]$gap.package_sha256 -ne 
 $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
 $missing = @($gap.missing_components | ForEach-Object { [string]$_ })
 $actions = @($gap.next_actions)
+if ($actions.Count -lt 1) { throw "Current-floor component gap plan has no qualified next action." }
+$expectedActionId = ([string]$actions[0].id).Trim()
+if ([string]::IsNullOrWhiteSpace($expectedActionId)) { throw "Current-floor component gap plan first action id is empty." }
 $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
+
+$temporaryExecutionContext = ""
+if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
+    $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context.empty-" + [Guid]::NewGuid().ToString("N") + ".json")
+    [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
+    $contextPath = $temporaryExecutionContext
+} else {
+    $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
+}
+try {
+    $execution = Invoke-GapExecutor -Python $BodyRigPython -PlanPath $gapPath -ContextPath $contextPath -RepoRoot $repoRoot -Execute:$ExecuteNextAction
+    $executionMode = Assert-GapExecutorResult `
+        -Value $execution `
+        -ExpectedHead $head `
+        -ExpectedBodyId ([string]$gap.body_id) `
+        -ExpectedPackageSha $physicalPackageSha `
+        -ExpectedActionId $expectedActionId `
+        -ExecutionRequested:$ExecuteNextAction
+} finally {
+    if (-not [string]::IsNullOrWhiteSpace($temporaryExecutionContext) -and (Test-Path -LiteralPath $temporaryExecutionContext -PathType Leaf)) {
+        Remove-Item -LiteralPath $temporaryExecutionContext -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($executionMode -eq "machine-executable" -and $ExecuteNextAction) {
+    Write-Host ""
+    Write-Host "============================================================"
+    Write-Host "BODYRIG ONE QUALIFIED COMPONENT-GAP STEP EXECUTED"
+    Write-Host "Action:           $expectedActionId"
+    Write-Host "Reprobe required: TRUE"
+    Write-Host "Human visual QA: REQUIRED"
+    Write-Host "Production:      FALSE"
+    Write-Host "Rerun this evening command to recompute physical evidence before any further action."
+    Write-Host "============================================================"
+    exit 0
+}
 
 Write-Host ""
 Write-Host "============================================================"
@@ -240,6 +346,16 @@ Write-Host "Qualified next actions:"
 foreach ($action in $actions) {
     $components = @($action.components | ForEach-Object { [string]$_ }) -join ", "
     Write-Host "- $([string]$action.id) [$components]: $([string]$action.reason)"
+}
+Write-Host ""
+Write-Host "Executor route:  $executionMode"
+if ($executionMode -eq "operator-stop") {
+    Write-Host "Executor stop:   $([string]$execution.reason)"
+    if ($execution.PSObject.Properties.Name -contains "operator_command" -and -not [string]::IsNullOrWhiteSpace([string]$execution.operator_command)) {
+        Write-Host "Operator command:$([string]$execution.operator_command)"
+    }
+} elseif (-not $ExecuteNextAction) {
+    Write-Host "Executor:        DRY RUN ONLY (use -ExecuteNextAction to run at most one qualified machine-safe action)"
 }
 Write-Host ""
 Write-Host "Human visual QA: REQUIRED"
