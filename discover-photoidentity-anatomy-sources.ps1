@@ -38,6 +38,10 @@ function Need-CommandArgument {
     if ([string]::IsNullOrWhiteSpace($value)) { throw "Pinned fitter $Name binding is empty." }
     return $value
 }
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "BodyRig anatomy source discovery is Windows-only."
@@ -81,7 +85,7 @@ try { $fitter = Get-Content -LiteralPath $fitterConfig -Raw -Encoding UTF8 | Con
 catch { throw "Baseline pinned SiTH fitter config is unreadable JSON." }
 if (
     [string]$fitter.format -ne "bodyrig-external-fitter-config" -or
-    [int]$fitter.version -ne 1 -or
+    -not (Test-V1Version $fitter.version) -or
     [string]$fitter.adapter -ne "sith-smplx-vrm" -or
     [string]$fitter.revision -ne "1"
 ) { throw "Anatomy discovery requires the exact built-in pinned SiTH fitter config." }
