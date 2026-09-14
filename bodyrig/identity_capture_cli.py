@@ -25,7 +25,13 @@ def validate_identity_capture_config(value: Any) -> dict[str, Any]:
     required = {"format", "version", "adapter", "revision", "command", "timeout_seconds"}
     if not isinstance(value, dict) or set(value) != required:
         raise IdentityCaptureConfigError("identity capture config fields must match v1 exactly")
-    if value["format"] != CONFIG_FORMAT or value["version"] != CONFIG_VERSION:
+    version = value["version"]
+    if (
+        value["format"] != CONFIG_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != CONFIG_VERSION
+    ):
         raise IdentityCaptureConfigError("unsupported identity capture config format/version")
     adapter = value["adapter"]
     if not isinstance(adapter, str) or not ADAPTER_RE.fullmatch(adapter):
