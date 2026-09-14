@@ -16,6 +16,11 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Resolve-BodyRigPython {
     $venv = Join-Path $repoRoot ".venv\Scripts\python.exe"
     if (Test-Path -LiteralPath $venv -PathType Leaf) {
@@ -41,7 +46,7 @@ if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
 }
 
 $renderValue = Get-Content -LiteralPath $renderAuthorityPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ([string]$renderValue.format -ne "bodyrig-hands-feet-nails-render-authority" -or [int]$renderValue.version -ne 1) {
+if ([string]$renderValue.format -ne "bodyrig-hands-feet-nails-render-authority" -or -not (Test-V1Version $renderValue.version)) {
     throw "M2 render authority format/version mismatch."
 }
 if ([string]$renderValue.bodyrig_revision -ne $revision) {

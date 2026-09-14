@@ -20,6 +20,11 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required for hands/feet/nails render review."
 }
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Need-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
     $normalized = $Value.Trim().ToLowerInvariant()
@@ -81,7 +86,7 @@ try {
     }
     $runtimeSha = Need-Sha256 ([string]$comparison.runtime_manifest_sha256) "comparison.runtime_manifest_sha256"
     $comparisonPackageSha = Need-Sha256 ([string]$comparison.package_sha256) "comparison.package_sha256"
-    if ([string]$comparison.format -ne "bodyrig-fidelity-comparison-authority" -or [int]$comparison.version -ne 1 -or
+    if ([string]$comparison.format -ne "bodyrig-fidelity-comparison-authority" -or -not (Test-V1Version $comparison.version) -or
         [string]$comparison.authority -ne "validated-package-comparison-only" -or
         [string]$comparison.bodyrig_revision -ne $revision -or
         $comparisonPackageSha -ne $packageSha -or
@@ -98,7 +103,7 @@ try {
     $value = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
     $views = @($value.snapshots | ForEach-Object { [string]$_.view })
     $expected = @("left_hand", "right_hand", "left_foot", "right_foot")
-    if ([string]$value.format -ne "bodyrig-hands-feet-nails-render-set" -or [int]$value.version -ne 1 -or
+    if ([string]$value.format -ne "bodyrig-hands-feet-nails-render-set" -or -not (Test-V1Version $value.version) -or
         [string]$value.semantics -ne "human-review-diagnostic-not-physical-pass" -or
         (Need-Sha256 ([string]$value.package_sha256) "detail.package_sha256") -ne $packageSha -or
         @(Compare-Object -ReferenceObject $expected -DifferenceObject $views -SyncWindow 0).Count -ne 0) {
