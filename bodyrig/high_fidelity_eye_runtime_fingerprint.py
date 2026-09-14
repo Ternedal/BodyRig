@@ -68,6 +68,10 @@ class HighFidelityEyeRuntimeFingerprintError(RuntimeError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -300,7 +304,7 @@ def _eye_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
     eye = bodyrig.get("eyeReviewRuntime") if isinstance(bodyrig, dict) else None
     if not isinstance(eye, dict) or set(eye) != EYE_METADATA_FIELDS:
         raise HighFidelityEyeRuntimeFingerprintError("embedded eye runtime metadata fields are not canonical")
-    if eye.get("format") != "bodyrig-source-eye-review-runtime-metadata" or eye.get("version") != 1:
+    if eye.get("format") != "bodyrig-source-eye-review-runtime-metadata" or not _v1(eye.get("version")):
         raise HighFidelityEyeRuntimeFingerprintError("embedded eye runtime metadata format/version is invalid")
     for field in ("eyeComponentReceiptSha256", "eyeAppearanceReceiptSha256", "canonicalEyeBakeSha256"):
         _sha(eye.get(field), label=f"eye metadata {field}")
@@ -577,7 +581,7 @@ def read_fingerprint(
     }
     if not isinstance(value, dict) or set(value) != required:
         raise HighFidelityEyeRuntimeFingerprintError("eye runtime fingerprint receipt fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _v1(value.get("version")) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityEyeRuntimeFingerprintError("eye runtime fingerprint format/version/policy mismatch")
     _revision(value.get("fingerprintBodyrigRevision"), label="fingerprint BodyRig revision")
     exact = {
