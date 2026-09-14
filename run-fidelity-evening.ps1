@@ -6,7 +6,6 @@ param(
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
     [string]$ExecutionContext = "",
-    [string]$HfnRoot = "",
     [string]$HfnPersonId = "",
     [string]$HfnBodyRevision = "",
     [switch]$ExecuteNextAction,
@@ -53,6 +52,37 @@ function Assert-SemanticallyEqualJson {
     $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress
     $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress
     if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }
+}
+
+function Resolve-CanonicalPersonLibrary {
+    param(
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$RepoRoot
+    )
+    $previousPythonPath = $env:PYTHONPATH
+    try {
+        $env:PYTHONPATH = $RepoRoot
+        $probeCode = 'import json,pathlib,bodyrig; from bodyrig.storage import person_library; print(json.dumps({"module":str(pathlib.Path(bodyrig.__file__).resolve()),"root":str(person_library())},separators=(",",":")))'
+        $raw = @(& $Python -c $probeCode 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
+            throw "Could not resolve canonical BodyRig person library from the current checkout."
+        }
+        try { $probe = ([string]$raw[0]) | ConvertFrom-Json -Depth 10 }
+        catch { throw "Canonical BodyRig person-library probe returned unreadable JSON." }
+        $moduleText = ([string]$probe.module).Trim()
+        $rootText = ([string]$probe.root).Trim()
+        if ([string]::IsNullOrWhiteSpace($moduleText) -or [string]::IsNullOrWhiteSpace($rootText)) {
+            throw "Canonical BodyRig person-library probe returned empty authority."
+        }
+        $modulePath = [IO.Path]::GetFullPath($moduleText)
+        $expectedModulePath = [IO.Path]::GetFullPath((Join-Path $RepoRoot "bodyrig\__init__.py"))
+        if (-not [string]::Equals($modulePath, $expectedModulePath, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "BodyRig Python did not import the exact current-checkout package: $modulePath"
+        }
+        return Need-Directory -Path $rootText -Label "Canonical BodyRig person library root"
+    } finally {
+        $env:PYTHONPATH = $previousPythonPath
+    }
 }
 
 function Invoke-GapExecutor {
@@ -298,21 +328,21 @@ if ([string]::IsNullOrWhiteSpace($expectedActionId)) { throw "Current-floor comp
 $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
 
 $temporaryExecutionContext = ""
-$hfnExplicitValues = @($HfnRoot, $HfnPersonId, $HfnBodyRevision)
+$hfnExplicitValues = @($HfnPersonId, $HfnBodyRevision)
 $hfnExplicitCount = @($hfnExplicitValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
 if (-not [string]::IsNullOrWhiteSpace($ExecutionContext) -and $hfnExplicitCount -gt 0) {
-    throw "ExecutionContext cannot be combined with HfnRoot/HfnPersonId/HfnBodyRevision; choose one explicit context authority."
+    throw "ExecutionContext cannot be combined with HfnPersonId/HfnBodyRevision; choose one explicit context authority."
 }
-if ($hfnExplicitCount -ne 0 -and $hfnExplicitCount -ne 3) {
-    throw "Derived HFN context requires HfnRoot, HfnPersonId and HfnBodyRevision together; partial identity authority is refused."
+if ($hfnExplicitCount -ne 0 -and $hfnExplicitCount -ne 2) {
+    throw "Derived HFN context requires HfnPersonId and HfnBodyRevision together; partial identity authority is refused."
 }
-if ($hfnExplicitCount -eq 3 -and $expectedActionId -ne "source-bound-hfn-continuation") {
+if ($hfnExplicitCount -eq 2 -and $expectedActionId -ne "source-bound-hfn-continuation") {
     throw "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action."
 }
 try {
     if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
     $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context-" + [Guid]::NewGuid().ToString("N") + ".json")
-    if ($hfnExplicitCount -eq 3) {
+    if ($hfnExplicitCount -eq 2) {
         if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
             throw "Derived HFN context requires the exact final face-secondary comparison package authority."
         }
@@ -320,7 +350,7 @@ try {
         if ((Sha256 $hfnPackagePath) -ne $physicalPackageSha) {
             throw "Derived HFN context package bytes differ from the final component-gap package authority."
         }
-        $hfnRootPath = Need-Directory -Path $HfnRoot -Label "HFN person library root"
+        $hfnRootPath = Resolve-CanonicalPersonLibrary -Python $BodyRigPython -RepoRoot $repoRoot
         $hfnTag = $physicalPackageSha.Substring(0, 12)
         $derivedContext = [ordered]@{
             package_path = $hfnPackagePath
