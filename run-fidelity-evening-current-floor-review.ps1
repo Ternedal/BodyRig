@@ -38,6 +38,11 @@ function Need-Sha256 {
     if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
     return $normalized
 }
+function Test-V1Version {
+    param($Value)
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Get-Head {
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
     $raw = @(& git -C $RepoRoot rev-parse HEAD 2>&1)
@@ -176,6 +181,40 @@ function Test-RetainedPreviewComplete {
     }
     return $true
 }
+function Test-FaceSecondaryPreviewComplete {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][string]$ExpectedSourcePackageSha,
+        [Parameter(Mandatory = $true)][string]$ExpectedHairEyeReceiptSha,
+        [Parameter(Mandatory = $true)][string]$ExpectedHairEyeVrmSha
+    )
+    $summaryPath = Join-Path $Path "face-secondary-hair-eye-preview.json"
+    $comparisonPackage = Join-Path $Path "comparison\face-secondary-hair-eye-comparison.mrbody"
+    $comparisonReceipt = Join-Path $Path "comparison\face-secondary-hair-eye-comparison.json"
+    $visibilityPath = Join-Path $Path "windows-preview\component-visibility-probe.json"
+    $renderSetPath = Join-Path $Path "windows-preview\snapshots\fidelity-render-set.json"
+    $gapPath = Join-Path $Path "component-gap-plan.json"
+    foreach ($required in @($summaryPath,$comparisonPackage,$comparisonReceipt,$visibilityPath,$renderSetPath,$gapPath)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { return $false }
+    }
+    try { $summary = Get-Content -LiteralPath $summaryPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 40 } catch { return $false }
+    if ([string]$summary.format -ne "bodyrig-face-secondary-hair-eye-windows-preview" -or -not (Test-V1Version $summary.version) -or
+        [string]$summary.bodyrig_revision -ne $ExpectedHead -or [string]$summary.source_package_sha256 -ne $ExpectedSourcePackageSha -or
+        [string]$summary.source_hair_eye_runtime_receipt_sha256 -ne $ExpectedHairEyeReceiptSha -or
+        [string]$summary.source_hair_eye_review_vrm_sha256 -ne $ExpectedHairEyeVrmSha -or
+        $summary.source_hair_preserved -ne $true -or $summary.source_eye_surface_preserved -ne $true -or
+        $summary.face_secondary_drawable -ne $true -or $summary.comparison_only -ne $true -or
+        $summary.physical_acceptance_authority -ne $false -or $summary.human_visual_authority_required -ne $true -or
+        $summary.package_promotion_authority -ne $false -or $summary.production_activation -ne $false) { return $false }
+    if ([string]$summary.comparison_package_sha256 -ne (Sha256 $comparisonPackage) -or
+        [string]$summary.comparison_receipt_sha256 -ne (Sha256 $comparisonReceipt) -or
+        [string]$summary.component_visibility_probe_sha256 -ne (Sha256 $visibilityPath) -or
+        [string]$summary.render_set_sha256 -ne (Sha256 $renderSetPath) -or [string]$summary.gap_plan_sha256 -ne (Sha256 $gapPath)) { return $false }
+    $drawable = @($summary.drawable_components | ForEach-Object { [string]$_ })
+    foreach ($required in @("hair","eyes","face-secondary")) { if (-not ($drawable -contains $required)) { return $false } }
+    return $true
+}
 function Assert-SemanticallyEqualJson {
     param([Parameter(Mandatory = $true)]$Expected,[Parameter(Mandatory = $true)]$Actual,[Parameter(Mandatory = $true)][string]$Label)
     $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress
@@ -207,6 +246,7 @@ Assert-CheckoutBoundPython -RepoRoot $repoRoot -Python $BodyRigPython
 $v5Review = Need-File -Path (Join-Path $repoRoot "run-fidelity-v5-review.ps1") -Label "V5 historical review runner"
 $refreshRunner = Need-File -Path (Join-Path $repoRoot "refresh-retained-fidelity-candidate.ps1") -Label "Current-floor retained package refresh runner"
 $retainedPreview = Need-File -Path (Join-Path $repoRoot "run-retained-hair-eye-preview.ps1") -Label "Retained hair+eye preview runner"
+$faceSecondaryPreview = Need-File -Path (Join-Path $repoRoot "run-face-secondary-hair-eye-windows-preview.ps1") -Label "Face-secondary on retained hair+eye preview runner"
 $tag = $head.Substring(0, 8)
 $reanalysisRoot = Join-Path $WorkRoot "reanalysis-v5-$tag"
 $decisionPath = Join-Path $reanalysisRoot "convergence-decision.json"
@@ -355,6 +395,7 @@ if (Test-RetainedPreviewComplete -Path $retainedOutput) {
 
 $visibilityPath = Need-File -Path (Join-Path $retainedOutput "windows-preview\component-visibility-probe.json") -Label "Physical component visibility probe"
 $renderSet = Need-File -Path (Join-Path $retainedOutput "windows-preview\snapshots\fidelity-render-set.json") -Label "Current-floor retained preview render set"
+$diagnosticRenderSet = $renderSet
 $gapProbeCode = @'
 import json,pathlib,sys
 from bodyrig.fidelity_component_gap import build_gap_plan
@@ -368,7 +409,58 @@ try { $gap = ([string]$gapRaw[0]) | ConvertFrom-Json -Depth 30 } catch { throw "
 if ([string]$gap.package_sha256 -ne $currentPackageSha -or [string]$gap.bodyrig_revision -ne $head) { throw "Component gap authority targets different current-floor bytes/revision." }
 $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
 if (-not ($drawable -contains "hair") -or -not ($drawable -contains "eyes")) { throw "Current-floor retained preview lacks physically drawable hair/eyes authority." }
-$visibility = Read-Json -Path $visibilityPath -Label "Physical component visibility probe"
+
+$physicalOutput = $retainedOutput
+$physicalAuthorityPackageSha = $currentPackageSha
+$faceSecondarySummaryPath = ""
+if (-not ($drawable -contains "face-secondary")) {
+    Write-Host ""
+    Write-Host "=== 3B/4 CURRENT-FLOOR FACE-SECONDARY PHYSICAL COMPARISON ==="
+    $hairEyeRuntimeDir = Need-Directory -Path (Join-Path $retainedOutput "runtime") -Label "Retained hair+eye runtime"
+    $hairEyeReceiptPath = Need-File -Path (Join-Path $hairEyeRuntimeDir "source-hair-eye-review-runtime.json") -Label "Retained hair+eye runtime receipt"
+    $hairEyeVrmPath = Need-File -Path (Join-Path $hairEyeRuntimeDir "source-hair-eye-review.vrm") -Label "Retained hair+eye review VRM"
+    $hairEyeReceiptSha = Sha256 $hairEyeReceiptPath
+    $hairEyeVrmSha = Sha256 $hairEyeVrmPath
+    $faceSecondaryOutput = Join-Path $eveningRoot "face-secondary-hair-eye-$selectedLabel"
+    $faceComplete = Test-FaceSecondaryPreviewComplete -Path $faceSecondaryOutput -ExpectedHead $head -ExpectedSourcePackageSha $currentPackageSha -ExpectedHairEyeReceiptSha $hairEyeReceiptSha -ExpectedHairEyeVrmSha $hairEyeVrmSha
+    if (-not $faceComplete) {
+        if (Test-Path -LiteralPath $faceSecondaryOutput) { throw "Face-secondary current-floor output exists but is incomplete/stale; refusing overwrite: $faceSecondaryOutput" }
+        $faceArgs = @{
+            PackagePath = $currentPackage
+            HairEyeRuntimeDir = $hairEyeRuntimeDir
+            OutputDir = $faceSecondaryOutput
+            BodyRigPython = $BodyRigPython
+        }
+        if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $faceArgs.UnityExe = $UnityExe }
+        if ($SkipBuild) { $faceArgs.SkipBuild = $true }
+        & $faceSecondaryPreview @faceArgs
+        if ($LASTEXITCODE -ne 0) { throw "Current-floor face-secondary comparison failed with exit code $LASTEXITCODE" }
+        Assert-HeadPinned -RepoRoot $repoRoot -Expected $head
+        if (-not (Test-FaceSecondaryPreviewComplete -Path $faceSecondaryOutput -ExpectedHead $head -ExpectedSourcePackageSha $currentPackageSha -ExpectedHairEyeReceiptSha $hairEyeReceiptSha -ExpectedHairEyeVrmSha $hairEyeVrmSha)) {
+            throw "Face-secondary comparison returned without complete hash-bound physical evidence."
+        }
+    } else {
+        Write-Host "Reusing complete face-secondary physical comparison: $faceSecondaryOutput"
+    }
+    $faceSecondarySummaryPath = Need-File -Path (Join-Path $faceSecondaryOutput "face-secondary-hair-eye-preview.json") -Label "Face-secondary physical comparison summary"
+    $faceSummary = Read-Json -Path $faceSecondarySummaryPath -Label "Face-secondary physical comparison summary"
+    $physicalAuthorityPackageSha = Need-Sha256 -Value ([string]$faceSummary.comparison_package_sha256) -Label "Face-secondary comparison package SHA-256"
+    $physicalOutput = $faceSecondaryOutput
+    $visibilityPath = Need-File -Path (Join-Path $faceSecondaryOutput "windows-preview\component-visibility-probe.json") -Label "Face-secondary component visibility probe"
+    $renderSet = Need-File -Path (Join-Path $faceSecondaryOutput "windows-preview\snapshots\fidelity-render-set.json") -Label "Face-secondary physical render set"
+    $finalGapPath = Need-File -Path (Join-Path $faceSecondaryOutput "component-gap-plan.json") -Label "Face-secondary component gap plan"
+    $gap = Read-Json -Path $finalGapPath -Label "Face-secondary component gap plan"
+    if ([string]$gap.package_sha256 -ne $physicalAuthorityPackageSha -or [string]$gap.bodyrig_revision -ne $head -or
+        $gap.human_visual_authority_required -ne $true -or $gap.production_activation -ne $false) {
+        throw "Face-secondary component gap authority targets different comparison bytes/revision or crossed authority."
+    }
+    $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
+    foreach ($required in @("hair","eyes","face-secondary")) {
+        if (-not ($drawable -contains $required)) { throw "Face-secondary current-floor comparison lacks physically drawable $required evidence." }
+    }
+}
+
+$visibility = Read-Json -Path $visibilityPath -Label "Final physical component visibility probe"
 $componentMap = @{}
 foreach ($item in @($visibility.components)) { $componentMap[[string]$item.label] = $item }
 
@@ -383,7 +475,7 @@ try {
     & $BodyRigPython -m bodyrig.fidelity_evaluator_cli `
         --rig-setup $rigSetup `
         --reference-set $referenceSet `
-        --render-set $renderSet `
+        --render-set $diagnosticRenderSet `
         --body-reference-rgba $bodyReference `
         --iteration 9001 `
         --allow-incomplete-component-comparison `
@@ -422,7 +514,11 @@ $summary = [ordered]@{
     selected_reconstruction_sha256 = [string]$workspaceInfo.ReconstructionSha256
     v5_historical_selection_decision_sha256 = Sha256 $decisionPath
     retained_preview_summary_sha256 = Sha256 (Need-File -Path (Join-Path $retainedOutput "retained-hair-eye-preview.json") -Label "Retained preview summary")
+    face_secondary_preview_summary_sha256 = $(if ([string]::IsNullOrWhiteSpace($faceSecondarySummaryPath)) { "" } else { Sha256 $faceSecondarySummaryPath })
+    physical_component_authority_package_sha256 = $physicalAuthorityPackageSha
     component_visibility_probe_sha256 = Sha256 $visibilityPath
+    component_gap_render_set_sha256 = Sha256 $renderSet
+    diagnostic_render_set_sha256 = Sha256 $diagnosticRenderSet
     diagnostic_evaluation_sha256 = Sha256 $diagnosticEvaluation
     current_floor_refit_repackage = $true
     expensive_reconstruction_rerun = $false
@@ -447,7 +543,7 @@ $summary = [ordered]@{
     physical_acceptance_authority = $false
     human_visual_authority_required = $true
     production_activation = $false
-    semantics = "current-floor-retained-hair-eye-physical-preview-plus-diagnostic-score-not-full-fidelity-acceptance"
+    semantics = "current-floor-component-continuation-physical-preview-plus-source-package-diagnostic-score-not-full-fidelity-acceptance"
 }
 if (Test-Path -LiteralPath $summaryPath -PathType Leaf) {
     $existing = Read-Json -Path $summaryPath -Label "Existing current-floor evening review summary"
@@ -468,13 +564,14 @@ Write-Host "Face diag:        $($diagnostic.measurement.scores.face_appearance)"
 Write-Host "Body diag:        $($diagnostic.measurement.scores.body_silhouette)"
 Write-Host "Hair drawable:    $($drawable -contains 'hair')"
 Write-Host "Eyes drawable:    $($drawable -contains 'eyes')"
+Write-Host "Face drawable:    $($drawable -contains 'face-secondary')"
 Write-Host "All 5 drawable:   $([bool]$visibility.all_required_present_and_visible)"
 Write-Host "SiTH rerun:       FALSE"
 Write-Host "Human QA:         REQUIRED"
 Write-Host "Production:       FALSE"
 Write-Host "Summary:          $summaryPath"
-Write-Host "Snapshots:        $(Join-Path $retainedOutput 'windows-preview\snapshots')"
+Write-Host "Snapshots:        $(Join-Path $physicalOutput 'windows-preview\snapshots')"
 Write-Host "============================================================"
 
-if ($OpenSnapshots) { Start-Process explorer.exe -ArgumentList @((Join-Path $retainedOutput "windows-preview\snapshots")) }
+if ($OpenSnapshots) { Start-Process explorer.exe -ArgumentList @((Join-Path $physicalOutput "windows-preview\snapshots")) }
 exit 0

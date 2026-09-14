@@ -88,6 +88,11 @@ def test_current_floor_review_validates_component_evidence_through_canonical_gap
     assert '($drawable -contains "hair")' in text
     assert '($drawable -contains "eyes")' in text
     assert "Current-floor retained preview lacks physically drawable hair/eyes authority." in text
+    assert "run-face-secondary-hair-eye-windows-preview.ps1" in text
+    assert 'if (-not ($drawable -contains "face-secondary"))' in text
+    assert "Face-secondary comparison returned without complete hash-bound physical evidence." in text
+    assert "physical_component_authority_package_sha256" in text
+    assert "face_secondary_preview_summary_sha256" in text
 
 
 def test_current_floor_review_recomputes_diagnostic_before_reuse() -> None:
@@ -95,6 +100,8 @@ def test_current_floor_review_recomputes_diagnostic_before_reuse() -> None:
 
     assert "=== 4/4 DIAGNOSTIC-ONLY V5 SCORE OF CURRENT-FLOOR HAIR + EYE PREVIEW ===" in text
     assert "--allow-incomplete-component-comparison" in text
+    assert "$diagnosticRenderSet = $renderSet" in text
+    assert "--render-set $diagnosticRenderSet" in text
     assert "--iteration 9001" in text
     assert "$diagnosticAttempt" in text
     assert "Freshly recomputed diagnostic evaluation" in text
@@ -113,3 +120,16 @@ def test_current_floor_review_summary_reuse_is_exact_semantic_authority() -> Non
     assert "physical_acceptance_authority = $false" in text
     assert "human_visual_authority_required = $true" in text
     assert "production_activation = $false" in text
+
+
+def test_current_floor_face_secondary_reprobe_does_not_change_diagnostic_candidate_lineage() -> None:
+    text = source()
+
+    assert '$physicalOutput = $retainedOutput' in text
+    assert '$physicalOutput = $faceSecondaryOutput' in text
+    assert '$physicalAuthorityPackageSha = $currentPackageSha' in text
+    assert 'comparison_package_sha256' in text
+    assert 'diagnostic_render_set_sha256 = Sha256 $diagnosticRenderSet' in text
+    assert 'component_gap_render_set_sha256 = Sha256 $renderSet' in text
+    assert 'Diagnostic evaluation targets different current-floor package bytes.' in text
+    assert "SiTH reconstruction: NEVER STARTED BY THIS RUNNER" in text

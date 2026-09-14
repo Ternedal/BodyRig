@@ -28,15 +28,26 @@ function Read-Json {
     try { return Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 50 }
     catch { throw "$Label is unreadable JSON: $resolved" }
 }
+function Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return (Get-FileHash -LiteralPath (Need-File -Path $Path -Label "Hash input") -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Need-Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Value,[Parameter(Mandatory = $true)][string]$Label)
+    $normalized = $Value.Trim().ToLowerInvariant()
+    if ($normalized -notmatch '^[0-9a-f]{64}$') { throw "$Label is not a canonical SHA-256." }
+    return $normalized
+}
+function Test-V1Version {
+    param($Value)
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Assert-SemanticallyEqualJson {
     param([Parameter(Mandatory = $true)]$Expected,[Parameter(Mandatory = $true)]$Actual,[Parameter(Mandatory = $true)][string]$Label)
     $expectedText = $Expected | ConvertTo-Json -Depth 50 -Compress
     $actualText = $Actual | ConvertTo-Json -Depth 50 -Compress
     if ($expectedText -ne $actualText) { throw "$Label differs from freshly recomputed authority; refusing stale/tampered reuse." }
-}
-function Test-V1Version($Value) {
-    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
-    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
 }
 
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { throw "BodyRig evening command is Windows-only." }
@@ -107,8 +118,31 @@ $selected = ([string]$summary.selected_candidate).Trim()
 if ($selected -notin @("baseline","refit1","reconstruction2")) { throw "Current-floor evening summary selected_candidate is invalid." }
 
 $retainedRoot = Need-Directory -Path (Join-Path $eveningRoot "retained-hair-eye-$selected") -Label "Current-floor retained preview"
-$visibility = Need-File -Path (Join-Path $retainedRoot "windows-preview\component-visibility-probe.json") -Label "Unity component visibility probe"
-$renderSet = Need-File -Path (Join-Path $retainedRoot "windows-preview\snapshots\fidelity-render-set.json") -Label "Current-floor fidelity render set"
+$currentFloorPackageSha = Need-Sha256 -Value ([string]$summary.current_floor_package_sha256) -Label "Current-floor package SHA-256"
+$physicalPackageSha = Need-Sha256 -Value ([string]$summary.physical_component_authority_package_sha256) -Label "Physical component authority package SHA-256"
+$physicalRoot = $retainedRoot
+$faceSummarySha = ([string]$summary.face_secondary_preview_summary_sha256).Trim().ToLowerInvariant()
+if (-not [string]::IsNullOrWhiteSpace($faceSummarySha)) {
+    $faceSummarySha = Need-Sha256 -Value $faceSummarySha -Label "Face-secondary preview summary SHA-256"
+    $faceRoot = Need-Directory -Path (Join-Path $eveningRoot "face-secondary-hair-eye-$selected") -Label "Current-floor face-secondary physical comparison"
+    $faceSummaryPath = Need-File -Path (Join-Path $faceRoot "face-secondary-hair-eye-preview.json") -Label "Face-secondary physical comparison summary"
+    if ((Sha256 $faceSummaryPath) -ne $faceSummarySha) { throw "Face-secondary preview summary bytes differ from current-floor summary authority." }
+    $faceSummary = Read-Json -Path $faceSummaryPath -Label "Face-secondary physical comparison summary"
+    if ([string]$faceSummary.format -ne "bodyrig-face-secondary-hair-eye-windows-preview" -or -not (Test-V1Version $faceSummary.version) -or
+        [string]$faceSummary.bodyrig_revision -ne $head -or [string]$faceSummary.source_package_sha256 -ne $currentFloorPackageSha -or
+        $faceSummary.face_secondary_drawable -ne $true -or $faceSummary.comparison_only -ne $true -or
+        $faceSummary.physical_acceptance_authority -ne $false -or $faceSummary.human_visual_authority_required -ne $true -or
+        $faceSummary.package_promotion_authority -ne $false -or $faceSummary.production_activation -ne $false) {
+        throw "Face-secondary physical comparison crossed its review-only authority boundary."
+    }
+    $facePackageSha = Need-Sha256 -Value ([string]$faceSummary.comparison_package_sha256) -Label "Face-secondary comparison package SHA-256"
+    if ($facePackageSha -ne $physicalPackageSha) { throw "Current-floor summary points at a different physical comparison package." }
+    $physicalRoot = $faceRoot
+} elseif ($physicalPackageSha -ne $currentFloorPackageSha) {
+    throw "Current-floor summary has no face-secondary evidence but points at different physical package bytes."
+}
+$visibility = Need-File -Path (Join-Path $physicalRoot "windows-preview\component-visibility-probe.json") -Label "Unity component visibility probe"
+$renderSet = Need-File -Path (Join-Path $physicalRoot "windows-preview\snapshots\fidelity-render-set.json") -Label "Current-floor physical fidelity render set"
 $gapPath = Join-Path $eveningRoot "component-gap-plan.json"
 $gapAttempt = Join-Path $eveningRoot (".component-gap-plan.verify-" + [Guid]::NewGuid().ToString("N") + ".json")
 try {
@@ -133,14 +167,14 @@ try {
 }
 
 $gap = Read-Json -Path $gapPath -Label "Current-floor component gap plan"
-if ([string]$gap.bodyrig_revision -ne $head -or [string]$gap.package_sha256 -ne [string]$summary.current_floor_package_sha256 -or
+if ([string]$gap.bodyrig_revision -ne $head -or [string]$gap.package_sha256 -ne $physicalPackageSha -or
     $gap.human_visual_authority_required -ne $true -or $gap.production_activation -ne $false) {
     throw "Current-floor component gap plan targets different package/revision or crossed authority."
 }
 $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
 $missing = @($gap.missing_components | ForEach-Object { [string]$_ })
 $actions = @($gap.next_actions)
-$snapshotDir = Need-Directory -Path (Join-Path $retainedRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
+$snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
 
 Write-Host ""
 Write-Host "============================================================"
