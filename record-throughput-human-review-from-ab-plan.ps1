@@ -42,6 +42,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -92,7 +97,7 @@ function Invoke-PbrGateProbe {
         if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) { throw "PBR gate validation failed at throughput human review: $($raw -join ' ')" }
         try { $value = ([string]$raw[0]) | ConvertFrom-Json -Depth 40 }
         catch { throw "PBR gate validator returned unreadable JSON." }
-        if ([string]$value.format -ne "bodyrig-pbr-human-review-gate-context" -or [int]$value.version -ne 1) { throw "PBR gate validator returned wrong format/version." }
+        if ([string]$value.format -ne "bodyrig-pbr-human-review-gate-context" -or -not (Test-V1Version $value.version)) { throw "PBR gate validator returned wrong format/version." }
         return $value
     } finally {
         if ($null -eq $oldPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") } else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
@@ -102,7 +107,7 @@ function Invoke-PbrGateProbe {
 
 function Assert-GateMatchesProbe {
     param([Parameter(Mandatory = $true)]$Gate,[Parameter(Mandatory = $true)]$Probe)
-    if ([string]$Gate.format -ne "bodyrig-throughput-pbr-human-review-gate" -or [int]$Gate.version -ne 1) { throw "PBR-to-throughput gate format/version mismatch." }
+    if ([string]$Gate.format -ne "bodyrig-throughput-pbr-human-review-gate" -or -not (Test-V1Version $Gate.version)) { throw "PBR-to-throughput gate format/version mismatch." }
     if ($Gate.comparison_only -ne $true -or $Gate.human_visual_authority_recorded -ne $true -or $Gate.physical_acceptance_authority -ne $false -or $Gate.promotion_authority -ne $false -or $Gate.production_activation -ne $false) { throw "PBR-to-throughput gate crossed authority boundary." }
     foreach ($field in @(
         "baseline_job_id","person_id","stash_performer_id","baseline_plan_sha256","candidate_contract_sha256","baseline_revision",
@@ -123,7 +128,7 @@ function Assert-ContinuationMatchesGate {
         [Parameter(Mandatory = $true)][string]$GateSha,
         [Parameter(Mandatory = $true)][string]$RunPlanSha
     )
-    if ([string]$Continuation.format -ne "bodyrig-throughput-plan-bound-review-continuation" -or [int]$Continuation.version -ne 1) { throw "Throughput continuation authority format/version mismatch at canonical human review." }
+    if ([string]$Continuation.format -ne "bodyrig-throughput-plan-bound-review-continuation" -or -not (Test-V1Version $Continuation.version)) { throw "Throughput continuation authority format/version mismatch at canonical human review." }
     if ($Continuation.comparison_only -ne $true -or $Continuation.human_visual_authority_required -ne $true -or $Continuation.physical_acceptance_authority -ne $false -or $Continuation.promotion_authority -ne $false -or $Continuation.production_activation -ne $false) { throw "Throughput continuation authority crossed canonical comparison-only boundary." }
     if ($Continuation.pbr_to_throughput_sequence_verified -ne $true -or $Continuation.source_performer_parity_verified -ne $true) { throw "Throughput continuation authority does not prove PBR sequencing and exact Stash performer parity." }
     if (
@@ -204,7 +209,7 @@ Assert-ContinuationMatchesGate -Continuation $continuationAfter -Gate $gate -Gat
 
 $intermediateAuthorityPath = Need-File -Path $intermediateAuthorityPath -Label "intermediate plan-bound throughput human-review authority"
 $intermediate = Read-Json -Path $intermediateAuthorityPath -Label "intermediate plan-bound throughput human-review authority"
-if ([string]$intermediate.format -ne "bodyrig-throughput-plan-bound-human-review-authority" -or [int]$intermediate.version -ne 1) { throw "Intermediate throughput human-review authority format/version mismatch." }
+if ([string]$intermediate.format -ne "bodyrig-throughput-plan-bound-human-review-authority" -or -not (Test-V1Version $intermediate.version)) { throw "Intermediate throughput human-review authority format/version mismatch." }
 if ([string]$intermediate.baseline_job_id -ne $BaselineJobId -or [string]$intermediate.candidate_job_id -ne $CandidateJobId -or [string]$intermediate.person_id -ne [string]$gate.person_id) { throw "Intermediate throughput human-review authority does not match PBR-gated jobs/Person." }
 if ([string]$intermediate.baseline_plan_sha256 -ne [string]$gate.baseline_plan_sha256 -or [string]$intermediate.candidate_run_plan_sha256 -ne $runPlanSha -or [string]$intermediate.candidate_contract_sha256 -ne [string]$gate.candidate_contract_sha256) { throw "Intermediate throughput human-review authority does not bind PBR-gated plan bytes." }
 if ([string]$intermediate.baseline_bodyrig_revision -ne [string]$gate.baseline_revision -or [string]$intermediate.throughput_candidate_ref -ne [string]$gate.throughput_candidate_ref -or [string]$intermediate.throughput_candidate_revision -ne [string]$gate.throughput_candidate_revision) { throw "Intermediate throughput human-review authority does not bind PBR-gated revisions." }
