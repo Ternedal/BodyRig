@@ -197,12 +197,22 @@ def _hair_eye_execution(plan: Mapping[str, Any], context: Mapping[str, Any], rep
 
 def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_root: Path) -> dict[str, Any]:
     preview_job_id = str(context.get("preview_job_id") or "").strip()
-    if not preview_job_id:
-        raise FidelityComponentGapExecutionError("face-secondary execution requires preview_job_id for canonical continuation lineage")
+    preview_lineage_resolution = "explicit"
     try:
-        preview = preview_manager.get(preview_job_id)
+        if preview_job_id:
+            preview = preview_manager.get(preview_job_id)
+        else:
+            preview = preview_manager.resolve_succeeded_candidate(
+                canonical_body_id=plan["body_id"],
+                bodyrig_revision=plan["bodyrig_revision"],
+                candidate_package_sha256=plan["package_sha256"],
+            )
+            preview_job_id = str(preview.get("job_id") or "").strip()
+            preview_lineage_resolution = "auto-exact-candidate"
     except Exception as exc:
         raise FidelityComponentGapExecutionError("face-secondary preview lineage is unavailable or invalid") from exc
+    if not preview_job_id:
+        raise FidelityComponentGapExecutionError("resolved face-secondary preview lineage has no job id")
     if preview.get("status") != "succeeded":
         raise FidelityComponentGapExecutionError("face-secondary execution requires a succeeded high-fidelity preview")
     preview_body_id = str(preview.get("canonical_body_id") or "").strip()
@@ -218,6 +228,15 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
         raise FidelityComponentGapExecutionError("face-secondary preview belongs to a different canonical body than the gap plan")
     if preview_revision != plan["bodyrig_revision"]:
         raise FidelityComponentGapExecutionError("face-secondary preview targets a different BodyRig revision than the gap plan")
+    preview_candidate_sha = _canonical_sha(
+        preview.get("candidate_package_sha256"),
+        field="preview candidate package SHA",
+        length=64,
+    )
+    if preview_candidate_sha != plan["package_sha256"]:
+        raise FidelityComponentGapExecutionError(
+            "face-secondary preview targets a different candidate package than the Unity gap plan"
+        )
     status = inspect_continuation(preview_job_id)
     if status.get("production_activation") is not False or status.get("production_ready") is not False:
         raise FidelityComponentGapExecutionError("high-fidelity continuation crossed the non-production boundary")
@@ -265,6 +284,8 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
         "person_id": preview_person_id,
         "canonical_body_id": preview_body_id,
         "preview_bodyrig_revision": preview_revision,
+        "preview_candidate_package_sha256": preview_candidate_sha,
+        "preview_lineage_resolution": preview_lineage_resolution,
     }
 
 
