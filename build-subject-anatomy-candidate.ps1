@@ -11,6 +11,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
 function Need-File {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -158,7 +162,7 @@ try { $fidelity = ([string]$fidelityRaw[0]) | ConvertFrom-Json -Depth 20 }
 catch { throw "High-fidelity package audit returned unreadable JSON." }
 $expectedFaceBlockers = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
 if ([string]$fidelity.format -ne "bodyrig-high-fidelity-package-audit" -or
-    [int]$fidelity.version -ne 1 -or
+    -not (Test-V1Version $fidelity.version) -or
     [string]$fidelity.package_sha256 -ne [string]$validated.package_sha256 -or
     [string]$fidelity.canonical_body_id -ne [string]$validated.body_id -or
     $fidelity.high_fidelity_ready -ne $false -or
