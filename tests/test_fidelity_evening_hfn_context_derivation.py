@@ -68,3 +68,15 @@ def test_derived_context_preserves_one_step_executor_and_human_boundaries() -> N
     assert 'Rerun this evening command to recompute physical evidence before any further action.' in text
     assert 'record-high-fidelity-hfn-review.ps1' not in text
     assert 'record-high-fidelity-human-review.ps1' not in text
+
+def test_temporary_context_creation_is_inside_cleanup_try() -> None:
+    text = source()
+    anchor = text.index('$temporaryExecutionContext = ""')
+    try_pos = text.index('try {', anchor)
+    derived_write_pos = text.index('[IO.File]::WriteAllText($temporaryExecutionContext, $derivedContextJson', anchor)
+    empty_write_pos = text.index('[IO.File]::WriteAllText($temporaryExecutionContext, "{}"', anchor)
+    finally_pos = text.index('} finally {', try_pos)
+    cleanup_pos = text.index('Remove-Item -LiteralPath $temporaryExecutionContext -Force', finally_pos)
+    assert try_pos < derived_write_pos < finally_pos
+    assert try_pos < empty_write_pos < finally_pos
+    assert cleanup_pos > finally_pos
