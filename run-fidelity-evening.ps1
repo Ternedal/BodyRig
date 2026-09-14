@@ -6,6 +6,9 @@ param(
     [string]$BodyRigPython = "",
     [string]$UnityExe = "",
     [string]$ExecutionContext = "",
+    [string]$HfnRoot = "",
+    [string]$HfnPersonId = "",
+    [string]$HfnBodyRevision = "",
     [switch]$ExecuteNextAction,
     [switch]$SkipBuild,
     [switch]$OpenSnapshots
@@ -295,9 +298,43 @@ if ([string]::IsNullOrWhiteSpace($expectedActionId)) { throw "Current-floor comp
 $snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
 
 $temporaryExecutionContext = ""
+$hfnExplicitValues = @($HfnRoot, $HfnPersonId, $HfnBodyRevision)
+$hfnExplicitCount = @($hfnExplicitValues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }).Count
+if (-not [string]::IsNullOrWhiteSpace($ExecutionContext) -and $hfnExplicitCount -gt 0) {
+    throw "ExecutionContext cannot be combined with HfnRoot/HfnPersonId/HfnBodyRevision; choose one explicit context authority."
+}
+if ($hfnExplicitCount -ne 0 -and $hfnExplicitCount -ne 3) {
+    throw "Derived HFN context requires HfnRoot, HfnPersonId and HfnBodyRevision together; partial identity authority is refused."
+}
+if ($hfnExplicitCount -eq 3 -and $expectedActionId -ne "source-bound-hfn-continuation") {
+    throw "Explicit HFN identity context is only valid when source-bound-hfn-continuation is the qualified next action."
+}
 if ([string]::IsNullOrWhiteSpace($ExecutionContext)) {
-    $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context.empty-" + [Guid]::NewGuid().ToString("N") + ".json")
-    [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
+    $temporaryExecutionContext = Join-Path $eveningRoot (".component-gap-execution-context-" + [Guid]::NewGuid().ToString("N") + ".json")
+    if ($hfnExplicitCount -eq 3) {
+        if ($physicalKind -ne "face-secondary-hair-eye-comparison") {
+            throw "Derived HFN context requires the exact final face-secondary comparison package authority."
+        }
+        $hfnPackagePath = Need-File -Path (Join-Path $physicalRoot "comparison\face-secondary-hair-eye-comparison.mrbody") -Label "Final face-secondary package for HFN continuation"
+        if ((Sha256 $hfnPackagePath) -ne $physicalPackageSha) {
+            throw "Derived HFN context package bytes differ from the final component-gap package authority."
+        }
+        $hfnRootPath = Need-Directory -Path $HfnRoot -Label "HFN person library root"
+        $hfnTag = $physicalPackageSha.Substring(0, 12)
+        $derivedContext = [ordered]@{
+            package_path = $hfnPackagePath
+            hfn_root = $hfnRootPath
+            person_id = $HfnPersonId.Trim()
+            body_revision = $HfnBodyRevision.Trim()
+            hfn_render_dir = (Join-Path $eveningRoot "hfn-render-$selected-$hfnTag")
+            hfn_human_review_dir = (Join-Path $eveningRoot "hfn-human-review-$selected-$hfnTag")
+        }
+        $derivedContextJson = $derivedContext | ConvertTo-Json -Depth 10 -Compress
+        [IO.File]::WriteAllText($temporaryExecutionContext, $derivedContextJson, [Text.UTF8Encoding]::new($false))
+        Write-Host "Derived exact HFN executor context from final physical package plus explicit HFN identity authority."
+    } else {
+        [IO.File]::WriteAllText($temporaryExecutionContext, "{}", [Text.UTF8Encoding]::new($false))
+    }
     $contextPath = $temporaryExecutionContext
 } else {
     $contextPath = Need-File -Path $ExecutionContext -Label "Component-gap execution context"
