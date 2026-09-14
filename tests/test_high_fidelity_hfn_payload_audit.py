@@ -7,6 +7,9 @@ import pytest
 import bodyrig.high_fidelity_package_audit as audit
 
 
+DETAIL_METHOD = "source-landmark-fingernail-toenail-residual-skinned-uv-v3"
+
+
 def _payload() -> bytes:
     return audit.PNG_SIGNATURE + b"bodyrig-hfn-detail-payload"
 
@@ -21,7 +24,7 @@ def _application(candidate_sha: str) -> dict[str, object]:
         "bodyRevision": "body-r0001",
         "captureId": "hfncap-" + "3" * 32,
         "bodyrigRevision": "4" * 40,
-        "method": "source-landmark-fingernail-residual-skinned-uv-v2",
+        "method": DETAIL_METHOD,
         "sourcePackageSha256": "5" * 64,
         "sourceCaptureSha256": "6" * 64,
         "landmarkEvidenceSha256": "7" * 64,
@@ -84,7 +87,7 @@ def test_hfn_payload_audit_binds_application_to_active_body_texture_bytes() -> N
     assert result["image"] == 0
     assert result["buffer_view"] == 0
     assert result["base_color_sha256"] == hashlib.sha256(payload).hexdigest()
-    assert result["method"] == "source-landmark-fingernail-residual-skinned-uv-v2"
+    assert result["method"] == DETAIL_METHOD
 
 
 def test_hfn_payload_audit_rejects_tampered_active_texture_bytes() -> None:

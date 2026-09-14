@@ -15,6 +15,7 @@ REVISION = "a" * 40
 SOURCE_SHA = hashlib.sha256(b"source package").hexdigest()
 CANDIDATE_SHA = hashlib.sha256(b"candidate package").hexdigest()
 GEOMETRY_SHA = hashlib.sha256(b"geometry package").hexdigest()
+TOENAIL_SHA = hashlib.sha256(b"toenail package").hexdigest()
 
 
 def _source_package(tmp_path: Path) -> Path:
@@ -50,22 +51,38 @@ def _candidate(root: Path, *, capture: str, candidate: str, source_sha: str = SO
 
 
 def _install_geometry(monkeypatch, tmp_path: Path, candidate: dict[str, object]) -> Path:
-    package = tmp_path / "geometry.mrbody"
-    package.write_bytes(b"geometry package")
-    receipt = tmp_path / "geometry.json"
-    receipt.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setattr(subject, "geometry_paths", lambda *args, **kwargs: (package, receipt))
+    fingernail_package = tmp_path / "geometry.mrbody"
+    fingernail_package.write_bytes(b"geometry package")
+    fingernail_receipt = tmp_path / "geometry.json"
+    fingernail_receipt.write_text("{}\n", encoding="utf-8")
+    toenail_package = tmp_path / "toenail.mrbody"
+    toenail_package.write_bytes(b"toenail package")
+    toenail_receipt = tmp_path / "toenail.json"
+    toenail_receipt.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(subject, "geometry_paths", lambda *args, **kwargs: (fingernail_package, fingernail_receipt))
+    monkeypatch.setattr(subject, "read_fingernail_geometry_candidate", lambda *args, **kwargs: {
+        **candidate,
+        "package_path": str(fingernail_package),
+        "receipt_path": str(fingernail_receipt),
+        "geometry_package_sha256": GEOMETRY_SHA,
+        "plate_count": 10,
+    })
+    monkeypatch.setattr(subject, "toenail_geometry_paths", lambda *args, **kwargs: (toenail_package, toenail_receipt))
     monkeypatch.setattr(subject, "_geometry_review_candidate", lambda *args, **kwargs: {
         **candidate,
-        "package_path": str(package),
-        "receipt_path": str(receipt),
-        "candidate_package_sha256": GEOMETRY_SHA,
+        "package_path": str(toenail_package),
+        "receipt_path": str(toenail_receipt),
+        "candidate_package_sha256": TOENAIL_SHA,
         "candidate_avatar_sha256": "c" * 64,
         "detail_candidate_package_sha256": CANDIDATE_SHA,
         "fingernail_geometry_package_sha256": GEOMETRY_SHA,
         "fingernail_plate_count": 10,
+        "toenail_geometry_package_sha256": TOENAIL_SHA,
+        "toenail_plate_count": 10,
+        "individual_middle_toe_landmarks_observed": False,
     })
-    return package
+    return toenail_package
 
 
 def test_missing_candidate_returns_exact_source_bound_operator_action(tmp_path: Path) -> None:
@@ -103,7 +120,7 @@ def test_matching_candidate_with_geometry_becomes_current_package_and_requires_c
     candidate = _candidate(root, capture=capture, candidate=candidate_id)
     candidate_path = Path(candidate["package_path"])
     candidate_path.write_bytes(b"candidate package")
-    geometry_path = _install_geometry(monkeypatch, tmp_path, candidate)
+    toenail_path = _install_geometry(monkeypatch, tmp_path, candidate)
     monkeypatch.setattr(subject, "read_detail_candidate", lambda *args, **kwargs: dict(candidate))
 
     result = subject.inspect_hfn_continuation(
@@ -120,13 +137,15 @@ def test_matching_candidate_with_geometry_becomes_current_package_and_requires_c
     assert [gate["id"] for gate in result["gates"]] == [subject.CANDIDATE_GATE, subject.RENDER_GATE]
     assert result["gates"][0]["state"] == "pass"
     assert result["gates"][0]["evidence"]["fingernail_plate_count"] == 10
+    assert result["gates"][0]["evidence"]["toenail_plate_count"] == 10
+    assert result["gates"][0]["evidence"]["individual_middle_toe_landmarks_observed"] is False
     assert result["gates"][1]["state"] == "required"
-    assert result["package_path"] == geometry_path.resolve()
-    assert result["package_sha256"] == GEOMETRY_SHA
+    assert result["package_path"] == toenail_path.resolve()
+    assert result["package_sha256"] == TOENAIL_SHA
     action = result["actions"][subject.RENDER_GATE]
     assert action["operator_input_required"] is False
     assert "prepare-hands-feet-nails-render-review.ps1" in action["command"]
-    assert str(geometry_path.resolve()) in action["command"]
+    assert str(toenail_path.resolve()) in action["command"]
     assert str(candidate_path.resolve()) not in action["command"]
 
 
@@ -198,6 +217,7 @@ def test_review_gate_requires_operator_input_after_exact_geometry_render_pass(tm
 
     assert [gate["state"] for gate in result["gates"]] == ["pass", "pass", "required"]
     assert result["gates"][1]["evidence"]["fingernail_geometry_package_sha256"] == GEOMETRY_SHA
+    assert result["gates"][1]["evidence"]["toenail_geometry_package_sha256"] == TOENAIL_SHA
     action = result["actions"][subject.HUMAN_GATE]
     assert action["operator_input_required"] is True
     assert "record-high-fidelity-hfn-review.ps1" in action["command"]

@@ -18,6 +18,10 @@ from .hands_feet_nails_fingernail_geometry_candidate import (
     HandsFeetNailsFingernailGeometryError,
     read_fingernail_geometry_candidate,
 )
+from .hands_feet_nails_toenail_geometry_candidate import (
+    HandsFeetNailsToenailGeometryError,
+    read_toenail_geometry_candidate,
+)
 from .hands_feet_nails_source_capture import (
     HandsFeetNailsSourceCaptureError,
     capture_dir,
@@ -144,7 +148,7 @@ def _read_candidate_strict(
 
 def _read_geometry_strict(root: Path, detail: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        geometry = read_fingernail_geometry_candidate(
+        fingernail = read_fingernail_geometry_candidate(
             root,
             str(detail["person_id"]),
             body_revision=str(detail["body_revision"]),
@@ -155,20 +159,50 @@ def _read_geometry_strict(root: Path, detail: Mapping[str, Any]) -> dict[str, An
         raise HighFidelityHfnReviewError(
             f"HFN human review requires exact fingernail geometry authority: {exc}"
         ) from exc
-    if not _is_v1(geometry.get("version")):
+    if not _is_v1(fingernail.get("version")):
         raise HighFidelityHfnReviewError("HFN fingernail geometry version is not canonical v1")
     detail_receipt = Path(str(detail["receipt_path"])).expanduser().resolve()
     if (
-        geometry.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
-        or geometry.get("source_detail_receipt_sha256") != _sha256(detail_receipt)
-        or geometry.get("body_id") != detail.get("body_id")
-        or geometry.get("bodyrig_revision") != detail.get("bodyrig_revision")
-        or geometry.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
+        fingernail.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
+        or fingernail.get("source_detail_receipt_sha256") != _sha256(detail_receipt)
+        or fingernail.get("body_id") != detail.get("body_id")
+        or fingernail.get("bodyrig_revision") != detail.get("bodyrig_revision")
+        or fingernail.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
     ):
         raise HighFidelityHfnReviewError(
             "HFN fingernail geometry no longer binds the exact detail candidate authority"
         )
-    return geometry
+    try:
+        toenail = read_toenail_geometry_candidate(
+            root,
+            str(detail["person_id"]),
+            body_revision=str(detail["body_revision"]),
+            capture_id=str(detail["capture_id"]),
+            candidate_id=str(detail["candidate_id"]),
+        )
+    except HandsFeetNailsToenailGeometryError as exc:
+        raise HighFidelityHfnReviewError(
+            f"HFN human review requires exact toenail geometry authority: {exc}"
+        ) from exc
+    fingernail_receipt = Path(str(fingernail["receipt_path"])).expanduser().resolve()
+    if (
+        toenail.get("source_fingernail_package_sha256") != fingernail.get("geometry_package_sha256")
+        or toenail.get("source_fingernail_receipt_sha256") != _sha256(fingernail_receipt)
+        or toenail.get("source_detail_package_sha256") != detail.get("candidate_package_sha256")
+        or toenail.get("body_id") != detail.get("body_id")
+        or toenail.get("bodyrig_revision") != detail.get("bodyrig_revision")
+        or toenail.get("active_basecolor_sha256") != detail.get("candidate_basecolor_sha256")
+        or toenail.get("plate_count") != 10
+    ):
+        raise HighFidelityHfnReviewError(
+            "HFN toenail geometry no longer binds the exact fingernail/detail candidate authority"
+        )
+    return {
+        **dict(toenail),
+        "fingernail_geometry_package_sha256": str(fingernail["geometry_package_sha256"]),
+        "fingernail_geometry_receipt_sha256": _sha256(fingernail_receipt),
+        "fingernail_plate_count": int(fingernail["plate_count"]),
+    }
 
 
 def _review_candidate(detail: Mapping[str, Any], geometry: Mapping[str, Any]) -> dict[str, Any]:
@@ -178,9 +212,12 @@ def _review_candidate(detail: Mapping[str, Any], geometry: Mapping[str, Any]) ->
         "candidate_avatar_sha256": str(geometry["geometry_avatar_sha256"]),
         "package_path": str(geometry["package_path"]),
         "receipt_path": str(geometry["receipt_path"]),
-        "fingernail_geometry_package_sha256": str(geometry["geometry_package_sha256"]),
-        "fingernail_geometry_receipt_sha256": _sha256(Path(str(geometry["receipt_path"])).resolve()),
-        "fingernail_plate_count": int(geometry["plate_count"]),
+        "fingernail_geometry_package_sha256": str(geometry["fingernail_geometry_package_sha256"]),
+        "fingernail_geometry_receipt_sha256": str(geometry["fingernail_geometry_receipt_sha256"]),
+        "fingernail_plate_count": int(geometry["fingernail_plate_count"]),
+        "toenail_geometry_package_sha256": str(geometry["geometry_package_sha256"]),
+        "toenail_geometry_receipt_sha256": _sha256(Path(str(geometry["receipt_path"])).resolve()),
+        "toenail_plate_count": int(geometry["plate_count"]),
     }
 
 

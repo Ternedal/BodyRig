@@ -15,8 +15,8 @@ def _subtle_source(size: int = 64) -> Image.Image:
     return image
 
 
-def test_method_is_landmark_driven_v2() -> None:
-    assert subject.METHOD == "source-landmark-fingernail-residual-skinned-uv-v2"
+def test_method_is_landmark_driven_v3_for_fingernails_and_toenails() -> None:
+    assert subject.METHOD == "source-landmark-fingernail-toenail-residual-skinned-uv-v3"
     assert subject.MAX_CHANNEL_DELTA_LEVELS > subject.RESIDUAL_MAX_CHANNEL_DELTA_LEVELS
     assert set(subject.HAND_NAIL_JOINTS["left_hand"]) == {
         "thumb", "index", "middle", "ring", "pinky"
@@ -24,6 +24,8 @@ def test_method_is_landmark_driven_v2() -> None:
     assert set(subject.HAND_NAIL_JOINTS["right_hand"]) == {
         "thumb", "index", "middle", "ring", "pinky"
     }
+    assert tuple(subject.FOOT_REGIONS) == ("left_foot", "right_foot")
+    assert tuple(subject.TOE_LABELS) == ("big_toe", "toe_2", "toe_3", "toe_4", "small_toe")
 
 
 def test_residual_map_is_bounded_and_source_derived() -> None:

@@ -16,6 +16,13 @@ from .hands_feet_nails_landmark_evidence import (
     validate_landmark_evidence,
 )
 from .hands_feet_nails_source_capture import REQUIRED_REGIONS, capture_dir
+from .hands_feet_nails_toenail_domain import (
+    FOOT_REGIONS,
+    TOE_LABELS,
+    HandsFeetNailsToenailDomainError,
+    toe_source_landmarks,
+    toenail_triangle_groups,
+)
 from .hands_feet_nails_uv_domain_evidence import (
     REGION_JOINT_NAMES,
     WEIGHT_THRESHOLD,
@@ -25,7 +32,7 @@ from .hands_feet_nails_uv_domain_evidence import (
     _region_domain,
 )
 
-METHOD = "source-landmark-fingernail-residual-skinned-uv-v2"
+METHOD = "source-landmark-fingernail-toenail-residual-skinned-uv-v3"
 DETAIL_STRENGTH = 0.50
 GAUSSIAN_RADIUS = 2.0
 EDGE_SUPPRESS_LEVEL = 40
@@ -286,6 +293,40 @@ def _fingernail_masks(
     return result
 
 
+def _toenail_masks(
+    document: Mapping[str, Any],
+    binary: bytes,
+    uv_evidence: Mapping[str, Any],
+    region_masks: Mapping[str, Image.Image],
+    *,
+    width: int,
+    height: int,
+) -> dict[str, dict[str, Image.Image]]:
+    uvs, _joints, _weights, _indices_all, _joint_names = _body_uv_inputs(document, binary, uv_evidence)
+    try:
+        groups = toenail_triangle_groups(document, binary, uv_evidence)
+    except HandsFeetNailsToenailDomainError as exc:
+        raise HandsFeetNailsDetailTextureError(str(exc)) from exc
+    result: dict[str, dict[str, Image.Image]] = {}
+    for region in FOOT_REGIONS:
+        region_result: dict[str, Image.Image] = {}
+        for label in TOE_LABELS:
+            key = f"{region}_{label}"
+            triangles = groups.get(key)
+            if not isinstance(triangles, list) or not triangles:
+                raise HandsFeetNailsDetailTextureError(f"{key} toenail target domain is missing")
+            nail = Image.new("L", (width, height), 0)
+            draw = ImageDraw.Draw(nail)
+            for triangle in triangles:
+                _draw_uv_triangle(draw, triangle=triangle, uvs=uvs, width=width, height=height)
+            nail = ImageChops.multiply(nail, region_masks[region])
+            if nail.histogram()[255] < MIN_NAIL_MASK_PIXELS:
+                raise HandsFeetNailsDetailTextureError(f"{key} toenail UV mask is too small")
+            region_result[label] = nail
+        result[region] = region_result
+    return result
+
+
 def _read_landmark_evidence(
     source_root: Path,
     uv_evidence: Mapping[str, Any],
@@ -504,6 +545,14 @@ def apply_source_details(
         width=width,
         height=height,
     )
+    toenail_masks = _toenail_masks(
+        document,
+        binary,
+        uv_evidence,
+        masks,
+        width=width,
+        height=height,
+    )
     landmark_evidence = _read_landmark_evidence(source_root, uv_evidence)
     current = base
     metrics: dict[str, dict[str, Any]] = {}
@@ -558,6 +607,18 @@ def apply_source_details(
                     current,
                     mask=nail_masks[region][label],
                     patch=_landmark_patch(source_image, landmark),
+                )
+        elif region in FOOT_REGIONS:
+            projection = landmark_evidence["regions"][region]["projection"]
+            try:
+                landmarks = toe_source_landmarks(projection)
+            except HandsFeetNailsToenailDomainError as exc:
+                raise HandsFeetNailsDetailTextureError(str(exc)) from exc
+            for label in TOE_LABELS:
+                current = _apply_nail_patch(
+                    current,
+                    mask=toenail_masks[region][label],
+                    patch=_landmark_patch(source_image, landmarks[label]),
                 )
 
         changed, observed_max = _change_metrics(before_region, current, mask=masks[region])

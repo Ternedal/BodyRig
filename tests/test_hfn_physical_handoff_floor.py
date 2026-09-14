@@ -13,6 +13,7 @@ HFN_OPERATOR_SCRIPTS = (
     "prepare-hands-feet-nails-uv-domain-evidence.ps1",
     "prepare-hands-feet-nails-detail-candidate.ps1",
     "prepare-hands-feet-nails-fingernail-geometry-candidate.ps1",
+    "prepare-hands-feet-nails-toenail-geometry-candidate.ps1",
     "prepare-hands-feet-nails-render-review.ps1",
     "record-high-fidelity-hfn-review.ps1",
 )

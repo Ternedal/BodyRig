@@ -63,6 +63,7 @@ namespace BodyRig.ReferenceRenderer
             new ExpectedRenderPayload("eyes", "BodyRigSourceEyeReview"),
             new ExpectedRenderPayload("face-secondary", "BodyRigFaceSecondaryReview"),
             new ExpectedRenderPayload("fingernails", "BodyRigFingernailPlates"),
+            new ExpectedRenderPayload("toenails", "BodyRigToenailPlates"),
         };
 
         [SerializeField] private BodyRigAvatarLoader loader;
