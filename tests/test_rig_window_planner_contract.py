@@ -71,7 +71,7 @@ def test_historical_physical_and_recovery_evidence_must_meet_current_handoff_flo
     assert "_filter_interrupted_candidates" in HANDOFF_FLOOR
     assert "predates or cannot prove the current" in HANDOFF_FLOOR
     assert "minimum physical handoff revision" in HANDOFF_FLOOR
-    assert "HFN fingernail+toenail-geometry/runtime contract" in HANDOFF_FLOOR
+    assert "drawable hair/eye + complete component visibility + adaptive short-hair-v2 contract" in HANDOFF_FLOOR
 
 
 def test_person_scope_fails_closed_instead_of_cross_person_reuse() -> None:
