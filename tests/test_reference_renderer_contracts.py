@@ -55,6 +55,7 @@ def test_probe_remains_manifest_bound_vrm1_only_and_embedded_revision_bound() ->
     bootstrap = (REFERENCE / "Assets" / "BodyRig" / "BodyRigPhysicalProbeBootstrap.cs").read_text(encoding="utf-8")
     assert "LoadRuntimeAsync" in loader
     assert "canLoadVrm0X: false" in loader
+    assert "controlRigGenerationOption: ControlRigGenerationOption.None" in loader
     assert "await loader.LoadRuntimeAsync(fullManifestPath);" in probe
     assert 'Path.Combine(runtimeDirectory, "avatar.vrm")' in probe
     assert 'Path.Combine(runtimeDirectory, "bodyprint.json")' in probe
