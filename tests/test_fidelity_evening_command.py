@@ -88,7 +88,7 @@ def test_evening_command_binds_gap_to_current_floor_package_and_revision() -> No
     text = source()
 
     assert '[string]$gap.bodyrig_revision -ne $head' in text
-    assert '[string]$gap.package_sha256 -ne [string]$summary.current_floor_package_sha256' in text
+    assert '[string]$gap.package_sha256 -ne $physicalPackageSha' in text
     assert "$gap.human_visual_authority_required -ne $true" in text
     assert "$gap.production_activation -ne $false" in text
 

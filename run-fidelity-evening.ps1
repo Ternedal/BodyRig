@@ -22,6 +22,10 @@ function Need-Directory {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
     return (Resolve-Path -LiteralPath $Path).Path
 }
+function Sha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return (Get-FileHash -LiteralPath (Need-File -Path $Path -Label "Hash input") -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 function Read-Json {
     param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
     $resolved = Need-File -Path $Path -Label $Label
@@ -107,8 +111,45 @@ $selected = ([string]$summary.selected_candidate).Trim()
 if ($selected -notin @("baseline","refit1","reconstruction2")) { throw "Current-floor evening summary selected_candidate is invalid." }
 
 $retainedRoot = Need-Directory -Path (Join-Path $eveningRoot "retained-hair-eye-$selected") -Label "Current-floor retained preview"
-$visibility = Need-File -Path (Join-Path $retainedRoot "windows-preview\component-visibility-probe.json") -Label "Unity component visibility probe"
-$renderSet = Need-File -Path (Join-Path $retainedRoot "windows-preview\snapshots\fidelity-render-set.json") -Label "Current-floor fidelity render set"
+$retainedVisibility = Need-File -Path (Join-Path $retainedRoot "windows-preview\component-visibility-probe.json") -Label "Retained Unity component visibility probe"
+$retainedRenderSet = Need-File -Path (Join-Path $retainedRoot "windows-preview\snapshots\fidelity-render-set.json") -Label "Retained current-floor fidelity render set"
+$sourcePackageSha = ([string]$summary.source_current_floor_package_sha256).Trim().ToLowerInvariant()
+if ($sourcePackageSha -notmatch '^[0-9a-f]{64}$' -or $sourcePackageSha -ne ([string]$summary.current_floor_package_sha256).Trim().ToLowerInvariant()) {
+    throw "Current-floor evening summary source package authority is invalid."
+}
+$physicalKind = ([string]$summary.physical_authority_kind).Trim()
+$physicalPackageSha = ([string]$summary.physical_component_package_sha256).Trim().ToLowerInvariant()
+if ($physicalPackageSha -notmatch '^[0-9a-f]{64}$') { throw "Current-floor evening summary physical package SHA is invalid." }
+$physicalRoot = $retainedRoot
+$visibility = $retainedVisibility
+$renderSet = $retainedRenderSet
+switch ($physicalKind) {
+    "retained-hair-eye" {
+        if ($physicalPackageSha -ne $sourcePackageSha -or -not [string]::IsNullOrWhiteSpace([string]$summary.physical_comparison_package_sha256)) {
+            throw "Retained physical authority disagrees with current-floor source package authority."
+        }
+    }
+    "face-secondary-hair-eye-comparison" {
+        $physicalRoot = Need-Directory -Path (Join-Path $eveningRoot "face-secondary-hair-eye-$selected") -Label "Face-secondary physical comparison preview"
+        $visibility = Need-File -Path (Join-Path $physicalRoot "windows-preview\component-visibility-probe.json") -Label "Face-secondary Unity component visibility probe"
+        $renderSet = Need-File -Path (Join-Path $physicalRoot "windows-preview\snapshots\fidelity-render-set.json") -Label "Face-secondary fidelity render set"
+        $comparisonPackage = Need-File -Path (Join-Path $physicalRoot "comparison\face-secondary-hair-eye-comparison.mrbody") -Label "Face-secondary physical comparison package"
+        $comparisonSha = Sha256 $comparisonPackage
+        if ($comparisonSha -ne $physicalPackageSha -or $comparisonSha -ne ([string]$summary.physical_comparison_package_sha256).Trim().ToLowerInvariant()) {
+            throw "Face-secondary physical comparison package differs from evening summary authority."
+        }
+        $faceSummary = Need-File -Path (Join-Path $physicalRoot "face-secondary-hair-eye-preview.json") -Label "Face-secondary preview summary"
+        if ((Sha256 $faceSummary) -ne ([string]$summary.face_secondary_preview_summary_sha256).Trim().ToLowerInvariant()) {
+            throw "Face-secondary preview summary bytes differ from evening summary authority."
+        }
+    }
+    default { throw "Current-floor evening summary physical_authority_kind is invalid: $physicalKind" }
+}
+if ((Sha256 $visibility) -ne ([string]$summary.physical_component_visibility_probe_sha256).Trim().ToLowerInvariant() -or
+    (Sha256 $visibility) -ne ([string]$summary.component_visibility_probe_sha256).Trim().ToLowerInvariant() -or
+    (Sha256 $renderSet) -ne ([string]$summary.physical_render_set_sha256).Trim().ToLowerInvariant()) {
+    throw "Final physical probe/render bytes differ from evening summary authority."
+}
 $gapPath = Join-Path $eveningRoot "component-gap-plan.json"
 $gapAttempt = Join-Path $eveningRoot (".component-gap-plan.verify-" + [Guid]::NewGuid().ToString("N") + ".json")
 try {
@@ -120,8 +161,40 @@ try {
     $freshGap = Read-Json -Path $gapAttempt -Label "Fresh current-floor component gap plan"
     if (Test-Path -LiteralPath $gapPath -PathType Leaf) {
         $existingGap = Read-Json -Path $gapPath -Label "Existing current-floor component gap plan"
-        Assert-SemanticallyEqualJson -Expected $freshGap -Actual $existingGap -Label "Existing current-floor component gap plan"
-        Write-Host "Revalidated existing component gap plan: $gapPath"
+        $samePhysicalGap = $false
+        try {
+            Assert-SemanticallyEqualJson -Expected $freshGap -Actual $existingGap -Label "Existing current-floor component gap plan"
+            $samePhysicalGap = $true
+        } catch {
+            if ($physicalKind -ne "face-secondary-hair-eye-comparison") { throw }
+        }
+        if ($samePhysicalGap) {
+            Write-Host "Revalidated existing component gap plan: $gapPath"
+        } else {
+            $retainedGapAttempt = Join-Path $eveningRoot (".component-gap-plan.retained-verify-" + [Guid]::NewGuid().ToString("N") + ".json")
+            try {
+                & $BodyRigPython -m bodyrig.fidelity_component_gap `
+                    --visibility-probe $retainedVisibility `
+                    --render-set $retainedRenderSet `
+                    --out $retainedGapAttempt | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "Retained predecessor gap recomputation failed with exit code $LASTEXITCODE" }
+                $freshRetainedGap = Read-Json -Path $retainedGapAttempt -Label "Fresh retained predecessor component gap plan"
+                Assert-SemanticallyEqualJson -Expected $freshRetainedGap -Actual $existingGap -Label "Existing retained predecessor component gap plan"
+            } finally {
+                if (Test-Path -LiteralPath $retainedGapAttempt -PathType Leaf) { Remove-Item -LiteralPath $retainedGapAttempt -Force -ErrorAction SilentlyContinue }
+            }
+            $predecessorPath = Join-Path $eveningRoot "component-gap-plan.retained-hair-eye.json"
+            if (Test-Path -LiteralPath $predecessorPath -PathType Leaf) {
+                $archivedPredecessor = Read-Json -Path $predecessorPath -Label "Archived retained predecessor component gap plan"
+                Assert-SemanticallyEqualJson -Expected $existingGap -Actual $archivedPredecessor -Label "Archived retained predecessor component gap plan"
+                Remove-Item -LiteralPath $gapPath -Force
+            } else {
+                Move-Item -LiteralPath $gapPath -Destination $predecessorPath
+            }
+            Move-Item -LiteralPath $gapAttempt -Destination $gapPath
+            $gapAttempt = ""
+            Write-Host "Advanced persisted component gap from exact retained predecessor to face-secondary physical authority: $gapPath"
+        }
     } else {
         Move-Item -LiteralPath $gapAttempt -Destination $gapPath
         $gapAttempt = ""
@@ -133,19 +206,22 @@ try {
 }
 
 $gap = Read-Json -Path $gapPath -Label "Current-floor component gap plan"
-if ([string]$gap.bodyrig_revision -ne $head -or [string]$gap.package_sha256 -ne [string]$summary.current_floor_package_sha256 -or
+if ([string]$gap.bodyrig_revision -ne $head -or [string]$gap.package_sha256 -ne $physicalPackageSha -or
     $gap.human_visual_authority_required -ne $true -or $gap.production_activation -ne $false) {
     throw "Current-floor component gap plan targets different package/revision or crossed authority."
 }
 $drawable = @($gap.drawable_components | ForEach-Object { [string]$_ })
 $missing = @($gap.missing_components | ForEach-Object { [string]$_ })
 $actions = @($gap.next_actions)
-$snapshotDir = Need-Directory -Path (Join-Path $retainedRoot "windows-preview\snapshots") -Label "Current-floor snapshot directory"
+$snapshotDir = Need-Directory -Path (Join-Path $physicalRoot "windows-preview\snapshots") -Label "Final physical snapshot directory"
 
 Write-Host ""
 Write-Host "============================================================"
 Write-Host "BODYRIG EVENING RESULT"
 Write-Host "Candidate:       $selected"
+Write-Host "Source package:  $sourcePackageSha"
+Write-Host "Physical kind:   $physicalKind"
+Write-Host "Physical package:$physicalPackageSha"
 Write-Host "Gap state:       $([string]$gap.state)"
 Write-Host "Drawable:        $(if ($drawable.Count) { $drawable -join ', ' } else { '<none>' })"
 Write-Host "Missing:         $(if ($missing.Count) { $missing -join ', ' } else { '<none>' })"
