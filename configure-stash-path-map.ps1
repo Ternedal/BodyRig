@@ -8,6 +8,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-V1Version($Value) {
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try { return [decimal]$Value -eq [decimal]1 } catch { return $false }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     return
 }
@@ -51,7 +56,7 @@ try {
 } catch {
     throw "BodyRig Stash path map: gemt Stash-konfiguration er ulæselig."
 }
-if ([string]$config.format -ne "bodyrig-local-stash-config" -or [int]$config.version -ne 1) {
+if ([string]$config.format -ne "bodyrig-local-stash-config" -or -not (Test-V1Version $config.version)) {
     throw "BodyRig Stash path map: gemt Stash-konfiguration har forkert format/version."
 }
 $stashUrl = [string]$config.url
@@ -94,7 +99,7 @@ function Set-BodyRigStashPathMap {
     }
     $env:BODYRIG_STASH_PATH_MAP = $mapJson
     if ($PersistUser) {
-        [Environment]::SetEnvironmentVariable("BODYRIG_STASH_PATH_MAP", $mapJson, [EnvironmentVariableTarget]::User)
+        [Environment]::SetEnvironmentVariableTarget]::User)
     }
 }
 
