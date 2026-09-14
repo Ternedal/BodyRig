@@ -13,6 +13,7 @@ from bodyrig.bodyprint_adjustment import (
     build_adjustment_request,
     effective_bodyprint_from_files,
     load_adjustment_evidence,
+    validate_adjustment_evidence,
 )
 
 
@@ -47,6 +48,13 @@ def _write(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _evidence(tmp_path: Path) -> dict:
+    proof_path = tmp_path / "proof.json"
+    _write(proof_path, _proof())
+    request = build_adjustment_request("Armene er for lange")
+    return bind_request_to_proof(request, proof_path=proof_path)
+
+
 def test_adjustment_is_bound_to_exact_raw_recovery_proof(tmp_path: Path) -> None:
     proof_path = tmp_path / "proof.json"
     _write(proof_path, _proof())
@@ -63,6 +71,26 @@ def test_adjustment_is_bound_to_exact_raw_recovery_proof(tmp_path: Path) -> None
     _write(proof_path, tampered)
     with pytest.raises(BodyprintAdjustmentEvidenceError, match="different recovery proof"):
         load_adjustment_evidence(evidence_path, proof_path=proof_path)
+
+
+@pytest.mark.parametrize("version", [True, False, "1", None, [], {}, 2])
+def test_adjustment_evidence_rejects_non_numeric_v1(tmp_path: Path, version: object) -> None:
+    evidence = _evidence(tmp_path)
+    evidence["version"] = version
+
+    with pytest.raises(BodyprintAdjustmentEvidenceError, match="unsupported BodyPrint adjustment evidence format/version"):
+        validate_adjustment_evidence(evidence)
+
+
+def test_adjustment_evidence_accepts_numeric_float_v1(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    evidence["version"] = 1.0
+
+    validated = validate_adjustment_evidence(evidence)
+
+    assert validated["version"] == 1
+    assert validated["recovery_proof_sha256"] == evidence["recovery_proof_sha256"]
+    assert validated["adjustment"] == evidence["adjustment"]
 
 
 def test_effective_bodyprint_changes_only_reviewed_fields(tmp_path: Path) -> None:
