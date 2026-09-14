@@ -50,6 +50,10 @@ class HighFidelityEyePromotionError(RuntimeError):
     pass
 
 
+def _v1(value: Any) -> bool:
+    return not isinstance(value, bool) and value == VERSION
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -137,7 +141,7 @@ def _assert_destination_lineage(
         raise HighFidelityEyePromotionError("destination body_anatomy=complete lacks embedded anatomy promotion authority")
     if (
         anatomy.get("format") != ANATOMY_FORMAT
-        or anatomy.get("version") != 1
+        or not _v1(anatomy.get("version"))
         or anatomy.get("component") != "body_anatomy"
         or anatomy.get("sourcePackageSha256") != source_candidate_sha
         or anatomy.get("productionActivation") is not False
@@ -161,7 +165,7 @@ def _assert_destination_lineage(
             raise HighFidelityEyePromotionError("destination embedded hair promotion fields are not canonical")
         if (
             hair.get("format") != HAIR_FORMAT
-            or hair.get("version") != 1
+            or not _v1(hair.get("version"))
             or hair.get("component") != "hair"
             or hair.get("sourceCandidatePackageSha256") != source_candidate_sha
             or hair.get("eyesImported") is not False
@@ -713,7 +717,7 @@ def read_promotion(
         "promotedPackageSha256", "promotedAvatarSha256", "componentsBefore", "componentsAfter",
         "hairCompletePreserved", "promotionComponent", "sourceHairRuntimeImported", "productionActivation",
     }
-    if set(value) != required or value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policyRevision") != POLICY_REVISION:
+    if set(value) != required or value.get("format") != FORMAT or not _v1(value.get("version")) or value.get("policyRevision") != POLICY_REVISION:
         raise HighFidelityEyePromotionError("eye promotion receipt fields/format are invalid")
     _revision(value.get("promotionBodyRigRevision"), label="eye promotion BodyRig revision")
     expected = {
@@ -754,7 +758,7 @@ def read_promotion(
         raise HighFidelityEyePromotionError("promoted eye package crossed production authority")
     promoted_bodyrig = _bodyrig(promoted_document, label="promoted eye avatar")
     embedded = promoted_bodyrig.get("eyePromotion")
-    if not isinstance(embedded, dict) or embedded.get("format") != EMBEDDED_FORMAT or embedded.get("version") != VERSION:
+    if not isinstance(embedded, dict) or embedded.get("format") != EMBEDDED_FORMAT or not _v1(embedded.get("version")):
         raise HighFidelityEyePromotionError("embedded eye promotion authority is missing/invalid")
     expected_embedded = {
         "format": EMBEDDED_FORMAT,
