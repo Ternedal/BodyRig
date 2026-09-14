@@ -24,6 +24,8 @@ namespace BodyRig.ReferenceRenderer
         private const float MinimumMotionMaxMeters = 0.001f;
         private const float MaximumRestorationRmsMeters = 0.00025f;
         private const float MaximumRestorationMaxMeters = 0.001f;
+        private const float MaximumEquivalentHeadOffsetMeters = 0.05f;
+        private const int MaximumEquivalentNeckAncestorDepth = 3;
 
         [Serializable]
         private sealed class HairDeformationReport
@@ -98,17 +100,10 @@ namespace BodyRig.ReferenceRenderer
             var bones = hair.bones;
             if (bones == null || bones.Length < 1)
                 throw new InvalidDataException("Source hair review renderer has no skin bones");
-            var headBound = false;
-            foreach (var bone in bones)
-            {
-                if (bone == head)
-                {
-                    headBound = true;
-                    break;
-                }
-            }
-            if (!headBound)
-                throw new InvalidDataException("Source hair review renderer is not bound to the Humanoid Head bone");
+            var rendererHead = ResolveRendererHeadBone(bones, animator, head);
+            status?.Invoke(rendererHead == head
+                ? "Hair deformation: direct Humanoid Head skin binding resolved."
+                : "Hair deformation: normalized UniVRM Head skin binding resolved; proving functional motion next.");
 
             var baselineRotation = head.localRotation;
             var baselineWorldRotation = head.rotation;
@@ -219,6 +214,42 @@ namespace BodyRig.ReferenceRenderer
             }
             if (match == null) throw new InvalidDataException("Loaded avatar does not contain the exact source hair review renderer");
             return match;
+        }
+
+        private static Transform ResolveRendererHeadBone(Transform[] bones, Animator animator, Transform humanoidHead)
+        {
+            foreach (var bone in bones)
+            {
+                if (bone == humanoidHead) return bone;
+            }
+
+            var humanoidNeck = animator.GetBoneTransform(HumanBodyBones.Neck);
+            if (humanoidNeck == null)
+                throw new InvalidDataException("Hair deformation probe could not resolve the Humanoid Neck bone for normalized Head binding");
+
+            Transform semanticMatch = null;
+            foreach (var bone in bones)
+            {
+                if (bone == null || !string.Equals(bone.name, humanoidHead.name, StringComparison.Ordinal)) continue;
+                if (Vector3.Distance(bone.position, humanoidHead.position) > MaximumEquivalentHeadOffsetMeters) continue;
+                if (!HasNamedAncestor(bone.parent, humanoidNeck.name, MaximumEquivalentNeckAncestorDepth)) continue;
+                if (semanticMatch != null && semanticMatch != bone)
+                    throw new InvalidDataException("Source hair review renderer has ambiguous normalized Head skin bindings");
+                semanticMatch = bone;
+            }
+
+            if (semanticMatch == null)
+                throw new InvalidDataException("Source hair review renderer is not bound to the canonical Humanoid Head hierarchy");
+            return semanticMatch;
+        }
+
+        private static bool HasNamedAncestor(Transform current, string expectedName, int maximumDepth)
+        {
+            for (var depth = 0; current != null && depth < maximumDepth; depth++, current = current.parent)
+            {
+                if (string.Equals(current.name, expectedName, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         private static Vector3[] BakeVertices(SkinnedMeshRenderer renderer)
