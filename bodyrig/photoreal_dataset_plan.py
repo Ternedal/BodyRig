@@ -74,6 +74,18 @@ def _score(value: Any) -> float:
     return result
 
 
+def _count(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealDatasetPlanError(f"{label} cannot be boolean")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealDatasetPlanError(f"{label} is invalid") from exc
+    if result < 0:
+        raise PhotorealDatasetPlanError(f"{label} cannot be negative")
+    return result
+
+
 def _source_group_for_image(image: Mapping[str, Any]) -> str:
     gallery_ids = image.get("gallery_ids") or []
     if not isinstance(gallery_ids, list):
@@ -110,6 +122,8 @@ def _source_records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "height": int(video.get("height") or 0),
                 "duration_seconds": float(video.get("duration_seconds") or 0.0),
                 "frame_rate": float(video.get("frame_rate") or 0.0),
+                "performer_count": _count(video.get("performer_count"), label="video performer_count"),
+                "source_binding": "scene-performer",
             }
         )
 
@@ -130,6 +144,7 @@ def _source_records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "path": path,
                 "information_score": _score(image.get("information_score")),
                 "source_binding": str(image.get("source_binding") or "unknown"),
+                "performer_count": _count(image.get("performer_count"), label="image performer_count"),
                 "width": int(image.get("width") or 0),
                 "height": int(image.get("height") or 0),
                 "megapixels": float(image.get("megapixels") or 0.0),
@@ -217,6 +232,7 @@ def build_dataset_plan(
         "train": train,
         "evaluation": evaluation,
         "view_analysis_required": True,
+        "identity_bootstrap_policy": "train-only-single-performer-direct-binding-v1",
         "held_out_view_coverage_required": [
             "face-front",
             "face-three-quarter",
