@@ -1,0 +1,174 @@
+name: patch-wsl-recovery-status-v1
+
+on:
+  push:
+    branches: [fix/wsl-recovery-status-version-v1]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - name: Assert exact checkout authority
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SHA" || { echo "checkout mismatch: $actual != $EXPECTED_SHA" >&2; exit 1; }
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install locked Linux test environment
+        run: python -m pip install --disable-pip-version-check -c requirements/linux-ci-python.lock.txt -e ".[test]"
+      - name: Apply focused product patch and regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("bodyrig/recover_cli.py")
+          text = path.read_text(encoding="utf-8")
+          old = '''    if (
+              status_payload["format"] != _FILE_COMMAND_STATUS_FORMAT
+              or status_payload["version"] != _FILE_COMMAND_STATUS_VERSION
+              or isinstance(status_payload["returncode"], bool)
+              or not isinstance(status_payload["returncode"], int)
+          ):
+          '''
+          new = '''    version = status_payload["version"]
+              if (
+                  status_payload["format"] != _FILE_COMMAND_STATUS_FORMAT
+                  or isinstance(version, bool)
+                  or not isinstance(version, (int, float))
+                  or version != _FILE_COMMAND_STATUS_VERSION
+                  or isinstance(status_payload["returncode"], bool)
+                  or not isinstance(status_payload["returncode"], int)
+              ):
+              '''
+          # Keep indentation literal and fail closed if the current authority moved.
+          old = old.replace("          ", "")
+          new = new.replace("              ", "    ", 1)
+          if text.count(old) != 1:
+              raise SystemExit(f"expected exactly one completion-status block, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          test_path = Path("tests/test_recovery_status_version_authority.py")
+          test_path.write_text('''from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+import bodyrig.recover_cli as recover_cli
+
+
+INVALID_V1_VALUES = (True, False, "1", None, 2)
+VALID_V1_VALUES = (1, 1.0)
+
+
+def _invoke_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    version: object,
+) -> tuple[Path, tuple[int, str, str, Path]]:
+    staging = tmp_path / "stage"
+    staging.mkdir()
+    monkeypatch.setattr(recover_cli.tempfile, "mkdtemp", lambda **kwargs: str(staging))
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            assert kwargs == {"stdin": subprocess.DEVNULL}
+            status_path = Path(command[command.index("--status-file") + 1])
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "format": "bodyrig-file-command-status",
+                        "version": version,
+                        "returncode": 9,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(recover_cli.subprocess, "Popen", FakePopen)
+    result = recover_cli._run_wsl_file_protocol(
+        wsl_exe="wsl.exe",
+        distribution="Ubuntu-22.04",
+        external_python="/usr/bin/python3",
+        target_command=["/usr/bin/python3", "/tmp/bridge.py"],
+        request={
+            "format": "bodyrig-recovery-request",
+            "version": 1,
+            "sources": ["/tmp/a.mp4"],
+        },
+        converter=lambda value: value,
+    )
+    return staging, result
+
+
+@pytest.mark.parametrize("version", INVALID_V1_VALUES)
+def test_wsl_recovery_status_rejects_noncanonical_v1(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    version: object,
+) -> None:
+    with pytest.raises(recover_cli.RecoveryError, match="completion status is invalid"):
+        _invoke_status(monkeypatch, tmp_path, version)
+    assert (tmp_path / "stage").is_dir()
+
+
+@pytest.mark.parametrize("version", VALID_V1_VALUES)
+def test_wsl_recovery_status_accepts_numeric_v1(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    version: object,
+) -> None:
+    staging, (returncode, stdout, stderr, retained) = _invoke_status(
+        monkeypatch,
+        tmp_path,
+        version,
+    )
+    assert returncode == 9
+    assert stdout == ""
+    assert stderr == ""
+    assert retained == staging
+    assert staging.is_dir()
+''', encoding="utf-8")
+          PY
+      - name: Compile focused files
+        run: python -m py_compile bodyrig/recover_cli.py tests/test_recovery_status_version_authority.py
+      - name: Run focused WSL recovery authority tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -m pytest -q tests/test_recovery_status_version_authority.py tests/test_recover_cli.py
+      - name: Enforce product diff boundary
+        shell: bash
+        run: |
+          git diff --check
+          mapfile -t changed < <(git diff --name-only | sort)
+          expected=(bodyrig/recover_cli.py tests/test_recovery_status_version_authority.py)
+          printf 'changed: %s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${changed[$i]}" = "${expected[$i]}"
+          done
+      - name: Commit validated product bytes and remove helper workflow
+        shell: bash
+        run: |
+          rm .github/workflows/patch-wsl-recovery-status-v1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Reject boolean v1 in WSL recovery completion status"
+          git push origin HEAD:fix/wsl-recovery-status-version-v1
