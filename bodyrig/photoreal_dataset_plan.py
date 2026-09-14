@@ -42,6 +42,13 @@ def _require_inventory(inventory: Mapping[str, Any]) -> None:
         raise PhotorealDatasetPlanError("photoreal source inventory is not teacher input")
     if inventory.get("runtime_dependency") is not False or inventory.get("production_activation") is not False:
         raise PhotorealDatasetPlanError("photoreal source inventory crossed its authority boundary")
+    performer_id = str(inventory.get("performer_id") or "").strip()
+    performer_name = str(inventory.get("performer_name") or "").strip()
+    performer = inventory.get("performer")
+    if not performer_id or not performer_name or not isinstance(performer, Mapping):
+        raise PhotorealDatasetPlanError("photoreal source inventory performer identity is incomplete")
+    if str(performer.get("id") or "").strip() != performer_id or str(performer.get("name") or "").strip() != performer_name:
+        raise PhotorealDatasetPlanError("photoreal source inventory performer identity is inconsistent")
     videos = inventory.get("videos")
     images = inventory.get("images")
     if not isinstance(videos, list) or not isinstance(images, list):
@@ -50,7 +57,7 @@ def _require_inventory(inventory: Mapping[str, Any]) -> None:
 
 def _safe_id(value: Any, *, label: str) -> str:
     result = str(value or "").strip()
-    if not result or len(result) > 256:
+    if not result or len(result) > 4096:
         raise PhotorealDatasetPlanError(f"{label} is invalid")
     return result
 
@@ -73,8 +80,6 @@ def _source_group_for_image(image: Mapping[str, Any]) -> str:
         raise PhotorealDatasetPlanError("image gallery_ids must be an array")
     normalized = sorted({_safe_id(item, label="gallery id") for item in gallery_ids})
     if normalized:
-        # An image that belongs to a performer gallery shares capture/session context
-        # with the whole gallery. Hold out the full gallery to prevent leakage.
         return "gallery:" + "+".join(normalized)
     return "image:" + _safe_id(image.get("image_id"), label="image id")
 
@@ -88,7 +93,7 @@ def _source_records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
             raise PhotorealDatasetPlanError("video source must be an object")
         scene_id = _safe_id(video.get("scene_id"), label="scene id")
         path = _safe_id(video.get("path"), label="video path")
-        key = ("video", path.lower())
+        key = ("video", path.casefold())
         if key in seen:
             raise PhotorealDatasetPlanError(f"duplicate video source path: {path}")
         seen.add(key)
@@ -100,9 +105,11 @@ def _source_records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "path": path,
                 "information_score": _score(video.get("information_score")),
                 "projection": str(video.get("projection") or "unknown"),
+                "stereo_layout": str(video.get("stereo_layout") or "unknown"),
                 "width": int(video.get("width") or 0),
                 "height": int(video.get("height") or 0),
                 "duration_seconds": float(video.get("duration_seconds") or 0.0),
+                "frame_rate": float(video.get("frame_rate") or 0.0),
             }
         )
 
@@ -111,7 +118,7 @@ def _source_records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
             raise PhotorealDatasetPlanError("image source must be an object")
         image_id = _safe_id(image.get("image_id"), label="image id")
         path = _safe_id(image.get("path"), label="image path")
-        key = ("image", path.lower())
+        key = ("image", path.casefold())
         if key in seen:
             raise PhotorealDatasetPlanError(f"duplicate image source path: {path}")
         seen.add(key)
