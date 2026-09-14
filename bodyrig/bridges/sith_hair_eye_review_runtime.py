@@ -102,7 +102,13 @@ def _validate_eye_inputs(
     }
     if set(component) != expected_component_fields:
         raise HairEyeReviewRuntimeError("eye component candidate fields do not match v1")
-    if component.get("format") != "bodyrig-eye-component-candidate" or component.get("version") != 1:
+    component_version = component.get("version")
+    if (
+        component.get("format") != "bodyrig-eye-component-candidate"
+        or isinstance(component_version, bool)
+        or not isinstance(component_version, (int, float))
+        or component_version != 1
+    ):
         raise HairEyeReviewRuntimeError("eye component candidate format/version mismatch")
     if component.get("method") != "smplx-eye-joint-lbs-submesh-v1":
         raise HairEyeReviewRuntimeError("eye component extraction method mismatch")
@@ -141,7 +147,13 @@ def _validate_eye_inputs(
     }
     if set(appearance) != required_appearance:
         raise HairEyeReviewRuntimeError("eye appearance candidate fields do not match v1")
-    if appearance.get("format") != "bodyrig-eye-appearance-candidate" or appearance.get("version") != 1:
+    appearance_version = appearance.get("version")
+    if (
+        appearance.get("format") != "bodyrig-eye-appearance-candidate"
+        or isinstance(appearance_version, bool)
+        or not isinstance(appearance_version, (int, float))
+        or appearance_version != 1
+    ):
         raise HairEyeReviewRuntimeError("eye appearance candidate format/version mismatch")
     if appearance.get("targetModelFamily") != geometry.get("bodyModelGender"):
         raise HairEyeReviewRuntimeError("eye appearance target family differs from body geometry authority")
