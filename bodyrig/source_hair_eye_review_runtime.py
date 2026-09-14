@@ -23,6 +23,14 @@ class SourceHairEyeReviewRuntimeError(ValueError):
     pass
 
 
+def _numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == expected
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -83,7 +91,11 @@ def _bridge(path: Path) -> dict[str, Any]:
         "physicalFaceCloseupReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "eyeComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+    if (
+        set(value) != required
+        or value.get("format") != BRIDGE_FORMAT
+        or not _numeric_version(value.get("version"), BRIDGE_VERSION)
+    ):
         raise SourceHairEyeReviewRuntimeError("hair+eye review bridge fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "sourceHairBodyBindingSha256", "hairReviewBridgeSha256", "reviewVrmSha256"):
         _hex(value.get(field), length=64, label=f"bridge {field}")
@@ -132,7 +144,7 @@ def _eye_receipts(
     appearance = _read_json(appearance_path, label="eye appearance candidate")
     if (
         component.get("format") != "bodyrig-eye-component-candidate"
-        or component.get("version") != 1
+        or not _numeric_version(component.get("version"), 1)
         or component.get("targetModelFamily") != body_geometry.get("bodyModelGender")
         or component.get("donorObjSha256") != body_geometry.get("fittedDonorObjSha256")
         or component.get("leftEyeObjSha256") != _sha256(left_obj)
@@ -144,7 +156,7 @@ def _eye_receipts(
         raise SourceHairEyeReviewRuntimeError("eye component candidate no longer binds the body/runtime inputs")
     if (
         appearance.get("format") != "bodyrig-eye-appearance-candidate"
-        or appearance.get("version") != 1
+        or not _numeric_version(appearance.get("version"), 1)
         or appearance.get("targetModelFamily") != body_geometry.get("bodyModelGender")
         or appearance.get("donorObjSha256") != body_geometry.get("fittedDonorObjSha256")
         or appearance.get("sourceReconstructionSha256") != body_geometry.get("reconstructionSha256")
