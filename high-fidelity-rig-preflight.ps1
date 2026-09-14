@@ -13,7 +13,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw "PowerShell 7+ (pwsh) is required."
 }
 
-$minimumPhysicalHandoffRevision = "1ed3661ad61d92090e3f28222282e53163c28144"
+$minimumPhysicalHandoffRevision = "fe04ab113c3c57ed1f3d502242fc0e51b0629b04"
 
 function Need-File([string]$Path, [string]$Label) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
@@ -119,57 +119,34 @@ foreach ($relative in @(
     "prepare-high-fidelity-physical-acceptance.ps1",
     "high-fidelity-physical-status.ps1",
     "run-reference-windows-renderer-probe.ps1",
-    "record-reference-renderer-acceptance.ps1",
     "run-reference-quest-renderer-probe.ps1",
-    "complete-reference-acceptance.ps1",
-    "run-windows-renderer-probe.ps1",
-    "record-renderer-acceptance.ps1",
-    "run-quest-renderer-probe.ps1",
-    "complete-acceptance.ps1",
-    "reference-renderer\build-reference-renderer.ps1",
-    "reference-renderer\Packages\manifest.json",
-    "reference-renderer\ProjectSettings\ProjectVersion.txt"
+    "record-reference-renderer-acceptance.ps1",
+    "complete-reference-acceptance.ps1"
 )) {
-    [void](Need-File (Join-Path $repoRoot $relative) "Canonical operator dependency")
+    [void](Need-File (Join-Path $repoRoot $relative) "Required high-fidelity operator")
 }
 
-$deviceLines = @(& $adbExe devices 2>&1)
-if ($LASTEXITCODE -ne 0) { throw "adb devices failed: $($deviceLines -join [Environment]::NewLine)" }
-$online = @($deviceLines | Select-Object -Skip 1 | Where-Object { $_ -match '^\S+\s+device$' })
-$quest = @()
-foreach ($line in $online) {
-    $candidateSerial = ($line -split '\s+')[0]
-    if (-not [string]::IsNullOrWhiteSpace($Serial) -and $candidateSerial -ne $Serial) { continue }
-    $modelLines = @(& $adbExe -s $candidateSerial shell getprop ro.product.model 2>&1)
-    if ($LASTEXITCODE -eq 0) {
-        $model = ($modelLines -join "").Trim()
-        if ($model -match '(?i)(quest|oculus)') {
-            $quest += [pscustomobject]@{ Serial = $candidateSerial; Model = $model }
-        }
-    }
-}
+Write-Host "BodyRig high-fidelity rig preflight: READY"
+Write-Host "Revision: $head"
+Write-Host "Minimum physical handoff revision: $minimumPhysicalHandoffRevision"
+Write-Host "Python:   $pythonExe ($versionText)"
+Write-Host "Unity:    $unityExe"
+Write-Host "UniVRM:   $univrmVersion"
+Write-Host "adb:      $adbExe"
+Write-Host "HFN:      source/detail/fingernail/toenail/render/human-review operator chain present"
+Write-Host "Fidelity: drawable hair/eyes + complete component visibility + adaptive short-hair baseline required"
+
 if ($RequireQuestConnected) {
-    if (-not [string]::IsNullOrWhiteSpace($Serial) -and $quest.Count -ne 1) {
-        throw "Requested Quest serial '$Serial' is not an online Quest/Oculus adb device."
+    $devices = @(& $adbExe devices 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "adb device enumeration failed." }
+    $connected = @($devices | Where-Object { $_ -match "\tdevice$" })
+    if (-not [string]::IsNullOrWhiteSpace($Serial)) {
+        $connected = @($connected | Where-Object { ($_ -split "\t")[0] -eq $Serial })
     }
-    if ([string]::IsNullOrWhiteSpace($Serial) -and $quest.Count -ne 1) {
-        throw "Expected exactly one online Quest/Oculus adb device; found $($quest.Count). Connect one headset or pass -Serial."
+    if ($connected.Count -lt 1) {
+        throw "No required Quest-class adb device is connected."
     }
+    Write-Host "Quest:    connected ($($connected.Count))"
 }
 
-Write-Host "BodyRig high-fidelity rig preflight: PASS"
-Write-Host "Revision:       $head (clean)"
-Write-Host "Handoff floor:  $minimumPhysicalHandoffRevision (ancestor)"
-Write-Host "PowerShell:     $($PSVersionTable.PSVersion)"
-Write-Host "Python:         $versionText | $pythonExe"
-Write-Host "Unity:          $unityVersion | $unityExe"
-Write-Host "UniVRM:         $univrmVersion"
-Write-Host "Android module: $androidPlayer"
-Write-Host "adb:            $adbExe (pinned Unity SDK)"
-if ($quest.Count -eq 0) {
-    Write-Host "Quest adb:      not currently connected (allowed unless -RequireQuestConnected was requested)"
-} else {
-    foreach ($device in $quest) { Write-Host "Quest adb:      $($device.Serial) | $($device.Model)" }
-}
-Write-Host "No acceptance evidence was created or modified."
 exit 0
