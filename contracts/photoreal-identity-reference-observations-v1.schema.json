@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-reference-observations-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Reference Observations v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "extractor",
+    "extractor_revision",
+    "model_set_sha256",
+    "embedding_dimension",
+    "observations",
+    "build_only",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-reference-observations"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "embedding_dimension": {"type": "integer", "minimum": 32, "maximum": 4096},
+    "observations": {
+      "type": "array",
+      "minItems": 4,
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "build_only": {"const": true},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key",
+        "source_sha256",
+        "timestamp_seconds",
+        "eye",
+        "frame_sha256",
+        "embedding"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0.0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]},
+        "frame_sha256": {"$ref": "#/$defs/sha256"},
+        "embedding": {
+          "type": "array",
+          "minItems": 32,
+          "maxItems": 4096,
+          "items": {"type": "number"}
+        }
+      }
+    }
+  }
+}
