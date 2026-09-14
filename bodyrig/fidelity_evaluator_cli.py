@@ -14,6 +14,15 @@ from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 
 SUPPORTED_EXTENDED_REVISIONS = {"4", "5"}
+COMPONENT_VISIBILITY_FORMAT = "bodyrig-component-visibility-probe"
+COMPONENT_VISIBILITY_SEMANTICS = "component-presence-and-runtime-visibility-not-visual-quality-acceptance"
+REQUIRED_VISIBLE_COMPONENTS = {
+    "hair": "BodyRigSourceHairReview",
+    "eyes": "BodyRigSourceEyeReview",
+    "face-secondary": "BodyRigFaceSecondaryReview",
+    "fingernails": "BodyRigFingernailPlates",
+    "toenails": "BodyRigToenailPlates",
+}
 
 
 class FidelityEvaluatorRunnerError(RuntimeError):
@@ -31,6 +40,141 @@ def _number(value: object, *, field: str, minimum: float | None = None, maximum:
     if maximum is not None and number > maximum:
         raise FidelityEvaluatorRunnerError(f"{field} exceeds maximum")
     return number
+
+
+def _load_json_object(path: Path, *, label: str) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FidelityEvaluatorRunnerError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise FidelityEvaluatorRunnerError(f"{label} must be an object")
+    return value
+
+
+def _lower_sha256(value: object, *, field: str) -> str:
+    text = str(value or "")
+    if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
+        raise FidelityEvaluatorRunnerError(f"{field} must be a canonical lowercase SHA-256")
+    return text
+
+
+def _validate_component_visibility(render_manifest: Path) -> dict:
+    if render_manifest.name != "fidelity-render-set.json":
+        raise FidelityEvaluatorRunnerError("strict fidelity scoring requires fidelity-render-set.json")
+    snapshot_root = render_manifest.parent
+    render_root = snapshot_root.parent
+    report_path = render_root / "component-visibility-probe.json"
+    if not report_path.is_file():
+        raise FidelityEvaluatorRunnerError(
+            "fresh full-fidelity scoring requires component-visibility-probe.json; "
+            "historical incomplete renders must use the explicit diagnostic override"
+        )
+
+    render_set = _load_json_object(render_manifest, label="fidelity render set")
+    report = _load_json_object(report_path, label="component visibility probe")
+    expected_fields = {
+        "format",
+        "version",
+        "observed_at",
+        "bodyrig_revision",
+        "platform",
+        "body_id",
+        "package_sha256",
+        "avatar_sha256",
+        "required_component_count",
+        "present_component_count",
+        "visible_component_count",
+        "all_required_present_and_visible",
+        "components",
+        "human_visual_authority_required",
+        "production_activation",
+        "semantics",
+    }
+    if set(report) != expected_fields:
+        raise FidelityEvaluatorRunnerError("component visibility probe fields must match v1 exactly")
+    if (
+        report.get("format") != COMPONENT_VISIBILITY_FORMAT
+        or isinstance(report.get("version"), bool)
+        or report.get("version") != 1
+        or report.get("semantics") != COMPONENT_VISIBILITY_SEMANTICS
+        or report.get("human_visual_authority_required") is not True
+        or report.get("production_activation") is not False
+    ):
+        raise FidelityEvaluatorRunnerError("component visibility probe authority is invalid")
+    revision = str(report.get("bodyrig_revision") or "")
+    if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
+        raise FidelityEvaluatorRunnerError("component visibility probe BodyRig revision is invalid")
+    if report.get("platform") not in {"windows-unity-univrm", "android-quest-class"}:
+        raise FidelityEvaluatorRunnerError("component visibility probe platform is invalid")
+    if not isinstance(report.get("observed_at"), str) or not str(report["observed_at"]).strip():
+        raise FidelityEvaluatorRunnerError("component visibility probe observed_at is invalid")
+    package_sha = _lower_sha256(report.get("package_sha256"), field="component visibility package_sha256")
+    _lower_sha256(report.get("avatar_sha256"), field="component visibility avatar_sha256")
+    body_id = report.get("body_id")
+    if not isinstance(body_id, str) or not body_id:
+        raise FidelityEvaluatorRunnerError("component visibility probe body_id is invalid")
+    if render_set.get("body_id") != body_id:
+        raise FidelityEvaluatorRunnerError("component visibility probe body_id differs from fidelity render set")
+    if _lower_sha256(render_set.get("package_sha256"), field="fidelity render-set package_sha256") != package_sha:
+        raise FidelityEvaluatorRunnerError("component visibility probe package differs from fidelity render set")
+
+    for field in ("required_component_count", "present_component_count", "visible_component_count"):
+        value = report.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise FidelityEvaluatorRunnerError(f"component visibility {field} is invalid")
+    expected_count = len(REQUIRED_VISIBLE_COMPONENTS)
+    if report["required_component_count"] != expected_count:
+        raise FidelityEvaluatorRunnerError("component visibility required component count is invalid")
+
+    components = report.get("components")
+    if not isinstance(components, list) or len(components) != expected_count:
+        raise FidelityEvaluatorRunnerError("component visibility probe must contain all required components exactly once")
+    expected_component_fields = {
+        "label",
+        "node_name",
+        "present_in_avatar_bytes",
+        "instantiated",
+        "active_in_hierarchy",
+        "visible_skinned_renderer",
+        "visible_renderer_count",
+    }
+    observed: set[str] = set()
+    for item in components:
+        if not isinstance(item, dict) or set(item) != expected_component_fields:
+            raise FidelityEvaluatorRunnerError("component visibility entry fields must match v1 exactly")
+        label = item.get("label")
+        if not isinstance(label, str) or label not in REQUIRED_VISIBLE_COMPONENTS or label in observed:
+            raise FidelityEvaluatorRunnerError("component visibility entry label is invalid or duplicated")
+        observed.add(label)
+        if item.get("node_name") != REQUIRED_VISIBLE_COMPONENTS[label]:
+            raise FidelityEvaluatorRunnerError(f"component visibility node mismatch for {label}")
+        for field in (
+            "present_in_avatar_bytes",
+            "instantiated",
+            "active_in_hierarchy",
+            "visible_skinned_renderer",
+        ):
+            if item.get(field) is not True:
+                raise FidelityEvaluatorRunnerError(
+                    f"full-fidelity scoring refused: required component {label} is not physically present and visible ({field})"
+                )
+        renderer_count = item.get("visible_renderer_count")
+        if isinstance(renderer_count, bool) or not isinstance(renderer_count, int) or renderer_count < 1:
+            raise FidelityEvaluatorRunnerError(
+                f"full-fidelity scoring refused: required component {label} has no physically drawable skinned renderer"
+            )
+    if observed != set(REQUIRED_VISIBLE_COMPONENTS):
+        raise FidelityEvaluatorRunnerError("component visibility probe component set is incomplete")
+    if (
+        report.get("present_component_count") != expected_count
+        or report.get("visible_component_count") != expected_count
+        or report.get("all_required_present_and_visible") is not True
+    ):
+        raise FidelityEvaluatorRunnerError(
+            "full-fidelity scoring refused: physical component composition is incomplete"
+        )
+    return report
 
 
 def _validate_plausibility(value: object) -> dict:
@@ -144,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--iteration", required=True, type=int)
     parser.add_argument("--out", required=True)
     parser.add_argument("--wsl-exe", default="wsl.exe")
+    parser.add_argument(
+        "--allow-incomplete-component-comparison",
+        action="store_true",
+        help="Diagnostic-only override for historical renders produced before component visibility evidence existed.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -165,6 +314,8 @@ def main(argv: list[str] | None = None) -> int:
         render = Path(args.render_set).expanduser().resolve()
         if not reference.is_file() or not render.is_file():
             raise FidelityEvaluatorRunnerError("fidelity reference/render manifests must exist")
+        if not args.allow_incomplete_component_comparison:
+            _validate_component_visibility(render)
         body_reference = None
         if args.body_reference_rgba:
             body_reference = Path(args.body_reference_rgba).expanduser().resolve()

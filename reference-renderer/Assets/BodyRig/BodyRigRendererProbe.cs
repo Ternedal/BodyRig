@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,6 +34,39 @@ namespace BodyRig.ReferenceRenderer
                 RequireHeadProximity = requireHeadProximity;
                 MaximumHeadDistanceMeters = maximumHeadDistanceMeters;
             }
+        }
+
+        [Serializable]
+        private sealed class ComponentVisibilityEntry
+        {
+            public string label;
+            public string node_name;
+            public bool present_in_avatar_bytes;
+            public bool instantiated;
+            public bool active_in_hierarchy;
+            public bool visible_skinned_renderer;
+            public int visible_renderer_count;
+        }
+
+        [Serializable]
+        private sealed class ComponentVisibilityReport
+        {
+            public string format = "bodyrig-component-visibility-probe";
+            public int version = 1;
+            public string observed_at;
+            public string bodyrig_revision;
+            public string platform;
+            public string body_id;
+            public string package_sha256;
+            public string avatar_sha256;
+            public int required_component_count;
+            public int present_component_count;
+            public int visible_component_count;
+            public bool all_required_present_and_visible;
+            public ComponentVisibilityEntry[] components;
+            public bool human_visual_authority_required = true;
+            public bool production_activation = false;
+            public string semantics = "component-presence-and-runtime-visibility-not-visual-quality-acceptance";
         }
 
         [Serializable]
@@ -129,10 +163,6 @@ namespace BodyRig.ReferenceRenderer
             if (!IsLowerHexSha256(packageHash)) throw new InvalidDataException("Active BodyRig package SHA-256 is invalid");
             if (string.IsNullOrWhiteSpace(loader.ActiveBodyId)) throw new InvalidDataException("Active BodyRig body id is missing");
 
-            // Re-hash the files after UniVRM has loaded the avatar. The loader
-            // already verifies them before/during load; this post-load check makes
-            // the evidence fail closed if runtime files are substituted before the
-            // physical probe is committed.
             var avatarHash = Sha256File(avatarPath);
             var bodyprintHash = Sha256File(bodyprintPath);
             if (!string.Equals(avatarHash, loader.ActiveAvatarSha256, StringComparison.Ordinal))
@@ -140,14 +170,15 @@ namespace BodyRig.ReferenceRenderer
             if (!string.Equals(bodyprintHash, loader.ActiveBodyprintSha256, StringComparison.Ordinal))
                 throw new InvalidDataException("Renderer probe bodyprint.json bytes no longer match the Gate A runtime manifest");
 
-            // A valid Humanoid is not enough for high-fidelity acceptance. If the
-            // exact VRM bytes carry one of BodyRig's promoted component nodes, UniVRM
-            // must instantiate a physically drawable renderer. Hair and eyes must
-            // additionally occupy finite, non-degenerate bounds close to the actual
-            // Humanoid Head bone. This blocks zero-size, fully transparent or detached
-            // payloads from masquerading as visible components while preserving the
-            // separate human-review authority boundary.
-            RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);
+            // A valid Humanoid is not enough for high-fidelity acceptance. Record
+            // every expected component, including absence. Components that are
+            // present in the exact avatar bytes must satisfy the stricter physical
+            // drawability checks (usable material, non-degenerate bounds and, for
+            // hair/eyes, spatial proximity to the real Head bone). Downstream
+            // fidelity scoring can therefore distinguish a base mannequin from a
+            // fully composed physical candidate without changing generic renderer
+            // acceptance semantics.
+            var componentEntries = InspectExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);
 
             var bodyRigRevision = BodyRigBuildProvenance.RequireRevision();
             var deviceModel = string.IsNullOrWhiteSpace(SystemInfo.deviceModel) ? "unknown" : SystemInfo.deviceModel.Trim();
@@ -182,28 +213,68 @@ namespace BodyRig.ReferenceRenderer
             var outputDirectory = Path.GetDirectoryName(fullOutputPath);
             if (string.IsNullOrEmpty(outputDirectory)) throw new InvalidDataException("Renderer probe output has no parent directory");
             Directory.CreateDirectory(outputDirectory);
-            var temporary = fullOutputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
+            WriteCreateOnlyJson(fullOutputPath, report);
+
+            var componentPath = Path.Combine(outputDirectory, "component-visibility-probe.json");
+            if (File.Exists(componentPath)) throw new IOException($"Component visibility evidence already exists: {componentPath}");
+            var presentCount = 0;
+            var visibleCount = 0;
+            foreach (var item in componentEntries)
             {
-                File.WriteAllText(temporary, JsonUtility.ToJson(report, true) + "\n", new UTF8Encoding(false));
-                File.Move(temporary, fullOutputPath);
+                if (item.present_in_avatar_bytes) presentCount++;
+                if (item.visible_skinned_renderer) visibleCount++;
             }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            var componentReport = new ComponentVisibilityReport
+            {
+                observed_at = DateTime.UtcNow.ToString("o"),
+                bodyrig_revision = bodyRigRevision,
+                platform = platform,
+                body_id = loader.ActiveBodyId,
+                package_sha256 = packageHash,
+                avatar_sha256 = avatarHash,
+                required_component_count = ExpectedRenderPayloads.Length,
+                present_component_count = presentCount,
+                visible_component_count = visibleCount,
+                all_required_present_and_visible =
+                    presentCount == ExpectedRenderPayloads.Length && visibleCount == ExpectedRenderPayloads.Length,
+                components = componentEntries,
+            };
+            WriteCreateOnlyJson(componentPath, componentReport);
 
             LastProbePath = fullOutputPath;
-            Debug.Log($"BodyRig renderer probe: PASS | {report.platform} | revision {report.bodyrig_revision} | {report.device_model} | {fullOutputPath}", this);
+            Debug.Log(
+                $"BodyRig renderer probe: PASS | {report.platform} | revision {report.bodyrig_revision} | " +
+                $"components {presentCount}/{ExpectedRenderPayloads.Length} present, {visibleCount}/{ExpectedRenderPayloads.Length} physically drawable | " +
+                $"{fullOutputPath}",
+                this);
             return fullOutputPath;
         }
 
-        private static void RequireExpectedComponentRenderers(string avatarPath, GameObject activeRoot, Animator animator)
+        private static ComponentVisibilityEntry[] InspectExpectedComponentRenderers(string avatarPath, GameObject activeRoot, Animator animator)
         {
             if (activeRoot == null) throw new InvalidDataException("Renderer probe active VRM root is missing");
             if (animator == null) throw new InvalidDataException("Renderer probe Humanoid animator is missing");
             if (!File.Exists(avatarPath)) throw new FileNotFoundException("Renderer probe avatar.vrm is missing", avatarPath);
             var bytes = File.ReadAllBytes(avatarPath);
+            var entries = new List<ComponentVisibilityEntry>();
             foreach (var expected in ExpectedRenderPayloads)
             {
-                if (!ContainsAscii(bytes, expected.NodeName)) continue;
+                var present = ContainsAscii(bytes, expected.NodeName);
+                var entry = new ComponentVisibilityEntry
+                {
+                    label = expected.Label,
+                    node_name = expected.NodeName,
+                    present_in_avatar_bytes = present,
+                    instantiated = false,
+                    active_in_hierarchy = false,
+                    visible_skinned_renderer = false,
+                    visible_renderer_count = 0,
+                };
+                if (!present)
+                {
+                    entries.Add(entry);
+                    continue;
+                }
 
                 Transform matched = null;
                 foreach (var transform in activeRoot.GetComponentsInChildren<Transform>(true))
@@ -215,7 +286,9 @@ namespace BodyRig.ReferenceRenderer
                 }
                 if (matched == null)
                     throw new InvalidDataException($"Renderer probe VRM carries {expected.Label} payload {expected.NodeName}, but UniVRM did not instantiate that node");
-                if (!matched.gameObject.activeInHierarchy)
+                entry.instantiated = true;
+                entry.active_in_hierarchy = matched.gameObject.activeInHierarchy;
+                if (!entry.active_in_hierarchy)
                     throw new InvalidDataException($"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but its GameObject is inactive");
 
                 Transform head = null;
@@ -227,7 +300,7 @@ namespace BodyRig.ReferenceRenderer
                 }
 
                 var renderers = matched.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-                var drawable = false;
+                var drawableCount = 0;
                 foreach (var renderer in renderers)
                 {
                     if (renderer == null || !renderer.enabled || renderer.forceRenderingOff || !renderer.gameObject.activeInHierarchy)
@@ -245,10 +318,11 @@ namespace BodyRig.ReferenceRenderer
                     if (head != null && bounds.SqrDistance(head.position) > expected.MaximumHeadDistanceMeters * expected.MaximumHeadDistanceMeters)
                         continue;
 
-                    drawable = true;
-                    break;
+                    drawableCount++;
                 }
-                if (!drawable)
+                entry.visible_renderer_count = drawableCount;
+                entry.visible_skinned_renderer = drawableCount > 0;
+                if (!entry.visible_skinned_renderer)
                 {
                     var spatial = expected.RequireHeadProximity
                         ? $", non-degenerate world bounds within {expected.MaximumHeadDistanceMeters:F2}m of the Humanoid Head"
@@ -256,7 +330,9 @@ namespace BodyRig.ReferenceRenderer
                     throw new InvalidDataException(
                         $"Renderer probe instantiated {expected.Label} payload {expected.NodeName}, but no active physically drawable skinned renderer has a usable mesh/material{spatial}");
                 }
+                entries.Add(entry);
             }
+            return entries.ToArray();
         }
 
         private static bool HasDrawableMaterial(Renderer renderer)
@@ -296,6 +372,21 @@ namespace BodyRig.ReferenceRenderer
         private static bool IsFinite(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static void WriteCreateOnlyJson(string path, object value)
+        {
+            if (File.Exists(path)) throw new IOException("Probe evidence already exists: " + path);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                File.WriteAllText(temporary, JsonUtility.ToJson(value, true) + "\n", new UTF8Encoding(false));
+                File.Move(temporary, path);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
         }
 
         private static bool ContainsAscii(byte[] haystack, string value)

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/bodyrig-component-visibility-probe-v1.schema.json",
+  "title": "BodyRig Component Visibility Probe v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format","version","observed_at","bodyrig_revision","platform","body_id","package_sha256","avatar_sha256",
+    "required_component_count","present_component_count","visible_component_count","all_required_present_and_visible",
+    "components","human_visual_authority_required","production_activation","semantics"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-component-visibility-probe"},
+    "version": {"const": 1},
+    "observed_at": {"type": "string", "minLength": 1, "maxLength": 64},
+    "bodyrig_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "platform": {"enum": ["windows-unity-univrm", "android-quest-class"]},
+    "body_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "package_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "avatar_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "required_component_count": {"const": 5},
+    "present_component_count": {"type": "integer", "minimum": 0, "maximum": 5},
+    "visible_component_count": {"type": "integer", "minimum": 0, "maximum": 5},
+    "all_required_present_and_visible": {"type": "boolean"},
+    "components": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label","node_name","present_in_avatar_bytes","instantiated","active_in_hierarchy",
+          "visible_skinned_renderer","visible_renderer_count"
+        ],
+        "properties": {
+          "label": {"enum": ["hair","eyes","face-secondary","fingernails","toenails"]},
+          "node_name": {"type": "string", "minLength": 1, "maxLength": 160},
+          "present_in_avatar_bytes": {"type": "boolean"},
+          "instantiated": {"type": "boolean"},
+          "active_in_hierarchy": {"type": "boolean"},
+          "visible_skinned_renderer": {"type": "boolean"},
+          "visible_renderer_count": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "human_visual_authority_required": {"const": true},
+    "production_activation": {"const": false},
+    "semantics": {"const": "component-presence-and-runtime-visibility-not-visual-quality-acceptance"}
+  }
+}

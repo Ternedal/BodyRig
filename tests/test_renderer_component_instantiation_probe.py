@@ -21,7 +21,7 @@ def test_physical_probe_requires_promoted_component_renderers_when_vrm_carries_t
     ):
         assert node in text
 
-    assert "RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);" in text
+    assert "InspectExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);" in text
     assert "File.ReadAllBytes(avatarPath)" in text
     assert "ContainsAscii(bytes, expected.NodeName)" in text
     assert "activeRoot.GetComponentsInChildren<Transform>(true)" in text
@@ -30,6 +30,8 @@ def test_physical_probe_requires_promoted_component_renderers_when_vrm_carries_t
     assert "renderer.forceRenderingOff" in text
     assert "renderer.gameObject.activeInHierarchy" in text
     assert "UniVRM did not instantiate that node" in text
+    assert 'Path.Combine(outputDirectory, "component-visibility-probe.json")' in text
+    assert "all_required_present_and_visible" in text
 
 
 def test_hair_and_eyes_require_finite_non_degenerate_head_local_drawable_rendering() -> None:
@@ -56,7 +58,7 @@ def test_component_instantiation_guard_runs_after_exact_runtime_hash_recheck() -
     avatar_hash = text.index("var avatarHash = Sha256File(avatarPath);")
     avatar_binding = text.index("loader.ActiveAvatarSha256")
     component_guard = text.index(
-        "RequireExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);"
+        "InspectExpectedComponentRenderers(avatarPath, loader.Active.gameObject, animator);"
     )
     report = text.index("var report = new ProbeReport")
 
