@@ -15,6 +15,40 @@ function Need-File {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Test-NumericV1 {
+    param([AllowNull()]$Value)
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try {
+        $typeCode = [Type]::GetTypeCode($Value.GetType())
+    } catch {
+        return $false
+    }
+    $numericTypes = @(
+        [TypeCode]::Byte,
+        [TypeCode]::Decimal,
+        [TypeCode]::Double,
+        [TypeCode]::Int16,
+        [TypeCode]::Int32,
+        [TypeCode]::Int64,
+        [TypeCode]::SByte,
+        [TypeCode]::Single,
+        [TypeCode]::UInt16,
+        [TypeCode]::UInt32,
+        [TypeCode]::UInt64
+    )
+    if ($numericTypes -notcontains $typeCode) { return $false }
+    $number = [double]$Value
+    return (-not [double]::IsNaN($number)) -and (-not [double]::IsInfinity($number)) -and $number -eq 1.0
+}
+
+function Test-StrictBoolean {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory = $true)][bool]$Expected
+    )
+    return ($Value -is [bool]) -and ([bool]$Value -eq $Expected)
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) { throw "Could not resolve BodyRig HEAD." }
@@ -70,9 +104,11 @@ try {
 if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) { throw "Photoreal inventory output was not created." }
 try { $inventory = Get-Content -LiteralPath $OutputPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100 }
 catch { throw "Photoreal inventory output is unreadable JSON." }
-if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or [int]$inventory.version -ne 1 -or
-    $inventory.summary.source_universe_exhaustive -ne $true -or $inventory.photoreal_teacher_input -ne $true -or
-    $inventory.runtime_dependency -ne $false -or $inventory.production_activation -ne $false) {
+if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or -not (Test-NumericV1 -Value $inventory.version) -or
+    -not (Test-StrictBoolean -Value $inventory.summary.source_universe_exhaustive -Expected $true) -or
+    -not (Test-StrictBoolean -Value $inventory.photoreal_teacher_input -Expected $true) -or
+    -not (Test-StrictBoolean -Value $inventory.runtime_dependency -Expected $false) -or
+    -not (Test-StrictBoolean -Value $inventory.production_activation -Expected $false)) {
     throw "Photoreal inventory crossed its build-only authority boundary."
 }
 
