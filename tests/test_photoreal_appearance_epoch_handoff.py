@@ -85,9 +85,13 @@ def _plan() -> dict[str, object]:
     return plan
 
 
-def test_handoff_preserves_all_candidates_without_selecting_or_approving() -> None:
+def test_handoff_preserves_all_candidates_and_provenance_without_selecting_or_approving() -> None:
     handoff, review = build_appearance_epoch_review_handoff(_plan())
 
+    assert handoff["strategy"] == "human-review-required-v1"
+    assert handoff["source_frame_index_model_set_sha256"] == "1" * 64
+    assert handoff["identity_bank_sha256"] == "2" * 64
+    assert handoff["identity_calibration_sha256"] == "3" * 64
     assert handoff["source_group_count"] == 3
     assert handoff["train_source_group_count"] == 2
     assert handoff["evaluation_source_group_count"] == 1
@@ -151,6 +155,16 @@ def test_explicitly_completed_template_is_accepted_by_existing_authority_gate() 
     assert result["teacher_training_authorized"] is True
     assert result["photoreal_acceptance_authority"] is False
     assert result["production_activation"] is False
+
+
+def test_handoff_rejects_resealed_nonhuman_strategy() -> None:
+    plan = copy.deepcopy(_plan())
+    plan["strategy"] = "automatic-selection-v1"
+    plan.pop("appearance_epoch_plan_sha256")
+    plan["appearance_epoch_plan_sha256"] = _digest(plan)
+
+    with pytest.raises(PhotorealAppearanceEpochHandoffError, match="canonical human-review strategy"):
+        build_appearance_epoch_review_handoff(plan)
 
 
 def test_handoff_rejects_resealed_authority_crossing() -> None:
