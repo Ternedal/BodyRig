@@ -14,11 +14,13 @@ def _result() -> dict[str, object]:
         "performer_id": "42",
         "identity_matching_calibrated": True,
         "identity_match_threshold": 0.82,
+        "identity_ambiguous_sample_count": 1,
         "observations": [
             {"target_identity_verified": True},
             {"target_identity_verified": False},
         ],
         "identity_authority_is_core_derived": True,
+        "multi_candidate_identity_safe": True,
         "photoreal_acceptance_authority": False,
         "production_activation": False,
     }
@@ -44,16 +46,11 @@ def test_cli_wires_all_authority_inputs(monkeypatch, tmp_path: Path, capsys) -> 
 
     code = cli.main(
         [
-            "--plan",
-            str(paths["plan"]),
-            "--measurements",
-            str(paths["measurements"]),
-            "--identity-bank",
-            str(paths["bank"]),
-            "--identity-calibration",
-            str(paths["calibration"]),
-            "--out",
-            str(paths["out"]),
+            "--plan", str(paths["plan"]),
+            "--measurements", str(paths["measurements"]),
+            "--identity-bank", str(paths["bank"]),
+            "--identity-calibration", str(paths["calibration"]),
+            "--out", str(paths["out"]),
         ]
     )
 
@@ -63,7 +60,9 @@ def test_cli_wires_all_authority_inputs(monkeypatch, tmp_path: Path, capsys) -> 
     assert payload["format"] == "bodyrig-photoreal-frame-authorized-observations"
     assert payload["target_identity_verified_count"] == 1
     assert payload["identity_unresolved_count"] == 1
+    assert payload["identity_ambiguous_sample_count"] == 1
     assert payload["identity_authority_is_core_derived"] is True
+    assert payload["multi_candidate_identity_safe"] is True
     assert payload["photoreal_acceptance_authority"] is False
     assert payload["production_activation"] is False
 
@@ -76,16 +75,11 @@ def test_cli_fails_closed_on_authority_error(monkeypatch, tmp_path: Path, capsys
     path = tmp_path / "x.json"
     code = cli.main(
         [
-            "--plan",
-            str(path),
-            "--measurements",
-            str(path),
-            "--identity-bank",
-            str(path),
-            "--identity-calibration",
-            str(path),
-            "--out",
-            str(path),
+            "--plan", str(path),
+            "--measurements", str(path),
+            "--identity-bank", str(path),
+            "--identity-calibration", str(path),
+            "--out", str(path),
         ]
     )
 
