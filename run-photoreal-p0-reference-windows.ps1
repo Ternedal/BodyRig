@@ -32,6 +32,7 @@ $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-photoreal-p0-windows.ps1") -Label "Photoreal P0 runner"
 $adapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_adapter.py") -Label "Photoreal reference vision adapter"
 $probe = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_probe.py") -Label "Photoreal reference vision probe"
+$pwsh = Need-File -Path (Join-Path $PSHOME "pwsh.exe") -Label "PowerShell 7 executable"
 $ModelRoot = Need-Directory -Path $ModelRoot -Label "Photoreal reference vision model root"
 
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
@@ -112,23 +113,34 @@ try {
     Need-File -Path $identityConfig -Label "Generated identity extractor config" | Out-Null
     Need-File -Path $frameConfig -Label "Generated frame analyzer config" | Out-Null
 
-    $runnerArgs = @{
-        PerformerId = $PerformerId
-        OutputRoot = $OutputRoot
-        ApiKeyEnv = $ApiKeyEnv
-        BodyRigPython = $BodyRigPython
-        EvalFraction = $EvalFraction
-        SplitSeed = $SplitSeed
-        ModelRoot = $ModelRoot
-        IdentityExtractorConfig = $identityConfig
-        FrameAnalyzerConfig = $frameConfig
-    }
-    if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $runnerArgs.StashUrl = $StashUrl }
-    if (-not [string]::IsNullOrWhiteSpace($PathMap)) { $runnerArgs.PathMap = $PathMap }
+    $evalText = [string]::Format([Globalization.CultureInfo]::InvariantCulture, "{0:0.####}", $EvalFraction)
+    $runnerArgs = @(
+        "-NoLogo", "-NoProfile", "-File", $runner,
+        "-PerformerId", $PerformerId,
+        "-OutputRoot", $OutputRoot,
+        "-ApiKeyEnv", $ApiKeyEnv,
+        "-BodyRigPython", $BodyRigPython,
+        "-EvalFraction", $evalText,
+        "-SplitSeed", $SplitSeed,
+        "-ModelRoot", $ModelRoot,
+        "-IdentityExtractorConfig", $identityConfig,
+        "-FrameAnalyzerConfig", $frameConfig
+    )
+    if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $runnerArgs += @("-StashUrl", $StashUrl) }
+    if (-not [string]::IsNullOrWhiteSpace($PathMap)) { $runnerArgs += @("-PathMap", $PathMap) }
 
-    & $runner @runnerArgs
+    Write-Host ""
+    Write-Host "=== START ISOLATED 16-STAGE P0 ==="
+    & $pwsh @runnerArgs
     $exitCode = $LASTEXITCODE
-    exit $exitCode
+    if ($exitCode -eq 0) {
+        Write-Host "BodyRig Photoreal reference P0 child process: PASS"
+        return
+    }
+    if ($exitCode -eq 2) {
+        throw "BodyRig Photoreal reference P0 was blocked by a fail-closed gate. Inspect '$OutputRoot\p0-status.json'."
+    }
+    throw "BodyRig Photoreal reference P0 failed with exit code $exitCode."
 } finally {
     $env:PYTHONPATH = $priorPythonPath
     if (Test-Path -LiteralPath $tempRoot -PathType Container) {
