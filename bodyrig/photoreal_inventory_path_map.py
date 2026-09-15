@@ -18,6 +18,8 @@ NEGATIVE_INVENTORY_VERSION = 1
 NEGATIVE_LABEL_AUTHORITY = "stash-single-performer-other-id-v1"
 DIRECT_PATH_PROOF_FORMAT = "bodyrig-photoreal-direct-path-proof"
 DIRECT_PATH_PROOF_VERSION = 1
+DIRECT_PATH_SCOPE_PRIMARY = "primary"
+DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION = "negative-calibration"
 _DRIVE = re.compile(r"^[A-Za-z]:$")
 
 
@@ -169,6 +171,7 @@ def _direct_path_proof(
     performer_id: str,
     origin: str,
     host: str,
+    source_scope: str,
     source_count: int,
     timestamp: datetime,
 ) -> dict[str, Any]:
@@ -179,6 +182,7 @@ def _direct_path_proof(
         "stash_origin": origin,
         "stash_host": host,
         "performer_ids": [performer_id],
+        "source_scope": source_scope,
         "source_count": source_count,
         "all_sources_directly_readable": True,
         "mapping": {},
@@ -199,11 +203,18 @@ def build_inventory_path_map(
     negative_inventory: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    performer_id, primary_paths = _inventory_paths(inventory)
-    paths = list(primary_paths)
+    performer_id, raw_primary_paths = _inventory_paths(inventory)
+    primary_paths = sorted(set(raw_primary_paths), key=str.casefold)
+    negative_paths: list[str] = []
     if negative_inventory is not None:
-        paths.extend(_negative_paths(negative_inventory, performer_id=performer_id))
-    paths = sorted(set(paths), key=str.casefold)
+        negative_paths = sorted(set(_negative_paths(negative_inventory, performer_id=performer_id)), key=str.casefold)
+        primary_folded = {path.casefold() for path in primary_paths}
+        negative_folded = {path.casefold() for path in negative_paths}
+        if primary_folded.intersection(negative_folded):
+            raise PhotorealInventoryPathMapError(
+                "one source path cannot be both target-performer media and target-absent negative calibration media"
+            )
+    paths = sorted(primary_paths + negative_paths, key=str.casefold)
 
     try:
         origin = normalize_origin(stash_url)
@@ -273,11 +284,18 @@ def build_inventory_path_map(
 
     timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if not mapping:
+        if negative_inventory is None:
+            source_scope = DIRECT_PATH_SCOPE_PRIMARY
+            source_count = len(primary_paths)
+        else:
+            source_scope = DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION
+            source_count = len(negative_paths)
         return _direct_path_proof(
             performer_id=performer_id,
             origin=origin,
             host=host,
-            source_count=len(paths),
+            source_scope=source_scope,
+            source_count=source_count,
             timestamp=timestamp,
         )
 

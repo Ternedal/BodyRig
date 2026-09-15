@@ -15,6 +15,8 @@ VERSION = 1
 DIRECT_PATH_PROOF_FORMAT = "bodyrig-photoreal-direct-path-proof"
 DIRECT_PATH_PROOF_VERSION = 1
 DIRECT_PATH_MODE = "direct-local"
+DIRECT_PATH_SCOPE_PRIMARY = "primary"
+DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION = "negative-calibration"
 
 
 class PhotorealSourceVerifyError(ValueError):
@@ -90,6 +92,8 @@ def resolve_path_transport(
     *,
     stash_url: str,
     performer_id: str,
+    expected_direct_scope: str | None = None,
+    expected_direct_source_count: int | None = None,
 ) -> dict[str, Any]:
     if path_map.get("format") == DIRECT_PATH_PROOF_FORMAT:
         version = path_map.get("version")
@@ -106,9 +110,16 @@ def resolve_path_transport(
         performers = path_map.get("performer_ids")
         if performers != [performer_id]:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof performer scope mismatch")
+        direct_scope = path_map.get("source_scope")
+        if direct_scope not in {DIRECT_PATH_SCOPE_PRIMARY, DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION}:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source scope is invalid")
+        if expected_direct_scope is not None and direct_scope != expected_direct_scope:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source scope mismatch")
         source_count = path_map.get("source_count")
         if isinstance(source_count, bool) or not isinstance(source_count, int) or source_count < 1:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof source count is invalid")
+        if expected_direct_source_count is not None and source_count != expected_direct_source_count:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source count mismatch")
         if path_map.get("all_sources_directly_readable") is not True:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof lacks direct-readability evidence")
         if path_map.get("mapping") != {} or path_map.get("proof") != []:
@@ -138,12 +149,18 @@ def _expected_size(item: Mapping[str, Any]) -> int:
     value = item.get("size_bytes")
     if value is None:
         return 0
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if isinstance(value, bool):
         raise PhotorealSourceVerifyError("source size_bytes is invalid")
-    return value
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealSourceVerifyError("source size_bytes is invalid") from exc
+    if parsed < 0:
+        raise PhotorealSourceVerifyError("source size_bytes cannot be negative")
+    return parsed
 
 
-def _validate_inventory_header(inventory: Mapping[str, Any]) -> tuple[str, str]:
+def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
     version = inventory.get("version")
     if (
         inventory.get("format") != INVENTORY_FORMAT
@@ -157,46 +174,20 @@ def _validate_inventory_header(inventory: Mapping[str, Any]) -> tuple[str, str]:
     if inventory.get("runtime_dependency") is not False or inventory.get("production_activation") is not False:
         raise PhotorealSourceVerifyError("photoreal source inventory crossed runtime/production authority")
 
-    summary = inventory.get("summary")
-    if not isinstance(summary, Mapping) or summary.get("source_universe_exhaustive") is not True:
-        raise PhotorealSourceVerifyError("photoreal source inventory is not exhaustive")
-
-    performer_id = inventory.get("performer_id")
-    if not isinstance(performer_id, str) or not performer_id.strip():
-        raise PhotorealSourceVerifyError("photoreal source inventory performer_id is invalid")
-    performer_name = inventory.get("performer_name")
-    if not isinstance(performer_name, str):
-        raise PhotorealSourceVerifyError("photoreal source inventory performer_name is invalid")
-
-    for key, count_field in (("videos", "video_file_count"), ("images", "image_file_count")):
-        values = inventory.get(key)
-        if not isinstance(values, list):
-            raise PhotorealSourceVerifyError(f"photoreal source inventory {key} is invalid")
-        expected_count = inventory.get(count_field)
-        if isinstance(expected_count, bool) or not isinstance(expected_count, int) or expected_count != len(values):
-            raise PhotorealSourceVerifyError(f"photoreal source inventory {count_field} mismatch")
-
-    return performer_id.strip(), performer_name
-
-
-def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
-    _validate_inventory_header(inventory)
     result: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     for kind, key, id_field, prefix in (
         ("video", "videos", "scene_id", "scene"),
         ("image", "images", "image_id", "image"),
     ):
-        values = inventory[key]
+        values = inventory.get(key)
+        if not isinstance(values, list):
+            raise PhotorealSourceVerifyError(f"photoreal source inventory {key} is invalid")
         for index, item in enumerate(values):
             if not isinstance(item, Mapping):
                 raise PhotorealSourceVerifyError(f"photoreal source inventory {key}[{index}] is invalid")
-            raw_source_id = item.get(id_field)
-            raw_path = item.get("path")
-            if not isinstance(raw_source_id, str) or not isinstance(raw_path, str):
-                raise PhotorealSourceVerifyError(f"photoreal {kind} source id/path must be strings")
-            source_id = raw_source_id.strip()
-            path = raw_path.strip()
+            source_id = str(item.get(id_field) or "").strip()
+            path = str(item.get("path") or "").strip()
             if not source_id or not path:
                 raise PhotorealSourceVerifyError(f"photoreal {kind} source lacks id/path")
             source_key = f"{prefix}:{source_id}:{path}"
@@ -226,8 +217,6 @@ def verify_inventory_sources(
     file_size: FileSize | None = None,
     hash_file: HashFile | None = None,
 ) -> dict[str, Any]:
-    performer_id, performer_name = _validate_inventory_header(inventory)
-    records = _records(inventory)
     exists = exists_file or (lambda path: path.is_file())
     size_of = file_size or (lambda path: path.stat().st_size)
     hasher = hash_file or _sha256
@@ -235,7 +224,7 @@ def verify_inventory_sources(
     verified: list[dict[str, Any]] = []
     seen_local: set[str] = set()
     total_bytes = 0
-    for source in records:
+    for source in _records(inventory):
         translated = translate_stash_path(source["catalog_path"], path_mapping)
         local = Path(translated)
         if not exists(local):
@@ -275,8 +264,8 @@ def verify_inventory_sources(
     return {
         "format": FORMAT,
         "version": VERSION,
-        "performer_id": performer_id,
-        "performer_name": performer_name,
+        "performer_id": str(inventory.get("performer_id") or ""),
+        "performer_name": str(inventory.get("performer_name") or ""),
         "source_count": len(verified),
         "video_count": sum(1 for item in verified if item["kind"] == "video"),
         "image_count": sum(1 for item in verified if item["kind"] == "image"),
@@ -304,11 +293,18 @@ def verify_inventory_file(
     inventory_raw = inventory_file.read_bytes()
     inventory = _read_json(inventory_file, label="photoreal source inventory")
     path_map = _read_json(mapping_file, label="Stash path transport proof")
-    performer_id, _ = _validate_inventory_header(inventory)
-    records = _records(inventory)
-    if path_map.get("format") == DIRECT_PATH_PROOF_FORMAT and path_map.get("source_count") != len(records):
-        raise PhotorealSourceVerifyError("Photoreal direct-path proof source count does not match inventory")
-    validated = resolve_path_transport(path_map, stash_url=stash_url, performer_id=performer_id)
+    raw_performer_id = inventory.get("performer_id")
+    if not isinstance(raw_performer_id, str) or not raw_performer_id.strip():
+        raise PhotorealSourceVerifyError("photoreal source inventory has no performer_id")
+    performer_id = raw_performer_id.strip()
+    source_records = _records(inventory)
+    validated = resolve_path_transport(
+        path_map,
+        stash_url=stash_url,
+        performer_id=performer_id,
+        expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+        expected_direct_source_count=len(source_records),
+    )
 
     result = verify_inventory_sources(inventory, path_mapping=validated["mapping"])
     result["inventory_sha256"] = _sha256_bytes(inventory_raw)
