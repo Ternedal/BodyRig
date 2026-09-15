@@ -14,7 +14,7 @@ from bodyrig.photoreal_identity_calibration_provenance import (
 )
 
 
-def test_calibration_provenance_seal_binds_core_and_inventory() -> None:
+def test_calibration_provenance_seal_binds_calibration_and_inventory_without_redefining_digest() -> None:
     calibration = {
         "format": "bodyrig-photoreal-identity-calibration",
         "identity_calibration_sha256": "a" * 64,
@@ -24,29 +24,35 @@ def test_calibration_provenance_seal_binds_core_and_inventory() -> None:
     sealed = bind_negative_inventory_provenance(calibration, inventory_sha256)
 
     binding = {
-        "identity_calibration_core_sha256": "a" * 64,
+        "identity_calibration_sha256": "a" * 64,
         "negative_inventory_sha256": inventory_sha256,
     }
     expected = hashlib.sha256(
         json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     ).hexdigest()
-    assert sealed["identity_calibration_core_sha256"] == "a" * 64
+    assert sealed["identity_calibration_sha256"] == "a" * 64
     assert sealed["negative_inventory_sha256"] == inventory_sha256
-    assert sealed["identity_calibration_sha256"] == expected
+    assert sealed["identity_calibration_provenance_sha256"] == expected
+    assert "identity_calibration_core_sha256" not in sealed
     assert calibration == {
         "format": "bodyrig-photoreal-identity-calibration",
         "identity_calibration_sha256": "a" * 64,
     }
 
 
-def test_calibration_provenance_seal_changes_with_inventory() -> None:
+def test_calibration_provenance_seal_changes_only_provenance_with_inventory() -> None:
     calibration = {"identity_calibration_sha256": "a" * 64}
 
     first = bind_negative_inventory_provenance(calibration, "e" * 64)
     second = bind_negative_inventory_provenance(calibration, "f" * 64)
 
-    assert first["identity_calibration_core_sha256"] == second["identity_calibration_core_sha256"]
-    assert first["identity_calibration_sha256"] != second["identity_calibration_sha256"]
+    assert first["identity_calibration_sha256"] == second["identity_calibration_sha256"] == "a" * 64
+    assert first["identity_calibration_provenance_sha256"] != second["identity_calibration_provenance_sha256"]
+
+
+def test_calibration_provenance_seal_rejects_invalid_calibration_digest() -> None:
+    with pytest.raises(PhotorealIdentityCalibrationProvenanceError, match="identity calibration SHA-256"):
+        bind_negative_inventory_provenance({"identity_calibration_sha256": True}, "e" * 64)
 
 
 def test_calibration_provenance_seal_rejects_invalid_inventory_digest() -> None:
@@ -99,8 +105,10 @@ def test_file_builder_routes_through_authority_then_persists_seal(
     )
 
     assert captured["plan"] == {"negative_inventory_sha256": "e" * 64}
-    assert result["identity_calibration_core_sha256"] == "a" * 64
+    assert result["identity_calibration_sha256"] == "a" * 64
     assert result["negative_inventory_sha256"] == "e" * 64
+    assert len(result["identity_calibration_provenance_sha256"]) == 64
+    assert "identity_calibration_core_sha256" not in result
     assert json.loads(output_path.read_text(encoding="utf-8")) == result
 
 
