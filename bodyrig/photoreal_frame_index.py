@@ -176,6 +176,18 @@ def _positive_int(value: Any, *, label: str) -> int:
     return result
 
 
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if result < 0:
+        raise PhotorealFrameIndexError(f"{label} cannot be negative")
+    return result
+
+
 def _plan_sources(plan: Mapping[str, Any]) -> dict[str, _PlanSource]:
     if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
         raise PhotorealFrameIndexError("photoreal dataset plan format/version mismatch")
@@ -290,6 +302,22 @@ def _normalize_observation(
     eye = _text(raw.get("eye"), label="frame eye")
     if eye not in VALID_EYES:
         raise PhotorealFrameIndexError(f"unsupported frame eye: {eye}")
+    candidate_id = _text(raw.get("candidate_id"), label="frame candidate id", maximum=128)
+    if any(not (character.isalnum() or character in "._-") for character in candidate_id):
+        raise PhotorealFrameIndexError("frame candidate id is invalid")
+    person_detected = raw.get("person_detected")
+    if not isinstance(person_detected, bool):
+        raise PhotorealFrameIndexError("person_detected must be boolean")
+    measured_person_candidate_count = _nonnegative_int(
+        raw.get("measured_person_candidate_count"), label="measured person candidate count"
+    )
+    if person_detected and measured_person_candidate_count < 1:
+        raise PhotorealFrameIndexError("detected person cannot have zero measured candidates")
+    if not person_detected and measured_person_candidate_count != 0:
+        raise PhotorealFrameIndexError("non-person placeholder must report zero measured candidates")
+    identity_sample_ambiguous = raw.get("identity_sample_ambiguous")
+    if not isinstance(identity_sample_ambiguous, bool):
+        raise PhotorealFrameIndexError("identity_sample_ambiguous must be boolean")
 
     if kind == "video":
         timestamp: float | None = _timestamp(raw.get("timestamp_seconds"))
@@ -318,6 +346,10 @@ def _normalize_observation(
     target_verified = raw.get("target_identity_verified")
     if not isinstance(target_verified, bool):
         raise PhotorealFrameIndexError("target_identity_verified must be boolean")
+    if target_verified and not person_detected:
+        raise PhotorealFrameIndexError("target identity cannot be verified without a detected person")
+    if target_verified and identity_sample_ambiguous:
+        raise PhotorealFrameIndexError("ambiguous identity sample cannot verify target identity")
     if target_verified and identity_authority == "identity-unresolved-v1":
         raise PhotorealFrameIndexError("verified target identity cannot use unresolved authority")
     if not target_verified and identity_authority != "identity-unresolved-v1":
@@ -325,7 +357,13 @@ def _normalize_observation(
     if identity_authority == "calibrated-identity-bank-v1" and identity_similarity is None:
         raise PhotorealFrameIndexError("calibrated identity authority requires similarity measurement")
 
-    eligible = target_verified and sharpness >= MIN_SHARPNESS and occlusion <= MAX_OCCLUSION
+    eligible = (
+        target_verified
+        and person_detected
+        and not identity_sample_ambiguous
+        and sharpness >= MIN_SHARPNESS
+        and occlusion <= MAX_OCCLUSION
+    )
     return {
         "source_key": source_key,
         "source_sha256": source_sha,
@@ -337,6 +375,10 @@ def _normalize_observation(
         "projection": str(raw.get("projection") or "unknown"),
         "frame_sha256": _hex(raw.get("frame_sha256"), length=64, label="frame SHA-256"),
         "perceptual_hash": _hex(raw.get("perceptual_hash"), length=PERCEPTUAL_HASH_HEX_LENGTH, label="frame perceptual hash"),
+        "candidate_id": candidate_id,
+        "person_detected": person_detected,
+        "measured_person_candidate_count": measured_person_candidate_count,
+        "identity_sample_ambiguous": identity_sample_ambiguous,
         "width": _positive_int(raw.get("width"), label="frame width"),
         "height": _positive_int(raw.get("height"), label="frame height"),
         "view_bin": view_bin,
@@ -414,6 +456,8 @@ def build_frame_index(
         raise PhotorealFrameIndexError("photoreal authorized frame observations format/version mismatch")
     if authorized_observations.get("identity_authority_is_core_derived") is not True:
         raise PhotorealFrameIndexError("frame observations do not carry core-derived identity authority")
+    if authorized_observations.get("multi_candidate_identity_safe") is not True:
+        raise PhotorealFrameIndexError("frame observations do not carry multi-candidate identity safety")
     if authorized_observations.get("photoreal_acceptance_authority") is not False:
         raise PhotorealFrameIndexError("frame observations crossed photoreal acceptance authority")
     if authorized_observations.get("build_only") is not True or authorized_observations.get("production_activation") is not False:
@@ -448,6 +492,10 @@ def build_frame_index(
         raise PhotorealFrameIndexError("calibrated identity matching lacks threshold")
     if not identity_matching_calibrated and identity_match_threshold is not None:
         raise PhotorealFrameIndexError("uncalibrated identity matching must not expose threshold")
+    identity_ambiguous_sample_count = _nonnegative_int(
+        authorized_observations.get("identity_ambiguous_sample_count"),
+        label="identity ambiguous sample count",
+    )
 
     raw_observations = authorized_observations.get("observations")
     if not isinstance(raw_observations, list) or not raw_observations:
@@ -457,7 +505,9 @@ def build_frame_index(
 
     normalized: list[dict[str, Any]] = []
     observed_sources: set[str] = set()
-    seen_frame_keys: set[tuple[str, str, str]] = set()
+    seen_candidate_keys: set[tuple[str, str, str, str]] = set()
+    verified_per_sample: dict[tuple[str, str, str, str], int] = {}
+    ambiguous_samples_seen: set[tuple[str, str, str, str]] = set()
     for raw in raw_observations:
         if not isinstance(raw, Mapping):
             raise PhotorealFrameIndexError("photoreal frame observations contain a non-object")
@@ -467,12 +517,32 @@ def build_frame_index(
         if planned is None or bound is None:
             raise PhotorealFrameIndexError(f"frame observation references unknown source: {source_key}")
         item = _normalize_observation(raw, planned=planned, receipt=bound)
-        frame_identity = (item["source_key"], str(item["timestamp_seconds"]), item["eye"])
-        if frame_identity in seen_frame_keys:
-            raise PhotorealFrameIndexError(f"duplicate frame observation identity: {frame_identity}")
-        seen_frame_keys.add(frame_identity)
+        sample_identity = (
+            item["source_key"],
+            str(item["timestamp_seconds"]),
+            item["eye"],
+            item["frame_sha256"],
+        )
+        candidate_identity = (
+            item["source_key"],
+            str(item["timestamp_seconds"]),
+            item["eye"],
+            item["candidate_id"],
+        )
+        if candidate_identity in seen_candidate_keys:
+            raise PhotorealFrameIndexError(f"duplicate frame candidate identity: {candidate_identity}")
+        seen_candidate_keys.add(candidate_identity)
+        if item["target_identity_verified"]:
+            verified_per_sample[sample_identity] = verified_per_sample.get(sample_identity, 0) + 1
+        if item["identity_sample_ambiguous"]:
+            ambiguous_samples_seen.add(sample_identity)
         observed_sources.add(source_key)
         normalized.append(item)
+
+    if any(count > 1 for count in verified_per_sample.values()):
+        raise PhotorealFrameIndexError("multiple target identities were verified in one frame sample")
+    if len(ambiguous_samples_seen) != identity_ambiguous_sample_count:
+        raise PhotorealFrameIndexError("identity ambiguous sample count disagrees with observations")
 
     missing_sources = sorted(set(plan_sources) - observed_sources)
     if missing_sources:
@@ -485,6 +555,7 @@ def build_frame_index(
             item["source_key"],
             -1.0 if item["timestamp_seconds"] is None else float(item["timestamp_seconds"]),
             item["eye"],
+            item["candidate_id"],
         )
     )
     duplicates = _cross_split_near_duplicates(normalized)
@@ -526,6 +597,8 @@ def build_frame_index(
         "identity_matching_calibrated": identity_matching_calibrated,
         "identity_match_threshold": identity_match_threshold,
         "identity_authority_is_core_derived": True,
+        "multi_candidate_identity_safe": True,
+        "identity_ambiguous_sample_count": identity_ambiguous_sample_count,
         "source_count": len(plan_sources),
         "observed_source_count": len(observed_sources),
         "observation_count": len(normalized),
