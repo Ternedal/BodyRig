@@ -53,6 +53,13 @@ def test_overnight_runner_rejects_nonzero_entrypoint_before_success() -> None:
     assert "$entrypointExit -ne 0" in source
 
 
+def test_overnight_forwards_reference_environment_repair() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "[switch]$RepairReferenceEnvironment" in source
+    assert "if ($RepairReferenceEnvironment) { $args.RepairReferenceEnvironment = $true }" in source
+
+
 def test_overnight_powershell_parses_when_pwsh_is_available() -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
