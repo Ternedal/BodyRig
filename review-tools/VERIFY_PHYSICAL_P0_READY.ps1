@@ -15,23 +15,37 @@ function Read-Json {
     catch { throw "$Label is unreadable JSON: $Path" }
 }
 
+function Test-NumericExact {
+    param([AllowNull()]$Value, [double]$Expected)
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try { $typeCode = [Type]::GetTypeCode($Value.GetType()) } catch { return $false }
+    $numericTypes = @(
+        [TypeCode]::Byte,[TypeCode]::Decimal,[TypeCode]::Double,[TypeCode]::Int16,
+        [TypeCode]::Int32,[TypeCode]::Int64,[TypeCode]::SByte,[TypeCode]::Single,
+        [TypeCode]::UInt16,[TypeCode]::UInt32,[TypeCode]::UInt64
+    )
+    if ($numericTypes -notcontains $typeCode) { return $false }
+    $number = [double]$Value
+    return (-not [double]::IsNaN($number)) -and (-not [double]::IsInfinity($number)) -and $number -eq $Expected
+}
+
 function Require-StrictBool {
     param([AllowNull()]$Value, [bool]$Expected, [string]$Label)
     if ($Value -isnot [bool] -or [bool]$Value -ne $Expected) {
-        throw "$Label must be $Expected."
+        throw "$Label must be strict boolean $Expected."
     }
 }
 
 $SummaryPath = (Resolve-Path -LiteralPath $SummaryPath).Path
 $summary = Read-Json -Path $SummaryPath -Label "Photoreal overnight summary"
 
-if ([string]$summary.format -ne "bodyrig-photoreal-v2-overnight-summary" -or [int]$summary.version -ne 1) {
+if ([string]$summary.format -ne "bodyrig-photoreal-v2-overnight-summary" -or -not (Test-NumericExact -Value $summary.version -Expected 1)) {
     throw "Overnight summary format/version mismatch."
 }
 if ([string]$summary.performer_id -ne $ExpectedPerformerId) {
     throw "Overnight summary performer mismatch."
 }
-if ([string]$summary.status -ne "completed" -or [int]$summary.exit_code -ne 0) {
+if ([string]$summary.status -ne "completed" -or -not (Test-NumericExact -Value $summary.exit_code -Expected 0)) {
     throw "Overnight P0 is not a completed success."
 }
 if ([string]$summary.bodyrig_revision -ne $expectedSha) {
@@ -43,6 +57,9 @@ Require-StrictBool -Value $summary.photoreal_acceptance_authority -Expected $fal
 Require-StrictBool -Value $summary.production_activation -Expected $false -Label "summary.production_activation"
 
 $outputRoot = [IO.Path]::GetFullPath([string]$summary.output_root)
+if (-not (Test-Path -LiteralPath $outputRoot -PathType Container)) {
+    throw "Overnight output_root is missing: $outputRoot"
+}
 $p0StatusPath = [IO.Path]::GetFullPath([string]$summary.p0_status)
 $expectedStatusPath = [IO.Path]::GetFullPath((Join-Path $outputRoot "p0-status.json"))
 if (-not [string]::Equals($p0StatusPath, $expectedStatusPath, [StringComparison]::OrdinalIgnoreCase)) {
@@ -62,7 +79,7 @@ if ($actualStatusHash -ne $expectedStatusHash) {
 }
 
 $status = Read-Json -Path $p0StatusPath -Label "Photoreal P0 status"
-if ([string]$status.format -ne "bodyrig-photoreal-p0-status" -or [int]$status.version -ne 1) {
+if ([string]$status.format -ne "bodyrig-photoreal-p0-status" -or -not (Test-NumericExact -Value $status.version -Expected 1)) {
     throw "P0 status format/version mismatch."
 }
 if ([string]$status.performer_id -ne $ExpectedPerformerId) {
