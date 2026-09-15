@@ -10,6 +10,8 @@ from bodyrig.photoreal_inventory_path_map import (
     build_inventory_path_map,
 )
 from bodyrig.photoreal_source_verify import (
+    DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
+    DIRECT_PATH_SCOPE_PRIMARY,
     PhotorealSourceVerifyError,
     resolve_path_transport,
     translate_stash_path,
@@ -140,7 +142,7 @@ def test_builder_extends_exact_map_for_authoritative_negative_inventory() -> Non
     assert translate_stash_path(r"G:\Negatives\subject99.mp4", result["mapping"]) == r"\\stashbox\VR_G\subject99.mp4"
 
 
-def test_builder_emits_direct_local_proof_when_all_primary_sources_are_directly_readable() -> None:
+def test_builder_emits_primary_direct_local_proof_when_all_sources_are_readable() -> None:
     files = _direct_files()
     result = build_inventory_path_map(
         _inventory(),
@@ -152,13 +154,20 @@ def test_builder_emits_direct_local_proof_when_all_primary_sources_are_directly_
     assert result["format"] == DIRECT_PATH_PROOF_FORMAT
     assert result["transport_mode"] == "direct-local"
     assert result["performer_ids"] == ["42"]
+    assert result["source_scope"] == DIRECT_PATH_SCOPE_PRIMARY
     assert result["source_count"] == 3
     assert result["all_sources_directly_readable"] is True
     assert result["mapping"] == {}
     assert result["proof"] == []
     assert result["production_activation"] is False
 
-    transport = resolve_path_transport(result, stash_url="http://localhost:9999", performer_id="42")
+    transport = resolve_path_transport(
+        result,
+        stash_url="http://localhost:9999",
+        performer_id="42",
+        expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+        expected_direct_source_count=3,
+    )
     assert transport == {
         "mapping": {},
         "cache_mode": "photoreal-direct-local-v1",
@@ -166,7 +175,7 @@ def test_builder_emits_direct_local_proof_when_all_primary_sources_are_directly_
     }
 
 
-def test_builder_emits_direct_local_proof_for_primary_and_negative_union() -> None:
+def test_builder_emits_negative_scoped_direct_local_proof_for_union_check() -> None:
     files = _direct_files(include_negative=True)
     result = build_inventory_path_map(
         _inventory(),
@@ -177,9 +186,37 @@ def test_builder_emits_direct_local_proof_for_primary_and_negative_union() -> No
     )
 
     assert result["format"] == DIRECT_PATH_PROOF_FORMAT
-    assert result["source_count"] == 4
+    assert result["source_scope"] == DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION
+    assert result["source_count"] == 1
     assert result["mapping"] == {}
     assert result["all_sources_directly_readable"] is True
+
+
+def test_direct_local_proof_cannot_cross_scope_or_count() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    with pytest.raises(PhotorealSourceVerifyError, match="source scope mismatch"):
+        resolve_path_transport(
+            result,
+            stash_url="http://localhost:9999",
+            performer_id="42",
+            expected_direct_scope=DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
+            expected_direct_source_count=3,
+        )
+    with pytest.raises(PhotorealSourceVerifyError, match="source count mismatch"):
+        resolve_path_transport(
+            result,
+            stash_url="http://localhost:9999",
+            performer_id="42",
+            expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+            expected_direct_source_count=4,
+        )
 
 
 def test_direct_local_proof_cannot_carry_mapping_or_production_authority() -> None:
@@ -215,6 +252,21 @@ def test_direct_local_proof_is_bound_to_stash_origin_and_performer() -> None:
         resolve_path_transport(result, stash_url="http://stashbox:9999", performer_id="42")
     with pytest.raises(PhotorealSourceVerifyError, match="performer scope mismatch"):
         resolve_path_transport(result, stash_url="http://localhost:9999", performer_id="43")
+
+
+def test_builder_rejects_target_media_reused_as_negative_source() -> None:
+    negative = _negative_inventory()
+    negative["sources"][0]["path"] = r"E:\VR\archive\old.mp4"
+    files = _direct_files()
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="cannot be both target-performer media"):
+        build_inventory_path_map(
+            _inventory(),
+            negative_inventory=negative,
+            stash_url="http://localhost:9999",
+            is_dir=lambda _value: False,
+            is_file=lambda value: value in files,
+        )
 
 
 def test_builder_fails_if_one_exhaustive_inventory_source_is_unreadable() -> None:
