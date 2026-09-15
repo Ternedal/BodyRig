@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -37,6 +38,13 @@ def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
     return result
 
 
+def _numeric_v1(value: Any, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealReferenceVisionConfigError(f"{label} must be numeric v1")
+    if not math.isfinite(float(value)) or value != RUNTIME_VERSION:
+        raise PhotorealReferenceVisionConfigError(f"{label} must be numeric v1")
+
+
 def _read_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -60,8 +68,9 @@ def _validate_runtime_receipt(
             "runtime-environment.json is missing; run setup-photoreal-reference-wsl.ps1 before generating runnable configs"
         )
     receipt = _read_object(path, label="reference runtime environment receipt")
-    if receipt.get("format") != RUNTIME_FORMAT or receipt.get("version") != RUNTIME_VERSION:
-        raise PhotorealReferenceVisionConfigError("reference runtime environment format/version mismatch")
+    if receipt.get("format") != RUNTIME_FORMAT:
+        raise PhotorealReferenceVisionConfigError("reference runtime environment format mismatch")
+    _numeric_v1(receipt.get("version"), label="reference runtime environment version")
     if receipt.get("build_only") is not True or receipt.get("production_activation") is not False:
         raise PhotorealReferenceVisionConfigError("reference runtime environment crossed its authority boundary")
     if _text(receipt.get("distribution"), label="runtime distribution", maximum=160) != distribution:

@@ -31,6 +31,32 @@ function Read-Json {
     catch { throw "$Label is unreadable JSON: $Path" }
 }
 
+function Test-NumericV1 {
+    param([AllowNull()]$Value)
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try {
+        $typeCode = [Type]::GetTypeCode($Value.GetType())
+    } catch {
+        return $false
+    }
+    $numericTypes = @(
+        [TypeCode]::Byte,
+        [TypeCode]::Decimal,
+        [TypeCode]::Double,
+        [TypeCode]::Int16,
+        [TypeCode]::Int32,
+        [TypeCode]::Int64,
+        [TypeCode]::SByte,
+        [TypeCode]::Single,
+        [TypeCode]::UInt16,
+        [TypeCode]::UInt32,
+        [TypeCode]::UInt64
+    )
+    if ($numericTypes -notcontains $typeCode) { return $false }
+    $number = [double]$Value
+    return (-not [double]::IsNaN($number)) -and (-not [double]::IsInfinity($number)) -and $number -eq 1.0
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $modelSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-models.ps1") -Label "Photoreal model setup"
 $wslSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-wsl.ps1") -Label "Photoreal WSL setup"
@@ -76,7 +102,7 @@ if ($RepairReferenceModels -or -not $modelReady) {
 $runtimeReady = Test-Path -LiteralPath $runtimeReceiptPath -PathType Leaf
 if ($runtimeReady -and -not $RepairReferenceEnvironment) {
     $receipt = Read-Json -Path $runtimeReceiptPath -Label "Photoreal runtime environment receipt"
-    if ([string]$receipt.format -ne "bodyrig-photoreal-reference-runtime-environment" -or [int]$receipt.version -ne 1) {
+    if ([string]$receipt.format -ne "bodyrig-photoreal-reference-runtime-environment" -or -not (Test-NumericV1 -Value $receipt.version)) {
         throw "Photoreal runtime environment receipt format/version mismatch. Re-run with -RepairReferenceEnvironment."
     }
     if ([string]$receipt.distribution -ne $Distribution -or [string]$receipt.linux_python -ne $LinuxPython) {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,13 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _numeric_v1(value: Any, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealReferenceVisionPreflightError(f"{label} must be numeric v1")
+    if not math.isfinite(float(value)) or value != 1:
+        raise PhotorealReferenceVisionPreflightError(f"{label} must be numeric v1")
 
 
 def run_reference_vision_preflight(
@@ -106,8 +114,11 @@ def run_reference_vision_preflight(
         result = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
         raise PhotorealReferenceVisionPreflightError("reference vision WSL probe returned invalid JSON") from exc
-    if not isinstance(result, dict) or result.get("format") != "bodyrig-photoreal-reference-vision-probe" or result.get("version") != 1:
-        raise PhotorealReferenceVisionPreflightError("reference vision WSL probe format/version mismatch")
+    if not isinstance(result, dict):
+        raise PhotorealReferenceVisionPreflightError("reference vision WSL probe must return a JSON object")
+    if result.get("format") != "bodyrig-photoreal-reference-vision-probe":
+        raise PhotorealReferenceVisionPreflightError("reference vision WSL probe format mismatch")
+    _numeric_v1(result.get("version"), label="reference vision WSL probe version")
     if result.get("adapter_revision") != adapter_revision or result.get("model_set_sha256") != model_set["model_set_sha256"]:
         raise PhotorealReferenceVisionPreflightError("reference vision WSL probe provenance mismatch")
     if result.get("face_inference_executed") is not True or result.get("pose_inference_executed") is not True:
