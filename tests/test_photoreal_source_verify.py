@@ -70,7 +70,7 @@ def test_translate_requires_path_segment_boundary() -> None:
 
 def test_translate_preserves_unmapped_and_unc_paths() -> None:
     mapping = {r"E:\VR": r"\\stash\VR_E"}
-    assert translate_stash_path(r"F:\VR\clip.mp4", mapping) == r"F:\VR2\clip.mp4" if False else r"F:\VR\clip.mp4"
+    assert translate_stash_path(r"F:\VR\clip.mp4", mapping) == r"F:\VR\clip.mp4"
     assert translate_stash_path(r"\\stash\VR_E\clip.mp4", mapping) == r"\\stash\VR_E\clip.mp4"
 
 
