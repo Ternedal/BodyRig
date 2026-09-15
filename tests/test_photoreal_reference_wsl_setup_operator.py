@@ -36,6 +36,17 @@ def test_reference_wsl_mmdetection_build_sees_installed_torch() -> None:
     assert pip_install < no_isolation < mmdet_install
 
 
+def test_reference_wsl_mmpose_bypasses_unused_legacy_chumpy_dependency() -> None:
+    mmpose_url = '"git+https://github.com/open-mmlab/mmpose.git@$mmposeRevision"'
+    mmpose_install = SCRIPT.index(mmpose_url)
+    no_deps = SCRIPT.rindex('"--no-deps"', 0, mmpose_install)
+    no_isolation = SCRIPT.rindex('"--no-build-isolation"', 0, no_deps)
+    pip_install = SCRIPT.rindex('"pip", "install"', 0, no_isolation)
+
+    assert pip_install < no_isolation < no_deps < mmpose_install
+    assert '"chumpy"' not in SCRIPT
+
+
 def test_reference_wsl_force_repair_rebuilds_partial_environment() -> None:
     force_guard = SCRIPT.index("if ($Force)")
     remove_venv = SCRIPT.index('Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $venvRoot)')
