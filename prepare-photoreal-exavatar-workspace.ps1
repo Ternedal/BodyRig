@@ -107,7 +107,18 @@ if ($LASTEXITCODE -ne 0) {
     throw "BodyRig Photoreal ExAvatar workspace preparation failed with code $LASTEXITCODE"
 }
 
+$hand4wholeStage = Join-Path $repo "stage-photoreal-exavatar-hand4whole-assets.ps1"
+if (-not (Test-Path -LiteralPath $hand4wholeStage -PathType Leaf)) {
+    throw "Hand4Whole asset staging operator not found: $hand4wholeStage"
+}
+& $hand4wholeStage `
+    -LinuxWorkspaceRoot $LinuxWorkspaceRoot `
+    -Distribution $Distribution `
+    -LinuxPython $LinuxPython `
+    -WslExe $WslExe
+
 Write-Host ""
 Write-Host "BodyRig ExAvatar workspace: READY FOR PREPROCESSING"
+Write-Host "Hand4Whole assets: VERIFIED + STAGED"
 Write-Host "Photoreal acceptance: FALSE"
 Write-Host "Production: FALSE"
