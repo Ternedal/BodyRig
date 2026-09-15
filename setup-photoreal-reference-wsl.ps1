@@ -20,6 +20,7 @@ $mmengineVersion = "0.10.7"
 $insightfaceVersion = "0.7.3"
 $onnxruntimeVersion = "1.20.2"
 $openmimVersion = "0.3.9"
+$xtcocotoolsVersion = "1.14.3"
 
 function Invoke-Wsl {
     param(
@@ -105,7 +106,7 @@ Invoke-Wsl -Root -Arguments @(
     "scipy",
     "json-tricks",
     "munkres",
-    "xtcocotools>=1.12"
+    "xtcocotools==$xtcocotoolsVersion"
 )
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
 Invoke-Wsl -Root -Arguments @(
@@ -176,6 +177,7 @@ $receipt = [ordered]@{
         insightface = $insightfaceVersion
         onnxruntime = $onnxruntimeVersion
         openmim = $openmimVersion
+        xtcocotools = $xtcocotoolsVersion
     }
     observed = $probe
     nvidia_smi = @($nvidia | ForEach-Object { [string]$_ })
