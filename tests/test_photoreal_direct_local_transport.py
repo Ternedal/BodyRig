@@ -43,6 +43,9 @@ def _source_inventory(media: Path) -> dict[str, object]:
         "version": 1,
         "performer_id": "42",
         "performer_name": "Performer 42",
+        "video_file_count": 1,
+        "image_file_count": 0,
+        "summary": {"source_universe_exhaustive": True},
         "videos": [
             {
                 "scene_id": "s1",
