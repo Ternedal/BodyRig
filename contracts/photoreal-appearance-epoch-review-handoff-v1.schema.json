@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-appearance-epoch-review-handoff-v1.schema.json",
+  "title": "BodyRig Photoreal Appearance Epoch Review Handoff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "performer_name",
+    "appearance_epoch_plan_sha256",
+    "evidence_sha256",
+    "eligible_observation_count",
+    "eligible_train_observation_count",
+    "eligible_evaluation_observation_count",
+    "source_group_count",
+    "train_source_group_count",
+    "evaluation_source_group_count",
+    "candidate_source_groups",
+    "initial_review_template_sha256",
+    "operator_requirements",
+    "review_command",
+    "human_review_complete",
+    "human_approved",
+    "teacher_input_authorized",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "appearance_epoch_review_handoff_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-appearance-epoch-review-handoff"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string"},
+    "appearance_epoch_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "eligible_observation_count": {"type": "integer", "minimum": 1},
+    "eligible_train_observation_count": {"type": "integer", "minimum": 1},
+    "eligible_evaluation_observation_count": {"type": "integer", "minimum": 1},
+    "source_group_count": {"type": "integer", "minimum": 2},
+    "train_source_group_count": {"type": "integer", "minimum": 1},
+    "evaluation_source_group_count": {"type": "integer", "minimum": 1},
+    "candidate_source_groups": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "group_id",
+          "split",
+          "source_keys",
+          "frame_sha256s",
+          "view_bins",
+          "eligible_observation_count"
+        ],
+        "properties": {
+          "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "split": {"enum": ["train", "evaluation"]},
+          "source_keys": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+          },
+          "frame_sha256s": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          },
+          "view_bins": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+          },
+          "eligible_observation_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "initial_review_template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "operator_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assign_selected_epoch_id",
+        "select_at_least_one_train_source_group",
+        "select_at_least_one_evaluation_source_group",
+        "set_reviewed_by",
+        "set_human_review_complete_true",
+        "set_human_approved_true_only_after_review",
+        "keep_production_activation_false"
+      ],
+      "properties": {
+        "assign_selected_epoch_id": {"const": true},
+        "select_at_least_one_train_source_group": {"const": true},
+        "select_at_least_one_evaluation_source_group": {"const": true},
+        "set_reviewed_by": {"const": true},
+        "set_human_review_complete_true": {"const": true},
+        "set_human_approved_true_only_after_review": {"const": true},
+        "keep_production_activation_false": {"const": true}
+      }
+    },
+    "review_command": {"type": "string", "minLength": 1},
+    "human_review_complete": {"const": false},
+    "human_approved": {"const": false},
+    "teacher_input_authorized": {"const": false},
+    "teacher_training_authorized": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "appearance_epoch_review_handoff_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
