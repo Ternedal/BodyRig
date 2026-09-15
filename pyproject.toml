@@ -72,6 +72,7 @@ bodyrig-photoreal-teacher-review-materialize = "bodyrig.photoreal_teacher_review
 bodyrig-photoreal-static-teacher-review = "bodyrig.photoreal_static_teacher_review_cli:main"
 bodyrig-photoreal-animation-plan = "bodyrig.photoreal_animation_plan_cli:main"
 bodyrig-photoreal-animation-run = "bodyrig.photoreal_animation_runner_cli:main"
+bodyrig-photoreal-animated-review-plan = "bodyrig.photoreal_animated_review_plan_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
