@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-calibration-plan-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Calibration Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "target_performer_id", "identity_bank_sha256", "negative_inventory_sha256", "model_set_sha256",
+    "extractor", "extractor_revision", "embedding_dimension", "label_authority",
+    "negative_performer_count", "source_count", "planned_negative_observation_count",
+    "video_timestamps_per_source", "sources", "negative_embedding_extraction_required",
+    "calibration_only", "teacher_training_authorized", "identity_matching_authorized",
+    "photoreal_acceptance_authority", "build_only", "runtime_dependency", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-calibration-plan"},
+    "version": {"const": 1},
+    "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
+    "negative_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "embedding_dimension": {"type": "integer", "minimum": 32, "maximum": 4096},
+    "label_authority": {"const": "stash-single-performer-other-id-v1"},
+    "negative_performer_count": {"type": "integer", "minimum": 2},
+    "source_count": {"type": "integer", "minimum": 2},
+    "planned_negative_observation_count": {"type": "integer", "minimum": 2},
+    "video_timestamps_per_source": {"const": 6},
+    "sources": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/source"}},
+    "negative_embedding_extraction_required": {"const": true},
+    "calibration_only": {"const": true},
+    "teacher_training_authorized": {"const": false},
+    "identity_matching_authorized": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp_seconds", "eye"],
+      "properties": {
+        "timestamp_seconds": {"oneOf": [{"type": "number", "minimum": 0.0}, {"type": "null"}]},
+        "eye": {"enum": ["mono", "left", "right"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key", "source_sha256", "resolved_path", "subject_performer_id", "subject_performer_name",
+        "target_performer_id", "target_performer_absent", "label_authority", "kind", "source_binding",
+        "projection", "stereo_layout", "decode_mode", "sample_count", "samples"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "subject_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "subject_performer_name": {"type": "string"},
+        "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "target_performer_absent": {"const": true},
+        "label_authority": {"const": "stash-single-performer-other-id-v1"},
+        "kind": {"enum": ["video", "image"]},
+        "source_binding": {"enum": ["scene-single-performer", "direct-performer"]},
+        "projection": {"type": "string", "minLength": 1, "maxLength": 128},
+        "stereo_layout": {"type": "string", "minLength": 1, "maxLength": 128},
+        "decode_mode": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "samples": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sample"}}
+      }
+    }
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-negative-inventory-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Negative Inventory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "target_performer_id", "label_authority",
+    "negative_performer_count", "source_count", "negative_performers", "sources",
+    "calibration_only", "photoreal_teacher_input", "teacher_training_authorized",
+    "identity_matching_authorized", "build_only", "runtime_dependency", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-negative-inventory"},
+    "version": {"const": 1},
+    "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "label_authority": {"const": "stash-single-performer-other-id-v1"},
+    "negative_performer_count": {"type": "integer", "minimum": 1},
+    "source_count": {"type": "integer", "minimum": 1},
+    "negative_performers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["performer_id", "performer_name", "cooccurrence_scene_count", "selected_source_count"],
+        "properties": {
+          "performer_id": {"type": "string", "minLength": 1},
+          "performer_name": {"type": "string"},
+          "cooccurrence_scene_count": {"type": "integer", "minimum": 1},
+          "selected_source_count": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "calibration_only": {"const": true},
+    "photoreal_teacher_input": {"const": false},
+    "teacher_training_authorized": {"const": false},
+    "identity_matching_authorized": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": [
+        "kind", "path", "information_score", "subject_performer_id", "subject_performer_name",
+        "source_binding", "source_key", "target_performer_id", "target_performer_absent", "label_authority",
+        "width", "height", "size_bytes"
+      ],
+      "properties": {
+        "kind": {"enum": ["video", "image"]},
+        "path": {"type": "string", "minLength": 1},
+        "information_score": {"type": "number"},
+        "subject_performer_id": {"type": "string", "minLength": 1},
+        "subject_performer_name": {"type": "string"},
+        "source_binding": {"enum": ["scene-single-performer", "direct-performer"]},
+        "source_key": {"type": "string", "minLength": 1},
+        "target_performer_id": {"type": "string", "minLength": 1},
+        "target_performer_absent": {"const": true},
+        "label_authority": {"const": "stash-single-performer-other-id-v1"},
+        "width": {"type": "integer", "minimum": 0},
+        "height": {"type": "integer", "minimum": 0},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "scene_id": {"type": "string"},
+        "image_id": {"type": "string"},
+        "projection": {"type": "string"},
+        "stereo_layout": {"type": "string"},
+        "duration_seconds": {"type": "number", "minimum": 0},
+        "frame_rate": {"type": "number", "minimum": 0},
+        "megapixels": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

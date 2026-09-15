@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-exavatar-materialization-receipt-v1.schema.json",
+  "title": "BodyRig Photoreal ExAvatar Materialization Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "benchmark_plan_sha256", "teacher_input_sha256", "performer_id",
+    "selected_epoch_id", "upstream_commit", "source_key", "source_sha256", "frame_count", "frames",
+    "frame_lists_are_training_only", "bodyrig_held_out_evaluation_is_external",
+    "held_out_evaluation_disclosed", "original_video_copied", "exact_p0_frame_hashes_reproduced",
+    "photoreal_acceptance_authority", "build_only", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-exavatar-materialization-receipt"},
+    "version": {"const": 1},
+    "benchmark_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "upstream_commit": {"const": "d45268730c779fae4118f1a361cf9ff639bc4d1e"},
+    "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "source_sha256": {"$ref": "#/$defs/sha256"},
+    "frame_count": {"type": "integer", "minimum": 1},
+    "frames": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/frame"}},
+    "frame_lists_are_training_only": {"const": true},
+    "bodyrig_held_out_evaluation_is_external": {"const": true},
+    "held_out_evaluation_disclosed": {"const": false},
+    "original_video_copied": {"const": false},
+    "exact_p0_frame_hashes_reproduced": {"const": true},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exavatar_frame_index", "source_key", "source_frame_sha256", "timestamp_seconds", "eye",
+        "relative_path", "staged_png_sha256", "width", "height"
+      ],
+      "properties": {
+        "exavatar_frame_index": {"type": "integer", "minimum": 0},
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {"type": "number", "minimum": 0},
+        "eye": {"const": "mono"},
+        "relative_path": {"type": "string", "pattern": "^frames/[0-9]+\\.png$"},
+        "staged_png_sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

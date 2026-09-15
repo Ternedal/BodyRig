@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-bootstrap-plan-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Bootstrap Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "performer_name",
+    "policy",
+    "source_count",
+    "source_group_count",
+    "reference_sample_count",
+    "maximum_reference_samples_per_source",
+    "sources",
+    "train_only",
+    "evaluation_source_count",
+    "source_bytes_bound",
+    "identity_embedding_extraction_required",
+    "identity_bank_build_authorized",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+    "build_only",
+    "runtime_dependency",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-bootstrap-plan"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string"},
+    "policy": {"const": "train-only-single-performer-direct-binding-v1"},
+    "source_count": {"type": "integer", "minimum": 2},
+    "source_group_count": {"type": "integer", "minimum": 2},
+    "reference_sample_count": {"type": "integer", "minimum": 4},
+    "maximum_reference_samples_per_source": {"const": 12},
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "train_only": {"const": true},
+    "evaluation_source_count": {"const": 0},
+    "source_bytes_bound": {"const": true},
+    "identity_embedding_extraction_required": {"const": true},
+    "identity_bank_build_authorized": {"const": true},
+    "teacher_training_authorized": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timestamp_seconds", "eye"],
+      "properties": {
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0.0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key",
+        "source_sha256",
+        "resolved_path",
+        "kind",
+        "group_id",
+        "source_binding",
+        "performer_count",
+        "projection",
+        "stereo_layout",
+        "decode_mode",
+        "reference_sample_count",
+        "reference_samples"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "kind": {"enum": ["video", "image"]},
+        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_binding": {"enum": ["scene-performer", "direct-performer"]},
+        "performer_count": {"const": 1},
+        "projection": {"type": "string", "minLength": 1, "maxLength": 128},
+        "stereo_layout": {"type": "string", "minLength": 1, "maxLength": 128},
+        "decode_mode": {"type": "string", "minLength": 1, "maxLength": 128},
+        "reference_sample_count": {"type": "integer", "minimum": 1, "maximum": 12},
+        "reference_samples": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {"$ref": "#/$defs/sample"}
+        }
+      }
+    }
+  }
+}

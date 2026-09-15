@@ -1,0 +1,348 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+
+from bodyrig.photoreal_inventory_path_map import (
+    DIRECT_PATH_PROOF_FORMAT,
+    PhotorealInventoryPathMapError,
+    build_inventory_path_map,
+)
+from bodyrig.photoreal_source_verify import (
+    DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
+    DIRECT_PATH_SCOPE_PRIMARY,
+    PhotorealSourceVerifyError,
+    resolve_path_transport,
+    translate_stash_path,
+)
+from bodyrig.stash_path_cache import validate_cache
+
+
+def _inventory() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-source-inventory",
+        "version": 1,
+        "performer_id": "42",
+        "performer_name": "Performer 42",
+        "video_file_count": 2,
+        "image_file_count": 1,
+        "summary": {"source_universe_exhaustive": True},
+        "videos": [
+            {"scene_id": "old", "path": r"E:\VR\archive\old.mp4"},
+            {"scene_id": "new", "path": r"E:\VR\current\new.mp4"},
+        ],
+        "images": [
+            {"image_id": "still-only-drive", "path": r"F:\Photos\performer42.jpg"},
+        ],
+        "build_only": True,
+        "photoreal_teacher_input": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _negative_inventory() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-identity-negative-inventory",
+        "version": 1,
+        "target_performer_id": "42",
+        "label_authority": "stash-single-performer-other-id-v1",
+        "sources": [
+            {
+                "source_key": "negative:99:g",
+                "path": r"G:\Negatives\subject99.mp4",
+                "target_performer_id": "42",
+                "target_performer_absent": True,
+                "label_authority": "stash-single-performer-other-id-v1",
+            }
+        ],
+        "calibration_only": True,
+        "photoreal_teacher_input": False,
+        "teacher_training_authorized": False,
+        "identity_matching_authorized": False,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _filesystem() -> tuple[set[str], set[str]]:
+    directories = {r"\\stashbox\VR_E", r"\\stashbox\VR_F", r"\\stashbox\VR_G"}
+    files = {
+        r"\\stashbox\VR_E\archive\old.mp4",
+        r"\\stashbox\VR_E\current\new.mp4",
+        r"\\stashbox\VR_F\performer42.jpg",
+        r"\\stashbox\VR_G\subject99.mp4",
+    }
+    return directories, files
+
+
+def _direct_files(*, include_negative: bool = False) -> set[str]:
+    files = {
+        r"E:\VR\archive\old.mp4",
+        r"E:\VR\current\new.mp4",
+        r"F:\Photos\performer42.jpg",
+    }
+    if include_negative:
+        files.add(r"G:\Negatives\subject99.mp4")
+    return files
+
+
+def test_builder_covers_exact_video_and_image_inventory() -> None:
+    directories, files = _filesystem()
+    files.remove(r"\\stashbox\VR_G\subject99.mp4")
+    now = datetime(2026, 9, 15, 11, 0, tzinfo=timezone.utc)
+
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://stashbox:9999",
+        is_dir=lambda value: value in directories,
+        is_file=lambda value: value in files,
+        now=now,
+    )
+
+    assert result["performer_ids"] == ["42"]
+    assert result["mapping"] == {
+        r"E:\VR": r"\\stashbox\VR_E",
+        r"F:\Photos": r"\\stashbox\VR_F",
+    }
+    assert len(result["proof"]) == 2
+    assert {item["verified_files"] for item in result["proof"]} == {1, 2}
+
+    inventory_paths = [
+        r"E:\VR\archive\old.mp4",
+        r"E:\VR\current\new.mp4",
+        r"F:\Photos\performer42.jpg",
+    ]
+    assert {translate_stash_path(path, result["mapping"]) for path in inventory_paths} == files
+
+    validated = validate_cache(
+        result,
+        stash_url="http://stashbox:9999",
+        performer_ids=["42"],
+        now=now,
+        is_dir=lambda value: value in directories,
+    )
+    assert validated["ok"] is True
+    assert validated["mapping"] == result["mapping"]
+
+
+def test_builder_extends_exact_map_for_authoritative_negative_inventory() -> None:
+    directories, files = _filesystem()
+    result = build_inventory_path_map(
+        _inventory(),
+        negative_inventory=_negative_inventory(),
+        stash_url="http://stashbox:9999",
+        is_dir=lambda value: value in directories,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["mapping"][r"G:\Negatives"] == r"\\stashbox\VR_G"
+    assert translate_stash_path(r"G:\Negatives\subject99.mp4", result["mapping"]) == r"\\stashbox\VR_G\subject99.mp4"
+
+
+def test_builder_emits_primary_direct_local_proof_when_all_sources_are_readable() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["format"] == DIRECT_PATH_PROOF_FORMAT
+    assert result["transport_mode"] == "direct-local"
+    assert result["performer_ids"] == ["42"]
+    assert result["source_scope"] == DIRECT_PATH_SCOPE_PRIMARY
+    assert result["source_count"] == 3
+    assert result["all_sources_directly_readable"] is True
+    assert result["mapping"] == {}
+    assert result["proof"] == []
+    assert result["production_activation"] is False
+
+    transport = resolve_path_transport(
+        result,
+        stash_url="http://localhost:9999",
+        performer_id="42",
+        expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+        expected_direct_source_count=3,
+    )
+    assert transport == {
+        "mapping": {},
+        "cache_mode": "photoreal-direct-local-v1",
+        "stash_origin": "http://localhost:9999",
+    }
+
+
+def test_builder_emits_negative_scoped_direct_local_proof_for_union_check() -> None:
+    files = _direct_files(include_negative=True)
+    result = build_inventory_path_map(
+        _inventory(),
+        negative_inventory=_negative_inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["format"] == DIRECT_PATH_PROOF_FORMAT
+    assert result["source_scope"] == DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION
+    assert result["source_count"] == 1
+    assert result["mapping"] == {}
+    assert result["all_sources_directly_readable"] is True
+
+
+def test_direct_local_proof_cannot_cross_scope_or_count() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    with pytest.raises(PhotorealSourceVerifyError, match="source scope mismatch"):
+        resolve_path_transport(
+            result,
+            stash_url="http://localhost:9999",
+            performer_id="42",
+            expected_direct_scope=DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
+            expected_direct_source_count=3,
+        )
+    with pytest.raises(PhotorealSourceVerifyError, match="source count mismatch"):
+        resolve_path_transport(
+            result,
+            stash_url="http://localhost:9999",
+            performer_id="42",
+            expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+            expected_direct_source_count=4,
+        )
+
+
+def test_direct_local_proof_cannot_carry_mapping_or_production_authority() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    mapped = dict(result)
+    mapped["mapping"] = {"E:": r"\\localhost\VR_E"}
+    with pytest.raises(PhotorealSourceVerifyError, match="must not contain path remapping authority"):
+        resolve_path_transport(mapped, stash_url="http://localhost:9999", performer_id="42")
+
+    activated = dict(result)
+    activated["production_activation"] = True
+    with pytest.raises(PhotorealSourceVerifyError, match="crossed production authority"):
+        resolve_path_transport(activated, stash_url="http://localhost:9999", performer_id="42")
+
+
+def test_direct_local_proof_is_bound_to_stash_origin_and_performer() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    with pytest.raises(PhotorealSourceVerifyError, match="different Stash origin"):
+        resolve_path_transport(result, stash_url="http://stashbox:9999", performer_id="42")
+    with pytest.raises(PhotorealSourceVerifyError, match="performer scope mismatch"):
+        resolve_path_transport(result, stash_url="http://localhost:9999", performer_id="43")
+
+
+def test_builder_rejects_target_media_reused_as_negative_source() -> None:
+    negative = _negative_inventory()
+    negative["sources"][0]["path"] = r"E:\VR\archive\old.mp4"
+    files = _direct_files()
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="cannot be both target-performer media"):
+        build_inventory_path_map(
+            _inventory(),
+            negative_inventory=negative,
+            stash_url="http://localhost:9999",
+            is_dir=lambda _value: False,
+            is_file=lambda value: value in files,
+        )
+
+
+def test_builder_fails_if_one_exhaustive_inventory_source_is_unreadable() -> None:
+    directories, files = _filesystem()
+    files.remove(r"\\stashbox\VR_E\archive\old.mp4")
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="exhaustive source path is not readable"):
+        build_inventory_path_map(
+            _inventory(),
+            stash_url="http://stashbox:9999",
+            is_dir=lambda value: value in directories,
+            is_file=lambda value: value in files,
+        )
+
+
+def test_builder_requires_image_only_drive_share() -> None:
+    directories, files = _filesystem()
+    directories.remove(r"\\stashbox\VR_F")
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="canonical Stash SMB share is not readable for F:"):
+        build_inventory_path_map(
+            _inventory(),
+            stash_url="http://stashbox:9999",
+            is_dir=lambda value: value in directories,
+            is_file=lambda value: value in files,
+        )
+
+
+def test_builder_rejects_negative_inventory_for_different_target() -> None:
+    negative = _negative_inventory()
+    negative["target_performer_id"] = "43"
+    directories, files = _filesystem()
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="different performer"):
+        build_inventory_path_map(
+            _inventory(),
+            negative_inventory=negative,
+            stash_url="http://stashbox:9999",
+            is_dir=lambda value: value in directories,
+            is_file=lambda value: value in files,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("version", True),
+        ("build_only", 1),
+        ("photoreal_teacher_input", "true"),
+        ("runtime_dependency", 0),
+        ("production_activation", 0),
+    ],
+)
+def test_builder_rejects_inventory_authority_type_confusion(field: str, value: object) -> None:
+    inventory = _inventory()
+    inventory[field] = value
+    directories, files = _filesystem()
+
+    with pytest.raises(PhotorealInventoryPathMapError):
+        build_inventory_path_map(
+            inventory,
+            stash_url="http://stashbox:9999",
+            is_dir=lambda path: path in directories,
+            is_file=lambda path: path in files,
+        )
+
+
+def test_builder_rejects_false_exhaustive_summary() -> None:
+    inventory = _inventory()
+    inventory["summary"] = {"source_universe_exhaustive": False}
+    directories, files = _filesystem()
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="not exhaustive"):
+        build_inventory_path_map(
+            inventory,
+            stash_url="http://stashbox:9999",
+            is_dir=lambda path: path in directories,
+            is_file=lambda path: path in files,
+        )

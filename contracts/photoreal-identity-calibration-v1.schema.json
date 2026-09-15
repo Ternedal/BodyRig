@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-identity-calibration-v1.schema.json",
+  "title": "BodyRig Photoreal Identity Calibration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "target_performer_id", "identity_bank_sha256", "model_set_sha256",
+    "extractor", "extractor_revision", "embedding_dimension", "positive_reference_count",
+    "positive_group_count", "negative_observation_count", "negative_performer_count",
+    "positive_leave_group_out_cosine_min", "positive_leave_group_out_cosine_median",
+    "positive_leave_group_out_cosine_max", "negative_to_target_centroid_cosine_min",
+    "negative_to_target_centroid_cosine_median", "negative_to_target_centroid_cosine_max",
+    "minimum_required_separation_margin", "observed_separation_margin", "threshold_derivation",
+    "match_threshold", "match_threshold_calibrated", "identity_matching_authorized",
+    "calibration_blockers", "calibration_data_teacher_input", "teacher_training_authorized",
+    "photoreal_acceptance_authority", "build_only", "runtime_dependency", "production_activation",
+    "identity_calibration_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-identity-calibration"},
+    "version": {"const": 1},
+    "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
+    "negative_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "identity_calibration_provenance_sha256": {"$ref": "#/$defs/sha256"},
+    "model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
+    "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "embedding_dimension": {"type": "integer", "minimum": 32, "maximum": 4096},
+    "positive_reference_count": {"type": "integer", "minimum": 4},
+    "positive_group_count": {"type": "integer", "minimum": 2},
+    "negative_observation_count": {"type": "integer", "minimum": 1},
+    "negative_performer_count": {"type": "integer", "minimum": 1},
+    "positive_leave_group_out_cosine_min": {"$ref": "#/$defs/cosine"},
+    "positive_leave_group_out_cosine_median": {"$ref": "#/$defs/cosine"},
+    "positive_leave_group_out_cosine_max": {"$ref": "#/$defs/cosine"},
+    "negative_to_target_centroid_cosine_min": {"$ref": "#/$defs/cosine"},
+    "negative_to_target_centroid_cosine_median": {"$ref": "#/$defs/cosine"},
+    "negative_to_target_centroid_cosine_max": {"$ref": "#/$defs/cosine"},
+    "minimum_required_separation_margin": {"const": 0.05},
+    "observed_separation_margin": {"type": "number", "minimum": -2.0, "maximum": 2.0},
+    "threshold_derivation": {"const": "midpoint-positive-floor-negative-ceiling-v1"},
+    "match_threshold": {"oneOf": [{"$ref": "#/$defs/cosine"}, {"type": "null"}]},
+    "match_threshold_calibrated": {"type": "boolean"},
+    "identity_matching_authorized": {"type": "boolean"},
+    "calibration_blockers": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "calibration_data_teacher_input": {"const": false},
+    "teacher_training_authorized": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "identity_calibration_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cosine": {"type": "number", "minimum": -1.0, "maximum": 1.0}
+  },
+  "allOf": [
+    {
+      "if": {"required": ["negative_inventory_sha256"]},
+      "then": {"required": ["identity_calibration_provenance_sha256"]}
+    },
+    {
+      "if": {"required": ["identity_calibration_provenance_sha256"]},
+      "then": {"required": ["negative_inventory_sha256"]}
+    },
+    {
+      "if": {"properties": {"identity_matching_authorized": {"const": true}}, "required": ["identity_matching_authorized"]},
+      "then": {
+        "properties": {
+          "match_threshold_calibrated": {"const": true},
+          "match_threshold": {"$ref": "#/$defs/cosine"},
+          "calibration_blockers": {"maxItems": 0}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"identity_matching_authorized": {"const": false}}, "required": ["identity_matching_authorized"]},
+      "then": {
+        "properties": {
+          "match_threshold_calibrated": {"const": false},
+          "match_threshold": {"type": "null"},
+          "calibration_blockers": {"minItems": 1}
+        }
+      }
+    }
+  ]
+}
