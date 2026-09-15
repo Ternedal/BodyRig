@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-animation-config-v1.schema.json",
+  "title": "BodyRig Photoreal animation adapter config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "adapter",
+    "revision",
+    "representation",
+    "command",
+    "timeout_seconds",
+    "supported_validation_dimensions",
+    "body_correspondence_policy",
+    "face_control_policy"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-animation-config"},
+    "version": {"type": "number", "const": 1},
+    "adapter": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 160},
+    "representation": {"type": "string", "minLength": 1, "maxLength": 160},
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+    "supported_validation_dimensions": {"$ref": "#/$defs/dimensions"},
+    "body_correspondence_policy": {"const": "canonical-skeleton-smplx-correspondence-v1"},
+    "face_control_policy": {"const": "explicit-facial-expression-representation-v1"}
+  },
+  "$defs": {
+    "dimensions": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "body_pose_smplx_correspondence"},
+        {"const": "face_expression_control"},
+        {"const": "head_turn_validation"},
+        {"const": "eye_motion_validation"},
+        {"const": "mouth_motion_validation"},
+        {"const": "hand_motion_validation"},
+        {"const": "full_body_pose_validation"},
+        {"const": "identity_appearance_motion_preservation"}
+      ],
+      "items": false,
+      "minItems": 8,
+      "maxItems": 8
+    }
+  }
+}
