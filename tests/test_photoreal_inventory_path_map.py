@@ -5,10 +5,15 @@ from datetime import datetime, timezone
 import pytest
 
 from bodyrig.photoreal_inventory_path_map import (
+    DIRECT_PATH_PROOF_FORMAT,
     PhotorealInventoryPathMapError,
     build_inventory_path_map,
 )
-from bodyrig.photoreal_source_verify import translate_stash_path
+from bodyrig.photoreal_source_verify import (
+    PhotorealSourceVerifyError,
+    resolve_path_transport,
+    translate_stash_path,
+)
 from bodyrig.stash_path_cache import validate_cache
 
 
@@ -71,6 +76,17 @@ def _filesystem() -> tuple[set[str], set[str]]:
     return directories, files
 
 
+def _direct_files(*, include_negative: bool = False) -> set[str]:
+    files = {
+        r"E:\VR\archive\old.mp4",
+        r"E:\VR\current\new.mp4",
+        r"F:\Photos\performer42.jpg",
+    }
+    if include_negative:
+        files.add(r"G:\Negatives\subject99.mp4")
+    return files
+
+
 def test_builder_covers_exact_video_and_image_inventory() -> None:
     directories, files = _filesystem()
     files.remove(r"\\stashbox\VR_G\subject99.mp4")
@@ -122,6 +138,83 @@ def test_builder_extends_exact_map_for_authoritative_negative_inventory() -> Non
 
     assert result["mapping"][r"G:\Negatives"] == r"\\stashbox\VR_G"
     assert translate_stash_path(r"G:\Negatives\subject99.mp4", result["mapping"]) == r"\\stashbox\VR_G\subject99.mp4"
+
+
+def test_builder_emits_direct_local_proof_when_all_primary_sources_are_directly_readable() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["format"] == DIRECT_PATH_PROOF_FORMAT
+    assert result["transport_mode"] == "direct-local"
+    assert result["performer_ids"] == ["42"]
+    assert result["source_count"] == 3
+    assert result["all_sources_directly_readable"] is True
+    assert result["mapping"] == {}
+    assert result["proof"] == []
+    assert result["production_activation"] is False
+
+    transport = resolve_path_transport(result, stash_url="http://localhost:9999", performer_id="42")
+    assert transport == {
+        "mapping": {},
+        "cache_mode": "photoreal-direct-local-v1",
+        "stash_origin": "http://localhost:9999",
+    }
+
+
+def test_builder_emits_direct_local_proof_for_primary_and_negative_union() -> None:
+    files = _direct_files(include_negative=True)
+    result = build_inventory_path_map(
+        _inventory(),
+        negative_inventory=_negative_inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["format"] == DIRECT_PATH_PROOF_FORMAT
+    assert result["source_count"] == 4
+    assert result["mapping"] == {}
+    assert result["all_sources_directly_readable"] is True
+
+
+def test_direct_local_proof_cannot_carry_mapping_or_production_authority() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    mapped = dict(result)
+    mapped["mapping"] = {"E:": r"\\localhost\VR_E"}
+    with pytest.raises(PhotorealSourceVerifyError, match="must not contain path remapping authority"):
+        resolve_path_transport(mapped, stash_url="http://localhost:9999", performer_id="42")
+
+    activated = dict(result)
+    activated["production_activation"] = True
+    with pytest.raises(PhotorealSourceVerifyError, match="crossed production authority"):
+        resolve_path_transport(activated, stash_url="http://localhost:9999", performer_id="42")
+
+
+def test_direct_local_proof_is_bound_to_stash_origin_and_performer() -> None:
+    files = _direct_files()
+    result = build_inventory_path_map(
+        _inventory(),
+        stash_url="http://localhost:9999",
+        is_dir=lambda _value: False,
+        is_file=lambda value: value in files,
+    )
+
+    with pytest.raises(PhotorealSourceVerifyError, match="different Stash origin"):
+        resolve_path_transport(result, stash_url="http://stashbox:9999", performer_id="42")
+    with pytest.raises(PhotorealSourceVerifyError, match="performer scope mismatch"):
+        resolve_path_transport(result, stash_url="http://localhost:9999", performer_id="43")
 
 
 def test_builder_fails_if_one_exhaustive_inventory_source_is_unreadable() -> None:
