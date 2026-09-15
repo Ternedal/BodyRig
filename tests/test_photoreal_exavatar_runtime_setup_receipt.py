@@ -24,8 +24,9 @@ def _runtime(tmp_path: Path) -> Path:
         "format": receipt.FORMAT,
         "version": receipt.VERSION,
         "distribution": "Ubuntu-22.04",
-        "linux_python": str(python.resolve()),
+        "linux_python": str(python.absolute()),
         "pytorch3d_commit": receipt.PYTORCH3D_COMMIT,
+        "expected_cuda_version": receipt.EXPECTED_CUDA_VERSION,
         "requested_versions": dict(receipt.EXPECTED_REQUESTED_VERSIONS),
         "chumpy_patch": {
             "path": "/opt/bodyrig-exavatar/lib/python3.10/site-packages/chumpy/__init__.py",
@@ -39,12 +40,13 @@ def _runtime(tmp_path: Path) -> Path:
             "patch": receipt.TORCHGEOMETRY_PATCH,
         },
         "observed": {
+            "torch_cuda": receipt.EXPECTED_CUDA_VERSION,
             "chumpy": "0.70",
             "cuda_smoke": True,
             "chumpy_smoke": True,
             "torchgeometry_smoke": True,
         },
-        "nvcc": ["Cuda compilation tools, release 12.4"],
+        "nvcc": [f"Cuda compilation tools, release {receipt.EXPECTED_CUDA_VERSION}, V12.4.131"],
         "nvidia_smi": ["NVIDIA GeForce RTX 3060, driver, 12288 MiB"],
         "photoreal_acceptance_authority": False,
         "build_only": True,
@@ -60,6 +62,7 @@ def test_runtime_setup_receipt_accepts_exact_pinned_provenance(tmp_path: Path) -
     result = receipt.validate_runtime_setup_receipt(linux_python=python)
 
     assert result["pytorch3d_commit"] == receipt.PYTORCH3D_COMMIT
+    assert result["expected_cuda_version"] == receipt.EXPECTED_CUDA_VERSION
     assert result["requested_versions"]["chumpy"] == "0.70"
     assert result["chumpy_patch"]["patch"] == receipt.CHUMPY_PATCH
     assert result["torchgeometry_patch"]["patch"] == receipt.TORCHGEOMETRY_PATCH
@@ -76,6 +79,18 @@ def test_runtime_setup_receipt_rejects_changed_version_set(tmp_path: Path) -> No
     path.write_text(json.dumps(value), encoding="utf-8")
 
     with pytest.raises(receipt.PhotorealExAvatarRuntimeSetupReceiptError, match="requested-version set mismatch"):
+        receipt.validate_runtime_setup_receipt(linux_python=python)
+
+
+def test_runtime_setup_receipt_rejects_cuda_compiler_runtime_mismatch(tmp_path: Path) -> None:
+    python = _runtime(tmp_path)
+    path = python.parent.parent / "bodyrig-exavatar-runtime-setup.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["nvcc"] = ["Cuda compilation tools, release 12.5, V12.5.82"]
+    value["setup_sha256"] = _digest(value, "setup_sha256")
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    with pytest.raises(receipt.PhotorealExAvatarRuntimeSetupReceiptError, match="nvcc/Torch CUDA parity"):
         receipt.validate_runtime_setup_receipt(linux_python=python)
 
 
