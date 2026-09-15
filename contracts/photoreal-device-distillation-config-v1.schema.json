@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bodyrig-photoreal-device-distillation-config-v1",
+  "title": "BodyRig Photoreal device distillation adapter config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "adapter", "revision", "student_representation", "command",
+    "timeout_seconds", "supported_target_models", "supported_fidelity_delta_dimensions",
+    "reports_teacher_student_delta", "gaussian_splat_target_support"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-device-distillation-config"},
+    "version": {"const": 1},
+    "adapter": {"type": "string", "minLength": 1},
+    "revision": {"type": "string", "minLength": 1},
+    "student_representation": {
+      "enum": [
+        "skinned-mesh-pbr", "skinned-mesh-neural-texture", "hybrid-mesh-neural-residual",
+        "specialized-eye-component", "teacher-derived-hair-component", "gaussian-splat-optional"
+      ]
+    },
+    "command": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+    "supported_target_models": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"enum": ["quest-2", "quest-3", "quest-3s"]}
+    },
+    "supported_fidelity_delta_dimensions": {
+      "const": [
+        "identity_likeness", "face_detail", "eyes", "hair_silhouette_and_appearance",
+        "skin_material_response", "hands_and_extremities", "motion_identity_preservation",
+        "temporal_stability"
+      ]
+    },
+    "reports_teacher_student_delta": {"const": true},
+    "gaussian_splat_target_support": {"type": "boolean"}
+  }
+}
