@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+import math
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,6 +53,20 @@ def _commit(value: Any, *, label: str) -> str:
     if len(result) != 40 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealTeacherRunnerError(f"{label} must be an exact 40-hex commit")
     return result
+
+
+def _timestamp(value: Any, *, label: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid") from exc
+    if not math.isfinite(result) or result < 0:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    return round(result, 6)
 
 
 def _hash_file(path: Path) -> str:
@@ -182,6 +196,118 @@ def _safe_artifact_path(output_dir: Path, relative: Any) -> Path:
     return target
 
 
+def _training_source_universe(request: Mapping[str, Any]) -> set[str]:
+    values = request.get("training_sources")
+    if not isinstance(values, list) or not values:
+        raise PhotorealTeacherRunnerError("teacher request has no training source universe")
+    result: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealTeacherRunnerError("teacher request training source is invalid")
+        source_key = _text(raw.get("source_key"), label="teacher request training source key")
+        if source_key in result:
+            raise PhotorealTeacherRunnerError("teacher request repeats training source key")
+        result.add(source_key)
+    return result
+
+
+def _observation_key(raw: Mapping[str, Any], *, label: str) -> tuple[str, str, float | None, str]:
+    source_key = _text(raw.get("source_key"), label=f"{label} source key")
+    frame_sha = _sha(raw.get("frame_sha256"), label=f"{label} frame SHA-256")
+    timestamp = _timestamp(raw.get("timestamp_seconds"), label=f"{label} timestamp")
+    eye = _text(raw.get("eye"), label=f"{label} eye", maximum=16)
+    if eye not in {"mono", "left", "right"}:
+        raise PhotorealTeacherRunnerError(f"{label} eye is unsupported")
+    return source_key, frame_sha, timestamp, eye
+
+
+def _training_observation_universe(request: Mapping[str, Any]) -> set[tuple[str, str, float | None, str]]:
+    values = request.get("training_observations")
+    if not isinstance(values, list) or not values:
+        raise PhotorealTeacherRunnerError("teacher request has no training observation universe")
+    result: set[tuple[str, str, float | None, str]] = set()
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealTeacherRunnerError("teacher request training observation is invalid")
+        key = _observation_key(raw, label="teacher request training observation")
+        if key in result:
+            raise PhotorealTeacherRunnerError("teacher request repeats training observation")
+        result.add(key)
+    return result
+
+
+def _validate_consumed_training(
+    value: Mapping[str, Any],
+    *,
+    request: Mapping[str, Any],
+) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+    source_universe = _training_source_universe(request)
+    observation_universe = _training_observation_universe(request)
+
+    consumed_sources_raw = value.get("consumed_training_source_keys")
+    if not isinstance(consumed_sources_raw, list) or not consumed_sources_raw:
+        raise PhotorealTeacherRunnerError("teacher manifest contains no consumed training sources")
+    consumed_sources: list[str] = []
+    seen_sources: set[str] = set()
+    for raw in consumed_sources_raw:
+        source_key = _text(raw, label="consumed training source key")
+        if source_key in seen_sources:
+            raise PhotorealTeacherRunnerError("teacher manifest repeats consumed training source")
+        if source_key not in source_universe:
+            raise PhotorealTeacherRunnerError("teacher manifest consumed source outside authorized training universe")
+        seen_sources.add(source_key)
+        consumed_sources.append(source_key)
+
+    consumed_observations_raw = value.get("consumed_training_observations")
+    if not isinstance(consumed_observations_raw, list) or not consumed_observations_raw:
+        raise PhotorealTeacherRunnerError("teacher manifest contains no consumed training observations")
+    consumed_observations: list[dict[str, Any]] = []
+    seen_observations: set[tuple[str, str, float | None, str]] = set()
+    observation_sources: set[str] = set()
+    required_fields = {"source_key", "frame_sha256", "timestamp_seconds", "eye"}
+    for raw in consumed_observations_raw:
+        if not isinstance(raw, Mapping) or set(raw) != required_fields:
+            raise PhotorealTeacherRunnerError("consumed training observation fields must match v1 exactly")
+        key = _observation_key(raw, label="consumed training observation")
+        if key in seen_observations:
+            raise PhotorealTeacherRunnerError("teacher manifest repeats consumed training observation")
+        if key not in observation_universe:
+            raise PhotorealTeacherRunnerError("teacher manifest consumed observation outside authorized training universe")
+        if key[0] not in seen_sources:
+            raise PhotorealTeacherRunnerError("teacher manifest consumed observation from undeclared training source")
+        seen_observations.add(key)
+        observation_sources.add(key[0])
+        consumed_observations.append(
+            {
+                "source_key": key[0],
+                "frame_sha256": key[1],
+                "timestamp_seconds": key[2],
+                "eye": key[3],
+            }
+        )
+    if observation_sources != seen_sources:
+        raise PhotorealTeacherRunnerError("each consumed training source must have at least one consumed observation")
+
+    consumed_sources.sort()
+    consumed_observations.sort(
+        key=lambda item: (
+            item["source_key"],
+            -1.0 if item["timestamp_seconds"] is None else float(item["timestamp_seconds"]),
+            item["eye"],
+            item["frame_sha256"],
+        )
+    )
+    utilization = {
+        "training_source_universe_count": len(source_universe),
+        "consumed_training_source_count": len(consumed_sources),
+        "training_source_utilization_fraction": round(len(consumed_sources) / len(source_universe), 9),
+        "training_observation_universe_count": len(observation_universe),
+        "consumed_training_observation_count": len(consumed_observations),
+        "training_observation_utilization_fraction": round(len(consumed_observations) / len(observation_universe), 9),
+    }
+    return consumed_sources, consumed_observations, utilization
+
+
 def validate_teacher_result(
     value: Mapping[str, Any],
     *,
@@ -199,6 +325,8 @@ def validate_teacher_result(
         "upstream_repository",
         "upstream_commit",
         "training_complete",
+        "consumed_training_source_keys",
+        "consumed_training_observations",
         "artifacts",
         "photoreal_acceptance_authority",
         "human_visual_acceptance_required",
@@ -220,6 +348,8 @@ def validate_teacher_result(
         raise PhotorealTeacherRunnerError("teacher manifest crossed photoreal/human authority")
     if value.get("production_activation") is not False:
         raise PhotorealTeacherRunnerError("teacher manifest crossed production authority")
+
+    consumed_sources, consumed_observations, utilization = _validate_consumed_training(value, request=request)
 
     artifacts = value.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
@@ -262,7 +392,10 @@ def validate_teacher_result(
             f"teacher output artifact universe mismatch (extra={len(extra)}, missing={len(missing)})"
         )
     result = dict(value)
+    result["consumed_training_source_keys"] = consumed_sources
+    result["consumed_training_observations"] = consumed_observations
     result["artifacts"] = sorted(normalized_artifacts, key=lambda item: item["relative_path"])
+    result.update(utilization)
     return result
 
 
