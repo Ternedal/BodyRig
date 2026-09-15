@@ -17,6 +17,7 @@ from .photoreal_exavatar_hand4whole_stage import (
 FORMAT = "bodyrig-photoreal-exavatar-runtime-preflight"
 VERSION = 1
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
+EXPECTED_TORCH_CUDA_VERSION = "12.4"
 
 EXPECTED_VERSIONS: dict[str, str] = {
     "torch": "2.6.0",
@@ -30,6 +31,7 @@ EXPECTED_VERSIONS: dict[str, str] = {
     "mmcv": "2.1.0",
     "mmdet": "3.3.0",
     "mmengine": "0.10.7",
+    "mmpose": "1.3.2",
 }
 
 REQUIRED_IMPORTS: tuple[str, ...] = (
@@ -95,6 +97,14 @@ def _distribution_version(name: str) -> str | None:
         return None
 
 
+def _version_matches(observed: str | None, expected: str) -> bool:
+    if observed is None:
+        return False
+    # CUDA wheels may carry a PEP 440 local suffix such as +cu124. Pin the
+    # public/base version here; CUDA is independently pinned below.
+    return observed == expected or observed.split("+", 1)[0] == expected
+
+
 def _module_origin(module: Any) -> str | None:
     path = getattr(module, "__file__", None)
     return None if not path else str(Path(path).resolve())
@@ -156,7 +166,7 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
     version_records: list[dict[str, Any]] = []
     for package, expected in EXPECTED_VERSIONS.items():
         observed = _distribution_version(package)
-        match = observed == expected
+        match = _version_matches(observed, expected)
         version_records.append({"package": package, "expected": expected, "observed": observed, "match": match})
         if not match:
             blockers.append(f"package version mismatch: {package}: expected {expected}, observed {observed}")
@@ -168,12 +178,20 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
         "device_name": None,
         "compute_capability": None,
         "torch_cuda_version": None,
+        "expected_torch_cuda_version": EXPECTED_TORCH_CUDA_VERSION,
+        "torch_cuda_version_match": False,
         "smoke_passed": False,
     }
     if "torch" in imported:
         torch = imported["torch"]
         try:
-            cuda_record["torch_cuda_version"] = str(torch.version.cuda or "")
+            torch_cuda = str(torch.version.cuda or "")
+            cuda_record["torch_cuda_version"] = torch_cuda
+            cuda_record["torch_cuda_version_match"] = torch_cuda == EXPECTED_TORCH_CUDA_VERSION
+            if torch_cuda != EXPECTED_TORCH_CUDA_VERSION:
+                blockers.append(
+                    f"PyTorch CUDA runtime mismatch: expected {EXPECTED_TORCH_CUDA_VERSION}, observed {torch_cuda or '<missing>'}"
+                )
             cuda_record["cuda_available"] = bool(torch.cuda.is_available())
             cuda_record["device_count"] = int(torch.cuda.device_count()) if torch.cuda.is_available() else 0
             if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
