@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from .photoreal_frame_authorized_observations_integrity import (
+    PhotorealAuthorizedObservationsIntegrityError,
+    seal_authorized_observations,
+)
 from .photoreal_frame_identity_authority import (
     PhotorealFrameIdentityAuthorityError,
     authorize_frame_identities,
@@ -61,7 +65,10 @@ def authorize_frame_identity_files_sealed_strict(
 
     validate_sealed_identity_matching_readback(bank, calibration)
     try:
-        result = authorize_frame_identities(plan, measurements, bank, calibration)
+        authorized = authorize_frame_identities(plan, measurements, bank, calibration)
+        result = seal_authorized_observations(authorized)
+    except PhotorealAuthorizedObservationsIntegrityError as exc:
+        raise PhotorealFrameIdentitySealedReadbackAuthorityError(str(exc)) from exc
     except PhotorealFrameIdentityAuthorityError:
         raise
 
