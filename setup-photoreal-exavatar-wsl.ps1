@@ -20,6 +20,7 @@ $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
 $openmimVersion = "0.3.9"
+$chumpyVersion = "0.70"
 $pytorch3dCommit = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"
 
 function Invoke-Wsl {
@@ -59,6 +60,7 @@ Write-Host "Linux Python:      $LinuxPython"
 Write-Host "Torch:             $torchVersion / CUDA 12.4 wheel"
 Write-Host "PyTorch3D commit:  $pytorch3dCommit"
 Write-Host "MMCV:              $mmcvVersion"
+Write-Host "Chumpy:            $chumpyVersion + NumPy 1.26 compatibility patch"
 Write-Host "Production:        FALSE"
 Write-Host "============================================================"
 
@@ -105,11 +107,18 @@ Invoke-Wsl -Root -Arguments @(
     "smplx==$smplxVersion", "lpips==$lpipsVersion",
     "openmim==$openmimVersion", "mmengine==$mmengineVersion",
     "mmdet==$mmdetVersion", "mmpose==$mmposeVersion",
-    "chumpy==0.71", "kornia==0.8.0", "yacs==0.1.8", "face-alignment==1.3.4",
+    "kornia==0.8.0", "yacs==0.1.8", "face-alignment==1.3.4",
     "timm==1.0.15", "einops==0.8.1", "tqdm==4.67.1", "pillow==10.4.0",
     "torchgeometry==0.1.2", "plyfile==1.1", "scikit-image==0.25.2", "PyYAML==6.0.2",
     "pyrender==0.1.45", "trimesh==3.23.5", "tensorboardX==2.6.2.2",
     "setproctitle==1.3.5", "fvcore", "iopath", "pyopengl==3.1.5"
+)
+
+# ExAvatar lists chumpy 0.71, but public PyPI publishes 0.70. Install the
+# public package separately, then patch its legacy NumPy alias import below.
+# --no-build-isolation keeps the source build inside this already-pinned venv.
+Invoke-Wsl -Root -Arguments @(
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
 )
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmcv==$mmcvVersion")
 
@@ -120,10 +129,56 @@ Invoke-Wsl -Root -Arguments @(
     "git+https://github.com/facebookresearch/pytorch3d.git@$pytorch3dCommit"
 )
 
+# Chumpy 0.70 imports NumPy aliases removed in modern NumPy. Patch only the
+# exact legacy import line, without importing Chumpy first, and record the
+# resulting site-package bytes. This is compatibility plumbing, not model
+# authority and not a change to ExAvatar source code.
+$chumpyPatchCode = @'
+import hashlib
+import json
+import sysconfig
+from pathlib import Path
+
+path = Path(sysconfig.get_paths()["purelib"]) / "chumpy" / "__init__.py"
+if not path.is_file():
+    raise SystemExit(f"chumpy __init__.py not found: {path}")
+raw = path.read_text(encoding="utf-8")
+marker = "from numpy import bool, int, float, complex, object, unicode, str, nan, inf"
+replacement = "\n".join([
+    "# BodyRig NumPy>=1.24 compatibility patch for public chumpy 0.70.",
+    "import builtins as _bodyrig_builtins",
+    "bool = _bodyrig_builtins.bool",
+    "int = _bodyrig_builtins.int",
+    "float = _bodyrig_builtins.float",
+    "complex = _bodyrig_builtins.complex",
+    "object = _bodyrig_builtins.object",
+    "unicode = _bodyrig_builtins.str",
+    "str = _bodyrig_builtins.str",
+    "from numpy import nan, inf",
+])
+if raw.count(marker) != 1:
+    raise SystemExit(f"chumpy legacy NumPy marker mismatch: expected exactly one occurrence, observed {raw.count(marker)}")
+before = hashlib.sha256(path.read_bytes()).hexdigest()
+path.write_text(raw.replace(marker, replacement, 1), encoding="utf-8")
+after = hashlib.sha256(path.read_bytes()).hexdigest()
+if before == after:
+    raise SystemExit("chumpy compatibility patch did not change bytes")
+print(json.dumps({
+    "path": str(path),
+    "before_sha256": before,
+    "sha256": after,
+    "patch": "bodyrig-chumpy-0.70-numpy-alias-v1",
+}, sort_keys=True, separators=(",", ":")))
+'@
+$chumpyPatchRaw = Invoke-Wsl -Root -Arguments @($LinuxPython, "-c", $chumpyPatchCode) -Capture
+$chumpyPatchLine = ($chumpyPatchRaw | Select-Object -Last 1).ToString().Trim()
+try { $chumpyPatch = $chumpyPatchLine | ConvertFrom-Json -Depth 10 }
+catch { throw "Chumpy compatibility patch did not return valid JSON: $chumpyPatchLine" }
+
 # Hand4Whole depends on torchgeometry 0.1.2, whose old bool-mask arithmetic is
 # incompatible with modern PyTorch. Apply the fix published by Hand4Whole's
 # author fail-closed against the exact four legacy expressions.
-$patchCode = @'
+$torchgeometryPatchCode = @'
 import hashlib
 import json
 from pathlib import Path
@@ -148,14 +203,15 @@ print(json.dumps({
     "patch": "hand4whole-author-float-mask-v1",
 }, sort_keys=True, separators=(",", ":")))
 '@
-$patchRaw = Invoke-Wsl -Root -Arguments @($LinuxPython, "-c", $patchCode) -Capture
-$patchLine = ($patchRaw | Select-Object -Last 1).ToString().Trim()
-try { $patch = $patchLine | ConvertFrom-Json -Depth 10 }
-catch { throw "torchgeometry patch did not return valid JSON: $patchLine" }
+$torchgeometryPatchRaw = Invoke-Wsl -Root -Arguments @($LinuxPython, "-c", $torchgeometryPatchCode) -Capture
+$torchgeometryPatchLine = ($torchgeometryPatchRaw | Select-Object -Last 1).ToString().Trim()
+try { $torchgeometryPatch = $torchgeometryPatchLine | ConvertFrom-Json -Depth 10 }
+catch { throw "torchgeometry patch did not return valid JSON: $torchgeometryPatchLine" }
 
 $probeCode = @'
 import json
 import sys
+import chumpy
 import cv2
 import einops
 import face_alignment
@@ -173,6 +229,7 @@ import timm
 import torch
 import torchgeometry
 import torchvision
+import importlib.metadata
 from pytorch3d.transforms import axis_angle_to_matrix
 from torchgeometry.core.conversions import rotation_matrix_to_angle_axis
 
@@ -185,6 +242,8 @@ legacy = torch.eye(3).view(1, 3, 3)
 axis = rotation_matrix_to_angle_axis(legacy)
 if tuple(axis.shape) != (1, 3):
     raise SystemExit("torchgeometry smoke failed")
+if not hasattr(chumpy, "Ch"):
+    raise SystemExit("chumpy import smoke failed")
 payload = {
     "python": sys.version.split()[0],
     "torch": torch.__version__,
@@ -194,14 +253,16 @@ payload = {
     "numpy": numpy.__version__,
     "scipy": scipy.__version__,
     "opencv": cv2.__version__,
-    "smplx": __import__("importlib.metadata").metadata.version("smplx"),
-    "lpips": __import__("importlib.metadata").metadata.version("lpips"),
+    "smplx": importlib.metadata.version("smplx"),
+    "lpips": importlib.metadata.version("lpips"),
+    "chumpy": importlib.metadata.version("chumpy"),
     "mmcv": mmcv.__version__,
     "mmengine": mmengine.__version__,
     "mmdet": mmdet.__version__,
     "mmpose": mmpose.__version__,
     "pytorch3d_origin": pytorch3d.__file__,
     "cuda_smoke": True,
+    "chumpy_smoke": True,
     "torchgeometry_smoke": True,
 }
 print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
@@ -215,10 +276,13 @@ if ([string]$probe.torch -notlike "$torchVersion*") { throw "Unexpected Torch ve
 if ([string]$probe.torchvision -notlike "$torchvisionVersion*") { throw "Unexpected torchvision version: $($probe.torchvision)" }
 if ([string]$probe.numpy -ne $numpyVersion) { throw "Unexpected NumPy version: $($probe.numpy)" }
 if ([string]$probe.scipy -ne $scipyVersion) { throw "Unexpected SciPy version: $($probe.scipy)" }
+if ([string]$probe.chumpy -ne $chumpyVersion) { throw "Unexpected Chumpy version: $($probe.chumpy)" }
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
 if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
-if ($probe.cuda_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true) { throw "ExAvatar runtime smoke did not pass." }
+if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true) {
+    throw "ExAvatar runtime smoke did not pass."
+}
 
 $receiptCode = @'
 import hashlib
@@ -246,12 +310,14 @@ $setupReceipt = [ordered]@{
         opencv_python = $opencvVersion
         smplx = $smplxVersion
         lpips = $lpipsVersion
+        chumpy = $chumpyVersion
         mmcv = $mmcvVersion
         mmengine = $mmengineVersion
         mmdet = $mmdetVersion
         mmpose = $mmposeVersion
     }
-    torchgeometry_patch = $patch
+    chumpy_patch = $chumpyPatch
+    torchgeometry_patch = $torchgeometryPatch
     observed = $probe
     nvcc = @($nvcc | ForEach-Object { [string]$_ })
     nvidia_smi = @($nvidia | ForEach-Object { [string]$_ })
@@ -269,6 +335,7 @@ Write-Host "Torch:           $($probe.torch)"
 Write-Host "CUDA:            $($probe.torch_cuda)"
 Write-Host "GPU:             $($probe.gpu)"
 Write-Host "PyTorch3D:       PINNED $pytorch3dCommit"
+Write-Host "Chumpy:          $($probe.chumpy) PATCHED + SMOKE PASS"
 Write-Host "torchgeometry:   PATCHED + SMOKE PASS"
 Write-Host "Receipt:         $receipt"
 Write-Host "Photoreal authority: FALSE"
