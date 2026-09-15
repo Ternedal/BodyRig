@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .photoreal_calibration_provenance_authority import validate_calibration_provenance
+from .photoreal_calibration_provenance_authority import require_calibration_provenance
 from .photoreal_frame_identity_authority import authorize_frame_identities
 from .photoreal_frame_index import build_frame_index
 from .photoreal_teacher_input import build_teacher_input
@@ -22,14 +22,8 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _provenance(calibration: Mapping[str, Any]) -> tuple[str, str]:
-    validated = validate_calibration_provenance(calibration)
-    return (
-        _sha(validated["negative_inventory_sha256"], label="negative inventory SHA-256"),
-        _sha(
-            validated["identity_calibration_provenance_sha256"],
-            label="identity calibration provenance SHA-256",
-        ),
-    )
+    _, negative_inventory_sha256, provenance_sha256 = require_calibration_provenance(calibration)
+    return negative_inventory_sha256, provenance_sha256
 
 
 def _require_provenance(
