@@ -83,23 +83,32 @@ def _calibration(*, authorized: bool = True) -> dict[str, object]:
     }
 
 
-def _observation(source_key: str, embedding: list[float] | None) -> dict[str, object]:
+def _observation(
+    source_key: str,
+    embedding: list[float] | None,
+    *,
+    candidate_id: str = "person-0",
+    person_detected: bool = True,
+    timestamp: float = 1.0,
+) -> dict[str, object]:
     kind = "image" if source_key.startswith("image:") else "video"
     return {
         "source_key": source_key,
         "source_sha256": "a" * 64,
         "kind": kind,
-        "timestamp_seconds": None if kind == "image" else 1.0,
+        "timestamp_seconds": None if kind == "image" else timestamp,
         "eye": "mono",
         "projection": "flat",
         "frame_sha256": ("1" if "single" in source_key else "2" if "multi" in source_key else "3") * 64,
         "perceptual_hash": "0123456789abcdef",
+        "candidate_id": candidate_id,
+        "person_detected": person_detected,
         "width": 1920,
         "height": 1080,
-        "view_bin": "front",
-        "face_visibility": 0.9,
-        "full_body_visibility": 0.9,
-        "person_fraction": 0.8,
+        "view_bin": "front" if person_detected else "unknown",
+        "face_visibility": 0.9 if person_detected else 0.0,
+        "full_body_visibility": 0.9 if person_detected else 0.0,
+        "person_fraction": 0.8 if person_detected else 0.0,
         "sharpness": 0.9,
         "motion": 0.1,
         "occlusion": 0.1,
@@ -134,15 +143,75 @@ def test_single_performer_source_is_authoritative_without_face_embedding() -> No
     assert item["target_identity_verified"] is True
     assert item["identity_authority"] == "stash-single-performer-target-binding-v1"
     assert item["identity_similarity"] is None
+    assert item["measured_person_candidate_count"] == 1
+    assert item["identity_sample_ambiguous"] is False
+    assert result["multi_candidate_identity_safe"] is True
 
 
-def test_multi_performer_source_requires_calibrated_embedding_match() -> None:
-    result = authorize_frame_identities(_plan(), _measurements(), _bank(), _calibration())
-    item = next(row for row in result["observations"] if "multi" in row["source_key"])
+def test_multi_performer_source_requires_unique_calibrated_embedding_match() -> None:
+    measurements = _measurements()
+    measurements["observations"].insert(
+        2,
+        _observation(
+            "scene:multi:E:/multi.mp4",
+            [0.0, 1.0] + [0.0] * 30,
+            candidate_id="person-1",
+        ),
+    )
+    result = authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
+    candidates = [row for row in result["observations"] if "multi" in row["source_key"]]
+    target = next(row for row in candidates if row["candidate_id"] == "person-0")
+    other = next(row for row in candidates if row["candidate_id"] == "person-1")
 
-    assert item["target_identity_verified"] is True
-    assert item["identity_authority"] == "calibrated-identity-bank-v1"
-    assert item["identity_similarity"] == 1.0
+    assert target["target_identity_verified"] is True
+    assert target["identity_authority"] == "calibrated-identity-bank-v1"
+    assert target["identity_similarity"] == 1.0
+    assert target["measured_person_candidate_count"] == 2
+    assert other["target_identity_verified"] is False
+    assert other["identity_authority"] == "identity-unresolved-v1"
+    assert result["identity_ambiguous_sample_count"] == 0
+
+
+def test_two_threshold_matches_make_entire_sample_identity_ambiguous() -> None:
+    measurements = _measurements()
+    measurements["observations"].insert(
+        2,
+        _observation(
+            "scene:multi:E:/multi.mp4",
+            [0.99, 0.01] + [0.0] * 30,
+            candidate_id="person-1",
+        ),
+    )
+    result = authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
+    candidates = [row for row in result["observations"] if "multi" in row["source_key"]]
+
+    assert len(candidates) == 2
+    assert all(row["target_identity_verified"] is False for row in candidates)
+    assert all(row["identity_authority"] == "identity-unresolved-v1" for row in candidates)
+    assert all(row["identity_sample_ambiguous"] is True for row in candidates)
+    assert result["identity_ambiguous_sample_count"] == 1
+
+
+def test_single_performer_catalog_binding_does_not_override_two_detected_people() -> None:
+    measurements = _measurements()
+    measurements["observations"][0] = _observation(
+        "scene:single:E:/single.mp4", [1.0] + [0.0] * 31, candidate_id="person-0"
+    )
+    measurements["observations"].insert(
+        1,
+        _observation(
+            "scene:single:E:/single.mp4",
+            [0.0, 1.0] + [0.0] * 30,
+            candidate_id="person-1",
+        ),
+    )
+    result = authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
+    candidates = [row for row in result["observations"] if "single" in row["source_key"]]
+    target = next(row for row in candidates if row["candidate_id"] == "person-0")
+
+    assert target["target_identity_verified"] is True
+    assert target["identity_authority"] == "calibrated-identity-bank-v1"
+    assert target["measured_person_candidate_count"] == 2
 
 
 def test_nonmatching_gallery_observation_stays_unresolved() -> None:
@@ -164,6 +233,35 @@ def test_uncalibrated_policy_never_matches_ambiguous_source() -> None:
     assert single["target_identity_verified"] is True
     assert result["identity_matching_calibrated"] is False
     assert result["identity_match_threshold"] is None
+
+
+def test_no_person_placeholder_stays_unresolved() -> None:
+    measurements = _measurements()
+    measurements["observations"][0] = _observation(
+        "scene:single:E:/single.mp4",
+        None,
+        candidate_id="none-0",
+        person_detected=False,
+    )
+    result = authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
+    item = next(row for row in result["observations"] if "single" in row["source_key"])
+
+    assert item["target_identity_verified"] is False
+    assert item["measured_person_candidate_count"] == 0
+
+
+def test_duplicate_candidate_id_within_sample_is_rejected() -> None:
+    measurements = _measurements()
+    measurements["observations"].insert(
+        2,
+        _observation(
+            "scene:multi:E:/multi.mp4",
+            [0.0, 1.0] + [0.0] * 30,
+            candidate_id="person-0",
+        ),
+    )
+    with pytest.raises(PhotorealFrameIdentityAuthorityError, match="repeated candidate id"):
+        authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
 
 
 def test_external_identity_assertion_is_rejected() -> None:
