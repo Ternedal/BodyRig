@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
 from .photoreal_identity_calibration import PhotorealIdentityCalibrationError
 from .photoreal_identity_calibration_authority import build_identity_calibration_authorized
+from .photoreal_identity_calibration_integrity import (
+    PhotorealIdentityCalibrationIntegrityError,
+    calibration_provenance_sha256,
+    validate_identity_calibration_integrity,
+)
 
 
 class PhotorealIdentityCalibrationProvenanceError(PhotorealIdentityCalibrationError):
@@ -40,28 +44,32 @@ def bind_negative_inventory_provenance(
     calibration: Mapping[str, Any],
     negative_inventory_sha256: str,
 ) -> dict[str, Any]:
-    """Bind an authorized calibration to the verified inventory without changing its v1 digest semantics."""
-    calibration_sha256 = _sha(
-        calibration.get("identity_calibration_sha256"),
-        label="identity calibration SHA-256",
-    )
+    """Bind a canonical authorized calibration to the verified negative inventory."""
+    if (
+        "negative_inventory_sha256" in calibration
+        or "identity_calibration_provenance_sha256" in calibration
+    ):
+        raise PhotorealIdentityCalibrationProvenanceError(
+            "identity calibration is already provenance-bound"
+        )
+    try:
+        calibration_sha256 = validate_identity_calibration_integrity(calibration)
+    except PhotorealIdentityCalibrationIntegrityError as exc:
+        raise PhotorealIdentityCalibrationProvenanceError(str(exc)) from exc
     inventory_sha256 = _sha(
         negative_inventory_sha256,
         label="negative inventory SHA-256",
     )
-    binding = {
-        "identity_calibration_sha256": calibration_sha256,
-        "negative_inventory_sha256": inventory_sha256,
-    }
-    raw = json.dumps(
-        binding,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
     result = dict(calibration)
     result["negative_inventory_sha256"] = inventory_sha256
-    result["identity_calibration_provenance_sha256"] = hashlib.sha256(raw).hexdigest()
+    result["identity_calibration_provenance_sha256"] = calibration_provenance_sha256(
+        calibration_sha256,
+        inventory_sha256,
+    )
+    try:
+        validate_identity_calibration_integrity(result)
+    except PhotorealIdentityCalibrationIntegrityError as exc:
+        raise PhotorealIdentityCalibrationProvenanceError(str(exc)) from exc
     return result
 
 

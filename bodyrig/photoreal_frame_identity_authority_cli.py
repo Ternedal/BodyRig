@@ -5,9 +5,9 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_frame_identity_authority import (
-    PhotorealFrameIdentityAuthorityError,
-    authorize_frame_identity_files,
+from .photoreal_frame_identity_authority import PhotorealFrameIdentityAuthorityError
+from .photoreal_frame_identity_integrity_authority import (
+    authorize_frame_identity_files_integrity_checked,
 )
 
 
@@ -26,7 +26,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = authorize_frame_identity_files(
+        result = authorize_frame_identity_files_integrity_checked(
             args.plan,
             args.measurements,
             args.identity_bank,
