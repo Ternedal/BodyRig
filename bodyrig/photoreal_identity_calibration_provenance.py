@@ -40,17 +40,17 @@ def bind_negative_inventory_provenance(
     calibration: Mapping[str, Any],
     negative_inventory_sha256: str,
 ) -> dict[str, Any]:
-    """Seal an authorized calibration core to the exact verified negative inventory."""
-    core_sha256 = _sha(
+    """Bind an authorized calibration to the verified inventory without changing its v1 digest semantics."""
+    calibration_sha256 = _sha(
         calibration.get("identity_calibration_sha256"),
-        label="identity calibration core SHA-256",
+        label="identity calibration SHA-256",
     )
     inventory_sha256 = _sha(
         negative_inventory_sha256,
         label="negative inventory SHA-256",
     )
     binding = {
-        "identity_calibration_core_sha256": core_sha256,
+        "identity_calibration_sha256": calibration_sha256,
         "negative_inventory_sha256": inventory_sha256,
     }
     raw = json.dumps(
@@ -60,8 +60,8 @@ def bind_negative_inventory_provenance(
         allow_nan=False,
     ).encode("utf-8")
     result = dict(calibration)
-    result.update(binding)
-    result["identity_calibration_sha256"] = hashlib.sha256(raw).hexdigest()
+    result["negative_inventory_sha256"] = inventory_sha256
+    result["identity_calibration_provenance_sha256"] = hashlib.sha256(raw).hexdigest()
     return result
 
 
