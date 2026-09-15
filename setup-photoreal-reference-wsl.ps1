@@ -10,7 +10,9 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $mmposeRevision = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"
-$mmdetRevision = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
+$mmposeVersion = "1.3.2"
+$mmdetRevision = "fe3f809a0a514189baf889aa358c498d51ee36cd"
+$mmdetVersion = "3.2.0"
 $torchVersion = "2.1.0"
 $torchvisionVersion = "0.16.0"
 $numpyVersion = "1.26.4"
@@ -159,6 +161,8 @@ if (@($probe.onnxruntime_providers) -notcontains "CUDAExecutionProvider") {
 }
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
+if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
+if ([string]$probe.mmpose -ne $mmposeVersion) { throw "Unexpected MMPose version: $($probe.mmpose)" }
 
 $receipt = [ordered]@{
     format = "bodyrig-photoreal-reference-runtime-environment"
@@ -174,6 +178,8 @@ $receipt = [ordered]@{
         opencv = $opencvVersion
         mmcv = $mmcvVersion
         mmengine = $mmengineVersion
+        mmdetection = $mmdetVersion
+        mmpose = $mmposeVersion
         insightface = $insightfaceVersion
         onnxruntime = $onnxruntimeVersion
         openmim = $openmimVersion
