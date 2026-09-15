@@ -103,19 +103,6 @@ function Invoke-PythonStage {
     return $code
 }
 
-function Get-PerformerPathMapCandidate {
-    param([Parameter(Mandatory = $true)][string]$Id)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Id.Trim())
-        $digest = $sha.ComputeHash($bytes)
-    } finally {
-        $sha.Dispose()
-    }
-    $hash = ([System.BitConverter]::ToString($digest)).Replace("-", "").ToLowerInvariant()
-    return Join-Path $env:LOCALAPPDATA "BodyRig\config\stash-path-map-performer-$hash.json"
-}
-
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
 if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) { throw "Could not resolve BodyRig HEAD." }
@@ -155,11 +142,18 @@ if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($ApiKeyEn
     throw "Stash API key environment variable '$ApiKeyEnv' is missing in this PowerShell process."
 }
 
+$PathMapWasExplicit = -not [string]::IsNullOrWhiteSpace($PathMap)
+if ($PathMapWasExplicit) {
+    $PathMap = Need-File -Path $PathMap -Label "Explicit Stash path map"
+}
+
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $OutputRoot) { throw "Photoreal P0 output root already exists: $OutputRoot" }
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 
 $InventoryPath = Join-Path $OutputRoot "source-inventory.json"
+$GeneratedSourcePathMap = Join-Path $OutputRoot "source-path-map.json"
+$GeneratedCalibrationPathMap = Join-Path $OutputRoot "calibration-path-map.json"
 $PlanPath = Join-Path $OutputRoot "dataset-plan.json"
 $ReceiptPath = Join-Path $OutputRoot "source-receipt.json"
 $ScanPlanPath = Join-Path $OutputRoot "scan-plan.json"
@@ -180,43 +174,20 @@ $AuthorizedObservationsPath = Join-Path $OutputRoot "frame-authorized-observatio
 $FrameIndexPath = Join-Path $OutputRoot "frame-index.json"
 $StatusPath = Join-Path $OutputRoot "p0-status.json"
 
-if ([string]::IsNullOrWhiteSpace($PathMap)) {
-    $performerCandidate = Get-PerformerPathMapCandidate -Id $PerformerId
-    $globalCandidate = Join-Path $env:LOCALAPPDATA "BodyRig\config\stash-path-map.json"
-    foreach ($candidate in @($performerCandidate, $globalCandidate)) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            $PathMap = (Resolve-Path -LiteralPath $candidate).Path
-            break
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($PathMap)) {
-        $configure = Join-Path $repoRoot "configure-stash-path-map.ps1"
-        if (Test-Path -LiteralPath $configure -PathType Leaf) {
-            & $configure -PerformerId $PerformerId
-            foreach ($candidate in @($performerCandidate, $globalCandidate)) {
-                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                    $PathMap = (Resolve-Path -LiteralPath $candidate).Path
-                    break
-                }
-            }
-        }
-    }
-}
-$PathMap = Need-File -Path $PathMap -Label "Stash path map"
-
 if (-not $SourceOnly) {
     $ModelRoot = Need-Directory -Path $ModelRoot -Label "Photoreal analyzer model root"
     $IdentityExtractorConfig = Need-File -Path $IdentityExtractorConfig -Label "Photoreal identity extractor config"
     $FrameAnalyzerConfig = Need-File -Path $FrameAnalyzerConfig -Label "Photoreal frame analyzer config"
 }
 
+$pathMapDisplay = $(if ($PathMapWasExplicit) { $PathMap } else { "EXACT INVENTORY-DERIVED" })
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL V2 - P0"
 Write-Host "Revision:          $Head"
 Write-Host "Performer:         $PerformerId"
 Write-Host "Output:            $OutputRoot"
 Write-Host "Stash:             $StashUrl"
-Write-Host "Path map:          $PathMap"
+Write-Host "Path map:          $pathMapDisplay"
 Write-Host "Mode:              $(if ($SourceOnly) { 'SOURCE-ONLY / NO TRAINING AUTHORITY' } else { 'FULL P0' })"
 Write-Host "Reconstruction:    FALSE"
 Write-Host "Photoreal accept:  FALSE"
@@ -235,6 +206,16 @@ try {
         -StashUrl $StashUrl `
         -ApiKeyEnv $ApiKeyEnv `
         -BodyRigPython $Python
+
+    if (-not $PathMapWasExplicit) {
+        Invoke-PythonStage -Label "1B/16 PROVE EXACT SOURCE PATH MAP" -Arguments @(
+            "-m", "bodyrig.photoreal_inventory_path_map_cli",
+            "--inventory", $InventoryPath,
+            "--out", $GeneratedSourcePathMap,
+            "--stash-url", $StashUrl
+        ) | Out-Null
+        $PathMap = Need-File -Path $GeneratedSourcePathMap -Label "Generated exhaustive source path map"
+    }
 
     Invoke-PythonStage -Label "2/16 LEAKAGE-SAFE DATASET PLAN" -Arguments @(
         "-m", "bodyrig.photoreal_dataset_plan_cli", $InventoryPath,
@@ -305,10 +286,22 @@ try {
         "--api-key-env", $ApiKeyEnv
     ) | Out-Null
 
+    $CalibrationPathMap = $PathMap
+    if (-not $PathMapWasExplicit) {
+        Invoke-PythonStage -Label "9B/16 PROVE EXACT CALIBRATION PATH MAP" -Arguments @(
+            "-m", "bodyrig.photoreal_inventory_path_map_cli",
+            "--inventory", $InventoryPath,
+            "--negative-inventory", $NegativeInventoryPath,
+            "--out", $GeneratedCalibrationPathMap,
+            "--stash-url", $StashUrl
+        ) | Out-Null
+        $CalibrationPathMap = Need-File -Path $GeneratedCalibrationPathMap -Label "Generated calibration path map"
+    }
+
     Invoke-PythonStage -Label "10/16 BYTE-VERIFY NEGATIVE CALIBRATION SOURCES" -Arguments @(
         "-m", "bodyrig.photoreal_identity_negative_verify_cli",
         "--inventory", $NegativeInventoryPath,
-        "--path-map", $PathMap,
+        "--path-map", $CalibrationPathMap,
         "--out", $NegativeReceiptPath,
         "--stash-url", $StashUrl
     ) | Out-Null
