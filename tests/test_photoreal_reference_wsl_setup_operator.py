@@ -20,6 +20,13 @@ def test_reference_wsl_setup_keeps_numpy1_compatible_opencv() -> None:
     assert '"opencv-python-headless"' not in SCRIPT
 
 
+def test_reference_wsl_setup_avoids_shell_redirection_in_xtcocotools_requirement() -> None:
+    assert '$xtcocotoolsVersion = "1.14.3"' in SCRIPT
+    assert '"xtcocotools==$xtcocotoolsVersion"' in SCRIPT
+    assert 'xtcocotools>=' not in SCRIPT
+    assert 'xtcocotools = $xtcocotoolsVersion' in SCRIPT
+
+
 def test_reference_wsl_mmdetection_build_sees_installed_torch() -> None:
     mmdet_url = '"git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"'
     mmdet_install = SCRIPT.index(mmdet_url)
