@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-teacher-held-out-reference-catalog-v1.schema.json",
+  "title": "BodyRig Photoreal Teacher Held-Out Reference Catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "held_out_source_count", "held_out_observation_count", "held_out_sources", "held_out_observations",
+    "required_coverage", "observed_coverage", "coverage_candidates", "coverage_authority",
+    "teacher_process_disclosure", "source_paths_build_private", "reference_bytes_materialized",
+    "reference_frame_hashes_verified", "human_reference_selection_required", "photoreal_acceptance_authority",
+    "human_visual_acceptance_required", "build_only", "runtime_dependency", "production_activation",
+    "held_out_reference_catalog_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-teacher-held-out-reference-catalog"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "held_out_source_count": {"type": "integer", "minimum": 1},
+    "held_out_observation_count": {"type": "integer", "minimum": 1},
+    "held_out_sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}},
+    "held_out_observations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/observation"}},
+    "required_coverage": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+    "observed_coverage": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+    "coverage_candidates": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/coverageCandidates"}},
+    "coverage_authority": {"const": "core-frame-index-v1"},
+    "teacher_process_disclosure": {"const": false},
+    "source_paths_build_private": {"const": true},
+    "reference_bytes_materialized": {"const": false},
+    "reference_frame_hashes_verified": {"const": false},
+    "human_reference_selection_required": {"const": true},
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "held_out_reference_catalog_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_key", "group_id", "kind", "resolved_path", "size_bytes", "sha256", "width", "height", "projection", "stereo_layout"],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1}, "group_id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["video", "image"]}, "resolved_path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1}, "sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 0}, "height": {"type": "integer", "minimum": 0},
+        "projection": {"type": "string", "minLength": 1}, "stereo_layout": {"type": "string", "minLength": 1}
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observation_id", "source_key", "group_id", "frame_sha256", "timestamp_seconds", "eye", "view_bin", "coverage", "reference_bytes_materialized", "reference_frame_hash_verified"],
+      "properties": {
+        "observation_id": {"$ref": "#/$defs/sha256"}, "source_key": {"type": "string", "minLength": 1},
+        "group_id": {"type": "string", "minLength": 1}, "frame_sha256": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "eye": {"enum": ["mono", "left", "right"]}, "view_bin": {"type": "string", "minLength": 1, "maxLength": 64},
+        "coverage": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "reference_bytes_materialized": {"const": false}, "reference_frame_hash_verified": {"const": false}
+      }
+    },
+    "coverageCandidates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["coverage", "candidate_observation_ids", "candidate_count", "human_reference_selection_required"],
+      "properties": {
+        "coverage": {"type": "string", "minLength": 1, "maxLength": 64},
+        "candidate_observation_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+        "candidate_count": {"type": "integer", "minimum": 1},
+        "human_reference_selection_required": {"const": true}
+      }
+    }
+  }
+}
