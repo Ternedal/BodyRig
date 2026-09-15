@@ -17,7 +17,7 @@ $numpyVersion = "1.26.4"
 $mmcvVersion = "2.1.0"
 $mmengineVersion = "0.10.7"
 $insightfaceVersion = "0.7.3"
-$onnxruntimeVersion = "1.20.1"
+$onnxruntimeVersion = "1.20.2"
 $openmimVersion = "0.3.9"
 
 function Invoke-Wsl {
