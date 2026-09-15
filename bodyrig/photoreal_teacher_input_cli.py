@@ -5,12 +5,13 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_teacher_input import PhotorealTeacherInputError, build_teacher_input_files
+from .photoreal_teacher_input import PhotorealTeacherInputError
+from .photoreal_teacher_input_readback_authority import build_teacher_input_files_strict
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build a leakage-safe, human-epoch-approved Photoreal V2 teacher input manifest."
+        description="Build a leakage-safe, human-epoch-approved Photoreal V2 teacher input manifest from a sealed frame index."
     )
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
@@ -23,7 +24,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_teacher_input_files(
+        result = build_teacher_input_files_strict(
             args.plan,
             args.receipt,
             args.frame_index,
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
                 "version": result["version"],
                 "performer_id": result["performer_id"],
                 "selected_epoch_id": result["selected_epoch_id"],
+                "source_frame_index_sha256": result["source_frame_index_sha256"],
+                "teacher_input_sha256": result["teacher_input_sha256"],
                 "training_source_count": result["training_source_count"],
                 "held_out_evaluation_source_count": result["held_out_evaluation_source_count"],
                 "training_observation_count": result["training_observation_count"],
