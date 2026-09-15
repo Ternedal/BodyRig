@@ -124,6 +124,10 @@ def build_identity_calibration_plan(
         raise PhotorealIdentityCalibrationPlanError("identity negative receipt authority boundary is invalid")
     if negative_receipt.get("production_activation") is not False:
         raise PhotorealIdentityCalibrationPlanError("identity negative receipt crossed production authority")
+    negative_inventory_sha256 = _sha(
+        negative_receipt.get("negative_inventory_sha256"),
+        label="identity negative inventory SHA-256",
+    )
 
     target = _text(identity_bank.get("performer_id"), label="identity bank performer id", maximum=256)
     if _text(negative_receipt.get("target_performer_id"), label="negative target performer id", maximum=256) != target:
@@ -199,6 +203,7 @@ def build_identity_calibration_plan(
         "version": VERSION,
         "target_performer_id": target,
         "identity_bank_sha256": _sha(identity_bank.get("identity_bank_sha256"), label="identity bank SHA-256"),
+        "negative_inventory_sha256": negative_inventory_sha256,
         "model_set_sha256": _sha(identity_bank.get("model_set_sha256"), label="identity model-set SHA-256"),
         "extractor": _text(identity_bank.get("extractor"), label="identity extractor", maximum=256),
         "extractor_revision": _text(
