@@ -38,14 +38,18 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
-    result = str(value or "").strip()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochReviewRecorderError(f"{label} is invalid")
+    result = value.strip()
     if not result or len(result) > maximum:
         raise PhotorealAppearanceEpochReviewRecorderError(f"{label} is invalid")
     return result
 
 
 def _sha(value: Any, *, label: str) -> str:
-    result = str(value or "").strip().lower()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochReviewRecorderError(f"{label} is invalid")
+    result = value.strip().lower()
     if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealAppearanceEpochReviewRecorderError(f"{label} is invalid")
     return result
