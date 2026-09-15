@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "format", "version", "target_performer_id", "identity_bank_sha256", "model_set_sha256",
+    "format", "version", "target_performer_id", "identity_bank_sha256", "negative_inventory_sha256", "model_set_sha256",
     "extractor", "extractor_revision", "embedding_dimension", "label_authority",
     "negative_performer_count", "source_count", "planned_negative_observation_count",
     "video_timestamps_per_source", "sources", "negative_embedding_extraction_required",
@@ -17,6 +17,7 @@
     "version": {"const": 1},
     "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
     "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
+    "negative_inventory_sha256": {"$ref": "#/$defs/sha256"},
     "model_set_sha256": {"$ref": "#/$defs/sha256"},
     "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
     "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
