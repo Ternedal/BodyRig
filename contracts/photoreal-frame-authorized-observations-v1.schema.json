@@ -32,6 +32,7 @@
     "analyzer_model_set_sha256": {"$ref": "#/$defs/sha256"},
     "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
     "identity_calibration_sha256": {"$ref": "#/$defs/sha256"},
+    "authorized_observations_sha256": {"$ref": "#/$defs/sha256"},
     "identity_matching_calibrated": {"type": "boolean"},
     "identity_match_threshold": {
       "oneOf": [

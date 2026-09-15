@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_frame_index import PhotorealFrameIndexError, build_frame_index_files
+from .photoreal_frame_index import PhotorealFrameIndexError
+from .photoreal_frame_index_readback_authority import build_frame_index_files_strict
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -31,7 +32,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_frame_index_files(args.plan, args.receipt, args.observations, args.out)
+        result = build_frame_index_files_strict(args.plan, args.receipt, args.observations, args.out)
     except PhotorealFrameIndexError as exc:
         print(f"BodyRig photoreal frame index: FAIL: {exc}", file=sys.stderr)
         return 1
