@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .photoreal_identity_calibration import PhotorealIdentityCalibrationError
-from .photoreal_identity_calibration_authority import build_identity_calibration_authorized_files
+from .photoreal_identity_calibration_provenance import build_identity_calibration_provenance_files
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     if negative_inventory is None:
         negative_inventory = args.plan.parent / "identity-negative-inventory.json"
     try:
-        result = build_identity_calibration_authorized_files(
+        result = build_identity_calibration_provenance_files(
             args.identity_bank,
             args.plan,
             args.negative_observations,
@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> int:
                 "match_threshold_calibrated": result["match_threshold_calibrated"],
                 "identity_matching_authorized": result["identity_matching_authorized"],
                 "calibration_blockers": result["calibration_blockers"],
+                "negative_inventory_sha256": result["negative_inventory_sha256"],
+                "identity_calibration_core_sha256": result["identity_calibration_core_sha256"],
                 "identity_calibration_sha256": result["identity_calibration_sha256"],
                 "teacher_training_authorized": result["teacher_training_authorized"],
                 "production_activation": result["production_activation"],
