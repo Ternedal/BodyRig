@@ -14,6 +14,7 @@ from .photoreal_teacher_input import (
 
 STATUS_FORMAT = "bodyrig-photoreal-p0-status"
 STATUS_VERSION = 1
+STATUS_TEACHER_TRAINING_AUTHORIZED = "teacher-training-authorized"
 
 
 class PhotorealTeacherInputP0RootError(ValueError):
@@ -108,7 +109,9 @@ def resolve_authorized_p0_teacher_inputs(
     _numeric_version(status.get("version"), expected=STATUS_VERSION, label="P0 status")
     performer_id = _text(status.get("performer_id"), label="P0 status performer id", maximum=256)
     _git_sha(status.get("bodyrig_revision"), label="P0 status BodyRig revision")
-    _text(status.get("status"), label="P0 status state", maximum=256)
+    status_state = _text(status.get("status"), label="P0 status state", maximum=256)
+    if status_state != STATUS_TEACHER_TRAINING_AUTHORIZED:
+        raise PhotorealTeacherInputP0RootError("P0 status state does not authorize teacher training")
 
     blockers = status.get("blockers")
     if not isinstance(blockers, list):
