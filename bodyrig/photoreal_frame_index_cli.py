@@ -10,11 +10,20 @@ from .photoreal_frame_index import PhotorealFrameIndexError, build_frame_index_f
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate photoreal frame observations against the byte-bound dataset plan."
+        description=(
+            "Validate core-authorized photoreal frame observations against the byte-bound dataset plan."
+        )
     )
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--observations", type=Path, required=True)
+    parser.add_argument(
+        "--authorized-observations",
+        "--observations",
+        dest="observations",
+        type=Path,
+        required=True,
+        help="Core-authorized observations from bodyrig-photoreal-frame-authorize-identity.",
+    )
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
