@@ -67,6 +67,10 @@ def test_epoch_plan_never_auto_selects_or_authorizes_teacher_input() -> None:
 
     assert result["performer_id"] == "42"
     assert result["eligible_observation_count"] == 2
+    assert result["source_group_count"] == 2
+    assert [item["group_id"] for item in result["eligible_source_groups"]] == ["scene:e", "scene:t"]
+    assert {item["split"] for item in result["eligible_source_groups"]} == {"train", "evaluation"}
+    assert all(item["eligible_observation_count"] == 1 for item in result["eligible_source_groups"])
     assert result["candidate_epochs"] == []
     assert result["selected_epoch_id"] is None
     assert result["human_epoch_review_required"] is True
@@ -96,4 +100,11 @@ def test_epoch_plan_requires_train_and_evaluation_evidence() -> None:
     index = copy.deepcopy(_frame_index())
     index["observations"][1]["eligible_for_teacher"] = False
     with pytest.raises(PhotorealAppearanceEpochError, match="eligible train and evaluation"):
+        build_appearance_epoch_plan(index)
+
+
+def test_epoch_plan_rejects_group_crossing_split_boundary() -> None:
+    index = copy.deepcopy(_frame_index())
+    index["observations"][1]["group_id"] = "scene:t"
+    with pytest.raises(PhotorealAppearanceEpochError, match="crosses train/evaluation"):
         build_appearance_epoch_plan(index)
