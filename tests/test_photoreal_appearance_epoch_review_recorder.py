@@ -193,6 +193,17 @@ def test_recorder_rejects_resealed_handoff_that_crosses_authority() -> None:
         _record(plan, handoff)
 
 
+def test_recorder_rejects_resealed_candidate_metadata_manipulation() -> None:
+    plan = _plan()
+    handoff = copy.deepcopy(_handoff(plan))
+    handoff["candidate_source_groups"][0]["view_bins"] = ["front"]
+    handoff.pop("appearance_epoch_review_handoff_sha256")
+    handoff["appearance_epoch_review_handoff_sha256"] = _digest(handoff)
+
+    with pytest.raises(PhotorealAppearanceEpochReviewRecorderError, match="not canonical for the supplied plan"):
+        _record(plan, handoff)
+
+
 def test_recorder_rejects_handoff_from_different_plan() -> None:
     plan = _plan()
     other_plan = copy.deepcopy(plan)
