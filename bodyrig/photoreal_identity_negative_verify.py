@@ -6,8 +6,11 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .photoreal_source_verify import translate_stash_path
-from .stash_path_cache import StashPathCacheError, validate_cache
+from .photoreal_source_verify import (
+    PhotorealSourceVerifyError,
+    resolve_path_transport,
+    translate_stash_path,
+)
 
 INVENTORY_FORMAT = "bodyrig-photoreal-identity-negative-inventory"
 INVENTORY_VERSION = 1
@@ -194,17 +197,14 @@ def verify_identity_negative_inventory_file(
     inventory_file = Path(inventory_path).expanduser().resolve()
     path_map_file = Path(path_map_path).expanduser().resolve()
     inventory = _read_json(inventory_file, label="identity negative inventory")
-    path_map = _read_json(path_map_file, label="Stash path map")
+    path_map = _read_json(path_map_file, label="Stash path transport proof")
     target, _ = _validate_inventory(inventory)
     try:
-        validated = validate_cache(
-            path_map,
-            stash_url=stash_url,
-            performer_ids=[target],
-            allow_performer_superset=True,
-        )
-    except StashPathCacheError as exc:
-        raise PhotorealIdentityNegativeVerifyError(f"Stash path map is not valid for negative calibration: {exc}") from exc
+        validated = resolve_path_transport(path_map, stash_url=stash_url, performer_id=target)
+    except PhotorealSourceVerifyError as exc:
+        raise PhotorealIdentityNegativeVerifyError(
+            f"Stash path transport is not valid for negative calibration: {exc}"
+        ) from exc
     result = verify_identity_negative_sources(inventory, path_mapping=validated["mapping"])
     result["path_map_mode"] = validated["cache_mode"]
     result["stash_origin"] = validated["stash_origin"]
