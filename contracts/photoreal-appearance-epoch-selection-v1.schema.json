@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-appearance-epoch-selection-v1.schema.json",
+  "title": "BodyRig Photoreal Appearance Epoch Selection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "performer_name",
+    "appearance_epoch_plan_sha256",
+    "appearance_epoch_review_sha256",
+    "selected_epoch_id",
+    "selected_source_group_ids",
+    "selected_train_group_count",
+    "selected_evaluation_group_count",
+    "human_epoch_review_required",
+    "human_epoch_review_complete",
+    "human_approved",
+    "teacher_input_authorized",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+    "human_visual_acceptance_required",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "appearance_epoch_selection_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-appearance-epoch-selection"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "performer_name": {"type": "string", "maxLength": 4096},
+    "appearance_epoch_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "appearance_epoch_review_sha256": {"$ref": "#/$defs/sha256"},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_source_group_ids": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 100000,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "selected_train_group_count": {"type": "integer", "minimum": 1},
+    "selected_evaluation_group_count": {"type": "integer", "minimum": 1},
+    "human_epoch_review_required": {"const": true},
+    "human_epoch_review_complete": {"const": true},
+    "human_approved": {"const": true},
+    "teacher_input_authorized": {"const": true},
+    "teacher_training_authorized": {"const": true},
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "appearance_epoch_selection_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
