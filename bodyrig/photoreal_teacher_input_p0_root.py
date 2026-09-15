@@ -39,9 +39,16 @@ def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
     return result
 
 
-def _numeric_v1(value: Any, *, label: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != 1:
+def _numeric_version(value: Any, *, expected: int, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != expected:
         raise PhotorealTeacherInputP0RootError(f"{label} format/version mismatch")
+
+
+def _git_sha(value: Any, *, label: str) -> str:
+    result = _text(value, label=label, maximum=40).lower()
+    if len(result) != 40 or any(ch not in "0123456789abcdef" for ch in result):
+        raise PhotorealTeacherInputP0RootError(f"{label} is invalid")
+    return result
 
 
 def _need_file(root: Path, name: str, *, label: str) -> Path:
@@ -90,9 +97,9 @@ def resolve_authorized_p0_teacher_inputs(
     status = _read_json(status_path, label="P0 status")
     if status.get("format") != STATUS_FORMAT:
         raise PhotorealTeacherInputP0RootError("P0 status format/version mismatch")
-    _numeric_v1(status.get("version"), label="P0 status")
+    _numeric_version(status.get("version"), expected=STATUS_VERSION, label="P0 status")
     performer_id = _text(status.get("performer_id"), label="P0 status performer id", maximum=256)
-    _text(status.get("bodyrig_revision"), label="P0 status BodyRig revision", maximum=64)
+    _git_sha(status.get("bodyrig_revision"), label="P0 status BodyRig revision")
     _text(status.get("status"), label="P0 status state", maximum=256)
 
     blockers = status.get("blockers")
@@ -121,7 +128,11 @@ def resolve_authorized_p0_teacher_inputs(
     selection = _read_json(selection_path, label="appearance epoch selection")
     if selection.get("format") != SELECTION_FORMAT:
         raise PhotorealTeacherInputP0RootError("appearance epoch selection format/version mismatch")
-    _numeric_v1(selection.get("version"), label="appearance epoch selection")
+    _numeric_version(
+        selection.get("version"),
+        expected=SELECTION_VERSION,
+        label="appearance epoch selection",
+    )
     if _text(selection.get("performer_id"), label="appearance epoch selection performer id", maximum=256) != performer_id:
         raise PhotorealTeacherInputP0RootError("appearance epoch selection performer does not match the P0 root")
     if selection.get("teacher_input_authorized") is not True or selection.get("teacher_training_authorized") is not True:
