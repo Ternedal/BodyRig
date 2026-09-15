@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-teacher-review-mapping-v1.schema.json",
+  "title": "BodyRig Photoreal Teacher Review Mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "review_render_set_sha256", "held_out_reference_catalog_sha256", "reviewer", "operator_supplied",
+    "mapping_count", "mappings", "semantic_view_mapping_complete", "semantic_view_authority",
+    "reference_selection_complete", "reference_selection_authority", "reference_bytes_materialized",
+    "reference_frame_hashes_verified", "likeness_review_complete", "photoreal_acceptance_authority",
+    "human_visual_acceptance_required", "build_only", "runtime_dependency", "production_activation",
+    "review_mapping_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-teacher-review-mapping"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1},
+    "selected_epoch_id": {"type": "string", "minLength": 1},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "review_render_set_sha256": {"$ref": "#/$defs/sha256"},
+    "held_out_reference_catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operator_supplied": {"const": true},
+    "mapping_count": {"type": "integer", "minimum": 1},
+    "mappings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mapping"}},
+    "semantic_view_mapping_complete": {"const": true},
+    "semantic_view_authority": {"const": "human-operator-mapping-v1"},
+    "reference_selection_complete": {"const": true},
+    "reference_selection_authority": {"const": "human-operator-selection-v1"},
+    "reference_bytes_materialized": {"const": false},
+    "reference_frame_hashes_verified": {"const": false},
+    "likeness_review_complete": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "review_mapping_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage", "render_orbit_index", "render_relative_path", "render_sha256", "render_camera",
+        "reference_observation_id", "reference_source_key", "reference_source_resolved_path",
+        "reference_source_sha256", "reference_frame_sha256", "reference_timestamp_seconds", "reference_eye",
+        "reference_view_bin", "reference_coverage", "reference_bytes_materialized", "reference_frame_hash_verified"
+      ],
+      "properties": {
+        "coverage": {"type": "string", "minLength": 1, "maxLength": 64},
+        "render_orbit_index": {"type": "integer", "minimum": 0, "maximum": 49},
+        "render_relative_path": {"type": "string", "minLength": 1},
+        "render_sha256": {"$ref": "#/$defs/sha256"},
+        "render_camera": {"type": "object"},
+        "reference_observation_id": {"$ref": "#/$defs/sha256"},
+        "reference_source_key": {"type": "string", "minLength": 1},
+        "reference_source_resolved_path": {"type": "string", "minLength": 1},
+        "reference_source_sha256": {"$ref": "#/$defs/sha256"},
+        "reference_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "reference_timestamp_seconds": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "reference_eye": {"enum": ["mono", "left", "right"]},
+        "reference_view_bin": {"type": "string", "minLength": 1, "maxLength": 64},
+        "reference_coverage": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "reference_bytes_materialized": {"const": false},
+        "reference_frame_hash_verified": {"const": false}
+      }
+    }
+  }
+}
