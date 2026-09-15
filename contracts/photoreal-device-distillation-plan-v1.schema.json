@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bodyrig-photoreal-device-distillation-plan-v1",
+  "title": "BodyRig Photoreal device distillation plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "teacher_manifest_sha256", "static_teacher_review_sha256", "animation_plan_sha256",
+    "animation_execution_receipt_sha256", "animated_teacher_review_sha256", "target_profile",
+    "target_profile_sha256", "distillation_source_artifact_count", "distillation_source_artifacts",
+    "source_artifact_bytes_reverified", "candidate_student_representations",
+    "gaussian_splat_requires_explicit_target_support", "teacher_remains_visual_authority",
+    "student_may_not_claim_fidelity_above_teacher", "required_fidelity_delta_dimensions",
+    "required_fidelity_delta_dimension_count", "fidelity_delta_measurement_required",
+    "human_runtime_visual_acceptance_required", "distillation_adapter_required",
+    "distillation_adapter_selected", "p3_distillation_execution_authorized",
+    "runtime_acceptance_authority", "production_activation", "device_distillation_plan_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-device-distillation-plan"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1},
+    "selected_epoch_id": {"type": "string", "minLength": 1},
+    "teacher_input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "teacher_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "static_teacher_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animation_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animation_execution_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animated_teacher_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "target_profile": {"type": "object"},
+    "target_profile_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "distillation_source_artifact_count": {"type": "integer", "minimum": 1},
+    "distillation_source_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "relative_path", "size_bytes", "sha256"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "relative_path": {"type": "string", "minLength": 1},
+          "size_bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "source_artifact_bytes_reverified": {"const": true},
+    "candidate_student_representations": {
+      "const": [
+        "skinned-mesh-pbr",
+        "skinned-mesh-neural-texture",
+        "hybrid-mesh-neural-residual",
+        "specialized-eye-component",
+        "teacher-derived-hair-component",
+        "gaussian-splat-optional"
+      ]
+    },
+    "gaussian_splat_requires_explicit_target_support": {"const": true},
+    "teacher_remains_visual_authority": {"const": true},
+    "student_may_not_claim_fidelity_above_teacher": {"const": true},
+    "required_fidelity_delta_dimensions": {
+      "const": [
+        "identity_likeness", "face_detail", "eyes", "hair_silhouette_and_appearance",
+        "skin_material_response", "hands_and_extremities", "motion_identity_preservation",
+        "temporal_stability"
+      ]
+    },
+    "required_fidelity_delta_dimension_count": {"const": 8},
+    "fidelity_delta_measurement_required": {"const": true},
+    "human_runtime_visual_acceptance_required": {"const": true},
+    "distillation_adapter_required": {"const": true},
+    "distillation_adapter_selected": {"const": false},
+    "p3_distillation_execution_authorized": {"const": true},
+    "runtime_acceptance_authority": {"const": false},
+    "production_activation": {"const": false},
+    "device_distillation_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
