@@ -65,8 +65,8 @@ def _text(value: Any, *, label: str, maximum: int) -> str:
     return clean
 
 
-def _sha(value: Any, *, label: str) -> str:
-    clean = _text(value, label=label, maximum=64).lower()
+def _git_sha(value: Any, *, label: str) -> str:
+    clean = _text(value, label=label, maximum=40).lower()
     if len(clean) != 40 or any(ch not in "0123456789abcdef" for ch in clean):
         raise PhotorealP0CrashReceiptError(f"{label} must be a 40-character Git SHA")
     return clean
@@ -107,7 +107,7 @@ def build_p0_crash_receipt(
     error_message: str,
     output_root: str | Path,
 ) -> dict[str, Any]:
-    revision = _sha(bodyrig_revision, label="BodyRig revision")
+    revision = _git_sha(bodyrig_revision, label="BodyRig revision")
     performer = _text(performer_id, label="performer id", maximum=256)
     if isinstance(failed_stage_number, bool) or not isinstance(failed_stage_number, int):
         raise PhotorealP0CrashReceiptError("failed stage number is invalid")
@@ -149,7 +149,7 @@ def validate_p0_crash_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     if value.get("format") != FORMAT:
         raise PhotorealP0CrashReceiptError("crash receipt format mismatch")
     _v1(value.get("version"))
-    _sha(value.get("bodyrig_revision"), label="BodyRig revision")
+    _git_sha(value.get("bodyrig_revision"), label="BodyRig revision")
     _text(value.get("performer_id"), label="performer id", maximum=256)
     stage_number = value.get("failed_stage_number")
     if isinstance(stage_number, bool) or not isinstance(stage_number, int) or not 0 <= stage_number <= MAX_STAGE:
@@ -160,7 +160,7 @@ def validate_p0_crash_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     _text(value.get("error_message"), label="error message", maximum=4000)
 
     presence = value.get("artifact_presence")
-    if not isinstance(presence, Mapping) or list(presence.keys()) != list(P0_OUTPUTS):
+    if not isinstance(presence, Mapping) or set(presence) != set(P0_OUTPUTS):
         raise PhotorealP0CrashReceiptError("crash receipt artifact universe is not canonical")
     if any(type(presence[item]) is not bool for item in P0_OUTPUTS):
         raise PhotorealP0CrashReceiptError("crash receipt artifact presence values must be boolean")
@@ -170,11 +170,7 @@ def validate_p0_crash_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     if value.get("artifact_expected_count") != len(P0_OUTPUTS):
         raise PhotorealP0CrashReceiptError("crash receipt artifact expected count mismatch")
 
-    required_true = (
-        "output_root_build_private",
-        "partial_outputs_may_not_grant_authority",
-    )
-    for key in required_true:
+    for key in ("output_root_build_private", "partial_outputs_may_not_grant_authority"):
         if value.get(key) is not True:
             raise PhotorealP0CrashReceiptError(f"crash receipt boundary mismatch: {key}")
     if value.get("restart_same_output_root_supported") is not False:
@@ -208,3 +204,14 @@ def write_p0_crash_receipt(receipt: Mapping[str, Any], output_path: str | Path) 
         encoding="utf-8",
     )
     return validated
+
+
+def read_p0_crash_receipt(path: str | Path) -> dict[str, Any]:
+    source = Path(path).expanduser().resolve()
+    try:
+        value = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealP0CrashReceiptError(f"P0 crash receipt is unreadable: {source}") from exc
+    if not isinstance(value, dict):
+        raise PhotorealP0CrashReceiptError("P0 crash receipt must be a JSON object")
+    return validate_p0_crash_receipt(value)
