@@ -6,7 +6,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+if __package__:
+    from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
+else:  # direct-file execution from the generic external-teacher runner
+    _repo_root = Path(__file__).resolve().parents[1]
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    from bodyrig.wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 REVISION_PREFIX = "sha256:"
 REVISION_DOMAIN = b"bodyrig-photoreal-exavatar-teacher-transport-v1\0"
