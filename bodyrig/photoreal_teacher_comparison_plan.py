@@ -35,6 +35,17 @@ def build_teacher_comparison_plan(teacher_input: Mapping[str, Any]) -> dict[str,
     selected_source_key = source_plan.get("selected_source_key")
     selected_source_sha = source_plan.get("selected_source_sha256")
     selected_observations = list(source_plan.get("selected_observations") or [])
+    selected_candidate = None
+    if candidate_exists:
+        matches = [
+            item
+            for item in source_plan.get("candidates", [])
+            if isinstance(item, Mapping) and item.get("source_key") == selected_source_key
+        ]
+        if len(matches) != 1:
+            raise PhotorealTeacherComparisonPlanError("selected train source is not unique in source scheduler")
+        selected_candidate = dict(matches[0])
+    selected_resolved_path = None if selected_candidate is None else selected_candidate.get("resolved_path")
 
     benchmarks: list[dict[str, Any]] = []
     for entry in registry["benchmarks"]:
@@ -82,6 +93,9 @@ def build_teacher_comparison_plan(teacher_input: Mapping[str, Any]) -> dict[str,
         "source_selection_strategy": source_plan["strategy"],
         "selected_source_key": selected_source_key,
         "selected_source_sha256": selected_source_sha,
+        "selected_source_resolved_path": selected_resolved_path,
+        "selected_source_projection": None if selected_candidate is None else selected_candidate.get("projection"),
+        "selected_source_stereo_layout": None if selected_candidate is None else selected_candidate.get("stereo_layout"),
         "selected_observation_count": len(selected_observations),
         "selected_observations": selected_observations,
         "benchmark_count": len(benchmarks),
@@ -89,6 +103,7 @@ def build_teacher_comparison_plan(teacher_input: Mapping[str, Any]) -> dict[str,
         "comparison_policy": registry["comparison_policy"],
         "all_benchmarks_share_identical_training_subset": True,
         "held_out_evaluation_is_external_to_all_teacher_processes": True,
+        "evaluation_source_paths_serialized": False,
         "benchmark_success_is_photoreal_acceptance": False,
         "human_visual_acceptance_required": True,
         "build_only": True,
