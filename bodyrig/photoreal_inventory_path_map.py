@@ -16,6 +16,8 @@ INVENTORY_VERSION = 1
 NEGATIVE_INVENTORY_FORMAT = "bodyrig-photoreal-identity-negative-inventory"
 NEGATIVE_INVENTORY_VERSION = 1
 NEGATIVE_LABEL_AUTHORITY = "stash-single-performer-other-id-v1"
+DIRECT_PATH_PROOF_FORMAT = "bodyrig-photoreal-direct-path-proof"
+DIRECT_PATH_PROOF_VERSION = 1
 _DRIVE = re.compile(r"^[A-Za-z]:$")
 
 
@@ -162,6 +164,32 @@ def _common_candidate_prefixes(paths: list[str]) -> list[str]:
     )
 
 
+def _direct_path_proof(
+    *,
+    performer_id: str,
+    origin: str,
+    host: str,
+    source_count: int,
+    timestamp: datetime,
+) -> dict[str, Any]:
+    return {
+        "format": DIRECT_PATH_PROOF_FORMAT,
+        "version": DIRECT_PATH_PROOF_VERSION,
+        "transport_mode": "direct-local",
+        "stash_origin": origin,
+        "stash_host": host,
+        "performer_ids": [performer_id],
+        "source_count": source_count,
+        "all_sources_directly_readable": True,
+        "mapping": {},
+        "proof": [],
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+        "updated_utc": timestamp.isoformat().replace("+00:00", "Z"),
+    }
+
+
 def build_inventory_path_map(
     inventory: Mapping[str, Any],
     *,
@@ -243,12 +271,16 @@ def build_inventory_path_map(
                 f"exhaustive source path is not readable after generated path mapping: {path} -> {translated}"
             )
 
+    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if not mapping:
-        raise PhotorealInventoryPathMapError(
-            "all source paths are directly readable; no SMB mapping was required. Pass an explicit path map for this topology."
+        return _direct_path_proof(
+            performer_id=performer_id,
+            origin=origin,
+            host=host,
+            source_count=len(paths),
+            timestamp=timestamp,
         )
 
-    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     result = {
         "format": FORMAT,
         "version": VERSION,
