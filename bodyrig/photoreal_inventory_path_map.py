@@ -13,6 +13,9 @@ from .stash_path_cache import FORMAT, VERSION, StashPathCacheError, normalize_or
 
 INVENTORY_FORMAT = "bodyrig-photoreal-source-inventory"
 INVENTORY_VERSION = 1
+NEGATIVE_INVENTORY_FORMAT = "bodyrig-photoreal-identity-negative-inventory"
+NEGATIVE_INVENTORY_VERSION = 1
+NEGATIVE_LABEL_AUTHORITY = "stash-single-performer-other-id-v1"
 _DRIVE = re.compile(r"^[A-Za-z]:$")
 
 
@@ -45,7 +48,8 @@ def _strict_bool(value: Any, expected: bool) -> bool:
 def _inventory_paths(inventory: Mapping[str, Any]) -> tuple[str, list[str]]:
     if inventory.get("format") != INVENTORY_FORMAT or not _strict_v1(inventory.get("version")):
         raise PhotorealInventoryPathMapError("photoreal source inventory format/version mismatch")
-    if not _strict_bool((inventory.get("summary") or {}).get("source_universe_exhaustive"), True):
+    summary = inventory.get("summary")
+    if not isinstance(summary, Mapping) or not _strict_bool(summary.get("source_universe_exhaustive"), True):
         raise PhotorealInventoryPathMapError("photoreal source inventory is not exhaustive")
     if not _strict_bool(inventory.get("photoreal_teacher_input"), True):
         raise PhotorealInventoryPathMapError("photoreal source inventory lacks teacher-input authority")
@@ -78,7 +82,45 @@ def _inventory_paths(inventory: Mapping[str, Any]) -> tuple[str, list[str]]:
 
     if not paths:
         raise PhotorealInventoryPathMapError("photoreal source inventory contains no source paths")
-    return performer_id.strip(), sorted(set(paths), key=str.casefold)
+    return performer_id.strip(), paths
+
+
+def _negative_paths(inventory: Mapping[str, Any], *, performer_id: str) -> list[str]:
+    if inventory.get("format") != NEGATIVE_INVENTORY_FORMAT or not _strict_v1(inventory.get("version")):
+        raise PhotorealInventoryPathMapError("identity negative inventory format/version mismatch")
+    if inventory.get("label_authority") != NEGATIVE_LABEL_AUTHORITY:
+        raise PhotorealInventoryPathMapError("identity negative inventory label authority mismatch")
+    target = inventory.get("target_performer_id")
+    if not isinstance(target, str) or target.strip() != performer_id:
+        raise PhotorealInventoryPathMapError("identity negative inventory targets a different performer")
+    for field, expected in (
+        ("calibration_only", True),
+        ("photoreal_teacher_input", False),
+        ("teacher_training_authorized", False),
+        ("identity_matching_authorized", False),
+        ("build_only", True),
+        ("runtime_dependency", False),
+        ("production_activation", False),
+    ):
+        if not _strict_bool(inventory.get(field), expected):
+            raise PhotorealInventoryPathMapError(f"identity negative inventory {field} authority mismatch")
+
+    values = inventory.get("sources")
+    if not isinstance(values, list) or not values:
+        raise PhotorealInventoryPathMapError("identity negative inventory contains no sources")
+    paths: list[str] = []
+    for index, raw in enumerate(values):
+        if not isinstance(raw, Mapping):
+            raise PhotorealInventoryPathMapError(f"identity negative inventory source {index} is invalid")
+        if raw.get("target_performer_id") != performer_id or not _strict_bool(raw.get("target_performer_absent"), True):
+            raise PhotorealInventoryPathMapError("identity negative source lacks target-absence authority")
+        if raw.get("label_authority") != NEGATIVE_LABEL_AUTHORITY:
+            raise PhotorealInventoryPathMapError("identity negative source label authority mismatch")
+        path = raw.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise PhotorealInventoryPathMapError(f"identity negative inventory source {index} path is invalid")
+        paths.append(path.strip().replace("/", "\\"))
+    return paths
 
 
 def _candidate_prefixes(paths: list[str]) -> list[str]:
@@ -104,9 +146,15 @@ def build_inventory_path_map(
     stash_url: str,
     is_file: IsFile,
     is_dir: IsDir,
+    negative_inventory: Mapping[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    performer_id, paths = _inventory_paths(inventory)
+    performer_id, primary_paths = _inventory_paths(inventory)
+    paths = list(primary_paths)
+    if negative_inventory is not None:
+        paths.extend(_negative_paths(negative_inventory, performer_id=performer_id))
+    paths = sorted(set(paths), key=str.casefold)
+
     try:
         origin = normalize_origin(stash_url)
     except StashPathCacheError as exc:
@@ -116,15 +164,12 @@ def build_inventory_path_map(
         raise PhotorealInventoryPathMapError("Stash URL has no host")
 
     drive_paths: dict[str, list[str]] = {}
-    direct_only: list[str] = []
     for path in paths:
         drive, _ = ntpath.splitdrive(path)
         drive = drive.rstrip("\\")
         if _DRIVE.fullmatch(drive):
             drive_paths.setdefault(drive.upper(), []).append(path)
-        elif is_file(path):
-            direct_only.append(path)
-        else:
+        elif not is_file(path):
             raise PhotorealInventoryPathMapError(f"source path is neither readable nor a Windows drive path: {path}")
 
     mapping: dict[str, str] = {}
@@ -191,7 +236,7 @@ def build_inventory_path_map(
 
     if not mapping:
         raise PhotorealInventoryPathMapError(
-            "all exhaustive source paths are directly readable; no SMB mapping was required. Pass an explicit path map for this topology."
+            "all source paths are directly readable; no SMB mapping was required. Pass an explicit path map for this topology."
         )
 
     timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -223,9 +268,16 @@ def build_inventory_path_map_file(
     output_path: str | Path,
     *,
     stash_url: str,
+    negative_inventory_path: str | Path | None = None,
 ) -> dict[str, Any]:
     inventory_file = Path(inventory_path).expanduser().resolve()
     inventory = _read_json(inventory_file, label="photoreal source inventory")
+    negative_inventory = None
+    if negative_inventory_path is not None:
+        negative_inventory = _read_json(
+            Path(negative_inventory_path).expanduser().resolve(),
+            label="identity negative inventory",
+        )
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealInventoryPathMapError(f"Photoreal path-map output already exists: {output}")
@@ -235,6 +287,7 @@ def build_inventory_path_map_file(
         stash_url=stash_url,
         is_file=lambda value: Path(value).is_file(),
         is_dir=lambda value: Path(value).is_dir(),
+        negative_inventory=negative_inventory,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     try:
