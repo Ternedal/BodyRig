@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -54,7 +55,28 @@ def _sha(value: Any, *, label: str) -> str:
     return result
 
 
-def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]]]:
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PhotorealIdentityNegativeVerifyError(f"{label} is invalid")
+    return value
+
+
+def _nonnegative_number(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealIdentityNegativeVerifyError(f"{label} is invalid")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise PhotorealIdentityNegativeVerifyError(f"{label} is invalid")
+    return result
+
+
+def _required_text(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PhotorealIdentityNegativeVerifyError(f"{label} is invalid")
+    return value.strip()
+
+
+def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]], int]:
     version = inventory.get("version")
     if (
         inventory.get("format") != INVENTORY_FORMAT
@@ -80,7 +102,17 @@ def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping
     values = inventory.get("sources")
     if not isinstance(values, list) or not values:
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory contains no sources")
-    return target, values
+    source_count = inventory.get("source_count")
+    if isinstance(source_count, bool) or not isinstance(source_count, int) or source_count != len(values):
+        raise PhotorealIdentityNegativeVerifyError("identity negative inventory source_count mismatch")
+    negative_performer_count = inventory.get("negative_performer_count")
+    if (
+        isinstance(negative_performer_count, bool)
+        or not isinstance(negative_performer_count, int)
+        or negative_performer_count < 1
+    ):
+        raise PhotorealIdentityNegativeVerifyError("identity negative inventory negative_performer_count is invalid")
+    return target, values, negative_performer_count
 
 
 def verify_identity_negative_sources(
@@ -91,7 +123,7 @@ def verify_identity_negative_sources(
     file_size: FileSize | None = None,
     hash_file: HashFile | None = None,
 ) -> dict[str, Any]:
-    target, values = _validate_inventory(inventory)
+    target, values, expected_negative_performer_count = _validate_inventory(inventory)
     exists = exists_file or (lambda path: path.is_file())
     size_of = file_size or (lambda path: path.stat().st_size)
     hasher = hash_file or _sha256
@@ -104,12 +136,15 @@ def verify_identity_negative_sources(
     for raw in values:
         if not isinstance(raw, Mapping):
             raise PhotorealIdentityNegativeVerifyError("identity negative source is invalid")
-        source_key = str(raw.get("source_key") or "").strip()
-        catalog_path = str(raw.get("path") or "").strip()
-        subject = str(raw.get("subject_performer_id") or "").strip()
-        kind = str(raw.get("kind") or "").strip()
-        binding = str(raw.get("source_binding") or "").strip()
-        if not source_key or not catalog_path or not subject or kind not in {"video", "image"}:
+        source_key = _required_text(raw.get("source_key"), label="identity negative source_key")
+        catalog_path = _required_text(raw.get("path"), label="identity negative source path")
+        subject = _required_text(raw.get("subject_performer_id"), label="identity negative subject_performer_id")
+        subject_name = raw.get("subject_performer_name")
+        if not isinstance(subject_name, str):
+            raise PhotorealIdentityNegativeVerifyError("identity negative subject_performer_name is invalid")
+        kind = _required_text(raw.get("kind"), label="identity negative source kind")
+        binding = _required_text(raw.get("source_binding"), label="identity negative source binding")
+        if kind not in {"video", "image"}:
             raise PhotorealIdentityNegativeVerifyError("identity negative source identity/path is invalid")
         if subject == target:
             raise PhotorealIdentityNegativeVerifyError("target performer cannot be verified as a negative subject")
@@ -119,9 +154,24 @@ def verify_identity_negative_sources(
             raise PhotorealIdentityNegativeVerifyError("identity negative source label authority mismatch")
         if binding not in {"scene-single-performer", "direct-performer"}:
             raise PhotorealIdentityNegativeVerifyError("identity negative source binding is not single-performer authoritative")
-        if source_key in seen_keys:
+
+        if kind == "video":
+            source_id = _required_text(raw.get("scene_id"), label="identity negative scene_id")
+            expected_key = f"scene:{source_id}:{catalog_path}"
+            if binding != "scene-single-performer":
+                raise PhotorealIdentityNegativeVerifyError("identity negative video binding is invalid")
+        else:
+            source_id = _required_text(raw.get("image_id"), label="identity negative image_id")
+            expected_key = f"image:{source_id}:{catalog_path}"
+            if binding != "direct-performer":
+                raise PhotorealIdentityNegativeVerifyError("identity negative image binding is invalid")
+        if source_key != expected_key:
+            raise PhotorealIdentityNegativeVerifyError("identity negative source_key does not match source identity/path")
+
+        normalized_key = source_key.casefold()
+        if normalized_key in seen_keys:
             raise PhotorealIdentityNegativeVerifyError(f"identity negative source key is duplicated: {source_key}")
-        seen_keys.add(source_key)
+        seen_keys.add(normalized_key)
 
         translated = translate_stash_path(catalog_path, path_mapping)
         local = Path(translated)
@@ -136,7 +186,7 @@ def verify_identity_negative_sources(
         observed_size = int(size_of(local))
         if observed_size < 1:
             raise PhotorealIdentityNegativeVerifyError(f"identity negative source is empty: {translated}")
-        expected_size = int(raw.get("size_bytes") or 0)
+        expected_size = _nonnegative_int(raw.get("size_bytes"), label="identity negative source size_bytes")
         if expected_size > 0 and expected_size != observed_size:
             raise PhotorealIdentityNegativeVerifyError(
                 f"identity negative source size changed: {catalog_path} expected={expected_size} observed={observed_size}"
@@ -147,7 +197,7 @@ def verify_identity_negative_sources(
         record: dict[str, Any] = {
             "source_key": source_key,
             "subject_performer_id": subject,
-            "subject_performer_name": str(raw.get("subject_performer_name") or ""),
+            "subject_performer_name": subject_name,
             "target_performer_id": target,
             "target_performer_absent": True,
             "label_authority": LABEL_AUTHORITY,
@@ -157,21 +207,32 @@ def verify_identity_negative_sources(
             "resolved_path": str(local),
             "size_bytes": observed_size,
             "sha256": digest,
-            "width": int(raw.get("width") or 0),
-            "height": int(raw.get("height") or 0),
+            "width": _nonnegative_int(raw.get("width"), label="identity negative source width"),
+            "height": _nonnegative_int(raw.get("height"), label="identity negative source height"),
         }
         if kind == "video":
+            projection = _required_text(raw.get("projection"), label="identity negative video projection")
+            stereo_layout = _required_text(raw.get("stereo_layout"), label="identity negative video stereo_layout")
             record.update(
                 {
-                    "projection": str(raw.get("projection") or "unknown"),
-                    "stereo_layout": str(raw.get("stereo_layout") or "unknown"),
-                    "duration_seconds": float(raw.get("duration_seconds") or 0.0),
-                    "frame_rate": float(raw.get("frame_rate") or 0.0),
+                    "projection": projection,
+                    "stereo_layout": stereo_layout,
+                    "duration_seconds": _nonnegative_number(
+                        raw.get("duration_seconds"), label="identity negative video duration_seconds"
+                    ),
+                    "frame_rate": _nonnegative_number(
+                        raw.get("frame_rate"), label="identity negative video frame_rate"
+                    ),
                 }
             )
         else:
-            record["megapixels"] = float(raw.get("megapixels") or 0.0)
+            record["megapixels"] = _nonnegative_number(
+                raw.get("megapixels"), label="identity negative image megapixels"
+            )
         verified.append(record)
+
+    if len(negative_subjects) != expected_negative_performer_count:
+        raise PhotorealIdentityNegativeVerifyError("identity negative inventory negative_performer_count mismatch")
 
     verified.sort(key=lambda item: (item["subject_performer_id"], item["kind"], item["source_key"]))
     return {
@@ -206,7 +267,7 @@ def verify_identity_negative_inventory_file(
     path_map_file = Path(path_map_path).expanduser().resolve()
     inventory = _read_json(inventory_file, label="identity negative inventory")
     path_map = _read_json(path_map_file, label="Stash path transport proof")
-    target, values = _validate_inventory(inventory)
+    target, values, _ = _validate_inventory(inventory)
     try:
         validated = resolve_path_transport(
             path_map,
