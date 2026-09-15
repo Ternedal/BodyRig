@@ -18,6 +18,8 @@ DEFAULT_MAX_NEGATIVE_PERFORMERS = 4
 DEFAULT_SOURCES_PER_PERFORMER = 3
 MAX_NEGATIVE_PERFORMERS = 16
 MAX_SOURCES_PER_PERFORMER = 12
+CALIBRATION_VIDEO_PROJECTIONS = {"flat"}
+CALIBRATION_VIDEO_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
 
 
 class PhotorealIdentityNegativeInventoryError(StashSourceError):
@@ -55,6 +57,12 @@ def _source_key(record: Mapping[str, Any]) -> str:
     return f"image:{record['image_id']}:{record['path']}"
 
 
+def _calibration_video_eligible(video: Mapping[str, Any]) -> bool:
+    projection = str(video.get("projection") or "").strip().lower()
+    stereo_layout = str(video.get("stereo_layout") or "").strip().lower()
+    return projection in CALIBRATION_VIDEO_PROJECTIONS and stereo_layout in CALIBRATION_VIDEO_STEREO_LAYOUTS
+
+
 def _negative_candidates(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
     performer_id = str(inventory.get("performer_id") or "").strip()
     performer_name = str(inventory.get("performer_name") or "")
@@ -70,6 +78,8 @@ def _negative_candidates(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for video in inventory.get("videos") or []:
         if not isinstance(video, Mapping) or int(video.get("performer_count") or 0) != 1:
+            continue
+        if not _calibration_video_eligible(video):
             continue
         path = str(video.get("path") or "").strip()
         scene_id = str(video.get("scene_id") or "").strip()
