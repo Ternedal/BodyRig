@@ -15,6 +15,7 @@ from .photoreal_teacher_input import (
 STATUS_FORMAT = "bodyrig-photoreal-p0-status"
 STATUS_VERSION = 1
 STATUS_TEACHER_TRAINING_AUTHORIZED = "teacher-training-authorized"
+CRASH_RECEIPT_NAME = "p0-crash-receipt.json"
 
 
 class PhotorealTeacherInputP0RootError(ValueError):
@@ -93,6 +94,12 @@ def resolve_authorized_p0_teacher_inputs(
     root = Path(p0_root).expanduser().resolve()
     if not root.is_dir():
         raise PhotorealTeacherInputP0RootError(f"P0 root not found: {root}")
+
+    crash_receipt = root / CRASH_RECEIPT_NAME
+    if crash_receipt.exists() or crash_receipt.is_symlink():
+        raise PhotorealTeacherInputP0RootError(
+            f"P0 root contains {CRASH_RECEIPT_NAME}; interrupted/partial P0 outputs may not grant teacher authority"
+        )
 
     status_path = _need_file(root, "p0-status.json", label="P0 status")
     plan_path = _need_file(root, "dataset-plan.json", label="dataset plan")
