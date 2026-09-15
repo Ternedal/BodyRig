@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bodyrig-photoreal-device-target-profile-v1",
+  "title": "BodyRig Photoreal device target profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "operator_supplied", "target_family", "target_model",
+    "target_runtime", "target_refresh_hz", "max_frame_time_ms", "stereo_rendering_required",
+    "vr_safe_frame_pacing_required", "teacher_quality_ceiling_preserved",
+    "fidelity_delta_reporting_required", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-device-target-profile"},
+    "version": {"const": 1},
+    "operator_supplied": {"const": true},
+    "target_family": {"const": "meta-quest"},
+    "target_model": {"enum": ["quest-2", "quest-3", "quest-3s"]},
+    "target_runtime": {"const": "standalone"},
+    "target_refresh_hz": {"type": "number", "minimum": 30, "maximum": 240},
+    "max_frame_time_ms": {"type": "number", "exclusiveMinimum": 0},
+    "stereo_rendering_required": {"const": true},
+    "vr_safe_frame_pacing_required": {"const": true},
+    "teacher_quality_ceiling_preserved": {"const": true},
+    "fidelity_delta_reporting_required": {"const": true},
+    "production_activation": {"const": false}
+  }
+}
