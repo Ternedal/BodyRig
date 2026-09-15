@@ -114,7 +114,7 @@ Invoke-Wsl -Root -Arguments @(
     "git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"
 )
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install",
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "--no-deps",
     "git+https://github.com/open-mmlab/mmpose.git@$mmposeRevision"
 )
 
