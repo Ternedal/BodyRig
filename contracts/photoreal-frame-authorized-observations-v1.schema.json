@@ -15,8 +15,10 @@
     "identity_calibration_sha256",
     "identity_matching_calibrated",
     "identity_match_threshold",
+    "identity_ambiguous_sample_count",
     "observations",
     "identity_authority_is_core_derived",
+    "multi_candidate_identity_safe",
     "photoreal_acceptance_authority",
     "build_only",
     "production_activation"
@@ -37,6 +39,7 @@
         {"type": "null"}
       ]
     },
+    "identity_ambiguous_sample_count": {"type": "integer", "minimum": 0},
     "observations": {
       "type": "array",
       "minItems": 1,
@@ -44,6 +47,7 @@
       "items": {"$ref": "#/$defs/observation"}
     },
     "identity_authority_is_core_derived": {"const": true},
+    "multi_candidate_identity_safe": {"const": true},
     "photoreal_acceptance_authority": {"const": false},
     "build_only": {"const": true},
     "production_activation": {"const": false}
@@ -59,19 +63,9 @@
     }
   ],
   "$defs": {
-    "sha256": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
-    },
-    "phash64": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{16}$"
-    },
-    "unit": {
-      "type": "number",
-      "minimum": 0.0,
-      "maximum": 1.0
-    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phash64": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+    "unit": {"type": "number", "minimum": 0.0, "maximum": 1.0},
     "observation": {
       "type": "object",
       "additionalProperties": false,
@@ -84,6 +78,10 @@
         "projection",
         "frame_sha256",
         "perceptual_hash",
+        "candidate_id",
+        "person_detected",
+        "measured_person_candidate_count",
+        "identity_sample_ambiguous",
         "width",
         "height",
         "view_bin",
@@ -112,6 +110,10 @@
         "projection": {"type": "string", "minLength": 1, "maxLength": 128},
         "frame_sha256": {"$ref": "#/$defs/sha256"},
         "perceptual_hash": {"$ref": "#/$defs/phash64"},
+        "candidate_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+        "person_detected": {"type": "boolean"},
+        "measured_person_candidate_count": {"type": "integer", "minimum": 0},
+        "identity_sample_ambiguous": {"type": "boolean"},
         "width": {"type": "integer", "minimum": 1},
         "height": {"type": "integer", "minimum": 1},
         "view_bin": {
@@ -161,6 +163,15 @@
           "then": {"properties": {"identity_similarity": {"type": "null"}}}
         },
         {
+          "if": {"properties": {"identity_sample_ambiguous": {"const": true}}, "required": ["identity_sample_ambiguous"]},
+          "then": {
+            "properties": {
+              "target_identity_verified": {"const": false},
+              "identity_authority": {"const": "identity-unresolved-v1"}
+            }
+          }
+        },
+        {
           "if": {"properties": {"identity_authority": {"const": "identity-unresolved-v1"}}, "required": ["identity_authority"]},
           "then": {"properties": {"target_identity_verified": {"const": false}}}
         },
@@ -168,10 +179,7 @@
           "if": {
             "properties": {
               "identity_authority": {
-                "enum": [
-                  "stash-single-performer-target-binding-v1",
-                  "calibrated-identity-bank-v1"
-                ]
+                "enum": ["stash-single-performer-target-binding-v1", "calibrated-identity-bank-v1"]
               }
             },
             "required": ["identity_authority"]
