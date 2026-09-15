@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-frame-authorized-observations-v1.schema.json",
+  "title": "BodyRig Photoreal Frame Authorized Observations v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "analyzer",
+    "analyzer_revision",
+    "analyzer_model_set_sha256",
+    "identity_bank_sha256",
+    "identity_calibration_sha256",
+    "identity_matching_calibrated",
+    "identity_match_threshold",
+    "observations",
+    "identity_authority_is_core_derived",
+    "photoreal_acceptance_authority",
+    "build_only",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-frame-authorized-observations"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "analyzer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "analyzer_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "analyzer_model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
+    "identity_calibration_sha256": {"$ref": "#/$defs/sha256"},
+    "identity_matching_calibrated": {"type": "boolean"},
+    "identity_match_threshold": {
+      "oneOf": [
+        {"type": "number", "minimum": -1.0, "maximum": 1.0},
+        {"type": "null"}
+      ]
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 250000,
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "identity_authority_is_core_derived": {"const": true},
+    "photoreal_acceptance_authority": {"const": false},
+    "build_only": {"const": true},
+    "production_activation": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"identity_matching_calibrated": {"const": true}}, "required": ["identity_matching_calibrated"]},
+      "then": {"properties": {"identity_match_threshold": {"type": "number", "minimum": -1.0, "maximum": 1.0}}}
+    },
+    {
+      "if": {"properties": {"identity_matching_calibrated": {"const": false}}, "required": ["identity_matching_calibrated"]},
+      "then": {"properties": {"identity_match_threshold": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "phash64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "unit": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_key",
+        "source_sha256",
+        "kind",
+        "timestamp_seconds",
+        "eye",
+        "projection",
+        "frame_sha256",
+        "perceptual_hash",
+        "width",
+        "height",
+        "view_bin",
+        "face_visibility",
+        "full_body_visibility",
+        "person_fraction",
+        "sharpness",
+        "motion",
+        "occlusion",
+        "identity_measurement_status",
+        "identity_similarity",
+        "target_identity_verified",
+        "identity_authority"
+      ],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "kind": {"enum": ["video", "image"]},
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0.0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]},
+        "projection": {"type": "string", "minLength": 1, "maxLength": 128},
+        "frame_sha256": {"$ref": "#/$defs/sha256"},
+        "perceptual_hash": {"$ref": "#/$defs/phash64"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "view_bin": {
+          "enum": [
+            "front",
+            "three-quarter-left",
+            "three-quarter-right",
+            "profile-left",
+            "profile-right",
+            "rear",
+            "unknown"
+          ]
+        },
+        "face_visibility": {"$ref": "#/$defs/unit"},
+        "full_body_visibility": {"$ref": "#/$defs/unit"},
+        "person_fraction": {"$ref": "#/$defs/unit"},
+        "sharpness": {"$ref": "#/$defs/unit"},
+        "motion": {"$ref": "#/$defs/unit"},
+        "occlusion": {"$ref": "#/$defs/unit"},
+        "identity_measurement_status": {"enum": ["available", "unavailable"]},
+        "identity_similarity": {
+          "oneOf": [
+            {"type": "number", "minimum": -1.0, "maximum": 1.0},
+            {"type": "null"}
+          ]
+        },
+        "target_identity_verified": {"type": "boolean"},
+        "identity_authority": {
+          "enum": [
+            "stash-single-performer-target-binding-v1",
+            "calibrated-identity-bank-v1",
+            "identity-unresolved-v1"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "image"}}, "required": ["kind"]},
+          "then": {"properties": {"timestamp_seconds": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "video"}}, "required": ["kind"]},
+          "then": {"properties": {"timestamp_seconds": {"type": "number", "minimum": 0.0}}}
+        },
+        {
+          "if": {"properties": {"identity_measurement_status": {"const": "unavailable"}}, "required": ["identity_measurement_status"]},
+          "then": {"properties": {"identity_similarity": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"identity_authority": {"const": "identity-unresolved-v1"}}, "required": ["identity_authority"]},
+          "then": {"properties": {"target_identity_verified": {"const": false}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "identity_authority": {
+                "enum": [
+                  "stash-single-performer-target-binding-v1",
+                  "calibrated-identity-bank-v1"
+                ]
+              }
+            },
+            "required": ["identity_authority"]
+          },
+          "then": {"properties": {"target_identity_verified": {"const": true}}}
+        }
+      ]
+    }
+  }
+}
