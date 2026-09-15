@@ -177,5 +177,5 @@ def build_teacher_input_from_p0_root(
             selection_path,
             output_path,
         )
-    except PhotorealTeacherInputError as exc:
+    except (OSError, PhotorealTeacherInputError) as exc:
         raise PhotorealTeacherInputP0RootError(f"strict teacher input gate rejected P0 root: {exc}") from exc
