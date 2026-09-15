@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-animated-review-selection-input-v1.schema.json",
+  "title": "BodyRig Photoreal animated review selection input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "reviewer", "operator_supplied", "selections"],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-animated-review-selection-input"},
+    "version": {"type": "number", "const": 1},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operator_supplied": {"const": true},
+    "selections": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/selection"}
+    }
+  },
+  "$defs": {
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimension",
+        "animation_artifact_relative_path",
+        "reference_observation_id",
+        "window_before_seconds",
+        "window_after_seconds"
+      ],
+      "properties": {
+        "dimension": {
+          "enum": [
+            "head_turn_validation",
+            "eye_motion_validation",
+            "mouth_motion_validation",
+            "hand_motion_validation",
+            "full_body_pose_validation",
+            "identity_appearance_motion_preservation"
+          ]
+        },
+        "animation_artifact_relative_path": {"type": "string", "minLength": 1},
+        "reference_observation_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "window_before_seconds": {"type": "number", "minimum": 0.25, "maximum": 5.0},
+        "window_after_seconds": {"type": "number", "minimum": 0.25, "maximum": 5.0}
+      }
+    }
+  }
+}
