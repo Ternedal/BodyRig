@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-static-teacher-human-review-input-v1.schema.json",
+  "title": "BodyRig Photoreal Static Teacher Human Review Input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "reviewer", "operator_supplied", "coverage_reviews", "checklist", "overall_decision", "quality_note"],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-static-teacher-human-review-input"},
+    "version": {"const": 1},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operator_supplied": {"const": true},
+    "coverage_reviews": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["coverage", "outcome"],
+        "properties": {
+          "coverage": {"type": "string", "minLength": 1, "maxLength": 64},
+          "outcome": {"enum": ["pass", "fail"]}
+        }
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_likeness", "skin_material_not_waxy_or_plastic", "eyes_source_consistent",
+        "hair_silhouette_source_consistent", "hands_anatomically_credible",
+        "cross_view_geometry_and_identity_stable"
+      ],
+      "properties": {
+        "identity_likeness": {"enum": ["pass", "fail"]},
+        "skin_material_not_waxy_or_plastic": {"enum": ["pass", "fail"]},
+        "eyes_source_consistent": {"enum": ["pass", "fail"]},
+        "hair_silhouette_source_consistent": {"enum": ["pass", "fail"]},
+        "hands_anatomically_credible": {"enum": ["pass", "fail"]},
+        "cross_view_geometry_and_identity_stable": {"enum": ["pass", "fail"]}
+      }
+    },
+    "overall_decision": {"enum": ["pass", "fail"]},
+    "quality_note": {"type": "string", "minLength": 1, "maxLength": 4000}
+  }
+}
