@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -56,8 +57,11 @@ def _patch(value: Any, *, label: str, expected_name: str) -> dict[str, Any]:
 
 
 def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any]:
-    python = Path(linux_python).expanduser().resolve()
-    if python.name != "python" or python.parent.name != "bin":
+    # Preserve the venv entry path instead of Path.resolve(): bin/python is
+    # normally a symlink to /usr/bin/python3.10, and resolving it would lose
+    # the venv root that owns the setup receipt.
+    python = Path(os.path.abspath(os.fspath(Path(linux_python).expanduser())))
+    if not python.is_absolute() or python.name != "python" or python.parent.name != "bin":
         raise PhotorealExAvatarRuntimeSetupReceiptError("ExAvatar Python path is not a canonical venv bin/python")
     root = python.parent.parent
     path = root / "bodyrig-exavatar-runtime-setup.json"
