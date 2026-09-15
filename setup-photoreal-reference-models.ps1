@@ -23,12 +23,14 @@ if (-not $AcceptInsightFaceResearchLicense) {
 $ModelRoot = [IO.Path]::GetFullPath($ModelRoot)
 if (Test-Path -LiteralPath $ModelRoot) {
     if (-not $Force) { throw "Photoreal model root already exists: $ModelRoot" }
-    Remove-Item -LiteralPath $ModelRoot -Recurse -Force
 }
-New-Item -ItemType Directory -Path $ModelRoot -Force | Out-Null
+$targetParent = Split-Path -Parent $ModelRoot
+if ([string]::IsNullOrWhiteSpace($targetParent)) { throw "Photoreal model root parent is invalid: $ModelRoot" }
+New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
 
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("bodyrig-photoreal-models-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+$stageRoot = Join-Path $tempRoot "model-root"
+New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
 function Download-File {
     param([Parameter(Mandatory = $true)][string]$Url,[Parameter(Mandatory = $true)][string]$Path)
@@ -58,15 +60,18 @@ try {
     if ($null -eq $recognizer -or $null -eq $detector) {
         throw "Verified buffalo_l archive does not contain expected detector/recognizer files."
     }
+    if ($recognizer.Directory.FullName -ne $detector.Directory.FullName) {
+        throw "Verified buffalo_l archive layout is inconsistent."
+    }
     $buffaloSource = $recognizer.Directory.FullName
-    $buffaloTarget = Join-Path $ModelRoot "insightface\models\buffalo_l"
+    $buffaloTarget = Join-Path $stageRoot "insightface\models\buffalo_l"
     New-Item -ItemType Directory -Path $buffaloTarget -Force | Out-Null
     Copy-Item -Path (Join-Path $buffaloSource "*") -Destination $buffaloTarget -Force -ErrorAction Stop
 
-    $weightsDir = Join-Path $ModelRoot "weights"
-    $poseConfigDir = Join-Path $ModelRoot "configs\wholebody_2d_keypoint\rtmpose\ubody"
-    $baseConfigDir = Join-Path $ModelRoot "configs\_base_"
-    $detectorConfigDir = Join-Path $ModelRoot "configs\mmdetection"
+    $weightsDir = Join-Path $stageRoot "weights"
+    $poseConfigDir = Join-Path $stageRoot "configs\wholebody_2d_keypoint\rtmpose\ubody"
+    $baseConfigDir = Join-Path $stageRoot "configs\_base_"
+    $detectorConfigDir = Join-Path $stageRoot "configs\mmdetection"
     foreach ($directory in @($weightsDir, $poseConfigDir, $baseConfigDir, $detectorConfigDir)) {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
@@ -94,7 +99,7 @@ try {
         mmdet_weights = "weights/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth"
         identity_embedding_dimension = 512
     }
-    $manifestPath = Join-Path $ModelRoot "bodyrig-reference-vision-v1.json"
+    $manifestPath = Join-Path $stageRoot "bodyrig-reference-vision-v1.json"
     $manifest | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
     $provenance = [ordered]@{
@@ -115,8 +120,26 @@ try {
         build_only = $true
         production_activation = $false
     }
-    $provenancePath = Join-Path $ModelRoot "source-provenance.json"
+    $provenancePath = Join-Path $stageRoot "source-provenance.json"
     $provenance | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $provenancePath -Encoding UTF8
+
+    $required = @(
+        $manifestPath,
+        $provenancePath,
+        $poseWeights,
+        $detectorWeights,
+        (Join-Path $buffaloTarget "w600k_r50.onnx"),
+        (Join-Path $buffaloTarget "det_10g.onnx")
+    )
+    foreach ($path in $required) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Staged model root is incomplete: $path" }
+    }
+
+    if (Test-Path -LiteralPath $ModelRoot) {
+        if (-not $Force) { throw "Photoreal model root appeared during staging: $ModelRoot" }
+        Remove-Item -LiteralPath $ModelRoot -Recurse -Force
+    }
+    Move-Item -LiteralPath $stageRoot -Destination $ModelRoot -ErrorAction Stop
 
     Write-Host ""
     Write-Host "BodyRig Photoreal reference model root: READY"
