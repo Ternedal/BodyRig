@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-motion-reference-materialization-receipt-v1.schema.json",
+  "title": "BodyRig Photoreal motion reference materialization receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "animation_execution_receipt_sha256", "held_out_reference_catalog_sha256",
+    "animated_review_plan_sha256", "adapter", "revision", "sample_fps", "source_count",
+    "window_count", "materialized_windows", "all_source_hashes_verified", "all_anchor_hashes_verified",
+    "artifact_bytes_verified_by_core", "decode_semantics", "frame_hash_semantics",
+    "teacher_process_disclosure", "reference_motion_bytes_materialized",
+    "human_animated_visual_acceptance_required", "animated_teacher_acceptance_authority",
+    "p3_device_distillation_authorized", "build_only", "runtime_dependency", "production_activation",
+    "motion_materialization_receipt_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-motion-reference-materialization-receipt"},
+    "version": {"type": "number", "const": 1},
+    "performer_id": {"type": "string", "minLength": 1},
+    "selected_epoch_id": {"type": "string", "minLength": 1},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "animation_execution_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "held_out_reference_catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "animated_review_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "adapter": {"const": "bodyrig-motion-reference-materializer-v1"},
+    "revision": {"$ref": "#/$defs/sha256"},
+    "sample_fps": {"const": 24.0},
+    "source_count": {"type": "integer", "minimum": 1},
+    "window_count": {"type": "integer", "minimum": 1},
+    "materialized_windows": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/window"}},
+    "all_source_hashes_verified": {"const": true},
+    "all_anchor_hashes_verified": {"const": true},
+    "artifact_bytes_verified_by_core": {"const": true},
+    "decode_semantics": {"const": "opencv-bgr-array-v1"},
+    "frame_hash_semantics": {"const": "sha256(shape-ascii-newline+contiguous-bgr-bytes)"},
+    "teacher_process_disclosure": {"const": false},
+    "reference_motion_bytes_materialized": {"const": true},
+    "human_animated_visual_acceptance_required": {"const": true},
+    "animated_teacher_acceptance_authority": {"const": false},
+    "p3_device_distillation_authorized": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "motion_materialization_receipt_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "window_id", "source_key", "eye", "dimensions", "window_start_seconds",
+        "window_end_seconds", "sample_fps", "anchors", "source_hash_verified",
+        "all_anchor_hashes_verified", "frame_count", "frames"
+      ],
+      "properties": {
+        "window_id": {"$ref": "#/$defs/sha256"},
+        "source_key": {"type": "string", "minLength": 1},
+        "eye": {"enum": ["mono", "left", "right"]},
+        "dimensions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "window_start_seconds": {"type": "number", "minimum": 0},
+        "window_end_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "sample_fps": {"const": 24.0},
+        "anchors": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/anchor"}},
+        "source_hash_verified": {"const": true},
+        "all_anchor_hashes_verified": {"const": true},
+        "frame_count": {"type": "integer", "minimum": 2, "maximum": 300},
+        "frames": {"type": "array", "minItems": 2, "maxItems": 300, "items": {"$ref": "#/$defs/frame"}}
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id", "timestamp_seconds", "expected_frame_sha256", "observed_frame_sha256",
+        "dimensions", "frame_hash_verified"
+      ],
+      "properties": {
+        "observation_id": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {"type": "number", "minimum": 0},
+        "expected_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "dimensions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "frame_hash_verified": {"const": true}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index", "requested_timestamp_seconds", "decoded_frame_sha256",
+        "png_relative_path", "png_size_bytes", "png_sha256"
+      ],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "requested_timestamp_seconds": {"type": "number", "minimum": 0},
+        "decoded_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "png_relative_path": {"type": "string", "minLength": 1},
+        "png_size_bytes": {"type": "integer", "minimum": 1},
+        "png_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
