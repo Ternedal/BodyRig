@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_unresolved_count": unresolved,
                 "identity_authority_is_core_derived": result["identity_authority_is_core_derived"],
                 "multi_candidate_identity_safe": result["multi_candidate_identity_safe"],
+                "frame_identity_authority_sha256": result["frame_identity_authority_sha256"],
                 "photoreal_acceptance_authority": result["photoreal_acceptance_authority"],
                 "production_activation": result["production_activation"],
             },
