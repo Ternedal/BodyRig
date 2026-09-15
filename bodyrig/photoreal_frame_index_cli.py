@@ -12,7 +12,7 @@ from .photoreal_frame_index_readback_authority import build_frame_index_files_st
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate core-authorized photoreal frame observations against the byte-bound dataset plan."
+            "Validate sealed core-authorized photoreal frame observations against the byte-bound dataset plan."
         )
     )
     parser.add_argument("--plan", type=Path, required=True)
@@ -23,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="observations",
         type=Path,
         required=True,
-        help="Core-authorized observations from bodyrig-photoreal-frame-authorize-identity.",
+        help="Sealed core-authorized observations from bodyrig-photoreal-frame-authorize-identity.",
     )
     parser.add_argument("--out", type=Path, required=True)
     return parser
@@ -46,6 +46,8 @@ def main(argv: list[str] | None = None) -> int:
                 "analyzer": result["analyzer"],
                 "analyzer_revision": result["analyzer_revision"],
                 "analyzer_model_set_sha256": result["analyzer_model_set_sha256"],
+                "source_authorized_observations_sha256": result["source_authorized_observations_sha256"],
+                "frame_index_sha256": result["frame_index_sha256"],
                 "observation_count": result["observation_count"],
                 "eligible_train_observation_count": result["eligible_train_observation_count"],
                 "eligible_evaluation_observation_count": result["eligible_evaluation_observation_count"],
