@@ -12,6 +12,10 @@ from bodyrig.photoreal_appearance_epoch_handoff import (
     build_appearance_epoch_review_handoff,
     build_appearance_epoch_review_handoff_files,
 )
+from bodyrig.photoreal_appearance_epoch_review import (
+    PhotorealAppearanceEpochReviewError,
+    apply_appearance_epoch_review,
+)
 
 
 def _digest(value: dict[str, object]) -> str:
@@ -118,6 +122,35 @@ def test_handoff_preserves_all_candidates_without_selecting_or_approving() -> No
     assert review["human_approved"] is False
     assert review["reviewed_by"] == ""
     assert review["production_activation"] is False
+
+
+def test_unedited_template_is_rejected_by_existing_authority_gate() -> None:
+    plan = _plan()
+    _, review = build_appearance_epoch_review_handoff(plan)
+
+    with pytest.raises(PhotorealAppearanceEpochReviewError, match="explicit completed human approval"):
+        apply_appearance_epoch_review(plan, review)
+
+
+def test_explicitly_completed_template_is_accepted_by_existing_authority_gate() -> None:
+    plan = _plan()
+    _, review = build_appearance_epoch_review_handoff(plan)
+    review["selected_epoch_id"] = "epoch-2026-09-a"
+    review["selected_source_group_ids"] = ["scene:train-a", "scene:eval-a"]
+    review["human_review_complete"] = True
+    review["human_approved"] = True
+    review["reviewed_by"] = "operator"
+    review["review_notes"] = "Human reviewed one coherent appearance state across train and held-out groups."
+
+    result = apply_appearance_epoch_review(plan, review)
+
+    assert result["selected_epoch_id"] == "epoch-2026-09-a"
+    assert result["human_epoch_review_complete"] is True
+    assert result["human_approved"] is True
+    assert result["teacher_input_authorized"] is True
+    assert result["teacher_training_authorized"] is True
+    assert result["photoreal_acceptance_authority"] is False
+    assert result["production_activation"] is False
 
 
 def test_handoff_rejects_resealed_authority_crossing() -> None:
