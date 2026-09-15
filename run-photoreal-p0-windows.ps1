@@ -41,6 +41,14 @@ function Read-Json {
     }
 }
 
+function Test-StrictBoolean {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory = $true)][bool]$Expected
+    )
+    return ($Value -is [bool]) -and ([bool]$Value -eq $Expected)
+}
+
 function Write-Status {
     param(
         [Parameter(Mandatory = $true)][string]$Status,
@@ -365,7 +373,7 @@ try {
     )
 
     $frameIndex = Read-Json -Path $FrameIndexPath -Label "Photoreal frame index"
-    $trainingAuthorized = ($indexExit -eq 0 -and $frameIndex.teacher_training_authorized -eq $true)
+    $trainingAuthorized = ($indexExit -eq 0 -and (Test-StrictBoolean -Value $frameIndex.teacher_training_authorized -Expected $true))
     $blockers = @($frameIndex.training_blockers | ForEach-Object { [string]$_ })
     if (-not $trainingAuthorized -and $blockers.Count -eq 0) {
         $blockers = @("Frame index did not grant teacher-training authority.")
