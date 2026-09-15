@@ -46,17 +46,17 @@ def test_final_p0_powershell_boolean_gate_is_type_faithful(
     runner = _runner()
     harness = tmp_path / "p0-final-authority-boolean.ps1"
     harness.write_text(
-        """param([string]$Runner,[string]$Json)\n"
-        "$tokens = $null\n"
-        "$errors = $null\n"
-        "$ast = [System.Management.Automation.Language.Parser]::ParseFile($Runner, [ref]$tokens, [ref]$errors)\n"
-        "$fn = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-StrictBoolean' }, $true) | Select-Object -First 1\n"
-        "if ($null -eq $fn) { exit 3 }\n"
-        "Invoke-Expression $fn.Extent.Text\n"
-        "$value = ($Json | ConvertFrom-Json -Depth 20).value\n"
-        "if (Test-StrictBoolean -Value $value -Expected $true) { exit 0 }\n"
-        "exit 1\n"
-        """,
+        """param([string]$Runner,[string]$Json)
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Runner, [ref]$tokens, [ref]$errors)
+$fn = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-StrictBoolean' }, $true) | Select-Object -First 1
+if ($null -eq $fn) { exit 3 }
+Invoke-Expression $fn.Extent.Text
+$value = ($Json | ConvertFrom-Json -Depth 20).value
+if (Test-StrictBoolean -Value $value -Expected $true) { exit 0 }
+exit 1
+""",
         encoding="utf-8",
     )
     payload = json.dumps({"value": value}, separators=(",", ":"))
