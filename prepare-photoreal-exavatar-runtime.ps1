@@ -50,10 +50,12 @@ Write-Host ""
 Write-Host "=== 1/2 BUILD PINNED GAUSSIAN CUDA EXTENSION ==="
 Invoke-Wsl -Arguments @(
     "/usr/bin/env",
+    "-C",
+    $gaussian,
     "FORCE_CUDA=1",
     "PYTHONNOUSERSITE=1",
     $LinuxPython,
-    "$gaussian/setup.py",
+    "setup.py",
     "build_ext",
     "--inplace"
 )
@@ -61,7 +63,6 @@ Invoke-Wsl -Arguments @(
 Write-Host ""
 Write-Host "=== 2/2 RUNTIME PREFLIGHT ==="
 $code = @'
-import json
 import sys
 from pathlib import Path
 
