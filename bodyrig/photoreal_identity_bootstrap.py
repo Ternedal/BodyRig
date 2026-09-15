@@ -13,6 +13,7 @@ MAX_REFERENCE_SAMPLES_PER_SOURCE = 12
 MIN_BOOTSTRAP_GROUPS = 2
 MIN_BOOTSTRAP_SOURCES = 2
 MIN_BOOTSTRAP_REFERENCE_SAMPLES = 4
+IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
 
 
 class PhotorealIdentityBootstrapError(ValueError):
@@ -58,6 +59,8 @@ def _count(value: Any, *, label: str) -> int:
 
 def _authoritative_source(source: Mapping[str, Any]) -> bool:
     if source.get("split") != "train" or _count(source.get("performer_count"), label="performer_count") != 1:
+        return False
+    if source.get("decode_mode") not in IDENTITY_BOOTSTRAP_DECODE_MODES:
         return False
     kind = source.get("kind")
     binding = source.get("source_binding")
