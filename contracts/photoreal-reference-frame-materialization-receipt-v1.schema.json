@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-reference-frame-materialization-receipt-v1.schema.json",
+  "title": "BodyRig Photoreal Reference Frame Materialization Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "review_mapping_sha256", "held_out_reference_catalog_sha256", "adapter", "revision",
+    "source_count", "sample_count", "materialized_references", "all_source_hashes_verified",
+    "all_frame_hashes_verified", "decode_semantics", "frame_hash_semantics", "teacher_process_disclosure",
+    "photoreal_acceptance_authority", "human_visual_acceptance_required", "build_only",
+    "runtime_dependency", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-reference-frame-materialization-receipt"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "review_mapping_sha256": {"$ref": "#/$defs/sha256"},
+    "held_out_reference_catalog_sha256": {"$ref": "#/$defs/sha256"},
+    "adapter": {"const": "bodyrig-reference-frame-materializer-v1"},
+    "revision": {"$ref": "#/$defs/sha256"},
+    "source_count": {"type": "integer", "minimum": 1},
+    "sample_count": {"type": "integer", "minimum": 1},
+    "materialized_references": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/reference"}},
+    "all_source_hashes_verified": {"const": true},
+    "all_frame_hashes_verified": {"const": true},
+    "decode_semantics": {"const": "opencv-bgr-array-v1"},
+    "frame_hash_semantics": {"const": "sha256(shape-ascii-newline+contiguous-bgr-bytes)"},
+    "teacher_process_disclosure": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id", "source_key", "expected_frame_sha256", "observed_frame_sha256",
+        "timestamp_seconds", "eye", "coverages", "source_hash_verified", "frame_hash_verified",
+        "png_relative_path", "png_size_bytes", "png_sha256"
+      ],
+      "properties": {
+        "observation_id": {"$ref": "#/$defs/sha256"},
+        "source_key": {"type": "string", "minLength": 1},
+        "expected_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "observed_frame_sha256": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "eye": {"enum": ["mono", "left", "right"]},
+        "coverages": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "source_hash_verified": {"const": true},
+        "frame_hash_verified": {"const": true},
+        "png_relative_path": {"type": "string", "pattern": "^references/[0-9a-f]{64}\\.png$"},
+        "png_size_bytes": {"type": "integer", "minimum": 1},
+        "png_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
