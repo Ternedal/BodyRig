@@ -106,6 +106,7 @@ try { $inventory = Get-Content -LiteralPath $OutputPath -Raw -Encoding UTF8 | Co
 catch { throw "Photoreal inventory output is unreadable JSON." }
 if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or -not (Test-NumericV1 -Value $inventory.version) -or
     -not (Test-StrictBoolean -Value $inventory.summary.source_universe_exhaustive -Expected $true) -or
+    -not (Test-StrictBoolean -Value $inventory.build_only -Expected $true) -or
     -not (Test-StrictBoolean -Value $inventory.photoreal_teacher_input -Expected $true) -or
     -not (Test-StrictBoolean -Value $inventory.runtime_dependency -Expected $false) -or
     -not (Test-StrictBoolean -Value $inventory.production_activation -Expected $false)) {
