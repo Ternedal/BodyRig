@@ -54,22 +54,22 @@ def test_one_command_powershell_strict_boolean_gate(value: object, expected_valu
 
     harness = tmp_path / "strict-boolean-harness.ps1"
     harness.write_text(
-        """param([string]$Entrypoint,[string]$Json,[bool]$Expected)
+        """param([string]$Entrypoint,[string]$Json)
 $tokens = $null
 $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Entrypoint, [ref]$tokens, [ref]$errors)
 $fn = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-StrictBoolean' }, $true) | Select-Object -First 1
 if ($null -eq $fn) { exit 3 }
 Invoke-Expression $fn.Extent.Text
-$value = ($Json | ConvertFrom-Json -Depth 20).value
-if (Test-StrictBoolean -Value $value -Expected $Expected) { exit 0 }
+$payload = $Json | ConvertFrom-Json -Depth 20
+if (Test-StrictBoolean -Value $payload.value -Expected $payload.expected_value) { exit 0 }
 exit 1
 """,
         encoding="utf-8",
     )
-    payload = json.dumps({"value": value}, separators=(",", ":"))
+    payload = json.dumps({"value": value, "expected_value": expected_value}, separators=(",", ":"))
     completed = subprocess.run(
-        [pwsh, "-NoLogo", "-NoProfile", "-File", str(harness), str(entrypoint), payload, str(expected_value)],
+        [pwsh, "-NoLogo", "-NoProfile", "-File", str(harness), str(entrypoint), payload],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
