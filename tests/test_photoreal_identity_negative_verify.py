@@ -16,9 +16,12 @@ def _inventory() -> dict[str, object]:
         "version": 1,
         "target_performer_id": "42",
         "label_authority": "stash-single-performer-other-id-v1",
+        "negative_performer_count": 2,
+        "source_count": 2,
         "sources": [
             {
                 "source_key": "scene:s7:E:/neg7.mp4",
+                "scene_id": "s7",
                 "subject_performer_id": "7",
                 "subject_performer_name": "Performer 7",
                 "target_performer_id": "42",
@@ -37,6 +40,7 @@ def _inventory() -> dict[str, object]:
             },
             {
                 "source_key": "image:i8:F:/neg8.jpg",
+                "image_id": "i8",
                 "subject_performer_id": "8",
                 "subject_performer_name": "Performer 8",
                 "target_performer_id": "42",
@@ -144,6 +148,7 @@ def test_negative_verifier_rejects_changed_size() -> None:
 def test_negative_verifier_rejects_duplicate_resolved_file() -> None:
     inventory = copy.deepcopy(_inventory())
     inventory["sources"][1]["path"] = "E:/neg7.mp4"
+    inventory["sources"][1]["source_key"] = "image:i8:E:/neg7.mp4"
 
     with pytest.raises(PhotorealIdentityNegativeVerifyError, match="same local file"):
         verify_identity_negative_sources(
