@@ -10,15 +10,28 @@ from .photoreal_exavatar_preflight import (
     build_exavatar_preflight,
 )
 
-# These assets are listed by the pinned ExAvatar checkout and are read by its
-# FLAME/texture code, but were not part of the first BodyRig preflight asset
-# inventory. Keep this supplemental layer fail-closed so an old incomplete
-# preflight can never report READY through the operator CLI.
+# These assets are listed/read by the pinned ExAvatar checkout but were not
+# part of the first BodyRig preflight inventory. Keep this supplemental layer
+# fail-closed so an incomplete benchmark environment can never report READY.
 STRICT_FLAME_ASSETS: tuple[tuple[str, str], ...] = (
     ("flame_dynamic_embedding", "human_model_files/flame/flame_dynamic_embedding.npy"),
     ("flame_static_embedding", "human_model_files/flame/flame_static_embedding.pkl"),
     ("flame_texture", "human_model_files/flame/FLAME_texture.npz"),
 )
+
+# The pinned Hand4Whole demo imports utils.human_models at process startup.
+# That module instantiates both SMPLX() and SMPL(), and directly opens the
+# J14 regressor. Its documented human-model tree also supplies MANO files used
+# by the vendored SMPL-X utilities. ExAvatar's first preflight did not include
+# these files because its own fitting/avatar code does not open them directly.
+STRICT_HAND4WHOLE_ASSETS: tuple[tuple[str, str], ...] = (
+    ("hand4whole_smpl_neutral", "human_model_files/smpl/SMPL_NEUTRAL.pkl"),
+    ("hand4whole_smplx_to_j14", "human_model_files/smplx/SMPLX_to_J14.pkl"),
+    ("hand4whole_mano_left", "human_model_files/mano/MANO_LEFT.pkl"),
+    ("hand4whole_mano_right", "human_model_files/mano/MANO_RIGHT.pkl"),
+)
+
+STRICT_EXTRA_ASSETS = STRICT_FLAME_ASSETS + STRICT_HAND4WHOLE_ASSETS
 
 
 def _file_sha(path: Path) -> str:
@@ -61,10 +74,13 @@ def build_exavatar_preflight_strict(
     blockers = list(result.get("blockers") or [])
     asset_records = list(result.get("assets") or [])
     existing_names = {str(item.get("name") or "") for item in asset_records if isinstance(item, dict)}
+    existing_paths = {str(item.get("relative_path") or "") for item in asset_records if isinstance(item, dict)}
 
-    for name, relative in STRICT_FLAME_ASSETS:
+    for name, relative in STRICT_EXTRA_ASSETS:
         if name in existing_names:
             raise PhotorealExAvatarPreflightError(f"strict ExAvatar asset name collides with base preflight: {name}")
+        if relative in existing_paths:
+            raise PhotorealExAvatarPreflightError(f"strict ExAvatar asset path collides with base preflight: {relative}")
         path = assets_root / relative
         record: dict[str, Any] = {
             "name": name,
@@ -84,11 +100,15 @@ def build_exavatar_preflight_strict(
                 record["size_bytes"] = size
                 record["sha256"] = _file_sha(path)
         asset_records.append(record)
+        existing_names.add(name)
+        existing_paths.add(relative)
 
     blockers = sorted(set(blockers))
     result["assets"] = asset_records
     result["strict_upstream_asset_inventory"] = True
     result["strict_flame_asset_count"] = len(STRICT_FLAME_ASSETS)
+    result["strict_hand4whole_asset_count"] = len(STRICT_HAND4WHOLE_ASSETS)
+    result["strict_extra_asset_count"] = len(STRICT_EXTRA_ASSETS)
     result["blockers"] = blockers
     result["benchmark_environment_ready"] = not blockers
     _recompute_digest(result)
