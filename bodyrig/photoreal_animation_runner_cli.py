@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
+from .photoreal_animation_execution_receipt import (
+    PhotorealAnimationExecutionReceiptError,
+    write_animation_execution_receipt,
+)
 from .photoreal_animation_runner import PhotorealAnimationRunnerError, run_external_animation_files
 
 
@@ -27,22 +32,28 @@ def main(argv: list[str] | None = None) -> int:
             args.teacher_output_root,
             args.workspace,
         )
-    except PhotorealAnimationRunnerError as exc:
+        receipt = write_animation_execution_receipt(
+            result,
+            Path(args.workspace).expanduser().resolve() / "animation-execution-receipt.json",
+        )
+    except (PhotorealAnimationRunnerError, PhotorealAnimationExecutionReceiptError) as exc:
         print(f"BodyRig Photoreal animation runner: FAIL: {exc}", file=sys.stderr)
         return 1
     print(
         json.dumps(
             {
-                "format": result["format"],
-                "version": result["version"],
-                "performer_id": result["performer_id"],
-                "animation_complete": result["animation_complete"],
-                "representation": result["representation"],
-                "consumed_teacher_artifact_count": len(result["consumed_teacher_artifacts"]),
-                "animation_artifact_count": len(result["animation_artifacts"]),
-                "animated_teacher_acceptance_authority": result["animated_teacher_acceptance_authority"],
-                "p3_device_distillation_authorized": result["p3_device_distillation_authorized"],
-                "production_activation": result["production_activation"],
+                "format": receipt["format"],
+                "version": receipt["version"],
+                "performer_id": receipt["performer_id"],
+                "animation_complete": receipt["animation_complete"],
+                "representation": receipt["representation"],
+                "consumed_teacher_artifact_count": len(receipt["consumed_teacher_artifacts"]),
+                "animation_artifact_count": len(receipt["animation_artifacts"]),
+                "artifact_bytes_verified_by_core": receipt["artifact_bytes_verified_by_core"],
+                "animated_teacher_acceptance_authority": receipt["animated_teacher_acceptance_authority"],
+                "p3_device_distillation_authorized": receipt["p3_device_distillation_authorized"],
+                "production_activation": receipt["production_activation"],
+                "animation_execution_receipt_sha256": receipt["animation_execution_receipt_sha256"],
             },
             sort_keys=True,
             separators=(",", ":"),
