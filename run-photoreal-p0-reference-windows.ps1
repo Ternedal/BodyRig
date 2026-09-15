@@ -28,6 +28,47 @@ function Need-Directory {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Write-UnexpectedFailureStatus {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][int]$ExitCode,
+        [Parameter(Mandatory = $true)][string]$CrashReceiptPath
+    )
+    $statusPath = Join-Path $Root "p0-status.json"
+    if (Test-Path -LiteralPath $statusPath -PathType Leaf) { return }
+    $payload = [ordered]@{
+        format = "bodyrig-photoreal-p0-status"
+        version = 1
+        bodyrig_revision = $script:head
+        performer_id = $PerformerId
+        status = "unexpected-failure"
+        teacher_training_authorized = $false
+        blockers = @(
+            "The isolated P0 child process failed unexpectedly with exit code $ExitCode. Partial outputs are diagnostic evidence only and grant no authority. Inspect the crash receipt: $CrashReceiptPath"
+        )
+        human_visual_acceptance_required = $true
+        photoreal_acceptance_authority = $false
+        production_activation = $false
+        outputs = [ordered]@{
+            source_inventory = (Join-Path $Root "source-inventory.json")
+            dataset_plan = (Join-Path $Root "dataset-plan.json")
+            source_receipt = (Join-Path $Root "source-receipt.json")
+            scan_plan = (Join-Path $Root "scan-plan.json")
+            identity_bootstrap = (Join-Path $Root "identity-bootstrap-plan.json")
+            model_set = (Join-Path $Root "model-set.json")
+            identity_bank = (Join-Path $Root "identity-bank.json")
+            identity_negative_inventory = (Join-Path $Root "identity-negative-inventory.json")
+            identity_negative_receipt = (Join-Path $Root "identity-negative-receipt.json")
+            identity_calibration_plan = (Join-Path $Root "identity-calibration-plan.json")
+            identity_calibration = (Join-Path $Root "identity-calibration.json")
+            frame_measurements = (Join-Path $Root "frame-measurements.json")
+            frame_authorized_observations = (Join-Path $Root "frame-authorized-observations.json")
+            frame_index = (Join-Path $Root "frame-index.json")
+        }
+    }
+    $payload | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-photoreal-p0-windows.ps1") -Label "Photoreal P0 runner"
 $adapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_adapter.py") -Label "Photoreal reference vision adapter"
@@ -140,7 +181,30 @@ try {
     if ($exitCode -eq 2) {
         throw "BodyRig Photoreal reference P0 was blocked by a fail-closed gate. Inspect '$OutputRoot\p0-status.json'."
     }
-    throw "BodyRig Photoreal reference P0 failed with exit code $exitCode."
+
+    if (Test-Path -LiteralPath $OutputRoot -PathType Container) {
+        $crashReceiptPath = Join-Path $OutputRoot "p0-crash-receipt.json"
+        if (-not (Test-Path -LiteralPath $crashReceiptPath)) {
+            $crashMessage = "The isolated P0 child process exited unexpectedly with code $exitCode before returning a normal P0 gate result."
+            $crashOutput = @(& $BodyRigPython -m bodyrig.photoreal_p0_crash_receipt_cli `
+                --bodyrig-revision $head `
+                --performer-id $PerformerId `
+                --failed-stage-number 0 `
+                --failed-stage-label "isolated-p0-child-process" `
+                --error-message $crashMessage `
+                --output-root $OutputRoot `
+                --output $crashReceiptPath 2>&1)
+            $crashExit = $LASTEXITCODE
+            foreach ($line in $crashOutput) { Write-Host ([string]$line) }
+            if ($crashExit -ne 0) {
+                Write-Warning "Could not write the Photoreal P0 crash receipt; receipt CLI exited with code $crashExit."
+            }
+        }
+        Write-UnexpectedFailureStatus -Root $OutputRoot -ExitCode $exitCode -CrashReceiptPath $crashReceiptPath
+        throw "BodyRig Photoreal reference P0 failed unexpectedly with exit code $exitCode. Inspect '$OutputRoot\p0-status.json' and '$crashReceiptPath'. Do not reuse partial outputs as authority; rerun with a new empty output root after fixing the cause."
+    }
+
+    throw "BodyRig Photoreal reference P0 failed unexpectedly with exit code $exitCode before creating its output root. Fix the cause and run again with a new empty output root."
 } finally {
     $env:PYTHONPATH = $priorPythonPath
     if (Test-Path -LiteralPath $tempRoot -PathType Container) {
