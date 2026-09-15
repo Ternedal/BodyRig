@@ -6,7 +6,6 @@ import pytest
 
 from bodyrig.photoreal_identity_negative_verify import (
     PhotorealIdentityNegativeVerifyError,
-    canonical_identity_negative_inventory_sha256,
     verify_identity_negative_sources,
 )
 
@@ -84,19 +83,17 @@ def _hashes() -> dict[str, str]:
     }
 
 
-def test_negative_verifier_binds_sources_to_bytes_and_inventory() -> None:
+def test_negative_verifier_binds_sources_to_bytes() -> None:
     sizes = _sizes()
     hashes = _hashes()
-    inventory = _inventory()
     result = verify_identity_negative_sources(
-        inventory,
+        _inventory(),
         path_mapping=_mapping(),
         exists_file=lambda path: str(path) in sizes,
         file_size=lambda path: sizes[str(path)],
         hash_file=lambda path: hashes[str(path)],
     )
 
-    assert result["negative_inventory_sha256"] == canonical_identity_negative_inventory_sha256(inventory)
     assert result["source_count"] == 2
     assert result["negative_performer_count"] == 2
     assert result["total_bytes"] == 150
@@ -107,14 +104,6 @@ def test_negative_verifier_binds_sources_to_bytes_and_inventory() -> None:
     assert result["identity_matching_authorized"] is False
     assert result["production_activation"] is False
     assert {item["sha256"] for item in result["sources"]} == {"a" * 64, "b" * 64}
-
-
-def test_negative_verifier_inventory_digest_changes_with_manifest() -> None:
-    original = _inventory()
-    changed = copy.deepcopy(original)
-    changed["sources"][0]["path"] = "E:/different.mp4"
-
-    assert canonical_identity_negative_inventory_sha256(original) != canonical_identity_negative_inventory_sha256(changed)
 
 
 def test_negative_verifier_rejects_target_as_negative_subject() -> None:

@@ -15,6 +15,8 @@ VERSION = 1
 DIRECT_PATH_PROOF_FORMAT = "bodyrig-photoreal-direct-path-proof"
 DIRECT_PATH_PROOF_VERSION = 1
 DIRECT_PATH_MODE = "direct-local"
+DIRECT_PATH_SCOPE_PRIMARY = "primary"
+DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION = "negative-calibration"
 
 
 class PhotorealSourceVerifyError(ValueError):
@@ -90,6 +92,8 @@ def resolve_path_transport(
     *,
     stash_url: str,
     performer_id: str,
+    expected_direct_scope: str | None = None,
+    expected_direct_source_count: int | None = None,
 ) -> dict[str, Any]:
     if path_map.get("format") == DIRECT_PATH_PROOF_FORMAT:
         version = path_map.get("version")
@@ -106,9 +110,16 @@ def resolve_path_transport(
         performers = path_map.get("performer_ids")
         if performers != [performer_id]:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof performer scope mismatch")
+        direct_scope = path_map.get("source_scope")
+        if direct_scope not in {DIRECT_PATH_SCOPE_PRIMARY, DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION}:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source scope is invalid")
+        if expected_direct_scope is not None and direct_scope != expected_direct_scope:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source scope mismatch")
         source_count = path_map.get("source_count")
         if isinstance(source_count, bool) or not isinstance(source_count, int) or source_count < 1:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof source count is invalid")
+        if expected_direct_source_count is not None and source_count != expected_direct_source_count:
+            raise PhotorealSourceVerifyError("Photoreal direct-path proof source count mismatch")
         if path_map.get("all_sources_directly_readable") is not True:
             raise PhotorealSourceVerifyError("Photoreal direct-path proof lacks direct-readability evidence")
         if path_map.get("mapping") != {} or path_map.get("proof") != []:
@@ -305,10 +316,14 @@ def verify_inventory_file(
     inventory = _read_json(inventory_file, label="photoreal source inventory")
     path_map = _read_json(mapping_file, label="Stash path transport proof")
     performer_id, _ = _validate_inventory_header(inventory)
-    records = _records(inventory)
-    if path_map.get("format") == DIRECT_PATH_PROOF_FORMAT and path_map.get("source_count") != len(records):
-        raise PhotorealSourceVerifyError("Photoreal direct-path proof source count does not match inventory")
-    validated = resolve_path_transport(path_map, stash_url=stash_url, performer_id=performer_id)
+    source_records = _records(inventory)
+    validated = resolve_path_transport(
+        path_map,
+        stash_url=stash_url,
+        performer_id=performer_id,
+        expected_direct_scope=DIRECT_PATH_SCOPE_PRIMARY,
+        expected_direct_source_count=len(source_records),
+    )
 
     result = verify_inventory_sources(inventory, path_mapping=validated["mapping"])
     result["inventory_sha256"] = _sha256_bytes(inventory_raw)

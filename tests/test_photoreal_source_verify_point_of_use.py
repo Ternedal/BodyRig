@@ -35,7 +35,11 @@ def _inventory() -> dict[str, object]:
 
 
 def _verify_rejects(inventory: dict[str, object], message: str | None = None) -> None:
-    context = pytest.raises(PhotorealSourceVerifyError, match=message) if message else pytest.raises(PhotorealSourceVerifyError)
+    context = (
+        pytest.raises(PhotorealSourceVerifyError, match=message)
+        if message
+        else pytest.raises(PhotorealSourceVerifyError)
+    )
     with context:
         verify_inventory_sources(
             inventory,
@@ -105,6 +109,7 @@ def test_direct_local_proof_source_count_must_match_inventory(tmp_path: Path) ->
                 "stash_origin": "http://localhost:9999",
                 "stash_host": "localhost",
                 "performer_ids": ["42"],
+                "source_scope": "primary",
                 "source_count": 1,
                 "all_sources_directly_readable": True,
                 "mapping": {},
@@ -118,7 +123,7 @@ def test_direct_local_proof_source_count_must_match_inventory(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    with pytest.raises(PhotorealSourceVerifyError, match="source count does not match inventory"):
+    with pytest.raises(PhotorealSourceVerifyError, match="source count mismatch"):
         verify_inventory_file(
             inventory_path,
             path_map_path,
