@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "format", "version", "target_performer_id", "label_authority", "negative_performer_count",
+    "format", "version", "target_performer_id", "negative_inventory_sha256", "label_authority", "negative_performer_count",
     "source_count", "total_bytes", "sources", "all_sources_readable", "all_sources_sha256_bound",
     "calibration_only", "photoreal_teacher_input", "teacher_training_authorized",
     "identity_matching_authorized", "build_only", "runtime_dependency", "production_activation"
@@ -14,6 +14,7 @@
     "format": {"const": "bodyrig-photoreal-identity-negative-receipt"},
     "version": {"const": 1},
     "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "negative_inventory_sha256": {"$ref": "#/$defs/sha256"},
     "label_authority": {"const": "stash-single-performer-other-id-v1"},
     "negative_performer_count": {"type": "integer", "minimum": 1},
     "source_count": {"type": "integer", "minimum": 1},
