@@ -76,7 +76,7 @@ def build_appearance_epoch_plan(
         raise PhotorealAppearanceEpochError("frame index contains no observations")
 
     eligible: list[dict[str, Any]] = []
-    source_groups: set[str] = set()
+    group_stats: dict[str, dict[str, Any]] = {}
     split_counts = {"train": 0, "evaluation": 0}
     for raw in observations:
         if not isinstance(raw, Mapping):
@@ -91,6 +91,7 @@ def build_appearance_epoch_plan(
         source_key = _text(raw.get("source_key"), label="source key")
         group_id = _text(raw.get("group_id"), label="source group id")
         frame_sha = _sha(raw.get("frame_sha256"), label="frame SHA-256")
+        view_bin = _text(raw.get("view_bin"), label="view bin", maximum=64)
         eligible.append(
             {
                 "source_key": source_key,
@@ -99,10 +100,26 @@ def build_appearance_epoch_plan(
                 "frame_sha256": frame_sha,
                 "timestamp_seconds": raw.get("timestamp_seconds"),
                 "eye": _text(raw.get("eye"), label="observation eye", maximum=16),
-                "view_bin": _text(raw.get("view_bin"), label="view bin", maximum=64),
+                "view_bin": view_bin,
             }
         )
-        source_groups.add(group_id)
+        existing = group_stats.get(group_id)
+        if existing is None:
+            existing = {
+                "group_id": group_id,
+                "split": split,
+                "source_keys": set(),
+                "frame_sha256s": set(),
+                "view_bins": set(),
+                "eligible_observation_count": 0,
+            }
+            group_stats[group_id] = existing
+        elif existing["split"] != split:
+            raise PhotorealAppearanceEpochError("source group crosses train/evaluation boundary")
+        existing["source_keys"].add(source_key)
+        existing["frame_sha256s"].add(frame_sha)
+        existing["view_bins"].add(view_bin)
+        existing["eligible_observation_count"] += 1
         split_counts[split] += 1
 
     if not eligible or split_counts["train"] == 0 or split_counts["evaluation"] == 0:
@@ -117,6 +134,17 @@ def build_appearance_epoch_plan(
             str(item["eye"]),
         )
     )
+    eligible_source_groups = [
+        {
+            "group_id": group_id,
+            "split": str(value["split"]),
+            "source_keys": sorted(str(item) for item in value["source_keys"]),
+            "frame_sha256s": sorted(str(item) for item in value["frame_sha256s"]),
+            "view_bins": sorted(str(item) for item in value["view_bins"]),
+            "eligible_observation_count": int(value["eligible_observation_count"]),
+        }
+        for group_id, value in sorted(group_stats.items())
+    ]
     evidence_digest = _digest(
         {
             "performer_id": performer_id,
@@ -138,7 +166,8 @@ def build_appearance_epoch_plan(
         "eligible_observation_count": len(eligible),
         "eligible_train_observation_count": split_counts["train"],
         "eligible_evaluation_observation_count": split_counts["evaluation"],
-        "source_group_count": len(source_groups),
+        "source_group_count": len(eligible_source_groups),
+        "eligible_source_groups": eligible_source_groups,
         "evidence_sha256": evidence_digest,
         "candidate_epochs": [],
         "selected_epoch_id": None,
