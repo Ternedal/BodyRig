@@ -253,7 +253,7 @@ def build_device_distillation_plan(
     actual = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file()
+        if path.is_file() and path.name != "animation-manifest.json"
     }
     if actual != seen:
         raise PhotorealDeviceDistillationPlanError("animation output artifact universe drifted before distillation planning")
