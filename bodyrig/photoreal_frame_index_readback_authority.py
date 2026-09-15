@@ -9,6 +9,10 @@ from .photoreal_frame_authorized_observations_integrity import (
     validate_authorized_observations_integrity,
 )
 from .photoreal_frame_index import PhotorealFrameIndexError, build_frame_index
+from .photoreal_frame_index_integrity import (
+    PhotorealFrameIndexIntegrityError,
+    seal_frame_index,
+)
 
 
 class PhotorealFrameIndexReadbackAuthorityError(PhotorealFrameIndexError):
@@ -42,11 +46,18 @@ def build_frame_index_files_strict(
         label="photoreal core-authorized frame observations",
     )
     try:
-        validate_authorized_observations_integrity(observations)
+        source_authority_sha256 = validate_authorized_observations_integrity(observations)
     except PhotorealAuthorizedObservationsIntegrityError as exc:
         raise PhotorealFrameIndexReadbackAuthorityError(str(exc)) from exc
 
-    result = build_frame_index(plan, receipt, observations)
+    try:
+        result = seal_frame_index(
+            build_frame_index(plan, receipt, observations),
+            source_authority_sha256,
+        )
+    except PhotorealFrameIndexIntegrityError as exc:
+        raise PhotorealFrameIndexReadbackAuthorityError(str(exc)) from exc
+
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealFrameIndexReadbackAuthorityError(
