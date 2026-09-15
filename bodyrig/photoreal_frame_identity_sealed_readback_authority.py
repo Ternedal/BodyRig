@@ -8,6 +8,7 @@ from .photoreal_frame_identity_authority import (
     PhotorealFrameIdentityAuthorityError,
     authorize_frame_identities,
 )
+from .photoreal_frame_identity_output_provenance import seal_frame_identity_authority
 from .photoreal_frame_identity_readback_authority import (
     PhotorealFrameIdentityReadbackAuthorityError,
     validate_identity_matching_readback,
@@ -80,6 +81,7 @@ def authorize_frame_identity_files_sealed_strict(
         result = authorize_frame_identities(plan, measurements, bank, calibration)
     except PhotorealFrameIdentityAuthorityError:
         raise
+    result = seal_frame_identity_authority(result)
 
     output = Path(output_path).expanduser().resolve()
     if output.exists():
