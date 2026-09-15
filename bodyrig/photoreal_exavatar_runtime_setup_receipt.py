@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 FORMAT = "bodyrig-photoreal-exavatar-runtime-setup"
 VERSION = 1
+EXPECTED_CUDA_VERSION = "12.4"
 PYTORCH3D_COMMIT = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"
 CHUMPY_PATCH = "bodyrig-chumpy-0.70-numpy-alias-v1"
 TORCHGEOMETRY_PATCH = "hand4whole-author-float-mask-v1"
@@ -77,6 +78,8 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup receipt targets different Python executable")
     if value.get("pytorch3d_commit") != PYTORCH3D_COMMIT:
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup PyTorch3D commit mismatch")
+    if str(value.get("expected_cuda_version") or "") != EXPECTED_CUDA_VERSION:
+        raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup expected CUDA version mismatch")
     requested = value.get("requested_versions")
     if not isinstance(requested, Mapping) or dict(requested) != EXPECTED_REQUESTED_VERSIONS:
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup requested-version set mismatch")
@@ -87,12 +90,16 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup observed probe is invalid")
     if observed.get("cuda_smoke") is not True or observed.get("chumpy_smoke") is not True or observed.get("torchgeometry_smoke") is not True:
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup smoke evidence is incomplete")
+    if str(observed.get("torch_cuda") or "") != EXPECTED_CUDA_VERSION:
+        raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup observed Torch CUDA version mismatch")
     if str(observed.get("chumpy") or "") != "0.70":
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup observed Chumpy version mismatch")
     nvcc = value.get("nvcc")
     nvidia = value.get("nvidia_smi")
     if not isinstance(nvcc, list) or not nvcc or not isinstance(nvidia, list) or not nvidia:
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup CUDA/GPU provenance is missing")
+    if f"release {EXPECTED_CUDA_VERSION}" not in "\n".join(str(line) for line in nvcc):
+        raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup nvcc/Torch CUDA parity evidence is missing")
     if value.get("photoreal_acceptance_authority") is not False or value.get("build_only") is not True:
         raise PhotorealExAvatarRuntimeSetupReceiptError("runtime setup crossed photoreal/build authority")
     if value.get("production_activation") is not False:
