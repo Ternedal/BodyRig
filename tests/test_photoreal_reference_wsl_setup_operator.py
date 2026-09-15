@@ -27,6 +27,14 @@ def test_reference_wsl_setup_avoids_shell_redirection_in_xtcocotools_requirement
     assert 'xtcocotools = $xtcocotoolsVersion' in SCRIPT
 
 
+def test_reference_wsl_openmmlab_versions_are_compatible_and_probed() -> None:
+    assert '$mmposeVersion = "1.3.2"' in SCRIPT
+    assert '$mmdetRevision = "fe3f809a0a514189baf889aa358c498d51ee36cd"' in SCRIPT
+    assert '$mmdetVersion = "3.2.0"' in SCRIPT
+    assert 'if ([string]$probe.mmdet -ne $mmdetVersion)' in SCRIPT
+    assert 'if ([string]$probe.mmpose -ne $mmposeVersion)' in SCRIPT
+
+
 def test_reference_wsl_mmdetection_build_sees_installed_torch() -> None:
     mmdet_url = '"git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"'
     mmdet_install = SCRIPT.index(mmdet_url)
