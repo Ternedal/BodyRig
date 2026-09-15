@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .photoreal_frame_identity_authority import PhotorealFrameIdentityAuthorityError
-from .photoreal_frame_identity_integrity_authority import (
-    authorize_frame_identity_files_integrity_checked,
+from .photoreal_frame_identity_sealed_readback_authority import (
+    authorize_frame_identity_files_sealed_strict,
 )
 
 
@@ -26,7 +26,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = authorize_frame_identity_files_integrity_checked(
+        result = authorize_frame_identity_files_sealed_strict(
             args.plan,
             args.measurements,
             args.identity_bank,
