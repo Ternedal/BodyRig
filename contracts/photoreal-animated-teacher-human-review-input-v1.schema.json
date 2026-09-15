@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bodyrig-photoreal-animated-teacher-human-review-input-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "reviewer", "operator_supplied", "dimension_reviews", "checklist", "overall_decision", "quality_note"],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-animated-teacher-human-review-input"},
+    "version": {"const": 1},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "operator_supplied": {"const": true},
+    "dimension_reviews": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "outcome"],
+        "properties": {
+          "dimension": {"enum": ["head_turn_validation", "eye_motion_validation", "mouth_motion_validation", "hand_motion_validation", "full_body_pose_validation", "identity_appearance_motion_preservation"]},
+          "outcome": {"enum": ["pass", "fail"]}
+        }
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temporal_stability", "identity_stable_across_motion", "appearance_stable_across_motion", "geometry_stable_no_collapse", "no_visible_texture_swimming_or_flicker", "motion_control_visually_coherent"],
+      "properties": {
+        "temporal_stability": {"enum": ["pass", "fail"]},
+        "identity_stable_across_motion": {"enum": ["pass", "fail"]},
+        "appearance_stable_across_motion": {"enum": ["pass", "fail"]},
+        "geometry_stable_no_collapse": {"enum": ["pass", "fail"]},
+        "no_visible_texture_swimming_or_flicker": {"enum": ["pass", "fail"]},
+        "motion_control_visually_coherent": {"enum": ["pass", "fail"]}
+      }
+    },
+    "overall_decision": {"enum": ["pass", "fail"]},
+    "quality_note": {"type": "string", "minLength": 1, "maxLength": 4000}
+  }
+}
