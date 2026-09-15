@@ -31,6 +31,7 @@ function Need-Directory {
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-photoreal-p0-windows.ps1") -Label "Photoreal P0 runner"
 $adapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_adapter.py") -Label "Photoreal reference vision adapter"
+$probe = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_probe.py") -Label "Photoreal reference vision probe"
 $ModelRoot = Need-Directory -Path $ModelRoot -Label "Photoreal reference vision model root"
 
 $headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
@@ -81,6 +82,21 @@ try {
     Write-Host "Production:        FALSE"
     Write-Host "============================================================"
 
+    Write-Host ""
+    Write-Host "=== PRE-P0 PINNED VISION STACK PREFLIGHT ==="
+    $preflightOutput = @(& $BodyRigPython -m bodyrig.photoreal_reference_vision_preflight `
+        --adapter-path $adapter `
+        --probe-path $probe `
+        --model-root $ModelRoot `
+        --distribution $Distribution `
+        --linux-python $LinuxPython `
+        --device $VisionDevice 2>&1)
+    $preflightExit = $LASTEXITCODE
+    foreach ($line in $preflightOutput) { Write-Host ([string]$line) }
+    if ($preflightExit -ne 0) { throw "Photoreal reference vision preflight failed with exit code $preflightExit." }
+
+    Write-Host ""
+    Write-Host "=== GENERATE EXACT MEASUREMENT CONFIGS ==="
     $configOutput = @(& $BodyRigPython -m bodyrig.photoreal_reference_vision_config `
         --model-root $ModelRoot `
         --adapter-path $adapter `
