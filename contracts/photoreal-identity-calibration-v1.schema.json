@@ -22,8 +22,6 @@
     "version": {"const": 1},
     "target_performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
     "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
-    "negative_inventory_sha256": {"$ref": "#/$defs/sha256"},
-    "identity_calibration_core_sha256": {"$ref": "#/$defs/sha256"},
     "model_set_sha256": {"$ref": "#/$defs/sha256"},
     "extractor": {"type": "string", "minLength": 1, "maxLength": 256},
     "extractor_revision": {"type": "string", "minLength": 1, "maxLength": 256},
@@ -58,14 +56,6 @@
     "cosine": {"type": "number", "minimum": -1.0, "maximum": 1.0}
   },
   "allOf": [
-    {
-      "if": {"required": ["negative_inventory_sha256"]},
-      "then": {"required": ["identity_calibration_core_sha256"]}
-    },
-    {
-      "if": {"required": ["identity_calibration_core_sha256"]},
-      "then": {"required": ["negative_inventory_sha256"]}
-    },
     {
       "if": {"properties": {"identity_matching_authorized": {"const": true}}, "required": ["identity_matching_authorized"]},
       "then": {
