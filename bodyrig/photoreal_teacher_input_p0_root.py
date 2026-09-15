@@ -52,9 +52,17 @@ def _git_sha(value: Any, *, label: str) -> str:
 
 
 def _need_file(root: Path, name: str, *, label: str) -> Path:
-    path = (root / name).resolve()
+    candidate = root / name
+    if candidate.is_symlink():
+        raise PhotorealTeacherInputP0RootError(f"{label} may not be a symlink: {candidate}")
+    try:
+        path = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise PhotorealTeacherInputP0RootError(f"{label} not found in P0 root: {candidate}") from exc
     if not path.is_file():
         raise PhotorealTeacherInputP0RootError(f"{label} not found in P0 root: {path}")
+    if path.parent != root or path.name != name:
+        raise PhotorealTeacherInputP0RootError(f"{label} escaped the canonical P0 root: {path}")
     return path
 
 
