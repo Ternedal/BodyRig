@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bodyrig-photoreal-animated-teacher-human-review-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "teacher_manifest_sha256", "static_teacher_review_sha256", "animation_plan_sha256",
+    "animation_execution_receipt_sha256", "animated_review_plan_sha256",
+    "motion_materialization_receipt_sha256", "reviewer", "reviewed_utc", "operator_supplied",
+    "dimension_review_count", "dimension_reviews", "checklist", "quality_note",
+    "animation_artifact_bytes_reverified_at_review", "motion_reference_bytes_reverified_at_review",
+    "human_animated_review_complete", "human_animated_review_outcome", "human_animated_review_pass",
+    "animated_teacher_photoreal_accepted", "animated_teacher_acceptance_authority",
+    "p3_device_distillation_authorized", "production_activation", "animated_teacher_review_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-animated-teacher-human-review"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "teacher_input_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "teacher_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "static_teacher_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animation_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animation_execution_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "animated_review_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "motion_materialization_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 256},
+    "reviewed_utc": {"type": "string", "minLength": 1, "maxLength": 64},
+    "operator_supplied": {"const": true},
+    "dimension_review_count": {"const": 6},
+    "dimension_reviews": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "animation_artifact_relative_path", "animation_artifact_sha256", "motion_window_id", "reference_observation_id", "reference_frame_sha256", "materialized_reference_frame_count", "human_outcome"],
+        "properties": {
+          "dimension": {"enum": ["head_turn_validation", "eye_motion_validation", "mouth_motion_validation", "hand_motion_validation", "full_body_pose_validation", "identity_appearance_motion_preservation"]},
+          "animation_artifact_relative_path": {"type": "string", "minLength": 1},
+          "animation_artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "motion_window_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reference_observation_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reference_frame_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "materialized_reference_frame_count": {"type": "integer", "minimum": 2},
+          "human_outcome": {"enum": ["pass", "fail"]}
+        }
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temporal_stability", "identity_stable_across_motion", "appearance_stable_across_motion", "geometry_stable_no_collapse", "no_visible_texture_swimming_or_flicker", "motion_control_visually_coherent"],
+      "properties": {
+        "temporal_stability": {"enum": ["pass", "fail"]},
+        "identity_stable_across_motion": {"enum": ["pass", "fail"]},
+        "appearance_stable_across_motion": {"enum": ["pass", "fail"]},
+        "geometry_stable_no_collapse": {"enum": ["pass", "fail"]},
+        "no_visible_texture_swimming_or_flicker": {"enum": ["pass", "fail"]},
+        "motion_control_visually_coherent": {"enum": ["pass", "fail"]}
+      }
+    },
+    "quality_note": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "animation_artifact_bytes_reverified_at_review": {"const": true},
+    "motion_reference_bytes_reverified_at_review": {"const": true},
+    "human_animated_review_complete": {"const": true},
+    "human_animated_review_outcome": {"enum": ["pass", "fail"]},
+    "human_animated_review_pass": {"type": "boolean"},
+    "animated_teacher_photoreal_accepted": {"type": "boolean"},
+    "animated_teacher_acceptance_authority": {"type": "boolean"},
+    "p3_device_distillation_authorized": {"type": "boolean"},
+    "production_activation": {"const": false},
+    "animated_teacher_review_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
