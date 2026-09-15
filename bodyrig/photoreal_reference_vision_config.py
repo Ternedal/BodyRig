@@ -4,13 +4,17 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .photoreal_model_set import PhotorealModelSetError, build_model_set
 
 ADAPTER_NAME = "bodyrig-reference-vision-v1"
 IDENTITY_CONFIG_FORMAT = "bodyrig-photoreal-identity-extractor-config"
 FRAME_CONFIG_FORMAT = "bodyrig-photoreal-frame-analyzer-config"
+RUNTIME_FORMAT = "bodyrig-photoreal-reference-runtime-environment"
+RUNTIME_VERSION = 1
+EXPECTED_MMPOSE_REVISION = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"
+EXPECTED_MMDET_REVISION = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
 VERSION = 1
 
 
@@ -26,11 +30,58 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _text(value: str, *, label: str, maximum: int = 4096) -> str:
+def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
     result = str(value or "").strip()
     if not result or len(result) > maximum or "\n" in result or "\r" in result:
         raise PhotorealReferenceVisionConfigError(f"{label} is invalid")
     return result
+
+
+def _read_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealReferenceVisionConfigError(f"{label} is unreadable: {path}") from exc
+    if not isinstance(value, dict):
+        raise PhotorealReferenceVisionConfigError(f"{label} must be a JSON object")
+    return value
+
+
+def _validate_runtime_receipt(
+    root: Path,
+    *,
+    distribution: str,
+    linux_python: str,
+    device: str,
+) -> dict[str, Any]:
+    path = root / "runtime-environment.json"
+    if not path.is_file():
+        raise PhotorealReferenceVisionConfigError(
+            "runtime-environment.json is missing; run setup-photoreal-reference-wsl.ps1 before generating runnable configs"
+        )
+    receipt = _read_object(path, label="reference runtime environment receipt")
+    if receipt.get("format") != RUNTIME_FORMAT or receipt.get("version") != RUNTIME_VERSION:
+        raise PhotorealReferenceVisionConfigError("reference runtime environment format/version mismatch")
+    if receipt.get("build_only") is not True or receipt.get("production_activation") is not False:
+        raise PhotorealReferenceVisionConfigError("reference runtime environment crossed its authority boundary")
+    if _text(receipt.get("distribution"), label="runtime distribution", maximum=160) != distribution:
+        raise PhotorealReferenceVisionConfigError("requested WSL distribution differs from verified runtime receipt")
+    if _text(receipt.get("linux_python"), label="runtime Linux Python") != linux_python:
+        raise PhotorealReferenceVisionConfigError("requested Linux Python differs from verified runtime receipt")
+    if receipt.get("mmpose_revision") != EXPECTED_MMPOSE_REVISION:
+        raise PhotorealReferenceVisionConfigError("runtime receipt MMPose revision differs from pinned reference")
+    if receipt.get("mmdetection_revision") != EXPECTED_MMDET_REVISION:
+        raise PhotorealReferenceVisionConfigError("runtime receipt MMDetection revision differs from pinned reference")
+    observed = receipt.get("observed")
+    if not isinstance(observed, Mapping):
+        raise PhotorealReferenceVisionConfigError("runtime receipt has no observed environment")
+    if device != "cpu":
+        if observed.get("torch_cuda_available") is not True:
+            raise PhotorealReferenceVisionConfigError("verified runtime receipt has no PyTorch CUDA")
+        providers = observed.get("onnxruntime_providers")
+        if not isinstance(providers, list) or "CUDAExecutionProvider" not in providers:
+            raise PhotorealReferenceVisionConfigError("verified runtime receipt has no ONNX Runtime CUDA provider")
+    return receipt
 
 
 def build_reference_configs(
@@ -46,12 +97,23 @@ def build_reference_configs(
     model_root_path = Path(model_root).expanduser().resolve()
     adapter = Path(adapter_path).expanduser().resolve()
     python = Path(windows_python).expanduser().resolve()
+    distribution = _text(distribution, label="WSL distribution", maximum=160)
+    linux_python = _text(linux_python, label="Linux Python")
+    device = _text(device, label="vision device", maximum=32)
+    if device not in {"cpu", "cuda", "cuda:0"}:
+        raise PhotorealReferenceVisionConfigError("vision device must be cpu, cuda or cuda:0")
     if not adapter.is_file():
         raise PhotorealReferenceVisionConfigError(f"reference vision adapter not found: {adapter}")
     if not python.is_file():
         raise PhotorealReferenceVisionConfigError(f"Windows Python not found: {python}")
     if isinstance(timeout_seconds, bool) or not 1 <= int(timeout_seconds) <= 86400:
         raise PhotorealReferenceVisionConfigError("timeout_seconds must be in 1..86400")
+    _validate_runtime_receipt(
+        model_root_path,
+        distribution=distribution,
+        linux_python=linux_python,
+        device=device,
+    )
     try:
         model_set = build_model_set(model_root_path)
     except PhotorealModelSetError as exc:
@@ -63,15 +125,15 @@ def build_reference_configs(
         "-m",
         "bodyrig.photoreal_wsl_request_bridge",
         "--distribution",
-        _text(distribution, label="WSL distribution", maximum=160),
+        distribution,
         "--linux-python",
-        _text(linux_python, label="Linux Python"),
+        linux_python,
         "--adapter-path",
         str(adapter),
         "--model-root",
         str(model_root_path),
         "--device",
-        _text(device, label="vision device", maximum=32),
+        device,
     ]
     common = {
         "version": VERSION,
@@ -81,9 +143,7 @@ def build_reference_configs(
         "command": command,
         "timeout_seconds": int(timeout_seconds),
     }
-    identity = {"format": IDENTITY_CONFIG_FORMAT, **common}
-    frame = {"format": FRAME_CONFIG_FORMAT, **common}
-    return identity, frame
+    return {"format": IDENTITY_CONFIG_FORMAT, **common}, {"format": FRAME_CONFIG_FORMAT, **common}
 
 
 def write_reference_configs(
@@ -159,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
                 "revision": identity["revision"],
                 "model_set_sha256": identity["model_set_sha256"],
                 "same_embedding_space": identity["command"] == frame["command"],
+                "runtime_environment_bound": True,
                 "production_activation": False,
             },
             separators=(",", ":"),
