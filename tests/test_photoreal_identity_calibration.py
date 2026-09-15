@@ -115,6 +115,7 @@ def _negative_receipt() -> dict[str, object]:
         "format": "bodyrig-photoreal-identity-negative-receipt",
         "version": 1,
         "target_performer_id": "42",
+        "negative_inventory_sha256": "e" * 64,
         "label_authority": "stash-single-performer-other-id-v1",
         "sources": [
             {
