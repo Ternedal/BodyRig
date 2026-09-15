@@ -43,9 +43,11 @@ function Invoke-Wsl {
 }
 
 if ([string]::IsNullOrWhiteSpace($Distribution)) { throw "Distribution is required." }
-if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith('/')) {
-    throw "LinuxPython must be an absolute Linux path."
+if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith('/') -or -not $LinuxPython.EndsWith('/bin/python')) {
+    throw "LinuxPython must be an absolute venv path ending in /bin/python."
 }
+$venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
+$mimExe = "$venvRoot/bin/mim"
 $ModelRoot = [IO.Path]::GetFullPath($ModelRoot)
 if (-not (Test-Path -LiteralPath $ModelRoot -PathType Container)) { throw "ModelRoot not found: $ModelRoot" }
 $manifest = Join-Path $ModelRoot "bodyrig-reference-vision-v1.json"
@@ -67,7 +69,6 @@ Write-Host "MMCV:              $mmcvVersion"
 Write-Host "Production:        FALSE"
 Write-Host "============================================================"
 
-# Prove the requested distribution exists and NVIDIA passthrough is visible.
 Invoke-Wsl -Arguments @("/usr/bin/env", "true")
 $nvidia = Invoke-Wsl -Arguments @("nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader") -Capture
 if ($nvidia.Count -lt 1) { throw "WSL NVIDIA passthrough returned no GPU." }
@@ -80,13 +81,11 @@ Invoke-Wsl -Root -Arguments @(
     "libgl1", "libglib2.0-0", "libgomp1"
 )
 
-$venvRoot = Split-Path -Path $LinuxPython -Parent
 if ($Force) {
     Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $venvRoot)
 } else {
-    $exists = @(& $WslExe -d $Distribution -- /usr/bin/test -e $venvRoot 2>$null)
-    $existsCode = $LASTEXITCODE
-    if ($existsCode -eq 0) { throw "Reference WSL environment already exists: $venvRoot. Use -Force to rebuild." }
+    & $WslExe -d $Distribution -- /usr/bin/test -e $venvRoot 2>$null
+    if ($LASTEXITCODE -eq 0) { throw "Reference WSL environment already exists: $venvRoot. Use -Force to rebuild." }
 }
 Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-m", "venv", $venvRoot)
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "cython")
@@ -107,13 +106,13 @@ Invoke-Wsl -Root -Arguments @(
     "munkres",
     "xtcocotools>=1.12"
 )
-Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "mim", "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
+Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install", "--no-deps",
+    $LinuxPython, "-m", "pip", "install",
     "git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"
 )
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install", "--no-deps",
+    $LinuxPython, "-m", "pip", "install",
     "git+https://github.com/open-mmlab/mmpose.git@$mmposeRevision"
 )
 
@@ -157,6 +156,7 @@ if (@($probe.onnxruntime_providers) -notcontains "CUDAExecutionProvider") {
     throw "ONNX Runtime CUDAExecutionProvider is not available in the reference WSL environment."
 }
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
+if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
 
 $receipt = [ordered]@{
     format = "bodyrig-photoreal-reference-runtime-environment"
