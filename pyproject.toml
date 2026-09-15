@@ -70,6 +70,7 @@ bodyrig-photoreal-teacher-review-mapping = "bodyrig.photoreal_teacher_review_map
 bodyrig-photoreal-reference-materializer-config = "bodyrig.photoreal_teacher_review_materializer_config_cli:main"
 bodyrig-photoreal-teacher-review-materialize = "bodyrig.photoreal_teacher_review_materializer_cli:main"
 bodyrig-photoreal-static-teacher-review = "bodyrig.photoreal_static_teacher_review_cli:main"
+bodyrig-photoreal-animation-plan = "bodyrig.photoreal_animation_plan_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
