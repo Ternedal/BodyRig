@@ -67,9 +67,12 @@ def _negative_inventory(media: Path) -> dict[str, object]:
         "version": 1,
         "target_performer_id": "42",
         "label_authority": "stash-single-performer-other-id-v1",
+        "negative_performer_count": 1,
+        "source_count": 1,
         "sources": [
             {
                 "source_key": f"scene:99:{media}",
+                "scene_id": "99",
                 "subject_performer_id": "99",
                 "subject_performer_name": "Negative 99",
                 "target_performer_id": "42",
