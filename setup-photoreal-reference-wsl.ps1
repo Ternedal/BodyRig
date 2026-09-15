@@ -14,6 +14,7 @@ $mmdetRevision = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
 $torchVersion = "2.1.0"
 $torchvisionVersion = "0.16.0"
 $numpyVersion = "1.26.4"
+$opencvVersion = "4.9.0.80"
 $mmcvVersion = "2.1.0"
 $mmengineVersion = "0.10.7"
 $insightfaceVersion = "0.7.3"
@@ -97,10 +98,10 @@ Invoke-Wsl -Root -Arguments @(
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
     "numpy==$numpyVersion",
+    "opencv-python==$opencvVersion",
     "onnxruntime-gpu==$onnxruntimeVersion",
     "insightface==$insightfaceVersion",
     "openmim==$openmimVersion",
-    "opencv-python-headless",
     "scipy",
     "json-tricks",
     "munkres",
@@ -108,7 +109,7 @@ Invoke-Wsl -Root -Arguments @(
 )
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install",
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
     "git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"
 )
 Invoke-Wsl -Root -Arguments @(
@@ -169,6 +170,7 @@ $receipt = [ordered]@{
         torch = $torchVersion
         torchvision = $torchvisionVersion
         numpy = $numpyVersion
+        opencv = $opencvVersion
         mmcv = $mmcvVersion
         mmengine = $mmengineVersion
         insightface = $insightfaceVersion
