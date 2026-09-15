@@ -5,10 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_exavatar_preflight import (
-    PhotorealExAvatarPreflightError,
-    build_exavatar_preflight_files,
-)
+from .photoreal_exavatar_preflight import PhotorealExAvatarPreflightError
+from .photoreal_exavatar_preflight_strict import build_exavatar_preflight_strict_files
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -25,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_exavatar_preflight_files(
+        result = build_exavatar_preflight_strict_files(
             dependency_root=args.dependency_root,
             asset_root=args.asset_root,
             reference_model_root=args.reference_model_root,
@@ -46,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
                 "benchmark_environment_ready": result["benchmark_environment_ready"],
                 "blocker_count": len(result["blockers"]),
                 "blockers": result["blockers"],
+                "strict_upstream_asset_inventory": result["strict_upstream_asset_inventory"],
                 "automatic_restricted_asset_download": result["automatic_restricted_asset_download"],
                 "photoreal_acceptance_authority": result["photoreal_acceptance_authority"],
                 "production_activation": result["production_activation"],
