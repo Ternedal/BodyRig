@@ -243,8 +243,8 @@ def build_human_review_record_file(
         approve_human_review=approve_human_review,
     )
     output = Path(output_path).expanduser().resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
     try:
+        output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("x", encoding="utf-8") as handle:
             handle.write(json.dumps(review, indent=2, sort_keys=True, allow_nan=False) + "\n")
     except FileExistsError as exc:
