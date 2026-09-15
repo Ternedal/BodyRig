@@ -12,7 +12,7 @@ from bodyrig.photoreal_reference_vision_config import (
 )
 
 MMPOSE_REVISION = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"
-MMDET_REVISION = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
+MMDET_REVISION = "fe3f809a0a514189baf889aa358c498d51ee36cd"
 
 
 def _model_root(
