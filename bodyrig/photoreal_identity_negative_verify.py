@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .photoreal_source_verify import (
+    DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
     PhotorealSourceVerifyError,
     resolve_path_transport,
     translate_stash_path,
@@ -205,9 +206,15 @@ def verify_identity_negative_inventory_file(
     path_map_file = Path(path_map_path).expanduser().resolve()
     inventory = _read_json(inventory_file, label="identity negative inventory")
     path_map = _read_json(path_map_file, label="Stash path transport proof")
-    target, _ = _validate_inventory(inventory)
+    target, values = _validate_inventory(inventory)
     try:
-        validated = resolve_path_transport(path_map, stash_url=stash_url, performer_id=target)
+        validated = resolve_path_transport(
+            path_map,
+            stash_url=stash_url,
+            performer_id=target,
+            expected_direct_scope=DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION,
+            expected_direct_source_count=len(values),
+        )
     except PhotorealSourceVerifyError as exc:
         raise PhotorealIdentityNegativeVerifyError(
             f"Stash path transport is not valid for negative calibration: {exc}"
