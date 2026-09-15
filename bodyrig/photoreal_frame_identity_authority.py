@@ -5,6 +5,11 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from .photoreal_identity_calibration_authority import (
+    PhotorealIdentityCalibrationAuthorityError,
+    validate_identity_calibration_integrity,
+)
+
 PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
 PLAN_VERSION = 1
 MEASUREMENTS_FORMAT = "bodyrig-photoreal-frame-observations"
@@ -162,6 +167,10 @@ def _validate_bank_and_calibration(
 
     if calibration.get("format") != CALIBRATION_FORMAT or calibration.get("version") != CALIBRATION_VERSION:
         raise PhotorealFrameIdentityAuthorityError("identity calibration format/version mismatch")
+    try:
+        validate_identity_calibration_integrity(calibration)
+    except PhotorealIdentityCalibrationAuthorityError as exc:
+        raise PhotorealFrameIdentityAuthorityError(str(exc)) from exc
     if _sha(calibration.get("identity_bank_sha256"), label="calibration identity bank SHA-256") != bank_sha:
         raise PhotorealFrameIdentityAuthorityError("identity calibration targets different bank")
     if _sha(calibration.get("model_set_sha256"), label="calibration model-set SHA-256") != model_sha:

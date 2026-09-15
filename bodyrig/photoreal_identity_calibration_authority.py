@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from .photoreal_identity_calibration import (
     PhotorealIdentityCalibrationError,
+    _canonical_calibration_digest,
     build_identity_calibration,
 )
 from .photoreal_identity_negative_verify import (
@@ -46,6 +47,68 @@ def _sha(value: Any, *, label: str) -> str:
     if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealIdentityCalibrationAuthorityError(f"{label} is invalid")
     return result
+
+
+def _calibration_provenance_digest(core_sha256: str, negative_inventory_sha256: str) -> str:
+    binding = {
+        "identity_calibration_core_sha256": _sha(
+            core_sha256,
+            label="identity calibration core SHA-256",
+        ),
+        "negative_inventory_sha256": _sha(
+            negative_inventory_sha256,
+            label="negative inventory SHA-256",
+        ),
+    }
+    raw = json.dumps(
+        binding,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def validate_identity_calibration_integrity(calibration: Mapping[str, Any]) -> str:
+    """Validate both legacy core digests and inventory-bound calibration seals."""
+    expected = _sha(
+        calibration.get("identity_calibration_sha256"),
+        label="identity calibration SHA-256",
+    )
+    observed_core = _canonical_calibration_digest(calibration)
+    has_core_binding = "identity_calibration_core_sha256" in calibration
+    has_inventory_binding = "negative_inventory_sha256" in calibration
+
+    if has_core_binding != has_inventory_binding:
+        raise PhotorealIdentityCalibrationAuthorityError(
+            "identity calibration provenance binding is incomplete"
+        )
+
+    if not has_core_binding:
+        if expected != observed_core:
+            raise PhotorealIdentityCalibrationAuthorityError(
+                "identity calibration canonical digest mismatch"
+            )
+        return expected
+
+    declared_core = _sha(
+        calibration.get("identity_calibration_core_sha256"),
+        label="identity calibration core SHA-256",
+    )
+    if declared_core != observed_core:
+        raise PhotorealIdentityCalibrationAuthorityError(
+            "identity calibration core canonical digest mismatch"
+        )
+    inventory_sha256 = _sha(
+        calibration.get("negative_inventory_sha256"),
+        label="negative inventory SHA-256",
+    )
+    observed = _calibration_provenance_digest(declared_core, inventory_sha256)
+    if expected != observed:
+        raise PhotorealIdentityCalibrationAuthorityError(
+            "identity calibration provenance digest mismatch"
+        )
+    return expected
 
 
 def validate_negative_inventory_binding(
@@ -101,28 +164,26 @@ def bind_negative_inventory_provenance(
     calibration: Mapping[str, Any],
     negative_inventory_sha256: str,
 ) -> dict[str, Any]:
-    """Seal an already canonical calibration core to its verified negative inventory."""
-    core_sha256 = _sha(
-        calibration.get("identity_calibration_sha256"),
-        label="identity calibration core SHA-256",
-    )
+    """Seal a verified canonical calibration core to its verified negative inventory."""
+    if (
+        "identity_calibration_core_sha256" in calibration
+        or "negative_inventory_sha256" in calibration
+    ):
+        raise PhotorealIdentityCalibrationAuthorityError(
+            "identity calibration is already provenance-bound"
+        )
+    core_sha256 = validate_identity_calibration_integrity(calibration)
     inventory_sha256 = _sha(
         negative_inventory_sha256,
         label="negative inventory SHA-256",
     )
-    binding = {
-        "identity_calibration_core_sha256": core_sha256,
-        "negative_inventory_sha256": inventory_sha256,
-    }
-    raw = json.dumps(
-        binding,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
     result = dict(calibration)
-    result.update(binding)
-    result["identity_calibration_sha256"] = hashlib.sha256(raw).hexdigest()
+    result["identity_calibration_core_sha256"] = core_sha256
+    result["negative_inventory_sha256"] = inventory_sha256
+    result["identity_calibration_sha256"] = _calibration_provenance_digest(
+        core_sha256,
+        inventory_sha256,
+    )
     return result
 
 
