@@ -75,7 +75,7 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) { throw "OutputRoot is required."
 if ($EvalFraction -lt 0.10 -or $EvalFraction -gt 0.40) { throw "EvalFraction must be in 0.10..0.40." }
 if ([string]::IsNullOrWhiteSpace($SplitSeed)) { throw "SplitSeed is required." }
 if ([string]::IsNullOrWhiteSpace($Distribution)) { throw "WSL distribution is required." }
-if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith('/')) { throw "LinuxPython must be an absolute Linux path." }
+if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith('/') -or -not $LinuxPython.EndsWith('/bin/python')) { throw "LinuxPython must be an absolute venv path ending in /bin/python." }
 if ($VisionDevice -notin @("cpu", "cuda", "cuda:0")) { throw "VisionDevice must be cpu, cuda or cuda:0." }
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $OutputRoot) { throw "Photoreal P0 output root already exists: $OutputRoot. Use a new empty output root for every P0 attempt." }
@@ -97,7 +97,6 @@ if ($null -eq $wslCommand) { throw "wsl.exe was not found. Install/enable WSL be
 $distributions = Invoke-OperatorProbe -Label "WSL distribution discovery" -Command { & $wslCommand.Source -l -q }
 $distributionNames = @($distributions | ForEach-Object { ([string]$_).Trim().Trim([char]0) } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 if ($Distribution -notin $distributionNames) { throw "WSL distribution '$Distribution' is not installed. Installed distributions: $($distributionNames -join ', ')" }
-Invoke-OperatorProbe -Label "WSL Linux Python probe" -Command { & $wslCommand.Source -d $Distribution -- $LinuxPython -c "import sys; print(sys.executable)" } | Out-Null
 if ($VisionDevice -ne "cpu") {
     Invoke-OperatorProbe -Label "WSL NVIDIA GPU probe" -Command { & $wslCommand.Source -d $Distribution -- nvidia-smi -L } | Out-Null
 }
@@ -133,6 +132,10 @@ if ($runtimeReady -and -not $RepairReferenceEnvironment) {
     if ($LASTEXITCODE -ne 0) { throw "Photoreal reference WSL setup failed with exit code $LASTEXITCODE." }
     if (-not (Test-Path -LiteralPath $runtimeReceiptPath -PathType Leaf)) { throw "Photoreal reference WSL setup returned without a runtime environment receipt." }
 }
+
+# Probe the configured interpreter only after setup had a chance to create it.
+# This preserves the first-run bootstrap path while still failing before P0 output creation.
+Invoke-OperatorProbe -Label "WSL Linux Python probe" -Command { & $wslCommand.Source -d $Distribution -- $LinuxPython -c "import sys; print(sys.executable)" } | Out-Null
 
 Write-Host ""
 Write-Host "============================================================"
