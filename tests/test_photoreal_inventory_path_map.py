@@ -35,18 +35,45 @@ def _inventory() -> dict[str, object]:
     }
 
 
+def _negative_inventory() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-identity-negative-inventory",
+        "version": 1,
+        "target_performer_id": "42",
+        "label_authority": "stash-single-performer-other-id-v1",
+        "sources": [
+            {
+                "source_key": "negative:99:g",
+                "path": r"G:\Negatives\subject99.mp4",
+                "target_performer_id": "42",
+                "target_performer_absent": True,
+                "label_authority": "stash-single-performer-other-id-v1",
+            }
+        ],
+        "calibration_only": True,
+        "photoreal_teacher_input": False,
+        "teacher_training_authorized": False,
+        "identity_matching_authorized": False,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
 def _filesystem() -> tuple[set[str], set[str]]:
-    directories = {r"\\stashbox\VR_E", r"\\stashbox\VR_F"}
+    directories = {r"\\stashbox\VR_E", r"\\stashbox\VR_F", r"\\stashbox\VR_G"}
     files = {
         r"\\stashbox\VR_E\archive\old.mp4",
         r"\\stashbox\VR_E\current\new.mp4",
         r"\\stashbox\VR_F\performer42.jpg",
+        r"\\stashbox\VR_G\subject99.mp4",
     }
     return directories, files
 
 
 def test_builder_covers_exact_video_and_image_inventory() -> None:
     directories, files = _filesystem()
+    files.remove(r"\\stashbox\VR_G\subject99.mp4")
     now = datetime(2026, 9, 15, 11, 0, tzinfo=timezone.utc)
 
     result = build_inventory_path_map(
@@ -83,6 +110,20 @@ def test_builder_covers_exact_video_and_image_inventory() -> None:
     assert validated["mapping"] == result["mapping"]
 
 
+def test_builder_extends_exact_map_for_authoritative_negative_inventory() -> None:
+    directories, files = _filesystem()
+    result = build_inventory_path_map(
+        _inventory(),
+        negative_inventory=_negative_inventory(),
+        stash_url="http://stashbox:9999",
+        is_dir=lambda value: value in directories,
+        is_file=lambda value: value in files,
+    )
+
+    assert result["mapping"][r"G:\Negatives"] == r"\\stashbox\VR_G"
+    assert translate_stash_path(r"G:\Negatives\subject99.mp4", result["mapping"]) == r"\\stashbox\VR_G\subject99.mp4"
+
+
 def test_builder_fails_if_one_exhaustive_inventory_source_is_unreadable() -> None:
     directories, files = _filesystem()
     files.remove(r"\\stashbox\VR_E\archive\old.mp4")
@@ -103,6 +144,21 @@ def test_builder_requires_image_only_drive_share() -> None:
     with pytest.raises(PhotorealInventoryPathMapError, match="canonical Stash SMB share is not readable for F:"):
         build_inventory_path_map(
             _inventory(),
+            stash_url="http://stashbox:9999",
+            is_dir=lambda value: value in directories,
+            is_file=lambda value: value in files,
+        )
+
+
+def test_builder_rejects_negative_inventory_for_different_target() -> None:
+    negative = _negative_inventory()
+    negative["target_performer_id"] = "43"
+    directories, files = _filesystem()
+
+    with pytest.raises(PhotorealInventoryPathMapError, match="different performer"):
+        build_inventory_path_map(
+            _inventory(),
+            negative_inventory=negative,
             stash_url="http://stashbox:9999",
             is_dir=lambda value: value in directories,
             is_file=lambda value: value in files,
