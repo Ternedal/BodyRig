@@ -15,7 +15,7 @@ FRAME_CONFIG_FORMAT = "bodyrig-photoreal-frame-analyzer-config"
 RUNTIME_FORMAT = "bodyrig-photoreal-reference-runtime-environment"
 RUNTIME_VERSION = 1
 EXPECTED_MMPOSE_REVISION = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"
-EXPECTED_MMDET_REVISION = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
+EXPECTED_MMDET_REVISION = "fe3f809a0a514189baf889aa358c498d51ee36cd"
 VERSION = 1
 
 
