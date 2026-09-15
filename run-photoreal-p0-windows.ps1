@@ -86,8 +86,9 @@ function Invoke-PythonStage {
     )
     Write-Host ""
     Write-Host "=== $Label ==="
-    & $script:Python @Arguments
+    $stageOutput = @(& $script:Python @Arguments)
     $code = $LASTEXITCODE
+    foreach ($line in $stageOutput) { Write-Host ([string]$line) }
     if ($AllowedExitCodes -notcontains $code) {
         throw "$Label failed with exit code $code."
     }
@@ -184,7 +185,6 @@ if ([string]::IsNullOrWhiteSpace($PathMap)) {
         $configure = Join-Path $repoRoot "configure-stash-path-map.ps1"
         if (Test-Path -LiteralPath $configure -PathType Leaf) {
             & $configure -PerformerId $PerformerId
-            if ($LASTEXITCODE -notin @(0, $null)) { throw "Stash path-map configuration failed." }
             foreach ($candidate in @($performerCandidate, $globalCandidate)) {
                 if (Test-Path -LiteralPath $candidate -PathType Leaf) {
                     $PathMap = (Resolve-Path -LiteralPath $candidate).Path
@@ -227,7 +227,6 @@ try {
         -StashUrl $StashUrl `
         -ApiKeyEnv $ApiKeyEnv `
         -BodyRigPython $Python
-    if ($LASTEXITCODE -notin @(0, $null)) { throw "Photoreal Stash inventory failed." }
 
     Invoke-PythonStage -Label "2/16 LEAKAGE-SAFE DATASET PLAN" -Arguments @(
         "-m", "bodyrig.photoreal_dataset_plan_cli", $InventoryPath,
