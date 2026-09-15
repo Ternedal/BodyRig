@@ -51,18 +51,35 @@ def translate_stash_path(raw_path: str, mapping: Mapping[str, str]) -> str:
     if not value:
         raise PhotorealSourceVerifyError("source path is empty")
     normalized = value.replace("/", "\\")
-    drive, tail = ntpath.splitdrive(normalized)
+    drive, _ = ntpath.splitdrive(normalized)
     if not drive:
         return normalized
-    source_prefix = drive.rstrip("\\")
-    match = next(
-        (target for source, target in mapping.items() if source.rstrip("\\").casefold() == source_prefix.casefold()),
-        None,
-    )
-    if match is None:
+
+    normalized_folded = normalized.casefold()
+    matches: list[tuple[int, str, str]] = []
+    for raw_source, raw_target in mapping.items():
+        source = str(raw_source or "").strip().replace("/", "\\").rstrip("\\")
+        target = str(raw_target or "").strip().replace("/", "\\").rstrip("\\")
+        if not source or not target:
+            continue
+        source_folded = source.casefold()
+        if normalized_folded == source_folded:
+            matches.append((len(source), source, target))
+            continue
+        if not normalized_folded.startswith(source_folded):
+            continue
+        boundary_index = len(source)
+        if boundary_index < len(normalized) and normalized[boundary_index] == "\\":
+            matches.append((len(source), source, target))
+
+    if not matches:
         return normalized
-    relative = tail.lstrip("\\/")
-    return ntpath.join(match.rstrip("\\/"), relative)
+
+    _, source_prefix, target_prefix = max(matches, key=lambda item: item[0])
+    relative = normalized[len(source_prefix) :].lstrip("\\/")
+    if not relative:
+        return target_prefix
+    return ntpath.join(target_prefix, relative)
 
 
 def _expected_size(item: Mapping[str, Any]) -> int:
