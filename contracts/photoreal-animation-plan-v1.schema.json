@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-animation-plan-v1.schema.json",
+  "title": "BodyRig Photoreal V2 animation plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "selected_epoch_id",
+    "teacher_input_sha256",
+    "teacher_manifest_sha256",
+    "static_teacher_review_sha256",
+    "review_render_set_sha256",
+    "static_teacher_photoreal_accepted",
+    "p1_human_acceptance_required_and_verified",
+    "teacher_artifact_count",
+    "teacher_artifacts",
+    "teacher_artifact_bytes_reverified",
+    "animation_model_policy",
+    "body_correspondence_policy",
+    "face_control_policy",
+    "required_validation_dimensions",
+    "required_validation_dimension_count",
+    "animation_adapter_required",
+    "animation_adapter_selected",
+    "p2_animation_execution_authorized",
+    "animated_teacher_acceptance_authority",
+    "human_animated_visual_acceptance_required",
+    "p3_device_distillation_authorized",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "animation_plan_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-animation-plan"},
+    "version": {"type": "number", "const": 1},
+    "performer_id": {"type": "string", "minLength": 1},
+    "selected_epoch_id": {"type": "string", "minLength": 1},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "teacher_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "static_teacher_review_sha256": {"$ref": "#/$defs/sha256"},
+    "review_render_set_sha256": {"$ref": "#/$defs/sha256"},
+    "static_teacher_photoreal_accepted": {"const": true},
+    "p1_human_acceptance_required_and_verified": {"const": true},
+    "teacher_artifact_count": {"type": "integer", "minimum": 1},
+    "teacher_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "teacher_artifact_bytes_reverified": {"const": true},
+    "animation_model_policy": {"const": "rig-drives-teacher-does-not-replace-teacher-v1"},
+    "body_correspondence_policy": {"const": "canonical-skeleton-smplx-correspondence-v1"},
+    "face_control_policy": {"const": "explicit-facial-expression-representation-v1"},
+    "required_validation_dimensions": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "body_pose_smplx_correspondence",
+          "face_expression_control",
+          "head_turn_validation",
+          "eye_motion_validation",
+          "mouth_motion_validation",
+          "hand_motion_validation",
+          "full_body_pose_validation",
+          "identity_appearance_motion_preservation"
+        ]
+      }
+    },
+    "required_validation_dimension_count": {"const": 8},
+    "animation_adapter_required": {"const": true},
+    "animation_adapter_selected": {"const": false},
+    "p2_animation_execution_authorized": {"const": true},
+    "animated_teacher_acceptance_authority": {"const": false},
+    "human_animated_visual_acceptance_required": {"const": true},
+    "p3_device_distillation_authorized": {"const": false},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "animation_plan_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "relative_path", "size_bytes", "sha256"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1},
+        "relative_path": {"type": "string", "minLength": 1},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
