@@ -150,7 +150,13 @@ def _expected_size(item: Mapping[str, Any]) -> int:
 
 
 def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if inventory.get("format") != INVENTORY_FORMAT or inventory.get("version") != INVENTORY_VERSION:
+    version = inventory.get("version")
+    if (
+        inventory.get("format") != INVENTORY_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != INVENTORY_VERSION
+    ):
         raise PhotorealSourceVerifyError("photoreal source inventory format/version mismatch")
     if inventory.get("build_only") is not True or inventory.get("photoreal_teacher_input") is not True:
         raise PhotorealSourceVerifyError("photoreal source inventory authority boundary is invalid")
@@ -276,9 +282,10 @@ def verify_inventory_file(
     inventory_raw = inventory_file.read_bytes()
     inventory = _read_json(inventory_file, label="photoreal source inventory")
     path_map = _read_json(mapping_file, label="Stash path transport proof")
-    performer_id = str(inventory.get("performer_id") or "").strip()
-    if not performer_id:
+    raw_performer_id = inventory.get("performer_id")
+    if not isinstance(raw_performer_id, str) or not raw_performer_id.strip():
         raise PhotorealSourceVerifyError("photoreal source inventory has no performer_id")
+    performer_id = raw_performer_id.strip()
     validated = resolve_path_transport(path_map, stash_url=stash_url, performer_id=performer_id)
 
     result = verify_inventory_sources(inventory, path_mapping=validated["mapping"])
