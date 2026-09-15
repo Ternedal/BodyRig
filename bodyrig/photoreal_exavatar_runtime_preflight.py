@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from .photoreal_exavatar_hand4whole_stage import (
+    PhotorealExAvatarHand4WholeStageError,
+    validate_hand4whole_assets_receipt,
+)
+
 FORMAT = "bodyrig-photoreal-exavatar-runtime-preflight"
 VERSION = 1
 WORKSPACE_FORMAT = "bodyrig-photoreal-exavatar-workspace"
@@ -21,6 +26,7 @@ EXPECTED_VERSIONS: dict[str, str] = {
     "scipy": "1.15.2",
     "smplx": "0.1.28",
     "lpips": "0.1.4",
+    "chumpy": "0.70",
     "mmcv": "2.1.0",
     "mmdet": "3.3.0",
     "mmengine": "0.10.7",
@@ -107,6 +113,14 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
         raise PhotorealExAvatarRuntimePreflightError("ExAvatar workspace crossed source/downstream authority")
     workspace_sha = _sha(workspace.get("workspace_sha256"), label="workspace SHA-256")
 
+    try:
+        hand4whole = validate_hand4whole_assets_receipt(workspace_root=root)
+    except PhotorealExAvatarHand4WholeStageError as exc:
+        raise PhotorealExAvatarRuntimePreflightError(f"Hand4Whole human-model asset gate failed: {exc}") from exc
+    if hand4whole.get("workspace_sha256") != workspace_sha:
+        raise PhotorealExAvatarRuntimePreflightError("Hand4Whole asset receipt belongs to different workspace")
+    hand4whole_sha = _sha(hand4whole.get("hand4whole_assets_sha256"), label="Hand4Whole assets SHA-256")
+
     repos = root / "repos"
     for module_name, relative_repo in WORKSPACE_IMPORTS:
         repo = repos / relative_repo
@@ -189,7 +203,12 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
         except Exception as exc:
             blockers.append(f"PyTorch3D CUDA smoke failed: {type(exc).__name__}: {exc}")
 
-    gaussian_record: dict[str, Any] = {"available": False, "origin": None, "cuda_extension_available": False, "expected_repo": str((repos / "diff-gaussian-rasterization-depth").resolve())}
+    gaussian_record: dict[str, Any] = {
+        "available": False,
+        "origin": None,
+        "cuda_extension_available": False,
+        "expected_repo": str((repos / "diff-gaussian-rasterization-depth").resolve()),
+    }
     gaussian_repo = repos / "diff-gaussian-rasterization-depth"
     sys.path.insert(0, str(gaussian_repo))
     try:
@@ -209,6 +228,7 @@ def build_runtime_preflight(*, workspace_root: str | Path) -> dict[str, Any]:
         "format": FORMAT,
         "version": VERSION,
         "workspace_sha256": workspace_sha,
+        "hand4whole_assets_sha256": hand4whole_sha,
         "python_executable": str(Path(sys.executable).resolve()),
         "python_version": ".".join(str(v) for v in sys.version_info[:3]),
         "expected_python_major_minor": "3.10",
