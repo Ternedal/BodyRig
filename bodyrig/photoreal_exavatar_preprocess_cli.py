@@ -6,6 +6,10 @@ import os
 import sys
 from pathlib import Path
 
+from .photoreal_exavatar_hand4whole_stage import (
+    PhotorealExAvatarHand4WholeStageError,
+    validate_hand4whole_assets_receipt,
+)
 from .photoreal_exavatar_preprocess import (
     PhotorealExAvatarPreprocessError,
     build_preprocess_plan,
@@ -42,18 +46,21 @@ def _guard_plan(plan: dict[str, object], python_executable: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        hand4whole = validate_hand4whole_assets_receipt(workspace_root=args.workspace_root)
         plan = build_preprocess_plan(
             workspace_root=args.workspace_root,
             camera_mode=args.camera_mode,
             python_executable=args.python,
         )
+        if hand4whole.get("workspace_sha256") != plan.get("workspace_sha256"):
+            raise PhotorealExAvatarPreprocessError("Hand4Whole asset receipt belongs to different ExAvatar workspace")
         _guard_plan(plan, args.python)
         result = plan if args.plan_only else run_preprocess(
             workspace_root=args.workspace_root,
             camera_mode=args.camera_mode,
             python_executable=args.python,
         )
-    except PhotorealExAvatarPreprocessError as exc:
+    except (PhotorealExAvatarPreprocessError, PhotorealExAvatarHand4WholeStageError) as exc:
         print(f"BodyRig Photoreal ExAvatar preprocess: FAIL: {exc}", file=sys.stderr)
         return 1
 
@@ -61,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         "format": result["format"],
         "version": result["version"],
         "workspace_sha256": result["workspace_sha256"],
+        "hand4whole_assets_sha256": hand4whole["hand4whole_assets_sha256"],
         "camera_mode": plan["camera_mode"],
         "frame_count": plan["frame_count"],
         "smplx_gender": plan["smplx_gender"],
