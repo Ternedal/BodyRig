@@ -123,21 +123,43 @@ def _negative_paths(inventory: Mapping[str, Any], *, performer_id: str) -> list[
     return paths
 
 
-def _candidate_prefixes(paths: list[str]) -> list[str]:
-    result: set[str] = set()
-    for path in paths:
-        drive, tail = ntpath.splitdrive(path)
-        drive = drive.rstrip("\\")
-        if not _DRIVE.fullmatch(drive):
-            continue
-        result.add(drive)
-        directory = ntpath.dirname(tail).strip("\\")
-        if not directory:
-            continue
+def _path_prefixes(path: str) -> list[str]:
+    normalized = path.replace("/", "\\")
+    drive, tail = ntpath.splitdrive(normalized)
+    drive = drive.rstrip("\\")
+    if not _DRIVE.fullmatch(drive):
+        return []
+    result = [drive]
+    directory = ntpath.dirname(tail).strip("\\")
+    if directory:
         parts = [part for part in directory.split("\\") if part]
         for depth in range(1, len(parts) + 1):
-            result.add(drive + "\\" + "\\".join(parts[:depth]))
-    return sorted(result, key=lambda item: (len(item), item.casefold()))
+            result.append(drive + "\\" + "\\".join(parts[:depth]))
+    return result
+
+
+def _path_under_prefix(path: str, prefix: str) -> bool:
+    normalized = path.replace("/", "\\")
+    normalized_folded = normalized.casefold()
+    folded = prefix.casefold()
+    if normalized_folded == folded:
+        return True
+    return (
+        normalized_folded.startswith(folded)
+        and len(normalized) > len(prefix)
+        and normalized[len(prefix)] == "\\"
+    )
+
+
+def _common_candidate_prefixes(paths: list[str]) -> list[str]:
+    if not paths:
+        return []
+    candidates = _path_prefixes(paths[0])
+    return sorted(
+        (prefix for prefix in candidates if all(_path_under_prefix(path, prefix) for path in paths)),
+        key=lambda item: (len(item), item.casefold()),
+        reverse=True,
+    )
 
 
 def build_inventory_path_map(
@@ -183,47 +205,34 @@ def build_inventory_path_map(
                 f"canonical Stash SMB share is not readable for {drive}: {share_root}"
             )
 
-        candidates = _candidate_prefixes(values)
-        best: tuple[int, int, int, str] | None = None
-        for prefix in candidates:
-            hits = 0
-            coverage = 0
-            folded = prefix.casefold()
+        chosen_prefix: str | None = None
+        for prefix in _common_candidate_prefixes(values):
+            all_readable = True
             for path in values:
-                normalized = path.replace("/", "\\")
-                normalized_folded = normalized.casefold()
-                if normalized_folded == folded:
-                    covered = True
-                elif normalized_folded.startswith(folded) and len(normalized) > len(prefix):
-                    covered = normalized[len(prefix)] == "\\"
-                else:
-                    covered = False
-                if not covered:
-                    continue
-                coverage += 1
-                relative = normalized[len(prefix) :].lstrip("\\")
+                relative = path[len(prefix) :].lstrip("\\/")
                 candidate = share_root if not relative else ntpath.join(share_root, relative)
-                if is_file(candidate):
-                    hits += 1
-            score = (hits, coverage, len(prefix), prefix)
-            if hits > 0 and (best is None or score[:3] > best[:3]):
-                best = score
+                if not is_file(candidate):
+                    all_readable = False
+                    break
+            if all_readable:
+                chosen_prefix = prefix
+                break
 
-        if best is None:
+        if chosen_prefix is None:
             if all(is_file(path) for path in values):
                 continue
             raise PhotorealInventoryPathMapError(
-                f"could not prove an SMB source-prefix mapping for {drive} from exhaustive inventory"
+                f"could not prove one complete SMB source-prefix mapping for {drive} from authoritative inventories"
             )
-        hits, coverage, _, prefix = best
-        mapping[prefix] = share_root
+
+        mapping[chosen_prefix] = share_root
         proof.append(
             {
                 "drive": drive[0],
-                "source_prefix": prefix,
+                "source_prefix": chosen_prefix,
                 "share": share_root,
-                "verified_files": hits,
-                "candidate_files": coverage,
+                "verified_files": len(values),
+                "candidate_files": len(values),
             }
         )
 
