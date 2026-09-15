@@ -5,14 +5,15 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_exavatar_runtime_preflight import (
-    PhotorealExAvatarRuntimePreflightError,
-    build_runtime_preflight_file,
+from .photoreal_exavatar_runtime_preflight import PhotorealExAvatarRuntimePreflightError
+from .photoreal_exavatar_runtime_preflight_strict import (
+    PhotorealExAvatarRuntimePreflightStrictError,
+    build_runtime_preflight_strict_file,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Verify ExAvatar Python, CUDA and compiled runtime dependencies.")
+    parser = argparse.ArgumentParser(description="Verify pinned ExAvatar setup provenance, Python, CUDA and compiled runtime dependencies.")
     parser.add_argument("--workspace-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     return parser
@@ -21,8 +22,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_runtime_preflight_file(workspace_root=args.workspace_root, output_path=args.out)
-    except PhotorealExAvatarRuntimePreflightError as exc:
+        result = build_runtime_preflight_strict_file(workspace_root=args.workspace_root, output_path=args.out)
+    except (PhotorealExAvatarRuntimePreflightError, PhotorealExAvatarRuntimePreflightStrictError) as exc:
         print(f"BodyRig Photoreal ExAvatar runtime preflight: FAIL: {exc}", file=sys.stderr)
         return 1
 
@@ -32,6 +33,9 @@ def main(argv: list[str] | None = None) -> int:
                 "format": result["format"],
                 "version": result["version"],
                 "python_version": result["python_version"],
+                "runtime_setup_provenance_verified": result["runtime_setup_provenance_verified"],
+                "runtime_setup_sha256": result["runtime_setup_sha256"],
+                "hand4whole_assets_sha256": result["hand4whole_assets_sha256"],
                 "runtime_environment_ready": result["runtime_environment_ready"],
                 "blocker_count": len(result["blockers"]),
                 "blockers": result["blockers"],
