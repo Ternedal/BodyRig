@@ -62,6 +62,7 @@ bodyrig-photoreal-frame-authorize-identity = "bodyrig.photoreal_frame_identity_a
 bodyrig-photoreal-frame-index = "bodyrig.photoreal_frame_index_cli:main"
 bodyrig-photoreal-appearance-epoch = "bodyrig.photoreal_appearance_epoch_cli:main"
 bodyrig-photoreal-appearance-epoch-review = "bodyrig.photoreal_appearance_epoch_review_cli:main"
+bodyrig-photoreal-teacher-input = "bodyrig.photoreal_teacher_input_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
