@@ -5,10 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_identity_calibration import (
-    PhotorealIdentityCalibrationError,
-    build_identity_calibration_files,
-)
+from .photoreal_identity_calibration import PhotorealIdentityCalibrationError
+from .photoreal_identity_calibration_authority import build_identity_calibration_authorized_files
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -18,6 +16,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--identity-bank", type=Path, required=True)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--negative-observations", type=Path, required=True)
+    parser.add_argument("--negative-inventory", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
@@ -25,10 +24,11 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_identity_calibration_files(
+        result = build_identity_calibration_authorized_files(
             args.identity_bank,
             args.plan,
             args.negative_observations,
+            args.negative_inventory,
             args.out,
         )
     except PhotorealIdentityCalibrationError as exc:
