@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 PLAN_FORMAT = "bodyrig-photoreal-appearance-epoch-plan"
 PLAN_VERSION = 1
+PLAN_STRATEGY = "human-review-required-v1"
 REVIEW_FORMAT = "bodyrig-photoreal-appearance-epoch-review"
 REVIEW_VERSION = 1
 FORMAT = "bodyrig-photoreal-appearance-epoch-review-handoff"
@@ -86,6 +87,9 @@ def build_appearance_epoch_review_handoff(
     version = plan.get("version")
     if plan.get("format") != PLAN_FORMAT or isinstance(version, bool) or version != PLAN_VERSION:
         raise PhotorealAppearanceEpochHandoffError("appearance epoch plan format/version mismatch")
+    strategy = _text(plan.get("strategy"), label="appearance epoch strategy", maximum=128)
+    if strategy != PLAN_STRATEGY:
+        raise PhotorealAppearanceEpochHandoffError("appearance epoch plan strategy is not the canonical human-review strategy")
     if plan.get("human_epoch_review_required") is not True:
         raise PhotorealAppearanceEpochHandoffError("appearance epoch plan does not require human review")
     if plan.get("human_epoch_review_complete") is not False:
@@ -105,6 +109,13 @@ def build_appearance_epoch_review_handoff(
     performer_name = str(plan.get("performer_name") or "")
     plan_sha = _validate_plan_digest(plan)
     evidence_sha = _sha(plan.get("evidence_sha256"), label="appearance epoch evidence SHA-256")
+    model_set_sha = _sha(
+        plan.get("source_frame_index_model_set_sha256"), label="source frame-index model-set SHA-256"
+    )
+    identity_bank_sha = _sha(plan.get("identity_bank_sha256"), label="identity bank SHA-256")
+    identity_calibration_sha = _sha(
+        plan.get("identity_calibration_sha256"), label="identity calibration SHA-256"
+    )
 
     groups_raw = plan.get("eligible_source_groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -192,8 +203,12 @@ def build_appearance_epoch_review_handoff(
         "version": VERSION,
         "performer_id": performer_id,
         "performer_name": performer_name,
+        "strategy": strategy,
         "appearance_epoch_plan_sha256": plan_sha,
         "evidence_sha256": evidence_sha,
+        "source_frame_index_model_set_sha256": model_set_sha,
+        "identity_bank_sha256": identity_bank_sha,
+        "identity_calibration_sha256": identity_calibration_sha,
         "eligible_observation_count": eligible_count,
         "eligible_train_observation_count": eligible_train_count,
         "eligible_evaluation_observation_count": eligible_evaluation_count,
