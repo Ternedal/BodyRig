@@ -17,6 +17,7 @@
     "eligible_train_observation_count",
     "eligible_evaluation_observation_count",
     "source_group_count",
+    "eligible_source_groups",
     "evidence_sha256",
     "candidate_epochs",
     "selected_epoch_id",
@@ -43,6 +44,12 @@
     "eligible_train_observation_count": {"type": "integer", "minimum": 1},
     "eligible_evaluation_observation_count": {"type": "integer", "minimum": 1},
     "source_group_count": {"type": "integer", "minimum": 2},
+    "eligible_source_groups": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 100000,
+      "items": {"$ref": "#/$defs/sourceGroup"}
+    },
     "evidence_sha256": {"$ref": "#/$defs/sha256"},
     "candidate_epochs": {"type": "array", "maxItems": 128},
     "selected_epoch_id": {"type": "null"},
@@ -57,6 +64,51 @@
     "appearance_epoch_plan_sha256": {"$ref": "#/$defs/sha256"}
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sourceGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group_id",
+        "split",
+        "source_keys",
+        "frame_sha256s",
+        "view_bins",
+        "eligible_observation_count"
+      ],
+      "properties": {
+        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "split": {"enum": ["train", "evaluation"]},
+        "source_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "frame_sha256s": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "view_bins": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "front",
+              "three-quarter-left",
+              "three-quarter-right",
+              "profile-left",
+              "profile-right",
+              "rear",
+              "unknown"
+            ]
+          }
+        },
+        "eligible_observation_count": {"type": "integer", "minimum": 1}
+      }
+    }
   }
 }
