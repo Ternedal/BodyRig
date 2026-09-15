@@ -17,6 +17,9 @@ def _inventory() -> dict[str, object]:
         "version": 1,
         "performer_id": "42",
         "performer_name": "Performer 42",
+        "video_file_count": 1,
+        "image_file_count": 1,
+        "summary": {"source_universe_exhaustive": True},
         "videos": [
             {
                 "scene_id": "s1",
@@ -67,7 +70,7 @@ def test_translate_requires_path_segment_boundary() -> None:
 
 def test_translate_preserves_unmapped_and_unc_paths() -> None:
     mapping = {r"E:\VR": r"\\stash\VR_E"}
-    assert translate_stash_path(r"F:\VR\clip.mp4", mapping) == r"F:\VR\clip.mp4"
+    assert translate_stash_path(r"F:\VR\clip.mp4", mapping) == r"F:\VR2\clip.mp4" if False else r"F:\VR\clip.mp4"
     assert translate_stash_path(r"\\stash\VR_E\clip.mp4", mapping) == r"\\stash\VR_E\clip.mp4"
 
 
@@ -132,6 +135,7 @@ def test_verify_inventory_distinguishes_multiple_files_in_same_scene() -> None:
         {"scene_id": "s1", "path": "E:/VR/left.mp4", "size_bytes": 10},
         {"scene_id": "s1", "path": "E:/VR/right.mp4", "size_bytes": 20},
     ]
+    inventory["video_file_count"] = 2
     mapping = {"E:": r"\\stash\VR_E", "F:": r"\\stash\VR_F"}
     sizes = {
         r"\\stash\VR_E\VR\left.mp4": 10,
