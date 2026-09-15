@@ -14,9 +14,15 @@ from .photoreal_inventory_path_map import (
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build an exact Photoreal V2 Stash path-map proof from the exhaustive source inventory."
+        description="Build an exact Photoreal V2 Stash path-map proof from authoritative source inventories."
     )
     parser.add_argument("--inventory", type=Path, required=True)
+    parser.add_argument(
+        "--negative-inventory",
+        type=Path,
+        default=None,
+        help="Optional authoritative identity-negative inventory to include in the exact path-map proof.",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--stash-url", default=os.environ.get("STASH_URL", ""))
     args = parser.parse_args(argv)
@@ -29,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
             args.inventory,
             args.out,
             stash_url=args.stash_url,
+            negative_inventory_path=args.negative_inventory,
         )
     except (PhotorealInventoryPathMapError, OSError) as exc:
         print(f"BodyRig photoreal inventory path map: FAIL: {exc}", file=sys.stderr)
@@ -43,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
                 "performer_id": result["performer_ids"][0],
                 "mapping_count": len(result["mapping"]),
                 "proof_count": len(result["proof"]),
+                "includes_negative_inventory": args.negative_inventory is not None,
                 "production_activation": False,
             },
             ensure_ascii=False,
