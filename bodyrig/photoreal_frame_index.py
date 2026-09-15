@@ -517,6 +517,16 @@ def build_frame_index(
         if planned is None or bound is None:
             raise PhotorealFrameIndexError(f"frame observation references unknown source: {source_key}")
         item = _normalize_observation(raw, planned=planned, receipt=bound)
+        if item["identity_authority"] == "calibrated-identity-bank-v1":
+            if not identity_matching_calibrated or identity_match_threshold is None:
+                raise PhotorealFrameIndexError(
+                    "calibrated identity authority requires calibrated matching at frame index boundary"
+                )
+            similarity = item["identity_similarity"]
+            if similarity is None or float(similarity) < identity_match_threshold:
+                raise PhotorealFrameIndexError(
+                    "calibrated identity authority is below the calibrated match threshold"
+                )
         sample_identity = (
             item["source_key"],
             str(item["timestamp_seconds"]),
