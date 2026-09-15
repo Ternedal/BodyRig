@@ -69,6 +69,13 @@ def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _version_matches(actual: str, expected: str) -> bool:
+    # PyTorch CUDA wheels legitimately expose a PEP 440 local suffix such as
+    # 2.6.0+cu124. Pin the public/base version here; CUDA parity is verified
+    # separately and exactly through torch.version.cuda + nvcc evidence.
+    return actual == expected or actual.split("+", 1)[0] == expected
+
+
 def _patch(value: Any, *, label: str, expected_name: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise PhotorealExAvatarRuntimeSetupReceiptError(f"{label} receipt is invalid")
@@ -173,7 +180,7 @@ def validate_runtime_setup_receipt(*, linux_python: str | Path) -> dict[str, Any
     for requested_key, observed_key in OBSERVED_VERSION_KEYS.items():
         expected = EXPECTED_REQUESTED_VERSIONS[requested_key]
         actual = str(observed.get(observed_key) or "")
-        if actual != expected:
+        if not _version_matches(actual, expected):
             raise PhotorealExAvatarRuntimeSetupReceiptError(
                 f"runtime setup observed version mismatch for {requested_key}: expected {expected}, observed {actual or '<missing>'}"
             )
