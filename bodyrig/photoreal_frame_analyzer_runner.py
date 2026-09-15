@@ -188,14 +188,37 @@ def validate_analyzer_result(
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned no observations")
     if value.get("build_only") is not True or value.get("production_activation") is not False:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer crossed its authority boundary")
+
+    seen_candidates: set[tuple[str, str, str, str]] = set()
     for raw in observations:
         if not isinstance(raw, Mapping):
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned a non-object observation")
-        if "target_identity_verified" in raw or "identity_confidence" in raw:
+        if "target_identity_verified" in raw or "identity_confidence" in raw or "identity_authority" in raw:
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer attempted to assert identity authority")
+        candidate_id = str(raw.get("candidate_id") or "").strip()
+        if (
+            not candidate_id
+            or len(candidate_id) > 128
+            or any(not (character.isalnum() or character in "._-") for character in candidate_id)
+        ):
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer candidate_id is invalid")
+        person_detected = raw.get("person_detected")
+        if not isinstance(person_detected, bool):
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer person_detected must be boolean")
+        source_key = str(raw.get("source_key") or "").strip()
+        eye = str(raw.get("eye") or "").strip()
+        timestamp = raw.get("timestamp_seconds")
+        frame_sha = _sha(raw.get("frame_sha256"), label="photoreal frame SHA-256")
+        candidate_key = (source_key, str(timestamp), eye, candidate_id)
+        if candidate_key in seen_candidates:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer repeated candidate_id within one sample")
+        seen_candidates.add(candidate_key)
+
         status = raw.get("identity_measurement_status")
         embedding = raw.get("identity_embedding")
         if status == "available":
+            if not person_detected:
+                raise PhotorealFrameAnalyzerError("available identity embedding requires a detected person")
             if not isinstance(embedding, list) or len(embedding) != dimension:
                 raise PhotorealFrameAnalyzerError("available identity embedding has wrong dimension")
         elif status == "unavailable":
@@ -203,6 +226,9 @@ def validate_analyzer_result(
                 raise PhotorealFrameAnalyzerError("unavailable identity measurement must have null embedding")
         else:
             raise PhotorealFrameAnalyzerError("identity_measurement_status is invalid")
+        if not person_detected and status != "unavailable":
+            raise PhotorealFrameAnalyzerError("non-person placeholder cannot expose an identity embedding")
+        _ = frame_sha
     return dict(value)
 
 
