@@ -55,6 +55,8 @@
         "projection",
         "frame_sha256",
         "perceptual_hash",
+        "candidate_id",
+        "person_detected",
         "width",
         "height",
         "view_bin",
@@ -81,6 +83,8 @@
         "projection": {"type": "string", "minLength": 1, "maxLength": 128},
         "frame_sha256": {"$ref": "#/$defs/sha256"},
         "perceptual_hash": {"$ref": "#/$defs/phash64"},
+        "candidate_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+        "person_detected": {"type": "boolean"},
         "width": {"type": "integer", "minimum": 1},
         "height": {"type": "integer", "minimum": 1},
         "view_bin": {
@@ -119,11 +123,25 @@
         },
         {
           "if": {"properties": {"identity_measurement_status": {"const": "available"}}, "required": ["identity_measurement_status"]},
-          "then": {"properties": {"identity_embedding": {"$ref": "#/$defs/embedding"}}}
+          "then": {
+            "properties": {
+              "identity_embedding": {"$ref": "#/$defs/embedding"},
+              "person_detected": {"const": true}
+            }
+          }
         },
         {
           "if": {"properties": {"identity_measurement_status": {"const": "unavailable"}}, "required": ["identity_measurement_status"]},
           "then": {"properties": {"identity_embedding": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"person_detected": {"const": false}}, "required": ["person_detected"]},
+          "then": {
+            "properties": {
+              "identity_measurement_status": {"const": "unavailable"},
+              "identity_embedding": {"type": "null"}
+            }
+          }
         }
       ]
     }
