@@ -4,9 +4,9 @@ import argparse
 import json
 import sys
 
-from .photoreal_animated_review_plan import (
-    PhotorealAnimatedReviewPlanError,
-    build_animated_review_plan_files,
+from .photoreal_animated_review_authority import (
+    PhotorealAnimatedReviewAuthorityError,
+    build_animated_review_plan_files_strict,
 )
 
 
@@ -25,14 +25,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_animated_review_plan_files(
+        result = build_animated_review_plan_files_strict(
             args.animation_execution_receipt,
             args.held_out_reference_catalog,
             args.selection_input,
             args.animation_output_root,
             args.output,
         )
-    except PhotorealAnimatedReviewPlanError as exc:
+    except PhotorealAnimatedReviewAuthorityError as exc:
         print(f"BodyRig Photoreal animated review plan: FAIL: {exc}", file=sys.stderr)
         return 1
     print(
