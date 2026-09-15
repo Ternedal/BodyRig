@@ -176,6 +176,7 @@ def _motion_receipt(tmp_path: Path, plan: dict[str, object], observation_id: str
                 "png_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
         )
+    canonical_dimensions = sorted(MOTION_REVIEW_DIMENSIONS)
     value: dict[str, object] = {
         "format": "bodyrig-photoreal-motion-reference-materialization-receipt",
         "version": 1,
@@ -195,7 +196,7 @@ def _motion_receipt(tmp_path: Path, plan: dict[str, object], observation_id: str
                 "window_id": window_id,
                 "source_key": "scene:eval:E:/held-out.mp4",
                 "eye": "mono",
-                "dimensions": list(MOTION_REVIEW_DIMENSIONS),
+                "dimensions": canonical_dimensions,
                 "window_start_seconds": start,
                 "window_end_seconds": end,
                 "sample_fps": SAMPLE_FPS,
@@ -205,7 +206,7 @@ def _motion_receipt(tmp_path: Path, plan: dict[str, object], observation_id: str
                         "timestamp_seconds": 12.0,
                         "expected_frame_sha256": "4" * 64,
                         "observed_frame_sha256": "4" * 64,
-                        "dimensions": list(MOTION_REVIEW_DIMENSIONS),
+                        "dimensions": canonical_dimensions,
                         "frame_hash_verified": True,
                     }
                 ],
