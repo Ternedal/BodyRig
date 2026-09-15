@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from bodyrig.photoreal_identity_negative_verify import verify_identity_negative_inventory_file
 from bodyrig.photoreal_source_verify import verify_inventory_file
 
@@ -31,12 +33,13 @@ def _write_json(path: Path, value: dict[str, object]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def test_source_receipt_hashes_direct_local_bytes(tmp_path: Path) -> None:
-    media = tmp_path / "performer42.mp4"
+def test_source_receipt_hashes_direct_local_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    media = Path("performer42.mp4")
     media.write_bytes(b"performer-42-source")
-    inventory_path = tmp_path / "source-inventory.json"
-    proof_path = tmp_path / "source-path-map.json"
-    receipt_path = tmp_path / "source-receipt.json"
+    inventory_path = Path("source-inventory.json")
+    proof_path = Path("source-path-map.json")
+    receipt_path = Path("source-receipt.json")
     inventory = {
         "format": "bodyrig-photoreal-source-inventory",
         "version": 1,
@@ -73,12 +76,13 @@ def test_source_receipt_hashes_direct_local_bytes(tmp_path: Path) -> None:
     assert result["production_activation"] is False
 
 
-def test_negative_receipt_hashes_direct_local_bytes(tmp_path: Path) -> None:
-    media = tmp_path / "negative99.mp4"
+def test_negative_receipt_hashes_direct_local_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    media = Path("negative99.mp4")
     media.write_bytes(b"negative-99-source")
-    inventory_path = tmp_path / "negative-inventory.json"
-    proof_path = tmp_path / "calibration-path-map.json"
-    receipt_path = tmp_path / "negative-receipt.json"
+    inventory_path = Path("negative-inventory.json")
+    proof_path = Path("calibration-path-map.json")
+    receipt_path = Path("negative-receipt.json")
     inventory = {
         "format": "bodyrig-photoreal-identity-negative-inventory",
         "version": 1,
