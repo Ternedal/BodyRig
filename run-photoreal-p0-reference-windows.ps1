@@ -202,6 +202,7 @@ try {
                     --performer-id $PerformerId `
                     --failed-stage-number 0 `
                     --failed-stage-label "isolated-p0-child-process" `
+                    --child-exit-code $exitCode `
                     --error-message $crashMessage `
                     --output-root $OutputRoot `
                     --output $crashReceiptPath 2>&1)

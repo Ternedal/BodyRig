@@ -11,6 +11,7 @@
     "failed_stage_number",
     "failed_stage_label",
     "failure_class",
+    "child_exit_code",
     "error_message",
     "artifact_presence",
     "artifact_present_count",
@@ -32,6 +33,12 @@
     "failed_stage_number": {"type": "integer", "minimum": 0, "maximum": 16},
     "failed_stage_label": {"type": "string", "minLength": 1, "maxLength": 256},
     "failure_class": {"const": "unexpected-exception"},
+    "child_exit_code": {
+      "type": "integer",
+      "minimum": -2147483648,
+      "maximum": 2147483647,
+      "not": {"enum": [0, 2]}
+    },
     "error_message": {"type": "string", "minLength": 1, "maxLength": 4000},
     "artifact_presence": {
       "type": "object",

@@ -9,6 +9,8 @@ from typing import Any, Mapping
 FORMAT = "bodyrig-photoreal-p0-crash-receipt"
 VERSION = 1
 MAX_STAGE = 16
+MIN_EXIT_CODE = -(2**31)
+MAX_EXIT_CODE = (2**31) - 1
 
 P0_OUTPUTS = (
     "source-inventory.json",
@@ -37,6 +39,7 @@ TOP_FIELDS = {
     "failed_stage_number",
     "failed_stage_label",
     "failure_class",
+    "child_exit_code",
     "error_message",
     "artifact_presence",
     "artifact_present_count",
@@ -79,6 +82,16 @@ def _v1(value: Any) -> None:
         raise PhotorealP0CrashReceiptError("crash receipt version must be numeric v1")
 
 
+def _unexpected_exit_code(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PhotorealP0CrashReceiptError("child exit code must be an integer")
+    if value < MIN_EXIT_CODE or value > MAX_EXIT_CODE:
+        raise PhotorealP0CrashReceiptError("child exit code is outside signed 32-bit range")
+    if value in (0, 2):
+        raise PhotorealP0CrashReceiptError("child exit code must represent an unexpected P0 failure")
+    return value
+
+
 def _digest(value: Mapping[str, Any]) -> str:
     payload = {key: item for key, item in value.items() if key != "p0_crash_receipt_sha256"}
     return hashlib.sha256(
@@ -104,6 +117,7 @@ def build_p0_crash_receipt(
     performer_id: str,
     failed_stage_number: int,
     failed_stage_label: str,
+    child_exit_code: int,
     error_message: str,
     output_root: str | Path,
 ) -> dict[str, Any]:
@@ -114,6 +128,7 @@ def build_p0_crash_receipt(
     if not 0 <= failed_stage_number <= MAX_STAGE:
         raise PhotorealP0CrashReceiptError("failed stage number is outside 0..16")
     stage_label = _text(failed_stage_label, label="failed stage label", maximum=256)
+    exit_code = _unexpected_exit_code(child_exit_code)
     message = _text(error_message, label="error message", maximum=4000)
     root = Path(output_root).expanduser().resolve()
     presence = _presence(root)
@@ -127,6 +142,7 @@ def build_p0_crash_receipt(
         "failed_stage_number": failed_stage_number,
         "failed_stage_label": stage_label,
         "failure_class": "unexpected-exception",
+        "child_exit_code": exit_code,
         "error_message": message,
         "artifact_presence": presence,
         "artifact_present_count": present_count,
@@ -157,6 +173,7 @@ def validate_p0_crash_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     _text(value.get("failed_stage_label"), label="failed stage label", maximum=256)
     if value.get("failure_class") != "unexpected-exception":
         raise PhotorealP0CrashReceiptError("crash receipt failure class mismatch")
+    _unexpected_exit_code(value.get("child_exit_code"))
     _text(value.get("error_message"), label="error message", maximum=4000)
 
     presence = value.get("artifact_presence")

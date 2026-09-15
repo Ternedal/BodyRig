@@ -19,6 +19,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--performer-id", required=True)
     parser.add_argument("--failed-stage-number", required=True, type=int)
     parser.add_argument("--failed-stage-label", required=True)
+    parser.add_argument("--child-exit-code", required=True, type=int)
     parser.add_argument("--error-message", required=True)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--output", required=True)
@@ -33,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
             performer_id=args.performer_id,
             failed_stage_number=args.failed_stage_number,
             failed_stage_label=args.failed_stage_label,
+            child_exit_code=args.child_exit_code,
             error_message=args.error_message,
             output_root=args.output_root,
         )
@@ -47,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                 "version": receipt["version"],
                 "failed_stage_number": receipt["failed_stage_number"],
                 "failed_stage_label": receipt["failed_stage_label"],
+                "child_exit_code": receipt["child_exit_code"],
                 "artifact_present_count": receipt["artifact_present_count"],
                 "teacher_training_authorized": receipt["teacher_training_authorized"],
                 "photoreal_acceptance_authority": receipt["photoreal_acceptance_authority"],
