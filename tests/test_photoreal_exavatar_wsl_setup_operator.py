@@ -18,7 +18,7 @@ def test_exavatar_runtime_pins_teacher_versions_and_pytorch3d_commit() -> None:
 
 def test_exavatar_runtime_requires_existing_nvcc_and_never_installs_legacy_ubuntu_toolkit() -> None:
     assert '/usr/bin/which nvcc' in SCRIPT
-    assert 'BodyRig will not install Ubuntu\'s legacy nvidia-cuda-toolkit automatically' in SCRIPT
+    assert "BodyRig will not install Ubuntu's legacy nvidia-cuda-toolkit automatically" in SCRIPT
     assert '"nvidia-cuda-toolkit"' not in SCRIPT
 
 
