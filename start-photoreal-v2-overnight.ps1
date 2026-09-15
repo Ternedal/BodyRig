@@ -19,6 +19,66 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Read-Json {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100 }
+    catch { throw "$Label is unreadable JSON: $Path" }
+}
+
+function Test-NumericV1 {
+    param([AllowNull()]$Value)
+    if ($null -eq $Value -or $Value -is [bool]) { return $false }
+    try { $typeCode = [Type]::GetTypeCode($Value.GetType()) } catch { return $false }
+    $numericTypes = @([TypeCode]::Byte,[TypeCode]::Decimal,[TypeCode]::Double,[TypeCode]::Int16,[TypeCode]::Int32,[TypeCode]::Int64,[TypeCode]::SByte,[TypeCode]::Single,[TypeCode]::UInt16,[TypeCode]::UInt32,[TypeCode]::UInt64)
+    if ($numericTypes -notcontains $typeCode) { return $false }
+    $number = [double]$Value
+    return (-not [double]::IsNaN($number)) -and (-not [double]::IsInfinity($number)) -and $number -eq 1.0
+}
+
+function Test-StrictBoolean {
+    param([AllowNull()]$Value,[Parameter(Mandatory = $true)][bool]$Expected)
+    return ($Value -is [bool]) -and ([bool]$Value -eq $Expected)
+}
+
+function Read-AuthorizedP0Status {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedPerformerId
+    )
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "Photoreal P0 returned success without p0-status.json: $Path"
+    }
+    $status = Read-Json -Path $Path -Label "Photoreal P0 status"
+    if ([string]$status.format -ne "bodyrig-photoreal-p0-status" -or -not (Test-NumericV1 -Value $status.version)) {
+        throw "Photoreal P0 success status format/version mismatch."
+    }
+    if ([string]$status.performer_id -ne $ExpectedPerformerId) {
+        throw "Photoreal P0 success status performer mismatch."
+    }
+    if ([string]$status.bodyrig_revision -notmatch '^[0-9a-f]{40}$') {
+        throw "Photoreal P0 success status has invalid BodyRig revision."
+    }
+    if ([string]$status.status -ne "teacher-training-authorized") {
+        throw "Photoreal P0 exit 0 did not persist canonical teacher-training-authorized status."
+    }
+    if (-not (Test-StrictBoolean -Value $status.teacher_training_authorized -Expected $true)) {
+        throw "Photoreal P0 exit 0 did not persist teacher-training authority."
+    }
+    if (@($status.blockers).Count -ne 0) {
+        throw "Photoreal P0 success status contains blockers."
+    }
+    if (-not (Test-StrictBoolean -Value $status.human_visual_acceptance_required -Expected $true)) {
+        throw "Photoreal P0 success status crossed the required human visual acceptance boundary."
+    }
+    if (-not (Test-StrictBoolean -Value $status.photoreal_acceptance_authority -Expected $false)) {
+        throw "Photoreal P0 success status crossed photoreal acceptance authority."
+    }
+    if (-not (Test-StrictBoolean -Value $status.production_activation -Expected $false)) {
+        throw "Photoreal P0 success status crossed production activation authority."
+    }
+    return $status
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $entrypoint = Join-Path $repoRoot "start-photoreal-v2-reference.ps1"
 if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) { throw "Photoreal V2 entrypoint not found: $entrypoint" }
@@ -34,6 +94,7 @@ $RunRoot = [IO.Path]::GetFullPath($RunRoot)
 $runDirectory = Join-Path $RunRoot ("performer-{0}-{1}" -f $PerformerId, $stamp)
 $transcriptPath = Join-Path $RunRoot ("performer-{0}-{1}.log" -f $PerformerId, $stamp)
 $summaryPath = Join-Path $RunRoot ("performer-{0}-{1}-summary.json" -f $PerformerId, $stamp)
+$p0StatusPath = Join-Path $runDirectory "p0-status.json"
 
 $summary = [ordered]@{
     format = "bodyrig-photoreal-v2-overnight-summary"
@@ -45,7 +106,12 @@ $summary = [ordered]@{
     transcript = $transcriptPath
     status = "running"
     exit_code = $null
-    p0_status = (Join-Path $runDirectory "p0-status.json")
+    p0_status = $p0StatusPath
+    p0_status_sha256 = $null
+    bodyrig_revision = $null
+    teacher_training_authorized = $false
+    human_visual_acceptance_required = $true
+    photoreal_acceptance_authority = $false
     production_activation = $false
 }
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
@@ -82,14 +148,24 @@ try {
     if ($RepairReferenceEnvironment) { $args.RepairReferenceEnvironment = $true }
 
     & $entrypoint @args
-    if (-not $?) { throw "Photoreal V2 entrypoint returned failure." }
+    $entrypointExit = $LASTEXITCODE
+    if (-not $? -or $entrypointExit -ne 0) {
+        throw "Photoreal V2 entrypoint returned failure (exit $entrypointExit)."
+    }
+
+    $p0Status = Read-AuthorizedP0Status -Path $p0StatusPath -ExpectedPerformerId $PerformerId
+    $statusHash = (Get-FileHash -LiteralPath $p0StatusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($statusHash -notmatch '^[0-9a-f]{64}$') { throw "Could not bind Photoreal P0 status digest." }
+
+    $summary.p0_status_sha256 = $statusHash
+    $summary.bodyrig_revision = [string]$p0Status.bodyrig_revision
+    $summary.teacher_training_authorized = $true
     $exitCode = 0
     $summary.status = "completed"
 }
 catch {
     $summary.status = "failed"
     $summary.error = $_.Exception.Message
-    Write-Error $_
 }
 finally {
     $summary.finished_at = (Get-Date).ToUniversalTime().ToString("o")
