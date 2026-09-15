@@ -5,13 +5,14 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_frame_index import PhotorealFrameIndexError, build_frame_index_files
+from .photoreal_frame_index import PhotorealFrameIndexError
+from .photoreal_frame_index_sealed_authority import build_frame_index_files_sealed
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate core-authorized photoreal frame observations against the byte-bound dataset plan."
+            "Validate sealed core-authorized photoreal frame observations against the byte-bound dataset plan."
         )
     )
     parser.add_argument("--plan", type=Path, required=True)
@@ -22,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="observations",
         type=Path,
         required=True,
-        help="Core-authorized observations from bodyrig-photoreal-frame-authorize-identity.",
+        help="Sealed core-authorized observations from bodyrig-photoreal-frame-authorize-identity.",
     )
     parser.add_argument("--out", type=Path, required=True)
     return parser
@@ -31,7 +32,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_frame_index_files(args.plan, args.receipt, args.observations, args.out)
+        result = build_frame_index_files_sealed(args.plan, args.receipt, args.observations, args.out)
     except PhotorealFrameIndexError as exc:
         print(f"BodyRig photoreal frame index: FAIL: {exc}", file=sys.stderr)
         return 1
@@ -45,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
                 "analyzer": result["analyzer"],
                 "analyzer_revision": result["analyzer_revision"],
                 "analyzer_model_set_sha256": result["analyzer_model_set_sha256"],
+                "source_frame_identity_authority_sha256": result["source_frame_identity_authority_sha256"],
                 "observation_count": result["observation_count"],
                 "eligible_train_observation_count": result["eligible_train_observation_count"],
                 "eligible_evaluation_observation_count": result["eligible_evaluation_observation_count"],
