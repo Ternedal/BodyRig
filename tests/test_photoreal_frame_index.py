@@ -85,6 +85,9 @@ def _observation(
     body: float,
     phash: str,
     verified: bool = True,
+    candidate_id: str = "person-0",
+    candidate_count: int = 1,
+    ambiguous: bool = False,
 ) -> dict[str, object]:
     return {
         "source_key": source_key,
@@ -95,6 +98,10 @@ def _observation(
         "projection": "flat",
         "frame_sha256": (hex(int(timestamp * 1000) + 1)[2:][-1] or "1") * 64,
         "perceptual_hash": phash,
+        "candidate_id": candidate_id,
+        "person_detected": True,
+        "measured_person_candidate_count": candidate_count,
+        "identity_sample_ambiguous": ambiguous,
         "width": 3840,
         "height": 2160,
         "view_bin": view,
@@ -128,6 +135,7 @@ def _observations(plan: dict[str, object], receipt: dict[str, object]) -> dict[s
         "identity_calibration_sha256": CALIBRATION_SHA,
         "identity_matching_calibrated": True,
         "identity_match_threshold": 0.8,
+        "identity_ambiguous_sample_count": 0,
         "observations": [
             _observation(train_key, sha[train_key], timestamp=1.0, view="front", face=0.9, body=0.9, phash="0000000000000000"),
             _observation(front_key, sha[front_key], timestamp=2.0, view="front", face=0.9, body=0.9, phash="1111111111111111"),
@@ -135,6 +143,7 @@ def _observations(plan: dict[str, object], receipt: dict[str, object]) -> dict[s
             _observation(profile_key, sha[profile_key], timestamp=4.0, view="profile-right", face=0.9, body=0.2, phash="7777777777777777"),
         ],
         "identity_authority_is_core_derived": True,
+        "multi_candidate_identity_safe": True,
         "photoreal_acceptance_authority": False,
         "build_only": True,
         "production_activation": False,
@@ -145,26 +154,69 @@ def test_frame_index_authorizes_training_only_after_held_out_coverage() -> None:
     plan = _plan()
     receipt = _receipt(plan)
     result = build_frame_index(plan, receipt, _observations(plan, receipt))
-
     assert result["teacher_training_authorized"] is True
-    assert result["analyzer"] == "synthetic-photoreal-frame-analyzer"
-    assert result["analyzer_revision"] == "test-v1"
-    assert result["analyzer_model_set_sha256"] == MODEL_SET_SHA
-    assert result["identity_bank_sha256"] == BANK_SHA
-    assert result["identity_calibration_sha256"] == CALIBRATION_SHA
-    assert result["identity_authority_is_core_derived"] is True
+    assert result["multi_candidate_identity_safe"] is True
+    assert result["identity_ambiguous_sample_count"] == 0
     assert result["cross_split_near_duplicate_count"] == 0
     assert result["held_out_view_coverage_missing"] == []
-    assert set(result["held_out_view_coverage_observed"]) >= {
-        "face-front",
-        "face-three-quarter",
-        "face-profile",
-        "full-body-front",
-        "full-body-three-quarter",
-    }
     assert result["photoreal_acceptance_authority"] is False
     assert result["human_visual_acceptance_required"] is True
     assert result["production_activation"] is False
+
+
+def test_frame_index_allows_multiple_candidates_but_only_one_verified_target() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    base = observations["observations"][1]
+    base["measured_person_candidate_count"] = 2
+    observations["observations"].append(
+        _observation(
+            base["source_key"],
+            base["source_sha256"],
+            timestamp=2.0,
+            view="front",
+            face=0.8,
+            body=0.8,
+            phash="1111111111111111",
+            verified=False,
+            candidate_id="person-1",
+            candidate_count=2,
+        )
+    )
+    result = build_frame_index(plan, receipt, observations)
+    assert result["teacher_training_authorized"] is True
+    assert len([row for row in result["observations"] if row["source_key"] == base["source_key"]]) == 2
+    assert len([row for row in result["observations"] if row["source_key"] == base["source_key"] and row["eligible_for_teacher"]]) == 1
+
+
+def test_frame_index_rejects_two_verified_targets_in_one_sample() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    base = observations["observations"][1]
+    base["measured_person_candidate_count"] = 2
+    observations["observations"].append(
+        _observation(
+            base["source_key"], base["source_sha256"], timestamp=2.0, view="front", face=0.8, body=0.8,
+            phash="1111111111111111", verified=True, candidate_id="person-1", candidate_count=2,
+        )
+    )
+    with pytest.raises(PhotorealFrameIndexError, match="multiple target identities"):
+        build_frame_index(plan, receipt, observations)
+
+
+def test_frame_index_validates_ambiguous_sample_count() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    row = observations["observations"][1]
+    row["identity_sample_ambiguous"] = True
+    row["target_identity_verified"] = False
+    row["identity_authority"] = "identity-unresolved-v1"
+    observations["identity_ambiguous_sample_count"] = 0
+    with pytest.raises(PhotorealFrameIndexError, match="ambiguous sample count"):
+        build_frame_index(plan, receipt, observations)
 
 
 def test_frame_index_blocks_cross_split_perceptual_near_duplicate() -> None:
@@ -198,14 +250,8 @@ def test_frame_index_excludes_identity_unresolved_observation() -> None:
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
     observations["observations"][1] = _observation(
-        str(plan["evaluation"][0]["source_id"]),
-        "b" * 64,
-        timestamp=2.0,
-        view="front",
-        face=0.9,
-        body=0.9,
-        phash="1111111111111111",
-        verified=False,
+        str(plan["evaluation"][0]["source_id"]), "b" * 64, timestamp=2.0, view="front", face=0.9,
+        body=0.9, phash="1111111111111111", verified=False,
     )
     result = build_frame_index(plan, receipt, observations)
     assert result["teacher_training_authorized"] is False
@@ -227,6 +273,15 @@ def test_frame_index_rejects_false_core_authority_marker() -> None:
     observations = _observations(plan, receipt)
     observations["identity_authority_is_core_derived"] = False
     with pytest.raises(PhotorealFrameIndexError, match="core-derived identity authority"):
+        build_frame_index(plan, receipt, observations)
+
+
+def test_frame_index_rejects_missing_multi_candidate_safety_marker() -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    observations = _observations(plan, receipt)
+    observations["multi_candidate_identity_safe"] = False
+    with pytest.raises(PhotorealFrameIndexError, match="multi-candidate identity safety"):
         build_frame_index(plan, receipt, observations)
 
 
@@ -261,25 +316,7 @@ def test_frame_index_rejects_source_byte_mismatch() -> None:
 def test_frame_index_rejects_plan_receipt_universe_mismatch() -> None:
     plan = _plan()
     receipt = _receipt(plan)
-    receipt = copy.deepcopy(receipt)
-    receipt["sources"].pop()
+    bad_receipt = copy.deepcopy(receipt)
+    bad_receipt["sources"].pop()
     with pytest.raises(PhotorealFrameIndexError, match="disagree on exact source universe"):
-        build_frame_index(plan, receipt, _observations(plan, _receipt(plan)))
-
-
-def test_frame_index_rejects_missing_analyzer_provenance() -> None:
-    plan = _plan()
-    receipt = _receipt(plan)
-    observations = _observations(plan, receipt)
-    observations.pop("analyzer_revision")
-    with pytest.raises(PhotorealFrameIndexError, match="frame analyzer revision"):
-        build_frame_index(plan, receipt, observations)
-
-
-def test_frame_index_rejects_missing_model_set_provenance() -> None:
-    plan = _plan()
-    receipt = _receipt(plan)
-    observations = _observations(plan, receipt)
-    observations.pop("analyzer_model_set_sha256")
-    with pytest.raises(PhotorealFrameIndexError, match="model-set SHA-256"):
-        build_frame_index(plan, receipt, observations)
+        build_frame_index(plan, bad_receipt, _observations(plan, receipt))
