@@ -10,16 +10,23 @@ SCRIPT = (ROOT / "setup-photoreal-exavatar-wsl.ps1").read_text(encoding="utf-8")
 def test_exavatar_runtime_pins_teacher_versions_and_pytorch3d_commit() -> None:
     assert '$torchVersion = "2.6.0"' in SCRIPT
     assert '$torchvisionVersion = "0.21.0"' in SCRIPT
+    assert '$expectedCudaVersion = "12.4"' in SCRIPT
     assert '$numpyVersion = "1.26.4"' in SCRIPT
     assert '$mmcvVersion = "2.1.0"' in SCRIPT
     assert '$pytorch3dCommit = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"' in SCRIPT
     assert 'https://download.pytorch.org/whl/cu124' in SCRIPT
 
 
-def test_exavatar_runtime_requires_existing_nvcc_and_never_installs_legacy_ubuntu_toolkit() -> None:
+def test_exavatar_runtime_requires_exact_nvcc_parity_and_never_installs_legacy_ubuntu_toolkit() -> None:
     assert '/usr/bin/which nvcc' in SCRIPT
+    assert '$nvccText -notmatch' in SCRIPT
+    assert 'CUDA compiler mismatch' in SCRIPT
+    assert 'pinned Torch requires CUDA $expectedCudaVersion' in SCRIPT
+    assert 'Unexpected Torch CUDA runtime' in SCRIPT
     assert "BodyRig will not install Ubuntu's legacy nvidia-cuda-toolkit automatically" in SCRIPT
     assert '"nvidia-cuda-toolkit"' not in SCRIPT
+    assert '"ninja-build"' in SCRIPT
+    assert '"cython", "ninja"' in SCRIPT
 
 
 def test_exavatar_runtime_uses_public_chumpy_070_and_patches_numpy_aliases_fail_closed() -> None:
