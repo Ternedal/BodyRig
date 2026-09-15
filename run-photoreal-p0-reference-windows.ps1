@@ -32,10 +32,18 @@ function Write-UnexpectedFailureStatus {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][int]$ExitCode,
-        [Parameter(Mandatory = $true)][string]$CrashReceiptPath
+        [Parameter(Mandatory = $true)][string]$CrashReceiptPath,
+        [Parameter(Mandatory = $true)][bool]$CrashReceiptAvailable
     )
     $statusPath = Join-Path $Root "p0-status.json"
     if (Test-Path -LiteralPath $statusPath -PathType Leaf) { return }
+    $diagnosticText = $(
+        if ($CrashReceiptAvailable) {
+            "Inspect the crash receipt: $CrashReceiptPath"
+        } else {
+            "A crash receipt could not be persisted; inspect the console output from this run."
+        }
+    )
     $payload = [ordered]@{
         format = "bodyrig-photoreal-p0-status"
         version = 1
@@ -44,7 +52,7 @@ function Write-UnexpectedFailureStatus {
         status = "unexpected-failure"
         teacher_training_authorized = $false
         blockers = @(
-            "The isolated P0 child process failed unexpectedly with exit code $ExitCode. Partial outputs are diagnostic evidence only and grant no authority. Inspect the crash receipt: $CrashReceiptPath"
+            "The isolated P0 child process failed unexpectedly with exit code $ExitCode. Partial outputs are diagnostic evidence only and grant no authority. $diagnosticText"
         )
         human_visual_acceptance_required = $true
         photoreal_acceptance_authority = $false
@@ -183,28 +191,59 @@ try {
     }
 
     if (Test-Path -LiteralPath $OutputRoot -PathType Container) {
+        $statusPath = Join-Path $OutputRoot "p0-status.json"
         $crashReceiptPath = Join-Path $OutputRoot "p0-crash-receipt.json"
-        if (-not (Test-Path -LiteralPath $crashReceiptPath)) {
-            $crashMessage = "The isolated P0 child process exited unexpectedly with code $exitCode before returning a normal P0 gate result."
-            $crashOutput = @(& $BodyRigPython -m bodyrig.photoreal_p0_crash_receipt_cli `
-                --bodyrig-revision $head `
-                --performer-id $PerformerId `
-                --failed-stage-number 0 `
-                --failed-stage-label "isolated-p0-child-process" `
-                --error-message $crashMessage `
-                --output-root $OutputRoot `
-                --output $crashReceiptPath 2>&1)
-            $crashExit = $LASTEXITCODE
-            foreach ($line in $crashOutput) { Write-Host ([string]$line) }
-            if ($crashExit -ne 0) {
-                Write-Warning "Could not write the Photoreal P0 crash receipt; receipt CLI exited with code $crashExit."
+        $crashReceiptAvailable = Test-Path -LiteralPath $crashReceiptPath -PathType Leaf
+        if (-not $crashReceiptAvailable) {
+            try {
+                $crashMessage = "The isolated P0 child process exited unexpectedly with code $exitCode before returning a normal P0 gate result."
+                $crashOutput = @(& $BodyRigPython -m bodyrig.photoreal_p0_crash_receipt_cli `
+                    --bodyrig-revision $head `
+                    --performer-id $PerformerId `
+                    --failed-stage-number 0 `
+                    --failed-stage-label "isolated-p0-child-process" `
+                    --error-message $crashMessage `
+                    --output-root $OutputRoot `
+                    --output $crashReceiptPath 2>&1)
+                $crashExit = $LASTEXITCODE
+                foreach ($line in $crashOutput) { Write-Host ([string]$line) }
+                if ($crashExit -ne 0) {
+                    Write-Warning "Could not write the Photoreal P0 crash receipt; receipt CLI exited with code $crashExit."
+                }
+            } catch {
+                Write-Warning "Could not write the Photoreal P0 crash receipt: $($_.Exception.Message)"
             }
+            $crashReceiptAvailable = Test-Path -LiteralPath $crashReceiptPath -PathType Leaf
         }
-        Write-UnexpectedFailureStatus -Root $OutputRoot -ExitCode $exitCode -CrashReceiptPath $crashReceiptPath
-        throw "BodyRig Photoreal reference P0 failed unexpectedly with exit code $exitCode. Inspect '$OutputRoot\p0-status.json' and '$crashReceiptPath'. Do not reuse partial outputs as authority; rerun with a new empty output root after fixing the cause."
+
+        $statusAvailable = Test-Path -LiteralPath $statusPath -PathType Leaf
+        if (-not $statusAvailable) {
+            try {
+                Write-UnexpectedFailureStatus `
+                    -Root $OutputRoot `
+                    -ExitCode $exitCode `
+                    -CrashReceiptPath $crashReceiptPath `
+                    -CrashReceiptAvailable $crashReceiptAvailable
+            } catch {
+                Write-Warning "Could not persist fail-closed P0 status: $($_.Exception.Message)"
+            }
+            $statusAvailable = Test-Path -LiteralPath $statusPath -PathType Leaf
+        }
+
+        $diagnostics = @()
+        if ($statusAvailable) { $diagnostics += "status '$statusPath'" }
+        if ($crashReceiptAvailable) { $diagnostics += "crash receipt '$crashReceiptPath'" }
+        $diagnosticText = $(
+            if ($diagnostics.Count -gt 0) {
+                "Inspect " + ($diagnostics -join " and ") + "."
+            } else {
+                "Diagnostic files could not be persisted; inspect the console output from this run."
+            }
+        )
+        throw "BodyRig Photoreal reference P0 failed unexpectedly with original child exit code $exitCode. $diagnosticText Do not reuse partial outputs as authority; fix the cause and rerun with a new empty output root."
     }
 
-    throw "BodyRig Photoreal reference P0 failed unexpectedly with exit code $exitCode before creating its output root. Fix the cause and run again with a new empty output root."
+    throw "BodyRig Photoreal reference P0 failed unexpectedly with original child exit code $exitCode before creating its output root. Fix the cause and run again with a new empty output root."
 } finally {
     $env:PYTHONPATH = $priorPythonPath
     if (Test-Path -LiteralPath $tempRoot -PathType Container) {
