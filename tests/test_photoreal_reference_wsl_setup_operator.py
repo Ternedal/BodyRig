@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = (ROOT / "setup-photoreal-reference-wsl.ps1").read_text(encoding="utf-8")
+CONFIG = (ROOT / "bodyrig" / "photoreal_reference_vision_config.py").read_text(encoding="utf-8")
 
 
 def test_reference_wsl_setup_pins_published_onnxruntime_gpu_wheel() -> None:
@@ -33,6 +34,14 @@ def test_reference_wsl_openmmlab_versions_are_compatible_and_probed() -> None:
     assert '$mmdetVersion = "3.2.0"' in SCRIPT
     assert 'if ([string]$probe.mmdet -ne $mmdetVersion)' in SCRIPT
     assert 'if ([string]$probe.mmpose -ne $mmposeVersion)' in SCRIPT
+
+
+def test_reference_config_and_wsl_setup_share_openmmlab_revisions() -> None:
+    assert '$mmposeRevision = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"' in SCRIPT
+    assert 'EXPECTED_MMPOSE_REVISION = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"' in CONFIG
+    assert '$mmdetRevision = "fe3f809a0a514189baf889aa358c498d51ee36cd"' in SCRIPT
+    assert 'EXPECTED_MMDET_REVISION = "fe3f809a0a514189baf889aa358c498d51ee36cd"' in CONFIG
+    assert 'cfd5d3a985b0249de009b67d04f37263e11cdf3d' not in CONFIG
 
 
 def test_reference_wsl_mmdetection_build_sees_installed_torch() -> None:
