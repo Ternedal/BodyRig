@@ -120,6 +120,27 @@ def _source_authoritative(source: Mapping[str, Any]) -> bool:
     }
 
 
+def _sample_key(raw: Mapping[str, Any], *, source_key: str) -> tuple[str, str, str, str]:
+    timestamp = raw.get("timestamp_seconds")
+    if timestamp is None:
+        timestamp_key = "image"
+    elif isinstance(timestamp, bool):
+        raise PhotorealFrameIdentityAuthorityError("frame timestamp is invalid")
+    else:
+        try:
+            timestamp_value = float(timestamp)
+        except (TypeError, ValueError) as exc:
+            raise PhotorealFrameIdentityAuthorityError("frame timestamp is invalid") from exc
+        if not math.isfinite(timestamp_value) or timestamp_value < 0:
+            raise PhotorealFrameIdentityAuthorityError("frame timestamp is invalid")
+        timestamp_key = f"{timestamp_value:.6f}"
+    eye = _text(raw.get("eye"), label="frame eye", maximum=16)
+    if eye not in {"mono", "left", "right"}:
+        raise PhotorealFrameIdentityAuthorityError("frame eye is unsupported")
+    frame_sha = _sha(raw.get("frame_sha256"), label="frame SHA-256")
+    return source_key, timestamp_key, eye, frame_sha
+
+
 def _validate_bank_and_calibration(
     bank: Mapping[str, Any],
     calibration: Mapping[str, Any],
@@ -205,20 +226,39 @@ def authorize_frame_identities(
     values = measurements.get("observations")
     if not isinstance(values, list) or not values:
         raise PhotorealFrameIdentityAuthorityError("photoreal frame measurements are empty")
-    authorized_observations: list[dict[str, Any]] = []
+
+    prepared: list[dict[str, Any]] = []
+    person_counts: dict[tuple[str, str, str, str], int] = {}
+    seen_candidates: set[tuple[tuple[str, str, str, str], str]] = set()
     for raw in values:
         if not isinstance(raw, Mapping):
             raise PhotorealFrameIdentityAuthorityError("photoreal frame measurement is invalid")
-        if "target_identity_verified" in raw or "identity_confidence" in raw:
+        if "target_identity_verified" in raw or "identity_confidence" in raw or "identity_authority" in raw:
             raise PhotorealFrameIdentityAuthorityError("external frame measurement attempted to assert identity authority")
         source_key = _text(raw.get("source_key"), label="frame source key")
         source = sources.get(source_key)
         if source is None:
             raise PhotorealFrameIdentityAuthorityError(f"frame measurement references unknown dataset source: {source_key}")
+        candidate_id = _text(raw.get("candidate_id"), label="frame candidate id", maximum=128)
+        if any(not (character.isalnum() or character in "._-") for character in candidate_id):
+            raise PhotorealFrameIdentityAuthorityError("frame candidate id is invalid")
+        person_detected = raw.get("person_detected")
+        if not isinstance(person_detected, bool):
+            raise PhotorealFrameIdentityAuthorityError("person_detected must be boolean")
+        sample_key = _sample_key(raw, source_key=source_key)
+        candidate_key = (sample_key, candidate_id)
+        if candidate_key in seen_candidates:
+            raise PhotorealFrameIdentityAuthorityError("frame analyzer repeated candidate id within one sample")
+        seen_candidates.add(candidate_key)
+        if person_detected:
+            person_counts[sample_key] = person_counts.get(sample_key, 0) + 1
+
         status = _text(raw.get("identity_measurement_status"), label="identity measurement status", maximum=32)
         embedding_raw = raw.get("identity_embedding")
         similarity: float | None = None
         if status == "available":
+            if not person_detected:
+                raise PhotorealFrameIdentityAuthorityError("identity embedding cannot be available without a detected person")
             embedding = _embedding(embedding_raw, dimension=dimension, label="frame identity embedding")
             similarity = _cosine(embedding, centroid)
         elif status == "unavailable":
@@ -227,7 +267,32 @@ def authorize_frame_identities(
         else:
             raise PhotorealFrameIdentityAuthorityError("identity measurement status is unsupported")
 
-        if _source_authoritative(source):
+        prepared.append(
+            {
+                "raw": raw,
+                "source": source,
+                "sample_key": sample_key,
+                "candidate_id": candidate_id,
+                "person_detected": person_detected,
+                "status": status,
+                "similarity": similarity,
+            }
+        )
+
+    authorized_observations: list[dict[str, Any]] = []
+    for prepared_item in prepared:
+        raw = prepared_item["raw"]
+        source = prepared_item["source"]
+        sample_key = prepared_item["sample_key"]
+        person_detected = bool(prepared_item["person_detected"])
+        similarity = prepared_item["similarity"]
+        status = str(prepared_item["status"])
+        measured_people = person_counts.get(sample_key, 0)
+
+        if not person_detected:
+            target_verified = False
+            authority = UNRESOLVED_AUTHORITY
+        elif _source_authoritative(source) and measured_people == 1:
             target_verified = True
             authority = SOURCE_AUTHORITY
         elif calibrated_matching and similarity is not None and threshold is not None and similarity >= threshold:
@@ -241,7 +306,8 @@ def authorize_frame_identities(
         item.update(
             {
                 "identity_measurement_status": status,
-                "identity_similarity": None if similarity is None else round(similarity, 9),
+                "identity_similarity": None if similarity is None else round(float(similarity), 9),
+                "measured_person_candidate_count": measured_people,
                 "target_identity_verified": target_verified,
                 "identity_authority": authority,
             }
@@ -263,6 +329,7 @@ def authorize_frame_identities(
         "identity_match_threshold": threshold,
         "observations": authorized_observations,
         "identity_authority_is_core_derived": True,
+        "multi_candidate_identity_safe": True,
         "photoreal_acceptance_authority": False,
         "build_only": True,
         "production_activation": False,
