@@ -248,14 +248,21 @@ def build_appearance_epoch_review_handoff_files(
     handoff_output.parent.mkdir(parents=True, exist_ok=True)
     review_output.parent.mkdir(parents=True, exist_ok=True)
     review_created = False
+    handoff_created = False
     try:
         with review_output.open("x", encoding="utf-8") as handle:
+            review_created = True
             handle.write(json.dumps(review_template, indent=2, sort_keys=True, allow_nan=False) + "\n")
-        review_created = True
         with handoff_output.open("x", encoding="utf-8") as handle:
+            handoff_created = True
             handle.write(json.dumps(handoff, indent=2, sort_keys=True, allow_nan=False) + "\n")
     except OSError as exc:
-        if review_created and not handoff_output.exists():
+        if handoff_created:
+            try:
+                handoff_output.unlink()
+            except OSError:
+                pass
+        if review_created:
             try:
                 review_output.unlink()
             except OSError:
