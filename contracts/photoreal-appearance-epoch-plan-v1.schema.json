@@ -38,6 +38,7 @@
     "performer_name": {"type": "string", "maxLength": 4096},
     "strategy": {"const": "human-review-required-v1"},
     "source_frame_index_model_set_sha256": {"$ref": "#/$defs/sha256"},
+    "source_frame_index_sha256": {"$ref": "#/$defs/sha256"},
     "identity_bank_sha256": {"$ref": "#/$defs/sha256"},
     "identity_calibration_sha256": {"$ref": "#/$defs/sha256"},
     "eligible_observation_count": {"type": "integer", "minimum": 2},
