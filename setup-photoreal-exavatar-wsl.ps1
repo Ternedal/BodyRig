@@ -134,12 +134,17 @@ Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
-# Pin PyTorch3D to exact public source bytes. The runtime preflight later runs
-# a CUDA smoke test; installation success alone is not authority.
+# Pin PyTorch3D to exact public source bytes and build against the already
+# pinned Torch/CUDA environment. Build isolation could otherwise hide Torch
+# from setup.py or compile against a transient dependency set.
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install",
+    "/usr/bin/env",
+    "FORCE_CUDA=1",
+    "PYTHONNOUSERSITE=1",
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
     "git+https://github.com/facebookresearch/pytorch3d.git@$pytorch3dCommit"
 )
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
 # Chumpy 0.70 imports NumPy aliases removed in modern NumPy. Patch only the
 # exact legacy import line without importing Chumpy first.
