@@ -13,7 +13,9 @@ Stash source universe
   -> byte-bound exhaustive observations
   -> leakage-safe train/evaluation split
   -> deterministic scout/deprojection plan
-  -> identity/view/quality measurement
+  -> measurement-only vision adapter
+  -> train-only identity bank + source-authoritative calibration
+  -> core identity authority + frame leakage/coverage gate
   -> photoreal teacher reconstruction
   -> held-out photoreal validation
   -> animation/deformation model
@@ -58,11 +60,19 @@ photoreal Stash inventory
   -> source-group-disjoint dataset plan
   -> exact byte/source receipt
   -> deterministic scout scan plan
-  -> external measurement adapter
-  -> core frame-index/leakage/coverage gate
+  -> train-only identity bootstrap
+  -> exact analyzer model-set digest
+  -> same-model target identity extraction
+  -> train-only identity bank
+  -> source-authoritative negative discovery + byte receipt
+  -> same-model negative extraction
+  -> data-derived identity calibration
+  -> measurement-only multi-candidate frame analysis
+  -> core identity authority
+  -> perceptual leakage + held-out coverage gate
 ```
 
-The external analyzer is measurement-only. It cannot choose train/evaluation assignment, grant photoreal acceptance or activate production.
+The external analyzer is measurement-only. It cannot decide target identity, choose train/evaluation assignment, grant teacher-training authority, grant photoreal acceptance or activate production.
 
 ### Gate P1 - static photoreal teacher
 
@@ -107,13 +117,13 @@ Only after P2 passes:
 
 A runtime build cannot claim fidelity greater than its measured teacher delta.
 
-## Source analysis authority
+## Source analysis and identity authority
 
 Photoreal V2 separates measurement from authority.
 
-The external frame analyzer may measure:
+The external frame analyzer may measure, per detected person candidate:
 
-- target identity confidence;
+- an identity embedding in the pinned model space, or `unavailable`;
 - head/body view bin;
 - face and full-body visibility;
 - sharpness;
@@ -122,13 +132,22 @@ The external frame analyzer may measure:
 - person screen fraction;
 - frame/perceptual hashes.
 
+The analyzer must not emit `target_identity_verified`, identity authority or a hard-coded identity confidence threshold.
+
 BodyRig core owns:
 
 - exact source-byte binding;
 - source-group-disjoint train/evaluation assignment;
+- train-only target identity bootstrap;
+- the identity bank and its exact model-set provenance;
+- negative calibration evidence from other Stash performer IDs;
+- the data-derived cosine threshold;
+- multi-candidate target selection;
 - cross-split perceptual near-duplicate rejection;
 - held-out view coverage requirements;
 - the decision whether teacher training may start.
+
+A source marked as single-performer is direct identity authority only when the measured sample itself contains exactly one person candidate. In multi-person samples, exactly one candidate may cross the calibrated target threshold. Zero matches remain unresolved; two or more matches make the sample identity-ambiguous and no candidate receives target authority.
 
 The current core frame-index gate rejects train/evaluation frames with a 64-bit perceptual-hash Hamming distance of four or less. It also requires front, three-quarter and profile face evidence plus front and three-quarter full-body evidence in the held-out evaluation split. Rear full-body evidence becomes mandatory when rear evidence is observable in the source universe.
 
@@ -153,7 +172,37 @@ The scout planner:
 - requires deprojection for VR180/VR360/equirectangular material;
 - fails closed on unknown stereo layout or unresolved ~2:1 projection ambiguity.
 
-No aspect-ratio guess is allowed to become source authority.
+Spatial sources remain part of the byte-bound teacher source universe, but they cannot bootstrap identity before a projection-authoritative deprojection path exists. No aspect-ratio or center-crop guess is allowed to become identity/source authority.
+
+## Reference P0 vision stack
+
+The first reproducible P0 measurement benchmark is deliberately external to BodyRig core:
+
+- InsightFace `buffalo_l` for face detection/recognition embeddings;
+- DWPose/RTMPose-L whole-body 384x288 for body/face/hand keypoint evidence;
+- RTMDet-M person detector;
+- pinned MMPose and MMDetection revisions;
+- exact adapter SHA-256;
+- exact model-set SHA-256, including the local runtime-environment receipt.
+
+The same identity model space is used for target bootstrap, non-target calibration and frame analysis. A threshold learned in one embedding space is never applied to another.
+
+The reference adapter returns multiple person candidates rather than silently selecting the largest face. BodyRig core owns the target decision.
+
+The model weights remain external research dependencies. The `buffalo_l` model package has research/non-commercial licensing; BodyRig setup requires an explicit operator acceptance switch and never records acceptance automatically.
+
+The first-time/full reference operator is:
+
+```powershell
+.\start-photoreal-v2-reference.ps1 `
+  -PerformerId 42 `
+  -OutputRoot C:\BR\photoreal-p0-42 `
+  -AcceptInsightFaceResearchLicense
+```
+
+On first use this may build the external model root and pinned WSL environment. On later runs the already-provenanced stack is reused. Before any Stash scan, the reference wrapper performs a synthetic GPU/model preflight that initializes and executes both the face and whole-body inference stacks without accessing source media.
+
+The P0 runner itself executes in an isolated child PowerShell process so its fail-closed exit codes cannot terminate the operator's working shell.
 
 ## Teacher representation
 
@@ -183,6 +232,8 @@ Candidate teacher stack:
    - SMPL-X remains useful here as a body correspondence and skeleton prior;
    - face correspondence gets its own high-resolution model/landmark domain;
    - correspondence may deform the teacher but must not collapse teacher geometry into SMPL-X topology.
+
+ExAvatar is the first benchmark teacher adapter, not a permanent architectural dependency. The adapter boundary must allow it to be replaced if held-out human review shows waxiness, identity drift, weak hair or other visible failure.
 
 ## Hair
 
@@ -275,26 +326,28 @@ Ranking is used to schedule expensive analysis. Ranking does **not** erase the r
 
 A performer can change over time: hair style/colour, body mass, cosmetic changes, tattoos, ageing, clothing and capture conditions.
 
-Photoreal V2 therefore needs an explicit `appearance_epoch` layer before teacher training. The first teacher should represent one internally coherent appearance state rather than averaging years of incompatible observations.
+Photoreal V2 therefore has an explicit `appearance_epoch` layer before teacher training. Automatic clustering may propose epochs, but human review owns the final epoch boundary. Teacher input is allowed only from the selected coherent epoch and held-out evaluation remains physically separate from the external teacher request.
 
-Automatic clustering may propose epochs, but human review owns the final epoch boundary.
+## Implementation status
 
-## Planned implementation sequence
-
-1. `P0`: exhaustive Stash video/image/gallery inventory. **Implemented on the Photoreal V2 branch.**
+1. `P0`: exhaustive Stash video/image/gallery inventory. **Implemented.**
 2. Media hashing, local-path verification and source-universe receipt. **Implemented.**
 3. Independent projection/stereo classification and deterministic scout plan. **Implemented.**
-4. External measurement-only frame-analyzer contract. **Implemented.**
-5. Core frame index with perceptual leakage and held-out view gates. **Implemented.**
-6. Implement and pin the first high-quality identity/view/quality analyzer stack.
-7. Add camera/intrinsics estimation and shot grouping.
-8. Add appearance-epoch proposal/report.
-9. Build a teacher adapter contract independent of VRM/SMPL-X.
-10. Reconstruct performer 42 as the first teacher benchmark.
-11. Render fixed canonical views plus held-out-reference comparisons.
-12. Stop until human visual review says the static teacher is genuinely photographic.
-13. Add body/face animation correspondence.
-14. Distill the accepted animated teacher to Quest 2, then Quest 3/3S.
+4. Train-only identity bootstrap and exact model-set provenance. **Implemented.**
+5. Source-authoritative negative calibration and data-derived identity threshold. **Implemented.**
+6. Multi-candidate measurement-only frame analyzer contract and core identity authority. **Implemented.**
+7. Core frame index with perceptual leakage and held-out view gates. **Implemented.**
+8. Pinned reference vision adapter, WSL transport, environment/model setup and synthetic preflight. **Implemented in code; physical rig validation pending.**
+9. One-command reference P0 operator. **Implemented in code; physical rig validation pending.**
+10. Appearance-epoch proposal + explicit human review receipt. **Implemented in core.**
+11. Representation-agnostic teacher request/runner boundary. **Implemented in core.**
+12. ExAvatar benchmark adapter/preflight. **Prepared; real performer benchmark pending P0 data.**
+13. Run P0 against performer 42 and inspect actual source coverage/calibration. **Pending physical rig.**
+14. Reconstruct performer 42 as the first teacher benchmark. **Blocked on P0 + human epoch selection.**
+15. Render fixed canonical views plus held-out-reference comparisons.
+16. Stop until human visual review says the static teacher is genuinely photographic.
+17. Add body/face animation correspondence.
+18. Distill the accepted animated teacher to Quest 2, then Quest 3/3S.
 
 ## What is deliberately frozen
 
