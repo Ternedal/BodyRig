@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -96,14 +97,44 @@ def validate_negative_inventory_binding(
     return observed
 
 
+def bind_negative_inventory_provenance(
+    calibration: Mapping[str, Any],
+    negative_inventory_sha256: str,
+) -> dict[str, Any]:
+    """Seal an already canonical calibration core to its verified negative inventory."""
+    core_sha256 = _sha(
+        calibration.get("identity_calibration_sha256"),
+        label="identity calibration core SHA-256",
+    )
+    inventory_sha256 = _sha(
+        negative_inventory_sha256,
+        label="negative inventory SHA-256",
+    )
+    binding = {
+        "identity_calibration_core_sha256": core_sha256,
+        "negative_inventory_sha256": inventory_sha256,
+    }
+    raw = json.dumps(
+        binding,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    result = dict(calibration)
+    result.update(binding)
+    result["identity_calibration_sha256"] = hashlib.sha256(raw).hexdigest()
+    return result
+
+
 def build_identity_calibration_authorized(
     bank: Mapping[str, Any],
     plan: Mapping[str, Any],
     negative_observations: Mapping[str, Any],
     negative_inventory: Mapping[str, Any],
 ) -> dict[str, Any]:
-    validate_negative_inventory_binding(negative_inventory, plan, bank)
-    return build_identity_calibration(bank, plan, negative_observations)
+    negative_inventory_sha256 = validate_negative_inventory_binding(negative_inventory, plan, bank)
+    calibration = build_identity_calibration(bank, plan, negative_observations)
+    return bind_negative_inventory_provenance(calibration, negative_inventory_sha256)
 
 
 def build_identity_calibration_authorized_files(
