@@ -11,16 +11,44 @@ from bodyrig.photoreal_reference_vision_config import (
     write_reference_configs,
 )
 
+MMPOSE_REVISION = "759b39c13fea6ba094afc1fa932f51dc1b11cbf9"
+MMDET_REVISION = "cfd5d3a985b0249de009b67d04f37263e11cdf3d"
 
-def _model_root(tmp_path: Path) -> Path:
+
+def _model_root(
+    tmp_path: Path,
+    *,
+    distribution: str = "Ubuntu-22.04",
+    linux_python: str = "/opt/bodyrig-photoreal/bin/python",
+) -> Path:
     root = tmp_path / "models"
     root.mkdir()
     (root / "bodyrig-reference-vision-v1.json").write_text("{}\n", encoding="utf-8")
     (root / "weights.bin").write_bytes(b"weights")
+    (root / "runtime-environment.json").write_text(
+        json.dumps(
+            {
+                "format": "bodyrig-photoreal-reference-runtime-environment",
+                "version": 1,
+                "distribution": distribution,
+                "linux_python": linux_python,
+                "mmpose_revision": MMPOSE_REVISION,
+                "mmdetection_revision": MMDET_REVISION,
+                "observed": {
+                    "torch_cuda_available": True,
+                    "onnxruntime_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
+                },
+                "build_only": True,
+                "production_activation": False,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
     return root
 
 
-def test_reference_configs_bind_same_adapter_revision_and_model_set(tmp_path: Path) -> None:
+def test_reference_configs_bind_same_adapter_revision_model_set_and_runtime(tmp_path: Path) -> None:
     model_root = _model_root(tmp_path)
     adapter = tmp_path / "adapter.py"
     adapter.write_text("print('adapter')\n", encoding="utf-8")
@@ -46,8 +74,52 @@ def test_reference_configs_bind_same_adapter_revision_and_model_set(tmp_path: Pa
     assert identity["timeout_seconds"] == 86400
 
 
-def test_reference_config_revision_changes_when_adapter_bytes_change(tmp_path: Path) -> None:
+def test_reference_config_rejects_missing_runtime_receipt(tmp_path: Path) -> None:
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    (model_root / "weights.bin").write_bytes(b"weights")
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text("adapter\n", encoding="utf-8")
+    python = tmp_path / "python.exe"
+    python.write_bytes(b"python")
+
+    with pytest.raises(PhotorealReferenceVisionConfigError, match="runtime-environment.json is missing"):
+        build_reference_configs(
+            model_root=model_root,
+            adapter_path=adapter,
+            windows_python=python,
+            distribution="Ubuntu-22.04",
+            linux_python="/opt/bodyrig-photoreal/bin/python",
+        )
+
+
+def test_reference_config_rejects_runtime_distribution_or_python_drift(tmp_path: Path) -> None:
     model_root = _model_root(tmp_path)
+    adapter = tmp_path / "adapter.py"
+    adapter.write_text("adapter\n", encoding="utf-8")
+    python = tmp_path / "python.exe"
+    python.write_bytes(b"python")
+
+    with pytest.raises(PhotorealReferenceVisionConfigError, match="distribution differs"):
+        build_reference_configs(
+            model_root=model_root,
+            adapter_path=adapter,
+            windows_python=python,
+            distribution="Other-Distro",
+            linux_python="/opt/bodyrig-photoreal/bin/python",
+        )
+    with pytest.raises(PhotorealReferenceVisionConfigError, match="Linux Python differs"):
+        build_reference_configs(
+            model_root=model_root,
+            adapter_path=adapter,
+            windows_python=python,
+            distribution="Ubuntu-22.04",
+            linux_python="/other/bin/python",
+        )
+
+
+def test_reference_config_revision_changes_when_adapter_bytes_change(tmp_path: Path) -> None:
+    model_root = _model_root(tmp_path, distribution="Ubuntu", linux_python="/vision/bin/python")
     adapter = tmp_path / "adapter.py"
     python = tmp_path / "python.exe"
     python.write_bytes(b"python")
@@ -71,7 +143,7 @@ def test_reference_config_revision_changes_when_adapter_bytes_change(tmp_path: P
 
 
 def test_write_reference_configs_is_create_only(tmp_path: Path) -> None:
-    model_root = _model_root(tmp_path)
+    model_root = _model_root(tmp_path, distribution="Ubuntu", linux_python="/vision/bin/python")
     adapter = tmp_path / "adapter.py"
     adapter.write_text("adapter\n", encoding="utf-8")
     python = tmp_path / "python.exe"
