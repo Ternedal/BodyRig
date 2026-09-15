@@ -10,6 +10,7 @@ Set-StrictMode -Version Latest
 
 $torchVersion = "2.6.0"
 $torchvisionVersion = "0.21.0"
+$expectedCudaVersion = "12.4"
 $numpyVersion = "1.26.4"
 $scipyVersion = "1.15.2"
 $opencvVersion = "4.10.0.84"
@@ -57,7 +58,7 @@ Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR WSL SETUP"
 Write-Host "Distribution:      $Distribution"
 Write-Host "Linux Python:      $LinuxPython"
-Write-Host "Torch:             $torchVersion / CUDA 12.4 wheel"
+Write-Host "Torch:             $torchVersion / CUDA $expectedCudaVersion wheel"
 Write-Host "PyTorch3D commit:  $pytorch3dCommit"
 Write-Host "MMCV:              $mmcvVersion"
 Write-Host "Chumpy:            $chumpyVersion + NumPy 1.26 compatibility patch"
@@ -70,13 +71,18 @@ if ($nvidia.Count -lt 1) { throw "WSL NVIDIA passthrough returned no GPU." }
 Write-Host "GPU: $([string]$nvidia[0])"
 
 # PyTorch3D and the pinned Gaussian rasterizer are CUDA extensions. Do not
-# silently install Ubuntu 22.04's old nvidia-cuda-toolkit; require an explicit
-# CUDA toolkit with nvcc instead of creating a mismatched compiler/runtime.
+# silently install Ubuntu 22.04's old nvidia-cuda-toolkit. The compiler major
+# and minor must match the pinned Torch CUDA runtime exactly; PyTorch3D has
+# documented failures when nvcc and torch.version.cuda differ.
 & $WslExe -d $Distribution -- /usr/bin/which nvcc 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "nvcc is not available in WSL. Install a CUDA toolkit compatible with the pinned Torch CUDA runtime before ExAvatar setup; BodyRig will not install Ubuntu's legacy nvidia-cuda-toolkit automatically."
 }
 $nvcc = Invoke-Wsl -Arguments @("nvcc", "--version") -Capture
+$nvccText = $nvcc -join "`n"
+if ($nvccText -notmatch "release\s+$([regex]::Escape($expectedCudaVersion))(?:,|\s)") {
+    throw "CUDA compiler mismatch: pinned Torch requires CUDA $expectedCudaVersion but nvcc did not report release $expectedCudaVersion. Refusing to build PyTorch3D/Gaussian extensions with mismatched CUDA toolchains."
+}
 Write-Host (($nvcc | Select-Object -Last 1).ToString())
 
 Invoke-Wsl -Root -Arguments @("/usr/bin/apt-get", "update")
@@ -116,7 +122,6 @@ Invoke-Wsl -Root -Arguments @(
 
 # ExAvatar lists chumpy 0.71, but public PyPI publishes 0.70. Install the
 # public package separately, then patch its legacy NumPy alias import below.
-# --no-build-isolation keeps the source build inside this already-pinned venv.
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
 )
@@ -130,9 +135,7 @@ Invoke-Wsl -Root -Arguments @(
 )
 
 # Chumpy 0.70 imports NumPy aliases removed in modern NumPy. Patch only the
-# exact legacy import line, without importing Chumpy first, and record the
-# resulting site-package bytes. This is compatibility plumbing, not model
-# authority and not a change to ExAvatar source code.
+# exact legacy import line without importing Chumpy first.
 $chumpyPatchCode = @'
 import hashlib
 import json
@@ -176,8 +179,7 @@ try { $chumpyPatch = $chumpyPatchLine | ConvertFrom-Json -Depth 10 }
 catch { throw "Chumpy compatibility patch did not return valid JSON: $chumpyPatchLine" }
 
 # Hand4Whole depends on torchgeometry 0.1.2, whose old bool-mask arithmetic is
-# incompatible with modern PyTorch. Apply the fix published by Hand4Whole's
-# author fail-closed against the exact four legacy expressions.
+# incompatible with modern PyTorch. Apply the fix published by its author.
 $torchgeometryPatchCode = @'
 import hashlib
 import json
@@ -274,6 +276,7 @@ catch { throw "ExAvatar environment probe did not return valid JSON: $probeLine"
 
 if ([string]$probe.torch -notlike "$torchVersion*") { throw "Unexpected Torch version: $($probe.torch)" }
 if ([string]$probe.torchvision -notlike "$torchvisionVersion*") { throw "Unexpected torchvision version: $($probe.torchvision)" }
+if ([string]$probe.torch_cuda -ne $expectedCudaVersion) { throw "Unexpected Torch CUDA runtime: $($probe.torch_cuda), expected $expectedCudaVersion" }
 if ([string]$probe.numpy -ne $numpyVersion) { throw "Unexpected NumPy version: $($probe.numpy)" }
 if ([string]$probe.scipy -ne $scipyVersion) { throw "Unexpected SciPy version: $($probe.scipy)" }
 if ([string]$probe.chumpy -ne $chumpyVersion) { throw "Unexpected Chumpy version: $($probe.chumpy)" }
@@ -302,6 +305,7 @@ $setupReceipt = [ordered]@{
     distribution = $Distribution
     linux_python = $LinuxPython
     pytorch3d_commit = $pytorch3dCommit
+    expected_cuda_version = $expectedCudaVersion
     requested_versions = [ordered]@{
         torch = $torchVersion
         torchvision = $torchvisionVersion
