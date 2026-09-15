@@ -58,6 +58,7 @@ bodyrig-photoreal-identity-calibration-extract = "bodyrig.photoreal_identity_cal
 bodyrig-photoreal-identity-calibrate = "bodyrig.photoreal_identity_calibration_cli:main"
 bodyrig-photoreal-model-set-digest = "bodyrig.photoreal_model_set_cli:main"
 bodyrig-photoreal-frame-analyze = "bodyrig.photoreal_frame_analyzer_cli:main"
+bodyrig-photoreal-frame-authorize-identity = "bodyrig.photoreal_frame_identity_authority_cli:main"
 bodyrig-photoreal-frame-index = "bodyrig.photoreal_frame_index_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
