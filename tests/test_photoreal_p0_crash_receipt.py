@@ -11,6 +11,7 @@ from bodyrig.photoreal_p0_crash_receipt import (
     P0_OUTPUTS,
     PhotorealP0CrashReceiptError,
     build_p0_crash_receipt,
+    read_p0_crash_receipt,
     validate_p0_crash_receipt,
     write_p0_crash_receipt,
 )
@@ -52,11 +53,33 @@ def test_crash_receipt_records_partial_outputs_without_granting_authority(tmp_pa
     assert validated["production_activation"] is False
 
 
+def test_crash_receipt_persists_and_reads_back_after_sorted_json_serialization(tmp_path: Path) -> None:
+    root = tmp_path / "p0"
+    root.mkdir()
+    for relative in P0_OUTPUTS[:3]:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
+    receipt = build_p0_crash_receipt(
+        bodyrig_revision="b" * 40,
+        performer_id="42",
+        failed_stage_number=0,
+        failed_stage_label="isolated-p0-child-process",
+        error_message="unexpected child failure",
+        output_root=root,
+    )
+    output = tmp_path / "receipt.json"
+    write_p0_crash_receipt(receipt, output)
+    loaded = read_p0_crash_receipt(output)
+    assert loaded["artifact_present_count"] == 3
+    assert loaded["p0_crash_receipt_sha256"] == receipt["p0_crash_receipt_sha256"]
+
+
 def test_crash_receipt_is_create_only(tmp_path: Path) -> None:
     root = tmp_path / "p0"
     root.mkdir()
     receipt = build_p0_crash_receipt(
-        bodyrig_revision="b" * 40,
+        bodyrig_revision="c" * 40,
         performer_id="42",
         failed_stage_number=0,
         failed_stage_label="isolated-p0-child-process",
@@ -73,7 +96,7 @@ def test_crash_receipt_rejects_boolean_version_even_when_resealed(tmp_path: Path
     root = tmp_path / "p0"
     root.mkdir()
     receipt = build_p0_crash_receipt(
-        bodyrig_revision="c" * 40,
+        bodyrig_revision="d" * 40,
         performer_id="42",
         failed_stage_number=0,
         failed_stage_label="isolated-p0-child-process",
@@ -90,7 +113,7 @@ def test_crash_receipt_rejects_resealed_authority_escalation(tmp_path: Path) -> 
     root = tmp_path / "p0"
     root.mkdir()
     receipt = build_p0_crash_receipt(
-        bodyrig_revision="d" * 40,
+        bodyrig_revision="e" * 40,
         performer_id="42",
         failed_stage_number=0,
         failed_stage_label="isolated-p0-child-process",
@@ -108,7 +131,7 @@ def test_crash_receipt_rejects_resealed_artifact_count_mismatch(tmp_path: Path) 
     root = tmp_path / "p0"
     root.mkdir()
     receipt = build_p0_crash_receipt(
-        bodyrig_revision="e" * 40,
+        bodyrig_revision="f" * 40,
         performer_id="42",
         failed_stage_number=0,
         failed_stage_label="isolated-p0-child-process",
