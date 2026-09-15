@@ -1,0 +1,129 @@
+param(
+    [Parameter(Mandatory = $true)][string]$PerformerId,
+    [Parameter(Mandatory = $true)][string]$OutputRoot,
+    [string]$ModelRoot = "",
+    [string]$StashUrl = "",
+    [string]$ApiKeyEnv = "STASH_API_KEY",
+    [string]$PathMap = "",
+    [string]$BodyRigPython = "",
+    [double]$EvalFraction = 0.20,
+    [string]$SplitSeed = "bodyrig-photoreal-v2",
+    [string]$Distribution = "Ubuntu-22.04",
+    [string]$LinuxPython = "/opt/bodyrig-photoreal/bin/python",
+    [string]$VisionDevice = "cuda:0",
+    [switch]$AcceptInsightFaceResearchLicense,
+    [switch]$RepairReferenceModels,
+    [switch]$RepairReferenceEnvironment
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Need-File {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Read-Json {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100 }
+    catch { throw "$Label is unreadable JSON: $Path" }
+}
+
+$repoRoot = (Resolve-Path $PSScriptRoot).Path
+$modelSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-models.ps1") -Label "Photoreal model setup"
+$wslSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-wsl.ps1") -Label "Photoreal WSL setup"
+$runner = Need-File -Path (Join-Path $repoRoot "run-photoreal-p0-reference-windows.ps1") -Label "Photoreal reference P0 runner"
+
+$headRaw = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+if ($LASTEXITCODE -ne 0 -or $headRaw.Count -ne 1) { throw "Could not resolve BodyRig HEAD." }
+$head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
+if ($head -notmatch '^[0-9a-f]{40}$') { throw "BodyRig HEAD is invalid." }
+$dirty = @(& git -C $repoRoot status --porcelain 2>&1)
+if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) { throw "Photoreal V2 reference entrypoint requires an exact clean BodyRig checkout." }
+
+if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required on Windows." }
+if ([string]::IsNullOrWhiteSpace($ModelRoot)) {
+    $ModelRoot = Join-Path $env:LOCALAPPDATA "BodyRig\photoreal-v2\reference-models"
+}
+$ModelRoot = [IO.Path]::GetFullPath($ModelRoot)
+
+$manifestPath = Join-Path $ModelRoot "bodyrig-reference-vision-v1.json"
+$provenancePath = Join-Path $ModelRoot "source-provenance.json"
+$runtimeReceiptPath = Join-Path $ModelRoot "runtime-environment.json"
+
+$modelReady = (Test-Path -LiteralPath $manifestPath -PathType Leaf) -and (Test-Path -LiteralPath $provenancePath -PathType Leaf)
+if ($RepairReferenceModels -or -not $modelReady) {
+    if ((Test-Path -LiteralPath $ModelRoot) -and -not $RepairReferenceModels -and -not $modelReady) {
+        throw "Photoreal reference model root exists but is incomplete: $ModelRoot. Re-run with -RepairReferenceModels after reviewing the model license."
+    }
+    if (-not $AcceptInsightFaceResearchLicense) {
+        throw "First-time/reference-model repair requires explicit -AcceptInsightFaceResearchLicense after you have reviewed and accepted the buffalo_l research/non-commercial model license."
+    }
+    $modelArgs = @{
+        ModelRoot = $ModelRoot
+        AcceptInsightFaceResearchLicense = $true
+    }
+    if ($RepairReferenceModels -and (Test-Path -LiteralPath $ModelRoot)) { $modelArgs.Force = $true }
+    & $modelSetup @modelArgs
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or -not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+        throw "Photoreal reference model setup returned without a complete model root."
+    }
+    if ($RepairReferenceModels) { $RepairReferenceEnvironment = $true }
+}
+
+$runtimeReady = Test-Path -LiteralPath $runtimeReceiptPath -PathType Leaf
+if ($runtimeReady -and -not $RepairReferenceEnvironment) {
+    $receipt = Read-Json -Path $runtimeReceiptPath -Label "Photoreal runtime environment receipt"
+    if ([string]$receipt.format -ne "bodyrig-photoreal-reference-runtime-environment" -or [int]$receipt.version -ne 1) {
+        throw "Photoreal runtime environment receipt format/version mismatch. Re-run with -RepairReferenceEnvironment."
+    }
+    if ([string]$receipt.distribution -ne $Distribution -or [string]$receipt.linux_python -ne $LinuxPython) {
+        throw "Photoreal runtime environment receipt targets a different WSL/Python. Re-run with -RepairReferenceEnvironment to rebuild intentionally."
+    }
+    if ($receipt.build_only -ne $true -or $receipt.production_activation -ne $false) {
+        throw "Photoreal runtime environment receipt crossed its authority boundary."
+    }
+} else {
+    $wslArgs = @{
+        ModelRoot = $ModelRoot
+        Distribution = $Distribution
+        LinuxPython = $LinuxPython
+    }
+    if ($RepairReferenceEnvironment) { $wslArgs.Force = $true }
+    & $wslSetup @wslArgs
+    if (-not (Test-Path -LiteralPath $runtimeReceiptPath -PathType Leaf)) {
+        throw "Photoreal reference WSL setup returned without a runtime environment receipt."
+    }
+}
+
+Write-Host ""
+Write-Host "============================================================"
+Write-Host "BODYRIG PHOTOREAL V2 - ONE COMMAND ENTRYPOINT"
+Write-Host "Revision:          $head"
+Write-Host "Performer:         $PerformerId"
+Write-Host "Model root:        $ModelRoot"
+Write-Host "WSL:               $Distribution"
+Write-Host "Linux Python:      $LinuxPython"
+Write-Host "Reconstruction:    FALSE"
+Write-Host "Photoreal accept:  FALSE"
+Write-Host "Production:        FALSE"
+Write-Host "============================================================"
+
+$runArgs = @{
+    PerformerId = $PerformerId
+    OutputRoot = $OutputRoot
+    ModelRoot = $ModelRoot
+    ApiKeyEnv = $ApiKeyEnv
+    EvalFraction = $EvalFraction
+    SplitSeed = $SplitSeed
+    Distribution = $Distribution
+    LinuxPython = $LinuxPython
+    VisionDevice = $VisionDevice
+}
+if (-not [string]::IsNullOrWhiteSpace($StashUrl)) { $runArgs.StashUrl = $StashUrl }
+if (-not [string]::IsNullOrWhiteSpace($PathMap)) { $runArgs.PathMap = $PathMap }
+if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $runArgs.BodyRigPython = $BodyRigPython }
+
+& $runner @runArgs
