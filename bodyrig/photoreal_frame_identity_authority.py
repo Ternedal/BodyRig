@@ -229,6 +229,7 @@ def authorize_frame_identities(
 
     prepared: list[dict[str, Any]] = []
     person_counts: dict[tuple[str, str, str, str], int] = {}
+    threshold_matches: dict[tuple[str, str, str, str], list[str]] = {}
     seen_candidates: set[tuple[tuple[str, str, str, str], str]] = set()
     for raw in values:
         if not isinstance(raw, Mapping):
@@ -261,6 +262,8 @@ def authorize_frame_identities(
                 raise PhotorealFrameIdentityAuthorityError("identity embedding cannot be available without a detected person")
             embedding = _embedding(embedding_raw, dimension=dimension, label="frame identity embedding")
             similarity = _cosine(embedding, centroid)
+            if calibrated_matching and threshold is not None and similarity >= threshold:
+                threshold_matches.setdefault(sample_key, []).append(candidate_id)
         elif status == "unavailable":
             if embedding_raw is not None:
                 raise PhotorealFrameIdentityAuthorityError("unavailable identity measurement must have null embedding")
@@ -280,14 +283,22 @@ def authorize_frame_identities(
         )
 
     authorized_observations: list[dict[str, Any]] = []
+    ambiguous_sample_count = 0
+    ambiguous_samples_seen: set[tuple[str, str, str, str]] = set()
     for prepared_item in prepared:
         raw = prepared_item["raw"]
         source = prepared_item["source"]
         sample_key = prepared_item["sample_key"]
+        candidate_id = str(prepared_item["candidate_id"])
         person_detected = bool(prepared_item["person_detected"])
         similarity = prepared_item["similarity"]
         status = str(prepared_item["status"])
         measured_people = person_counts.get(sample_key, 0)
+        matched_candidates = threshold_matches.get(sample_key, [])
+        identity_ambiguous = len(matched_candidates) > 1
+        if identity_ambiguous and sample_key not in ambiguous_samples_seen:
+            ambiguous_samples_seen.add(sample_key)
+            ambiguous_sample_count += 1
 
         if not person_detected:
             target_verified = False
@@ -295,7 +306,12 @@ def authorize_frame_identities(
         elif _source_authoritative(source) and measured_people == 1:
             target_verified = True
             authority = SOURCE_AUTHORITY
-        elif calibrated_matching and similarity is not None and threshold is not None and similarity >= threshold:
+        elif (
+            calibrated_matching
+            and not identity_ambiguous
+            and len(matched_candidates) == 1
+            and matched_candidates[0] == candidate_id
+        ):
             target_verified = True
             authority = CALIBRATED_AUTHORITY
         else:
@@ -308,6 +324,7 @@ def authorize_frame_identities(
                 "identity_measurement_status": status,
                 "identity_similarity": None if similarity is None else round(float(similarity), 9),
                 "measured_person_candidate_count": measured_people,
+                "identity_sample_ambiguous": identity_ambiguous,
                 "target_identity_verified": target_verified,
                 "identity_authority": authority,
             }
@@ -327,6 +344,7 @@ def authorize_frame_identities(
         ),
         "identity_matching_calibrated": calibrated_matching,
         "identity_match_threshold": threshold,
+        "identity_ambiguous_sample_count": ambiguous_sample_count,
         "observations": authorized_observations,
         "identity_authority_is_core_derived": True,
         "multi_candidate_identity_safe": True,
