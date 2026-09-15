@@ -4,6 +4,8 @@ import copy
 
 import pytest
 
+from bodyrig.photoreal_identity_calibration import _canonical_calibration_digest
+from bodyrig.photoreal_identity_calibration_authority import bind_negative_inventory_provenance
 from bodyrig.photoreal_frame_identity_authority import (
     PhotorealFrameIdentityAuthorityError,
     authorize_frame_identities,
@@ -65,22 +67,41 @@ def _bank() -> dict[str, object]:
 
 
 def _calibration(*, authorized: bool = True) -> dict[str, object]:
-    return {
+    calibration: dict[str, object] = {
         "format": "bodyrig-photoreal-identity-calibration",
         "version": 1,
+        "target_performer_id": "42",
         "identity_bank_sha256": "d" * 64,
         "model_set_sha256": "c" * 64,
+        "extractor": "identity-test",
+        "extractor_revision": "r1",
+        "embedding_dimension": 32,
+        "positive_reference_count": 4,
+        "positive_group_count": 2,
+        "negative_observation_count": 8,
+        "negative_performer_count": 2,
+        "positive_leave_group_out_cosine_min": 0.95,
+        "positive_leave_group_out_cosine_median": 0.96,
+        "positive_leave_group_out_cosine_max": 0.97,
+        "negative_to_target_centroid_cosine_min": 0.10,
+        "negative_to_target_centroid_cosine_median": 0.20,
+        "negative_to_target_centroid_cosine_max": 0.30,
+        "minimum_required_separation_margin": 0.05,
+        "observed_separation_margin": 0.65,
+        "threshold_derivation": "midpoint-positive-floor-negative-ceiling-v1",
         "identity_matching_authorized": authorized,
         "match_threshold_calibrated": authorized,
         "match_threshold": 0.8 if authorized else None,
         "calibration_blockers": [] if authorized else ["insufficient separation"],
-        "identity_calibration_sha256": "e" * 64,
+        "calibration_data_teacher_input": False,
         "teacher_training_authorized": False,
         "photoreal_acceptance_authority": False,
         "build_only": True,
         "runtime_dependency": False,
         "production_activation": False,
     }
+    calibration["identity_calibration_sha256"] = _canonical_calibration_digest(calibration)
+    return bind_negative_inventory_provenance(calibration, "e" * 64)
 
 
 def _observation(
@@ -286,3 +307,19 @@ def test_available_embedding_must_match_bank_dimension() -> None:
 
     with pytest.raises(PhotorealFrameIdentityAuthorityError, match="dimension mismatch"):
         authorize_frame_identities(_plan(), measurements, _bank(), _calibration())
+
+
+def test_frame_identity_rejects_tampered_calibration_after_sealing() -> None:
+    calibration = _calibration()
+    calibration["match_threshold"] = 0.7
+
+    with pytest.raises(PhotorealFrameIdentityAuthorityError, match="core canonical digest mismatch"):
+        authorize_frame_identities(_plan(), _measurements(), _bank(), calibration)
+
+
+def test_frame_identity_rejects_tampered_calibration_provenance_digest() -> None:
+    calibration = _calibration()
+    calibration["negative_inventory_sha256"] = "f" * 64
+
+    with pytest.raises(PhotorealFrameIdentityAuthorityError, match="provenance digest mismatch"):
+        authorize_frame_identities(_plan(), _measurements(), _bank(), calibration)
