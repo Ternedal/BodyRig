@@ -72,8 +72,7 @@ Write-Host "GPU: $([string]$nvidia[0])"
 
 # PyTorch3D and the pinned Gaussian rasterizer are CUDA extensions. Do not
 # silently install Ubuntu 22.04's old nvidia-cuda-toolkit. The compiler major
-# and minor must match the pinned Torch CUDA runtime exactly; PyTorch3D has
-# documented failures when nvcc and torch.version.cuda differ.
+# and minor must match the pinned Torch CUDA runtime exactly.
 & $WslExe -d $Distribution -- /usr/bin/which nvcc 1>$null 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "nvcc is not available in WSL. Install a CUDA toolkit compatible with the pinned Torch CUDA runtime before ExAvatar setup; BodyRig will not install Ubuntu's legacy nvidia-cuda-toolkit automatically."
@@ -107,12 +106,14 @@ Invoke-Wsl -Root -Arguments @(
     "torch==$torchVersion", "torchvision==$torchvisionVersion",
     "--index-url", "https://download.pytorch.org/whl/cu124"
 )
+
+# Install non-OpenMMLab runtime dependencies first. Keep MMDetection/MMPose
+# out of this resolver pass so they cannot select a different MMCV variant.
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
     "numpy==$numpyVersion", "scipy==$scipyVersion", "opencv-python==$opencvVersion",
     "smplx==$smplxVersion", "lpips==$lpipsVersion",
     "openmim==$openmimVersion", "mmengine==$mmengineVersion",
-    "mmdet==$mmdetVersion", "mmpose==$mmposeVersion",
     "kornia==0.8.0", "yacs==0.1.8", "face-alignment==1.3.4",
     "timm==1.0.15", "einops==0.8.1", "tqdm==4.67.1", "pillow==10.4.0",
     "torchgeometry==0.1.2", "plyfile==1.1", "scikit-image==0.25.2", "PyYAML==6.0.2",
@@ -125,7 +126,13 @@ Invoke-Wsl -Root -Arguments @(
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
 )
+
+# OpenMMLab's documented order is MMEngine -> MMCV -> MMDetection/MMPose.
+# Pin every layer and run pip check before compiling PyTorch3D.
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmcv==$mmcvVersion")
+Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
 # Pin PyTorch3D to exact public source bytes. The runtime preflight later runs
 # a CUDA smoke test; installation success alone is not authority.
@@ -283,6 +290,7 @@ if ([string]$probe.chumpy -ne $chumpyVersion) { throw "Unexpected Chumpy version
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
 if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
+if ([string]$probe.mmpose -ne $mmposeVersion) { throw "Unexpected MMPose version: $($probe.mmpose)" }
 if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true) {
     throw "ExAvatar runtime smoke did not pass."
 }
@@ -339,6 +347,7 @@ Write-Host "Torch:           $($probe.torch)"
 Write-Host "CUDA:            $($probe.torch_cuda)"
 Write-Host "GPU:             $($probe.gpu)"
 Write-Host "PyTorch3D:       PINNED $pytorch3dCommit"
+Write-Host "OpenMMLab:       MMCV $($probe.mmcv) / MMDet $($probe.mmdet) / MMPose $($probe.mmpose)"
 Write-Host "Chumpy:          $($probe.chumpy) PATCHED + SMOKE PASS"
 Write-Host "torchgeometry:   PATCHED + SMOKE PASS"
 Write-Host "Receipt:         $receipt"
