@@ -16,19 +16,27 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--identity-bank", type=Path, required=True)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--negative-observations", type=Path, required=True)
-    parser.add_argument("--negative-inventory", type=Path, required=True)
+    parser.add_argument(
+        "--negative-inventory",
+        type=Path,
+        default=None,
+        help="Negative inventory to revalidate. Defaults to identity-negative-inventory.json beside --plan.",
+    )
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    negative_inventory = args.negative_inventory
+    if negative_inventory is None:
+        negative_inventory = args.plan.parent / "identity-negative-inventory.json"
     try:
         result = build_identity_calibration_authorized_files(
             args.identity_bank,
             args.plan,
             args.negative_observations,
-            args.negative_inventory,
+            negative_inventory,
             args.out,
         )
     except PhotorealIdentityCalibrationError as exc:
