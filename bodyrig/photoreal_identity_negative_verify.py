@@ -76,6 +76,20 @@ def _required_text(value: Any, *, label: str) -> str:
     return value.strip()
 
 
+def canonical_identity_negative_inventory_sha256(inventory: Mapping[str, Any]) -> str:
+    """Return the semantic canonical digest used to bind negative inventory lineage."""
+    try:
+        raw = json.dumps(
+            dict(inventory),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise PhotorealIdentityNegativeVerifyError("identity negative inventory is not canonical JSON") from exc
+    return hashlib.sha256(raw).hexdigest()
+
+
 def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]], int]:
     version = inventory.get("version")
     if (
@@ -124,6 +138,7 @@ def verify_identity_negative_sources(
     hash_file: HashFile | None = None,
 ) -> dict[str, Any]:
     target, values, expected_negative_performer_count = _validate_inventory(inventory)
+    inventory_sha256 = canonical_identity_negative_inventory_sha256(inventory)
     exists = exists_file or (lambda path: path.is_file())
     size_of = file_size or (lambda path: path.stat().st_size)
     hasher = hash_file or _sha256
@@ -239,6 +254,7 @@ def verify_identity_negative_sources(
         "format": FORMAT,
         "version": VERSION,
         "target_performer_id": target,
+        "negative_inventory_sha256": inventory_sha256,
         "label_authority": LABEL_AUTHORITY,
         "negative_performer_count": len(negative_subjects),
         "source_count": len(verified),
