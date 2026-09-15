@@ -30,14 +30,26 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
-    result = str(value or "").strip()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochHandoffError(f"{label} is invalid")
+    result = value.strip()
     if not result or len(result) > maximum:
         raise PhotorealAppearanceEpochHandoffError(f"{label} is invalid")
     return result
 
 
+def _optional_text(value: Any, *, label: str, maximum: int = 4096) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str) or len(value) > maximum:
+        raise PhotorealAppearanceEpochHandoffError(f"{label} is invalid")
+    return value
+
+
 def _sha(value: Any, *, label: str) -> str:
-    result = str(value or "").strip().lower()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochHandoffError(f"{label} is invalid")
+    result = value.strip().lower()
     if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealAppearanceEpochHandoffError(f"{label} is invalid")
     return result
@@ -106,7 +118,7 @@ def build_appearance_epoch_review_handoff(
         raise PhotorealAppearanceEpochHandoffError("appearance epoch plan already contains an epoch selection")
 
     performer_id = _text(plan.get("performer_id"), label="performer id", maximum=256)
-    performer_name = str(plan.get("performer_name") or "")
+    performer_name = _optional_text(plan.get("performer_name"), label="performer name")
     plan_sha = _validate_plan_digest(plan)
     evidence_sha = _sha(plan.get("evidence_sha256"), label="appearance epoch evidence SHA-256")
     model_set_sha = _sha(
@@ -260,11 +272,11 @@ def build_appearance_epoch_review_handoff_files(
     if review_output.exists():
         raise PhotorealAppearanceEpochHandoffError(f"appearance epoch review template already exists: {review_output}")
 
-    handoff_output.parent.mkdir(parents=True, exist_ok=True)
-    review_output.parent.mkdir(parents=True, exist_ok=True)
     review_created = False
     handoff_created = False
     try:
+        handoff_output.parent.mkdir(parents=True, exist_ok=True)
+        review_output.parent.mkdir(parents=True, exist_ok=True)
         with review_output.open("x", encoding="utf-8") as handle:
             review_created = True
             handle.write(json.dumps(review_template, indent=2, sort_keys=True, allow_nan=False) + "\n")
