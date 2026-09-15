@@ -61,7 +61,7 @@ try {
     $buffaloSource = $recognizer.Directory.FullName
     $buffaloTarget = Join-Path $ModelRoot "insightface\models\buffalo_l"
     New-Item -ItemType Directory -Path $buffaloTarget -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $buffaloSource "*") -Destination $buffaloTarget -Force -ErrorAction Stop
+    Copy-Item -Path (Join-Path $buffaloSource "*") -Destination $buffaloTarget -Force -ErrorAction Stop
 
     $weightsDir = Join-Path $ModelRoot "weights"
     $poseConfigDir = Join-Path $ModelRoot "configs\wholebody_2d_keypoint\rtmpose\ubody"
