@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
                 "format": result["format"],
                 "version": result["version"],
                 "target_performer_id": result["target_performer_id"],
+                "negative_inventory_sha256": result["negative_inventory_sha256"],
                 "negative_performer_count": result["negative_performer_count"],
                 "source_count": result["source_count"],
                 "total_bytes": result["total_bytes"],
