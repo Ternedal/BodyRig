@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ ADAPTER_PATH = ROOT / "tools" / "photoreal_reference_vision_adapter.py"
 SPEC = importlib.util.spec_from_file_location("bodyrig_photoreal_reference_vision_adapter_test", ADAPTER_PATH)
 assert SPEC is not None and SPEC.loader is not None
 adapter = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = adapter
 SPEC.loader.exec_module(adapter)
 
 
