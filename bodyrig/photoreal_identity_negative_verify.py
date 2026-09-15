@@ -54,7 +54,13 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]]]:
-    if inventory.get("format") != INVENTORY_FORMAT or inventory.get("version") != INVENTORY_VERSION:
+    version = inventory.get("version")
+    if (
+        inventory.get("format") != INVENTORY_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != INVENTORY_VERSION
+    ):
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory format/version mismatch")
     if inventory.get("label_authority") != LABEL_AUTHORITY:
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory label authority mismatch")
@@ -66,9 +72,10 @@ def _validate_inventory(inventory: Mapping[str, Any]) -> tuple[str, list[Mapping
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory authority boundary is invalid")
     if inventory.get("production_activation") is not False:
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory crossed production authority")
-    target = str(inventory.get("target_performer_id") or "").strip()
-    if not target:
+    raw_target = inventory.get("target_performer_id")
+    if not isinstance(raw_target, str) or not raw_target.strip():
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory target performer is missing")
+    target = raw_target.strip()
     values = inventory.get("sources")
     if not isinstance(values, list) or not values:
         raise PhotorealIdentityNegativeVerifyError("identity negative inventory contains no sources")
