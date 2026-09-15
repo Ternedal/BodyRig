@@ -78,6 +78,7 @@ bodyrig-photoreal-motion-materialize = "bodyrig.photoreal_motion_reference_mater
 bodyrig-photoreal-animated-teacher-review = "bodyrig.photoreal_animated_teacher_review_cli:main"
 bodyrig-photoreal-device-distillation-plan = "bodyrig.photoreal_device_distillation_plan_cli:main"
 bodyrig-photoreal-device-distillation-run = "bodyrig.photoreal_device_distillation_runner_cli:main"
+bodyrig-photoreal-device-runtime-review-plan = "bodyrig.photoreal_device_runtime_review_plan_cli:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
