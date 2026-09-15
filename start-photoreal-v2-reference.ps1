@@ -57,6 +57,14 @@ function Test-NumericV1 {
     return (-not [double]::IsNaN($number)) -and (-not [double]::IsInfinity($number)) -and $number -eq 1.0
 }
 
+function Test-StrictBoolean {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory = $true)][bool]$Expected
+    )
+    return ($Value -is [bool]) -and ($Value -eq $Expected)
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $modelSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-models.ps1") -Label "Photoreal model setup"
 $wslSetup = Need-File -Path (Join-Path $repoRoot "setup-photoreal-reference-wsl.ps1") -Label "Photoreal WSL setup"
@@ -68,6 +76,17 @@ $head = ([string]$headRaw[0]).Trim().ToLowerInvariant()
 if ($head -notmatch '^[0-9a-f]{40}$') { throw "BodyRig HEAD is invalid." }
 $dirty = @(& git -C $repoRoot status --porcelain 2>&1)
 if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) { throw "Photoreal V2 reference entrypoint requires an exact clean BodyRig checkout." }
+
+if ([string]::IsNullOrWhiteSpace($PerformerId)) { throw "PerformerId is required." }
+if ([string]::IsNullOrWhiteSpace($OutputRoot)) { throw "OutputRoot is required." }
+$OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
+if (Test-Path -LiteralPath $OutputRoot) {
+    throw "Photoreal P0 output root already exists: $OutputRoot. Use a new empty output root for every P0 attempt."
+}
+if ([string]::IsNullOrWhiteSpace($ApiKeyEnv)) { throw "ApiKeyEnv is required." }
+if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($ApiKeyEnv))) {
+    throw "Stash API key environment variable '$ApiKeyEnv' is missing in this PowerShell process."
+}
 
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required on Windows." }
 if ([string]::IsNullOrWhiteSpace($ModelRoot)) {
@@ -108,7 +127,8 @@ if ($runtimeReady -and -not $RepairReferenceEnvironment) {
     if ([string]$receipt.distribution -ne $Distribution -or [string]$receipt.linux_python -ne $LinuxPython) {
         throw "Photoreal runtime environment receipt targets a different WSL/Python. Re-run with -RepairReferenceEnvironment to rebuild intentionally."
     }
-    if ($receipt.build_only -ne $true -or $receipt.production_activation -ne $false) {
+    if (-not (Test-StrictBoolean -Value $receipt.build_only -Expected $true) -or
+        -not (Test-StrictBoolean -Value $receipt.production_activation -Expected $false)) {
         throw "Photoreal runtime environment receipt crossed its authority boundary."
     }
 } else {
