@@ -130,17 +130,6 @@ def build_human_review_record(
     plan_sha = _validate_digest(plan, "appearance_epoch_plan_sha256", label="appearance epoch plan")
     _validate_digest(handoff, "appearance_epoch_review_handoff_sha256", label="appearance epoch review handoff")
 
-    try:
-        canonical_handoff, _ = build_appearance_epoch_review_handoff(plan)
-    except PhotorealAppearanceEpochHandoffError as exc:
-        raise PhotorealAppearanceEpochReviewRecorderError(
-            f"appearance epoch plan cannot regenerate the canonical review handoff: {exc}"
-        ) from exc
-    if dict(handoff) != canonical_handoff:
-        raise PhotorealAppearanceEpochReviewRecorderError(
-            "appearance epoch review handoff is not canonical for the supplied plan"
-        )
-
     performer_id = _text(plan.get("performer_id"), label="plan performer id", maximum=256)
     if _text(handoff.get("performer_id"), label="handoff performer id", maximum=256) != performer_id:
         raise PhotorealAppearanceEpochReviewRecorderError("appearance epoch handoff performer mismatch")
@@ -162,6 +151,17 @@ def build_human_review_record(
         raise PhotorealAppearanceEpochReviewRecorderError("appearance epoch handoff crossed teacher authority")
     if handoff.get("photoreal_acceptance_authority") is not False or handoff.get("production_activation") is not False:
         raise PhotorealAppearanceEpochReviewRecorderError("appearance epoch handoff crossed downstream authority")
+
+    try:
+        canonical_handoff, _ = build_appearance_epoch_review_handoff(plan)
+    except PhotorealAppearanceEpochHandoffError as exc:
+        raise PhotorealAppearanceEpochReviewRecorderError(
+            f"appearance epoch plan cannot regenerate the canonical review handoff: {exc}"
+        ) from exc
+    if dict(handoff) != canonical_handoff:
+        raise PhotorealAppearanceEpochReviewRecorderError(
+            "appearance epoch review handoff is not canonical for the supplied plan"
+        )
 
     if approve_human_review is not True:
         raise PhotorealAppearanceEpochReviewRecorderError("explicit --approve-human-review is required")
