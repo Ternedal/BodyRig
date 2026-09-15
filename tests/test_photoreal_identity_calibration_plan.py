@@ -37,6 +37,7 @@ def _receipt() -> dict[str, object]:
         "format": "bodyrig-photoreal-identity-negative-receipt",
         "version": 1,
         "target_performer_id": "42",
+        "negative_inventory_sha256": "e" * 64,
         "label_authority": "stash-single-performer-other-id-v1",
         "sources": [
             {
@@ -86,6 +87,7 @@ def test_calibration_plan_is_byte_model_and_bank_bound() -> None:
 
     assert result["target_performer_id"] == "42"
     assert result["identity_bank_sha256"] == "d" * 64
+    assert result["negative_inventory_sha256"] == "e" * 64
     assert result["model_set_sha256"] == "c" * 64
     assert result["extractor"] == "identity-test"
     assert result["extractor_revision"] == "r1"
@@ -154,3 +156,11 @@ def test_calibration_plan_rejects_model_or_bank_hash_corruption() -> None:
 
     with pytest.raises(PhotorealIdentityCalibrationPlanError, match="identity bank SHA-256"):
         build_identity_calibration_plan(bank, _receipt())
+
+
+def test_calibration_plan_rejects_missing_inventory_digest() -> None:
+    receipt = copy.deepcopy(_receipt())
+    receipt.pop("negative_inventory_sha256")
+
+    with pytest.raises(PhotorealIdentityCalibrationPlanError, match="inventory SHA-256"):
+        build_identity_calibration_plan(_bank(), receipt)
