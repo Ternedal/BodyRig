@@ -19,6 +19,7 @@
     "observations",
     "identity_authority_is_core_derived",
     "multi_candidate_identity_safe",
+    "frame_identity_authority_sha256",
     "photoreal_acceptance_authority",
     "build_only",
     "production_activation"
@@ -48,6 +49,7 @@
     },
     "identity_authority_is_core_derived": {"const": true},
     "multi_candidate_identity_safe": {"const": true},
+    "frame_identity_authority_sha256": {"$ref": "#/$defs/sha256"},
     "photoreal_acceptance_authority": {"const": false},
     "build_only": {"const": true},
     "production_activation": {"const": false}
