@@ -18,6 +18,7 @@ MAX_VIDEO_SCOUT_SAMPLES = 120
 MAX_TOTAL_PLANNED_OBSERVATIONS = 120_000
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
 KNOWN_PROJECTIONS = {"flat", "vr180", "vr360", "equirectangular"}
+IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
 
 
 class PhotorealScanPlanError(ValueError):
@@ -185,6 +186,8 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
 
 def _identity_bootstrap_eligible(source: Mapping[str, Any]) -> bool:
     if source["split"] != "train" or int(source["performer_count"]) != 1:
+        return False
+    if source.get("decode_mode") not in IDENTITY_BOOTSTRAP_DECODE_MODES:
         return False
     if source["kind"] == "video":
         return source["source_binding"] == "scene-performer"
