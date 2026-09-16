@@ -115,6 +115,10 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
     layout = _text(planned_layout, label="dataset stereo layout", maximum=128)
     observed_layout: str | None = None
     if probe.get("st3d_present") is True:
+        if probe.get("st3d_version") != 0 or probe.get("st3d_flags") != 0:
+            raise PhotorealProjectionAuthorityError(
+                "ambiguous projection source uses unsupported Spherical V2 stereo box semantics"
+            )
         observed_mode = str(probe.get("stereo_mode") or "").strip()
         observed_layout = V2_STEREO_TO_LAYOUT.get(observed_mode)
         if observed_layout is None:
