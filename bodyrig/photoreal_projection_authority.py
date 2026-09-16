@@ -31,6 +31,13 @@ def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
     return result
 
 
+def _fourcc(value: Any, *, label: str) -> str:
+    result = str(value or "")
+    if len(result) != 4:
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid")
+    return result
+
+
 def _sha(value: Any, *, label: str) -> str:
     result = str(value or "").strip().lower()
     if len(result) != 64 or any(character not in "0123456789abcdef" for character in result):
@@ -257,7 +264,7 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
         mesh_crc = str(probe.get("mesh_projection_crc32") or "").strip().lower()
         if len(mesh_crc) != 8 or any(character not in "0123456789abcdef" for character in mesh_crc):
             raise PhotorealProjectionAuthorityError("Spherical V2 mesh CRC is invalid")
-        mesh_encoding = _text(probe.get("mesh_projection_encoding"), label="Spherical V2 mesh encoding", maximum=4)
+        mesh_encoding = _fourcc(probe.get("mesh_projection_encoding"), label="Spherical V2 mesh encoding")
         if mesh_encoding not in {"raw ", "dfl8"}:
             raise PhotorealProjectionAuthorityError("Spherical V2 mesh encoding is unsupported")
         mesh_payload_bytes = _positive_int(probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size")
