@@ -55,7 +55,9 @@ def test_cli_wires_all_authority_inputs(monkeypatch, tmp_path: Path, capsys) -> 
     )
 
     assert code == 0
-    assert captured == paths
+    expected = dict(paths)
+    expected["output"] = expected.pop("out")
+    assert captured == expected
     payload = json.loads(capsys.readouterr().out)
     assert payload["format"] == "bodyrig-photoreal-frame-authorized-observations"
     assert payload["target_identity_verified_count"] == 1
