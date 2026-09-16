@@ -22,8 +22,8 @@ def test_gaussianavatar_public_code_setup_is_atomic_and_clean() -> None:
 
 
 def test_gaussianavatar_public_code_setup_never_downloads_model_assets_or_grants_authority() -> None:
-    assert 'automatic_model_asset_download = False' in SCRIPT
-    assert 'production_dependency_authorized = False' in SCRIPT
-    assert 'photoreal_acceptance_authority = False' in SCRIPT
+    assert '"automatic_model_asset_download": False' in SCRIPT
+    assert '"production_dependency_authorized": False' in SCRIPT
+    assert '"photoreal_acceptance_authority": False' in SCRIPT
     assert 'Model assets:       NOT DOWNLOADED' in SCRIPT
     assert 'Production:          FALSE' in SCRIPT
