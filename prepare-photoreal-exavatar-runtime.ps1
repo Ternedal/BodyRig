@@ -27,7 +27,7 @@ function Invoke-Wsl {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
     & $WslExe -d $Distribution -- @Arguments
     $code = $LASTEXITCODE
-    if ($code -ne 0) { throw "WSL command failed with code $code: $($Arguments -join ' ')" }
+    if ($code -ne 0) { throw "WSL command failed with code ${code}: $($Arguments -join ' ')" }
 }
 
 Write-Host "============================================================"
