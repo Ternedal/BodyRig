@@ -143,7 +143,7 @@ try {
 }
 
 $SpatialProbePath = Need-File -Path $SpatialProbePath -Label "Diagnostic spatial metadata output"
-try { $probe = Get-Content -LiteralPath $SpatialProbePath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100 }
+try { $probe = Get-Content -LiteralPath $SpatialProbePath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Diagnostic spatial metadata output is unreadable JSON." }
 Assert-Diagnostic-Boundary -Probe $probe
 
@@ -188,7 +188,7 @@ if ($scanExit -ne 0) {
 }
 
 $DiagnosticScanPath = Need-File -Path $DiagnosticScanPath -Label "Diagnostic scout plan"
-try { $scan = Get-Content -LiteralPath $DiagnosticScanPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100 }
+try { $scan = Get-Content -LiteralPath $DiagnosticScanPath -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw "Diagnostic scout plan is unreadable JSON." }
 Assert-Scout-Diagnostic-Boundary -Scan $scan
 
