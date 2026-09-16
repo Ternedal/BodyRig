@@ -79,7 +79,7 @@ function Write-UnexpectedFailureStatus {
 
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $runner = Need-File -Path (Join-Path $repoRoot "run-photoreal-p0-windows.ps1") -Label "Photoreal P0 runner"
-$adapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_adapter.py") -Label "Photoreal reference vision adapter"
+$adapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_adapter_mesh.py") -Label "Photoreal reference vision mesh adapter"
 $probe = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_vision_probe.py") -Label "Photoreal reference vision probe"
 $pwsh = Need-File -Path (Join-Path $PSHOME "pwsh.exe") -Label "PowerShell 7 executable"
 $ModelRoot = Need-Directory -Path $ModelRoot -Label "Photoreal reference vision model root"
