@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -27,12 +28,11 @@ def _config(command: list[str]) -> dict[str, object]:
 
 
 def _teacher_input() -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "format": "bodyrig-photoreal-teacher-input",
         "version": 1,
         "performer_id": "42",
         "selected_epoch_id": "epoch-a",
-        "teacher_input_sha256": "a" * 64,
         "training_sources": [
             {
                 "source_key": "scene:t:E:/train.mp4",
@@ -74,6 +74,15 @@ def _teacher_input() -> dict[str, object]:
         "runtime_dependency": False,
         "production_activation": False,
     }
+    encoded = json.dumps(
+        result,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    result["teacher_input_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return result
 
 
 def test_teacher_request_never_discloses_held_out_paths_or_frame_hashes() -> None:
@@ -89,6 +98,17 @@ def test_teacher_request_never_discloses_held_out_paths_or_frame_hashes() -> Non
     assert request["train_evaluation_authority"] is False
     assert request["photoreal_acceptance_authority"] is False
     assert request["production_activation"] is False
+
+
+def test_teacher_request_rejects_tampered_teacher_input_digest() -> None:
+    teacher_input = _teacher_input()
+    training_sources = teacher_input["training_sources"]
+    assert isinstance(training_sources, list)
+    assert isinstance(training_sources[0], dict)
+    training_sources[0]["resolved_path"] = r"\\stash\VR_E\tampered.mp4"
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="teacher input digest mismatch"):
+        build_teacher_request(_config([sys.executable, "adapter.py"]), teacher_input)
 
 
 def test_real_child_process_teacher_contract_tracks_exact_training_consumption(tmp_path: Path) -> None:

@@ -48,6 +48,17 @@ def _sha(value: Any, *, label: str) -> str:
     return result
 
 
+def _digest(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _commit(value: Any, *, label: str) -> str:
     result = str(value or "").strip().lower()
     if len(result) != 40 or any(ch not in "0123456789abcdef" for ch in result):
@@ -130,6 +141,13 @@ def load_teacher_config(path: str | Path) -> dict[str, Any]:
 def _validate_teacher_input(value: Mapping[str, Any]) -> None:
     if value.get("format") != INPUT_FORMAT or value.get("version") != INPUT_VERSION:
         raise PhotorealTeacherRunnerError("teacher input format/version mismatch")
+    digest_payload = dict(value)
+    provided_digest = _sha(
+        digest_payload.pop("teacher_input_sha256", None),
+        label="teacher input SHA-256",
+    )
+    if _digest(digest_payload) != provided_digest:
+        raise PhotorealTeacherRunnerError("teacher input digest mismatch")
     if value.get("teacher_training_authorized") is not True:
         raise PhotorealTeacherRunnerError("teacher input does not authorize training")
     if value.get("evaluation_bytes_excluded_from_teacher_request") is not True:
