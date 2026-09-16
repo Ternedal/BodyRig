@@ -32,6 +32,37 @@ def test_readiness_helper_discovers_exact_head_workflows_without_weakenable_gate
     assert "has no completed successful run for the exact head" in source
 
 
+def test_readiness_helper_binds_executing_verifier_to_tracked_git_blob_and_ci() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "function Get-VerifierProvenance" in source
+    assert "rev-parse --show-toplevel" in source
+    assert 'rev-parse "${revision}:$relativePath"' in source
+    assert 'hash-object "--path=$relativePath" $scriptPath' in source
+    assert "Executing readiness verifier differs from the tracked Git blob at verifier HEAD" in source
+    assert "verifier_bodyrig_revision = $verifierRevision" in source
+    assert "verifier_git_blob_oid = [string]$verifier.GitBlob" in source
+    assert "verifier_script_sha256 = [string]$verifier.ScriptSha256" in source
+    assert "verifier_verified_runs = $verifierWorkflowEvidence.Verified" in source
+
+    verifier = source.index("$verifier = Get-VerifierProvenance")
+    verifier_workflow = source.index("Get-ExactHeadWorkflowEvidence -Revision $verifierRevision", verifier)
+    physical = source.index('"P0_PHYSICAL_VERIFICATION.json"')
+    assert verifier < verifier_workflow < physical
+
+
+def test_readiness_helper_keeps_physical_receipt_reusable_across_verifier_revisions() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    physical_start = source.index("$physicalReceipt = [ordered]@{")
+    physical_end = source.index('Write-Host "P0 physical verification: CREATED', physical_start)
+    physical_creation = source[physical_start:physical_end]
+
+    assert "exact_bodyrig_revision = $ExpectedBodyRigRevision" in physical_creation
+    assert "verifier_bodyrig_revision" not in physical_creation
+    assert "verifier_script_sha256" not in physical_creation
+
+
 def test_codeql_qualification_is_available_on_stacked_pull_requests() -> None:
     source = CODEQL_WORKFLOW.read_text(encoding="utf-8")
 

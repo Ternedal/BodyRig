@@ -57,6 +57,67 @@ function Require-SamePath {
     return $actualPath
 }
 
+function Get-VerifierProvenance {
+    $relativePath = "review-tools/VERIFY_PHYSICAL_P0_READY.ps1"
+    if ([string]::IsNullOrWhiteSpace([string]$PSCommandPath)) {
+        throw "Readiness verifier must execute from its tracked script file."
+    }
+    $scriptPath = [IO.Path]::GetFullPath($PSCommandPath)
+
+    try {
+        $rootLines = @(& git -C $PSScriptRoot rev-parse --show-toplevel 2>&1)
+    } catch {
+        throw "Could not resolve the readiness verifier Git checkout: $($_.Exception.Message)"
+    }
+    if ($LASTEXITCODE -ne 0 -or $rootLines.Count -ne 1) {
+        throw "Could not resolve the readiness verifier Git checkout."
+    }
+    $repoRoot = [IO.Path]::GetFullPath(([string]$rootLines[0]).Trim())
+    $expectedScriptPath = [IO.Path]::GetFullPath((Join-Path $repoRoot $relativePath))
+    if (-not [string]::Equals($scriptPath, $expectedScriptPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Readiness verifier is not executing from its tracked repository path."
+    }
+
+    $revisionLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $revisionLines.Count -ne 1) {
+        throw "Could not resolve the readiness verifier Git revision."
+    }
+    $revision = ([string]$revisionLines[0]).Trim().ToLowerInvariant()
+    if ($revision -notmatch '^[0-9a-f]{40}$') {
+        throw "Readiness verifier Git revision is invalid."
+    }
+
+    $expectedBlobLines = @(& git -C $repoRoot rev-parse "${revision}:$relativePath" 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $expectedBlobLines.Count -ne 1) {
+        throw "Readiness verifier is not tracked at its Git revision."
+    }
+    $expectedBlob = ([string]$expectedBlobLines[0]).Trim().ToLowerInvariant()
+    if ($expectedBlob -notmatch '^[0-9a-f]{40}$') {
+        throw "Readiness verifier tracked Git blob is invalid."
+    }
+
+    $workingBlobLines = @(& git -C $repoRoot hash-object "--path=$relativePath" $scriptPath 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $workingBlobLines.Count -ne 1) {
+        throw "Could not hash the executing readiness verifier through Git filters."
+    }
+    $workingBlob = ([string]$workingBlobLines[0]).Trim().ToLowerInvariant()
+    if ($workingBlob -ne $expectedBlob) {
+        throw "Executing readiness verifier differs from the tracked Git blob at verifier HEAD."
+    }
+
+    $scriptSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $scriptPath).Hash.ToLowerInvariant()
+    if ($scriptSha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "Could not bind readiness verifier SHA-256."
+    }
+
+    return [pscustomobject]@{
+        Revision = $revision
+        RelativePath = $relativePath
+        GitBlob = $expectedBlob
+        ScriptSha256 = $scriptSha256
+    }
+}
+
 function Get-ExactHeadWorkflowEvidence {
     param([Parameter(Mandatory = $true)][string]$Revision)
 
@@ -126,6 +187,23 @@ if ($ExpectedBodyRigRevision -notmatch '^[0-9a-f]{40}$') {
 }
 if ([string]::IsNullOrWhiteSpace($ExpectedPerformerId)) {
     throw "ExpectedPerformerId must be non-empty."
+}
+
+$verifier = Get-VerifierProvenance
+$verifierRevision = [string]$verifier.Revision
+$verifierWorkflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $verifierRevision
+$verifierSoftwareQualified = @($verifierWorkflowEvidence.Blockers).Count -eq 0
+Write-Host "verifier_bodyrig_revision=$verifierRevision"
+Write-Host "verifier_software_qualification_complete=$($verifierSoftwareQualified.ToString().ToLowerInvariant())"
+if (-not $verifierSoftwareQualified) {
+    foreach ($blocker in @($verifierWorkflowEvidence.Blockers)) {
+        Write-Host "Verifier software blocker: $blocker"
+    }
+    Write-Host "downstream_teacher_flow_ready=false"
+    Write-Host "human_visual_acceptance_required=true"
+    Write-Host "photoreal_acceptance_authority=false"
+    Write-Host "production_activation=false"
+    exit 2
 }
 
 $SummaryPath = (Resolve-Path -LiteralPath $SummaryPath).Path
@@ -239,7 +317,11 @@ $physicalHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $physicalOut).Hash.
 Write-Host "Physical SHA-256: $physicalHash"
 Write-Host "physical_p0_verified=true"
 
-$workflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $ExpectedBodyRigRevision
+if ($ExpectedBodyRigRevision -eq $verifierRevision) {
+    $workflowEvidence = $verifierWorkflowEvidence
+} else {
+    $workflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $ExpectedBodyRigRevision
+}
 $softwareQualified = @($workflowEvidence.Blockers).Count -eq 0
 Write-Host "software_qualification_complete=$($softwareQualified.ToString().ToLowerInvariant())"
 
@@ -260,6 +342,11 @@ $readiness = [ordered]@{
     verified_at_utc = (Get-Date).ToUniversalTime().ToString("o")
     performer_id = $ExpectedPerformerId
     exact_bodyrig_revision = $ExpectedBodyRigRevision
+    verifier_bodyrig_revision = $verifierRevision
+    verifier_script_path = [string]$verifier.RelativePath
+    verifier_git_blob_oid = [string]$verifier.GitBlob
+    verifier_script_sha256 = [string]$verifier.ScriptSha256
+    verifier_software_qualification_complete = $true
     physical_verification = $physicalOut
     physical_verification_sha256 = $physicalHash
     overnight_summary = $SummaryPath
@@ -273,6 +360,7 @@ $readiness = [ordered]@{
     human_visual_acceptance_required = $true
     photoreal_acceptance_authority = $false
     production_activation = $false
+    verifier_verified_runs = $verifierWorkflowEvidence.Verified
     verified_runs = $workflowEvidence.Verified
 }
 
