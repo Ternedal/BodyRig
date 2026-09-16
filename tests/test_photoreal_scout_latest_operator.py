@@ -14,13 +14,30 @@ def test_latest_replay_defaults_to_bodyrig_overnight_root() -> None:
     assert 'Photoreal overnight search root not found:' in SCRIPT
 
 
-def test_latest_replay_selects_newest_complete_authority_triplet() -> None:
+def test_latest_replay_selects_newest_valid_authority_triplet() -> None:
     assert 'Get-ChildItem -LiteralPath $SearchRoot -Recurse -Filter "source-receipt.json" -File' in SCRIPT
     assert 'Sort-Object LastWriteTimeUtc -Descending' in SCRIPT
+    assert 'Test-AuthorityTriplet -CandidateRoot $candidate -ReceiptPath $receipt.FullName' in SCRIPT
+    assert 'bodyrig-photoreal-source-inventory' in SCRIPT
+    assert 'bodyrig-photoreal-dataset-plan' in SCRIPT
+    assert 'bodyrig-photoreal-source-receipt' in SCRIPT
     assert 'source-inventory.json' in SCRIPT
     assert 'dataset-plan.json' in SCRIPT
-    assert 'No replayable Photoreal P0 root with source-inventory.json, dataset-plan.json and source-receipt.json' in SCRIPT
-    assert 'Selection policy:  latest complete authority triplet' in SCRIPT
+    assert 'No replayable Photoreal P0 root with a valid source-inventory.json, dataset-plan.json and source-receipt.json authority triplet' in SCRIPT
+    assert 'Selection policy:  latest valid authority triplet' in SCRIPT
+
+
+def test_latest_replay_rejects_malformed_or_crossed_authority_candidates() -> None:
+    assert 'function Read-JsonObjectOrNull' in SCRIPT
+    assert 'function Test-HasFields' in SCRIPT
+    assert 'function Test-StrictBoolean' in SCRIPT
+    assert '$Value.PSObject.Properties.Name' in SCRIPT
+    assert 'all_sources_readable' in SCRIPT
+    assert 'all_sources_sha256_bound' in SCRIPT
+    assert 'source_keys_path_specific' in SCRIPT
+    assert 'teacher_training_authorized' in SCRIPT
+    assert SCRIPT.count('production_activation') >= 3
+    assert 'ConvertFrom-Json -Depth' not in SCRIPT
 
 
 def test_latest_replay_delegates_to_hardened_read_only_replay() -> None:
