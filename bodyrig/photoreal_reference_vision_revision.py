@@ -52,7 +52,12 @@ def _composite_revision(root: Path, relative_paths: Iterable[str]) -> str:
             raise PhotorealReferenceVisionRevisionError(
                 f"reference vision revision dependency not found: {relative}"
             )
-        raw = candidate.read_bytes()
+        try:
+            raw = candidate.read_bytes()
+        except OSError as exc:
+            raise PhotorealReferenceVisionRevisionError(
+                f"reference vision revision dependency is unreadable: {relative}"
+            ) from exc
         label = relative.encode("utf-8")
         digest.update(len(label).to_bytes(4, "big"))
         digest.update(label)
