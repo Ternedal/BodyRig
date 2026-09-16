@@ -20,6 +20,7 @@ def test_mesh_adapter_revision_binds_explicit_runtime_dependency_set() -> None:
     assert len(revision) == 64
     assert revision != raw_adapter_sha
     assert set(MESH_ADAPTER_DEPENDENCIES) == {
+        "bodyrig/photoreal_cubemap_deprojection.py",
         "bodyrig/photoreal_equirectangular_deprojection.py",
         "bodyrig/photoreal_mesh_deprojection.py",
         "bodyrig/photoreal_mesh_projection.py",
