@@ -17,7 +17,7 @@ TARGET_VIDEO_INTERVAL_SECONDS = 10.0
 MIN_VIDEO_SCOUT_SAMPLES = 12
 MAX_VIDEO_SCOUT_SAMPLES = 120
 MAX_TOTAL_PLANNED_OBSERVATIONS = 120_000
-KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
+KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under", "mesh-custom"}
 KNOWN_PROJECTIONS = {"flat", "vr180", "vr360", "equirectangular", "equi", "mshp", "cbmp"}
 IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
 
@@ -160,7 +160,7 @@ def _video_timestamps(duration_seconds: float, sample_count: int) -> list[float]
 def _eyes_for_layout(stereo_layout: str) -> list[str]:
     if stereo_layout == "mono":
         return ["mono"]
-    if stereo_layout in {"side-by-side", "over-under"}:
+    if stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
         return ["left", "right"]
     raise PhotorealScanPlanError(
         f"stereo layout '{stereo_layout}' is not decode-authoritative; classify it before frame analysis"
@@ -178,6 +178,8 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
         raise PhotorealScanPlanError(
             f"stereo layout '{stereo_layout}' cannot enter frame analysis until it is resolved"
         )
+    if stereo_layout == "mesh-custom" and projection != "mshp":
+        raise PhotorealScanPlanError("mesh-custom stereo layout requires exact mshp projection authority")
     if projection == "flat" and stereo_layout == "mono":
         return "rectilinear-mono"
     if projection == "flat":
@@ -238,6 +240,15 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
                 if projection_authority.get("deprojection_authority") is not False:
                     raise PhotorealScanPlanError(
                         f"scan plan cannot inherit deprojection authority: {source_key}"
+                    )
+            if stereo_layout == "mesh-custom":
+                if (
+                    projection != "mshp"
+                    or projection_authority is None
+                    or projection_authority.get("mesh_projection_mesh_count") != 2
+                ):
+                    raise PhotorealScanPlanError(
+                        f"mesh-custom stereo requires authoritative two-mesh projection geometry: {source_key}"
                     )
             eyes = _eyes_for_layout(stereo_layout)
             timestamps = _video_timestamps(duration, _video_sample_count(duration))
