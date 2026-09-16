@@ -145,6 +145,7 @@ def test_preserves_matching_explicit_stereo_and_cross_checks_v2(monkeypatch: pyt
 
     assert count == 1
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
+    assert plan["train"][0]["stereo_layout"] == "side-by-side"
 
 
 def test_preserves_explicit_stereo_when_st3d_is_absent(monkeypatch: pytest.MonkeyPatch) -> None:
