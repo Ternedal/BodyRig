@@ -146,11 +146,11 @@ $leftRightCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "left-r
 $topBottomCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "top-bottom" }).Count
 $monoCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "mono" }).Count
 $stereoCustomCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "stereo-custom" }).Count
+$rightLeftCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "right-left" }).Count
+$reservedStereoCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "reserved-or-unknown" }).Count
 $meshCustomCandidateCount = @($sources | Where-Object {
     [string]$_.projection_type -eq "mshp" -and [string]$_.stereo_mode -eq "stereo-custom"
 }).Count
-$rightLeftCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "right-left" }).Count
-$reservedStereoCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "reserved-or-unknown" }).Count
 $noV2Count = @($sources | Where-Object { -not [bool]$_.sv3d_present }).Count
 
 Write-Host ""
@@ -164,9 +164,9 @@ Write-Host "Stereo left-right:    $leftRightCount"
 Write-Host "Stereo top-bottom:    $topBottomCount"
 Write-Host "Stereo mono:          $monoCount"
 Write-Host "Stereo custom:        $stereoCustomCount"
-Write-Host "Mesh+custom candidate:$meshCustomCandidateCount"
 Write-Host "Stereo right-left:    $rightLeftCount"
 Write-Host "Stereo reserved:      $reservedStereoCount"
+Write-Host "Mesh+custom cand.:    $meshCustomCandidateCount"
 Write-Host "No Spherical V2:      $noV2Count"
 Write-Host "Size mismatches:      $([int]$probe.size_mismatch_count)"
 Write-Host "Spatial diagnostic:   $SpatialProbePath"
@@ -187,6 +187,9 @@ $scanSources = @($scan.sources)
 $scanEqui = @($scanSources | Where-Object { [string]$_.projection -eq "equi" }).Count
 $scanMesh = @($scanSources | Where-Object { [string]$_.projection -eq "mshp" }).Count
 $scanCubemap = @($scanSources | Where-Object { [string]$_.projection -eq "cbmp" }).Count
+$scanMeshCustom = @($scanSources | Where-Object {
+    [string]$_.projection -eq "mshp" -and [string]$_.stereo_layout -eq "mesh-custom"
+}).Count
 $spatialDecode = @($scanSources | Where-Object { [string]$_.decode_mode -eq "spatial-deprojection-required" }).Count
 $spatialBootstrap = @($scanSources | Where-Object {
     [string]$_.decode_mode -eq "spatial-deprojection-required" -and [bool]$_.identity_bootstrap_eligible
@@ -200,6 +203,7 @@ Write-Host "CURRENT STAGE-4 AUTHORITY GATE: PASS (DIAGNOSTIC REPLAY ONLY)"
 Write-Host "Exact equi in scout:  $scanEqui"
 Write-Host "Exact mesh in scout:  $scanMesh"
 Write-Host "Exact cubemap scout:  $scanCubemap"
+Write-Host "Mesh-custom in scout: $scanMeshCustom"
 Write-Host "Spatial decode-bound: $spatialDecode"
 Write-Host "Spatial bootstrap:    FALSE"
 Write-Host "Teacher auth:         FALSE"
