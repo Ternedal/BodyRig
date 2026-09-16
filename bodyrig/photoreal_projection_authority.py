@@ -81,21 +81,15 @@ def _probe_v2_equirectangular(path: str | Path) -> dict[str, Any]:
         ) from exc
 
     if probe.get("probe_status") != "parsed-isobmff":
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source is not a parsed ISO BMFF container"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source is not a parsed ISO BMFF container")
     if probe.get("sv3d_present") is not True or probe.get("proj_present") is not True:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source lacks Spherical V2 sv3d/proj authority"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 sv3d/proj authority")
     if probe.get("projection_type") != "equi":
         raise PhotorealProjectionAuthorityError(
             "ambiguous projection source is not uniquely Spherical V2 equirectangular"
         )
     if probe.get("prhd_present") is not True:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source lacks Spherical V2 projection header authority"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 projection header authority")
     if probe.get("prhd_version") != 0 or probe.get("prhd_flags") != 0:
         raise PhotorealProjectionAuthorityError(
             "ambiguous projection source uses unsupported Spherical V2 projection header semantics"
@@ -182,9 +176,9 @@ def resolve_v2_projection_ambiguity(
             if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
                 continue
 
-            # The source receipt already binds this exact local source path to SHA-256.
-            # Re-read only its ISO BMFF metadata at point of use. Do not infer from
-            # aspect ratio, filename, Stash tags, VR180 labels or legacy V1 XML.
+            # Receipt SHA/path binding already identifies the source bytes. Inspect the
+            # container again here so classification authority comes from current bytes,
+            # never from a diagnostic artifact or a 2:1/tag heuristic.
             _ = verified["sha256"]
             probe = _probe_v2_equirectangular(verified["resolved_path"])
             raw["projection"] = RESOLVED_PROJECTION
