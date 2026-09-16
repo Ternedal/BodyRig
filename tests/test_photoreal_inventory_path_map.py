@@ -273,7 +273,7 @@ def test_builder_fails_if_one_exhaustive_inventory_source_is_unreadable() -> Non
     directories, files = _filesystem()
     files.remove(r"\\stashbox\VR_E\archive\old.mp4")
 
-    with pytest.raises(PhotorealInventoryPathMapError, match="exhaustive source path is not readable"):
+    with pytest.raises(PhotorealInventoryPathMapError, match="could not prove one complete SMB source-prefix mapping for E:"):
         build_inventory_path_map(
             _inventory(),
             stash_url="http://stashbox:9999",
