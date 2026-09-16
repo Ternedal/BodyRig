@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from .photoreal_mesh_projection import PhotorealMeshProjectionError, parse_mesh_projection_file
 from .photoreal_spatial_metadata_probe import PhotorealSpatialMetadataProbeError, probe_isobmff_file
 
 PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
@@ -146,7 +147,41 @@ def _probe_v2_projection(path: str | Path) -> dict[str, Any]:
             raise PhotorealProjectionAuthorityError("spatial source has invalid Spherical V2 mesh projection CRC")
         if probe.get("mesh_projection_encoding_supported") is not True:
             raise PhotorealProjectionAuthorityError("spatial source uses unsupported Spherical V2 mesh encoding")
-        _positive_int(probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size")
+        payload_bytes = _positive_int(
+            probe.get("mesh_projection_payload_bytes"),
+            label="Spherical V2 mesh payload size",
+        )
+        try:
+            geometry = parse_mesh_projection_file(path, materialize=False)
+        except (OSError, PhotorealMeshProjectionError) as exc:
+            raise PhotorealProjectionAuthorityError(
+                "spatial source mesh projection geometry is not parse-authoritative"
+            ) from exc
+        if geometry.get("projection_data_version") != 0 or geometry.get("projection_data_flags") != 0:
+            raise PhotorealProjectionAuthorityError(
+                "spatial source mesh geometry uses unsupported projection-data semantics"
+            )
+        if geometry.get("mesh_projection_crc32_matches") is not True:
+            raise PhotorealProjectionAuthorityError("spatial source mesh geometry CRC is invalid")
+        if geometry.get("mesh_projection_crc32") != probe.get("mesh_projection_crc32"):
+            raise PhotorealProjectionAuthorityError("spatial source mesh CRC disagrees between metadata probes")
+        if geometry.get("encoding") != probe.get("mesh_projection_encoding"):
+            raise PhotorealProjectionAuthorityError("spatial source mesh encoding disagrees between metadata probes")
+        if int(geometry.get("encoded_payload_bytes") or 0) != payload_bytes:
+            raise PhotorealProjectionAuthorityError(
+                "spatial source mesh payload size disagrees between metadata probes"
+            )
+        probe = {
+            **dict(probe),
+            "mesh_projection_geometry_valid": True,
+            "mesh_projection_geometry_sha256": geometry["decompressed_payload_sha256"],
+            "mesh_projection_mesh_count": geometry["mesh_count"],
+            "mesh_projection_total_vertex_count": geometry["total_vertex_count"],
+            "mesh_projection_total_index_count": geometry["total_index_count"],
+            "mesh_projection_texture_ids": geometry["texture_ids"],
+            "mesh_projection_index_types": geometry["index_types"],
+            "mesh_projection_unknown_box_types": geometry["unknown_box_types"],
+        }
     return dict(probe)
 
 
@@ -185,6 +220,13 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
     mesh_crc: str | None = None
     mesh_encoding: str | None = None
     mesh_payload_bytes: int | None = None
+    mesh_geometry_sha: str | None = None
+    mesh_count: int | None = None
+    mesh_vertex_count: int | None = None
+    mesh_index_count: int | None = None
+    mesh_texture_ids: list[int] | None = None
+    mesh_index_types: list[int] | None = None
+    mesh_unknown_box_types: list[str] | None = None
 
     if projection_type == "equi":
         raw_bounds = probe.get("equirectangular_bounds_fraction")
@@ -209,6 +251,43 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
         if mesh_encoding not in {"raw ", "dfl8"}:
             raise PhotorealProjectionAuthorityError("Spherical V2 mesh encoding is unsupported")
         mesh_payload_bytes = _positive_int(probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size")
+        if probe.get("mesh_projection_geometry_valid") is not True:
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh geometry lacks parse authority")
+        mesh_geometry_sha = _sha(
+            probe.get("mesh_projection_geometry_sha256"),
+            label="Spherical V2 mesh geometry SHA-256",
+        )
+        mesh_count = _positive_int(probe.get("mesh_projection_mesh_count"), label="Spherical V2 mesh count")
+        if mesh_count > 2:
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh count exceeds v2 maximum")
+        mesh_vertex_count = _positive_int(
+            probe.get("mesh_projection_total_vertex_count"),
+            label="Spherical V2 mesh vertex count",
+        )
+        mesh_index_count = _positive_int(
+            probe.get("mesh_projection_total_index_count"),
+            label="Spherical V2 mesh index count",
+        )
+        raw_texture_ids = probe.get("mesh_projection_texture_ids")
+        raw_index_types = probe.get("mesh_projection_index_types")
+        raw_unknown = probe.get("mesh_projection_unknown_box_types")
+        if not isinstance(raw_texture_ids, list) or any(
+            isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 255
+            for value in raw_texture_ids
+        ):
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh texture IDs are invalid")
+        if not isinstance(raw_index_types, list) or any(
+            isinstance(value, bool) or not isinstance(value, int) or value not in {0, 1, 2}
+            for value in raw_index_types
+        ):
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh index types are invalid")
+        if not isinstance(raw_unknown, list) or any(
+            not isinstance(value, str) or len(value) != 4 for value in raw_unknown
+        ):
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh extension box list is invalid")
+        mesh_texture_ids = sorted(set(raw_texture_ids))
+        mesh_index_types = sorted(set(raw_index_types))
+        mesh_unknown_box_types = sorted(set(raw_unknown))
     else:
         raise PhotorealProjectionAuthorityError("unsupported Spherical V2 projection authority type")
 
@@ -223,6 +302,13 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
         "mesh_projection_crc32": mesh_crc,
         "mesh_projection_encoding": mesh_encoding,
         "mesh_projection_payload_bytes": mesh_payload_bytes,
+        "mesh_projection_geometry_sha256": mesh_geometry_sha,
+        "mesh_projection_mesh_count": mesh_count,
+        "mesh_projection_total_vertex_count": mesh_vertex_count,
+        "mesh_projection_total_index_count": mesh_index_count,
+        "mesh_projection_texture_ids": mesh_texture_ids,
+        "mesh_projection_index_types": mesh_index_types,
+        "mesh_projection_unknown_box_types": mesh_unknown_box_types,
         "deprojection_authority": False,
     }
 
