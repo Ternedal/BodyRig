@@ -203,7 +203,7 @@
             {"type": "null"}
           ]
         },
-        "stereo_layout": {"enum": ["mono", "side-by-side", "over-under"]},
+        "stereo_layout": {"enum": ["mono", "side-by-side", "over-under", "mesh-custom"]},
         "decode_mode": {
           "enum": [
             "image-direct",
