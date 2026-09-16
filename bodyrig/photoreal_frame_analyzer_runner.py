@@ -16,12 +16,14 @@ REQUEST_FORMAT = "bodyrig-photoreal-frame-analyzer-request"
 REQUEST_VERSION = 1
 RESULT_FORMAT = "bodyrig-photoreal-frame-observations"
 RESULT_VERSION = 1
+MAX_OBSERVATIONS = 250_000
 _VALID_VIEW_BINS = {
     "front",
     "three-quarter-right",
     "three-quarter-left",
     "profile-right",
     "profile-left",
+    "rear",
     "unknown",
 }
 _MEASUREMENT_UNIT_FIELDS = (
@@ -31,6 +33,31 @@ _MEASUREMENT_UNIT_FIELDS = (
     "sharpness",
     "motion",
     "occlusion",
+)
+_OBSERVATION_FIELDS = frozenset(
+    {
+        "source_key",
+        "source_sha256",
+        "kind",
+        "timestamp_seconds",
+        "eye",
+        "projection",
+        "frame_sha256",
+        "perceptual_hash",
+        "candidate_id",
+        "person_detected",
+        "width",
+        "height",
+        "view_bin",
+        "face_visibility",
+        "full_body_visibility",
+        "person_fraction",
+        "sharpness",
+        "motion",
+        "occlusion",
+        "identity_measurement_status",
+        "identity_embedding",
+    }
 )
 
 
@@ -282,6 +309,8 @@ def validate_analyzer_result(
     observations = value.get("observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned no observations")
+    if len(observations) > MAX_OBSERVATIONS:
+        raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned too many observations")
     if value.get("build_only") is not True or value.get("production_activation") is not False:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer crossed its authority boundary")
 
@@ -296,6 +325,8 @@ def validate_analyzer_result(
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned a non-object observation")
         if "target_identity_verified" in raw or "identity_confidence" in raw or "identity_authority" in raw:
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer attempted to assert identity authority")
+        if set(raw) - _OBSERVATION_FIELDS:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer observation contains unsupported fields")
         candidate_id = str(raw.get("candidate_id") or "").strip()
         if (
             not candidate_id
