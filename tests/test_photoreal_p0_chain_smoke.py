@@ -365,25 +365,20 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
         {"id": "co-100", "performers": [{"id": PERFORMER_ID}, {"id": "100"}]},
         {"id": "co-101", "performers": [{"id": PERFORMER_ID}, {"id": "101"}]},
     ]
-    performer_records = {
-        performer_id: {"id": performer_id, "name": f"Negative {performer_id}"}
-        for performer_id in negative_paths
-    }
-    source_inventories = {
+    negative_performer_inventories = {
         performer_id: _negative_performer_inventory(performer_id, path)
         for performer_id, path in negative_paths.items()
     }
     negative_inventory = build_identity_negative_inventory(
         target_performer_id=PERFORMER_ID,
         target_scenes=target_scenes,
-        performer_records=performer_records,
-        source_inventories=source_inventories,
-        max_performers=2,
-        max_sources_per_performer=1,
+        negative_performer_inventories=negative_performer_inventories,
+        max_negative_performers=2,
+        sources_per_performer=1,
     )
     negative_inventory_path = tmp_path / "negative-inventory.json"
     _write_json(negative_inventory_path, negative_inventory)
-    assert negative_inventory["performer_count"] == 2
+    assert negative_inventory["negative_performer_count"] == 2
     assert negative_inventory["source_count"] == 2
 
     # 10/16 negative source receipt, again with real fixture hashing.
