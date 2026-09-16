@@ -14,7 +14,7 @@ RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
 RECEIPT_VERSION = 1
 SPATIAL_HINT_PROJECTIONS = {"projection-ambiguous-2to1", "vr180", "vr360", "equirectangular"}
 V2_PROJECTION_TYPES = {"equi", "mshp", "cbmp"}
-KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
+KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under", "mesh-custom"}
 V2_STEREO_TO_LAYOUT = {"mono": "mono", "left-right": "side-by-side", "top-bottom": "over-under"}
 PROJECTION_AUTHORITY_FORMAT = "bodyrig-spherical-v2-projection-authority"
 PROJECTION_AUTHORITY_VERSION = 1
@@ -193,10 +193,20 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
             raise PhotorealProjectionAuthorityError("spatial source uses unsupported Spherical V2 stereo box semantics")
         observed_mode = str(probe.get("stereo_mode") or "").strip()
         observed_layout = V2_STEREO_TO_LAYOUT.get(observed_mode)
+        if observed_layout is None and observed_mode == "stereo-custom":
+            mesh_count = probe.get("mesh_projection_mesh_count")
+            if probe.get("projection_type") == "mshp" and mesh_count == 2:
+                observed_layout = "mesh-custom"
         if observed_layout is None:
             raise PhotorealProjectionAuthorityError(
                 f"spatial source uses unsupported Spherical V2 stereo mode: {observed_mode or 'unknown'}"
             )
+    if layout == "mesh-custom":
+        if observed_layout != "mesh-custom":
+            raise PhotorealProjectionAuthorityError(
+                "dataset mesh-custom layout lacks authoritative two-mesh Spherical V2 stereo-custom metadata"
+            )
+        return layout
     if layout in KNOWN_STEREO_LAYOUTS:
         if observed_layout is not None and observed_layout != layout:
             raise PhotorealProjectionAuthorityError(
