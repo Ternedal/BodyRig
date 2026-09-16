@@ -17,6 +17,7 @@ DIRECT_PATH_PROOF_VERSION = 1
 DIRECT_PATH_MODE = "direct-local"
 DIRECT_PATH_SCOPE_PRIMARY = "primary"
 DIRECT_PATH_SCOPE_NEGATIVE_CALIBRATION = "negative-calibration"
+HASH_PROGRESS_INTERVAL_BYTES = 512 * 1024 * 1024
 
 
 class PhotorealSourceVerifyError(ValueError):
@@ -26,13 +27,22 @@ class PhotorealSourceVerifyError(ValueError):
 HashFile = Callable[[Path], str]
 ExistsFile = Callable[[Path], bool]
 FileSize = Callable[[Path], int]
+ProgressCallback = Callable[[Mapping[str, Any]], None]
+HashProgress = Callable[[int], None]
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, *, on_progress: HashProgress | None = None) -> str:
     digest = hashlib.sha256()
+    processed = 0
+    next_report = HASH_PROGRESS_INTERVAL_BYTES
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
+            processed += len(chunk)
+            if on_progress is not None and processed >= next_report:
+                on_progress(processed)
+                while next_report <= processed:
+                    next_report += HASH_PROGRESS_INTERVAL_BYTES
     return digest.hexdigest()
 
 
@@ -229,6 +239,11 @@ def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _emit_progress(progress: ProgressCallback | None, event: Mapping[str, Any]) -> None:
+    if progress is not None:
+        progress(dict(event))
+
+
 def verify_inventory_sources(
     inventory: Mapping[str, Any],
     *,
@@ -236,17 +251,18 @@ def verify_inventory_sources(
     exists_file: ExistsFile | None = None,
     file_size: FileSize | None = None,
     hash_file: HashFile | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     performer_id, performer_name = _validate_inventory_header(inventory)
     records = _records(inventory)
     exists = exists_file or (lambda path: path.is_file())
     size_of = file_size or (lambda path: path.stat().st_size)
-    hasher = hash_file or _sha256
 
     verified: list[dict[str, Any]] = []
     seen_local: set[str] = set()
     total_bytes = 0
-    for source in records:
+    source_count = len(records)
+    for source_index, source in enumerate(records, start=1):
         translated = translate_stash_path(source["catalog_path"], path_mapping)
         local = Path(translated)
         if not exists(local):
@@ -266,7 +282,30 @@ def verify_inventory_sources(
             raise PhotorealSourceVerifyError(
                 f"photoreal source size changed: {source['catalog_path']} expected={expected_size} observed={observed_size}"
             )
-        digest = str(hasher(local)).strip().lower()
+
+        progress_base = {
+            "source_index": source_index,
+            "source_count": source_count,
+            "kind": source["kind"],
+            "size_bytes": observed_size,
+        }
+        _emit_progress(progress, {**progress_base, "phase": "source-start"})
+
+        if hash_file is None:
+            digest = _sha256(
+                local,
+                on_progress=lambda processed, base=progress_base: _emit_progress(
+                    progress,
+                    {
+                        **base,
+                        "phase": "hash-progress",
+                        "source_bytes_hashed": processed,
+                    },
+                ),
+            )
+        else:
+            digest = str(hash_file(local)).strip().lower()
+        digest = str(digest).strip().lower()
         if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
             raise PhotorealSourceVerifyError(f"photoreal source hash is invalid: {translated}")
         total_bytes += observed_size
@@ -280,6 +319,14 @@ def verify_inventory_sources(
                 "size_bytes": observed_size,
                 "sha256": digest,
             }
+        )
+        _emit_progress(
+            progress,
+            {
+                **progress_base,
+                "phase": "source-complete",
+                "verified_bytes_total": total_bytes,
+            },
         )
 
     verified.sort(key=lambda item: (item["kind"], item["source_key"].casefold()))
@@ -309,6 +356,7 @@ def verify_inventory_file(
     output_path: str | Path,
     *,
     stash_url: str,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     inventory_file = Path(inventory_path).expanduser().resolve()
     mapping_file = Path(path_map_path).expanduser().resolve()
@@ -325,7 +373,11 @@ def verify_inventory_file(
         expected_direct_source_count=len(source_records),
     )
 
-    result = verify_inventory_sources(inventory, path_mapping=validated["mapping"])
+    result = verify_inventory_sources(
+        inventory,
+        path_mapping=validated["mapping"],
+        progress=progress,
+    )
     result["inventory_sha256"] = _sha256_bytes(inventory_raw)
     result["path_map_mode"] = validated["cache_mode"]
     result["stash_origin"] = validated["stash_origin"]
