@@ -52,7 +52,7 @@ def test_source_only_can_never_grant_teacher_training_authority() -> None:
 
 def test_python_stage_captures_stdout_before_returning_exit_code() -> None:
     stage_start = SCRIPT.index('function Invoke-PythonStage')
-    stage_end = SCRIPT.index('function Get-PerformerPathMapCandidate', stage_start)
+    stage_end = SCRIPT.index('$repoRoot =', stage_start)
     stage = SCRIPT[stage_start:stage_end]
     assert '$stageOutput = @(& $script:Python @Arguments)' in stage
     assert '$code = $LASTEXITCODE' in stage
