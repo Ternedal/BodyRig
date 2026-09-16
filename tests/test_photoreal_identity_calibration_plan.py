@@ -52,7 +52,7 @@ def _receipt() -> dict[str, object]:
                 "label_authority": "stash-single-performer-other-id-v1",
                 "kind": "video",
                 "source_binding": "scene-single-performer",
-                "projection": "vr180",
+                "projection": "flat",
                 "stereo_layout": "side-by-side",
                 "duration_seconds": 60.0,
             },
@@ -100,14 +100,22 @@ def test_calibration_plan_is_byte_model_and_bank_bound() -> None:
     assert result["production_activation"] is False
 
 
-def test_calibration_plan_splits_stereo_negative_video() -> None:
+def test_calibration_plan_splits_rectilinear_stereo_negative_video() -> None:
     result = build_identity_calibration_plan(_bank(), _receipt())
     video = next(item for item in result["sources"] if item["kind"] == "video")
 
-    assert video["decode_mode"] == "spatial-deprojection-required"
+    assert video["decode_mode"] == "rectilinear-stereo-split"
     assert video["sample_count"] == 12
     assert {sample["eye"] for sample in video["samples"]} == {"left", "right"}
     assert len({sample["timestamp_seconds"] for sample in video["samples"]}) == 6
+
+
+def test_calibration_plan_rejects_spatial_video_before_identity_extraction() -> None:
+    receipt = copy.deepcopy(_receipt())
+    receipt["sources"][0]["projection"] = "vr180"
+
+    with pytest.raises(PhotorealIdentityCalibrationPlanError, match="deprojection"):
+        build_identity_calibration_plan(_bank(), receipt)
 
 
 def test_calibration_plan_uses_one_direct_sample_for_image() -> None:
