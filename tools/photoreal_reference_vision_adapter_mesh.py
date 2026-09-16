@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -13,6 +12,9 @@ if str(REPO_ROOT) not in sys.path:
 from bodyrig.photoreal_mesh_deprojection import (  # noqa: E402
     PhotorealMeshDeprojectionError,
     deproject_mesh_views,
+)
+from bodyrig.photoreal_reference_vision_revision import (  # noqa: E402
+    compute_reference_vision_revision,
 )
 
 BASE_ADAPTER_PATH = Path(__file__).with_name("photoreal_reference_vision_adapter.py")
@@ -29,12 +31,12 @@ ReferenceVisionError = base.ReferenceVisionError
 
 
 def _self_revision() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return compute_reference_vision_revision(Path(__file__))
 
 
-# The generated config binds to this wrapper's exact bytes. Keep the base adapter's
-# provenance verifier intact while making its self-revision point at the executable
-# adapter that was actually configured.
+# The generated config binds to this wrapper's exact executable dependency set.
+# Keep the base adapter's provenance verifier intact while making its revision
+# point at the composite adapter code that was actually configured.
 base._self_revision = _self_revision
 
 
