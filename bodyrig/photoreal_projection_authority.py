@@ -144,7 +144,6 @@ def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[st
                 raise PhotorealProjectionAuthorityError("dataset plan/source receipt source kind mismatch")
             if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
                 continue
-            _sha(verified["sha256"], label="receipt source SHA-256")
             probe = _probe_v2_equirectangular(verified["resolved_path"])
             raw["projection"] = RESOLVED_PROJECTION
             raw["stereo_layout"] = _resolve_stereo_layout(raw.get("stereo_layout"), probe)
