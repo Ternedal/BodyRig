@@ -23,6 +23,16 @@ def test_mesh_wrapper_revision_is_executable_adapter_revision() -> None:
     assert adapter.base._self_revision() == adapter._self_revision()
 
 
+def test_mesh_wrapper_preserves_runtime_preflight_surface() -> None:
+    assert adapter.build_model_set is adapter.base.build_model_set
+    assert adapter._load_model_manifest is adapter.base._load_model_manifest
+    assert adapter._load_runtime is adapter.base._load_runtime
+    assert adapter._faces is adapter.base._faces
+    assert adapter._pose_predictions is adapter.base._pose_predictions
+    assert adapter._frame_sha is adapter.base._frame_sha
+    assert adapter._perceptual_hash is adapter.base._perceptual_hash
+
+
 def test_frame_analyzer_routes_mshp_through_unique_deprojected_viewports(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = SimpleNamespace(embedding_dimension=512)
     raw_image = object()
