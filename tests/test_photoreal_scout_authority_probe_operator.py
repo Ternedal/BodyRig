@@ -27,7 +27,7 @@ def test_scout_authority_replay_uses_current_metadata_and_scan_plan_code() -> No
     assert 'Exact mesh (mshp):' in SCRIPT
     assert 'Exact cubemap (cbmp):' in SCRIPT
     assert 'Stereo custom:' in SCRIPT
-    assert 'Mesh+custom cand.:' in SCRIPT
+    assert 'Mesh+custom candidate:' in SCRIPT
     assert 'Stereo right-left:' in SCRIPT
     assert 'Stereo reserved:' in SCRIPT
     assert 'Mesh-custom in scout:' in SCRIPT
