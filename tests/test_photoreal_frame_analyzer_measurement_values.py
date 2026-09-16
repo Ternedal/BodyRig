@@ -121,10 +121,32 @@ def test_measurement_value_contract_rejects_noncanonical_perceptual_hash(value: 
         _validate(result)
 
 
-def test_measurement_value_contract_rejects_unknown_view_bin() -> None:
+def test_measurement_value_contract_accepts_rear_view_bin() -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["view_bin"] = "rear"
+    validated = _validate(result)
+    assert validated["observations"][0]["view_bin"] == "rear"
+
+
+def test_measurement_value_contract_rejects_unknown_view_bin() -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["view_bin"] = "overhead"
     with pytest.raises(PhotorealFrameAnalyzerError, match="view_bin"):
+        _validate(result)
+
+
+def test_measurement_value_contract_rejects_unknown_observation_field() -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["unexpected_extension"] = True
+    with pytest.raises(PhotorealFrameAnalyzerError, match="unsupported fields"):
+        _validate(result)
+
+
+def test_measurement_value_contract_enforces_schema_observation_limit() -> None:
+    result = _result()
+    row = result["observations"][0]
+    result["observations"] = [row] * 250_001
+    with pytest.raises(PhotorealFrameAnalyzerError, match="too many observations"):
         _validate(result)
 
 
