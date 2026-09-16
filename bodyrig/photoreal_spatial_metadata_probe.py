@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, BinaryIO, Mapping
 
@@ -11,6 +12,10 @@ VISUAL_HEADER = 78
 VISUAL_TYPES = {"avc1", "avc2", "avc3", "avc4", "hvc1", "hev1", "mp4v", "av01", "vp08", "vp09", "s263", "encv", "apcn", "apch", "apcs", "apco"}
 PROJECTION_TYPES = {"equi", "cbmp", "mshp"}
 STEREO_MODES = {0: "mono", 1: "top-bottom", 2: "left-right", 3: "stereo-custom", 4: "right-left"}
+LEGACY_SPHERICAL_V1_UUID = bytes.fromhex("ffcc8263f8554a938814587a02521fdd")
+LEGACY_SPHERICAL_V1_NAMESPACE = "http://ns.google.com/videos/1.0/spherical/"
+LEGACY_STEREO_MODES = {"mono", "left-right", "top-bottom"}
+MAX_LEGACY_XML_BYTES = 1024 * 1024
 
 
 class PhotorealSpatialMetadataProbeError(ValueError):
@@ -98,7 +103,13 @@ def _parse_st3d(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]
     if end - payload < 5:
         raise PhotorealSpatialMetadataProbeError("st3d box is truncated")
     mode = _read(stream, payload + 4, 1)[0]
-    result.update(st3d_present=True, st3d_version=version, st3d_flags=flags, stereo_mode_code=mode, stereo_mode=STEREO_MODES.get(mode, "reserved-or-unknown"))
+    result.update(
+        st3d_present=True,
+        st3d_version=version,
+        st3d_flags=flags,
+        stereo_mode_code=mode,
+        stereo_mode=STEREO_MODES.get(mode, "reserved-or-unknown"),
+    )
 
 
 def _parse_sv3d(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) -> None:
@@ -124,6 +135,66 @@ def _parse_sv3d(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) 
                         if child_end - child_payload >= 12:
                             result["mesh_projection_encoding"] = _read(stream, child_payload + 8, 4).decode("latin-1")
     result["projection_type"] = projection_types[0] if len(projection_types) == 1 else "multiple" if projection_types else None
+
+
+def _legacy_bool(value: str | None) -> bool | None:
+    normalized = str(value or "").strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
+
+
+def _parse_legacy_v1_uuid(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
+    if end - payload < 16:
+        return
+    if _read(stream, payload, 16) != LEGACY_SPHERICAL_V1_UUID:
+        return
+    result["spherical_v1_present"] = True
+    xml_size = end - payload - 16
+    result["spherical_v1_xml_size_bytes"] = xml_size
+    if xml_size < 1:
+        result["spherical_v1_parse_status"] = "empty"
+        return
+    if xml_size > MAX_LEGACY_XML_BYTES:
+        result["spherical_v1_parse_status"] = "too-large"
+        return
+    raw = _read(stream, payload + 16, xml_size).rstrip(b"\x00")
+    result["spherical_v1_xml_sha256"] = hashlib.sha256(raw).hexdigest()
+    try:
+        root = ET.fromstring(raw.decode("utf-8-sig"))
+    except (UnicodeError, ET.ParseError):
+        result["spherical_v1_parse_status"] = "invalid-xml"
+        return
+
+    namespace = f"{{{LEGACY_SPHERICAL_V1_NAMESPACE}}}"
+    fields: dict[str, str] = {}
+    for element in root.iter():
+        if not isinstance(element.tag, str) or not element.tag.startswith(namespace):
+            continue
+        local_name = element.tag[len(namespace) :]
+        if local_name not in {"Spherical", "Stitched", "ProjectionType", "StereoMode"}:
+            continue
+        value = str(element.text or "").strip()
+        if value and len(value) <= 128:
+            fields[local_name] = value
+
+    projection = fields.get("ProjectionType", "").strip().lower()
+    stereo = fields.get("StereoMode", "mono").strip().lower()
+    result["spherical_v1_xml_valid"] = True
+    result["spherical_v1_spherical"] = _legacy_bool(fields.get("Spherical"))
+    result["spherical_v1_stitched"] = _legacy_bool(fields.get("Stitched"))
+    result["spherical_v1_projection_type"] = projection if projection else None
+    result["spherical_v1_stereo_mode"] = stereo if stereo in LEGACY_STEREO_MODES else "unsupported-or-unknown"
+    result["spherical_v1_parse_status"] = (
+        "valid-v1-equirectangular"
+        if result["spherical_v1_spherical"] is True
+        and result["spherical_v1_stitched"] is True
+        and projection == "equirectangular"
+        and stereo in LEGACY_STEREO_MODES
+        else "xml-valid-but-nonconforming-v1"
+    )
 
 
 def _parse_stsd(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
@@ -155,6 +226,8 @@ def _walk(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) -> Non
             result["moov_present"] = True
         if box_type == "stsd":
             _parse_stsd(stream, payload, box_end, result)
+        elif box_type == "uuid":
+            _parse_legacy_v1_uuid(stream, payload, box_end, result)
         elif box_type in {"moov", "trak", "mdia", "minf", "stbl"}:
             _walk(stream, payload, box_end, result)
 
@@ -162,11 +235,33 @@ def _walk(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) -> Non
 def probe_isobmff_file(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     result: dict[str, Any] = {
-        "probe_status": "unsupported-container", "moov_present": False, "sample_entry_types": set(),
-        "st3d_present": False, "st3d_version": None, "st3d_flags": None, "stereo_mode_code": None, "stereo_mode": None,
-        "sv3d_present": False, "svhd_present": False, "svhd_metadata_source_present": False, "svhd_metadata_source_sha256": None,
-        "proj_present": False, "prhd_present": False, "projection_type": None, "mesh_projection_encoding": None,
-        "camm_sample_entry_present": False, "probe_error": None,
+        "probe_status": "unsupported-container",
+        "moov_present": False,
+        "sample_entry_types": set(),
+        "st3d_present": False,
+        "st3d_version": None,
+        "st3d_flags": None,
+        "stereo_mode_code": None,
+        "stereo_mode": None,
+        "sv3d_present": False,
+        "svhd_present": False,
+        "svhd_metadata_source_present": False,
+        "svhd_metadata_source_sha256": None,
+        "proj_present": False,
+        "prhd_present": False,
+        "projection_type": None,
+        "mesh_projection_encoding": None,
+        "camm_sample_entry_present": False,
+        "spherical_v1_present": False,
+        "spherical_v1_xml_size_bytes": None,
+        "spherical_v1_xml_sha256": None,
+        "spherical_v1_xml_valid": False,
+        "spherical_v1_spherical": None,
+        "spherical_v1_stitched": None,
+        "spherical_v1_projection_type": None,
+        "spherical_v1_stereo_mode": None,
+        "spherical_v1_parse_status": None,
+        "probe_error": None,
     }
     try:
         size = source.stat().st_size
@@ -189,11 +284,18 @@ def probe_isobmff_file(path: str | Path) -> dict[str, Any]:
         status = result["probe_status"]
     elif result["sv3d_present"]:
         status = f"spherical-v2-{result['projection_type']}" if result["projection_type"] in PROJECTION_TYPES else "spherical-v2-incomplete"
+    elif result["spherical_v1_present"]:
+        status = (
+            "spherical-v1-equirectangular-diagnostic"
+            if result["spherical_v1_parse_status"] == "valid-v1-equirectangular"
+            else "spherical-v1-incomplete-or-nonconforming"
+        )
     elif result["st3d_present"]:
         status = "stereo-only-no-spherical-v2"
     else:
-        status = "no-spherical-v2-metadata"
+        status = "no-spherical-metadata"
     result["projection_metadata_status"] = status
+    result["metadata_precedence"] = "v2" if result["sv3d_present"] else "v1" if result["spherical_v1_present"] else None
     return result
 
 
@@ -204,7 +306,10 @@ def _inventory_keys(inventory: Mapping[str, Any]) -> tuple[dict[str, Mapping[str
         raise PhotorealSpatialMetadataProbeError("photoreal source inventory authority boundary is invalid")
     videos: dict[str, Mapping[str, Any]] = {}
     keys: set[str] = set()
-    for kind, values, id_field, prefix in (("video", inventory.get("videos"), "scene_id", "scene"), ("image", inventory.get("images"), "image_id", "image")):
+    for kind, values, id_field, prefix in (
+        ("video", inventory.get("videos"), "scene_id", "scene"),
+        ("image", inventory.get("images"), "image_id", "image"),
+    ):
         if not isinstance(values, list):
             raise PhotorealSpatialMetadataProbeError(f"photoreal {kind} inventory is invalid")
         for raw in values:
@@ -221,19 +326,33 @@ def _inventory_keys(inventory: Mapping[str, Any]) -> tuple[dict[str, Mapping[str
     return videos, keys
 
 
-def build_spatial_container_probe(inventory: Mapping[str, Any], receipt: Mapping[str, Any], *, receipt_sha256: str) -> dict[str, Any]:
+def build_spatial_container_probe(
+    inventory: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    *,
+    receipt_sha256: str,
+) -> dict[str, Any]:
     videos, inventory_keys = _inventory_keys(inventory)
     performer_id = _text(inventory.get("performer_id"), "inventory performer id")
     if receipt.get("format") != "bodyrig-photoreal-source-receipt" or receipt.get("version") != 1:
         raise PhotorealSpatialMetadataProbeError("photoreal source receipt format/version mismatch")
-    if receipt.get("all_sources_readable") is not True or receipt.get("all_sources_sha256_bound") is not True or receipt.get("build_only") is not True or receipt.get("production_activation") is not False:
+    if (
+        receipt.get("all_sources_readable") is not True
+        or receipt.get("all_sources_sha256_bound") is not True
+        or receipt.get("build_only") is not True
+        or receipt.get("production_activation") is not False
+    ):
         raise PhotorealSpatialMetadataProbeError("photoreal source receipt authority boundary is invalid")
     if _text(receipt.get("performer_id"), "receipt performer id") != performer_id:
         raise PhotorealSpatialMetadataProbeError("photoreal inventory/receipt performer mismatch")
     values = receipt.get("sources")
     if not isinstance(values, list):
         raise PhotorealSpatialMetadataProbeError("photoreal source receipt sources are invalid")
-    receipt_by_key = {_text(raw.get("source_key"), "receipt source key"): raw for raw in values if isinstance(raw, Mapping)}
+    receipt_by_key = {
+        _text(raw.get("source_key"), "receipt source key"): raw
+        for raw in values
+        if isinstance(raw, Mapping)
+    }
     if len(receipt_by_key) != len(values) or set(receipt_by_key) != inventory_keys:
         raise PhotorealSpatialMetadataProbeError("photoreal inventory/source receipt disagree on exact source universe")
 
@@ -262,20 +381,22 @@ def build_spatial_container_probe(inventory: Mapping[str, Any], receipt: Mapping
             size_matches = path.stat().st_size == receipt_size
         except OSError:
             size_matches = False
-        sources.append({
-            "source_id": source_id,
-            "source_key_sha256": hashlib.sha256(source_key.encode("utf-8")).hexdigest(),
-            "source_sha256": source_sha,
-            "source_size_bytes": receipt_size,
-            "source_size_matches_receipt": size_matches,
-            "container_extension": path.suffix.lower(),
-            "inventory_projection": str(inventory_video.get("projection") or "unknown"),
-            "inventory_stereo_layout": str(inventory_video.get("stereo_layout") or "unknown"),
-            **probe,
-            "diagnostic_only": True,
-            "deprojection_authority": False,
-            "production_activation": False,
-        })
+        sources.append(
+            {
+                "source_id": source_id,
+                "source_key_sha256": hashlib.sha256(source_key.encode("utf-8")).hexdigest(),
+                "source_sha256": source_sha,
+                "source_size_bytes": receipt_size,
+                "source_size_matches_receipt": size_matches,
+                "container_extension": path.suffix.lower(),
+                "inventory_projection": str(inventory_video.get("projection") or "unknown"),
+                "inventory_stereo_layout": str(inventory_video.get("stereo_layout") or "unknown"),
+                **probe,
+                "diagnostic_only": True,
+                "deprojection_authority": False,
+                "production_activation": False,
+            }
+        )
     parsed = [item for item in sources if item["probe_status"] == "parsed-isobmff"]
     return {
         "format": FORMAT,
@@ -285,6 +406,8 @@ def build_spatial_container_probe(inventory: Mapping[str, Any], receipt: Mapping
         "video_source_count": len(sources),
         "parsed_isobmff_count": len(parsed),
         "spherical_v2_source_count": sum(1 for item in parsed if item["sv3d_present"]),
+        "spherical_v1_source_count": sum(1 for item in parsed if item["spherical_v1_present"]),
+        "dual_v1_v2_source_count": sum(1 for item in parsed if item["sv3d_present"] and item["spherical_v1_present"]),
         "mesh_projection_source_count": sum(1 for item in parsed if item["projection_type"] == "mshp"),
         "camm_source_count": sum(1 for item in parsed if item["camm_sample_entry_present"]),
         "size_mismatch_count": sum(1 for item in sources if not item["source_size_matches_receipt"]),
@@ -298,10 +421,18 @@ def build_spatial_container_probe(inventory: Mapping[str, Any], receipt: Mapping
     }
 
 
-def build_spatial_container_probe_files(inventory_path: str | Path, receipt_path: str | Path, output_path: str | Path) -> dict[str, Any]:
+def build_spatial_container_probe_files(
+    inventory_path: str | Path,
+    receipt_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
     inventory, _ = _read_json(inventory_path, "photoreal source inventory")
     receipt, receipt_raw = _read_json(receipt_path, "photoreal source receipt")
-    result = build_spatial_container_probe(inventory, receipt, receipt_sha256=hashlib.sha256(receipt_raw).hexdigest())
+    result = build_spatial_container_probe(
+        inventory,
+        receipt,
+        receipt_sha256=hashlib.sha256(receipt_raw).hexdigest(),
+    )
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealSpatialMetadataProbeError(f"spatial container probe output already exists: {output}")
