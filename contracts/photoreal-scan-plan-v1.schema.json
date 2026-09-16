@@ -67,7 +67,9 @@
         "kind": {"enum": ["video", "image"]},
         "split": {"enum": ["train", "evaluation"]},
         "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "projection": {"enum": ["flat", "vr180", "vr360", "equirectangular"]},
+        "projection": {
+          "enum": ["flat", "vr180", "vr360", "equirectangular", "equi", "mshp", "cbmp"]
+        },
         "stereo_layout": {"enum": ["mono", "side-by-side", "over-under"]},
         "decode_mode": {
           "enum": [
