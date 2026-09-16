@@ -7,6 +7,7 @@ import pytest
 
 from bodyrig.photoreal_mesh_projection import (
     PhotorealMeshProjectionError,
+    parse_mesh_projection_file,
     parse_mesh_projection_payload,
 )
 
@@ -33,6 +34,10 @@ class _BitWriter:
 
 def _zigzag(value: int) -> int:
     return value * 2 if value >= 0 else -value * 2 - 1
+
+
+def _box(box_type: bytes, payload: bytes) -> bytes:
+    return (len(payload) + 8).to_bytes(4, "big") + box_type + payload
 
 
 def _mesh_box(*, reserved_coordinate_bit: int = 0, index_type: int = 0, bad_vertex_delta: bool = False) -> bytes:
@@ -74,12 +79,34 @@ def _mesh_box(*, reserved_coordinate_bit: int = 0, index_type: int = 0, bad_vert
         previous_index = index
         writer.put(_zigzag(delta), vertex_bits)
     payload = writer.bytes()
-    return (len(payload) + 8).to_bytes(4, "big") + b"mesh" + payload
+    return _box(b"mesh", payload)
 
 
 def _deflate(raw: bytes) -> bytes:
     compressor = zlib.compressobj(level=9, wbits=-15)
     return compressor.compress(raw) + compressor.flush()
+
+
+def _isobmff_with_mshp(*, encoding: bytes = b"raw ", encoded_payload: bytes | None = None, crc_delta: int = 0) -> bytes:
+    payload = _mesh_box() if encoded_payload is None else encoded_payload
+    crc = zlib.crc32(encoding)
+    crc = (zlib.crc32(payload, crc) + crc_delta) & 0xFFFFFFFF
+    mshp = _box(
+        b"mshp",
+        b"\x00\x00\x00\x00" + crc.to_bytes(4, "big") + encoding + payload,
+    )
+    prhd = _box(b"prhd", b"\x00\x00\x00\x00" + b"\x00" * 12)
+    proj = _box(b"proj", prhd + mshp)
+    sv3d = _box(b"sv3d", proj)
+    avc1 = _box(b"avc1", b"\x00" * 78 + sv3d)
+    stsd = _box(b"stsd", b"\x00\x00\x00\x00" + (1).to_bytes(4, "big") + avc1)
+    stbl = _box(b"stbl", stsd)
+    minf = _box(b"minf", stbl)
+    mdia = _box(b"mdia", minf)
+    trak = _box(b"trak", mdia)
+    moov = _box(b"moov", trak)
+    ftyp = _box(b"ftyp", b"isom\x00\x00\x00\x00")
+    return ftyp + moov
 
 
 def test_parses_raw_mesh_geometry_exactly() -> None:
@@ -110,8 +137,38 @@ def test_parses_raw_deflate_without_materializing_vertices() -> None:
     assert result["meshes"][0]["vertex_lists"] is None
 
 
+def test_parses_exact_mshp_from_iso_bmff_source(tmp_path) -> None:
+    source = tmp_path / "mesh.mp4"
+    source.write_bytes(_isobmff_with_mshp())
+    result = parse_mesh_projection_file(source, materialize=True)
+    assert result["projection_data_version"] == 0
+    assert result["projection_data_flags"] == 0
+    assert result["mesh_projection_crc32_matches"] is True
+    assert result["encoding"] == "raw "
+    assert result["mesh_count"] == 1
+    assert result["total_vertex_count"] == 3
+    assert result["meshes"][0]["vertices"][1] == (1.0, 0.0, -1.0, 1.0, 0.0)
+
+
+def test_parses_exact_dfl8_mshp_from_iso_bmff_source(tmp_path) -> None:
+    source = tmp_path / "mesh-deflate.mp4"
+    compressed = _deflate(_mesh_box())
+    source.write_bytes(_isobmff_with_mshp(encoding=b"dfl8", encoded_payload=compressed))
+    result = parse_mesh_projection_file(source)
+    assert result["encoding"] == "dfl8"
+    assert result["mesh_count"] == 1
+    assert result["decompressed_payload_bytes"] == len(_mesh_box())
+
+
+def test_iso_bmff_parser_rejects_crc_mismatch(tmp_path) -> None:
+    source = tmp_path / "mesh-bad-crc.mp4"
+    source.write_bytes(_isobmff_with_mshp(crc_delta=1))
+    with pytest.raises(PhotorealMeshProjectionError, match="CRC32"):
+        parse_mesh_projection_file(source)
+
+
 def test_ignores_unknown_extension_boxes_but_records_them() -> None:
-    extension = (12).to_bytes(4, "big") + b"test" + b"ABCD"
+    extension = _box(b"test", b"ABCD")
     result = parse_mesh_projection_payload(_mesh_box() + extension, encoding="raw ")
     assert result["mesh_count"] == 1
     assert result["unknown_box_types"] == ["test"]
