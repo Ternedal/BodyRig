@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "review-tools" / "VERIFY_PHYSICAL_P0_READY.ps1"
+CODEQL_WORKFLOW = ROOT / ".github" / "workflows" / "codeql.yml"
 
 
 def test_readiness_helper_binds_operator_supplied_exact_revision() -> None:
@@ -29,6 +30,15 @@ def test_readiness_helper_discovers_exact_head_workflows_without_weakenable_gate
     assert '"codeql"' in source
     assert "[string[]]$RequiredWorkflowNames" not in source
     assert "has no completed successful run for the exact head" in source
+
+
+def test_codeql_qualification_is_available_on_stacked_pull_requests() -> None:
+    source = CODEQL_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "name: codeql" in source
+    assert "pull_request:\n  schedule:" in source
+    assert "pull_request:\n    branches: [main]" not in source
+    assert "push:\n    branches: [main]" in source
 
 
 def test_readiness_helper_preserves_physical_proof_across_software_blockers() -> None:
