@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +15,8 @@ AMBIGUOUS_PROJECTION = "projection-ambiguous-2to1"
 V2_PROJECTION_TYPES = {"equi", "mshp", "cbmp"}
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
 V2_STEREO_TO_LAYOUT = {"mono": "mono", "left-right": "side-by-side", "top-bottom": "over-under"}
+PROJECTION_AUTHORITY_FORMAT = "bodyrig-spherical-v2-projection-authority"
+PROJECTION_AUTHORITY_VERSION = 1
 
 
 class PhotorealProjectionAuthorityError(ValueError):
@@ -44,6 +47,34 @@ def _positive_int(value: Any, *, label: str) -> int:
     if result < 1:
         raise PhotorealProjectionAuthorityError(f"{label} must be positive")
     return result
+
+
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid") from exc
+    if result < 0:
+        raise PhotorealProjectionAuthorityError(f"{label} cannot be negative")
+    return result
+
+
+def _finite_number(value: Any, *, label: str, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool):
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid") from exc
+    if not math.isfinite(result) or not minimum <= result <= maximum:
+        raise PhotorealProjectionAuthorityError(f"{label} is outside its valid range")
+    return result
+
+
+def _fraction(value: Any, *, label: str) -> float:
+    return _finite_number(value, label=label, minimum=0.0, maximum=1.0)
 
 
 def _receipt_sources(receipt: Mapping[str, Any]) -> dict[str, dict[str, str]]:
@@ -154,6 +185,83 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
     return observed_layout
 
 
+def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
+    projection_type = _text(probe.get("projection_type"), label="Spherical V2 projection type", maximum=16)
+    yaw = _finite_number(
+        probe.get("projection_pose_yaw_degrees"),
+        label="Spherical V2 projection yaw",
+        minimum=-180.0,
+        maximum=180.0,
+    )
+    pitch = _finite_number(
+        probe.get("projection_pose_pitch_degrees"),
+        label="Spherical V2 projection pitch",
+        minimum=-90.0,
+        maximum=90.0,
+    )
+    roll = _finite_number(
+        probe.get("projection_pose_roll_degrees"),
+        label="Spherical V2 projection roll",
+        minimum=-180.0,
+        maximum=180.0,
+    )
+
+    equi_bounds: dict[str, float] | None = None
+    cubemap_layout: int | None = None
+    cubemap_padding: int | None = None
+    mesh_crc: str | None = None
+    mesh_encoding: str | None = None
+    mesh_payload_bytes: int | None = None
+
+    if projection_type == "equi":
+        raw_bounds = probe.get("equirectangular_bounds_fraction")
+        if not isinstance(raw_bounds, Mapping):
+            raise PhotorealProjectionAuthorityError("Spherical V2 equirectangular bounds are missing")
+        equi_bounds = {
+            name: _fraction(raw_bounds.get(name), label=f"Spherical V2 equirectangular {name} bound")
+            for name in ("top", "bottom", "left", "right")
+        }
+        if equi_bounds["top"] + equi_bounds["bottom"] >= 1.0:
+            raise PhotorealProjectionAuthorityError("Spherical V2 vertical equirectangular bounds are empty")
+        if equi_bounds["left"] + equi_bounds["right"] >= 1.0:
+            raise PhotorealProjectionAuthorityError("Spherical V2 horizontal equirectangular bounds are empty")
+    elif projection_type == "cbmp":
+        cubemap_layout = _nonnegative_int(probe.get("cubemap_layout"), label="Spherical V2 cubemap layout")
+        cubemap_padding = _nonnegative_int(
+            probe.get("cubemap_padding_pixels"), label="Spherical V2 cubemap padding"
+        )
+    elif projection_type == "mshp":
+        mesh_crc = str(probe.get("mesh_projection_crc32") or "").strip().lower()
+        if len(mesh_crc) != 8 or any(character not in "0123456789abcdef" for character in mesh_crc):
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh CRC is invalid")
+        mesh_encoding = _text(probe.get("mesh_projection_encoding"), label="Spherical V2 mesh encoding", maximum=4)
+        if mesh_encoding not in {"raw ", "dfl8"}:
+            raise PhotorealProjectionAuthorityError("Spherical V2 mesh encoding is unsupported")
+        mesh_payload_bytes = _positive_int(
+            probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size"
+        )
+    else:
+        raise PhotorealProjectionAuthorityError("unsupported Spherical V2 projection authority type")
+
+    return {
+        "format": PROJECTION_AUTHORITY_FORMAT,
+        "version": PROJECTION_AUTHORITY_VERSION,
+        "projection_type": projection_type,
+        "pose_degrees": {
+            "yaw": round(yaw, 6),
+            "pitch": round(pitch, 6),
+            "roll": round(roll, 6),
+        },
+        "equirectangular_bounds_fraction": equi_bounds,
+        "cubemap_layout": cubemap_layout,
+        "cubemap_padding_pixels": cubemap_padding,
+        "mesh_projection_crc32": mesh_crc,
+        "mesh_projection_encoding": mesh_encoding,
+        "mesh_projection_payload_bytes": mesh_payload_bytes,
+        "deprojection_authority": False,
+    }
+
+
 def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
     version = plan.get("version")
     if plan.get("format") != PLAN_FORMAT or isinstance(version, bool) or version != PLAN_VERSION:
@@ -194,6 +302,7 @@ def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[st
             probe = _probe_v2_projection(verified["resolved_path"])
             raw["projection"] = str(probe["projection_type"])
             raw["stereo_layout"] = _resolve_stereo_layout(raw.get("stereo_layout"), probe)
+            raw["projection_authority"] = _projection_authority(probe)
             resolved_count += 1
     if seen != set(receipt_sources):
         raise PhotorealProjectionAuthorityError("dataset plan/source receipt source universe mismatch")
