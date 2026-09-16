@@ -114,9 +114,11 @@ def build_cubemap_remap(
     abs_z = np_module.abs(z)
 
     # V2 layout 0 stores: row 0 = right, left, up; row 1 = down, front, back.
-    # The local formulas below are FFmpeg v360's default rludfb/000000 cubemap
-    # convention after converting BodyRig's +Y-up/-Z-forward rays to FFmpeg's
-    # +Y-down/+Z-forward convention.
+    # Equatorial faces match FFmpeg v360's rludfb convention after converting
+    # BodyRig's +Y-up/-Z-forward rays to FFmpeg's +Y-down/+Z-forward convention.
+    # Spherical Video V2 additionally specifies up-face top=forward and down-face
+    # top=back, which is a 180-degree local rotation of FFmpeg's default pole
+    # faces; those rotations are applied explicitly below.
     face = np_module.full(x.shape, -1, dtype=np_module.int8)
     uf = np_module.zeros(x.shape, dtype=np_module.float64)
     vf = np_module.zeros(x.shape, dtype=np_module.float64)
@@ -141,12 +143,12 @@ def build_cubemap_remap(
     vf[left] = y[left] / x[left]
 
     face[up] = 2
-    uf[up] = x[up] / y[up]
-    vf[up] = -z[up] / y[up]
+    uf[up] = -x[up] / y[up]
+    vf[up] = z[up] / y[up]
 
     face[down] = 3
-    uf[down] = -x[down] / y[down]
-    vf[down] = -z[down] / y[down]
+    uf[down] = x[down] / y[down]
+    vf[down] = z[down] / y[down]
 
     face[front] = 4
     uf[front] = -x[front] / z[front]
