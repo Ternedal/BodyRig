@@ -147,6 +147,20 @@ def test_preserves_matching_explicit_stereo_and_cross_checks_v2(monkeypatch: pyt
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
 
 
+def test_preserves_explicit_stereo_when_st3d_is_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _plan(stereo_layout="side-by-side")
+    receipt = _receipt(plan)
+    probe = _v2_equi()
+    probe["st3d_present"] = False
+    probe["stereo_mode"] = None
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+
+    resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
+
+    assert count == 1
+    assert resolved["train"][0]["stereo_layout"] == "side-by-side"
+
+
 def test_rejects_explicit_stereo_conflicting_with_v2(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _plan(stereo_layout="side-by-side")
     receipt = _receipt(plan)
