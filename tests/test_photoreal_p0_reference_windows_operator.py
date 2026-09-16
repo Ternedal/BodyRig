@@ -55,4 +55,6 @@ def test_reference_p0_wrapper_never_claims_success_when_preflight_config_or_p0_f
     assert 'if ($configExit -ne 0) { throw "Photoreal reference vision config generation failed with exit code $configExit." }' in SCRIPT
     assert 'if ($exitCode -eq 2)' in SCRIPT
     assert "was blocked by a fail-closed gate" in SCRIPT
-    assert 'throw "BodyRig Photoreal reference P0 failed with exit code $exitCode."' in SCRIPT
+    assert "BodyRig Photoreal reference P0 failed unexpectedly with original child exit code $exitCode" in SCRIPT
+    assert "Do not reuse partial outputs as authority" in SCRIPT
+    assert "bodyrig.photoreal_p0_crash_receipt_cli" in SCRIPT
