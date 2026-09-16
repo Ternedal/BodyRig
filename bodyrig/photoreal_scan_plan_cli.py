@@ -5,10 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_projection_authority import (
-    PhotorealProjectionAuthorityError,
-    resolve_v2_projection_ambiguity,
-)
+from .photoreal_projection_authority import PhotorealProjectionAuthorityError, resolve_v2_projection_ambiguity
 from .photoreal_scan_plan import PhotorealScanPlanError, build_scan_plan
 
 
@@ -63,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
                 "source_count": result["source_count"],
                 "planned_observation_count": result["planned_observation_count"],
                 "strategy": result["strategy"],
-                "resolved_v2_equirectangular_source_count": resolved_projection_count,
+                "resolved_v2_projection_source_count": resolved_projection_count,
                 "frame_analyzer_required": result["frame_analyzer_required"],
                 "teacher_training_authorized": result["teacher_training_authorized"],
                 "production_activation": result["production_activation"],
