@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 from typing import Any, BinaryIO, Mapping
 
@@ -16,6 +17,7 @@ LEGACY_SPHERICAL_V1_UUID = bytes.fromhex("ffcc8263f8554a938814587a02521fdd")
 LEGACY_SPHERICAL_V1_NAMESPACE = "http://ns.google.com/videos/1.0/spherical/"
 LEGACY_STEREO_MODES = {"mono", "left-right", "top-bottom"}
 MAX_LEGACY_XML_BYTES = 1024 * 1024
+CRC_CHUNK_BYTES = 1024 * 1024
 
 
 class PhotorealSpatialMetadataProbeError(ValueError):
@@ -54,6 +56,33 @@ def _read(stream: BinaryIO, offset: int, count: int) -> bytes:
     if len(raw) != count:
         raise PhotorealSpatialMetadataProbeError("ISO BMFF box is truncated")
     return raw
+
+
+def _crc32_region(stream: BinaryIO, start: int, end: int) -> int:
+    if start > end:
+        raise PhotorealSpatialMetadataProbeError("ISO BMFF CRC region is invalid")
+    stream.seek(start)
+    remaining = end - start
+    checksum = 0
+    while remaining:
+        chunk = stream.read(min(CRC_CHUNK_BYTES, remaining))
+        if not chunk:
+            raise PhotorealSpatialMetadataProbeError("ISO BMFF CRC region is truncated")
+        checksum = zlib.crc32(chunk, checksum)
+        remaining -= len(chunk)
+    return checksum & 0xFFFFFFFF
+
+
+def _fixed_16_16(raw: bytes) -> float:
+    if len(raw) != 4:
+        raise PhotorealSpatialMetadataProbeError("16.16 fixed-point field is truncated")
+    return int.from_bytes(raw, "big", signed=True) / 65536.0
+
+
+def _fixed_0_32(raw: bytes) -> float:
+    if len(raw) != 4:
+        raise PhotorealSpatialMetadataProbeError("0.32 fixed-point field is truncated")
+    return int.from_bytes(raw, "big", signed=False) / 4294967296.0
 
 
 def _header(stream: BinaryIO, offset: int, end: int) -> tuple[str, int, int, int]:
@@ -112,6 +141,85 @@ def _parse_st3d(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]
     )
 
 
+def _parse_prhd(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
+    version, flags = _fullbox(stream, payload, end)
+    if end - payload < 16:
+        raise PhotorealSpatialMetadataProbeError("prhd box is truncated")
+    raw = _read(stream, payload + 4, 12)
+    result.update(
+        prhd_present=True,
+        prhd_version=version,
+        prhd_flags=flags,
+        projection_pose_yaw_degrees=_fixed_16_16(raw[0:4]),
+        projection_pose_pitch_degrees=_fixed_16_16(raw[4:8]),
+        projection_pose_roll_degrees=_fixed_16_16(raw[8:12]),
+    )
+
+
+def _parse_equi(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
+    version, flags = _fullbox(stream, payload, end)
+    if end - payload < 20:
+        raise PhotorealSpatialMetadataProbeError("equi box is truncated")
+    raw = _read(stream, payload + 4, 16)
+    values = [int.from_bytes(raw[index:index + 4], "big") for index in range(0, 16, 4)]
+    top, bottom, left, right = values
+    result.update(
+        projection_data_version=version,
+        projection_data_flags=flags,
+        equirectangular_bounds_raw={
+            "top": top,
+            "bottom": bottom,
+            "left": left,
+            "right": right,
+        },
+        equirectangular_bounds_fraction={
+            "top": _fixed_0_32(raw[0:4]),
+            "bottom": _fixed_0_32(raw[4:8]),
+            "left": _fixed_0_32(raw[8:12]),
+            "right": _fixed_0_32(raw[12:16]),
+        },
+        equirectangular_bounds_valid=(
+            top + bottom < 0xFFFFFFFF
+            and left + right < 0xFFFFFFFF
+        ),
+    )
+
+
+def _parse_cbmp(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
+    version, flags = _fullbox(stream, payload, end)
+    if end - payload < 12:
+        raise PhotorealSpatialMetadataProbeError("cbmp box is truncated")
+    raw = _read(stream, payload + 4, 8)
+    layout = int.from_bytes(raw[0:4], "big")
+    padding = int.from_bytes(raw[4:8], "big")
+    result.update(
+        projection_data_version=version,
+        projection_data_flags=flags,
+        cubemap_layout=layout,
+        cubemap_layout_known=(layout == 0),
+        cubemap_padding_pixels=padding,
+    )
+
+
+def _parse_mshp(stream: BinaryIO, payload: int, end: int, result: dict[str, Any]) -> None:
+    version, flags = _fullbox(stream, payload, end)
+    if end - payload < 12:
+        raise PhotorealSpatialMetadataProbeError("mshp box is truncated")
+    stored_crc = int.from_bytes(_read(stream, payload + 4, 4), "big")
+    encoding = _read(stream, payload + 8, 4).decode("latin-1")
+    computed_crc = _crc32_region(stream, payload + 8, end)
+    result.update(
+        projection_data_version=version,
+        projection_data_flags=flags,
+        mesh_projection_crc32=f"{stored_crc:08x}",
+        mesh_projection_crc32_computed=f"{computed_crc:08x}",
+        mesh_projection_crc32_matches=(stored_crc == computed_crc),
+        mesh_projection_encoding=encoding,
+        mesh_projection_encoding_supported=(encoding in {"raw ", "dfl8"}),
+        mesh_projection_payload_bytes=max(0, end - (payload + 12)),
+    )
+
+
 def _parse_sv3d(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) -> None:
     result["sv3d_present"] = True
     projection_types: list[str] = []
@@ -127,13 +235,15 @@ def _parse_sv3d(stream: BinaryIO, start: int, end: int, result: dict[str, Any]) 
             result["proj_present"] = True
             for child_type, child_payload, child_end in _boxes(stream, payload, box_end):
                 if child_type == "prhd":
-                    result["prhd_present"] = True
+                    _parse_prhd(stream, child_payload, child_end, result)
                 elif child_type in PROJECTION_TYPES:
                     projection_types.append(child_type)
-                    if child_type == "mshp":
-                        _fullbox(stream, child_payload, child_end)
-                        if child_end - child_payload >= 12:
-                            result["mesh_projection_encoding"] = _read(stream, child_payload + 8, 4).decode("latin-1")
+                    if child_type == "equi":
+                        _parse_equi(stream, child_payload, child_end, result)
+                    elif child_type == "cbmp":
+                        _parse_cbmp(stream, child_payload, child_end, result)
+                    else:
+                        _parse_mshp(stream, child_payload, child_end, result)
     result["projection_type"] = projection_types[0] if len(projection_types) == 1 else "multiple" if projection_types else None
 
 
@@ -249,8 +359,26 @@ def probe_isobmff_file(path: str | Path) -> dict[str, Any]:
         "svhd_metadata_source_sha256": None,
         "proj_present": False,
         "prhd_present": False,
+        "prhd_version": None,
+        "prhd_flags": None,
+        "projection_pose_yaw_degrees": None,
+        "projection_pose_pitch_degrees": None,
+        "projection_pose_roll_degrees": None,
         "projection_type": None,
+        "projection_data_version": None,
+        "projection_data_flags": None,
+        "equirectangular_bounds_raw": None,
+        "equirectangular_bounds_fraction": None,
+        "equirectangular_bounds_valid": None,
+        "cubemap_layout": None,
+        "cubemap_layout_known": None,
+        "cubemap_padding_pixels": None,
+        "mesh_projection_crc32": None,
+        "mesh_projection_crc32_computed": None,
+        "mesh_projection_crc32_matches": None,
         "mesh_projection_encoding": None,
+        "mesh_projection_encoding_supported": None,
+        "mesh_projection_payload_bytes": None,
         "camm_sample_entry_present": False,
         "spherical_v1_present": False,
         "spherical_v1_xml_size_bytes": None,
