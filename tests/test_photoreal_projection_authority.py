@@ -87,6 +87,8 @@ def _v2_equi(*, stereo_mode: str = "left-right") -> dict[str, object]:
     return {
         "probe_status": "parsed-isobmff",
         "st3d_present": True,
+        "st3d_version": 0,
+        "st3d_flags": 0,
         "stereo_mode": stereo_mode,
         "sv3d_present": True,
         "proj_present": True,
@@ -164,6 +166,21 @@ def test_refuses_unrepresentable_v2_stereo_modes(
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode=stereo_mode))
 
     with pytest.raises(PhotorealProjectionAuthorityError, match="unsupported Spherical V2 stereo mode"):
+        resolve_v2_projection_ambiguity(plan, receipt)
+
+
+@pytest.mark.parametrize("patch", [{"st3d_version": 1}, {"st3d_flags": 1}])
+def test_refuses_unsupported_st3d_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+    patch: dict[str, object],
+) -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    probe = _v2_equi()
+    probe.update(patch)
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+
+    with pytest.raises(PhotorealProjectionAuthorityError, match="stereo box semantics"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
