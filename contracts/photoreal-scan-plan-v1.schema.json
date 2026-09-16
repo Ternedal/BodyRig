@@ -38,6 +38,81 @@
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "crc32": {"type": "string", "pattern": "^[0-9a-f]{8}$"},
+    "pose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["yaw", "pitch", "roll"],
+      "properties": {
+        "yaw": {"type": "number", "minimum": -180.0, "maximum": 180.0},
+        "pitch": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+        "roll": {"type": "number", "minimum": -180.0, "maximum": 180.0}
+      }
+    },
+    "equirectangular_bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["top", "bottom", "left", "right"],
+      "properties": {
+        "top": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "bottom": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "left": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "right": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      }
+    },
+    "projection_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format", "version", "projection_type", "pose_degrees",
+        "equirectangular_bounds_fraction", "cubemap_layout", "cubemap_padding_pixels",
+        "mesh_projection_crc32", "mesh_projection_encoding", "mesh_projection_payload_bytes",
+        "deprojection_authority"
+      ],
+      "properties": {
+        "format": {"const": "bodyrig-spherical-v2-projection-authority"},
+        "version": {"const": 1},
+        "projection_type": {"enum": ["equi", "mshp", "cbmp"]},
+        "pose_degrees": {"$ref": "#/$defs/pose"},
+        "equirectangular_bounds_fraction": {
+          "oneOf": [
+            {"$ref": "#/$defs/equirectangular_bounds"},
+            {"type": "null"}
+          ]
+        },
+        "cubemap_layout": {
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "cubemap_padding_pixels": {
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_crc32": {
+          "oneOf": [
+            {"$ref": "#/$defs/crc32"},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_encoding": {
+          "oneOf": [
+            {"enum": ["raw ", "dfl8"]},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_payload_bytes": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ]
+        },
+        "deprojection_authority": {"const": false}
+      }
+    },
     "sample": {
       "type": "object",
       "additionalProperties": false,
@@ -57,8 +132,9 @@
       "additionalProperties": false,
       "required": [
         "source_key", "source_sha256", "resolved_path", "kind", "split",
-        "group_id", "projection", "stereo_layout", "decode_mode",
-        "sample_count", "samples"
+        "group_id", "source_binding", "performer_count", "projection",
+        "projection_authority", "stereo_layout", "decode_mode",
+        "identity_bootstrap_eligible", "sample_count", "samples"
       ],
       "properties": {
         "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
@@ -67,8 +143,16 @@
         "kind": {"enum": ["video", "image"]},
         "split": {"enum": ["train", "evaluation"]},
         "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_binding": {"type": "string", "minLength": 1, "maxLength": 128},
+        "performer_count": {"type": "integer", "minimum": 0},
         "projection": {
           "enum": ["flat", "vr180", "vr360", "equirectangular", "equi", "mshp", "cbmp"]
+        },
+        "projection_authority": {
+          "oneOf": [
+            {"$ref": "#/$defs/projection_authority"},
+            {"type": "null"}
+          ]
         },
         "stereo_layout": {"enum": ["mono", "side-by-side", "over-under"]},
         "decode_mode": {
@@ -79,6 +163,7 @@
             "spatial-deprojection-required"
           ]
         },
+        "identity_bootstrap_eligible": {"type": "boolean"},
         "sample_count": {"type": "integer", "minimum": 1},
         "samples": {
           "type": "array",
