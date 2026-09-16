@@ -86,6 +86,59 @@ def test_frame_analyzer_routes_mshp_through_unique_deprojected_viewports(monkeyp
     assert all(row["projection"] == "mshp" for row in result["observations"])
 
 
+def test_frame_analyzer_routes_cbmp_through_unique_deprojected_viewports(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = SimpleNamespace(embedding_dimension=512)
+    raw_image = object()
+    authority = {
+        "format": "bodyrig-spherical-v2-projection-authority",
+        "version": 1,
+        "projection_type": "cbmp",
+        "cubemap_layout": 0,
+        "cubemap_padding_pixels": 2,
+        "deprojection_authority": False,
+    }
+    request = {
+        "performer_id": "42",
+        "sources": [
+            {
+                "source_key": "scene:s1:E:/cube.mp4",
+                "source_sha256": "a" * 64,
+                "resolved_path": "/verified/cube.mp4",
+                "kind": "video",
+                "projection": "cbmp",
+                "projection_authority": authority,
+                "samples": [{"timestamp_seconds": 1.0, "eye": "mono"}],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="b" * 64,
+    )
+    monkeypatch.setattr(adapter.base, "_read_sample", lambda *_args: (raw_image, True))
+    calls = []
+
+    def deproject(_runtime, image, projection_authority):
+        assert image is raw_image
+        calls.append(projection_authority)
+        return [("front", object()), ("right", object())]
+
+    def candidate_rows(_runtime, _image, *, base, candidate_prefix=""):
+        return [{**base, "candidate_id": f"{candidate_prefix}person-000"}]
+
+    monkeypatch.setattr(adapter, "deproject_cubemap_views", deproject)
+    monkeypatch.setattr(adapter.base, "_candidate_rows", candidate_rows)
+    result = adapter._frame_result(runtime, request, args)
+
+    assert calls == [authority]
+    assert [row["candidate_id"] for row in result["observations"]] == [
+        "front-person-000",
+        "right-person-000",
+    ]
+    assert all(row["projection"] == "cbmp" for row in result["observations"])
+
+
 def test_mesh_wrapper_keeps_spatial_identity_bootstrap_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter.base, "_read_sample", lambda *_args: (object(), True))
     with pytest.raises(adapter.ReferenceVisionError, match="cannot establish identity authority"):
