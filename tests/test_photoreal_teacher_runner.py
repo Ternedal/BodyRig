@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -26,46 +27,91 @@ def _config(command: list[str]) -> dict[str, object]:
     }
 
 
+def _resign_teacher_input(value: dict[str, object]) -> dict[str, object]:
+    value.pop("teacher_input_sha256", None)
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    value["teacher_input_sha256"] = hashlib.sha256(encoded).hexdigest()
+    return value
+
+
 def _teacher_input() -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "format": "bodyrig-photoreal-teacher-input",
         "version": 1,
         "performer_id": "42",
+        "performer_name": "Performer 42",
         "selected_epoch_id": "epoch-a",
-        "teacher_input_sha256": "a" * 64,
+        "appearance_epoch_selection_sha256": "f" * 64,
+        "identity_bank_sha256": "1" * 64,
+        "identity_calibration_sha256": "2" * 64,
+        "analyzer_model_set_sha256": "3" * 64,
         "training_sources": [
             {
                 "source_key": "scene:t:E:/train.mp4",
+                "group_id": "group-train",
+                "kind": "video",
                 "resolved_path": r"\\stash\VR_E\train.mp4",
+                "size_bytes": 100,
                 "sha256": "b" * 64,
+                "information_score": 1.0,
+                "width": 1920,
+                "height": 1080,
+                "projection": "flat",
+                "stereo_layout": "mono",
             }
         ],
         "training_observations": [
             {
                 "source_key": "scene:t:E:/train.mp4",
+                "group_id": "group-train",
+                "split": "train",
                 "frame_sha256": "c" * 64,
                 "timestamp_seconds": 1.0,
                 "eye": "mono",
+                "view_bin": "face-front",
+                "coverage": ["face-front"],
             }
         ],
         "held_out_evaluation_sources": [
             {
                 "source_key": "scene:e:E:/secret-eval.mp4",
+                "group_id": "group-eval",
+                "kind": "video",
                 "resolved_path": r"\\stash\VR_E\secret-eval.mp4",
+                "size_bytes": 200,
                 "sha256": "d" * 64,
+                "information_score": 0.9,
+                "width": 1920,
+                "height": 1080,
+                "projection": "flat",
+                "stereo_layout": "mono",
             }
         ],
         "held_out_evaluation_observations": [
             {
                 "source_key": "scene:e:E:/secret-eval.mp4",
+                "group_id": "group-eval",
+                "split": "evaluation",
                 "frame_sha256": "e" * 64,
                 "timestamp_seconds": 2.0,
                 "eye": "mono",
+                "view_bin": "face-profile",
+                "coverage": ["face-profile"],
             }
         ],
-        "held_out_evaluation_source_count": 1,
-        "held_out_evaluation_observation_count": 1,
+        "held_out_view_coverage_required": ["face-profile"],
+        "held_out_view_coverage_observed": ["face-profile"],
         "held_out_view_coverage_missing": [],
+        "training_source_count": 1,
+        "held_out_evaluation_source_count": 1,
+        "training_observation_count": 1,
+        "held_out_evaluation_observation_count": 1,
         "evaluation_bytes_excluded_from_teacher_request": True,
         "teacher_training_authorized": True,
         "photoreal_acceptance_authority": False,
@@ -74,6 +120,7 @@ def _teacher_input() -> dict[str, object]:
         "runtime_dependency": False,
         "production_activation": False,
     }
+    return _resign_teacher_input(result)
 
 
 def test_teacher_request_never_discloses_held_out_paths_or_frame_hashes() -> None:
@@ -89,6 +136,38 @@ def test_teacher_request_never_discloses_held_out_paths_or_frame_hashes() -> Non
     assert request["train_evaluation_authority"] is False
     assert request["photoreal_acceptance_authority"] is False
     assert request["production_activation"] is False
+
+
+def test_teacher_request_rejects_tampered_teacher_input_digest() -> None:
+    teacher_input = _teacher_input()
+    training_sources = teacher_input["training_sources"]
+    assert isinstance(training_sources, list)
+    assert isinstance(training_sources[0], dict)
+    training_sources[0]["resolved_path"] = r"\\stash\VR_E\tampered.mp4"
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="teacher input digest mismatch"):
+        build_teacher_request(_config([sys.executable, "adapter.py"]), teacher_input)
+
+
+def test_teacher_request_rejects_resigned_unknown_training_source_field() -> None:
+    teacher_input = _teacher_input()
+    training_sources = teacher_input["training_sources"]
+    assert isinstance(training_sources, list)
+    assert isinstance(training_sources[0], dict)
+    training_sources[0]["unexpected_authority"] = True
+    _resign_teacher_input(teacher_input)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="training source fields must match v1 exactly"):
+        build_teacher_request(_config([sys.executable, "adapter.py"]), teacher_input)
+
+
+def test_teacher_request_rejects_resigned_count_mismatch() -> None:
+    teacher_input = _teacher_input()
+    teacher_input["training_source_count"] = 2
+    _resign_teacher_input(teacher_input)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="training source count mismatch"):
+        build_teacher_request(_config([sys.executable, "adapter.py"]), teacher_input)
 
 
 def test_real_child_process_teacher_contract_tracks_exact_training_consumption(tmp_path: Path) -> None:
