@@ -49,6 +49,19 @@ def _read_frame_sample(runtime: Any, source: Mapping[str, Any], sample: Mapping[
         return base._read_sample(runtime, source, sample)
     if source.get("projection") != "mshp" or sample.get("eye") not in {"left", "right"}:
         raise ReferenceVisionError("mesh-custom sample lacks authoritative mshp left/right eye semantics")
+    projection_authority = source.get("projection_authority")
+    mesh_count = projection_authority.get("mesh_projection_mesh_count") if isinstance(projection_authority, Mapping) else None
+    if (
+        not isinstance(projection_authority, Mapping)
+        or projection_authority.get("format") != "bodyrig-spherical-v2-projection-authority"
+        or projection_authority.get("version") != 1
+        or projection_authority.get("projection_type") != "mshp"
+        or isinstance(mesh_count, bool)
+        or not isinstance(mesh_count, int)
+        or mesh_count != 2
+        or projection_authority.get("deprojection_authority") is not False
+    ):
+        raise ReferenceVisionError("mesh-custom sample requires exact two-mesh Spherical V2 projection authority")
     decode_source = dict(source)
     decode_source["stereo_layout"] = "mono"
     decode_sample = dict(sample)
