@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -106,6 +107,66 @@ def _validate_scan_plan(scan_plan: Mapping[str, Any]) -> None:
         raise PhotorealFrameAnalyzerError("photoreal scan plan contains no sources")
 
 
+def _sample_identity(timestamp: Any, eye: Any, *, kind: str) -> tuple[str, str]:
+    eye_value = str(eye or "").strip()
+    if eye_value not in {"mono", "left", "right"}:
+        raise PhotorealFrameAnalyzerError("photoreal frame sample eye is invalid")
+    if kind == "image":
+        if timestamp is not None or eye_value != "mono":
+            raise PhotorealFrameAnalyzerError("still-image frame sample must be mono without timestamp")
+        return "image", eye_value
+    if kind != "video" or isinstance(timestamp, bool):
+        raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid")
+    try:
+        numeric = float(timestamp)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid") from exc
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid")
+    return f"{numeric:.6f}", eye_value
+
+
+def _expected_scan_samples(scan_plan: Mapping[str, Any]) -> tuple[dict[str, dict[str, Any]], set[tuple[str, str, str]]]:
+    _validate_scan_plan(scan_plan)
+    result: dict[str, dict[str, Any]] = {}
+    expected_samples: set[tuple[str, str, str]] = set()
+    for raw_source in scan_plan["sources"]:
+        if not isinstance(raw_source, Mapping):
+            raise PhotorealFrameAnalyzerError("photoreal scan plan contains an invalid source")
+        source_key = str(raw_source.get("source_key") or "").strip()
+        if not source_key or source_key in result:
+            raise PhotorealFrameAnalyzerError("photoreal scan plan source_key is missing or repeated")
+        kind = str(raw_source.get("kind") or "").strip()
+        if kind not in {"video", "image"}:
+            raise PhotorealFrameAnalyzerError("photoreal scan plan source kind is invalid")
+        projection = str(raw_source.get("projection") or "").strip()
+        if not projection or len(projection) > 128:
+            raise PhotorealFrameAnalyzerError("photoreal scan plan source projection is invalid")
+        source_sha = _sha(raw_source.get("source_sha256"), label="photoreal scan-plan source SHA-256")
+        samples = raw_source.get("samples")
+        if not isinstance(samples, list) or not samples:
+            raise PhotorealFrameAnalyzerError("photoreal scan plan source contains no samples")
+        sample_count = raw_source.get("sample_count")
+        if isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count != len(samples):
+            raise PhotorealFrameAnalyzerError("photoreal scan plan source sample_count mismatch")
+        source_samples: set[tuple[str, str]] = set()
+        for raw_sample in samples:
+            if not isinstance(raw_sample, Mapping):
+                raise PhotorealFrameAnalyzerError("photoreal scan plan contains an invalid sample")
+            sample = _sample_identity(raw_sample.get("timestamp_seconds"), raw_sample.get("eye"), kind=kind)
+            if sample in source_samples:
+                raise PhotorealFrameAnalyzerError("photoreal scan plan repeats a source sample")
+            source_samples.add(sample)
+            expected_samples.add((source_key, sample[0], sample[1]))
+        result[source_key] = {
+            "sha256": source_sha,
+            "kind": kind,
+            "projection": projection,
+            "samples": source_samples,
+        }
+    return result, expected_samples
+
+
 def build_analyzer_request(
     scan_plan: Mapping[str, Any],
     *,
@@ -151,6 +212,7 @@ def validate_analyzer_result(
     adapter: str,
     revision: str,
     model_set_sha256: str,
+    scan_plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     required = {
         "format",
@@ -189,7 +251,13 @@ def validate_analyzer_result(
     if value.get("build_only") is not True or value.get("production_activation") is not False:
         raise PhotorealFrameAnalyzerError("photoreal frame analyzer crossed its authority boundary")
 
+    expected_sources: dict[str, dict[str, Any]] | None = None
+    expected_samples: set[tuple[str, str, str]] | None = None
+    if scan_plan is not None:
+        expected_sources, expected_samples = _expected_scan_samples(scan_plan)
+
     seen_candidates: set[tuple[str, str, str, str]] = set()
+    observed_samples: set[tuple[str, str, str]] = set()
     for raw in observations:
         if not isinstance(raw, Mapping):
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned a non-object observation")
@@ -209,7 +277,25 @@ def validate_analyzer_result(
         eye = str(raw.get("eye") or "").strip()
         timestamp = raw.get("timestamp_seconds")
         frame_sha = _sha(raw.get("frame_sha256"), label="photoreal frame SHA-256")
-        candidate_key = (source_key, str(timestamp), eye, candidate_id)
+        normalized_timestamp = str(timestamp)
+        if expected_sources is not None:
+            expected_source = expected_sources.get(source_key)
+            if expected_source is None:
+                raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned an unknown scan-plan source")
+            if _sha(raw.get("source_sha256"), label="photoreal frame source SHA-256") != expected_source["sha256"]:
+                raise PhotorealFrameAnalyzerError("photoreal frame analyzer source SHA-256 differs from scan plan")
+            kind = str(raw.get("kind") or "").strip()
+            if kind != expected_source["kind"]:
+                raise PhotorealFrameAnalyzerError("photoreal frame analyzer source kind differs from scan plan")
+            projection = str(raw.get("projection") or "").strip()
+            if projection != expected_source["projection"]:
+                raise PhotorealFrameAnalyzerError("photoreal frame analyzer projection differs from scan plan")
+            sample = _sample_identity(timestamp, eye, kind=kind)
+            if sample not in expected_source["samples"]:
+                raise PhotorealFrameAnalyzerError("photoreal frame analyzer returned an unplanned source sample")
+            normalized_timestamp = sample[0]
+            observed_samples.add((source_key, sample[0], sample[1]))
+        candidate_key = (source_key, normalized_timestamp, eye, candidate_id)
         if candidate_key in seen_candidates:
             raise PhotorealFrameAnalyzerError("photoreal frame analyzer repeated candidate_id within one sample")
         seen_candidates.add(candidate_key)
@@ -229,6 +315,12 @@ def validate_analyzer_result(
         if not person_detected and status != "unavailable":
             raise PhotorealFrameAnalyzerError("non-person placeholder cannot expose an identity embedding")
         _ = frame_sha
+    if expected_samples is not None and observed_samples != expected_samples:
+        missing = len(expected_samples - observed_samples)
+        unexpected = len(observed_samples - expected_samples)
+        raise PhotorealFrameAnalyzerError(
+            f"photoreal frame analyzer did not return exactly the planned sample set (missing={missing}, unexpected={unexpected})"
+        )
     return dict(value)
 
 
@@ -314,6 +406,7 @@ def run_external_frame_analyzer(
         adapter=adapter,
         revision=revision,
         model_set_sha256=model_set_sha256,
+        scan_plan=scan_plan,
     )
 
 
