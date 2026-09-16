@@ -99,6 +99,17 @@ def test_exact_scan_plan_source_and_sample_binding_passes() -> None:
     assert validated["observations"][0]["candidate_id"] == "v00-person-000"
 
 
+def test_scan_binding_requires_exact_scan_plan() -> None:
+    with pytest.raises(PhotorealFrameAnalyzerError, match="requires the exact scan plan"):
+        validate_analyzer_result(
+            _result(),
+            performer_id="42",
+            adapter="test-analyzer",
+            revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
+        )
+
+
 def test_scan_binding_rejects_source_sha_mismatch() -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["source_sha256"] = "d" * 64
