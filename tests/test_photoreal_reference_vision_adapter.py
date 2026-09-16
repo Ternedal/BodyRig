@@ -119,3 +119,51 @@ def test_adapter_rejects_request_for_other_exact_adapter_revision(tmp_path: Path
     )
     with pytest.raises(adapter.ReferenceVisionError, match="exact adapter bytes"):
         adapter._verify_provenance(args, request, model_root)
+
+
+def test_frame_analyzer_routes_equi_through_unique_deprojected_viewports(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = SimpleNamespace(embedding_dimension=512)
+    raw_image = object()
+    authority = {"format": "bodyrig-spherical-v2-projection-authority", "version": 1}
+    request = {
+        "performer_id": "42",
+        "sources": [
+            {
+                "source_key": "scene:s1:E:/vr.mp4",
+                "source_sha256": "a" * 64,
+                "kind": "video",
+                "projection": "equi",
+                "projection_authority": authority,
+                "samples": [{"timestamp_seconds": 1.0, "eye": "left"}],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="b" * 64,
+    )
+    monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (raw_image, True))
+    seen_authority = []
+
+    def deproject(_runtime, image, projection_authority):
+        assert image is raw_image
+        seen_authority.append(projection_authority)
+        return [("v00", object()), ("v01", object())]
+
+    def candidate_rows(_runtime, _image, *, base, candidate_prefix=""):
+        return [{**base, "candidate_id": f"{candidate_prefix}person-000"}]
+
+    monkeypatch.setattr(adapter, "deproject_equirectangular_views", deproject)
+    monkeypatch.setattr(adapter, "_candidate_rows", candidate_rows)
+    result = adapter._frame_result(runtime, request, args)
+
+    assert seen_authority == [authority]
+    assert [row["candidate_id"] for row in result["observations"]] == ["v00-person-000", "v01-person-000"]
+    assert all(row["projection"] == "equi" for row in result["observations"])
+
+
+def test_spatial_identity_bootstrap_remains_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), True))
+    with pytest.raises(adapter.ReferenceVisionError, match="cannot establish identity authority"):
+        adapter._single_identity(SimpleNamespace(), {}, {})
