@@ -6,6 +6,7 @@ from typing import Iterable
 
 MESH_ADAPTER_NAME = "photoreal_reference_vision_adapter_mesh.py"
 MESH_ADAPTER_DEPENDENCIES = (
+    "bodyrig/photoreal_cubemap_deprojection.py",
     "bodyrig/photoreal_equirectangular_deprojection.py",
     "bodyrig/photoreal_mesh_deprojection.py",
     "bodyrig/photoreal_mesh_projection.py",
