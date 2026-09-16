@@ -53,33 +53,49 @@ def _v2_projection(projection_type: str = "equi", *, stereo_mode: str = "left-ri
         "probe_status": "parsed-isobmff", "st3d_present": True, "st3d_version": 0, "st3d_flags": 0,
         "stereo_mode": stereo_mode, "sv3d_present": True, "proj_present": True,
         "projection_type": projection_type, "prhd_present": True, "prhd_version": 0, "prhd_flags": 0,
-        "projection_data_version": 0, "projection_data_flags": 0,
+        "projection_pose_yaw_degrees": 12.5, "projection_pose_pitch_degrees": -3.25,
+        "projection_pose_roll_degrees": 1.5, "projection_data_version": 0, "projection_data_flags": 0,
     }
     if projection_type == "equi":
         result["equirectangular_bounds_valid"] = True
+        result["equirectangular_bounds_fraction"] = {"top": 0.1, "bottom": 0.1, "left": 0.25, "right": 0.25}
     elif projection_type == "cbmp":
         result["cubemap_layout_known"] = True
-        result["cubemap_padding_pixels"] = 0
+        result["cubemap_layout"] = 0
+        result["cubemap_padding_pixels"] = 2
     elif projection_type == "mshp":
         result["mesh_projection_crc32_matches"] = True
         result["mesh_projection_encoding_supported"] = True
+        result["mesh_projection_crc32"] = "1a2b3c4d"
+        result["mesh_projection_encoding"] = "raw "
         result["mesh_projection_payload_bytes"] = 128
     return result
 
 
 @pytest.mark.parametrize("projection_type", ["equi", "mshp", "cbmp"])
-def test_preserves_exact_v2_projection_type(monkeypatch: pytest.MonkeyPatch, projection_type: str) -> None:
+def test_preserves_exact_v2_projection_and_geometry(monkeypatch: pytest.MonkeyPatch, projection_type: str) -> None:
     plan = _plan(); receipt = _receipt(plan); calls: list[str] = []
     def probe(path): calls.append(str(path)); return _v2_projection(projection_type)
     monkeypatch.setattr(authority, "probe_isobmff_file", probe)
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
     assert count == 1 and calls == ["/verified/train-0.mp4"]
     assert plan["train"][0]["projection"] == "projection-ambiguous-2to1"
-    assert plan["train"][0]["stereo_layout"] == "unknown"
-    assert resolved["train"][0]["projection"] == projection_type
-    assert resolved["train"][0]["stereo_layout"] == "side-by-side"
-    assert resolved["teacher_training_authorized"] is False
-    assert resolved["production_activation"] is False
+    source = resolved["train"][0]
+    assert source["projection"] == projection_type and source["stereo_layout"] == "side-by-side"
+    projection_authority = source["projection_authority"]
+    assert projection_authority["format"] == "bodyrig-spherical-v2-projection-authority"
+    assert projection_authority["projection_type"] == projection_type
+    assert projection_authority["pose_degrees"] == {"yaw": 12.5, "pitch": -3.25, "roll": 1.5}
+    assert projection_authority["deprojection_authority"] is False
+    if projection_type == "equi":
+        assert projection_authority["equirectangular_bounds_fraction"] == {"top": 0.1, "bottom": 0.1, "left": 0.25, "right": 0.25}
+    elif projection_type == "cbmp":
+        assert projection_authority["cubemap_layout"] == 0 and projection_authority["cubemap_padding_pixels"] == 2
+    else:
+        assert projection_authority["mesh_projection_crc32"] == "1a2b3c4d"
+        assert projection_authority["mesh_projection_encoding"] == "raw "
+        assert projection_authority["mesh_projection_payload_bytes"] == 128
+    assert resolved["teacher_training_authorized"] is False and resolved["production_activation"] is False
 
 
 def test_resolves_top_bottom_and_preserves_matching_explicit_layout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,7 +103,6 @@ def test_resolves_top_bottom_and_preserves_matching_explicit_layout(monkeypatch:
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection(stereo_mode="top-bottom"))
     resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
     assert resolved["train"][0]["stereo_layout"] == "over-under"
-
     plan = _plan(stereo_layout="side-by-side"); receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection())
     resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
@@ -143,10 +158,23 @@ def test_refuses_non_authoritative_or_unsupported_projection_metadata(monkeypatc
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
-def test_refuses_invalid_equirectangular_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection("equi"); probe["equirectangular_bounds_valid"] = False
+@pytest.mark.parametrize("field,value", [
+    ("projection_pose_yaw_degrees", 181.0),
+    ("projection_pose_pitch_degrees", 91.0),
+    ("projection_pose_roll_degrees", float("inf")),
+])
+def test_refuses_invalid_projection_pose(monkeypatch: pytest.MonkeyPatch, field: str, value: float) -> None:
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection(); probe[field] = value
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
-    with pytest.raises(PhotorealProjectionAuthorityError, match="equirectangular bounds"):
+    with pytest.raises(PhotorealProjectionAuthorityError, match="projection"):
+        resolve_v2_projection_ambiguity(plan, receipt)
+
+
+def test_refuses_invalid_equirectangular_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection("equi")
+    probe["equirectangular_bounds_fraction"] = {"top": 0.6, "bottom": 0.5, "left": 0.0, "right": 0.0}
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+    with pytest.raises(PhotorealProjectionAuthorityError, match="vertical equirectangular bounds"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
@@ -184,7 +212,7 @@ def test_receipt_universe_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.parametrize("projection_type", ["equi", "mshp", "cbmp"])
-def test_scan_plan_cli_preserves_exact_projection_without_granting_deprojection(
+def test_scan_plan_cli_preserves_exact_geometry_without_granting_deprojection(
     monkeypatch: pytest.MonkeyPatch, tmp_path, projection_type: str
 ) -> None:
     plan = _plan(); receipt = _receipt(plan)
@@ -195,7 +223,11 @@ def test_scan_plan_cli_preserves_exact_projection_without_granting_deprojection(
     scan = json.loads(output_path.read_text(encoding="utf-8"))
     source = next(item for item in scan["sources"] if item["source_key"].startswith("scene:s1:"))
     assert source["projection"] == projection_type and source["stereo_layout"] == "side-by-side"
+    assert source["projection_authority"]["projection_type"] == projection_type
+    assert source["projection_authority"]["deprojection_authority"] is False
     assert source["decode_mode"] == "spatial-deprojection-required" and source["sample_count"] == 24
     assert {item["eye"] for item in source["samples"]} == {"left", "right"}
     assert source["identity_bootstrap_eligible"] is False
+    flat = next(item for item in scan["sources"] if item["source_key"].startswith("scene:s2:"))
+    assert flat["projection_authority"] is None
     assert scan["teacher_training_authorized"] is False and scan["production_activation"] is False
