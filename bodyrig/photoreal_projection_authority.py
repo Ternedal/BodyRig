@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+from typing import Any, Mapping
+
+from .photoreal_spatial_metadata_probe import (
+    PhotorealSpatialMetadataProbeError,
+    probe_isobmff_file,
+)
+
+PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
+PLAN_VERSION = 1
+RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
+RECEIPT_VERSION = 1
+AMBIGUOUS_PROJECTION = "projection-ambiguous-2to1"
+RESOLVED_PROJECTION = "equirectangular"
+
+
+class PhotorealProjectionAuthorityError(ValueError):
+    pass
+
+
+def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
+    result = str(value or "").strip()
+    if not result or len(result) > maximum:
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid")
+    return result
+
+
+def _sha(value: Any, *, label: str) -> str:
+    result = str(value or "").strip().lower()
+    if len(result) != 64 or any(character not in "0123456789abcdef" for character in result):
+        raise PhotorealProjectionAuthorityError(f"{label} is invalid")
+    return result
+
+
+def _receipt_sources(receipt: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    version = receipt.get("version")
+    if receipt.get("format") != RECEIPT_FORMAT or isinstance(version, bool) or version != RECEIPT_VERSION:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt format/version mismatch")
+    if receipt.get("all_sources_readable") is not True or receipt.get("all_sources_sha256_bound") is not True:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt is incomplete")
+    if receipt.get("source_keys_path_specific") is not True:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt lacks path-specific source keys")
+    if receipt.get("build_only") is not True or receipt.get("runtime_dependency") is not False:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt authority boundary is invalid")
+    if receipt.get("production_activation") is not False:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt crossed production authority")
+
+    values = receipt.get("sources")
+    if not isinstance(values, list) or not values:
+        raise PhotorealProjectionAuthorityError("photoreal source receipt contains no sources")
+    result: dict[str, dict[str, str]] = {}
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealProjectionAuthorityError("photoreal source receipt source is invalid")
+        source_key = _text(raw.get("source_key"), label="receipt source key")
+        if source_key in result:
+            raise PhotorealProjectionAuthorityError("photoreal source receipt repeats a source key")
+        result[source_key] = {
+            "kind": _text(raw.get("kind"), label="receipt source kind", maximum=16),
+            "sha256": _sha(raw.get("sha256"), label="receipt source SHA-256"),
+            "resolved_path": _text(raw.get("resolved_path"), label="receipt resolved path", maximum=32768),
+        }
+    return result
+
+
+def _require_v2_equirectangular(path: str | Path) -> None:
+    try:
+        probe = probe_isobmff_file(path)
+    except (OSError, PhotorealSpatialMetadataProbeError) as exc:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source has no readable authoritative Spherical V2 metadata"
+        ) from exc
+
+    if probe.get("probe_status") != "parsed-isobmff":
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source is not a parsed ISO BMFF container"
+        )
+    if probe.get("sv3d_present") is not True or probe.get("proj_present") is not True:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source lacks Spherical V2 sv3d/proj authority"
+        )
+    if probe.get("projection_type") != "equi":
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source is not uniquely Spherical V2 equirectangular"
+        )
+    if probe.get("prhd_present") is not True:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source lacks Spherical V2 projection header authority"
+        )
+    if probe.get("prhd_version") != 0 or probe.get("prhd_flags") != 0:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source uses unsupported Spherical V2 projection header semantics"
+        )
+    if probe.get("projection_data_version") != 0 or probe.get("projection_data_flags") != 0:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source uses unsupported Spherical V2 equirectangular semantics"
+        )
+    if probe.get("equirectangular_bounds_valid") is not True:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source has invalid Spherical V2 equirectangular bounds"
+        )
+
+
+def resolve_v2_projection_ambiguity(
+    plan: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+) -> tuple[dict[str, Any], int]:
+    version = plan.get("version")
+    if plan.get("format") != PLAN_FORMAT or isinstance(version, bool) or version != PLAN_VERSION:
+        raise PhotorealProjectionAuthorityError("photoreal dataset plan format/version mismatch")
+    performer_id = _text(plan.get("performer_id"), label="dataset performer id", maximum=256)
+    if performer_id != _text(receipt.get("performer_id"), label="receipt performer id", maximum=256):
+        raise PhotorealProjectionAuthorityError("dataset plan/source receipt performer mismatch")
+    if plan.get("teacher_training_authorized") is not False:
+        raise PhotorealProjectionAuthorityError("projection authority requires a pre-training dataset plan")
+    if plan.get("build_only") is not True or plan.get("runtime_dependency") is not False:
+        raise PhotorealProjectionAuthorityError("photoreal dataset plan authority boundary is invalid")
+    if plan.get("production_activation") is not False:
+        raise PhotorealProjectionAuthorityError("photoreal dataset plan crossed production authority")
+
+    receipt_sources = _receipt_sources(receipt)
+    result = copy.deepcopy(dict(plan))
+    seen: set[str] = set()
+    resolved_count = 0
+
+    for split in ("train", "evaluation"):
+        values = result.get(split)
+        if not isinstance(values, list) or not values:
+            raise PhotorealProjectionAuthorityError(f"photoreal dataset plan has no {split} sources")
+        for raw in values:
+            if not isinstance(raw, dict):
+                raise PhotorealProjectionAuthorityError("photoreal dataset plan source is invalid")
+            source_key = _text(raw.get("source_id"), label="dataset source key")
+            if source_key in seen:
+                raise PhotorealProjectionAuthorityError("photoreal dataset plan repeats a source key")
+            seen.add(source_key)
+            verified = receipt_sources.get(source_key)
+            if verified is None:
+                raise PhotorealProjectionAuthorityError("dataset plan/source receipt source universe mismatch")
+            kind = _text(raw.get("kind"), label="dataset source kind", maximum=16)
+            if kind != verified["kind"]:
+                raise PhotorealProjectionAuthorityError("dataset plan/source receipt source kind mismatch")
+            if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
+                continue
+
+            # The source receipt already binds this exact local source path to SHA-256.
+            # Re-read only its ISO BMFF metadata at point of use.  Do not infer from
+            # aspect ratio, filename, Stash tags, VR180 labels or legacy V1 XML.
+            _ = verified["sha256"]
+            _require_v2_equirectangular(verified["resolved_path"])
+            raw["projection"] = RESOLVED_PROJECTION
+            resolved_count += 1
+
+    if seen != set(receipt_sources):
+        raise PhotorealProjectionAuthorityError("dataset plan/source receipt source universe mismatch")
+    return result, resolved_count
