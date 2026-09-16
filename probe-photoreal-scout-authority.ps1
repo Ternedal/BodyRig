@@ -145,7 +145,12 @@ $cubemapCount = @($sources | Where-Object { [string]$_.projection_type -eq "cbmp
 $leftRightCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "left-right" }).Count
 $topBottomCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "top-bottom" }).Count
 $monoCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "mono" }).Count
-$customCount = @($sources | Where-Object { [string]$_.stereo_mode -in @("stereo-custom", "right-left", "reserved-or-unknown") }).Count
+$stereoCustomCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "stereo-custom" }).Count
+$meshCustomCandidateCount = @($sources | Where-Object {
+    [string]$_.projection_type -eq "mshp" -and [string]$_.stereo_mode -eq "stereo-custom"
+}).Count
+$rightLeftCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "right-left" }).Count
+$reservedStereoCount = @($sources | Where-Object { [string]$_.stereo_mode -eq "reserved-or-unknown" }).Count
 $noV2Count = @($sources | Where-Object { -not [bool]$_.sv3d_present }).Count
 
 Write-Host ""
@@ -158,7 +163,10 @@ Write-Host "Exact cubemap (cbmp): $cubemapCount"
 Write-Host "Stereo left-right:    $leftRightCount"
 Write-Host "Stereo top-bottom:    $topBottomCount"
 Write-Host "Stereo mono:          $monoCount"
-Write-Host "Unsupported/custom:   $customCount"
+Write-Host "Stereo custom:        $stereoCustomCount"
+Write-Host "Mesh+custom candidate:$meshCustomCandidateCount"
+Write-Host "Stereo right-left:    $rightLeftCount"
+Write-Host "Stereo reserved:      $reservedStereoCount"
 Write-Host "No Spherical V2:      $noV2Count"
 Write-Host "Size mismatches:      $([int]$probe.size_mismatch_count)"
 Write-Host "Spatial diagnostic:   $SpatialProbePath"
