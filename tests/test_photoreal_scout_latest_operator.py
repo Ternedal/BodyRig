@@ -31,6 +31,7 @@ def test_latest_replay_rejects_malformed_or_crossed_authority_candidates() -> No
     assert 'function Read-JsonObjectOrNull' in SCRIPT
     assert 'function Test-HasFields' in SCRIPT
     assert 'function Test-StrictBoolean' in SCRIPT
+    assert 'function Test-StrictInteger' in SCRIPT
     assert '$Value.PSObject.Properties.Name' in SCRIPT
     assert 'all_sources_readable' in SCRIPT
     assert 'all_sources_sha256_bound' in SCRIPT
@@ -38,6 +39,12 @@ def test_latest_replay_rejects_malformed_or_crossed_authority_candidates() -> No
     assert 'teacher_training_authorized' in SCRIPT
     assert SCRIPT.count('production_activation') >= 3
     assert 'ConvertFrom-Json -Depth' not in SCRIPT
+    assert '[int]$inventory.version' not in SCRIPT
+    assert '[int]$plan.version' not in SCRIPT
+    assert '[int]$receipt.version' not in SCRIPT
+    assert 'Test-StrictInteger -Value $inventory.version -Expected 1' in SCRIPT
+    assert 'Test-StrictInteger -Value $plan.version -Expected 1' in SCRIPT
+    assert 'Test-StrictInteger -Value $receipt.version -Expected 1' in SCRIPT
 
 
 def test_latest_replay_delegates_to_hardened_read_only_replay() -> None:
