@@ -11,7 +11,7 @@ PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
 PLAN_VERSION = 1
 RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
 RECEIPT_VERSION = 1
-AMBIGUOUS_PROJECTION = "projection-ambiguous-2to1"
+SPATIAL_HINT_PROJECTIONS = {"projection-ambiguous-2to1", "vr180", "vr360", "equirectangular"}
 V2_PROJECTION_TYPES = {"equi", "mshp", "cbmp"}
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
 V2_STEREO_TO_LAYOUT = {"mono": "mono", "left-right": "side-by-side", "top-bottom": "over-under"}
@@ -112,48 +112,40 @@ def _probe_v2_projection(path: str | Path) -> dict[str, Any]:
         probe = probe_isobmff_file(path)
     except (OSError, PhotorealSpatialMetadataProbeError) as exc:
         raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source has no readable authoritative Spherical V2 metadata"
+            "spatial source has no readable authoritative Spherical V2 metadata"
         ) from exc
     if probe.get("probe_status") != "parsed-isobmff":
-        raise PhotorealProjectionAuthorityError("ambiguous projection source is not a parsed ISO BMFF container")
+        raise PhotorealProjectionAuthorityError("spatial source is not a parsed ISO BMFF container")
     if probe.get("sv3d_present") is not True or probe.get("proj_present") is not True:
-        raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 sv3d/proj authority")
+        raise PhotorealProjectionAuthorityError("spatial source lacks Spherical V2 sv3d/proj authority")
     if probe.get("prhd_present") is not True:
-        raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 projection header authority")
+        raise PhotorealProjectionAuthorityError("spatial source lacks Spherical V2 projection header authority")
     if probe.get("prhd_version") != 0 or probe.get("prhd_flags") != 0:
         raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source uses unsupported Spherical V2 projection header semantics"
+            "spatial source uses unsupported Spherical V2 projection header semantics"
         )
 
     projection_type = str(probe.get("projection_type") or "").strip()
     if projection_type not in V2_PROJECTION_TYPES:
         raise PhotorealProjectionAuthorityError(
-            f"ambiguous projection source has unsupported or non-unique Spherical V2 projection type: {projection_type or 'unknown'}"
+            f"spatial source has unsupported or non-unique Spherical V2 projection type: {projection_type or 'unknown'}"
         )
     if probe.get("projection_data_version") != 0 or probe.get("projection_data_flags") != 0:
         raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source uses unsupported Spherical V2 projection-data semantics"
+            "spatial source uses unsupported Spherical V2 projection-data semantics"
         )
 
     if projection_type == "equi":
         if probe.get("equirectangular_bounds_valid") is not True:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source has invalid Spherical V2 equirectangular bounds"
-            )
+            raise PhotorealProjectionAuthorityError("spatial source has invalid Spherical V2 equirectangular bounds")
     elif projection_type == "cbmp":
         if probe.get("cubemap_layout_known") is not True:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source uses unsupported Spherical V2 cubemap layout"
-            )
+            raise PhotorealProjectionAuthorityError("spatial source uses unsupported Spherical V2 cubemap layout")
     else:
         if probe.get("mesh_projection_crc32_matches") is not True:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source has invalid Spherical V2 mesh projection CRC"
-            )
+            raise PhotorealProjectionAuthorityError("spatial source has invalid Spherical V2 mesh projection CRC")
         if probe.get("mesh_projection_encoding_supported") is not True:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source uses unsupported Spherical V2 mesh encoding"
-            )
+            raise PhotorealProjectionAuthorityError("spatial source uses unsupported Spherical V2 mesh encoding")
         _positive_int(probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size")
     return dict(probe)
 
@@ -163,14 +155,12 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
     observed_layout: str | None = None
     if probe.get("st3d_present") is True:
         if probe.get("st3d_version") != 0 or probe.get("st3d_flags") != 0:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source uses unsupported Spherical V2 stereo box semantics"
-            )
+            raise PhotorealProjectionAuthorityError("spatial source uses unsupported Spherical V2 stereo box semantics")
         observed_mode = str(probe.get("stereo_mode") or "").strip()
         observed_layout = V2_STEREO_TO_LAYOUT.get(observed_mode)
         if observed_layout is None:
             raise PhotorealProjectionAuthorityError(
-                f"ambiguous projection source uses unsupported Spherical V2 stereo mode: {observed_mode or 'unknown'}"
+                f"spatial source uses unsupported Spherical V2 stereo mode: {observed_mode or 'unknown'}"
             )
     if layout in KNOWN_STEREO_LAYOUTS:
         if observed_layout is not None and observed_layout != layout:
@@ -179,32 +169,15 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
             )
         return layout
     if observed_layout is None:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source has no authoritative Spherical V2 st3d stereo layout"
-        )
+        raise PhotorealProjectionAuthorityError("spatial source has no authoritative Spherical V2 st3d stereo layout")
     return observed_layout
 
 
 def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
     projection_type = _text(probe.get("projection_type"), label="Spherical V2 projection type", maximum=16)
-    yaw = _finite_number(
-        probe.get("projection_pose_yaw_degrees"),
-        label="Spherical V2 projection yaw",
-        minimum=-180.0,
-        maximum=180.0,
-    )
-    pitch = _finite_number(
-        probe.get("projection_pose_pitch_degrees"),
-        label="Spherical V2 projection pitch",
-        minimum=-90.0,
-        maximum=90.0,
-    )
-    roll = _finite_number(
-        probe.get("projection_pose_roll_degrees"),
-        label="Spherical V2 projection roll",
-        minimum=-180.0,
-        maximum=180.0,
-    )
+    yaw = _finite_number(probe.get("projection_pose_yaw_degrees"), label="Spherical V2 projection yaw", minimum=-180.0, maximum=180.0)
+    pitch = _finite_number(probe.get("projection_pose_pitch_degrees"), label="Spherical V2 projection pitch", minimum=-90.0, maximum=90.0)
+    roll = _finite_number(probe.get("projection_pose_roll_degrees"), label="Spherical V2 projection roll", minimum=-180.0, maximum=180.0)
 
     equi_bounds: dict[str, float] | None = None
     cubemap_layout: int | None = None
@@ -227,9 +200,7 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
             raise PhotorealProjectionAuthorityError("Spherical V2 horizontal equirectangular bounds are empty")
     elif projection_type == "cbmp":
         cubemap_layout = _nonnegative_int(probe.get("cubemap_layout"), label="Spherical V2 cubemap layout")
-        cubemap_padding = _nonnegative_int(
-            probe.get("cubemap_padding_pixels"), label="Spherical V2 cubemap padding"
-        )
+        cubemap_padding = _nonnegative_int(probe.get("cubemap_padding_pixels"), label="Spherical V2 cubemap padding")
     elif projection_type == "mshp":
         mesh_crc = str(probe.get("mesh_projection_crc32") or "").strip().lower()
         if len(mesh_crc) != 8 or any(character not in "0123456789abcdef" for character in mesh_crc):
@@ -237,9 +208,7 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
         mesh_encoding = _text(probe.get("mesh_projection_encoding"), label="Spherical V2 mesh encoding", maximum=4)
         if mesh_encoding not in {"raw ", "dfl8"}:
             raise PhotorealProjectionAuthorityError("Spherical V2 mesh encoding is unsupported")
-        mesh_payload_bytes = _positive_int(
-            probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size"
-        )
+        mesh_payload_bytes = _positive_int(probe.get("mesh_projection_payload_bytes"), label="Spherical V2 mesh payload size")
     else:
         raise PhotorealProjectionAuthorityError("unsupported Spherical V2 projection authority type")
 
@@ -247,11 +216,7 @@ def _projection_authority(probe: Mapping[str, Any]) -> dict[str, Any]:
         "format": PROJECTION_AUTHORITY_FORMAT,
         "version": PROJECTION_AUTHORITY_VERSION,
         "projection_type": projection_type,
-        "pose_degrees": {
-            "yaw": round(yaw, 6),
-            "pitch": round(pitch, 6),
-            "roll": round(roll, 6),
-        },
+        "pose_degrees": {"yaw": round(yaw, 6), "pitch": round(pitch, 6), "roll": round(roll, 6)},
         "equirectangular_bounds_fraction": equi_bounds,
         "cubemap_layout": cubemap_layout,
         "cubemap_padding_pixels": cubemap_padding,
@@ -297,7 +262,8 @@ def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[st
             kind = _text(raw.get("kind"), label="dataset source kind", maximum=16)
             if kind != verified["kind"]:
                 raise PhotorealProjectionAuthorityError("dataset plan/source receipt source kind mismatch")
-            if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
+            projection_hint = _text(raw.get("projection"), label="dataset source projection", maximum=128)
+            if kind != "video" or projection_hint not in SPATIAL_HINT_PROJECTIONS:
                 continue
             probe = _probe_v2_projection(verified["resolved_path"])
             raw["projection"] = str(probe["projection_type"])
