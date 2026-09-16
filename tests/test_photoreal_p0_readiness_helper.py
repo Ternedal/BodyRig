@@ -4,6 +4,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from bodyrig.repository_authority import (
+    REQUIRED_CODEQL_APP_ID,
+    REQUIRED_STATUS_CHECK_APP_ID,
+    REQUIRED_STATUS_CHECKS,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "review-tools" / "VERIFY_PHYSICAL_P0_READY.ps1"
@@ -24,12 +30,41 @@ def test_readiness_helper_discovers_exact_head_workflows_without_weakenable_gate
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert "head_sha=$Revision&per_page=100" in source
-    assert '"ci"' in source
-    assert '"windows-log-handle-regression"' in source
-    assert '"loc-metrics"' in source
-    assert '"codeql"' in source
+    assert 'Name = "ci"' in source
+    assert 'Name = "windows-log-handle-regression"' in source
+    assert 'Name = "loc-metrics"' in source
+    assert 'Name = "codeql"' in source
     assert "[string[]]$RequiredWorkflowNames" not in source
     assert "has no completed successful run for the exact head" in source
+
+
+def test_readiness_helper_binds_workflow_identity_and_required_check_sources() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    workflows = {
+        "ci": (340505769, ".github/workflows/ci.yml"),
+        "windows-log-handle-regression": (
+            343740273,
+            ".github/workflows/windows-log-handle-regression.yml",
+        ),
+        "loc-metrics": (355552908, ".github/workflows/loc-metrics.yml"),
+        "codeql": (354295800, ".github/workflows/codeql.yml"),
+    }
+
+    for name, (workflow_id, path) in workflows.items():
+        expected = f'Name = "{name}"; Id = [long]{workflow_id}; Path = "{path}"'
+        assert expected in source
+
+    for check in REQUIRED_STATUS_CHECKS:
+        app_id = REQUIRED_CODEQL_APP_ID if check == "CodeQL" else REQUIRED_STATUS_CHECK_APP_ID
+        assert f'Name = "{check}"; AppId = [long]{app_id}' in source
+
+    assert "commits/$Revision/check-runs?per_page=100" in source
+    assert "[long]$_.app.id -eq $expectedAppId" in source
+    assert "[long]$_.workflow_id -eq $workflowId" in source
+    assert "[string]$_.path -eq $workflowPath" in source
+    assert "workflow_id = [long]$run.workflow_id" in source
+    assert "verifier_verified_checks = $verifierCheckEvidence.Verified" in source
+    assert "verified_checks = $checkEvidence.Verified" in source
 
 
 def test_readiness_helper_binds_executing_verifier_to_tracked_git_blob_and_ci() -> None:
@@ -47,8 +82,10 @@ def test_readiness_helper_binds_executing_verifier_to_tracked_git_blob_and_ci() 
 
     verifier = source.index("$verifier = Get-VerifierProvenance")
     verifier_workflow = source.index("Get-ExactHeadWorkflowEvidence -Revision $verifierRevision", verifier)
+    verifier_checks = source.index("Get-ExactHeadCheckEvidence -Revision $verifierRevision", verifier)
     physical = source.index('"P0_PHYSICAL_VERIFICATION.json"')
     assert verifier < verifier_workflow < physical
+    assert verifier < verifier_checks < physical
 
 
 def test_readiness_helper_keeps_physical_receipt_reusable_across_verifier_revisions() -> None:

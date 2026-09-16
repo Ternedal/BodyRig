@@ -9,11 +9,20 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$requiredWorkflowNames = @(
-    "ci",
-    "windows-log-handle-regression",
-    "loc-metrics",
-    "codeql"
+$requiredWorkflows = @(
+    [pscustomobject]@{ Name = "ci"; Id = [long]340505769; Path = ".github/workflows/ci.yml" },
+    [pscustomobject]@{ Name = "windows-log-handle-regression"; Id = [long]343740273; Path = ".github/workflows/windows-log-handle-regression.yml" },
+    [pscustomobject]@{ Name = "loc-metrics"; Id = [long]355552908; Path = ".github/workflows/loc-metrics.yml" },
+    [pscustomobject]@{ Name = "codeql"; Id = [long]354295800; Path = ".github/workflows/codeql.yml" }
+)
+
+$requiredCheckSources = @(
+    [pscustomobject]@{ Name = "test (3.11)"; AppId = [long]15368 },
+    [pscustomobject]@{ Name = "test (3.12)"; AppId = [long]15368 },
+    [pscustomobject]@{ Name = "test-windows-python"; AppId = [long]15368 },
+    [pscustomobject]@{ Name = "acceptance-windows"; AppId = [long]15368 },
+    [pscustomobject]@{ Name = "adapter-log-handle"; AppId = [long]15368 },
+    [pscustomobject]@{ Name = "CodeQL"; AppId = [long]57789 }
 )
 
 function Read-Json {
@@ -118,9 +127,7 @@ function Get-VerifierProvenance {
     }
 }
 
-function Get-ExactHeadWorkflowEvidence {
-    param([Parameter(Mandatory = $true)][string]$Revision)
-
+function Get-GitHubHeaders {
     $headers = @{
         Accept = "application/vnd.github+json"
         "User-Agent" = "BodyRig-p0-readiness-verifier"
@@ -129,7 +136,13 @@ function Get-ExactHeadWorkflowEvidence {
     if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
         $headers.Authorization = "Bearer $($env:GITHUB_TOKEN)"
     }
+    return $headers
+}
 
+function Get-ExactHeadWorkflowEvidence {
+    param([Parameter(Mandatory = $true)][string]$Revision)
+
+    $headers = Get-GitHubHeaders
     $uri = "https://api.github.com/repos/Ternedal/BodyRig/actions/runs?head_sha=$Revision&per_page=100"
     try {
         $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
@@ -141,17 +154,22 @@ function Get-ExactHeadWorkflowEvidence {
     $verified = [ordered]@{}
     $blockers = New-Object System.Collections.Generic.List[string]
 
-    foreach ($name in $requiredWorkflowNames) {
+    foreach ($required in $requiredWorkflows) {
+        $name = [string]$required.Name
+        $workflowId = [long]$required.Id
+        $workflowPath = [string]$required.Path
         $matches = @(
             $allRuns |
                 Where-Object {
                     [string]$_.head_sha -eq $Revision -and
-                    [string]::Equals([string]$_.name, $name, [StringComparison]::OrdinalIgnoreCase)
+                    [string]::Equals([string]$_.name, $name, [StringComparison]::OrdinalIgnoreCase) -and
+                    [long]$_.workflow_id -eq $workflowId -and
+                    [string]$_.path -eq $workflowPath
                 } |
                 Sort-Object -Property run_number -Descending
         )
         if ($matches.Count -eq 0) {
-            $blockers.Add("missing exact-head workflow: $name")
+            $blockers.Add("missing exact-head workflow identity: $name ($workflowId, $workflowPath)")
             continue
         }
 
@@ -163,6 +181,8 @@ function Get-ExactHeadWorkflowEvidence {
         $run = if ($successful.Count -gt 0) { $successful[0] } else { $matches[0] }
         $verified[$name] = [ordered]@{
             run_id = [long]$run.id
+            workflow_id = [long]$run.workflow_id
+            path = [string]$run.path
             name = [string]$run.name
             event = [string]$run.event
             status = [string]$run.status
@@ -172,6 +192,65 @@ function Get-ExactHeadWorkflowEvidence {
         }
         if ($successful.Count -eq 0) {
             $blockers.Add("workflow $name has no completed successful run for the exact head")
+        }
+    }
+
+    return [pscustomobject]@{
+        Verified = $verified
+        Blockers = @($blockers)
+    }
+}
+
+function Get-ExactHeadCheckEvidence {
+    param([Parameter(Mandatory = $true)][string]$Revision)
+
+    $headers = Get-GitHubHeaders
+    $uri = "https://api.github.com/repos/Ternedal/BodyRig/commits/$Revision/check-runs?per_page=100"
+    try {
+        $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers
+    } catch {
+        throw "Could not query exact-head GitHub check evidence: $($_.Exception.Message)"
+    }
+
+    $allChecks = @($response.check_runs)
+    $verified = [ordered]@{}
+    $blockers = New-Object System.Collections.Generic.List[string]
+
+    foreach ($required in $requiredCheckSources) {
+        $name = [string]$required.Name
+        $expectedAppId = [long]$required.AppId
+        $matches = @(
+            $allChecks |
+                Where-Object {
+                    [string]$_.head_sha -eq $Revision -and
+                    [string]::Equals([string]$_.name, $name, [StringComparison]::Ordinal) -and
+                    $null -ne $_.app -and [long]$_.app.id -eq $expectedAppId
+                } |
+                Sort-Object -Property id -Descending
+        )
+        if ($matches.Count -eq 0) {
+            $blockers.Add("missing exact-head source-bound check: $name (app $expectedAppId)")
+            continue
+        }
+
+        $successful = @(
+            $matches | Where-Object {
+                [string]$_.status -eq "completed" -and [string]$_.conclusion -eq "success"
+            }
+        )
+        $check = if ($successful.Count -gt 0) { $successful[0] } else { $matches[0] }
+        $verified[$name] = [ordered]@{
+            check_run_id = [long]$check.id
+            name = [string]$check.name
+            app_id = [long]$check.app.id
+            app_slug = [string]$check.app.slug
+            status = [string]$check.status
+            conclusion = [string]$check.conclusion
+            head_sha = [string]$check.head_sha
+            html_url = [string]$check.html_url
+        }
+        if ($successful.Count -eq 0) {
+            $blockers.Add("check $name has no completed successful run from app $expectedAppId for the exact head")
         }
     }
 
@@ -192,12 +271,16 @@ if ([string]::IsNullOrWhiteSpace($ExpectedPerformerId)) {
 $verifier = Get-VerifierProvenance
 $verifierRevision = [string]$verifier.Revision
 $verifierWorkflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $verifierRevision
-$verifierSoftwareQualified = @($verifierWorkflowEvidence.Blockers).Count -eq 0
+$verifierCheckEvidence = Get-ExactHeadCheckEvidence -Revision $verifierRevision
+$verifierSoftwareQualified = @($verifierWorkflowEvidence.Blockers).Count -eq 0 -and @($verifierCheckEvidence.Blockers).Count -eq 0
 Write-Host "verifier_bodyrig_revision=$verifierRevision"
 Write-Host "verifier_software_qualification_complete=$($verifierSoftwareQualified.ToString().ToLowerInvariant())"
 if (-not $verifierSoftwareQualified) {
     foreach ($blocker in @($verifierWorkflowEvidence.Blockers)) {
-        Write-Host "Verifier software blocker: $blocker"
+        Write-Host "Verifier workflow blocker: $blocker"
+    }
+    foreach ($blocker in @($verifierCheckEvidence.Blockers)) {
+        Write-Host "Verifier check blocker: $blocker"
     }
     Write-Host "downstream_teacher_flow_ready=false"
     Write-Host "human_visual_acceptance_required=true"
@@ -319,15 +402,20 @@ Write-Host "physical_p0_verified=true"
 
 if ($ExpectedBodyRigRevision -eq $verifierRevision) {
     $workflowEvidence = $verifierWorkflowEvidence
+    $checkEvidence = $verifierCheckEvidence
 } else {
     $workflowEvidence = Get-ExactHeadWorkflowEvidence -Revision $ExpectedBodyRigRevision
+    $checkEvidence = Get-ExactHeadCheckEvidence -Revision $ExpectedBodyRigRevision
 }
-$softwareQualified = @($workflowEvidence.Blockers).Count -eq 0
+$softwareQualified = @($workflowEvidence.Blockers).Count -eq 0 -and @($checkEvidence.Blockers).Count -eq 0
 Write-Host "software_qualification_complete=$($softwareQualified.ToString().ToLowerInvariant())"
 
 if (-not $softwareQualified) {
     foreach ($blocker in @($workflowEvidence.Blockers)) {
-        Write-Host "Software blocker: $blocker"
+        Write-Host "Workflow blocker: $blocker"
+    }
+    foreach ($blocker in @($checkEvidence.Blockers)) {
+        Write-Host "Check blocker: $blocker"
     }
     Write-Host "downstream_teacher_flow_ready=false"
     Write-Host "human_visual_acceptance_required=true"
@@ -361,7 +449,9 @@ $readiness = [ordered]@{
     photoreal_acceptance_authority = $false
     production_activation = $false
     verifier_verified_runs = $verifierWorkflowEvidence.Verified
+    verifier_verified_checks = $verifierCheckEvidence.Verified
     verified_runs = $workflowEvidence.Verified
+    verified_checks = $checkEvidence.Verified
 }
 
 $readinessOut = Join-Path $receiptDirectory "P0_DOWNSTREAM_READINESS.json"
