@@ -17,7 +17,7 @@ MIN_VIDEO_SCOUT_SAMPLES = 12
 MAX_VIDEO_SCOUT_SAMPLES = 120
 MAX_TOTAL_PLANNED_OBSERVATIONS = 120_000
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
-KNOWN_PROJECTIONS = {"flat", "vr180", "vr360", "equirectangular"}
+KNOWN_PROJECTIONS = {"flat", "vr180", "vr360", "equirectangular", "equi", "mshp", "cbmp"}
 IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
 
 
