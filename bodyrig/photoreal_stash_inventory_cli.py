@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
+from typing import Any, Mapping
 
 from .photoreal_stash_inventory import (
     PhotorealStashInventoryError,
@@ -11,6 +13,53 @@ from .photoreal_stash_inventory import (
     write_inventory,
 )
 from .stash_source import StashClient, StashConfig, StashSourceError
+
+
+def _tag_hints(tags: Any) -> set[str]:
+    if not isinstance(tags, list):
+        return set()
+    normalized = " ".join(
+        str(tag).lower().replace("_", " ").replace("-", " ")
+        for tag in tags
+        if isinstance(tag, str)
+    )
+    compact = "".join(normalized.split())
+    words = set(normalized.split())
+    hints: set[str] = set()
+    if "equirectangular" in compact or "panorama" in compact or "panoramic" in compact:
+        hints.add("equirectangular")
+    if "fisheye" in compact or ("fish" in words and "eye" in words):
+        hints.add("fisheye")
+    if "mesh" in words or "spherical" in words or "sphericalvideo" in compact:
+        hints.add("mesh-or-spherical")
+    return hints
+
+
+def _projection_diagnostics(inventory: Mapping[str, Any]) -> dict[str, Any]:
+    raw_videos = inventory.get("videos")
+    videos = [item for item in raw_videos if isinstance(item, Mapping)] if isinstance(raw_videos, list) else []
+    projection_counts = Counter(str(item.get("projection") or "unknown") for item in videos)
+    stereo_counts = Counter(str(item.get("stereo_layout") or "unknown") for item in videos)
+    spatial = [
+        item
+        for item in videos
+        if str(item.get("projection") or "unknown") != "flat"
+        or str(item.get("stereo_layout") or "unknown") != "mono"
+    ]
+    hint_counts: Counter[str] = Counter()
+    for item in spatial:
+        for hint in _tag_hints(item.get("tags")):
+            hint_counts[hint] += 1
+    return {
+        "diagnostic_only": True,
+        "authority": False,
+        "spatial_source_count": len(spatial),
+        "projection_counts": dict(sorted(projection_counts.items())),
+        "stereo_layout_counts": dict(sorted(stereo_counts.items())),
+        "spatial_projection_tag_hint_counts": dict(sorted(hint_counts.items())),
+        "container_projection_metadata_probe_required": bool(spatial),
+        "production_activation": False,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         f"galleries={inventory['gallery_count']} | images={inventory['image_file_count']} | "
         f"flat_hours={inventory['summary']['flat_video_hours']} | "
         f"spatial_hours={inventory['summary']['spatial_or_projection_video_hours']}"
+    )
+    print(
+        "BodyRig Photoreal V2 projection diagnostics: "
+        + json.dumps(_projection_diagnostics(inventory), separators=(",", ":"), sort_keys=True)
     )
     print(json.dumps({"output": str(output), "performer": inventory["performer"]}, separators=(",", ":")))
     return 0
