@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import subprocess
@@ -10,19 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from .photoreal_model_set import PhotorealModelSetError, build_model_set
+from .photoreal_reference_vision_revision import (
+    PhotorealReferenceVisionRevisionError,
+    compute_reference_vision_revision,
+)
 from .wsl_adapter_bridge import WslBridgeError, make_wsl_path_converter
 
 
 class PhotorealReferenceVisionPreflightError(ValueError):
     pass
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _numeric_v1(value: Any, *, label: str) -> None:
@@ -57,9 +52,9 @@ def run_reference_vision_preflight(
         raise PhotorealReferenceVisionPreflightError("vision device must be cpu, cuda or cuda:0")
     try:
         model_set = build_model_set(root)
-    except PhotorealModelSetError as exc:
+        adapter_revision = compute_reference_vision_revision(adapter)
+    except (PhotorealModelSetError, PhotorealReferenceVisionRevisionError) as exc:
         raise PhotorealReferenceVisionPreflightError(str(exc)) from exc
-    adapter_revision = _sha256(adapter)
 
     try:
         converter = make_wsl_path_converter(wsl_exe, distribution)
