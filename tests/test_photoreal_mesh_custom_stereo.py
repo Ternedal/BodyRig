@@ -10,11 +10,13 @@ from types import SimpleNamespace
 import pytest
 
 import bodyrig.photoreal_projection_authority as authority
+from bodyrig.photoreal_frame_analyzer_runner import build_analyzer_request
 from bodyrig.photoreal_projection_authority import (
     PhotorealProjectionAuthorityError,
     resolve_v2_projection_ambiguity,
 )
 from bodyrig.photoreal_scan_plan import PhotorealScanPlanError, build_scan_plan
+from bodyrig.photoreal_wsl_request_bridge import rewrite_request_transport_paths
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +151,14 @@ def _install(monkeypatch: pytest.MonkeyPatch, *, mesh_count: int = 2) -> None:
     )
 
 
+def _resolved_scan(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    plan = _plan()
+    receipt = _receipt(plan)
+    _install(monkeypatch, mesh_count=2)
+    resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
+    return build_scan_plan(resolved, receipt)
+
+
 def test_two_mesh_stereo_custom_becomes_mesh_custom_and_stays_pretraining(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -240,6 +250,41 @@ def test_mesh_custom_decoder_refuses_non_mesh_projection(monkeypatch: pytest.Mon
             {"projection": "equi", "stereo_layout": "mesh-custom"},
             {"timestamp_seconds": 1.0, "eye": "left"},
         )
+
+
+def test_analyzer_request_preserves_mesh_custom_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    scan = _resolved_scan(monkeypatch)
+    request = build_analyzer_request(
+        scan,
+        adapter="bodyrig-reference-vision-v1",
+        revision="r1",
+        model_set_sha256="d" * 64,
+    )
+    source = next(item for item in request["sources"] if item["source_key"].startswith("scene:s1:"))
+    assert source["stereo_layout"] == "mesh-custom"
+    assert source["projection"] == "mshp"
+    assert source["projection_authority"]["mesh_projection_mesh_count"] == 2
+    assert source["projection_authority"]["deprojection_authority"] is False
+    assert request["identity_matching_authority"] is False
+    assert request["photoreal_acceptance_authority"] is False
+    assert request["production_activation"] is False
+
+
+def test_wsl_transport_changes_only_mesh_custom_resolved_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    scan = _resolved_scan(monkeypatch)
+    request = build_analyzer_request(
+        scan,
+        adapter="bodyrig-reference-vision-v1",
+        revision="r1",
+        model_set_sha256="d" * 64,
+    )
+    translated = rewrite_request_transport_paths(request, lambda value: "/mnt/verified/" + Path(value).name)
+    original = next(item for item in request["sources"] if item["source_key"].startswith("scene:s1:"))
+    transported = next(item for item in translated["sources"] if item["source_key"] == original["source_key"])
+    assert transported["resolved_path"] != original["resolved_path"]
+    assert transported["stereo_layout"] == original["stereo_layout"] == "mesh-custom"
+    assert transported["projection_authority"] == original["projection_authority"]
+    assert transported["samples"] == original["samples"]
 
 
 def test_scan_plan_schema_exposes_only_explicit_mesh_custom_layout() -> None:
