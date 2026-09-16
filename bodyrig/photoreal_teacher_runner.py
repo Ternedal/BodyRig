@@ -18,6 +18,60 @@ REQUEST_VERSION = 1
 RESULT_FORMAT = "bodyrig-photoreal-teacher-manifest"
 RESULT_VERSION = 1
 
+INPUT_FIELDS = {
+    "format",
+    "version",
+    "performer_id",
+    "performer_name",
+    "selected_epoch_id",
+    "appearance_epoch_selection_sha256",
+    "identity_bank_sha256",
+    "identity_calibration_sha256",
+    "analyzer_model_set_sha256",
+    "training_sources",
+    "held_out_evaluation_sources",
+    "training_observations",
+    "held_out_evaluation_observations",
+    "held_out_view_coverage_required",
+    "held_out_view_coverage_observed",
+    "held_out_view_coverage_missing",
+    "training_source_count",
+    "held_out_evaluation_source_count",
+    "training_observation_count",
+    "held_out_evaluation_observation_count",
+    "evaluation_bytes_excluded_from_teacher_request",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+    "human_visual_acceptance_required",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "teacher_input_sha256",
+}
+INPUT_SOURCE_FIELDS = {
+    "source_key",
+    "group_id",
+    "kind",
+    "resolved_path",
+    "size_bytes",
+    "sha256",
+    "information_score",
+    "width",
+    "height",
+    "projection",
+    "stereo_layout",
+}
+INPUT_OBSERVATION_FIELDS = {
+    "source_key",
+    "group_id",
+    "split",
+    "frame_sha256",
+    "timestamp_seconds",
+    "eye",
+    "view_bin",
+    "coverage",
+}
+
 
 class PhotorealTeacherRunnerError(ValueError):
     pass
@@ -49,13 +103,16 @@ def _sha(value: Any, *, label: str) -> str:
 
 
 def _digest(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    ).encode("utf-8")
+    try:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise PhotorealTeacherRunnerError("teacher input canonical digest payload is invalid") from exc
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -78,6 +135,73 @@ def _timestamp(value: Any, *, label: str) -> float | None:
     if not math.isfinite(result) or result < 0:
         raise PhotorealTeacherRunnerError(f"{label} is invalid")
     return round(result, 6)
+
+
+def _positive_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    return value
+
+
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    return value
+
+
+def _nonnegative_number(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    return result
+
+
+def _string_list(value: Any, *, label: str, minimum: int) -> list[str]:
+    if not isinstance(value, list) or len(value) < minimum:
+        raise PhotorealTeacherRunnerError(f"{label} is invalid")
+    result = [_text(item, label=label, maximum=64) for item in value]
+    if len(set(result)) != len(result):
+        raise PhotorealTeacherRunnerError(f"{label} contains duplicates")
+    return result
+
+
+def _validate_input_source(raw: Any, *, label: str) -> tuple[str, str]:
+    if not isinstance(raw, Mapping) or set(raw) != INPUT_SOURCE_FIELDS:
+        raise PhotorealTeacherRunnerError(f"{label} fields must match v1 exactly")
+    source_key = _text(raw.get("source_key"), label=f"{label} source key")
+    group_id = _text(raw.get("group_id"), label=f"{label} group id")
+    kind = _text(raw.get("kind"), label=f"{label} kind", maximum=16)
+    if kind not in {"video", "image"}:
+        raise PhotorealTeacherRunnerError(f"{label} kind is unsupported")
+    _text(raw.get("resolved_path"), label=f"{label} resolved path", maximum=32768)
+    _positive_int(raw.get("size_bytes"), label=f"{label} size_bytes")
+    _sha(raw.get("sha256"), label=f"{label} SHA-256")
+    _nonnegative_number(raw.get("information_score"), label=f"{label} information_score")
+    _nonnegative_int(raw.get("width"), label=f"{label} width")
+    _nonnegative_int(raw.get("height"), label=f"{label} height")
+    _text(raw.get("projection"), label=f"{label} projection", maximum=128)
+    _text(raw.get("stereo_layout"), label=f"{label} stereo layout", maximum=128)
+    return source_key, group_id
+
+
+def _validate_input_observation(raw: Any, *, label: str, expected_split: str) -> tuple[str, str, tuple[str, str, float | None, str]]:
+    if not isinstance(raw, Mapping) or set(raw) != INPUT_OBSERVATION_FIELDS:
+        raise PhotorealTeacherRunnerError(f"{label} fields must match v1 exactly")
+    source_key = _text(raw.get("source_key"), label=f"{label} source key")
+    group_id = _text(raw.get("group_id"), label=f"{label} group id")
+    split = _text(raw.get("split"), label=f"{label} split", maximum=32)
+    if split != expected_split:
+        raise PhotorealTeacherRunnerError(f"{label} split must be {expected_split}")
+    frame_sha = _sha(raw.get("frame_sha256"), label=f"{label} frame SHA-256")
+    timestamp = _timestamp(raw.get("timestamp_seconds"), label=f"{label} timestamp")
+    eye = _text(raw.get("eye"), label=f"{label} eye", maximum=16)
+    if eye not in {"mono", "left", "right"}:
+        raise PhotorealTeacherRunnerError(f"{label} eye is unsupported")
+    _text(raw.get("view_bin"), label=f"{label} view bin", maximum=64)
+    _string_list(raw.get("coverage"), label=f"{label} coverage", minimum=0)
+    return source_key, group_id, (source_key, frame_sha, timestamp, eye)
 
 
 def _hash_file(path: Path) -> str:
@@ -139,6 +263,8 @@ def load_teacher_config(path: str | Path) -> dict[str, Any]:
 
 
 def _validate_teacher_input(value: Mapping[str, Any]) -> None:
+    if set(value) != INPUT_FIELDS:
+        raise PhotorealTeacherRunnerError("teacher input fields must match v1 exactly")
     if value.get("format") != INPUT_FORMAT or value.get("version") != INPUT_VERSION:
         raise PhotorealTeacherRunnerError("teacher input format/version mismatch")
     digest_payload = dict(value)
@@ -148,11 +274,39 @@ def _validate_teacher_input(value: Mapping[str, Any]) -> None:
     )
     if _digest(digest_payload) != provided_digest:
         raise PhotorealTeacherRunnerError("teacher input digest mismatch")
+
+    _text(value.get("performer_id"), label="teacher performer id", maximum=256)
+    performer_name = value.get("performer_name")
+    if not isinstance(performer_name, str) or len(performer_name) > 4096:
+        raise PhotorealTeacherRunnerError("teacher performer name is invalid")
+    _text(value.get("selected_epoch_id"), label="teacher epoch id", maximum=256)
+    for key, label in (
+        ("appearance_epoch_selection_sha256", "appearance epoch selection SHA-256"),
+        ("identity_bank_sha256", "identity bank SHA-256"),
+        ("identity_calibration_sha256", "identity calibration SHA-256"),
+        ("analyzer_model_set_sha256", "analyzer model-set SHA-256"),
+    ):
+        _sha(value.get(key), label=label)
+
     if value.get("teacher_training_authorized") is not True:
         raise PhotorealTeacherRunnerError("teacher input does not authorize training")
     if value.get("evaluation_bytes_excluded_from_teacher_request") is not True:
         raise PhotorealTeacherRunnerError("teacher input evaluation-leakage policy is invalid")
-    if value.get("held_out_view_coverage_missing") != []:
+    required_coverage = set(
+        _string_list(
+            value.get("held_out_view_coverage_required"),
+            label="teacher input held-out view coverage required",
+            minimum=1,
+        )
+    )
+    observed_coverage = set(
+        _string_list(
+            value.get("held_out_view_coverage_observed"),
+            label="teacher input held-out view coverage observed",
+            minimum=1,
+        )
+    )
+    if value.get("held_out_view_coverage_missing") != [] or not required_coverage.issubset(observed_coverage):
         raise PhotorealTeacherRunnerError("teacher input held-out view coverage is incomplete")
     if value.get("photoreal_acceptance_authority") is not False or value.get("human_visual_acceptance_required") is not True:
         raise PhotorealTeacherRunnerError("teacher input photoreal/human authority boundary is invalid")
@@ -160,18 +314,76 @@ def _validate_teacher_input(value: Mapping[str, Any]) -> None:
         raise PhotorealTeacherRunnerError("teacher input build/runtime authority boundary is invalid")
     if value.get("production_activation") is not False:
         raise PhotorealTeacherRunnerError("teacher input crossed production authority")
+
     train_sources = value.get("training_sources")
-    train_observations = value.get("training_observations")
     held_out_sources = value.get("held_out_evaluation_sources")
+    train_observations = value.get("training_observations")
     held_out_observations = value.get("held_out_evaluation_observations")
     if not isinstance(train_sources, list) or not train_sources:
         raise PhotorealTeacherRunnerError("teacher input has no training sources")
-    if not isinstance(train_observations, list) or not train_observations:
-        raise PhotorealTeacherRunnerError("teacher input has no training observations")
     if not isinstance(held_out_sources, list) or not held_out_sources:
         raise PhotorealTeacherRunnerError("teacher input has no held-out evaluation sources")
+    if not isinstance(train_observations, list) or not train_observations:
+        raise PhotorealTeacherRunnerError("teacher input has no training observations")
     if not isinstance(held_out_observations, list) or not held_out_observations:
         raise PhotorealTeacherRunnerError("teacher input has no held-out evaluation observations")
+
+    train_source_groups: dict[str, str] = {}
+    held_out_source_groups: dict[str, str] = {}
+    for raw in train_sources:
+        source_key, group_id = _validate_input_source(raw, label="teacher input training source")
+        if source_key in train_source_groups:
+            raise PhotorealTeacherRunnerError("teacher input repeats training source key")
+        train_source_groups[source_key] = group_id
+    for raw in held_out_sources:
+        source_key, group_id = _validate_input_source(raw, label="teacher input held-out source")
+        if source_key in held_out_source_groups:
+            raise PhotorealTeacherRunnerError("teacher input repeats held-out source key")
+        held_out_source_groups[source_key] = group_id
+    if set(train_source_groups) & set(held_out_source_groups):
+        raise PhotorealTeacherRunnerError("teacher input train/evaluation source universes overlap")
+
+    train_observation_keys: set[tuple[str, str, float | None, str]] = set()
+    held_out_observation_keys: set[tuple[str, str, float | None, str]] = set()
+    train_observed_sources: set[str] = set()
+    held_out_observed_sources: set[str] = set()
+    for raw in train_observations:
+        source_key, group_id, observation_key = _validate_input_observation(
+            raw,
+            label="teacher input training observation",
+            expected_split="train",
+        )
+        if source_key not in train_source_groups or train_source_groups[source_key] != group_id:
+            raise PhotorealTeacherRunnerError("teacher input training observation source/group binding mismatch")
+        if observation_key in train_observation_keys:
+            raise PhotorealTeacherRunnerError("teacher input repeats training observation")
+        train_observation_keys.add(observation_key)
+        train_observed_sources.add(source_key)
+    for raw in held_out_observations:
+        source_key, group_id, observation_key = _validate_input_observation(
+            raw,
+            label="teacher input held-out observation",
+            expected_split="evaluation",
+        )
+        if source_key not in held_out_source_groups or held_out_source_groups[source_key] != group_id:
+            raise PhotorealTeacherRunnerError("teacher input held-out observation source/group binding mismatch")
+        if observation_key in held_out_observation_keys:
+            raise PhotorealTeacherRunnerError("teacher input repeats held-out observation")
+        held_out_observation_keys.add(observation_key)
+        held_out_observed_sources.add(source_key)
+    if train_observed_sources != set(train_source_groups):
+        raise PhotorealTeacherRunnerError("teacher input training source lacks authorized observation")
+    if held_out_observed_sources != set(held_out_source_groups):
+        raise PhotorealTeacherRunnerError("teacher input held-out source lacks authorized observation")
+
+    if _positive_int(value.get("training_source_count"), label="teacher input training source count") != len(train_sources):
+        raise PhotorealTeacherRunnerError("teacher input training source count mismatch")
+    if _positive_int(value.get("held_out_evaluation_source_count"), label="teacher input held-out source count") != len(held_out_sources):
+        raise PhotorealTeacherRunnerError("teacher input held-out source count mismatch")
+    if _positive_int(value.get("training_observation_count"), label="teacher input training observation count") != len(train_observations):
+        raise PhotorealTeacherRunnerError("teacher input training observation count mismatch")
+    if _positive_int(value.get("held_out_evaluation_observation_count"), label="teacher input held-out observation count") != len(held_out_observations):
+        raise PhotorealTeacherRunnerError("teacher input held-out observation count mismatch")
 
 
 def build_teacher_request(config: Mapping[str, Any], teacher_input: Mapping[str, Any]) -> dict[str, Any]:
