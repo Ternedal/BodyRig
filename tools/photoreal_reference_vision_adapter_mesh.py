@@ -134,6 +134,13 @@ def _frame_result(runtime: Any, request: Mapping[str, Any], args: Any) -> dict[s
 base._frame_result = _frame_result
 
 
+def __getattr__(name: str) -> Any:
+    # The runtime preflight imports helper functions directly from the configured
+    # adapter module. Preserve the complete v1 adapter surface while changing only
+    # frame-result routing and executable provenance.
+    return getattr(base, name)
+
+
 def main(argv: list[str] | None = None) -> int:
     return int(base.main(argv))
 
