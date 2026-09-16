@@ -4,7 +4,8 @@ import hashlib
 import math
 import struct
 import zlib
-from typing import Any
+from pathlib import Path
+from typing import Any, BinaryIO
 
 FORMAT = "bodyrig-spherical-v2-mesh-geometry"
 VERSION = 1
@@ -17,6 +18,12 @@ MAX_VERTEX_LISTS_PER_MESH = 4096
 MAX_INDICES_PER_LIST = 4_000_000
 MAX_TOTAL_INDICES = 8_000_000
 VALID_INDEX_TYPES = {0, 1, 2}
+VISUAL_HEADER = 78
+VISUAL_TYPES = {
+    "avc1", "avc2", "avc3", "avc4", "hvc1", "hev1", "mp4v", "av01",
+    "vp08", "vp09", "s263", "encv", "apcn", "apch", "apcs", "apco",
+}
+CONTAINER_TYPES = {"moov", "trak", "mdia", "minf", "stbl"}
 
 
 class PhotorealMeshProjectionError(ValueError):
@@ -307,4 +314,149 @@ def parse_mesh_projection_payload(
         "materialized": materialize,
         "render_authority": False,
         "production_activation": False,
+    }
+
+
+def _file_read(stream: BinaryIO, offset: int, count: int) -> bytes:
+    stream.seek(offset)
+    raw = stream.read(count)
+    if len(raw) != count:
+        raise PhotorealMeshProjectionError("ISO BMFF mesh metadata is truncated")
+    return raw
+
+
+def _file_box_header(stream: BinaryIO, offset: int, end: int) -> tuple[str, int, int]:
+    if end - offset < 8:
+        raise PhotorealMeshProjectionError("ISO BMFF mesh box header is truncated")
+    raw = _file_read(stream, offset, 8)
+    size = int.from_bytes(raw[:4], "big")
+    box_type = raw[4:8].decode("latin-1")
+    header = 8
+    if size == 1:
+        if end - offset < 16:
+            raise PhotorealMeshProjectionError("ISO BMFF mesh extended box header is truncated")
+        size = int.from_bytes(_file_read(stream, offset + 8, 8), "big")
+        header = 16
+    elif size == 0:
+        size = end - offset
+    if size < header or offset + size > end:
+        raise PhotorealMeshProjectionError(f"ISO BMFF mesh box {box_type!r} has invalid bounds")
+    return box_type, offset + header, offset + size
+
+
+def _file_boxes(stream: BinaryIO, start: int, end: int):
+    offset = start
+    count = 0
+    while offset < end:
+        if end - offset < 8:
+            if _file_read(stream, offset, end - offset) == b"\x00" * (end - offset):
+                break
+            raise PhotorealMeshProjectionError("ISO BMFF mesh container has trailing bytes")
+        box_type, payload, box_end = _file_box_header(stream, offset, end)
+        yield box_type, payload, box_end
+        offset = box_end
+        count += 1
+        if count > 100_000:
+            raise PhotorealMeshProjectionError("ISO BMFF mesh box safety bound exceeded")
+
+
+def _collect_stsd_mshp(
+    stream: BinaryIO,
+    payload: int,
+    end: int,
+    regions: list[tuple[int, int]],
+) -> None:
+    if end - payload < 8:
+        raise PhotorealMeshProjectionError("ISO BMFF stsd box is truncated")
+    entry_count = int.from_bytes(_file_read(stream, payload + 4, 4), "big")
+    entries = list(_file_boxes(stream, payload + 8, end))
+    if entry_count != len(entries) or entry_count > 4096:
+        raise PhotorealMeshProjectionError("ISO BMFF stsd entry count is invalid")
+    for entry_type, entry_payload, entry_end in entries:
+        if entry_type not in VISUAL_TYPES:
+            continue
+        child_start = entry_payload + VISUAL_HEADER
+        if child_start > entry_end:
+            raise PhotorealMeshProjectionError(
+                f"ISO BMFF visual sample entry {entry_type!r} is truncated"
+            )
+        for child_type, child_payload, child_end in _file_boxes(stream, child_start, entry_end):
+            if child_type != "sv3d":
+                continue
+            for sv_type, sv_payload, sv_end in _file_boxes(stream, child_payload, child_end):
+                if sv_type != "proj":
+                    continue
+                for projection_type, projection_payload, projection_end in _file_boxes(
+                    stream, sv_payload, sv_end
+                ):
+                    if projection_type == "mshp":
+                        regions.append((projection_payload, projection_end))
+
+
+def _collect_mshp(
+    stream: BinaryIO,
+    start: int,
+    end: int,
+    regions: list[tuple[int, int]],
+) -> None:
+    for box_type, payload, box_end in _file_boxes(stream, start, end):
+        if box_type == "stsd":
+            _collect_stsd_mshp(stream, payload, box_end, regions)
+        elif box_type in CONTAINER_TYPES:
+            _collect_mshp(stream, payload, box_end, regions)
+
+
+def parse_mesh_projection_file(
+    path: str | Path,
+    *,
+    materialize: bool = False,
+) -> dict[str, Any]:
+    source = Path(path)
+    try:
+        size = source.stat().st_size
+        if size < 8:
+            raise PhotorealMeshProjectionError("ISO BMFF source is too small")
+        with source.open("rb") as stream:
+            regions: list[tuple[int, int]] = []
+            _collect_mshp(stream, 0, size, regions)
+            if len(regions) != 1:
+                raise PhotorealMeshProjectionError(
+                    f"ISO BMFF source must contain exactly one mshp box; found {len(regions)}"
+                )
+            payload, end = regions[0]
+            if end - payload < 12:
+                raise PhotorealMeshProjectionError("mshp box is truncated")
+            fullbox = _file_read(stream, payload, 4)
+            version = fullbox[0]
+            flags = int.from_bytes(fullbox[1:4], "big")
+            stored_crc = int.from_bytes(_file_read(stream, payload + 4, 4), "big")
+            encoding_raw = _file_read(stream, payload + 8, 4)
+            encoding = encoding_raw.decode("latin-1")
+            encoded_size = end - (payload + 12)
+            if encoded_size < 1:
+                raise PhotorealMeshProjectionError("mshp encoded payload is empty")
+            if encoded_size > MAX_ENCODED_BYTES:
+                raise PhotorealMeshProjectionError(
+                    f"mshp encoded payload exceeds safety bound {MAX_ENCODED_BYTES}"
+                )
+            encoded = _file_read(stream, payload + 12, encoded_size)
+    except OSError as exc:
+        raise PhotorealMeshProjectionError("ISO BMFF mesh source is unreadable") from exc
+
+    computed_crc = zlib.crc32(encoding_raw)
+    computed_crc = zlib.crc32(encoded, computed_crc) & 0xFFFFFFFF
+    if stored_crc != computed_crc:
+        raise PhotorealMeshProjectionError("mshp CRC32 does not match encoded projection bytes")
+    parsed = parse_mesh_projection_payload(
+        encoded,
+        encoding=encoding,
+        materialize=materialize,
+    )
+    return {
+        **parsed,
+        "projection_data_version": version,
+        "projection_data_flags": flags,
+        "mesh_projection_crc32": f"{stored_crc:08x}",
+        "mesh_projection_crc32_computed": f"{computed_crc:08x}",
+        "mesh_projection_crc32_matches": True,
     }
