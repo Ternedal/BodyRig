@@ -30,6 +30,11 @@ def test_scout_authority_replay_uses_safe_path_prefix_and_native_exit_capture() 
     assert '$PSNativeCommandUseErrorActionPreference = $priorNativeErrorPreference' in SCRIPT
 
 
+def test_scout_authority_replay_json_parsing_stays_windows_powershell_compatible() -> None:
+    assert 'ConvertFrom-Json -Depth' not in SCRIPT
+    assert SCRIPT.count('ConvertFrom-Json') == 2
+
+
 def test_scout_authority_replay_uses_current_metadata_and_scan_plan_code() -> None:
     assert 'bodyrig.photoreal_spatial_metadata_probe_cli' in SCRIPT
     assert 'bodyrig.photoreal_scan_plan_cli' in SCRIPT
