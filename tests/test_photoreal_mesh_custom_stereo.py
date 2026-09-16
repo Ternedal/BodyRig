@@ -142,6 +142,16 @@ def _geometry(mesh_count: int = 2) -> dict[str, object]:
     }
 
 
+def _custom_authority(mesh_count: int = 2) -> dict[str, object]:
+    return {
+        "format": "bodyrig-spherical-v2-projection-authority",
+        "version": 1,
+        "projection_type": "mshp",
+        "mesh_projection_mesh_count": mesh_count,
+        "deprojection_authority": False,
+    }
+
+
 def _install(monkeypatch: pytest.MonkeyPatch, *, mesh_count: int = 2) -> None:
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _probe())
     monkeypatch.setattr(
@@ -200,13 +210,7 @@ def test_scan_plan_refuses_mesh_custom_without_two_mesh_authority() -> None:
     train = plan["train"][0]
     train["projection"] = "mshp"
     train["stereo_layout"] = "mesh-custom"
-    train["projection_authority"] = {
-        "format": "bodyrig-spherical-v2-projection-authority",
-        "version": 1,
-        "projection_type": "mshp",
-        "mesh_projection_mesh_count": 1,
-        "deprojection_authority": False,
-    }
+    train["projection_authority"] = _custom_authority(mesh_count=1)
     with pytest.raises(PhotorealScanPlanError, match="authoritative two-mesh"):
         build_scan_plan(plan, receipt)
 
@@ -224,6 +228,7 @@ def test_mesh_custom_decoder_uses_full_frame_but_preserves_eye_for_mesh_selectio
     monkeypatch.setattr(adapter.base, "_read_sample", read_sample)
     source = {
         "projection": "mshp",
+        "projection_authority": _custom_authority(mesh_count=2),
         "stereo_layout": "mesh-custom",
         "decode_mode": "spatial-deprojection-required",
     }
@@ -249,6 +254,24 @@ def test_mesh_custom_decoder_refuses_non_mesh_projection(monkeypatch: pytest.Mon
             SimpleNamespace(),
             {"projection": "equi", "stereo_layout": "mesh-custom"},
             {"timestamp_seconds": 1.0, "eye": "left"},
+        )
+
+
+def test_mesh_custom_decoder_refuses_stale_one_mesh_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        adapter.base,
+        "_read_sample",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("base decoder must not be called")),
+    )
+    with pytest.raises(adapter.ReferenceVisionError, match="exact two-mesh"):
+        adapter._read_frame_sample(
+            SimpleNamespace(),
+            {
+                "projection": "mshp",
+                "projection_authority": _custom_authority(mesh_count=1),
+                "stereo_layout": "mesh-custom",
+            },
+            {"timestamp_seconds": 1.0, "eye": "right"},
         )
 
 
