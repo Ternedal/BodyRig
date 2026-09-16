@@ -94,6 +94,17 @@ def _result(
     }
 
 
+def _validate_result(result: dict[str, object]) -> dict[str, object]:
+    return validate_analyzer_result(
+        result,
+        performer_id="42",
+        adapter="test-analyzer",
+        revision="r1",
+        model_set_sha256=MODEL_SET_SHA,
+        scan_plan=_scan_plan(),
+    )
+
+
 def test_build_request_keeps_adapter_measurement_only() -> None:
     request = build_analyzer_request(
         _scan_plan(),
@@ -136,15 +147,22 @@ def test_config_loader_is_exact_and_bool_safe(tmp_path: Path) -> None:
 
 def test_result_rejects_revision_provenance_mismatch() -> None:
     with pytest.raises(PhotorealFrameAnalyzerError, match="provenance mismatch"):
-        validate_analyzer_result(
-            _result(revision="wrong"), performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA
-        )
+        _validate_result(_result(revision="wrong"))
 
 
 def test_result_rejects_model_set_provenance_mismatch() -> None:
     with pytest.raises(PhotorealFrameAnalyzerError, match="model-set provenance mismatch"):
+        _validate_result(_result(model_set_sha256="d" * 64))
+
+
+def test_result_requires_exact_scan_plan() -> None:
+    with pytest.raises(PhotorealFrameAnalyzerError, match="requires the exact scan plan"):
         validate_analyzer_result(
-            _result(model_set_sha256="d" * 64), performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA
+            _result(),
+            performer_id="42",
+            adapter="test-analyzer",
+            revision="r1",
+            model_set_sha256=MODEL_SET_SHA,
         )
 
 
@@ -152,26 +170,26 @@ def test_result_rejects_external_identity_authority_assertion() -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["target_identity_verified"] = True
     with pytest.raises(PhotorealFrameAnalyzerError, match="attempted to assert identity authority"):
-        validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(result)
 
 
 def test_result_requires_explicit_candidate_id_and_person_detection() -> None:
     result = copy.deepcopy(_result())
     del result["observations"][0]["candidate_id"]
     with pytest.raises(PhotorealFrameAnalyzerError, match="candidate_id is invalid"):
-        validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(result)
 
     result = copy.deepcopy(_result())
     del result["observations"][0]["person_detected"]
     with pytest.raises(PhotorealFrameAnalyzerError, match="person_detected must be boolean"):
-        validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(result)
 
 
 def test_result_requires_available_embedding_dimension() -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["identity_embedding"] = [1.0, 0.0]
     with pytest.raises(PhotorealFrameAnalyzerError, match="wrong dimension"):
-        validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(result)
 
 
 def test_result_allows_no_person_placeholder_only_without_identity_embedding() -> None:
@@ -181,20 +199,20 @@ def test_result_allows_no_person_placeholder_only_without_identity_embedding() -
     row["person_detected"] = False
     row["identity_measurement_status"] = "unavailable"
     row["identity_embedding"] = None
-    validated = validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+    validated = _validate_result(result)
     assert validated["observations"][0]["person_detected"] is False
 
     bad = copy.deepcopy(_result())
     bad["observations"][0]["person_detected"] = False
     with pytest.raises(PhotorealFrameAnalyzerError, match="requires a detected person"):
-        validate_analyzer_result(bad, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(bad)
 
 
 def test_result_rejects_duplicate_candidate_id_in_same_sample() -> None:
     result = copy.deepcopy(_result())
     result["observations"].append(copy.deepcopy(result["observations"][0]))
     with pytest.raises(PhotorealFrameAnalyzerError, match="repeated candidate_id"):
-        validate_analyzer_result(result, performer_id="42", adapter="test-analyzer", revision="r1", model_set_sha256=MODEL_SET_SHA)
+        _validate_result(result)
 
 
 def test_external_runner_enforces_real_process_contract(tmp_path: Path) -> None:
