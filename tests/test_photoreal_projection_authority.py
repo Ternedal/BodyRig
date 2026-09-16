@@ -238,6 +238,19 @@ def test_refuses_non_authoritative_or_unsupported_projection_metadata(
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
+def test_mesh_and_cubemap_are_not_relabelled_as_vr180_or_vr360(monkeypatch: pytest.MonkeyPatch) -> None:
+    for projection_type in ("mshp", "cbmp"):
+        plan = _plan()
+        receipt = _receipt(plan)
+        probe = _v2_equi()
+        probe["projection_type"] = projection_type
+        monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path, value=probe: value)
+
+        with pytest.raises(PhotorealProjectionAuthorityError, match="not uniquely Spherical V2 equirectangular"):
+            resolve_v2_projection_ambiguity(plan, receipt)
+        assert plan["train"][0]["projection"] == "projection-ambiguous-2to1"
+
+
 @pytest.mark.parametrize("probe_status", ["unsupported-container", "parse-failed"])
 def test_refuses_container_without_parsed_v2_authority(
     monkeypatch: pytest.MonkeyPatch,
