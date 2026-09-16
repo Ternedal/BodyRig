@@ -48,7 +48,10 @@ def validate_sealed_identity_matching_readback(
         validate_identity_calibration_integrity(calibration)
     except PhotorealIdentityCalibrationIntegrityError as exc:
         raise PhotorealFrameIdentitySealedReadbackAuthorityError(str(exc)) from exc
-    return validate_identity_matching_readback(bank, calibration)
+    try:
+        return validate_identity_matching_readback(bank, calibration)
+    except PhotorealFrameIdentityReadbackAuthorityError as exc:
+        raise PhotorealFrameIdentitySealedReadbackAuthorityError(str(exc)) from exc
 
 
 def authorize_frame_identity_files_sealed_strict(
