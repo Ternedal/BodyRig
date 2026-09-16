@@ -414,3 +414,91 @@ def run_external_frame_analyzer_files(
     config = load_analyzer_config(config_path)
     scan_plan = _read_json(scan_plan_path, label="photoreal scan plan")
     return run_external_frame_analyzer(config, scan_plan, workspace=workspace)
+
+
+_validate_scan_bound_analyzer_result = validate_analyzer_result
+_VALID_VIEW_BINS = {
+    "front",
+    "three-quarter-right",
+    "three-quarter-left",
+    "profile-right",
+    "profile-left",
+    "unknown",
+}
+_MEASUREMENT_UNIT_FIELDS = (
+    "face_visibility",
+    "full_body_visibility",
+    "person_fraction",
+    "sharpness",
+    "motion",
+    "occlusion",
+)
+
+
+def _validate_unit_measurement(value: Any, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealFrameAnalyzerError(f"{label} is invalid")
+    numeric = float(value)
+    if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+        raise PhotorealFrameAnalyzerError(f"{label} is outside 0..1")
+
+
+def _validate_analyzer_measurements(
+    value: Mapping[str, Any],
+    *,
+    performer_id: str,
+    adapter: str,
+    revision: str,
+    model_set_sha256: str,
+    scan_plan: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    validated = _validate_scan_bound_analyzer_result(
+        value,
+        performer_id=performer_id,
+        adapter=adapter,
+        revision=revision,
+        model_set_sha256=model_set_sha256,
+        scan_plan=scan_plan,
+    )
+    dimension = validated["identity_embedding_dimension"]
+    for raw in validated["observations"]:
+        width = raw.get("width")
+        height = raw.get("height")
+        if isinstance(width, bool) or not isinstance(width, int) or width < 1:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer width is invalid")
+        if isinstance(height, bool) or not isinstance(height, int) or height < 1:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer height is invalid")
+
+        perceptual_hash = raw.get("perceptual_hash")
+        if (
+            not isinstance(perceptual_hash, str)
+            or len(perceptual_hash) != 16
+            or any(character not in "0123456789abcdef" for character in perceptual_hash)
+        ):
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer perceptual_hash is invalid")
+
+        view_bin = raw.get("view_bin")
+        if not isinstance(view_bin, str) or view_bin not in _VALID_VIEW_BINS:
+            raise PhotorealFrameAnalyzerError("photoreal frame analyzer view_bin is invalid")
+
+        for field in _MEASUREMENT_UNIT_FIELDS:
+            _validate_unit_measurement(
+                raw.get(field),
+                label=f"photoreal frame analyzer {field}",
+            )
+
+        if raw.get("identity_measurement_status") == "available":
+            embedding = raw["identity_embedding"]
+            if len(embedding) != dimension:
+                raise PhotorealFrameAnalyzerError("available identity embedding has wrong dimension")
+            for component in embedding:
+                if (
+                    isinstance(component, bool)
+                    or not isinstance(component, (int, float))
+                    or not math.isfinite(float(component))
+                ):
+                    raise PhotorealFrameAnalyzerError("available identity embedding contains an invalid value")
+    return validated
+
+
+validate_analyzer_result = _validate_analyzer_measurements
