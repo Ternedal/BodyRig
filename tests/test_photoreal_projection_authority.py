@@ -129,9 +129,7 @@ def test_resolves_v2_top_bottom_to_over_under(monkeypatch: pytest.MonkeyPatch) -
     plan = _plan()
     receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode="top-bottom"))
-
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
-
     assert count == 1
     assert resolved["train"][0]["stereo_layout"] == "over-under"
 
@@ -140,9 +138,7 @@ def test_preserves_matching_explicit_stereo_and_cross_checks_v2(monkeypatch: pyt
     plan = _plan(stereo_layout="side-by-side")
     receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode="left-right"))
-
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
-
     assert count == 1
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
     assert plan["train"][0]["stereo_layout"] == "side-by-side"
@@ -155,9 +151,7 @@ def test_preserves_explicit_stereo_when_st3d_is_absent(monkeypatch: pytest.Monke
     probe["st3d_present"] = False
     probe["stereo_mode"] = None
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
-
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
-
     assert count == 1
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
 
@@ -166,35 +160,26 @@ def test_rejects_explicit_stereo_conflicting_with_v2(monkeypatch: pytest.MonkeyP
     plan = _plan(stereo_layout="side-by-side")
     receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode="top-bottom"))
-
     with pytest.raises(PhotorealProjectionAuthorityError, match="conflicts"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
 @pytest.mark.parametrize("stereo_mode", ["right-left", "stereo-custom", "reserved-or-unknown"])
-def test_refuses_unrepresentable_v2_stereo_modes(
-    monkeypatch: pytest.MonkeyPatch,
-    stereo_mode: str,
-) -> None:
+def test_refuses_unrepresentable_v2_stereo_modes(monkeypatch: pytest.MonkeyPatch, stereo_mode: str) -> None:
     plan = _plan()
     receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode=stereo_mode))
-
     with pytest.raises(PhotorealProjectionAuthorityError, match="unsupported Spherical V2 stereo mode"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
 @pytest.mark.parametrize("patch", [{"st3d_version": 1}, {"st3d_flags": 1}])
-def test_refuses_unsupported_st3d_semantics(
-    monkeypatch: pytest.MonkeyPatch,
-    patch: dict[str, object],
-) -> None:
+def test_refuses_unsupported_st3d_semantics(monkeypatch: pytest.MonkeyPatch, patch: dict[str, object]) -> None:
     plan = _plan()
     receipt = _receipt(plan)
     probe = _v2_equi()
     probe.update(patch)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
-
     with pytest.raises(PhotorealProjectionAuthorityError, match="stereo box semantics"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -206,7 +191,6 @@ def test_unknown_stereo_requires_st3d_authority(monkeypatch: pytest.MonkeyPatch)
     probe["st3d_present"] = False
     probe["stereo_mode"] = None
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
-
     with pytest.raises(PhotorealProjectionAuthorityError, match="no authoritative Spherical V2 st3d"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -233,7 +217,6 @@ def test_refuses_non_authoritative_or_unsupported_projection_metadata(
     probe = _v2_equi()
     probe.update(probe_patch)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
-
     with pytest.raises(PhotorealProjectionAuthorityError):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -245,25 +228,16 @@ def test_mesh_and_cubemap_are_not_relabelled_as_vr180_or_vr360(monkeypatch: pyte
         probe = _v2_equi()
         probe["projection_type"] = projection_type
         monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path, value=probe: value)
-
         with pytest.raises(PhotorealProjectionAuthorityError, match="not uniquely Spherical V2 equirectangular"):
             resolve_v2_projection_ambiguity(plan, receipt)
         assert plan["train"][0]["projection"] == "projection-ambiguous-2to1"
 
 
 @pytest.mark.parametrize("probe_status", ["unsupported-container", "parse-failed"])
-def test_refuses_container_without_parsed_v2_authority(
-    monkeypatch: pytest.MonkeyPatch,
-    probe_status: str,
-) -> None:
+def test_refuses_container_without_parsed_v2_authority(monkeypatch: pytest.MonkeyPatch, probe_status: str) -> None:
     plan = _plan()
     receipt = _receipt(plan)
-    monkeypatch.setattr(
-        authority,
-        "probe_isobmff_file",
-        lambda _path: {"probe_status": probe_status},
-    )
-
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: {"probe_status": probe_status})
     with pytest.raises(PhotorealProjectionAuthorityError):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -277,7 +251,6 @@ def test_non_ambiguous_sources_never_use_metadata_as_override(monkeypatch: pytes
 
     monkeypatch.setattr(authority, "probe_isobmff_file", fail_if_called)
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
-
     assert count == 0
     assert resolved == plan
 
@@ -287,7 +260,6 @@ def test_receipt_universe_mismatch_fails_before_projection_authority(monkeypatch
     receipt = _receipt(plan)
     receipt["sources"].pop()
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi())
-
     with pytest.raises(PhotorealProjectionAuthorityError, match="source universe mismatch"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -299,19 +271,13 @@ def test_scan_plan_cli_uses_v2_projection_and_stereo_resolution_but_keeps_spatia
     plan = _plan()
     receipt = _receipt(plan)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi())
-
     plan_path = tmp_path / "dataset-plan.json"
     receipt_path = tmp_path / "source-receipt.json"
     output_path = tmp_path / "scan-plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8")
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
-    assert scan_plan_main([
-        "--plan", str(plan_path),
-        "--receipt", str(receipt_path),
-        "--out", str(output_path),
-    ]) == 0
-
+    assert scan_plan_main(["--plan", str(plan_path), "--receipt", str(receipt_path), "--out", str(output_path)]) == 0
     scan = json.loads(output_path.read_text(encoding="utf-8"))
     source = next(item for item in scan["sources"] if item["source_key"].startswith("scene:s1:"))
     assert source["projection"] == "equirectangular"
