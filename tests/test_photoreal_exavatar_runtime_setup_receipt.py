@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from bodyrig import photoreal_exavatar_runtime_setup_receipt as receipt
+
+
+LINUX_RUNTIME_ONLY = pytest.mark.skipif(
+    os.name == "nt",
+    reason="ExAvatar runtime receipt paths are authoritative Linux venv paths",
+)
 
 
 def _digest(value: dict[str, object], omit: str) -> str:
@@ -90,6 +97,7 @@ def _pin_live_pytorch3d(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@LINUX_RUNTIME_ONLY
 def test_runtime_setup_receipt_accepts_exact_pinned_provenance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     python, chumpy, torchgeometry = _runtime(tmp_path)
     _pin_live_pytorch3d(monkeypatch)
@@ -121,6 +129,7 @@ def test_runtime_setup_receipt_rejects_changed_version_set(monkeypatch: pytest.M
         receipt.validate_runtime_setup_receipt(linux_python=python)
 
 
+@LINUX_RUNTIME_ONLY
 def test_runtime_setup_receipt_rejects_observed_version_drift(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     python, _chumpy, _torchgeometry = _runtime(tmp_path)
     _pin_live_pytorch3d(monkeypatch)
@@ -134,6 +143,7 @@ def test_runtime_setup_receipt_rejects_observed_version_drift(monkeypatch: pytes
         receipt.validate_runtime_setup_receipt(linux_python=python)
 
 
+@LINUX_RUNTIME_ONLY
 def test_runtime_setup_receipt_rejects_cuda_compiler_runtime_mismatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     python, _chumpy, _torchgeometry = _runtime(tmp_path)
     _pin_live_pytorch3d(monkeypatch)
@@ -160,6 +170,7 @@ def test_runtime_setup_receipt_rejects_wrong_patch_identity(monkeypatch: pytest.
         receipt.validate_runtime_setup_receipt(linux_python=python)
 
 
+@LINUX_RUNTIME_ONLY
 def test_runtime_setup_receipt_rejects_live_patch_byte_drift(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     python, chumpy, _torchgeometry = _runtime(tmp_path)
     _pin_live_pytorch3d(monkeypatch)
