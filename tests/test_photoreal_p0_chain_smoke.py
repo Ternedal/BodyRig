@@ -365,14 +365,14 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
         {"id": "co-100", "performers": [{"id": PERFORMER_ID}, {"id": "100"}]},
         {"id": "co-101", "performers": [{"id": PERFORMER_ID}, {"id": "101"}]},
     ]
-    source_inventories = {
+    negative_performer_inventories = {
         performer_id: _negative_performer_inventory(performer_id, path)
         for performer_id, path in negative_paths.items()
     }
     negative_inventory = build_identity_negative_inventory(
         target_performer_id=PERFORMER_ID,
         target_scenes=target_scenes,
-        negative_performer_inventories=source_inventories,
+        negative_performer_inventories=negative_performer_inventories,
         max_negative_performers=2,
         sources_per_performer=1,
     )
@@ -401,30 +401,35 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
     calibration_plan_path = tmp_path / "identity-calibration-plan.json"
     calibration_plan = build_identity_calibration_plan_files(
         bank_path,
-        negative_inventory_path,
         negative_receipt_path,
         calibration_plan_path,
     )
     assert calibration_plan["negative_performer_count"] == 2
-    assert calibration_plan["negative_source_count"] == 2
+    assert calibration_plan["source_count"] == 2
 
     # 12/16 synthetic negative inference through the real calibration runner contract.
+    calibration_config = {
+        "format": "bodyrig-photoreal-identity-extractor-config",
+        "version": 1,
+        "adapter": ADAPTER,
+        "revision": REVISION,
+        "model_set_sha256": model_sha,
+        "command": ["bodyrig-smoke-not-executed"],
+        "timeout_seconds": 30,
+    }
     calibration_request = build_calibration_extractor_request(
+        calibration_config,
         calibration_plan,
         model_set,
-        adapter=ADAPTER,
-        revision=REVISION,
-        expected_model_set_sha256=model_sha,
     )
+    assert calibration_request["measurement_only"] is True
     assert calibration_request["calibration_only"] is True
+    assert calibration_request["identity_matching_authority"] is False
     negative_result = _negative_observations(calibration_plan, model_sha)
     negative_result = validate_calibration_extractor_result(
         negative_result,
-        target_performer_id=PERFORMER_ID,
-        identity_bank_sha256=calibration_plan["identity_bank_sha256"],
-        adapter=ADAPTER,
-        revision=REVISION,
-        model_set_sha256=model_sha,
+        plan=calibration_plan,
+        config=calibration_config,
     )
     negative_observations_path = tmp_path / "negative-observations.json"
     _write_json(negative_observations_path, negative_result)
@@ -434,17 +439,20 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
         bank_path,
         calibration_plan_path,
         negative_observations_path,
+        negative_inventory_path,
         calibration_path,
     )
-    assert calibration["calibration_complete"] is True
+    assert calibration["match_threshold_calibrated"] is True
+    assert calibration["identity_matching_authorized"] is True
+    assert calibration["teacher_training_authorized"] is False
+    assert len(calibration["identity_calibration_provenance_sha256"]) == 64
 
     # 13/16 frame-analyzer request/result contract.
     frame_request = build_analyzer_request(
         scan,
-        model_set,
-        analyzer="bodyrig-smoke-frame",
-        analyzer_revision=REVISION,
-        expected_model_set_sha256=model_sha,
+        adapter="bodyrig-smoke-frame",
+        revision=REVISION,
+        model_set_sha256=model_sha,
     )
     assert frame_request["identity_matching_authority"] is False
     frame_result = _frame_measurements(scan, model_sha)
@@ -452,9 +460,9 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
         frame_result,
         scan_plan=scan,
         performer_id=PERFORMER_ID,
-        analyzer="bodyrig-smoke-frame",
-        analyzer_revision=REVISION,
-        analyzer_model_set_sha256=model_sha,
+        adapter="bodyrig-smoke-frame",
+        revision=REVISION,
+        model_set_sha256=model_sha,
     )
     frame_observations_path = tmp_path / "frame-observations.json"
     _write_json(frame_observations_path, frame_result)
@@ -462,8 +470,8 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
     # 14/16 sealed identity authorization.
     authorized_observations_path = tmp_path / "authorized-observations.json"
     authorized = authorize_frame_identity_files_sealed_strict(
+        plan_path,
         frame_observations_path,
-        scan_path,
         bank_path,
         calibration_path,
         authorized_observations_path,
@@ -474,14 +482,18 @@ def test_photoreal_p0_cross_stage_chain_reaches_teacher_gate(tmp_path: Path) -> 
     # 15/16 frame index.
     frame_index_path = tmp_path / "frame-index.json"
     frame_index = build_frame_index_files(
-        scan_path,
+        plan_path,
+        receipt_path,
         authorized_observations_path,
         frame_index_path,
     )
     assert frame_index["source_count"] == 3
-    assert frame_index["teacher_training_authority"] is True
+    assert frame_index["identity_authority_is_core_derived"] is True
 
     # 16/16 teacher gate evidence. The smoke fixture intentionally guarantees
     # held-out face-front, three-quarter, profile and full-body coverage.
     assert frame_index["teacher_training_authorized"] is True
-    assert frame_index["blockers"] == []
+    assert frame_index["training_blockers"] == []
+    assert frame_index["human_visual_acceptance_required"] is True
+    assert frame_index["photoreal_acceptance_authority"] is False
+    assert frame_index["production_activation"] is False
