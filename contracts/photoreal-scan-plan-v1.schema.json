@@ -71,7 +71,10 @@
         "format", "version", "projection_type", "pose_degrees",
         "equirectangular_bounds_fraction", "cubemap_layout", "cubemap_padding_pixels",
         "mesh_projection_crc32", "mesh_projection_encoding", "mesh_projection_payload_bytes",
-        "deprojection_authority"
+        "mesh_projection_geometry_sha256", "mesh_projection_mesh_count",
+        "mesh_projection_total_vertex_count", "mesh_projection_total_index_count",
+        "mesh_projection_texture_ids", "mesh_projection_index_types",
+        "mesh_projection_unknown_box_types", "deprojection_authority"
       ],
       "properties": {
         "format": {"const": "bodyrig-spherical-v2-projection-authority"},
@@ -111,6 +114,48 @@
         "mesh_projection_payload_bytes": {
           "oneOf": [
             {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_geometry_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/sha256"},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_mesh_count": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1, "maximum": 2},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_total_vertex_count": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_total_index_count": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_texture_ids": {
+          "oneOf": [
+            {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 0, "maximum": 255}},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_index_types": {
+          "oneOf": [
+            {"type": "array", "uniqueItems": true, "items": {"enum": [0, 1, 2]}},
+            {"type": "null"}
+          ]
+        },
+        "mesh_projection_unknown_box_types": {
+          "oneOf": [
+            {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 4, "maxLength": 4}},
             {"type": "null"}
           ]
         },
