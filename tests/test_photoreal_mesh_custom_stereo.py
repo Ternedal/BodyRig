@@ -243,6 +243,61 @@ def test_mesh_custom_decoder_uses_full_frame_but_preserves_eye_for_mesh_selectio
     assert sample["eye"] == "right"
 
 
+def test_mesh_custom_frame_result_passes_original_eye_to_mesh_renderer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_image = object()
+    viewport_image = object()
+    authority_value = _custom_authority(mesh_count=2)
+    source = {
+        "source_key": "scene:s1:E:/custom.mp4",
+        "source_sha256": "a" * 64,
+        "resolved_path": "/verified/custom.mp4",
+        "kind": "video",
+        "projection": "mshp",
+        "projection_authority": authority_value,
+        "stereo_layout": "mesh-custom",
+        "decode_mode": "spatial-deprojection-required",
+        "samples": [{"timestamp_seconds": 1.0, "eye": "right"}],
+    }
+    request = {"performer_id": "42", "sources": [source]}
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="b" * 64,
+    )
+    decoded: list[tuple[dict[str, object], dict[str, object]]] = []
+    rendered: list[tuple[str, object, str]] = []
+
+    def read_sample(_runtime, decode_source, decode_sample):
+        decoded.append((dict(decode_source), dict(decode_sample)))
+        return raw_image, True
+
+    def deproject(_runtime, image, path, projection_authority, *, eye, cache):
+        assert image is raw_image
+        assert projection_authority is authority_value
+        rendered.append((path, projection_authority, eye))
+        return [("v00", viewport_image)]
+
+    monkeypatch.setattr(adapter.base, "_read_sample", read_sample)
+    monkeypatch.setattr(adapter, "deproject_mesh_views", deproject)
+    monkeypatch.setattr(
+        adapter.base,
+        "_candidate_rows",
+        lambda _runtime, image, *, base, candidate_prefix="": [
+            {**base, "candidate_id": f"{candidate_prefix}person-000", "viewport_image": image}
+        ],
+    )
+
+    result = adapter._frame_result(SimpleNamespace(embedding_dimension=512), request, args)
+    assert decoded[0][0]["stereo_layout"] == "mono"
+    assert decoded[0][1]["eye"] == "mono"
+    assert rendered == [("/verified/custom.mp4", authority_value, "right")]
+    assert result["observations"][0]["eye"] == "right"
+    assert result["observations"][0]["candidate_id"] == "v00-person-000"
+    assert result["observations"][0]["viewport_image"] is viewport_image
+
+
 def test_mesh_custom_decoder_refuses_non_mesh_projection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         adapter.base,
