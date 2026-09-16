@@ -4,10 +4,7 @@ import copy
 from pathlib import Path
 from typing import Any, Mapping
 
-from .photoreal_spatial_metadata_probe import (
-    PhotorealSpatialMetadataProbeError,
-    probe_isobmff_file,
-)
+from .photoreal_spatial_metadata_probe import PhotorealSpatialMetadataProbeError, probe_isobmff_file
 
 PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
 PLAN_VERSION = 1
@@ -16,11 +13,7 @@ RECEIPT_VERSION = 1
 AMBIGUOUS_PROJECTION = "projection-ambiguous-2to1"
 RESOLVED_PROJECTION = "equirectangular"
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
-V2_STEREO_TO_LAYOUT = {
-    "mono": "mono",
-    "left-right": "side-by-side",
-    "top-bottom": "over-under",
-}
+V2_STEREO_TO_LAYOUT = {"mono": "mono", "left-right": "side-by-side", "top-bottom": "over-under"}
 
 
 class PhotorealProjectionAuthorityError(ValueError):
@@ -53,7 +46,6 @@ def _receipt_sources(receipt: Mapping[str, Any]) -> dict[str, dict[str, str]]:
         raise PhotorealProjectionAuthorityError("photoreal source receipt authority boundary is invalid")
     if receipt.get("production_activation") is not False:
         raise PhotorealProjectionAuthorityError("photoreal source receipt crossed production authority")
-
     values = receipt.get("sources")
     if not isinstance(values, list) or not values:
         raise PhotorealProjectionAuthorityError("photoreal source receipt contains no sources")
@@ -79,29 +71,20 @@ def _probe_v2_equirectangular(path: str | Path) -> dict[str, Any]:
         raise PhotorealProjectionAuthorityError(
             "ambiguous projection source has no readable authoritative Spherical V2 metadata"
         ) from exc
-
     if probe.get("probe_status") != "parsed-isobmff":
         raise PhotorealProjectionAuthorityError("ambiguous projection source is not a parsed ISO BMFF container")
     if probe.get("sv3d_present") is not True or probe.get("proj_present") is not True:
         raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 sv3d/proj authority")
     if probe.get("projection_type") != "equi":
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source is not uniquely Spherical V2 equirectangular"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source is not uniquely Spherical V2 equirectangular")
     if probe.get("prhd_present") is not True:
         raise PhotorealProjectionAuthorityError("ambiguous projection source lacks Spherical V2 projection header authority")
     if probe.get("prhd_version") != 0 or probe.get("prhd_flags") != 0:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source uses unsupported Spherical V2 projection header semantics"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source uses unsupported Spherical V2 projection header semantics")
     if probe.get("projection_data_version") != 0 or probe.get("projection_data_flags") != 0:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source uses unsupported Spherical V2 equirectangular semantics"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source uses unsupported Spherical V2 equirectangular semantics")
     if probe.get("equirectangular_bounds_valid") is not True:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source has invalid Spherical V2 equirectangular bounds"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source has invalid Spherical V2 equirectangular bounds")
     return dict(probe)
 
 
@@ -110,34 +93,23 @@ def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str
     observed_layout: str | None = None
     if probe.get("st3d_present") is True:
         if probe.get("st3d_version") != 0 or probe.get("st3d_flags") != 0:
-            raise PhotorealProjectionAuthorityError(
-                "ambiguous projection source uses unsupported Spherical V2 stereo box semantics"
-            )
+            raise PhotorealProjectionAuthorityError("ambiguous projection source uses unsupported Spherical V2 stereo box semantics")
         observed_mode = str(probe.get("stereo_mode") or "").strip()
         observed_layout = V2_STEREO_TO_LAYOUT.get(observed_mode)
         if observed_layout is None:
             raise PhotorealProjectionAuthorityError(
                 f"ambiguous projection source uses unsupported Spherical V2 stereo mode: {observed_mode or 'unknown'}"
             )
-
     if layout in KNOWN_STEREO_LAYOUTS:
         if observed_layout is not None and observed_layout != layout:
-            raise PhotorealProjectionAuthorityError(
-                "dataset stereo layout conflicts with authoritative Spherical V2 st3d metadata"
-            )
+            raise PhotorealProjectionAuthorityError("dataset stereo layout conflicts with authoritative Spherical V2 st3d metadata")
         return layout
-
     if observed_layout is None:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source has no authoritative Spherical V2 st3d stereo layout"
-        )
+        raise PhotorealProjectionAuthorityError("ambiguous projection source has no authoritative Spherical V2 st3d stereo layout")
     return observed_layout
 
 
-def resolve_v2_projection_ambiguity(
-    plan: Mapping[str, Any],
-    receipt: Mapping[str, Any],
-) -> tuple[dict[str, Any], int]:
+def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
     version = plan.get("version")
     if plan.get("format") != PLAN_FORMAT or isinstance(version, bool) or version != PLAN_VERSION:
         raise PhotorealProjectionAuthorityError("photoreal dataset plan format/version mismatch")
@@ -155,7 +127,6 @@ def resolve_v2_projection_ambiguity(
     result = copy.deepcopy(dict(plan))
     seen: set[str] = set()
     resolved_count = 0
-
     for split in ("train", "evaluation"):
         values = result.get(split)
         if not isinstance(values, list) or not values:
@@ -175,16 +146,11 @@ def resolve_v2_projection_ambiguity(
                 raise PhotorealProjectionAuthorityError("dataset plan/source receipt source kind mismatch")
             if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
                 continue
-
-            # Receipt SHA/path binding already identifies the source bytes. Inspect the
-            # container again here so classification authority comes from current bytes,
-            # never from a diagnostic artifact or a 2:1/tag heuristic.
             _ = verified["sha256"]
             probe = _probe_v2_equirectangular(verified["resolved_path"])
             raw["projection"] = RESOLVED_PROJECTION
             raw["stereo_layout"] = _resolve_stereo_layout(raw.get("stereo_layout"), probe)
             resolved_count += 1
-
     if seen != set(receipt_sources):
         raise PhotorealProjectionAuthorityError("dataset plan/source receipt source universe mismatch")
     return result, resolved_count
