@@ -9,6 +9,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from bodyrig.photoreal_cubemap_deprojection import (  # noqa: E402
+    PhotorealCubemapDeprojectionError,
+    deproject_cubemap_views,
+)
 from bodyrig.photoreal_mesh_deprojection import (  # noqa: E402
     PhotorealMeshDeprojectionError,
     deproject_mesh_views,
@@ -89,6 +93,24 @@ def _frame_result(runtime: Any, request: Mapping[str, Any], args: Any) -> dict[s
                 )
             except PhotorealMeshDeprojectionError as exc:
                 raise ReferenceVisionError(f"mesh deprojection failed: {exc}") from exc
+            for viewport_id, viewport_image in viewports:
+                observations.extend(
+                    base._candidate_rows(
+                        runtime,
+                        viewport_image,
+                        base=base_row,
+                        candidate_prefix=f"{viewport_id}-",
+                    )
+                )
+        elif spatial and projection == "cbmp":
+            try:
+                viewports = deproject_cubemap_views(
+                    runtime,
+                    image,
+                    source.get("projection_authority"),
+                )
+            except PhotorealCubemapDeprojectionError as exc:
+                raise ReferenceVisionError(f"cubemap deprojection failed: {exc}") from exc
             for viewport_id, viewport_image in viewports:
                 observations.extend(
                     base._candidate_rows(
