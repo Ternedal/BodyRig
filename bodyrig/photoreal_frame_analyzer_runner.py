@@ -149,7 +149,8 @@ def load_analyzer_config(path: str | Path) -> dict[str, Any]:
 
 
 def _validate_scan_plan(scan_plan: Mapping[str, Any]) -> None:
-    if scan_plan.get("format") != SCAN_FORMAT or scan_plan.get("version") != SCAN_VERSION:
+    version = scan_plan.get("version")
+    if scan_plan.get("format") != SCAN_FORMAT or isinstance(version, bool) or version != SCAN_VERSION:
         raise PhotorealFrameAnalyzerError("photoreal scan plan format/version mismatch")
     if scan_plan.get("all_sources_sha256_bound") is not True:
         raise PhotorealFrameAnalyzerError("photoreal scan plan is not byte-bound")
@@ -176,13 +177,10 @@ def _sample_identity(timestamp: Any, eye: Any, *, kind: str) -> tuple[str, str]:
         if timestamp is not None or eye_value != "mono":
             raise PhotorealFrameAnalyzerError("still-image frame sample must be mono without timestamp")
         return "image", eye_value
-    if kind != "video" or isinstance(timestamp, bool):
+    if kind != "video":
         raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid")
-    try:
-        numeric = float(timestamp)
-    except (TypeError, ValueError) as exc:
-        raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid") from exc
-    if not math.isfinite(numeric) or numeric < 0.0:
+    numeric = _finite_number(timestamp, label="photoreal video frame sample timestamp")
+    if numeric < 0.0:
         raise PhotorealFrameAnalyzerError("photoreal video frame sample timestamp is invalid")
     return f"{numeric:.6f}", eye_value
 
