@@ -33,6 +33,7 @@ def test_scout_authority_replay_uses_safe_path_prefix_and_native_exit_capture() 
 def test_scout_authority_replay_json_parsing_stays_windows_powershell_compatible() -> None:
     assert 'ConvertFrom-Json -Depth' not in SCRIPT
     assert SCRIPT.count('ConvertFrom-Json') == 2
+    assert '$PSVersionTable.PSVersion' not in SCRIPT
 
 
 def test_scout_authority_replay_uses_current_metadata_and_scan_plan_code() -> None:
