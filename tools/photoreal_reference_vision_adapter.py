@@ -13,6 +13,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from bodyrig.photoreal_equirectangular_deprojection import (  # noqa: E402
+    PhotorealEquirectangularDeprojectionError,
+    deproject_equirectangular_views,
+)
 from bodyrig.photoreal_model_set import PhotorealModelSetError, build_model_set  # noqa: E402
 
 ADAPTER_NAME = "bodyrig-reference-vision-v1"
@@ -444,13 +448,21 @@ def _candidates(runtime: Runtime, image: Any) -> list[dict[str, Any]]:
     return result
 
 
-def _candidate_rows(runtime: Runtime, image: Any, *, base: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _candidate_rows(
+    runtime: Runtime,
+    image: Any,
+    *,
+    base: Mapping[str, Any],
+    candidate_prefix: str = "",
+) -> list[dict[str, Any]]:
+    if candidate_prefix and any(not (character.isalnum() or character in "._-") for character in candidate_prefix):
+        raise ReferenceVisionError("candidate prefix is invalid")
     candidates = _candidates(runtime, image)
     height, width = image.shape[:2]
     frame_sha = _frame_sha(image)
     phash = _perceptual_hash(runtime, image)
     if not candidates:
-        return [{**base, "frame_sha256": frame_sha, "perceptual_hash": phash, "candidate_id": "none-0", "person_detected": False, "width": width, "height": height, "view_bin": "unknown", "face_visibility": 0.0, "full_body_visibility": 0.0, "person_fraction": 0.0, "sharpness": _sharpness(runtime, image), "motion": 0.0, "occlusion": 0.0, "identity_measurement_status": "unavailable", "identity_embedding": None}]
+        return [{**base, "frame_sha256": frame_sha, "perceptual_hash": phash, "candidate_id": f"{candidate_prefix}none-0", "person_detected": False, "width": width, "height": height, "view_bin": "unknown", "face_visibility": 0.0, "full_body_visibility": 0.0, "person_fraction": 0.0, "sharpness": _sharpness(runtime, image), "motion": 0.0, "occlusion": 0.0, "identity_measurement_status": "unavailable", "identity_embedding": None}]
     boxes = [candidate["bbox"] for candidate in candidates]
     rows: list[dict[str, Any]] = []
     for index, candidate in enumerate(candidates):
@@ -464,7 +476,7 @@ def _candidate_rows(runtime: Runtime, image: Any, *, base: Mapping[str, Any]) ->
                 **base,
                 "frame_sha256": frame_sha,
                 "perceptual_hash": phash,
-                "candidate_id": f"person-{index:03d}",
+                "candidate_id": f"{candidate_prefix}person-{index:03d}",
                 "person_detected": True,
                 "width": width,
                 "height": height,
@@ -533,7 +545,21 @@ def _frame_result(runtime: Runtime, request: Mapping[str, Any], args: argparse.N
     for source, sample in _iter_samples(request["sources"], "samples"):
         image, spatial = _read_sample(runtime, source, sample)
         base = {"source_key": source["source_key"], "source_sha256": source["source_sha256"], "kind": source["kind"], "timestamp_seconds": sample.get("timestamp_seconds"), "eye": sample["eye"], "projection": source["projection"]}
-        if spatial:
+        if spatial and source.get("projection") == "equi":
+            try:
+                viewports = deproject_equirectangular_views(runtime, image, source.get("projection_authority"))
+            except PhotorealEquirectangularDeprojectionError as exc:
+                raise ReferenceVisionError(f"equirectangular deprojection failed: {exc}") from exc
+            for viewport_id, viewport_image in viewports:
+                observations.extend(
+                    _candidate_rows(
+                        runtime,
+                        viewport_image,
+                        base=base,
+                        candidate_prefix=f"{viewport_id}-",
+                    )
+                )
+        elif spatial:
             height, width = image.shape[:2]
             observations.append({**base, "frame_sha256": _frame_sha(image), "perceptual_hash": _perceptual_hash(runtime, image), "candidate_id": "none-0", "person_detected": False, "width": width, "height": height, "view_bin": "unknown", "face_visibility": 0.0, "full_body_visibility": 0.0, "person_fraction": 0.0, "sharpness": _sharpness(runtime, image), "motion": 0.0, "occlusion": 0.0, "identity_measurement_status": "unavailable", "identity_embedding": None})
         else:
