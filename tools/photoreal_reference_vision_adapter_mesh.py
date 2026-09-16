@@ -41,6 +41,7 @@ base._self_revision = _self_revision
 def _frame_result(runtime: Any, request: Mapping[str, Any], args: Any) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     mesh_cache: dict[Any, Any] = {}
+    mesh_cache_source: str | None = None
     for source, sample in base._iter_samples(request["sources"], "samples"):
         image, spatial = base._read_sample(runtime, source, sample)
         base_row = {
@@ -71,6 +72,10 @@ def _frame_result(runtime: Any, request: Mapping[str, Any], args: Any) -> dict[s
                     )
                 )
         elif spatial and projection == "mshp":
+            source_key = str(source.get("source_key") or "")
+            if mesh_cache_source != source_key:
+                mesh_cache.clear()
+                mesh_cache_source = source_key
             try:
                 viewports = deproject_mesh_views(
                     runtime,
