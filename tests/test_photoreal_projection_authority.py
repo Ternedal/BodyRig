@@ -48,42 +48,54 @@ def _receipt(plan: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _v2_equi(*, stereo_mode: str = "left-right") -> dict[str, object]:
-    return {
+def _v2_projection(projection_type: str = "equi", *, stereo_mode: str = "left-right") -> dict[str, object]:
+    result: dict[str, object] = {
         "probe_status": "parsed-isobmff", "st3d_present": True, "st3d_version": 0, "st3d_flags": 0,
-        "stereo_mode": stereo_mode, "sv3d_present": True, "proj_present": True, "projection_type": "equi",
-        "prhd_present": True, "prhd_version": 0, "prhd_flags": 0, "projection_data_version": 0,
-        "projection_data_flags": 0, "equirectangular_bounds_valid": True,
+        "stereo_mode": stereo_mode, "sv3d_present": True, "proj_present": True,
+        "projection_type": projection_type, "prhd_present": True, "prhd_version": 0, "prhd_flags": 0,
+        "projection_data_version": 0, "projection_data_flags": 0,
     }
+    if projection_type == "equi":
+        result["equirectangular_bounds_valid"] = True
+    elif projection_type == "cbmp":
+        result["cubemap_layout_known"] = True
+        result["cubemap_padding_pixels"] = 0
+    elif projection_type == "mshp":
+        result["mesh_projection_crc32_matches"] = True
+        result["mesh_projection_encoding_supported"] = True
+        result["mesh_projection_payload_bytes"] = 128
+    return result
 
 
-def test_resolves_exact_v2_equirectangular_and_unknown_stereo(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("projection_type", ["equi", "mshp", "cbmp"])
+def test_preserves_exact_v2_projection_type(monkeypatch: pytest.MonkeyPatch, projection_type: str) -> None:
     plan = _plan(); receipt = _receipt(plan); calls: list[str] = []
-    def probe(path): calls.append(str(path)); return _v2_equi()
+    def probe(path): calls.append(str(path)); return _v2_projection(projection_type)
     monkeypatch.setattr(authority, "probe_isobmff_file", probe)
     resolved, count = resolve_v2_projection_ambiguity(plan, receipt)
     assert count == 1 and calls == ["/verified/train-0.mp4"]
     assert plan["train"][0]["projection"] == "projection-ambiguous-2to1"
     assert plan["train"][0]["stereo_layout"] == "unknown"
-    assert resolved["train"][0]["projection"] == "equirectangular"
+    assert resolved["train"][0]["projection"] == projection_type
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
-    assert resolved["teacher_training_authorized"] is False and resolved["production_activation"] is False
+    assert resolved["teacher_training_authorized"] is False
+    assert resolved["production_activation"] is False
 
 
 def test_resolves_top_bottom_and_preserves_matching_explicit_layout(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _plan(); receipt = _receipt(plan)
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode="top-bottom"))
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection(stereo_mode="top-bottom"))
     resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
     assert resolved["train"][0]["stereo_layout"] == "over-under"
 
     plan = _plan(stereo_layout="side-by-side"); receipt = _receipt(plan)
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi())
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection())
     resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
     assert resolved["train"][0]["stereo_layout"] == "side-by-side"
 
 
 def test_preserves_explicit_layout_without_st3d(monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = _plan(stereo_layout="side-by-side"); receipt = _receipt(plan); probe = _v2_equi()
+    plan = _plan(stereo_layout="side-by-side"); receipt = _receipt(plan); probe = _v2_projection()
     probe.update({"st3d_present": False, "stereo_mode": None})
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
     resolved, _ = resolve_v2_projection_ambiguity(plan, receipt)
@@ -92,7 +104,7 @@ def test_preserves_explicit_layout_without_st3d(monkeypatch: pytest.MonkeyPatch)
 
 def test_rejects_conflicting_explicit_stereo(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _plan(stereo_layout="side-by-side"); receipt = _receipt(plan)
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode="top-bottom"))
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection(stereo_mode="top-bottom"))
     with pytest.raises(PhotorealProjectionAuthorityError, match="conflicts"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
@@ -100,35 +112,60 @@ def test_rejects_conflicting_explicit_stereo(monkeypatch: pytest.MonkeyPatch) ->
 @pytest.mark.parametrize("stereo_mode", ["right-left", "stereo-custom", "reserved-or-unknown"])
 def test_refuses_unrepresentable_v2_stereo_modes(monkeypatch: pytest.MonkeyPatch, stereo_mode: str) -> None:
     plan = _plan(); receipt = _receipt(plan)
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi(stereo_mode=stereo_mode))
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection(stereo_mode=stereo_mode))
     with pytest.raises(PhotorealProjectionAuthorityError, match="unsupported Spherical V2 stereo mode"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
 @pytest.mark.parametrize("patch", [{"st3d_version": 1}, {"st3d_flags": 1}])
 def test_refuses_unsupported_st3d_semantics(monkeypatch: pytest.MonkeyPatch, patch: dict[str, object]) -> None:
-    plan = _plan(); receipt = _receipt(plan); probe = _v2_equi(); probe.update(patch)
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection(); probe.update(patch)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
     with pytest.raises(PhotorealProjectionAuthorityError, match="stereo box semantics"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
 def test_unknown_stereo_requires_st3d(monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = _plan(); receipt = _receipt(plan); probe = _v2_equi(); probe.update({"st3d_present": False, "stereo_mode": None})
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection(); probe.update({"st3d_present": False, "stereo_mode": None})
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
     with pytest.raises(PhotorealProjectionAuthorityError, match="no authoritative Spherical V2 st3d"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
 @pytest.mark.parametrize("probe_patch", [
-    {"sv3d_present": False, "spherical_v1_present": True}, {"projection_type": "mshp"},
-    {"projection_type": "cbmp"}, {"projection_type": "multiple"}, {"equirectangular_bounds_valid": False},
-    {"prhd_present": False}, {"projection_data_version": 1}, {"projection_data_flags": 1},
+    {"sv3d_present": False, "spherical_v1_present": True}, {"projection_type": "multiple"},
+    {"prhd_present": False}, {"prhd_version": 1}, {"projection_data_version": 1}, {"projection_data_flags": 1},
 ])
 def test_refuses_non_authoritative_or_unsupported_projection_metadata(monkeypatch: pytest.MonkeyPatch, probe_patch: dict[str, object]) -> None:
-    plan = _plan(); receipt = _receipt(plan); probe = _v2_equi(); probe.update(probe_patch)
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection(); probe.update(probe_patch)
     monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
     with pytest.raises(PhotorealProjectionAuthorityError):
+        resolve_v2_projection_ambiguity(plan, receipt)
+
+
+def test_refuses_invalid_equirectangular_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection("equi"); probe["equirectangular_bounds_valid"] = False
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+    with pytest.raises(PhotorealProjectionAuthorityError, match="equirectangular bounds"):
+        resolve_v2_projection_ambiguity(plan, receipt)
+
+
+@pytest.mark.parametrize("patch", [
+    {"mesh_projection_crc32_matches": False},
+    {"mesh_projection_encoding_supported": False},
+    {"mesh_projection_payload_bytes": 0},
+])
+def test_refuses_unusable_mesh_metadata(monkeypatch: pytest.MonkeyPatch, patch: dict[str, object]) -> None:
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection("mshp"); probe.update(patch)
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+    with pytest.raises(PhotorealProjectionAuthorityError):
+        resolve_v2_projection_ambiguity(plan, receipt)
+
+
+def test_refuses_unknown_cubemap_layout(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _plan(); receipt = _receipt(plan); probe = _v2_projection("cbmp"); probe["cubemap_layout_known"] = False
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: probe)
+    with pytest.raises(PhotorealProjectionAuthorityError, match="cubemap layout"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
@@ -141,20 +178,23 @@ def test_non_ambiguous_source_is_not_overridden(monkeypatch: pytest.MonkeyPatch)
 
 def test_receipt_universe_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _plan(); receipt = _receipt(plan); receipt["sources"].pop()
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi())
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection())
     with pytest.raises(PhotorealProjectionAuthorityError, match="source universe mismatch"):
         resolve_v2_projection_ambiguity(plan, receipt)
 
 
-def test_scan_plan_cli_resolves_projection_and_stereo_without_granting_deprojection(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+@pytest.mark.parametrize("projection_type", ["equi", "mshp", "cbmp"])
+def test_scan_plan_cli_preserves_exact_projection_without_granting_deprojection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, projection_type: str
+) -> None:
     plan = _plan(); receipt = _receipt(plan)
-    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_equi())
+    monkeypatch.setattr(authority, "probe_isobmff_file", lambda _path: _v2_projection(projection_type))
     plan_path = tmp_path / "dataset-plan.json"; receipt_path = tmp_path / "source-receipt.json"; output_path = tmp_path / "scan-plan.json"
     plan_path.write_text(json.dumps(plan), encoding="utf-8"); receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     assert scan_plan_main(["--plan", str(plan_path), "--receipt", str(receipt_path), "--out", str(output_path)]) == 0
     scan = json.loads(output_path.read_text(encoding="utf-8"))
     source = next(item for item in scan["sources"] if item["source_key"].startswith("scene:s1:"))
-    assert source["projection"] == "equirectangular" and source["stereo_layout"] == "side-by-side"
+    assert source["projection"] == projection_type and source["stereo_layout"] == "side-by-side"
     assert source["decode_mode"] == "spatial-deprojection-required" and source["sample_count"] == 24
     assert {item["eye"] for item in source["samples"]} == {"left", "right"}
     assert source["identity_bootstrap_eligible"] is False
