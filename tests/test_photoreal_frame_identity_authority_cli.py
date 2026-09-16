@@ -41,7 +41,7 @@ def test_cli_wires_all_authority_inputs(monkeypatch, tmp_path: Path, capsys) -> 
         )
         return _result()
 
-    monkeypatch.setattr(cli, "authorize_frame_identity_files", fake_authorize)
+    monkeypatch.setattr(cli, "authorize_frame_identity_files_sealed_strict", fake_authorize)
     paths = {name: tmp_path / f"{name}.json" for name in ("plan", "measurements", "bank", "calibration", "out")}
 
     code = cli.main(
@@ -71,7 +71,7 @@ def test_cli_fails_closed_on_authority_error(monkeypatch, tmp_path: Path, capsys
     def fail(*_args, **_kwargs):
         raise PhotorealFrameIdentityAuthorityError("calibration mismatch")
 
-    monkeypatch.setattr(cli, "authorize_frame_identity_files", fail)
+    monkeypatch.setattr(cli, "authorize_frame_identity_files_sealed_strict", fail)
     path = tmp_path / "x.json"
     code = cli.main(
         [
