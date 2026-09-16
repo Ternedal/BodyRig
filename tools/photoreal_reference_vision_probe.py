@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib.util
 import json
 import sys
@@ -10,14 +9,6 @@ from pathlib import Path
 
 class VisionProbeError(RuntimeError):
     pass
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _load_adapter(path: Path):
@@ -49,10 +40,15 @@ def main(argv: list[str] | None = None) -> int:
             raise VisionProbeError(f"adapter not found: {adapter_path}")
         if not model_root.is_dir():
             raise VisionProbeError(f"model root not found: {model_root}")
-        observed_revision = _sha256(adapter_path)
-        if observed_revision != str(args.adapter_revision).strip().lower():
-            raise VisionProbeError("adapter bytes do not match pinned adapter revision")
         adapter = _load_adapter(adapter_path)
+        try:
+            observed_revision = str(adapter._self_revision()).strip().lower()
+        except Exception as exc:  # noqa: BLE001
+            raise VisionProbeError(f"could not compute executable adapter revision: {exc}") from exc
+        if len(observed_revision) != 64 or any(character not in "0123456789abcdef" for character in observed_revision):
+            raise VisionProbeError("executable adapter revision is invalid")
+        if observed_revision != str(args.adapter_revision).strip().lower():
+            raise VisionProbeError("adapter dependency bytes do not match pinned adapter revision")
         try:
             model_set = adapter.build_model_set(model_root)
         except Exception as exc:  # noqa: BLE001
