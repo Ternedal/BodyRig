@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import math
 from pathlib import Path
@@ -212,6 +213,7 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
         if verified["kind"] != planned["kind"]:
             raise PhotorealScanPlanError(f"source kind mismatch for {source_key}")
 
+        projection_authority: dict[str, Any] | None = None
         if planned["kind"] == "image":
             samples = [{"timestamp_seconds": None, "eye": "mono"}]
             decode_mode = "image-direct"
@@ -222,6 +224,21 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
             projection = _text(planned.get("projection"), label=f"projection for {source_key}", maximum=128)
             stereo_layout = _text(planned.get("stereo_layout"), label=f"stereo layout for {source_key}", maximum=128)
             decode_mode = _decode_mode(projection, stereo_layout)
+            if projection in {"equi", "mshp", "cbmp"}:
+                raw_authority = planned.get("projection_authority")
+                if not isinstance(raw_authority, Mapping):
+                    raise PhotorealScanPlanError(
+                        f"exact Spherical V2 projection lacks projection authority: {source_key}"
+                    )
+                projection_authority = copy.deepcopy(dict(raw_authority))
+                if projection_authority.get("projection_type") != projection:
+                    raise PhotorealScanPlanError(
+                        f"Spherical V2 projection authority type mismatch: {source_key}"
+                    )
+                if projection_authority.get("deprojection_authority") is not False:
+                    raise PhotorealScanPlanError(
+                        f"scan plan cannot inherit deprojection authority: {source_key}"
+                    )
             eyes = _eyes_for_layout(stereo_layout)
             timestamps = _video_timestamps(duration, _video_sample_count(duration))
             samples = [
@@ -246,6 +263,7 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
             "source_binding": planned["source_binding"],
             "performer_count": planned["performer_count"],
             "projection": projection,
+            "projection_authority": projection_authority,
             "stereo_layout": stereo_layout,
             "decode_mode": decode_mode,
             "sample_count": len(samples),
