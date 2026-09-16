@@ -142,7 +142,7 @@ def test_negative_inventory_prefers_cross_media_diversity() -> None:
 
 
 def test_negative_inventory_never_accepts_target_as_negative_subject() -> None:
-    with pytest.raises(PhotorealIdentityNegativeInventoryError, match="target performer cannot enter"):
+    with pytest.raises(PhotorealIdentityNegativeInventoryError, match="negative performer inventory identity mismatch"):
         build_identity_negative_inventory(
             target_performer_id="42",
             target_scenes=_target_scenes(),
