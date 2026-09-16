@@ -88,7 +88,7 @@ if ([string]::IsNullOrWhiteSpace($ProbeRoot)) {
 } else {
     $ProbeRoot = [IO.Path]::GetFullPath($ProbeRoot)
 }
-$oldPrefix = $OutputRoot.TrimEnd([char[]]@('\','/')) + [IO.Path]::DirectorySeparatorChar
+$oldPrefix = $OutputRoot.TrimEnd([char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)) + [IO.Path]::DirectorySeparatorChar
 if ($ProbeRoot.Equals($OutputRoot, [StringComparison]::OrdinalIgnoreCase) -or
     $ProbeRoot.StartsWith($oldPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw "ProbeRoot must remain outside the original P0 output root."
@@ -115,6 +115,12 @@ Write-Host "============================================================"
 
 $priorPythonPath = $env:PYTHONPATH
 $scanExit = -1
+$nativeErrorPreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+$priorNativeErrorPreference = $null
+if ($null -ne $nativeErrorPreferenceVariable) {
+    $priorNativeErrorPreference = [bool]$nativeErrorPreferenceVariable.Value
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 try {
     $env:PYTHONPATH = $(if ([string]::IsNullOrWhiteSpace($priorPythonPath)) { $repoRoot } else { "$repoRoot$([IO.Path]::PathSeparator)$priorPythonPath" })
 
@@ -131,6 +137,9 @@ try {
     $scanExit = $LASTEXITCODE
 } finally {
     $env:PYTHONPATH = $priorPythonPath
+    if ($null -ne $nativeErrorPreferenceVariable) {
+        $PSNativeCommandUseErrorActionPreference = $priorNativeErrorPreference
+    }
 }
 
 $SpatialProbePath = Need-File -Path $SpatialProbePath -Label "Diagnostic spatial metadata output"
