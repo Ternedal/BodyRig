@@ -44,6 +44,34 @@ function Test-StrictBoolean {
     return ($Value -is [bool]) -and ([bool]$Value -eq $Expected)
 }
 
+function Test-StrictInteger {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory = $true)][long]$Expected
+    )
+    if ($Value -is [bool] -or $null -eq $Value) {
+        return $false
+    }
+    $isIntegerType = (
+        $Value -is [sbyte] -or
+        $Value -is [byte] -or
+        $Value -is [int16] -or
+        $Value -is [uint16] -or
+        $Value -is [int32] -or
+        $Value -is [uint32] -or
+        $Value -is [int64] -or
+        $Value -is [uint64]
+    )
+    if (-not $isIntegerType) {
+        return $false
+    }
+    try {
+        return ([int64]$Value -eq $Expected)
+    } catch {
+        return $false
+    }
+}
+
 function Test-AuthorityTriplet {
     param(
         [Parameter(Mandatory = $true)][string]$CandidateRoot,
@@ -75,13 +103,16 @@ function Test-AuthorityTriplet {
         "build_only", "runtime_dependency", "production_activation"
     ))) { return $false }
 
-    if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or [int]$inventory.version -ne 1) {
+    if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or
+        -not (Test-StrictInteger -Value $inventory.version -Expected 1)) {
         return $false
     }
-    if ([string]$plan.format -ne "bodyrig-photoreal-dataset-plan" -or [int]$plan.version -ne 1) {
+    if ([string]$plan.format -ne "bodyrig-photoreal-dataset-plan" -or
+        -not (Test-StrictInteger -Value $plan.version -Expected 1)) {
         return $false
     }
-    if ([string]$receipt.format -ne "bodyrig-photoreal-source-receipt" -or [int]$receipt.version -ne 1) {
+    if ([string]$receipt.format -ne "bodyrig-photoreal-source-receipt" -or
+        -not (Test-StrictInteger -Value $receipt.version -Expected 1)) {
         return $false
     }
 
