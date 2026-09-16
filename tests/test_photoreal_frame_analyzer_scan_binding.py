@@ -150,6 +150,29 @@ def test_scan_binding_requires_every_planned_sample_to_return_an_observation() -
         _validate(_result(), scan)
 
 
+def test_scan_binding_rejects_boolean_scan_plan_version() -> None:
+    scan = _scan_plan()
+    scan["version"] = True
+    with pytest.raises(PhotorealFrameAnalyzerError, match="scan plan format/version mismatch"):
+        _validate(_result(), scan)
+
+
+@pytest.mark.parametrize("timestamp", ["1.25", 10**400])
+def test_scan_binding_rejects_non_schema_scan_plan_timestamp(timestamp: object) -> None:
+    scan = _scan_plan()
+    scan["sources"][0]["samples"][0]["timestamp_seconds"] = timestamp
+    with pytest.raises(PhotorealFrameAnalyzerError, match="video frame sample timestamp"):
+        _validate(_result(), scan)
+
+
+@pytest.mark.parametrize("timestamp", ["1.25", 10**400])
+def test_scan_binding_rejects_non_schema_result_timestamp(timestamp: object) -> None:
+    result = copy.deepcopy(_result())
+    result["observations"][0]["timestamp_seconds"] = timestamp
+    with pytest.raises(PhotorealFrameAnalyzerError, match="video frame sample timestamp"):
+        _validate(result)
+
+
 def test_scan_binding_allows_multiple_viewport_candidates_for_one_planned_sample() -> None:
     result = copy.deepcopy(_result())
     second = copy.deepcopy(result["observations"][0])
