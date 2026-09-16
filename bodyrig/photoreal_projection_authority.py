@@ -68,9 +68,7 @@ def _probe_v2_equirectangular(path: str | Path) -> dict[str, Any]:
     try:
         probe = probe_isobmff_file(path)
     except (OSError, PhotorealSpatialMetadataProbeError) as exc:
-        raise PhotorealProjectionAuthorityError(
-            "ambiguous projection source has no readable authoritative Spherical V2 metadata"
-        ) from exc
+        raise PhotorealProjectionAuthorityError("ambiguous projection source has no readable authoritative Spherical V2 metadata") from exc
     if probe.get("probe_status") != "parsed-isobmff":
         raise PhotorealProjectionAuthorityError("ambiguous projection source is not a parsed ISO BMFF container")
     if probe.get("sv3d_present") is not True or probe.get("proj_present") is not True:
@@ -146,7 +144,7 @@ def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[st
                 raise PhotorealProjectionAuthorityError("dataset plan/source receipt source kind mismatch")
             if kind != "video" or raw.get("projection") != AMBIGUOUS_PROJECTION:
                 continue
-            _ = verified["sha256"]
+            _sha(verified["sha256"], label="receipt source SHA-256")
             probe = _probe_v2_equirectangular(verified["resolved_path"])
             raw["projection"] = RESOLVED_PROJECTION
             raw["stereo_layout"] = _resolve_stereo_layout(raw.get("stereo_layout"), probe)
