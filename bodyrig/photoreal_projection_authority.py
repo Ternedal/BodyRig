@@ -15,6 +15,12 @@ RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
 RECEIPT_VERSION = 1
 AMBIGUOUS_PROJECTION = "projection-ambiguous-2to1"
 RESOLVED_PROJECTION = "equirectangular"
+KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under"}
+V2_STEREO_TO_LAYOUT = {
+    "mono": "mono",
+    "left-right": "side-by-side",
+    "top-bottom": "over-under",
+}
 
 
 class PhotorealProjectionAuthorityError(ValueError):
@@ -66,7 +72,7 @@ def _receipt_sources(receipt: Mapping[str, Any]) -> dict[str, dict[str, str]]:
     return result
 
 
-def _require_v2_equirectangular(path: str | Path) -> None:
+def _probe_v2_equirectangular(path: str | Path) -> dict[str, Any]:
     try:
         probe = probe_isobmff_file(path)
     except (OSError, PhotorealSpatialMetadataProbeError) as exc:
@@ -102,6 +108,32 @@ def _require_v2_equirectangular(path: str | Path) -> None:
         raise PhotorealProjectionAuthorityError(
             "ambiguous projection source has invalid Spherical V2 equirectangular bounds"
         )
+    return dict(probe)
+
+
+def _resolve_stereo_layout(planned_layout: Any, probe: Mapping[str, Any]) -> str:
+    layout = _text(planned_layout, label="dataset stereo layout", maximum=128)
+    observed_layout: str | None = None
+    if probe.get("st3d_present") is True:
+        observed_mode = str(probe.get("stereo_mode") or "").strip()
+        observed_layout = V2_STEREO_TO_LAYOUT.get(observed_mode)
+        if observed_layout is None:
+            raise PhotorealProjectionAuthorityError(
+                f"ambiguous projection source uses unsupported Spherical V2 stereo mode: {observed_mode or 'unknown'}"
+            )
+
+    if layout in KNOWN_STEREO_LAYOUTS:
+        if observed_layout is not None and observed_layout != layout:
+            raise PhotorealProjectionAuthorityError(
+                "dataset stereo layout conflicts with authoritative Spherical V2 st3d metadata"
+            )
+        return layout
+
+    if observed_layout is None:
+        raise PhotorealProjectionAuthorityError(
+            "ambiguous projection source has no authoritative Spherical V2 st3d stereo layout"
+        )
+    return observed_layout
 
 
 def resolve_v2_projection_ambiguity(
@@ -147,11 +179,12 @@ def resolve_v2_projection_ambiguity(
                 continue
 
             # The source receipt already binds this exact local source path to SHA-256.
-            # Re-read only its ISO BMFF metadata at point of use.  Do not infer from
+            # Re-read only its ISO BMFF metadata at point of use. Do not infer from
             # aspect ratio, filename, Stash tags, VR180 labels or legacy V1 XML.
             _ = verified["sha256"]
-            _require_v2_equirectangular(verified["resolved_path"])
+            probe = _probe_v2_equirectangular(verified["resolved_path"])
             raw["projection"] = RESOLVED_PROJECTION
+            raw["stereo_layout"] = _resolve_stereo_layout(raw.get("stereo_layout"), probe)
             resolved_count += 1
 
     if seen != set(receipt_sources):
