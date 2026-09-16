@@ -20,6 +20,16 @@ def test_scout_authority_replay_is_clean_checkout_and_read_only() -> None:
     assert 'diagnostic-scan-plan.json' in SCRIPT
 
 
+def test_scout_authority_replay_uses_safe_path_prefix_and_native_exit_capture() -> None:
+    assert '[IO.Path]::DirectorySeparatorChar' in SCRIPT
+    assert '[IO.Path]::AltDirectorySeparatorChar' in SCRIPT
+    assert "[char[]]@('\\\\','/')" not in SCRIPT
+    assert 'Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue' in SCRIPT
+    assert '$PSNativeCommandUseErrorActionPreference = $false' in SCRIPT
+    assert '$scanExit = $LASTEXITCODE' in SCRIPT
+    assert '$PSNativeCommandUseErrorActionPreference = $priorNativeErrorPreference' in SCRIPT
+
+
 def test_scout_authority_replay_uses_current_metadata_and_scan_plan_code() -> None:
     assert 'bodyrig.photoreal_spatial_metadata_probe_cli' in SCRIPT
     assert 'bodyrig.photoreal_scan_plan_cli' in SCRIPT
