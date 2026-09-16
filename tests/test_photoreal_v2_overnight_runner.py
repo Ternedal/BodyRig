@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -67,14 +68,17 @@ def test_overnight_powershell_parses_when_pwsh_is_available() -> None:
 
     command = (
         "$tokens=$null; $errors=$null; "
-        "$null=[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors); "
+        "$null=[System.Management.Automation.Language.Parser]::ParseFile($env:BODYRIG_PARSE_SCRIPT,[ref]$tokens,[ref]$errors); "
         "if ($errors.Count -ne 0) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }; exit 0"
     )
+    env = os.environ.copy()
+    env["BODYRIG_PARSE_SCRIPT"] = str(SCRIPT)
     completed = subprocess.run(
-        [pwsh, "-NoLogo", "-NoProfile", "-Command", command, str(SCRIPT)],
+        [pwsh, "-NoLogo", "-NoProfile", "-Command", command],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=env,
     )
     assert completed.returncode == 0, completed.stderr
