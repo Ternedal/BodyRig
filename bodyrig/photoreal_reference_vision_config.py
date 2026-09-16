@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any, Mapping
 
 from .photoreal_model_set import PhotorealModelSetError, build_model_set
+from .photoreal_reference_vision_revision import (
+    PhotorealReferenceVisionRevisionError,
+    compute_reference_vision_revision,
+)
 
 ADAPTER_NAME = "bodyrig-reference-vision-v1"
 IDENTITY_CONFIG_FORMAT = "bodyrig-photoreal-identity-extractor-config"
@@ -21,14 +24,6 @@ VERSION = 1
 
 class PhotorealReferenceVisionConfigError(ValueError):
     pass
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
@@ -125,10 +120,10 @@ def build_reference_configs(
     )
     try:
         model_set = build_model_set(model_root_path)
-    except PhotorealModelSetError as exc:
+        revision = compute_reference_vision_revision(adapter)
+    except (PhotorealModelSetError, PhotorealReferenceVisionRevisionError) as exc:
         raise PhotorealReferenceVisionConfigError(str(exc)) from exc
 
-    revision = _sha256(adapter)
     command = [
         str(python),
         "-m",
