@@ -61,6 +61,27 @@ def test_overnight_forwards_reference_environment_repair() -> None:
     assert "if ($RepairReferenceEnvironment) { $args.RepairReferenceEnvironment = $true }" in source
 
 
+def test_overnight_restores_saved_stash_auth_without_persisting_secret() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "function Restore-SavedStashCredential" in source
+    assert 'Join-Path $env:LOCALAPPDATA "BodyRig\\config\\stash.json"' in source
+    assert 'config.format -ne "bodyrig-local-stash-config"' in source
+    assert "ConvertTo-SecureString ([string]$config.api_key_dpapi)" in source
+    assert "SecureStringToBSTR" in source
+    assert "PtrToStringBSTR" in source
+    assert '[Environment]::SetEnvironmentVariable($EnvironmentName, $apiKey, "Process")' in source
+    assert '[Environment]::SetEnvironmentVariable($ApiKeyEnv, $originalApiKey, "Process")' in source
+    assert "api_key_dpapi" not in source[source.index("$summary = [ordered]@{"):source.index("$summary | ConvertTo-Json")]
+
+
+def test_overnight_surfaces_failure_message_to_operator() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert '$summary.error = $_.Exception.Message' in source
+    assert 'Write-Host "Error: $($summary.error)"' in source
+
+
 def test_overnight_powershell_parses_when_pwsh_is_available() -> None:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
