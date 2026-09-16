@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
+import bodyrig.photoreal_source_verify as source_verify
 from bodyrig.photoreal_source_verify import (
     PhotorealSourceVerifyError,
     translate_stash_path,
@@ -108,6 +110,48 @@ def test_verify_inventory_binds_every_source_to_sha256_and_path_specific_key() -
         "scene:s1:E:/VR/source.mp4",
         "image:i1:F:/VR/source.jpg",
     }
+
+
+def test_verify_inventory_progress_is_path_private_and_ordered() -> None:
+    inventory = _inventory()
+    mapping = {"E:": r"\\stash\VR_E", "F:": r"\\stash\VR_F"}
+    sizes = {
+        r"\\stash\VR_E\VR\source.mp4": 100,
+        r"\\stash\VR_F\VR\source.jpg": 50,
+    }
+    events: list[dict[str, object]] = []
+
+    verify_inventory_sources(
+        inventory,
+        path_mapping=mapping,
+        exists_file=lambda path: str(path) in sizes,
+        file_size=lambda path: sizes[str(path)],
+        hash_file=lambda path: ("a" if str(path).lower().endswith(".mp4") else "b") * 64,
+        progress=lambda event: events.append(dict(event)),
+    )
+
+    assert [(event["phase"], event["source_index"]) for event in events] == [
+        ("source-start", 1),
+        ("source-complete", 1),
+        ("source-start", 2),
+        ("source-complete", 2),
+    ]
+    assert all(event["source_count"] == 2 for event in events)
+    assert all("source_key" not in event and "catalog_path" not in event and "resolved_path" not in event for event in events)
+    assert events[-1]["verified_bytes_total"] == 150
+
+
+def test_sha256_reports_bounded_byte_heartbeat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = b"0123456789"
+    source = tmp_path / "source.bin"
+    source.write_bytes(raw)
+    monkeypatch.setattr(source_verify, "HASH_PROGRESS_INTERVAL_BYTES", 4)
+    progress: list[int] = []
+
+    digest = source_verify._sha256(source, on_progress=progress.append)
+
+    assert digest == hashlib.sha256(raw).hexdigest()
+    assert progress == [len(raw)]
 
 
 def test_verify_inventory_accepts_autodiscovered_deep_prefix_mapping() -> None:
