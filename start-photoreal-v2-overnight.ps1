@@ -79,6 +79,47 @@ function Read-AuthorizedP0Status {
     return $status
 }
 
+function Restore-SavedStashCredential {
+    param(
+        [Parameter(Mandatory = $true)][string]$EnvironmentName,
+        [string]$RequestedUrl = ""
+    )
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($EnvironmentName, "Process"))) {
+        return $null
+    }
+    if ($EnvironmentName -ne "STASH_API_KEY") {
+        return $null
+    }
+    $configPath = Join-Path $env:LOCALAPPDATA "BodyRig\config\stash.json"
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+        return $null
+    }
+    $config = Read-Json -Path $configPath -Label "Saved Stash config"
+    if ([string]$config.format -ne "bodyrig-local-stash-config" -or -not (Test-NumericV1 -Value $config.version)) {
+        throw "Saved Stash config has an unexpected format/version: $configPath"
+    }
+    $savedUrl = ([string]$config.url).Trim()
+    if ([string]::IsNullOrWhiteSpace($savedUrl) -or [string]::IsNullOrWhiteSpace([string]$config.api_key_dpapi)) {
+        throw "Saved Stash config lacks URL or protected API key: $configPath"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RequestedUrl) -and -not [string]::Equals($RequestedUrl.Trim(), $savedUrl, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Saved Stash config URL '$savedUrl' does not match requested Stash URL '$RequestedUrl'."
+    }
+
+    $secure = ConvertTo-SecureString ([string]$config.api_key_dpapi)
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        if ([string]::IsNullOrWhiteSpace($apiKey)) {
+            throw "Saved Stash API key could not be decrypted for this Windows user."
+        }
+        [Environment]::SetEnvironmentVariable($EnvironmentName, $apiKey, "Process")
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+    return $savedUrl
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $entrypoint = Join-Path $repoRoot "start-photoreal-v2-reference.ps1"
 if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) { throw "Photoreal V2 entrypoint not found: $entrypoint" }
@@ -118,6 +159,8 @@ $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Enc
 
 $transcriptStarted = $false
 $exitCode = 1
+$originalApiKey = [Environment]::GetEnvironmentVariable($ApiKeyEnv, "Process")
+$restoredSavedCredential = $false
 try {
     Start-Transcript -LiteralPath $transcriptPath -Force | Out-Null
     $transcriptStarted = $true
@@ -128,6 +171,13 @@ try {
     Write-Host "Log:       $transcriptPath"
     Write-Host "Summary:   $summaryPath"
     Write-Host ""
+
+    $savedStashUrl = Restore-SavedStashCredential -EnvironmentName $ApiKeyEnv -RequestedUrl $StashUrl
+    if (-not [string]::IsNullOrWhiteSpace([string]$savedStashUrl)) {
+        $restoredSavedCredential = $true
+        if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$savedStashUrl }
+        Write-Host "Stash auth: restored from saved DPAPI config"
+    }
 
     $args = @{
         PerformerId = $PerformerId
@@ -168,6 +218,9 @@ catch {
     $summary.error = $_.Exception.Message
 }
 finally {
+    if ($restoredSavedCredential) {
+        [Environment]::SetEnvironmentVariable($ApiKeyEnv, $originalApiKey, "Process")
+    }
     $summary.finished_at = (Get-Date).ToUniversalTime().ToString("o")
     $summary.exit_code = $exitCode
     $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
@@ -176,6 +229,9 @@ finally {
 
 Write-Host ""
 Write-Host "Overnight run status: $($summary.status)"
+if ($summary.status -eq "failed" -and -not [string]::IsNullOrWhiteSpace([string]$summary.error)) {
+    Write-Host "Error: $($summary.error)"
+}
 Write-Host "Summary: $summaryPath"
 Write-Host "P0 status: $($summary.p0_status)"
 exit $exitCode
