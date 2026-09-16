@@ -215,10 +215,10 @@ def test_result_rejects_duplicate_candidate_id_in_same_sample() -> None:
         _validate_result(result)
 
 
-def test_external_runner_enforces_real_process_contract(tmp_path: Path) -> None:
-    adapter_script = tmp_path / "adapter.py"
+def _write_adapter(tmp_path: Path, *, projection: str = "flat", timestamp: float = 1.0) -> Path:
+    adapter_script = tmp_path / f"adapter-{projection}-{timestamp}.py"
     adapter_script.write_text(
-        """
+        f"""
 import argparse
 import json
 from pathlib import Path
@@ -231,7 +231,7 @@ p.add_argument('--bodyrig-model-set-sha256', required=True)
 a = p.parse_args()
 request = json.loads(Path(a.bodyrig_request).read_text(encoding='utf-8'))
 source = request['sources'][0]
-result = {
+result = {{
     'format': 'bodyrig-photoreal-frame-observations',
     'version': 1,
     'performer_id': request['performer_id'],
@@ -239,34 +239,54 @@ result = {
     'analyzer_revision': a.bodyrig_revision,
     'analyzer_model_set_sha256': a.bodyrig_model_set_sha256,
     'identity_embedding_dimension': 32,
-    'observations': [{
+    'observations': [{{
         'source_key': source['source_key'], 'source_sha256': source['source_sha256'], 'kind': source['kind'],
-        'timestamp_seconds': 1.0, 'eye': 'mono', 'projection': 'flat', 'frame_sha256': 'b' * 64,
+        'timestamp_seconds': {timestamp!r}, 'eye': 'mono', 'projection': {projection!r}, 'frame_sha256': 'b' * 64,
         'perceptual_hash': '0123456789abcdef', 'candidate_id': 'person-0', 'person_detected': True,
         'width': 1920, 'height': 1080, 'view_bin': 'front', 'face_visibility': 0.9,
         'full_body_visibility': 0.9, 'person_fraction': 0.8, 'sharpness': 0.8, 'motion': 0.1,
         'occlusion': 0.1, 'identity_measurement_status': 'available',
         'identity_embedding': [1.0] + [0.0] * 31,
-    }],
+    }}],
     'build_only': True, 'production_activation': False,
-}
+}}
 out = Path(a.bodyrig_output)
 (out / 'observations.json').write_text(json.dumps(result), encoding='utf-8')
 """.strip() + "\n",
         encoding="utf-8",
     )
-    config = {
+    return adapter_script
+
+
+def _config(adapter_script: Path) -> dict[str, object]:
+    return {
         "adapter": "test-analyzer",
         "revision": "r1",
         "model_set_sha256": MODEL_SET_SHA,
         "command": [sys.executable, str(adapter_script)],
         "timeout_seconds": 30,
     }
-    result = run_external_frame_analyzer(config, _scan_plan(), workspace=tmp_path / "workspace")
+
+
+def test_external_runner_enforces_real_process_contract(tmp_path: Path) -> None:
+    adapter_script = _write_adapter(tmp_path)
+    result = run_external_frame_analyzer(_config(adapter_script), _scan_plan(), workspace=tmp_path / "workspace")
     assert result["observations"][0]["candidate_id"] == "person-0"
     assert (tmp_path / "workspace" / "request.json").is_file()
     assert (tmp_path / "workspace" / "output" / "observations.json").is_file()
     assert (tmp_path / "workspace" / "adapter.log").is_file()
+
+
+def test_external_runner_rejects_process_output_not_bound_to_scan_plan(tmp_path: Path) -> None:
+    adapter_script = _write_adapter(tmp_path, projection="equi")
+    with pytest.raises(PhotorealFrameAnalyzerError, match="projection differs from scan plan"):
+        run_external_frame_analyzer(_config(adapter_script), _scan_plan(), workspace=tmp_path / "workspace")
+
+
+def test_external_runner_rejects_unplanned_process_sample(tmp_path: Path) -> None:
+    adapter_script = _write_adapter(tmp_path, timestamp=9.0)
+    with pytest.raises(PhotorealFrameAnalyzerError, match="unplanned source sample"):
+        run_external_frame_analyzer(_config(adapter_script), _scan_plan(), workspace=tmp_path / "workspace")
 
 
 def test_external_runner_rejects_extra_output_file(tmp_path: Path) -> None:
