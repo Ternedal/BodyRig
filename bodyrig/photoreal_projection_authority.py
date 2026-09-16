@@ -120,7 +120,6 @@ def resolve_v2_projection_ambiguity(plan: Mapping[str, Any], receipt: Mapping[st
         raise PhotorealProjectionAuthorityError("photoreal dataset plan authority boundary is invalid")
     if plan.get("production_activation") is not False:
         raise PhotorealProjectionAuthorityError("photoreal dataset plan crossed production authority")
-
     receipt_sources = _receipt_sources(receipt)
     result = copy.deepcopy(dict(plan))
     seen: set[str] = set()
