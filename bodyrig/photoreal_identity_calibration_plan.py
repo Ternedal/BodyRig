@@ -78,14 +78,19 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
         "side-by-side",
         "over-under",
     }:
-        return "spatial-deprojection-required"
+        raise PhotorealIdentityCalibrationPlanError(
+            "spatial negative calibration requires projection-authoritative deprojection before identity extraction"
+        )
     raise PhotorealIdentityCalibrationPlanError(
         f"negative calibration projection/layout is not decode-authoritative: {projection}/{stereo_layout}"
     )
 
 
 def _video_samples(duration: float, stereo_layout: str) -> list[dict[str, Any]]:
-    timestamps = [round(duration * (index + 0.5) / VIDEO_TIMESTAMPS_PER_SOURCE, 6) for index in range(VIDEO_TIMESTAMPS_PER_SOURCE)]
+    timestamps = [
+        round(duration * (index + 0.5) / VIDEO_TIMESTAMPS_PER_SOURCE, 6)
+        for index in range(VIDEO_TIMESTAMPS_PER_SOURCE)
+    ]
     return [
         {"timestamp_seconds": timestamp, "eye": eye}
         for timestamp in timestamps
