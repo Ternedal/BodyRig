@@ -99,7 +99,10 @@ def test_measurement_value_contract_accepts_reference_shape() -> None:
     assert validated["observations"][0]["view_bin"] == "front"
 
 
-@pytest.mark.parametrize(("field", "value"), [("width", 0), ("width", True), ("height", 0), ("height", False)])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("width", 0), ("width", True), ("height", 0), ("height", False)],
+)
 def test_measurement_value_contract_rejects_invalid_dimensions(field: str, value: object) -> None:
     result = copy.deepcopy(_result())
     result["observations"][0][field] = value
@@ -107,7 +110,10 @@ def test_measurement_value_contract_rejects_invalid_dimensions(field: str, value
         _validate(result)
 
 
-@pytest.mark.parametrize("value", ["0123456789abcde", "0123456789ABCDEG", 1234567890123456])
+@pytest.mark.parametrize(
+    "value",
+    ["0123456789abcde", "0123456789ABCDEG", 1234567890123456],
+)
 def test_measurement_value_contract_rejects_noncanonical_perceptual_hash(value: object) -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["perceptual_hash"] = value
@@ -131,6 +137,7 @@ def test_measurement_value_contract_rejects_unknown_view_bin() -> None:
         ("sharpness", float("inf")),
         ("motion", True),
         ("occlusion", "0.1"),
+        ("occlusion", 10**400),
     ],
 )
 def test_measurement_value_contract_rejects_invalid_unit_metrics(field: str, value: object) -> None:
@@ -140,9 +147,9 @@ def test_measurement_value_contract_rejects_invalid_unit_metrics(field: str, val
         _validate(result)
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "0.0"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "0.0", 10**400])
 def test_measurement_value_contract_rejects_invalid_embedding_components(value: object) -> None:
     result = copy.deepcopy(_result())
     result["observations"][0]["identity_embedding"][1] = value
-    with pytest.raises(PhotorealFrameAnalyzerError, match="embedding contains an invalid value"):
+    with pytest.raises(PhotorealFrameAnalyzerError, match="identity embedding component"):
         _validate(result)
