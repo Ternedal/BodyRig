@@ -44,12 +44,27 @@ def _self_revision() -> str:
 base._self_revision = _self_revision
 
 
+def _read_frame_sample(runtime: Any, source: Mapping[str, Any], sample: Mapping[str, Any]) -> tuple[Any, bool]:
+    if source.get("stereo_layout") != "mesh-custom":
+        return base._read_sample(runtime, source, sample)
+    if source.get("projection") != "mshp" or sample.get("eye") not in {"left", "right"}:
+        raise ReferenceVisionError("mesh-custom sample lacks authoritative mshp left/right eye semantics")
+    decode_source = dict(source)
+    decode_source["stereo_layout"] = "mono"
+    decode_sample = dict(sample)
+    decode_sample["eye"] = "mono"
+    image, spatial = base._read_sample(runtime, decode_source, decode_sample)
+    if not spatial:
+        raise ReferenceVisionError("mesh-custom sample did not remain spatial-deprojection-bound")
+    return image, spatial
+
+
 def _frame_result(runtime: Any, request: Mapping[str, Any], args: Any) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     mesh_cache: dict[Any, Any] = {}
     mesh_cache_source: str | None = None
     for source, sample in base._iter_samples(request["sources"], "samples"):
-        image, spatial = base._read_sample(runtime, source, sample)
+        image, spatial = _read_frame_sample(runtime, source, sample)
         base_row = {
             "source_key": source["source_key"],
             "source_sha256": source["source_sha256"],
