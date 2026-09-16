@@ -22,6 +22,28 @@ function Read-JsonObjectOrNull {
     return $value
 }
 
+function Test-HasFields {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string[]]$Fields
+    )
+    $names = @($Value.PSObject.Properties.Name)
+    foreach ($field in $Fields) {
+        if ($names -notcontains $field) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-StrictBoolean {
+    param(
+        [AllowNull()]$Value,
+        [Parameter(Mandatory = $true)][bool]$Expected
+    )
+    return ($Value -is [bool]) -and ([bool]$Value -eq $Expected)
+}
+
 function Test-AuthorityTriplet {
     param(
         [Parameter(Mandatory = $true)][string]$CandidateRoot,
@@ -42,6 +64,17 @@ function Test-AuthorityTriplet {
         return $false
     }
 
+    if (-not (Test-HasFields -Value $inventory -Fields @(
+        "format", "version", "build_only", "runtime_dependency", "production_activation"
+    ))) { return $false }
+    if (-not (Test-HasFields -Value $plan -Fields @(
+        "format", "version", "build_only", "runtime_dependency", "production_activation", "teacher_training_authorized"
+    ))) { return $false }
+    if (-not (Test-HasFields -Value $receipt -Fields @(
+        "format", "version", "all_sources_readable", "all_sources_sha256_bound", "source_keys_path_specific",
+        "build_only", "runtime_dependency", "production_activation"
+    ))) { return $false }
+
     if ([string]$inventory.format -ne "bodyrig-photoreal-source-inventory" -or [int]$inventory.version -ne 1) {
         return $false
     }
@@ -52,16 +85,23 @@ function Test-AuthorityTriplet {
         return $false
     }
 
-    if ($inventory.build_only -ne $true -or $inventory.runtime_dependency -ne $false -or $inventory.production_activation -ne $false) {
+    if (-not (Test-StrictBoolean -Value $inventory.build_only -Expected $true) -or
+        -not (Test-StrictBoolean -Value $inventory.runtime_dependency -Expected $false) -or
+        -not (Test-StrictBoolean -Value $inventory.production_activation -Expected $false)) {
         return $false
     }
-    if ($plan.build_only -ne $true -or $plan.runtime_dependency -ne $false -or $plan.production_activation -ne $false -or
-        $plan.teacher_training_authorized -ne $false) {
+    if (-not (Test-StrictBoolean -Value $plan.build_only -Expected $true) -or
+        -not (Test-StrictBoolean -Value $plan.runtime_dependency -Expected $false) -or
+        -not (Test-StrictBoolean -Value $plan.production_activation -Expected $false) -or
+        -not (Test-StrictBoolean -Value $plan.teacher_training_authorized -Expected $false)) {
         return $false
     }
-    if ($receipt.all_sources_readable -ne $true -or $receipt.all_sources_sha256_bound -ne $true -or
-        $receipt.source_keys_path_specific -ne $true -or $receipt.build_only -ne $true -or
-        $receipt.runtime_dependency -ne $false -or $receipt.production_activation -ne $false) {
+    if (-not (Test-StrictBoolean -Value $receipt.all_sources_readable -Expected $true) -or
+        -not (Test-StrictBoolean -Value $receipt.all_sources_sha256_bound -Expected $true) -or
+        -not (Test-StrictBoolean -Value $receipt.source_keys_path_specific -Expected $true) -or
+        -not (Test-StrictBoolean -Value $receipt.build_only -Expected $true) -or
+        -not (Test-StrictBoolean -Value $receipt.runtime_dependency -Expected $false) -or
+        -not (Test-StrictBoolean -Value $receipt.production_activation -Expected $false)) {
         return $false
     }
     return $true
