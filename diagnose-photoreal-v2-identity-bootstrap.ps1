@@ -27,6 +27,7 @@ function Need-Directory {
 
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$WindowsPath)
+    if ($WindowsPath.StartsWith('/')) { return $WindowsPath }
     $full = [IO.Path]::GetFullPath($WindowsPath)
     $lines = @(& wsl.exe -d $Distribution -- wslpath -u $full 2>&1)
     if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1) {
@@ -55,8 +56,24 @@ if (Test-Path -LiteralPath $output) {
     throw "Identity diagnostic output already exists: $output"
 }
 
+# Reproduce the existing BodyRig WSL bridge semantics for diagnostics only:
+# translate exactly nested source.resolved_path values, preserving all source
+# identity, hashes, samples and authority fields from the original request.
+$requestObject = Get-Content -LiteralPath $request -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+if ($null -eq $requestObject.sources -or @($requestObject.sources).Count -eq 0) {
+    throw "Stage-7 identity request contains no sources."
+}
+foreach ($source in @($requestObject.sources)) {
+    $raw = ([string]$source.resolved_path).Trim()
+    if ([string]::IsNullOrWhiteSpace($raw)) { throw "Stage-7 source has no resolved_path." }
+    $source.resolved_path = Convert-ToWslPath -WindowsPath $raw
+}
+
+$tempRequest = Join-Path ([IO.Path]::GetTempPath()) ("bodyrig-identity-diagnostic-request-{0}.json" -f [Guid]::NewGuid().ToString("N"))
+$requestObject | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $tempRequest -Encoding UTF8
+
 $wslTool = Convert-ToWslPath -WindowsPath $tool
-$wslRequest = Convert-ToWslPath -WindowsPath $request
+$wslRequest = Convert-ToWslPath -WindowsPath $tempRequest
 $wslModelRoot = Convert-ToWslPath -WindowsPath $ModelRoot
 $wslOutput = Convert-ToWslPath -WindowsPath $output
 
@@ -71,14 +88,18 @@ Write-Host "Authority:  DIAGNOSTIC ONLY / FALSE"
 Write-Host "============================================================"
 Write-Host ""
 
-& wsl.exe -d $Distribution -- $LinuxPython $wslTool `
-    --request $wslRequest `
-    --model-root $wslModelRoot `
-    --device $Device `
-    --out $wslOutput
-$exitCode = $LASTEXITCODE
-if ($exitCode -ne 0) {
-    throw "Stage-7 identity diagnostic failed with exit code $exitCode."
+try {
+    & wsl.exe -d $Distribution -- $LinuxPython $wslTool `
+        --request $wslRequest `
+        --model-root $wslModelRoot `
+        --device $Device `
+        --out $wslOutput
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Stage-7 identity diagnostic failed with exit code $exitCode."
+    }
+} finally {
+    Remove-Item -LiteralPath $tempRequest -Force -ErrorAction SilentlyContinue
 }
 
 $result = Get-Content -LiteralPath $output -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
