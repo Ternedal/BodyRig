@@ -10,9 +10,16 @@ from bodyrig.photoreal_equirectangular_deprojection import (
 )
 
 
-def _authority(*, left: float = 0.0, right: float = 0.0, top: float = 0.0, bottom: float = 0.0):
+def _authority(
+    *,
+    left: float = 0.0,
+    right: float = 0.0,
+    top: float = 0.0,
+    bottom: float = 0.0,
+    authority_format: str = "bodyrig-spherical-v2-projection-authority",
+):
     return {
-        "format": "bodyrig-spherical-v2-projection-authority",
+        "format": authority_format,
         "version": 1,
         "projection_type": "equi",
         "pose_degrees": {"yaw": 17.0, "pitch": -4.0, "roll": 2.0},
@@ -29,6 +36,30 @@ def _authority(*, left: float = 0.0, right: float = 0.0, top: float = 0.0, botto
         "mesh_projection_payload_bytes": None,
         "deprojection_authority": False,
     }
+
+
+@pytest.mark.parametrize(
+    "authority_format",
+    [
+        "bodyrig-spherical-v2-projection-authority",
+        "bodyrig-explicit-projection-authority",
+    ],
+)
+def test_accepts_supported_projection_authority_provenance(authority_format: str) -> None:
+    views = build_equirectangular_viewports(_authority(authority_format=authority_format))
+    assert views
+
+
+def test_rejects_unknown_projection_authority_provenance() -> None:
+    with pytest.raises(PhotorealEquirectangularDeprojectionError, match="format/version mismatch"):
+        build_equirectangular_viewports(_authority(authority_format="bodyrig-unknown-projection-authority"))
+
+
+def test_rejects_boolean_authority_version() -> None:
+    authority = _authority()
+    authority["version"] = True
+    with pytest.raises(PhotorealEquirectangularDeprojectionError, match="format/version mismatch"):
+        build_equirectangular_viewports(authority)
 
 
 def test_full_sphere_uses_bounded_eight_viewport_grid() -> None:
