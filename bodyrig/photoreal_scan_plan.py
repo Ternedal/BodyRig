@@ -19,6 +19,13 @@ MAX_VIDEO_SCOUT_SAMPLES = 120
 MAX_TOTAL_PLANNED_OBSERVATIONS = 120_000
 KNOWN_STEREO_LAYOUTS = {"mono", "side-by-side", "over-under", "mesh-custom"}
 KNOWN_PROJECTIONS = {"flat", "vr180", "vr360", "equirectangular", "equi", "mshp", "cbmp"}
+SPHERICAL_V2_PROJECTION_AUTHORITY_FORMAT = "bodyrig-spherical-v2-projection-authority"
+EXPLICIT_PROJECTION_AUTHORITY_FORMAT = "bodyrig-explicit-projection-authority"
+PROJECTION_AUTHORITY_FORMATS = {
+    SPHERICAL_V2_PROJECTION_AUTHORITY_FORMAT,
+    EXPLICIT_PROJECTION_AUTHORITY_FORMAT,
+}
+PROJECTION_AUTHORITY_VERSION = 1
 IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
 
 
@@ -230,12 +237,26 @@ def build_scan_plan(plan: Mapping[str, Any], receipt: Mapping[str, Any]) -> dict
                 raw_authority = planned.get("projection_authority")
                 if not isinstance(raw_authority, Mapping):
                     raise PhotorealScanPlanError(
-                        f"exact Spherical V2 projection lacks projection authority: {source_key}"
+                        f"exact spatial projection lacks projection authority: {source_key}"
                     )
                 projection_authority = copy.deepcopy(dict(raw_authority))
+                authority_format = projection_authority.get("format")
+                authority_version = projection_authority.get("version")
+                if (
+                    authority_format not in PROJECTION_AUTHORITY_FORMATS
+                    or isinstance(authority_version, bool)
+                    or authority_version != PROJECTION_AUTHORITY_VERSION
+                ):
+                    raise PhotorealScanPlanError(
+                        f"projection authority format/version mismatch: {source_key}"
+                    )
                 if projection_authority.get("projection_type") != projection:
                     raise PhotorealScanPlanError(
-                        f"Spherical V2 projection authority type mismatch: {source_key}"
+                        f"projection authority type mismatch: {source_key}"
+                    )
+                if authority_format == EXPLICIT_PROJECTION_AUTHORITY_FORMAT and projection != "equi":
+                    raise PhotorealScanPlanError(
+                        f"explicit projection authority can authorize only equi geometry: {source_key}"
                     )
                 if projection_authority.get("deprojection_authority") is not False:
                     raise PhotorealScanPlanError(
