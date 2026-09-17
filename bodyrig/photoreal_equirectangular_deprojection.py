@@ -79,6 +79,32 @@ def _centers(low: float, high: float, fov: float) -> list[float]:
     return [round(first + index * stride, 6) for index in range(count)]
 
 
+def _projection_pose_basis(
+    pose: Mapping[str, float],
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    yaw = math.radians(float(pose["yaw"]))
+    pitch = math.radians(float(pose["pitch"]))
+    roll = math.radians(float(pose["roll"]))
+
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cr, sr = math.cos(roll), math.sin(roll)
+
+    # Spherical Video V2 pose: yaw around up, then pitch around the post-yaw
+    # right axis, then clockwise roll around the post-yaw/pitch forward axis.
+    right_yaw = (cy, 0.0, -sy)
+    up_yaw = (0.0, 1.0, 0.0)
+    forward_yaw = (-sy, 0.0, -cy)
+
+    right_pitch = right_yaw
+    up_pitch = tuple(cp * up_yaw[index] - sp * forward_yaw[index] for index in range(3))
+    forward_pitch = tuple(sp * up_yaw[index] + cp * forward_yaw[index] for index in range(3))
+
+    right = tuple(cr * right_pitch[index] - sr * up_pitch[index] for index in range(3))
+    up = tuple(sr * right_pitch[index] + cr * up_pitch[index] for index in range(3))
+    return right, up, forward_pitch
+
+
 def build_equirectangular_viewports(projection_authority: Mapping[str, Any]) -> list[dict[str, float | str]]:
     _pose, bounds = _authority(projection_authority)
     yaw_low = -180.0 + 360.0 * bounds["left"]
@@ -121,7 +147,7 @@ def build_equirectangular_remap(
     viewport: Mapping[str, Any],
     output_size: int = OUTPUT_SIZE,
 ) -> tuple[Any, Any]:
-    _pose, bounds = _authority(projection_authority)
+    pose, bounds = _authority(projection_authority)
     if isinstance(image_width, bool) or isinstance(image_height, bool) or image_width < 2 or image_height < 2:
         raise PhotorealEquirectangularDeprojectionError("equirectangular image dimensions are invalid")
     if isinstance(output_size, bool) or not 64 <= output_size <= 2048:
@@ -152,8 +178,13 @@ def build_equirectangular_remap(
     ray_y /= norm
     ray_z /= norm
 
-    source_yaw = np_module.arctan2(ray_x, -ray_z)
-    source_pitch = np_module.arcsin(np_module.clip(ray_y, -1.0, 1.0))
+    pose_right, pose_up, pose_forward = _projection_pose_basis(pose)
+    source_x = ray_x * pose_right[0] + ray_y * pose_right[1] + ray_z * pose_right[2]
+    source_y = ray_x * pose_up[0] + ray_y * pose_up[1] + ray_z * pose_up[2]
+    source_forward = ray_x * pose_forward[0] + ray_y * pose_forward[1] + ray_z * pose_forward[2]
+
+    source_yaw = np_module.arctan2(source_x, source_forward)
+    source_pitch = np_module.arcsin(np_module.clip(source_y, -1.0, 1.0))
     u_full = np_module.mod(source_yaw / (2.0 * math.pi) + 0.5, 1.0)
     v_full = 0.5 - source_pitch / math.pi
 
