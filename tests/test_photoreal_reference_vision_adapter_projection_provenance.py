@@ -77,7 +77,7 @@ def test_frame_adapter_forwards_explicit_equi_authority_to_deprojector(
 
     monkeypatch.setattr(adapter, "_candidate_rows", fake_candidate_rows)
 
-    runtime = object()
+    runtime = SimpleNamespace(embedding_dimension=512)
     source = {
         "source_key": "scene:s1:E:/vr180.mp4",
         "source_sha256": "a" * 64,
@@ -102,5 +102,6 @@ def test_frame_adapter_forwards_explicit_equi_authority_to_deprojector(
     assert observed["candidate_prefix"] == "v00-"
     assert observed["base"]["projection"] == "equi"
     assert result["format"] == "bodyrig-photoreal-frame-observations"
+    assert result["identity_embedding_dimension"] == 512
     assert result["observations"] == [{"candidate_id": "v00-person-000"}]
     assert result["production_activation"] is False
