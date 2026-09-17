@@ -11,10 +11,11 @@ import pytest
 SCRIPT = Path(__file__).resolve().parents[1] / "prepare-photoreal-v2-projection-authority.ps1"
 
 
-def test_helper_requires_explicit_operator_attestation() -> None:
+def test_helper_requires_explicit_operator_attestation_without_parameter_prompt() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
-    assert '[Parameter(Mandatory = $true)][switch]$ConfirmVr180Equi' in source
+    assert "[switch]$ConfirmVr180Equi" in source
+    assert '[Parameter(Mandatory = $true)][switch]$ConfirmVr180Equi' not in source
     assert 'if (-not $ConfirmVr180Equi)' in source
     assert "explicit -ConfirmVr180Equi operator attestation" in source
 
