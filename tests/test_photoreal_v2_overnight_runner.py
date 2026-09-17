@@ -61,6 +61,24 @@ def test_overnight_forwards_reference_environment_repair() -> None:
     assert "if ($RepairReferenceEnvironment) { $args.RepairReferenceEnvironment = $true }" in source
 
 
+def test_overnight_propagates_explicit_projection_authority_via_process_environment() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    validate = source.index("if (-not (Test-Path -LiteralPath $ProjectionAuthority -PathType Leaf))")
+    set_environment = source.index(
+        '[Environment]::SetEnvironmentVariable($projectionAuthorityEnv, $ProjectionAuthority, "Process")'
+    )
+    invoke = source.index("& $entrypoint @args")
+    restore_environment = source.index(
+        '[Environment]::SetEnvironmentVariable($projectionAuthorityEnv, $originalProjectionAuthority, "Process")'
+    )
+
+    assert '[string]$ProjectionAuthority = ""' in source
+    assert '$projectionAuthorityEnv = "BODYRIG_PHOTOREAL_PROJECTION_AUTHORITY"' in source
+    assert "$ProjectionAuthority = (Resolve-Path -LiteralPath $ProjectionAuthority).Path" in source
+    assert validate < set_environment < invoke < restore_environment
+
+
 def test_overnight_restores_saved_stash_auth_without_persisting_secret() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
