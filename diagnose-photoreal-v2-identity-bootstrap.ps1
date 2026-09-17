@@ -29,7 +29,13 @@ function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$WindowsPath)
     if ($WindowsPath.StartsWith('/')) { return $WindowsPath }
     $full = [IO.Path]::GetFullPath($WindowsPath)
-    $lines = @(& wsl.exe -d $Distribution -- wslpath -u $full 2>&1)
+
+    # wsl.exe may pass a backslash-containing Windows path through the Linux
+    # command parser, where backslashes are consumed as escape characters.
+    # wslpath accepts drive-letter paths with forward slashes, so normalize the
+    # transport spelling without changing the Windows path being resolved.
+    $transportPath = $full -replace '\\', '/'
+    $lines = @(& wsl.exe -d $Distribution -- wslpath -u $transportPath 2>&1)
     if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1) {
         throw "Could not convert Windows path to WSL path: $full | $($lines -join ' ')"
     }
