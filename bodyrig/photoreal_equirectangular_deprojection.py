@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
-AUTHORITY_FORMAT = "bodyrig-spherical-v2-projection-authority"
+AUTHORITY_FORMATS = {
+    "bodyrig-spherical-v2-projection-authority",
+    "bodyrig-explicit-projection-authority",
+}
 AUTHORITY_VERSION = 1
 TARGET_FOV_DEGREES = 110.0
 VIEWPORT_OVERLAP_FRACTION = 0.10
@@ -30,7 +33,12 @@ def _number(value: Any, *, label: str, minimum: float, maximum: float) -> float:
 def _authority(value: Any) -> tuple[dict[str, float], dict[str, float]]:
     if not isinstance(value, Mapping):
         raise PhotorealEquirectangularDeprojectionError("equirectangular projection authority is missing")
-    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") not in AUTHORITY_FORMATS
+        or isinstance(version, bool)
+        or version != AUTHORITY_VERSION
+    ):
         raise PhotorealEquirectangularDeprojectionError("equirectangular projection authority format/version mismatch")
     if value.get("projection_type") != "equi":
         raise PhotorealEquirectangularDeprojectionError("projection authority is not equirectangular")
