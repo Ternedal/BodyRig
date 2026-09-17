@@ -34,6 +34,8 @@ def test_diagnostic_uses_same_composite_adapter_revision_as_stage7() -> None:
 def test_runner_reproduces_wsl_transport_without_source_rehash() -> None:
     text = POWERSHELL_RUNNER.read_text(encoding="utf-8")
 
+    assert "$transportPath = $full -replace '\\\\', '/'" in text
+    assert 'wslpath -u $transportPath' in text
     assert '$source.resolved_path = Convert-ToWslPath -WindowsPath $raw' in text
     assert 'identity-extractor\\request.json' in text
     assert 'photoreal_source_verify_cli' not in text
