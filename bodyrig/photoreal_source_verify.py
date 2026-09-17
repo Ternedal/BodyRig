@@ -8,11 +8,6 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .photoreal_dataset_plan import INVENTORY_FORMAT, INVENTORY_VERSION
-from .photoreal_projection_authority import (
-    PhotorealProjectionAuthorityError,
-    SPATIAL_HINT_PROJECTIONS,
-    _probe_v2_projection,
-)
 from .stash_path_cache import StashPathCacheError, normalize_origin, validate_cache
 
 FORMAT = "bodyrig-photoreal-source-receipt"
@@ -237,7 +232,6 @@ def _records(inventory: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "source_key": source_key,
                     "catalog_path": path,
                     "expected_size_bytes": _expected_size(item),
-                    "projection_hint": str(item.get("projection") or "").strip() if kind == "video" else "",
                 }
             )
     if not result:
@@ -296,15 +290,6 @@ def verify_inventory_sources(
             "size_bytes": observed_size,
         }
         _emit_progress(progress, {**progress_base, "phase": "source-start"})
-
-        if source["kind"] == "video" and source["projection_hint"] in SPATIAL_HINT_PROJECTIONS:
-            try:
-                _probe_v2_projection(local)
-            except PhotorealProjectionAuthorityError as exc:
-                raise PhotorealSourceVerifyError(
-                    f"photoreal Spherical V2 preflight failed before hashing: {source['catalog_path']}: {exc}"
-                ) from exc
-            _emit_progress(progress, {**progress_base, "phase": "projection-preflight-complete"})
 
         if hash_file is None:
             digest = _sha256(
