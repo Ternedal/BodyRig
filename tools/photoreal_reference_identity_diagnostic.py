@@ -20,7 +20,10 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
 
 
 def _load_adapter(repo_root: Path):
-    path = repo_root / "tools" / "photoreal_reference_vision_adapter.py"
+    # Stage 7 is configured against the composite mesh adapter, even when the
+    # bootstrap sources are flat. Load the exact same executable surface so the
+    # request's composite revision remains comparable to the diagnostic.
+    path = repo_root / "tools" / "photoreal_reference_vision_adapter_mesh.py"
     spec = importlib.util.spec_from_file_location("bodyrig_identity_diagnostic_adapter", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"could not load reference adapter: {path}")
@@ -151,7 +154,23 @@ def main(argv: list[str] | None = None) -> int:
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
-    print(json.dumps({key: result[key] for key in ("format", "sample_count", "accepted_count", "rejected_count", "reason_counts", "diagnostic_only", "production_activation")}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                key: result[key]
+                for key in (
+                    "format",
+                    "sample_count",
+                    "accepted_count",
+                    "rejected_count",
+                    "reason_counts",
+                    "diagnostic_only",
+                    "production_activation",
+                )
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 
