@@ -70,6 +70,7 @@ function Write-Status {
             source_inventory = $script:InventoryPath
             dataset_plan = $script:PlanPath
             source_receipt = $script:ReceiptPath
+            spatial_metadata_probe = $script:SpatialMetadataProbePath
             scan_plan = $script:ScanPlanPath
             identity_bootstrap = $script:IdentityBootstrapPath
             model_set = $script:ModelSetPath
@@ -156,6 +157,7 @@ $GeneratedSourcePathMap = Join-Path $OutputRoot "source-path-map.json"
 $GeneratedCalibrationPathMap = Join-Path $OutputRoot "calibration-path-map.json"
 $PlanPath = Join-Path $OutputRoot "dataset-plan.json"
 $ReceiptPath = Join-Path $OutputRoot "source-receipt.json"
+$SpatialMetadataProbePath = Join-Path $OutputRoot "spatial-metadata-probe.json"
 $ScanPlanPath = Join-Path $OutputRoot "scan-plan.json"
 $IdentityBootstrapPath = Join-Path $OutputRoot "identity-bootstrap-plan.json"
 $ModelSetPath = Join-Path $OutputRoot "model-set.json"
@@ -229,6 +231,13 @@ try {
         "--path-map", $PathMap,
         "--out", $ReceiptPath,
         "--stash-url", $StashUrl
+    ) | Out-Null
+
+    Invoke-PythonStage -Label "3B/16 SPATIAL METADATA PROBE (DIAGNOSTIC ONLY)" -Arguments @(
+        "-m", "bodyrig.photoreal_spatial_metadata_probe_cli",
+        "--inventory", $InventoryPath,
+        "--receipt", $ReceiptPath,
+        "--out", $SpatialMetadataProbePath
     ) | Out-Null
 
     Invoke-PythonStage -Label "4/16 DETERMINISTIC SCOUT PLAN" -Arguments @(
