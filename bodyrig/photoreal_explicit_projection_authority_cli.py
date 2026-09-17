@@ -16,6 +16,8 @@ from .photoreal_explicit_projection_authority import (
     RECEIPT_FORMAT,
     RECEIPT_VERSION,
     SPATIAL_HINT_PROJECTIONS,
+    PhotorealExplicitProjectionAuthorityError,
+    apply_explicit_projection_authority,
 )
 
 
@@ -175,7 +177,7 @@ def build_verified_vr180_manifest(
                 "source_sha256": receipt_sha[source_key],
                 "stereo_layout": stereo_layout,
                 "authority_basis": "operator-verified",
-                "projection_authority": dict(authority),
+                "projection_authority": json.loads(json.dumps(authority)),
             }
             for source_key in spatial_keys
         ],
@@ -183,6 +185,24 @@ def build_verified_vr180_manifest(
         "runtime_dependency": False,
         "production_activation": False,
     }
+
+
+def _preflight_manifest(
+    plan: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> int:
+    try:
+        _resolved, consumed = apply_explicit_projection_authority(plan, receipt, manifest)
+    except PhotorealExplicitProjectionAuthorityError as exc:
+        raise PhotorealExplicitProjectionAuthorityCliError(
+            f"explicit projection authority preflight failed: {exc}"
+        ) from exc
+    if consumed != len(manifest["sources"]):
+        raise PhotorealExplicitProjectionAuthorityCliError(
+            "explicit projection authority preflight did not consume the complete manifest source universe"
+        )
+    return consumed
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -218,6 +238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             stereo_layout=args.stereo_layout,
             operator_verified=args.operator_verified_vr180_equi,
         )
+        preflight_count = _preflight_manifest(plan, receipt, manifest)
         output = Path(args.out).expanduser().resolve()
         if output.exists():
             raise PhotorealExplicitProjectionAuthorityCliError(
@@ -232,10 +253,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "format": MANIFEST_FORMAT,
                     "performer_id": manifest["performer_id"],
                     "source_count": len(manifest["sources"]),
+                    "preflight_source_count": preflight_count,
                     "projection_type": "equi",
                     "geometry": "vr180",
                     "stereo_layout": args.stereo_layout,
                     "operator_verified": True,
+                    "embedded_projection_override": False,
                     "production_activation": False,
                     "output": str(output),
                 },
