@@ -85,7 +85,7 @@ def _receipt(plan: dict[str, object]) -> dict[str, object]:
 
 def _projection_authority() -> dict[str, object]:
     return {
-        "format": "bodyrig-spherical-v2-projection-authority",
+        "format": "bodyrig-explicit-projection-authority",
         "version": 1,
         "projection_type": "equi",
         "pose_degrees": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
@@ -165,7 +165,19 @@ def test_explicit_equi_authority_is_sha_bound_and_skips_v2_probe(monkeypatch: py
     assert source["projection"] == "equi"
     assert source["stereo_layout"] == "side-by-side"
     assert source["projection_authority"] == _projection_authority()
+    assert source["projection_authority"]["format"] == "bodyrig-explicit-projection-authority"
     assert source["projection_authority"]["deprojection_authority"] is False
+
+
+def test_rejects_spherical_v2_label_inside_explicit_manifest(monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _plan()
+    receipt = _receipt(plan)
+    manifest = _manifest(plan)
+    manifest["sources"][0]["projection_authority"]["format"] = "bodyrig-spherical-v2-projection-authority"
+    _install_no_spherical_probe(monkeypatch)
+
+    with pytest.raises(PhotorealExplicitProjectionAuthorityError, match="format/version mismatch"):
+        resolve_projection_authority(plan, receipt, manifest)
 
 
 def test_rejects_explicit_authority_with_wrong_source_sha(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,6 +267,7 @@ def test_scan_plan_cli_accepts_authority_from_environment(
     explicit_source = next(source for source in written["sources"] if source["projection"] == "equi")
     assert explicit_source["source_sha256"] == "a" * 64
     assert explicit_source["stereo_layout"] == "side-by-side"
+    assert explicit_source["projection_authority"]["format"] == "bodyrig-explicit-projection-authority"
     summary = json.loads(capsys.readouterr().out.strip())
     assert summary["resolved_explicit_projection_source_count"] == 1
     assert summary["resolved_v2_projection_source_count"] == 0
