@@ -44,7 +44,7 @@ def test_helper_outputs_path_for_overnight_projection_authority_parameter() -> N
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert 'Write-Host "Use with: -ProjectionAuthority `"$resolvedOutput`""' in source
-    assert 'BodyRig\\photoreal-v2\\projection-authority' in source
+    assert r'BodyRig\photoreal-v2\projection-authority' in source
 
 
 def test_helper_powershell_parses_when_pwsh_is_available() -> None:
