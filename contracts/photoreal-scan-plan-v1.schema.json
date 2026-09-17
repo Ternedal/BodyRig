@@ -77,7 +77,12 @@
         "mesh_projection_unknown_box_types", "deprojection_authority"
       ],
       "properties": {
-        "format": {"const": "bodyrig-spherical-v2-projection-authority"},
+        "format": {
+          "enum": [
+            "bodyrig-spherical-v2-projection-authority",
+            "bodyrig-explicit-projection-authority"
+          ]
+        },
         "version": {"const": 1},
         "projection_type": {"enum": ["equi", "mshp", "cbmp"]},
         "pose_degrees": {"$ref": "#/$defs/pose"},
@@ -160,7 +165,35 @@
           ]
         },
         "deprojection_authority": {"const": false}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "format": {"const": "bodyrig-explicit-projection-authority"}
+            },
+            "required": ["format"]
+          },
+          "then": {
+            "properties": {
+              "projection_type": {"const": "equi"},
+              "equirectangular_bounds_fraction": {"$ref": "#/$defs/equirectangular_bounds"},
+              "cubemap_layout": {"type": "null"},
+              "cubemap_padding_pixels": {"type": "null"},
+              "mesh_projection_crc32": {"type": "null"},
+              "mesh_projection_encoding": {"type": "null"},
+              "mesh_projection_payload_bytes": {"type": "null"},
+              "mesh_projection_geometry_sha256": {"type": "null"},
+              "mesh_projection_mesh_count": {"type": "null"},
+              "mesh_projection_total_vertex_count": {"type": "null"},
+              "mesh_projection_total_index_count": {"type": "null"},
+              "mesh_projection_texture_ids": {"type": "null"},
+              "mesh_projection_index_types": {"type": "null"},
+              "mesh_projection_unknown_box_types": {"type": "null"}
+            }
+          }
+        }
+      ]
     },
     "sample": {
       "type": "object",
