@@ -56,6 +56,37 @@ def _image(
     }
 
 
+def _projection_authority(
+    *,
+    authority_format: str = "bodyrig-explicit-projection-authority",
+    projection_type: str = "equi",
+) -> dict[str, object]:
+    return {
+        "format": authority_format,
+        "version": 1,
+        "projection_type": projection_type,
+        "pose_degrees": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
+        "equirectangular_bounds_fraction": (
+            {"top": 0.0, "bottom": 0.0, "left": 0.25, "right": 0.25}
+            if projection_type == "equi"
+            else None
+        ),
+        "cubemap_layout": None,
+        "cubemap_padding_pixels": None,
+        "mesh_projection_crc32": None,
+        "mesh_projection_encoding": None,
+        "mesh_projection_payload_bytes": None,
+        "mesh_projection_geometry_sha256": None,
+        "mesh_projection_mesh_count": None,
+        "mesh_projection_total_vertex_count": None,
+        "mesh_projection_total_index_count": None,
+        "mesh_projection_texture_ids": None,
+        "mesh_projection_index_types": None,
+        "mesh_projection_unknown_box_types": None,
+        "deprojection_authority": False,
+    }
+
+
 def _plan() -> dict[str, object]:
     records = [
         _video(
@@ -228,6 +259,39 @@ def test_scan_plan_refuses_unknown_stereo_layout() -> None:
     plan["evaluation"][0]["stereo_layout"] = "stereo-unknown"
 
     with pytest.raises(PhotorealScanPlanError, match="cannot enter frame analysis"):
+        build_scan_plan(plan, _receipt(plan))
+
+
+def test_scan_plan_accepts_explicit_equi_authority_and_preserves_provenance() -> None:
+    plan = copy.deepcopy(_plan())
+    source = plan["evaluation"][0]
+    source["projection"] = "equi"
+    source["projection_authority"] = _projection_authority()
+
+    result = build_scan_plan(plan, _receipt(plan))
+    resolved = next(item for item in result["sources"] if item["source_key"] == source["source_id"])
+
+    assert resolved["projection"] == "equi"
+    assert resolved["projection_authority"]["format"] == "bodyrig-explicit-projection-authority"
+
+
+def test_scan_plan_rejects_unknown_projection_authority_provenance() -> None:
+    plan = copy.deepcopy(_plan())
+    source = plan["evaluation"][0]
+    source["projection"] = "equi"
+    source["projection_authority"] = _projection_authority(authority_format="bodyrig-unknown-projection-authority")
+
+    with pytest.raises(PhotorealScanPlanError, match="format/version mismatch"):
+        build_scan_plan(plan, _receipt(plan))
+
+
+def test_scan_plan_rejects_explicit_non_equi_authority() -> None:
+    plan = copy.deepcopy(_plan())
+    source = plan["evaluation"][0]
+    source["projection"] = "mshp"
+    source["projection_authority"] = _projection_authority(projection_type="mshp")
+
+    with pytest.raises(PhotorealScanPlanError, match="only equi"):
         build_scan_plan(plan, _receipt(plan))
 
 
