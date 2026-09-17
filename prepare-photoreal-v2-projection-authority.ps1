@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$RunDirectory,
     [Parameter(Mandatory = $true)][ValidateSet("side-by-side", "over-under", "mono")][string]$StereoLayout,
-    [Parameter(Mandatory = $true)][switch]$ConfirmVr180Equi,
+    [switch]$ConfirmVr180Equi,
     [string]$OutputPath = "",
     [string]$BodyRigPython = ""
 )
