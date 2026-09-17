@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import bodyrig.photoreal_explicit_projection_authority as explicit
 from bodyrig.photoreal_explicit_projection_authority_cli import (
     PhotorealExplicitProjectionAuthorityCliError,
     build_verified_vr180_manifest,
@@ -69,6 +70,20 @@ def _receipt() -> dict[str, object]:
     }
 
 
+def _install_no_spherical_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        explicit,
+        "probe_isobmff_file",
+        lambda _path: {
+            "probe_status": "parsed-isobmff",
+            "sv3d_present": False,
+            "proj_present": False,
+            "spherical_v1_present": False,
+            "st3d_present": False,
+        },
+    )
+
+
 def test_manifest_generation_requires_explicit_operator_attestation() -> None:
     with pytest.raises(PhotorealExplicitProjectionAuthorityCliError, match="operator to verify"):
         build_verified_vr180_manifest(
@@ -125,7 +140,12 @@ def test_manifest_generation_rejects_missing_spatial_receipt_binding() -> None:
         )
 
 
-def test_cli_writes_new_sha_bound_manifest(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_writes_new_sha_bound_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_no_spherical_probe(monkeypatch)
     plan_path = tmp_path / "dataset-plan.json"
     receipt_path = tmp_path / "source-receipt.json"
     output_path = tmp_path / "projection-authority.json"
@@ -150,7 +170,9 @@ def test_cli_writes_new_sha_bound_manifest(tmp_path, capsys: pytest.CaptureFixtu
     assert written["sources"][0]["source_sha256"] == "a" * 64
     summary = json.loads(capsys.readouterr().out.strip())
     assert summary["source_count"] == 1
+    assert summary["preflight_source_count"] == 1
     assert summary["operator_verified"] is True
+    assert summary["embedded_projection_override"] is False
     assert summary["production_activation"] is False
 
     assert main(
@@ -166,3 +188,42 @@ def test_cli_writes_new_sha_bound_manifest(tmp_path, capsys: pytest.CaptureFixtu
             "--operator-verified-vr180-equi",
         ]
     ) == 1
+
+
+def test_cli_rejects_manifest_when_embedded_spherical_authority_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        explicit,
+        "probe_isobmff_file",
+        lambda _path: {
+            "probe_status": "parsed-isobmff",
+            "sv3d_present": True,
+            "proj_present": True,
+            "spherical_v1_present": False,
+            "st3d_present": False,
+        },
+    )
+    plan_path = tmp_path / "dataset-plan.json"
+    receipt_path = tmp_path / "source-receipt.json"
+    output_path = tmp_path / "projection-authority.json"
+    plan_path.write_text(json.dumps(_plan()), encoding="utf-8")
+    receipt_path.write_text(json.dumps(_receipt()), encoding="utf-8")
+
+    assert main(
+        [
+            "--plan",
+            str(plan_path),
+            "--receipt",
+            str(receipt_path),
+            "--out",
+            str(output_path),
+            "--stereo-layout",
+            "side-by-side",
+            "--operator-verified-vr180-equi",
+        ]
+    ) == 1
+    assert not output_path.exists()
+    assert "cannot override embedded spherical projection metadata" in capsys.readouterr().err
