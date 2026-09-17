@@ -28,18 +28,23 @@ function Need-Directory {
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$WindowsPath)
     if ($WindowsPath.StartsWith('/')) { return $WindowsPath }
-    $full = [IO.Path]::GetFullPath($WindowsPath)
 
-    # wsl.exe may pass a backslash-containing Windows path through the Linux
-    # command parser, where backslashes are consumed as escape characters.
-    # wslpath accepts drive-letter paths with forward slashes, so normalize the
-    # transport spelling without changing the Windows path being resolved.
-    $transportPath = $full -replace '\\', '/'
-    $lines = @(& wsl.exe -d $Distribution -- wslpath -u $transportPath 2>&1)
+    $pythonCode = @'
+import sys
+sys.path.insert(0, sys.argv[1])
+from bodyrig.wsl_adapter_bridge import make_wsl_path_converter
+print(make_wsl_path_converter(sys.argv[2], sys.argv[3])(sys.argv[4]))
+'@
+
+    $lines = @(& $script:WindowsPython -c $pythonCode $script:RepoRoot "wsl.exe" $Distribution $WindowsPath 2>&1)
     if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1) {
-        throw "Could not convert Windows path to WSL path: $full | $($lines -join ' ')"
+        throw "Could not convert Windows/UNC path with BodyRig WSL bridge: $WindowsPath | $($lines -join ' ')"
     }
-    return ([string]$lines[0]).Trim()
+    $value = ([string]$lines[0]).Trim()
+    if ([string]::IsNullOrWhiteSpace($value) -or -not $value.StartsWith('/')) {
+        throw "BodyRig WSL bridge returned an invalid path for: $WindowsPath"
+    }
+    return $value
 }
 
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required on Windows." }
@@ -48,7 +53,9 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
     throw "LinuxPython must be an absolute Linux path."
 }
 
-$repoRoot = (Resolve-Path $PSScriptRoot).Path
+$script:RepoRoot = (Resolve-Path $PSScriptRoot).Path
+$script:WindowsPython = Need-File -Path (Join-Path $script:RepoRoot ".venv\Scripts\python.exe") -Label "BodyRig Windows Python"
+$repoRoot = $script:RepoRoot
 $RunDirectory = Need-Directory -Path $RunDirectory -Label "Photoreal resumed run"
 $request = Need-File -Path (Join-Path $RunDirectory "identity-extractor\request.json") -Label "Stage-7 identity request"
 $tool = Need-File -Path (Join-Path $repoRoot "tools\photoreal_reference_identity_diagnostic.py") -Label "Identity diagnostic tool"
@@ -65,6 +72,7 @@ if (Test-Path -LiteralPath $output) {
 # Reproduce the existing BodyRig WSL bridge semantics for diagnostics only:
 # translate exactly nested source.resolved_path values, preserving all source
 # identity, hashes, samples and authority fields from the original request.
+# The shared converter handles drive-letter, SUBST/reparse and UNC/DrvFS paths.
 $requestObject = Get-Content -LiteralPath $request -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
 if ($null -eq $requestObject.sources -or @($requestObject.sources).Count -eq 0) {
     throw "Stage-7 identity request contains no sources."
