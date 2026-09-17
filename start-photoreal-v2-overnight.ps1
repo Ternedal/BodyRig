@@ -5,6 +5,7 @@ param(
     [string]$StashUrl = "",
     [string]$ApiKeyEnv = "STASH_API_KEY",
     [string]$PathMap = "",
+    [string]$ProjectionAuthority = "",
     [string]$BodyRigPython = "",
     [double]$EvalFraction = 0.20,
     [string]$SplitSeed = "bodyrig-photoreal-v2",
@@ -125,6 +126,16 @@ $entrypoint = Join-Path $repoRoot "start-photoreal-v2-reference.ps1"
 if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) { throw "Photoreal V2 entrypoint not found: $entrypoint" }
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw "LOCALAPPDATA is required on Windows." }
 
+$projectionAuthorityEnv = "BODYRIG_PHOTOREAL_PROJECTION_AUTHORITY"
+$projectionAuthorityWasExplicit = -not [string]::IsNullOrWhiteSpace($ProjectionAuthority)
+if ($projectionAuthorityWasExplicit) {
+    if (-not (Test-Path -LiteralPath $ProjectionAuthority -PathType Leaf)) {
+        throw "Photoreal projection authority not found: $ProjectionAuthority"
+    }
+    $ProjectionAuthority = (Resolve-Path -LiteralPath $ProjectionAuthority).Path
+}
+$originalProjectionAuthority = [Environment]::GetEnvironmentVariable($projectionAuthorityEnv, "Process")
+
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 if ([string]::IsNullOrWhiteSpace($RunRoot)) {
     $RunRoot = Join-Path $env:LOCALAPPDATA "BodyRig\photoreal-v2\overnight"
@@ -170,6 +181,7 @@ try {
     Write-Host "Output:    $runDirectory"
     Write-Host "Log:       $transcriptPath"
     Write-Host "Summary:   $summaryPath"
+    if ($projectionAuthorityWasExplicit) { Write-Host "Projection authority: $ProjectionAuthority" }
     Write-Host ""
 
     $savedStashUrl = Restore-SavedStashCredential -EnvironmentName $ApiKeyEnv -RequestedUrl $StashUrl
@@ -177,6 +189,10 @@ try {
         $restoredSavedCredential = $true
         if ([string]::IsNullOrWhiteSpace($StashUrl)) { $StashUrl = [string]$savedStashUrl }
         Write-Host "Stash auth: restored from saved DPAPI config"
+    }
+
+    if ($projectionAuthorityWasExplicit) {
+        [Environment]::SetEnvironmentVariable($projectionAuthorityEnv, $ProjectionAuthority, "Process")
     }
 
     $args = @{
@@ -218,6 +234,9 @@ catch {
     $summary.error = $_.Exception.Message
 }
 finally {
+    if ($projectionAuthorityWasExplicit) {
+        [Environment]::SetEnvironmentVariable($projectionAuthorityEnv, $originalProjectionAuthority, "Process")
+    }
     if ($restoredSavedCredential) {
         [Environment]::SetEnvironmentVariable($ApiKeyEnv, $originalApiKey, "Process")
     }
