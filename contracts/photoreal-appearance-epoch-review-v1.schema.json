@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-appearance-epoch-review-v1.schema.json",
+  "title": "BodyRig Photoreal Appearance Epoch Human Review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "performer_id",
+    "appearance_epoch_plan_sha256",
+    "selected_epoch_id",
+    "selected_source_group_ids",
+    "human_review_complete",
+    "human_approved",
+    "reviewed_by",
+    "review_notes",
+    "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-appearance-epoch-review"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "appearance_epoch_plan_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_source_group_ids": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 100000,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "human_review_complete": {"const": true},
+    "human_approved": {"const": true},
+    "reviewed_by": {"type": "string", "minLength": 1, "maxLength": 256},
+    "review_notes": {"type": "string", "maxLength": 8192},
+    "production_activation": {"const": false}
+  }
+}

@@ -1,0 +1,657 @@
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Iterable, Mapping
+
+PLAN_FORMAT = "bodyrig-photoreal-dataset-plan"
+PLAN_VERSION = 1
+RECEIPT_FORMAT = "bodyrig-photoreal-source-receipt"
+RECEIPT_VERSION = 1
+OBSERVATIONS_FORMAT = "bodyrig-photoreal-frame-authorized-observations"
+OBSERVATIONS_VERSION = 1
+FORMAT = "bodyrig-photoreal-frame-index"
+VERSION = 1
+
+VALID_KINDS = {"video", "image"}
+VALID_EYES = {"mono", "left", "right"}
+VALID_VIEW_BINS = {
+    "front",
+    "three-quarter-left",
+    "three-quarter-right",
+    "profile-left",
+    "profile-right",
+    "rear",
+    "unknown",
+}
+VALID_IDENTITY_AUTHORITIES = {
+    "stash-single-performer-target-binding-v1",
+    "calibrated-identity-bank-v1",
+    "identity-unresolved-v1",
+}
+PERCEPTUAL_HASH_HEX_LENGTH = 16
+MAX_CROSS_SPLIT_HASH_DISTANCE = 4
+MIN_FACE_VISIBILITY = 0.72
+MIN_FULL_BODY_VISIBILITY = 0.72
+MIN_SHARPNESS = 0.35
+MAX_OCCLUSION = 0.40
+MAX_OBSERVATIONS = 250_000
+
+
+class PhotorealFrameIndexError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class _PlanSource:
+    source_key: str
+    split: str
+    group_id: str
+    kind: str
+
+
+@dataclass
+class _BkNode:
+    value: int
+    payload: str
+    children: dict[int, "_BkNode"]
+
+
+class _HammingBkTree:
+    def __init__(self) -> None:
+        self._root: _BkNode | None = None
+
+    @staticmethod
+    def _distance(left: int, right: int) -> int:
+        return (left ^ right).bit_count()
+
+    def add(self, value: int, payload: str) -> None:
+        if self._root is None:
+            self._root = _BkNode(value, payload, {})
+            return
+        node = self._root
+        while True:
+            distance = self._distance(value, node.value)
+            child = node.children.get(distance)
+            if child is None:
+                node.children[distance] = _BkNode(value, payload, {})
+                return
+            node = child
+
+    def query(self, value: int, maximum_distance: int) -> list[tuple[int, str]]:
+        if self._root is None:
+            return []
+        result: list[tuple[int, str]] = []
+        stack = [self._root]
+        while stack:
+            node = stack.pop()
+            distance = self._distance(value, node.value)
+            if distance <= maximum_distance:
+                result.append((distance, node.payload))
+            lower = distance - maximum_distance
+            upper = distance + maximum_distance
+            for edge, child in node.children.items():
+                if lower <= edge <= upper:
+                    stack.append(child)
+        return result
+
+
+def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
+    source = Path(path).expanduser().resolve()
+    try:
+        value = json.loads(
+            source.read_text(encoding="utf-8-sig"),
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is unreadable: {source}") from exc
+    if not isinstance(value, dict):
+        raise PhotorealFrameIndexError(f"{label} must be a JSON object")
+    return value
+
+
+def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
+    result = str(value or "").strip()
+    if not result or len(result) > maximum:
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    return result
+
+
+def _hex(value: Any, *, length: int, label: str) -> str:
+    result = str(value or "").strip().lower()
+    if len(result) != length or any(ch not in "0123456789abcdef" for ch in result):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    return result
+
+
+def _unit(value: Any, *, label: str) -> float:
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if not math.isfinite(result) or not 0.0 <= result <= 1.0:
+        raise PhotorealFrameIndexError(f"{label} is outside its valid range")
+    return result
+
+
+def _cosine_or_none(value: Any, *, label: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if not math.isfinite(result) or not -1.0 <= result <= 1.0:
+        raise PhotorealFrameIndexError(f"{label} is outside cosine range")
+    return result
+
+
+def _timestamp(value: Any) -> float:
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError("frame timestamp is invalid")
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError("frame timestamp is invalid") from exc
+    if not math.isfinite(result) or result < 0.0:
+        raise PhotorealFrameIndexError("frame timestamp is outside its valid range")
+    return result
+
+
+def _positive_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if result < 1:
+        raise PhotorealFrameIndexError(f"{label} is outside its valid range")
+    return result
+
+
+def _nonnegative_int(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise PhotorealFrameIndexError(f"{label} is invalid")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as exc:
+        raise PhotorealFrameIndexError(f"{label} is invalid") from exc
+    if result < 0:
+        raise PhotorealFrameIndexError(f"{label} cannot be negative")
+    return result
+
+
+def _plan_sources(plan: Mapping[str, Any]) -> dict[str, _PlanSource]:
+    if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
+        raise PhotorealFrameIndexError("photoreal dataset plan format/version mismatch")
+    if plan.get("build_only") is not True or plan.get("runtime_dependency") is not False:
+        raise PhotorealFrameIndexError("photoreal dataset plan authority boundary is invalid")
+    if plan.get("production_activation") is not False:
+        raise PhotorealFrameIndexError("photoreal dataset plan crossed production authority")
+    if plan.get("teacher_training_authorized") is not False:
+        raise PhotorealFrameIndexError("frame analysis expects a pre-training dataset plan")
+
+    result: dict[str, _PlanSource] = {}
+    for split in ("train", "evaluation"):
+        values = plan.get(split)
+        if not isinstance(values, list) or not values:
+            raise PhotorealFrameIndexError(f"dataset plan {split} sources are invalid")
+        for raw in values:
+            if not isinstance(raw, Mapping):
+                raise PhotorealFrameIndexError(f"dataset plan {split} contains a non-object source")
+            source_key = _text(raw.get("source_id"), label="dataset source key")
+            if source_key in result:
+                raise PhotorealFrameIndexError(f"dataset plan repeats source key: {source_key}")
+            kind = _text(raw.get("kind"), label="dataset source kind")
+            if kind not in VALID_KINDS:
+                raise PhotorealFrameIndexError(f"dataset source kind is unsupported: {kind}")
+            result[source_key] = _PlanSource(
+                source_key=source_key,
+                split=split,
+                group_id=_text(raw.get("group_id"), label="dataset group id"),
+                kind=kind,
+            )
+
+    train_groups = {item.group_id for item in result.values() if item.split == "train"}
+    evaluation_groups = {item.group_id for item in result.values() if item.split == "evaluation"}
+    if train_groups & evaluation_groups:
+        raise PhotorealFrameIndexError("dataset plan leaks source groups across train/evaluation")
+    return result
+
+
+def _receipt_sources(receipt: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    if receipt.get("format") != RECEIPT_FORMAT or receipt.get("version") != RECEIPT_VERSION:
+        raise PhotorealFrameIndexError("photoreal source receipt format/version mismatch")
+    if receipt.get("all_sources_readable") is not True or receipt.get("all_sources_sha256_bound") is not True:
+        raise PhotorealFrameIndexError("photoreal source receipt is incomplete")
+    if receipt.get("source_keys_path_specific") is not True:
+        raise PhotorealFrameIndexError("photoreal source receipt lacks path-specific source keys")
+    if receipt.get("build_only") is not True or receipt.get("runtime_dependency") is not False:
+        raise PhotorealFrameIndexError("photoreal source receipt authority boundary is invalid")
+    if receipt.get("production_activation") is not False:
+        raise PhotorealFrameIndexError("photoreal source receipt crossed production authority")
+
+    values = receipt.get("sources")
+    if not isinstance(values, list) or not values:
+        raise PhotorealFrameIndexError("photoreal source receipt contains no sources")
+    result: dict[str, dict[str, str]] = {}
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealFrameIndexError("photoreal source receipt contains a non-object source")
+        source_key = _text(raw.get("source_key"), label="receipt source key")
+        if source_key in result:
+            raise PhotorealFrameIndexError(f"photoreal source receipt repeats source key: {source_key}")
+        kind = _text(raw.get("kind"), label="receipt source kind")
+        if kind not in VALID_KINDS:
+            raise PhotorealFrameIndexError(f"receipt source kind is unsupported: {kind}")
+        result[source_key] = {
+            "kind": kind,
+            "sha256": _hex(raw.get("sha256"), length=64, label="receipt source SHA-256"),
+        }
+    return result
+
+
+def _coverage(view_bin: str, face: float, body: float) -> list[str]:
+    labels: set[str] = set()
+    if view_bin == "front":
+        if face >= MIN_FACE_VISIBILITY:
+            labels.add("face-front")
+        if body >= MIN_FULL_BODY_VISIBILITY:
+            labels.add("full-body-front")
+    elif view_bin in {"three-quarter-left", "three-quarter-right"}:
+        if face >= MIN_FACE_VISIBILITY:
+            labels.add("face-three-quarter")
+        if body >= MIN_FULL_BODY_VISIBILITY:
+            labels.add("full-body-three-quarter")
+    elif view_bin in {"profile-left", "profile-right"}:
+        if face >= MIN_FACE_VISIBILITY:
+            labels.add("face-profile")
+        if body >= MIN_FULL_BODY_VISIBILITY:
+            labels.add("full-body-profile")
+    elif view_bin == "rear" and body >= MIN_FULL_BODY_VISIBILITY:
+        labels.add("full-body-rear")
+    return sorted(labels)
+
+
+def _normalize_observation(
+    raw: Mapping[str, Any],
+    *,
+    planned: _PlanSource,
+    receipt: Mapping[str, str],
+) -> dict[str, Any]:
+    source_key = _text(raw.get("source_key"), label="frame source key")
+    if source_key != planned.source_key:
+        raise PhotorealFrameIndexError("frame source key changed during normalization")
+    source_sha = _hex(raw.get("source_sha256"), length=64, label="frame source SHA-256")
+    if source_sha != receipt["sha256"]:
+        raise PhotorealFrameIndexError(f"frame observation targets different source bytes: {source_key}")
+    kind = _text(raw.get("kind"), label="frame source kind")
+    if kind != planned.kind or kind != receipt["kind"]:
+        raise PhotorealFrameIndexError(f"frame source kind mismatch: {source_key}")
+
+    view_bin = _text(raw.get("view_bin"), label="frame view bin")
+    if view_bin not in VALID_VIEW_BINS:
+        raise PhotorealFrameIndexError(f"unsupported frame view bin: {view_bin}")
+    eye = _text(raw.get("eye"), label="frame eye")
+    if eye not in VALID_EYES:
+        raise PhotorealFrameIndexError(f"unsupported frame eye: {eye}")
+    candidate_id = _text(raw.get("candidate_id"), label="frame candidate id", maximum=128)
+    if any(not (character.isalnum() or character in "._-") for character in candidate_id):
+        raise PhotorealFrameIndexError("frame candidate id is invalid")
+    person_detected = raw.get("person_detected")
+    if not isinstance(person_detected, bool):
+        raise PhotorealFrameIndexError("person_detected must be boolean")
+    measured_person_candidate_count = _nonnegative_int(
+        raw.get("measured_person_candidate_count"), label="measured person candidate count"
+    )
+    if person_detected and measured_person_candidate_count < 1:
+        raise PhotorealFrameIndexError("detected person cannot have zero measured candidates")
+    if not person_detected and measured_person_candidate_count != 0:
+        raise PhotorealFrameIndexError("non-person placeholder must report zero measured candidates")
+    identity_sample_ambiguous = raw.get("identity_sample_ambiguous")
+    if not isinstance(identity_sample_ambiguous, bool):
+        raise PhotorealFrameIndexError("identity_sample_ambiguous must be boolean")
+
+    if kind == "video":
+        timestamp: float | None = _timestamp(raw.get("timestamp_seconds"))
+    else:
+        if raw.get("timestamp_seconds") is not None:
+            raise PhotorealFrameIndexError("still-image observation must not carry a video timestamp")
+        timestamp = None
+
+    face = _unit(raw.get("face_visibility"), label="face visibility")
+    body = _unit(raw.get("full_body_visibility"), label="full-body visibility")
+    sharpness = _unit(raw.get("sharpness"), label="frame sharpness")
+    motion = _unit(raw.get("motion"), label="frame motion")
+    occlusion = _unit(raw.get("occlusion"), label="frame occlusion")
+    person_fraction = _unit(raw.get("person_fraction"), label="person fraction")
+    identity_status = _text(raw.get("identity_measurement_status"), label="identity measurement status", maximum=32)
+    if identity_status not in {"available", "unavailable"}:
+        raise PhotorealFrameIndexError("identity_measurement_status is unsupported")
+    identity_similarity = _cosine_or_none(raw.get("identity_similarity"), label="identity similarity")
+    if identity_status == "available" and identity_similarity is None:
+        raise PhotorealFrameIndexError("available identity measurement lacks core similarity")
+    if identity_status == "unavailable" and identity_similarity is not None:
+        raise PhotorealFrameIndexError("unavailable identity measurement must not have similarity")
+    identity_authority = _text(raw.get("identity_authority"), label="identity authority", maximum=128)
+    if identity_authority not in VALID_IDENTITY_AUTHORITIES:
+        raise PhotorealFrameIndexError(f"identity authority is unsupported: {identity_authority}")
+    target_verified = raw.get("target_identity_verified")
+    if not isinstance(target_verified, bool):
+        raise PhotorealFrameIndexError("target_identity_verified must be boolean")
+    if target_verified and not person_detected:
+        raise PhotorealFrameIndexError("target identity cannot be verified without a detected person")
+    if target_verified and identity_sample_ambiguous:
+        raise PhotorealFrameIndexError("ambiguous identity sample cannot verify target identity")
+    if target_verified and identity_authority == "identity-unresolved-v1":
+        raise PhotorealFrameIndexError("verified target identity cannot use unresolved authority")
+    if not target_verified and identity_authority != "identity-unresolved-v1":
+        raise PhotorealFrameIndexError("unverified target identity must use unresolved authority")
+    if identity_authority == "calibrated-identity-bank-v1" and identity_similarity is None:
+        raise PhotorealFrameIndexError("calibrated identity authority requires similarity measurement")
+
+    eligible = (
+        target_verified
+        and person_detected
+        and not identity_sample_ambiguous
+        and sharpness >= MIN_SHARPNESS
+        and occlusion <= MAX_OCCLUSION
+    )
+    return {
+        "source_key": source_key,
+        "source_sha256": source_sha,
+        "split": planned.split,
+        "group_id": planned.group_id,
+        "kind": kind,
+        "timestamp_seconds": None if timestamp is None else round(timestamp, 6),
+        "eye": eye,
+        "projection": str(raw.get("projection") or "unknown"),
+        "frame_sha256": _hex(raw.get("frame_sha256"), length=64, label="frame SHA-256"),
+        "perceptual_hash": _hex(raw.get("perceptual_hash"), length=PERCEPTUAL_HASH_HEX_LENGTH, label="frame perceptual hash"),
+        "candidate_id": candidate_id,
+        "person_detected": person_detected,
+        "measured_person_candidate_count": measured_person_candidate_count,
+        "identity_sample_ambiguous": identity_sample_ambiguous,
+        "width": _positive_int(raw.get("width"), label="frame width"),
+        "height": _positive_int(raw.get("height"), label="frame height"),
+        "view_bin": view_bin,
+        "face_visibility": round(face, 6),
+        "full_body_visibility": round(body, 6),
+        "person_fraction": round(person_fraction, 6),
+        "sharpness": round(sharpness, 6),
+        "motion": round(motion, 6),
+        "occlusion": round(occlusion, 6),
+        "identity_measurement_status": identity_status,
+        "identity_similarity": None if identity_similarity is None else round(identity_similarity, 9),
+        "identity_authority": identity_authority,
+        "target_identity_verified": target_verified,
+        "eligible_for_teacher": eligible,
+        "coverage": _coverage(view_bin, face, body) if eligible else [],
+    }
+
+
+def _cross_split_near_duplicates(observations: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    evaluation = [item for item in observations if item["split"] == "evaluation" and item["eligible_for_teacher"]]
+    train = [item for item in observations if item["split"] == "train" and item["eligible_for_teacher"]]
+    tree = _HammingBkTree()
+    lookup: dict[str, Mapping[str, Any]] = {}
+    for index, item in enumerate(evaluation):
+        payload = f"eval:{index}"
+        lookup[payload] = item
+        tree.add(int(str(item["perceptual_hash"]), 16), payload)
+
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in train:
+        for distance, payload in tree.query(int(str(item["perceptual_hash"]), 16), MAX_CROSS_SPLIT_HASH_DISTANCE):
+            other = lookup[payload]
+            key = (
+                str(item["source_key"]),
+                str(item["frame_sha256"]),
+                str(other["source_key"]),
+                str(other["frame_sha256"]),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(
+                {
+                    "distance": distance,
+                    "train_source_key": item["source_key"],
+                    "train_frame_sha256": item["frame_sha256"],
+                    "evaluation_source_key": other["source_key"],
+                    "evaluation_frame_sha256": other["frame_sha256"],
+                }
+            )
+    result.sort(key=lambda item: (int(item["distance"]), str(item["train_source_key"]), str(item["evaluation_source_key"])))
+    return result
+
+
+def build_frame_index(
+    plan: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+    authorized_observations: Mapping[str, Any],
+) -> dict[str, Any]:
+    plan_sources = _plan_sources(plan)
+    receipt_sources = _receipt_sources(receipt)
+    if set(plan_sources) != set(receipt_sources):
+        missing = sorted(set(plan_sources) - set(receipt_sources))
+        extra = sorted(set(receipt_sources) - set(plan_sources))
+        raise PhotorealFrameIndexError(
+            f"dataset plan/source receipt disagree on exact source universe "
+            f"(missing_receipt={len(missing)}, extra_receipt={len(extra)})"
+        )
+    performer_id = str(plan.get("performer_id") or "")
+    if performer_id != str(receipt.get("performer_id") or ""):
+        raise PhotorealFrameIndexError("dataset plan/source receipt performer mismatch")
+
+    if authorized_observations.get("format") != OBSERVATIONS_FORMAT or authorized_observations.get("version") != OBSERVATIONS_VERSION:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations format/version mismatch")
+    if authorized_observations.get("identity_authority_is_core_derived") is not True:
+        raise PhotorealFrameIndexError("frame observations do not carry core-derived identity authority")
+    if authorized_observations.get("multi_candidate_identity_safe") is not True:
+        raise PhotorealFrameIndexError("frame observations do not carry multi-candidate identity safety")
+    if authorized_observations.get("photoreal_acceptance_authority") is not False:
+        raise PhotorealFrameIndexError("frame observations crossed photoreal acceptance authority")
+    if authorized_observations.get("build_only") is not True or authorized_observations.get("production_activation") is not False:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations authority boundary is invalid")
+    if str(authorized_observations.get("performer_id") or "") != performer_id:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations performer mismatch")
+    analyzer = _text(authorized_observations.get("analyzer"), label="frame analyzer", maximum=256)
+    analyzer_revision = _text(authorized_observations.get("analyzer_revision"), label="frame analyzer revision", maximum=256)
+    analyzer_model_set_sha256 = _hex(
+        authorized_observations.get("analyzer_model_set_sha256"),
+        length=64,
+        label="frame analyzer model-set SHA-256",
+    )
+    identity_bank_sha256 = _hex(
+        authorized_observations.get("identity_bank_sha256"),
+        length=64,
+        label="frame identity bank SHA-256",
+    )
+    identity_calibration_sha256 = _hex(
+        authorized_observations.get("identity_calibration_sha256"),
+        length=64,
+        label="frame identity calibration SHA-256",
+    )
+    identity_matching_calibrated = authorized_observations.get("identity_matching_calibrated")
+    if not isinstance(identity_matching_calibrated, bool):
+        raise PhotorealFrameIndexError("identity_matching_calibrated must be boolean")
+    identity_match_threshold = _cosine_or_none(
+        authorized_observations.get("identity_match_threshold"),
+        label="identity match threshold",
+    )
+    if identity_matching_calibrated and identity_match_threshold is None:
+        raise PhotorealFrameIndexError("calibrated identity matching lacks threshold")
+    if not identity_matching_calibrated and identity_match_threshold is not None:
+        raise PhotorealFrameIndexError("uncalibrated identity matching must not expose threshold")
+    identity_ambiguous_sample_count = _nonnegative_int(
+        authorized_observations.get("identity_ambiguous_sample_count"),
+        label="identity ambiguous sample count",
+    )
+
+    raw_observations = authorized_observations.get("observations")
+    if not isinstance(raw_observations, list) or not raw_observations:
+        raise PhotorealFrameIndexError("photoreal authorized frame observations are empty")
+    if len(raw_observations) > MAX_OBSERVATIONS:
+        raise PhotorealFrameIndexError(f"photoreal frame observations exceed explicit safety bound {MAX_OBSERVATIONS}")
+
+    normalized: list[dict[str, Any]] = []
+    observed_sources: set[str] = set()
+    seen_candidate_keys: set[tuple[str, str, str, str]] = set()
+    verified_per_sample: dict[tuple[str, str, str, str], int] = {}
+    ambiguous_samples_seen: set[tuple[str, str, str, str]] = set()
+    for raw in raw_observations:
+        if not isinstance(raw, Mapping):
+            raise PhotorealFrameIndexError("photoreal frame observations contain a non-object")
+        source_key = _text(raw.get("source_key"), label="frame source key")
+        planned = plan_sources.get(source_key)
+        bound = receipt_sources.get(source_key)
+        if planned is None or bound is None:
+            raise PhotorealFrameIndexError(f"frame observation references unknown source: {source_key}")
+        item = _normalize_observation(raw, planned=planned, receipt=bound)
+        if item["identity_authority"] == "calibrated-identity-bank-v1":
+            if not identity_matching_calibrated or identity_match_threshold is None:
+                raise PhotorealFrameIndexError(
+                    "calibrated identity authority requires calibrated matching at frame index boundary"
+                )
+            similarity = item["identity_similarity"]
+            if similarity is None or float(similarity) < identity_match_threshold:
+                raise PhotorealFrameIndexError(
+                    "calibrated identity authority is below the calibrated match threshold"
+                )
+        sample_identity = (
+            item["source_key"],
+            str(item["timestamp_seconds"]),
+            item["eye"],
+            item["frame_sha256"],
+        )
+        candidate_identity = (
+            item["source_key"],
+            str(item["timestamp_seconds"]),
+            item["eye"],
+            item["candidate_id"],
+        )
+        if candidate_identity in seen_candidate_keys:
+            raise PhotorealFrameIndexError(f"duplicate frame candidate identity: {candidate_identity}")
+        seen_candidate_keys.add(candidate_identity)
+        if item["target_identity_verified"]:
+            verified_per_sample[sample_identity] = verified_per_sample.get(sample_identity, 0) + 1
+        if item["identity_sample_ambiguous"]:
+            ambiguous_samples_seen.add(sample_identity)
+        observed_sources.add(source_key)
+        normalized.append(item)
+
+    if any(count > 1 for count in verified_per_sample.values()):
+        raise PhotorealFrameIndexError("multiple target identities were verified in one frame sample")
+    if len(ambiguous_samples_seen) != identity_ambiguous_sample_count:
+        raise PhotorealFrameIndexError("identity ambiguous sample count disagrees with observations")
+
+    missing_sources = sorted(set(plan_sources) - observed_sources)
+    if missing_sources:
+        raise PhotorealFrameIndexError(f"frame analyzer did not cover every planned source ({len(missing_sources)} missing)")
+
+    normalized.sort(
+        key=lambda item: (
+            item["split"],
+            item["group_id"],
+            item["source_key"],
+            -1.0 if item["timestamp_seconds"] is None else float(item["timestamp_seconds"]),
+            item["eye"],
+            item["candidate_id"],
+        )
+    )
+    duplicates = _cross_split_near_duplicates(normalized)
+    train_eligible = [item for item in normalized if item["split"] == "train" and item["eligible_for_teacher"]]
+    evaluation_eligible = [item for item in normalized if item["split"] == "evaluation" and item["eligible_for_teacher"]]
+    observed_eval_coverage = sorted({label for item in evaluation_eligible for label in item["coverage"]})
+    all_coverage = {label for item in normalized if item["eligible_for_teacher"] for label in item["coverage"]}
+
+    required = list(plan.get("held_out_view_coverage_required") or [])
+    if not required or not all(isinstance(item, str) and item for item in required):
+        raise PhotorealFrameIndexError("dataset plan held-out view coverage requirements are invalid")
+    if plan.get("rear_view_required_when_source_observable") is not True:
+        raise PhotorealFrameIndexError("dataset plan rear-view policy is invalid")
+    rear_observable = "full-body-rear" in all_coverage
+    effective_required = list(dict.fromkeys(required + (["full-body-rear"] if rear_observable else [])))
+    missing_eval_coverage = sorted(set(effective_required) - set(observed_eval_coverage))
+
+    blockers: list[str] = []
+    if not train_eligible:
+        blockers.append("no eligible training observations")
+    if not evaluation_eligible:
+        blockers.append("no eligible evaluation observations")
+    if duplicates:
+        blockers.append("cross-split perceptual near-duplicates detected")
+    if missing_eval_coverage:
+        blockers.append("held-out evaluation view coverage is incomplete")
+    training_authorized = not blockers and len(observed_sources) == len(plan_sources)
+
+    return {
+        "format": FORMAT,
+        "version": VERSION,
+        "performer_id": performer_id,
+        "performer_name": str(plan.get("performer_name") or ""),
+        "analyzer": analyzer,
+        "analyzer_revision": analyzer_revision,
+        "analyzer_model_set_sha256": analyzer_model_set_sha256,
+        "identity_bank_sha256": identity_bank_sha256,
+        "identity_calibration_sha256": identity_calibration_sha256,
+        "identity_matching_calibrated": identity_matching_calibrated,
+        "identity_match_threshold": identity_match_threshold,
+        "identity_authority_is_core_derived": True,
+        "multi_candidate_identity_safe": True,
+        "identity_ambiguous_sample_count": identity_ambiguous_sample_count,
+        "source_count": len(plan_sources),
+        "observed_source_count": len(observed_sources),
+        "observation_count": len(normalized),
+        "eligible_train_observation_count": len(train_eligible),
+        "eligible_evaluation_observation_count": len(evaluation_eligible),
+        "perceptual_hash_algorithm_contract": "64-bit-hamming-v1",
+        "cross_split_max_hamming_distance": MAX_CROSS_SPLIT_HASH_DISTANCE,
+        "cross_split_near_duplicate_count": len(duplicates),
+        "cross_split_near_duplicates": duplicates,
+        "held_out_view_coverage_required": effective_required,
+        "held_out_view_coverage_observed": observed_eval_coverage,
+        "held_out_view_coverage_missing": missing_eval_coverage,
+        "rear_view_source_observable": rear_observable,
+        "thresholds": {
+            "minimum_face_visibility": MIN_FACE_VISIBILITY,
+            "minimum_full_body_visibility": MIN_FULL_BODY_VISIBILITY,
+            "minimum_sharpness": MIN_SHARPNESS,
+            "maximum_occlusion": MAX_OCCLUSION,
+        },
+        "observations": normalized,
+        "teacher_training_authorized": training_authorized,
+        "training_blockers": blockers,
+        "photoreal_acceptance_authority": False,
+        "human_visual_acceptance_required": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def build_frame_index_files(
+    plan_path: str | Path,
+    receipt_path: str | Path,
+    observations_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    plan = _read_json(plan_path, label="photoreal dataset plan")
+    receipt = _read_json(receipt_path, label="photoreal source receipt")
+    observations = _read_json(observations_path, label="photoreal core-authorized frame observations")
+    result = build_frame_index(plan, receipt, observations)
+    output = Path(output_path).expanduser().resolve()
+    if output.exists():
+        raise PhotorealFrameIndexError(f"photoreal frame index already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    return result

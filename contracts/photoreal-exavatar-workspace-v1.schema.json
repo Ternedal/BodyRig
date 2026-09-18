@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-exavatar-workspace-v1.schema.json",
+  "title": "BodyRig Photoreal ExAvatar Workspace v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "subject_id", "selected_epoch_id",
+    "benchmark_plan_sha256", "teacher_input_sha256", "materialization_receipt_sha256",
+    "strict_preflight_sha256", "upstream_commit", "repository_commits", "smplx_gender",
+    "smplx_gender_explicit", "upstream_default_gender_accepted", "dataset",
+    "fitting_config_sha256", "avatar_config_patch", "injected_patch_files", "linked_assets",
+    "frame_count", "working_dataset_relative_path", "held_out_evaluation_disclosed",
+    "original_video_copied", "dependency_root_modified", "photoreal_acceptance_authority",
+    "human_visual_acceptance_required", "build_only", "runtime_dependency",
+    "production_activation", "workspace_sha256"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-exavatar-workspace"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "subject_id": {"type": "string", "pattern": "^bodyrig-[A-Za-z0-9._-]+$", "maxLength": 104},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "benchmark_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "materialization_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "strict_preflight_sha256": {"$ref": "#/$defs/sha256"},
+    "upstream_commit": {"const": "d45268730c779fae4118f1a361cf9ff639bc4d1e"},
+    "repository_commits": {
+      "type": "object",
+      "minProperties": 7,
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+    },
+    "smplx_gender": {"enum": ["female", "male", "neutral"]},
+    "smplx_gender_explicit": {"const": true},
+    "upstream_default_gender_accepted": {"const": false},
+    "dataset": {"const": "Custom"},
+    "fitting_config_sha256": {"$ref": "#/$defs/sha256"},
+    "avatar_config_patch": {"$ref": "#/$defs/configPatch"},
+    "injected_patch_files": {
+      "type": "array",
+      "minItems": 10,
+      "items": {"$ref": "#/$defs/injectedPatch"}
+    },
+    "linked_assets": {
+      "type": "array",
+      "minItems": 20,
+      "items": {"$ref": "#/$defs/linkedAsset"}
+    },
+    "frame_count": {"type": "integer", "minimum": 1},
+    "working_dataset_relative_path": {"type": "string", "pattern": "^dataset/bodyrig-[A-Za-z0-9._-]+$"},
+    "held_out_evaluation_disclosed": {"const": false},
+    "original_video_copied": {"const": false},
+    "dependency_root_modified": {"const": false},
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "build_only": {"const": true},
+    "runtime_dependency": {"const": false},
+    "production_activation": {"const": false},
+    "workspace_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "configPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "before_sha256", "after_sha256", "dataset", "smplx_gender"],
+      "properties": {
+        "relative_path": {"const": "avatar/main/config.py"},
+        "before_sha256": {"$ref": "#/$defs/sha256"},
+        "after_sha256": {"$ref": "#/$defs/sha256"},
+        "dataset": {"const": "Custom"},
+        "smplx_gender": {"enum": ["female", "male", "neutral"]}
+      }
+    },
+    "injectedPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["destination", "source_sha256", "replaced_sha256", "patched_sha256"],
+      "properties": {
+        "destination": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "replaced_sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "patched_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "linkedAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_relative_path", "destination", "sha256", "reference_vision_asset"],
+      "properties": {
+        "source_relative_path": {"type": "string", "minLength": 1},
+        "destination": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "reference_vision_asset": {"type": "boolean"}
+      }
+    }
+  }
+}

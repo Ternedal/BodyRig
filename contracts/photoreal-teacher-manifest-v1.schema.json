@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/photoreal-teacher-manifest-v1.schema.json",
+  "title": "BodyRig Photoreal Teacher Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
+    "adapter", "adapter_revision", "upstream_repository", "upstream_commit",
+    "training_complete", "consumed_training_source_keys", "consumed_training_observations",
+    "artifacts", "photoreal_acceptance_authority",
+    "human_visual_acceptance_required", "production_activation"
+  ],
+  "properties": {
+    "format": {"const": "bodyrig-photoreal-teacher-manifest"},
+    "version": {"const": 1},
+    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
+    "adapter": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+    "adapter_revision": {"type": "string", "minLength": 1, "maxLength": 160},
+    "upstream_repository": {"type": "string", "pattern": "^https://", "maxLength": 1024},
+    "upstream_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "training_complete": {"const": true},
+    "consumed_training_source_keys": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+    },
+    "consumed_training_observations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000000,
+      "items": {"$ref": "#/$defs/consumedObservation"}
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": {"$ref": "#/$defs/artifact"}
+    },
+    "photoreal_acceptance_authority": {"const": false},
+    "human_visual_acceptance_required": {"const": true},
+    "production_activation": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "consumedObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_key", "frame_sha256", "timestamp_seconds", "eye"],
+      "properties": {
+        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "frame_sha256": {"$ref": "#/$defs/sha256"},
+        "timestamp_seconds": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
+        "eye": {"enum": ["mono", "left", "right"]}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "relative_path", "size_bytes", "sha256"],
+      "properties": {
+        "kind": {"type": "string", "minLength": 1, "maxLength": 64},
+        "relative_path": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
