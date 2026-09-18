@@ -50,6 +50,9 @@ BLUEPRINT_STYLE_SHA_RE = re.compile(
 STYLE_EVIDENCE_SUFFIX_RE = re.compile(
     r" \| style_report_sha256=([0-9a-f]{64}) \| style_approval_sha256=([0-9a-f]{64})$"
 )
+STACK_STYLE_SHA_RE = re.compile(
+    r"^personality-stack-v1 \| stack_sha256=([0-9a-f]{64}) \|"
+)
 
 
 def _find_personality_revision(
@@ -406,6 +409,175 @@ def _read_json_evidence(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _load_style_evidence_by_sha(
+    root_path: Path,
+    person_id: str,
+    report_sha: str,
+    approval_sha: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    base = root_path / "personality-style-evidence" / person_id
+    report_raw = _read_json_evidence(
+        base / "reports" / f"{report_sha}.json",
+        label="style report",
+    )
+    approval_raw = _read_json_evidence(
+        base / "approvals" / f"{approval_sha}.json",
+        label="style approval",
+    )
+    try:
+        normalized_report = validate_candidate_report(report_raw)
+        verified_approval = verify_approval(
+            normalized_report,
+            validate_approval(approval_raw),
+        )
+    except PersonalityExemplarApprovalError as exc:
+        raise PersonalityAuthoringError(
+            f"saved style evidence is invalid: {exc}"
+        ) from exc
+    if exemplar_evidence_sha256(normalized_report) != report_sha:
+        raise PersonalityAuthoringError("saved style report SHA-256 mismatch")
+    if exemplar_evidence_sha256(verified_approval) != approval_sha:
+        raise PersonalityAuthoringError("saved style approval SHA-256 mismatch")
+    return normalized_report, verified_approval
+
+
+def _load_stacked_guided_revision(
+    root_path: Path,
+    person_id: str,
+    profile: Mapping[str, Any],
+    revision: Mapping[str, Any],
+    stack_digest: str,
+) -> dict[str, Any]:
+    stack_path = (
+        root_path
+        / "personality-stacks"
+        / person_id
+        / f"{stack_digest}.json"
+    )
+    stack_raw = _read_json_evidence(stack_path, label="personality stack")
+    try:
+        stack = validate_stack(stack_raw)
+    except PersonalityStackError as exc:
+        raise PersonalityAuthoringError(
+            f"personality stack evidence is invalid: {exc}"
+        ) from exc
+    if personality_stack_sha256(stack) != stack_digest:
+        raise PersonalityAuthoringError(
+            "personality stack evidence SHA-256 mismatch"
+        )
+    if stack["person_id"] != person_id:
+        raise PersonalityAuthoringError(
+            "personality stack person does not match revision"
+        )
+
+    baseline_revision = stack["baseline"]["revision_id"]
+    baseline = _verified_source_baseline(
+        root_path,
+        profile,
+        baseline_revision,
+    )
+    baseline_item = baseline["revision"]
+    baseline_binding = baseline["binding"]
+    expected_baseline = {
+        "revision_id": baseline_revision,
+        "artifact_sha256": baseline["artifact_sha256"],
+        "evidence_kind": baseline_binding["evidence"]["kind"],
+        "evidence_sha256": baseline_binding["evidence"]["sha256"],
+        "instructions_sha256": hashlib.sha256(
+            baseline_item["instructions"].encode("utf-8")
+        ).hexdigest(),
+        "default_language": baseline_item["default_language"],
+    }
+    if stack["baseline"] != expected_baseline:
+        raise PersonalityAuthoringError(
+            "source baseline no longer matches personality stack evidence"
+        )
+
+    blueprint_digest = stack["overlay"]["blueprint_sha256"]
+    blueprint_raw = _read_json_evidence(
+        root_path
+        / "personality-blueprints"
+        / person_id
+        / f"{blueprint_digest}.json",
+        label="personality blueprint",
+    )
+    try:
+        blueprint = validate_blueprint(blueprint_raw)
+    except PersonalityBlueprintError as exc:
+        raise PersonalityAuthoringError(
+            f"personality blueprint evidence is invalid: {exc}"
+        ) from exc
+    if (
+        blueprint["version"] != 2
+        or blueprint_sha256(blueprint) != blueprint_digest
+    ):
+        raise PersonalityAuthoringError(
+            "stacked personality blueprint evidence mismatch"
+        )
+
+    overlay_candidate = compile_blueprint(blueprint)
+    style_report = None
+    style_approval = None
+    direct_examples = list(blueprint["style_exemplars"])
+    report_sha = stack["overlay"]["style_report_sha256"]
+    approval_sha = stack["overlay"]["style_approval_sha256"]
+    if report_sha is not None and approval_sha is not None:
+        style_report, style_approval = _load_style_evidence_by_sha(
+            root_path,
+            person_id,
+            report_sha,
+            approval_sha,
+        )
+        overlay_candidate["style_notes"] += (
+            f" | style_report_sha256={report_sha}"
+            f" | style_approval_sha256={approval_sha}"
+        )
+        approved = list(style_approval["approved_exemplars"])
+        if (
+            len(approved) > len(direct_examples)
+            or direct_examples[len(direct_examples) - len(approved):] != approved
+        ):
+            raise PersonalityAuthoringError(
+                "approved style exemplars no longer match stacked blueprint"
+            )
+        direct_examples = (
+            direct_examples[:-len(approved)]
+            if approved
+            else direct_examples
+        )
+
+    try:
+        candidate = compile_stack(
+            stack,
+            baseline_instructions=baseline_item["instructions"],
+            overlay_candidate=overlay_candidate,
+        )
+    except PersonalityStackError as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+
+    if (
+        revision.get("instructions") != candidate["instructions"]
+        or revision.get("default_language") != candidate["default_language"]
+        or revision.get("style_notes") != candidate["style_notes"]
+    ):
+        raise PersonalityAuthoringError(
+            "saved stacked personality no longer matches immutable evidence"
+        )
+
+    return {
+        "person_id": person_id,
+        "revision_id": revision["revision_id"],
+        "blueprint_sha256": blueprint_digest,
+        "blueprint": blueprint,
+        "direct_style_exemplars": direct_examples,
+        "style_report": style_report,
+        "style_approval": style_approval,
+        "personality_stack": stack,
+        "personality_stack_sha256": stack_digest,
+        "source_baseline_revision": baseline_revision,
+    }
+
+
 def load_guided_personality_revision(
     root: str | os.PathLike[str],
     person_id: str,
@@ -429,6 +601,15 @@ def load_guided_personality_revision(
         raise PersonalityAuthoringError("personality revision is not registered on this person")
 
     saved_style = str(revision.get("style_notes") or "")
+    stack_match = STACK_STYLE_SHA_RE.match(saved_style)
+    if stack_match is not None:
+        return _load_stacked_guided_revision(
+            root_path,
+            person_id,
+            profile,
+            revision,
+            stack_match.group(1),
+        )
     match = BLUEPRINT_STYLE_SHA_RE.match(saved_style)
     if match is None:
         raise PersonalityAuthoringError(
@@ -481,33 +662,12 @@ def load_guided_personality_revision(
                 "saved personality style evidence suffix is invalid"
             )
         report_sha, approval_sha = suffix_match.groups()
-        base = root_path / "personality-style-evidence" / person_id
-        report_raw = _read_json_evidence(
-            base / "reports" / f"{report_sha}.json",
-            label="style report",
+        normalized_report, verified_approval = _load_style_evidence_by_sha(
+            root_path,
+            person_id,
+            report_sha,
+            approval_sha,
         )
-        approval_raw = _read_json_evidence(
-            base / "approvals" / f"{approval_sha}.json",
-            label="style approval",
-        )
-        try:
-            normalized_report = validate_candidate_report(report_raw)
-            verified_approval = verify_approval(
-                normalized_report,
-                validate_approval(approval_raw),
-            )
-        except PersonalityExemplarApprovalError as exc:
-            raise PersonalityAuthoringError(
-                f"saved style evidence is invalid: {exc}"
-            ) from exc
-        if exemplar_evidence_sha256(normalized_report) != report_sha:
-            raise PersonalityAuthoringError(
-                "saved style report SHA-256 mismatch"
-            )
-        if exemplar_evidence_sha256(verified_approval) != approval_sha:
-            raise PersonalityAuthoringError(
-                "saved style approval SHA-256 mismatch"
-            )
         approved = list(verified_approval["approved_exemplars"])
         if (
             len(approved) > len(direct_examples)
