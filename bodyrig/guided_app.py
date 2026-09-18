@@ -4,7 +4,7 @@ import os
 from typing import Annotated, Any
 
 from fastapi import HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .app import DEFAULT_HOST, DEFAULT_PORT, app, person_library
 from .personality_audition_suite import PersonalityAuditionSuiteError, build_audition_suite
@@ -14,7 +14,16 @@ from .personality_authoring import (
     load_personality_trait_profile,
     save_guided_personality,
 )
-from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_source import (
+    SourcePersonalityError,
+    build_source_personality,
+    build_source_style_candidates,
+)
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    build_approval,
+    canonical_sha256 as exemplar_report_sha256,
+)
 from .personality_traits import (
     PersonalityTraitProfileError,
     build_trait_profile,
@@ -60,6 +69,22 @@ class GuidedPersonalityRequest(BaseModel):
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
     feedback: str = Field(default="", max_length=8000)
+
+
+class SourceStyleApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body_revision: str = Field(min_length=1, max_length=24)
+    candidate_report_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    selected_candidate_indexes: list[StrictInt] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    speaker_identity_confirmed: bool
+    style_use_approved: bool
 
 
 class PersonalitySuiteSealRequest(BaseModel):
@@ -134,6 +159,74 @@ def personality_revision_traits(
     return {
         "available": True,
         **value,
+    }
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/source-style-candidates"
+)
+def source_style_candidates(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        return build_source_style_candidates(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/source-style-approval"
+)
+def approve_source_style(
+    person_id: str,
+    request: SourceStyleApprovalRequest,
+) -> dict:
+    try:
+        source = build_source_style_candidates(
+            person_library(),
+            person_id,
+            body_revision=request.body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    report = source.get("report")
+    if source.get("available") is not True or not isinstance(report, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="selected body source has no transcript/caption style evidence",
+        )
+    actual_sha = exemplar_report_sha256(report)
+    if actual_sha != request.candidate_report_sha256:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Stash style candidate report changed during revalidation; "
+                "reload candidates before approval"
+            ),
+        )
+    try:
+        approval = build_approval(
+            report,
+            selected_candidate_indexes=request.selected_candidate_indexes,
+            speaker_identity_confirmed=request.speaker_identity_confirmed,
+            style_use_approved=request.style_use_approved,
+        )
+    except PersonalityExemplarApprovalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "report": report,
+        "report_sha256": actual_sha,
+        "approval": approval,
+        "body_revision": request.body_revision,
+        "source_manifest_sha256": source["source_manifest_sha256"],
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
     }
 
 

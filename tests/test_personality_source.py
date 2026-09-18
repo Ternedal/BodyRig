@@ -10,7 +10,12 @@ import pytest
 
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
 from bodyrig.person_source_alignment import file_sha256, read_binding, write_binding
-from bodyrig.personality_source import SourcePersonalityError, _discover_transcripts, build_source_personality
+from bodyrig.personality_source import (
+    SourcePersonalityError,
+    _discover_transcripts,
+    build_source_personality,
+    build_source_style_candidates,
+)
 
 
 def _source_profile(root: Path, *, with_transcript: bool) -> tuple[dict, Path, Path, Path | None]:
@@ -287,3 +292,90 @@ def test_transcript_discovery_scans_shared_media_directory_once(
         ("a", first_caption.name),
         ("b", second_caption.name),
     ]
+
+def test_source_style_candidates_are_non_mutating_and_path_free(
+    tmp_path: Path,
+) -> None:
+    profile, _, _, transcript = _source_profile(
+        tmp_path,
+        with_transcript=True,
+    )
+    assert transcript is not None
+
+    result = build_source_style_candidates(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+    )
+
+    assert result["ok"] is True
+    assert result["available"] is True
+    assert result["body_revision"] == "body-r0001"
+    assert result["performer"] == {
+        "id": "42",
+        "name": "Source Fixture",
+    }
+    assert result["transcript_count"] == 1
+    assert result["source_media_count"] == 1
+    assert result["operator_review_required"] is True
+    assert result["speaker_identity_authority"] is False
+    assert result["personality_authority"] is False
+    assert result["content_semantics"] == "style-only-not-biography-or-memory"
+    assert result["report"]["candidate_count"] == 2
+    assert result["report"]["operator_review_required"] is True
+    assert result["report"]["speaker_identity_authority"] is False
+    assert result["report"]["personality_authority"] is False
+    encoded = json.dumps(result)
+    assert str(transcript.resolve()) not in encoded
+    assert str((tmp_path / "scene.mp4").resolve()) not in encoded
+    assert load_profile(
+        tmp_path,
+        profile["person_id"],
+    )["personality_revisions"] == []
+
+
+def test_source_style_candidates_report_no_transcript_without_guessing(
+    tmp_path: Path,
+) -> None:
+    profile, _, _, _ = _source_profile(
+        tmp_path,
+        with_transcript=False,
+    )
+
+    result = build_source_style_candidates(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+    )
+
+    assert result["available"] is False
+    assert result["transcript_count"] == 0
+    assert result["transcripts"] == []
+    assert result["report"] is None
+    assert load_profile(
+        tmp_path,
+        profile["person_id"],
+    )["personality_revisions"] == []
+
+
+def test_source_style_candidates_fail_closed_on_bound_media_tamper(
+    tmp_path: Path,
+) -> None:
+    profile, _, media, _ = _source_profile(
+        tmp_path,
+        with_transcript=True,
+    )
+    media.write_bytes(b"tampered-before-style-preview")
+
+    with pytest.raises(SourcePersonalityError, match="bytes no longer match"):
+        build_source_style_candidates(
+            tmp_path,
+            profile["person_id"],
+            body_revision="body-r0001",
+        )
+
+    assert load_profile(
+        tmp_path,
+        profile["person_id"],
+    )["personality_revisions"] == []
+

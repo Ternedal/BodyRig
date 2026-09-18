@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from .person_profiles import PersonProfileError, add_personality_revision, load_profile
 from .person_source_alignment import PersonSourceAlignmentError, file_sha256, write_binding
 from .person_voice_source import PersonVoiceSourceError, source_files_for_body
+from .personality_exemplar_approval import canonical_sha256 as exemplar_report_sha256
 from .personality_exemplars import PersonalityExemplarError, build_exemplar_candidates
 
 
@@ -158,6 +159,95 @@ def _discover_transcripts(source_files: list[Mapping[str, Any]]) -> list[dict[st
     return found
 
 
+def _source_style_material(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_revision: str,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, Any] | None,
+]:
+    try:
+        profile = load_profile(root, person_id)
+        source = source_files_for_body(
+            root,
+            profile,
+            body_revision=body_revision,
+        )
+    except (PersonProfileError, PersonVoiceSourceError) as exc:
+        raise SourcePersonalityError(str(exc)) from exc
+
+    transcripts = _discover_transcripts(source["source_files"])
+    report: dict[str, Any] | None = None
+    if transcripts:
+        try:
+            report = build_exemplar_candidates(
+                [item["path"] for item in transcripts],
+                suggested_limit=_MAX_EXEMPLARS,
+            )
+        except PersonalityExemplarError as exc:
+            raise SourcePersonalityError(
+                f"source transcript evidence is invalid: {exc}"
+            ) from exc
+    return profile, source, transcripts, report
+
+
+def build_source_style_candidates(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_revision: str,
+) -> dict[str, Any]:
+    """Return non-mutating Stash-bound speaking-style candidates.
+
+    The selected body source binding is fully revalidated through the canonical
+    source-files helper before transcript discovery. The report carries no
+    speaker or personality authority and still requires explicit operator
+    approval before Guided Personality can consume it.
+    """
+
+    profile, source, transcripts, report = _source_style_material(
+        root,
+        person_id,
+        body_revision=body_revision,
+    )
+    performer = profile.get("source") or {}
+    return {
+        "ok": True,
+        "available": report is not None,
+        "person_id": person_id,
+        "body_revision": body_revision,
+        "performer": {
+            "id": str(performer.get("performer_id") or ""),
+            "name": str(performer.get("performer_name") or ""),
+        },
+        "source_manifest_sha256": source["manifest_sha256"],
+        "source_media_count": len(source["source_files"]),
+        "transcript_count": len(transcripts),
+        "transcripts": [
+            {
+                "scene_id": str(item["scene_id"]),
+                "name": str(item["name"]),
+                "sha256": str(item["sha256"]),
+            }
+            for item in transcripts
+        ],
+        "report": report,
+        "report_sha256": (
+            exemplar_report_sha256(report)
+            if report is not None
+            else None
+        ),
+        "operator_review_required": True,
+        "speaker_identity_authority": False,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
+
+
 def _instructions(exemplars: list[str]) -> str:
     lines = [
         "Portray this person consistently rather than describing a persona from the outside.",
@@ -188,24 +278,16 @@ def _build_source_personality(
     body_revision: str,
     default_language: str = "en",
 ) -> dict[str, Any]:
-    try:
-        profile = load_profile(root, person_id)
-        source = source_files_for_body(root, profile, body_revision=body_revision)
-    except (PersonProfileError, PersonVoiceSourceError) as exc:
-        raise SourcePersonalityError(str(exc)) from exc
-
-    transcripts = _discover_transcripts(source["source_files"])
-    exemplars: list[str] = []
-    report: dict[str, Any] | None = None
-    if transcripts:
-        try:
-            report = build_exemplar_candidates(
-                [item["path"] for item in transcripts],
-                suggested_limit=_MAX_EXEMPLARS,
-            )
-        except PersonalityExemplarError as exc:
-            raise SourcePersonalityError(f"source transcript evidence is invalid: {exc}") from exc
-        exemplars = list(report["suggested_exemplars"])
+    profile, source, transcripts, report = _source_style_material(
+        root,
+        person_id,
+        body_revision=body_revision,
+    )
+    exemplars: list[str] = (
+        list(report["suggested_exemplars"])
+        if report is not None
+        else []
+    )
 
     evidence = {
         "format": "bodyrig-source-personality-evidence",
