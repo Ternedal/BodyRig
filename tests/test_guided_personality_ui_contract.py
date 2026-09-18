@@ -57,3 +57,34 @@ def test_guided_ui_requires_bound_report_and_approval_for_transcript_examples() 
     assert "style_report_sha256=" in authoring
     assert "style_approval_sha256=" in authoring
     assert "personality-style-evidence" in authoring
+
+
+
+def test_guided_studio_loads_server_defined_120_trait_matrix_v2() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+    blueprint = Path("bodyrig/personality_blueprint.py").read_text(encoding="utf-8")
+
+    for token in (
+        "Personality Matrix v2 · 120 traits",
+        "/api/v1/personality/trait-matrix",
+        'id="innerTraits"',
+        'id="outerTraits"',
+        'id="traitSearch"',
+        'id="resetTraits"',
+        'inner_ring: traitPayload("inner")',
+        'outer_ring: traitPayload("outer")',
+        'inner.length!==60',
+        'outer.length!==60',
+        "Coordination findes bevidst i både Inner Ring og Outer Ring",
+    ):
+        assert token in html
+
+    assert 'inner_ring: dict[str, Ratio] | None = None' in guided
+    assert 'outer_ring: dict[str, Ratio] | None = None' in guided
+    assert 'def personality_trait_matrix_definition() -> dict:' in guided
+    assert '"bulk_apperception", "Bulk Apperception"' in blueprint
+    assert '"knowledgeableness", "Knowledgeableness"' in blueprint
+    assert '"egocentricism", "Egocentricism"' in blueprint
+    assert '"aggression", "Aggression"' in blueprint
+    assert blueprint.count('("coordination", "Coordination")') == 2
