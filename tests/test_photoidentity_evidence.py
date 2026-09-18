@@ -223,7 +223,7 @@ def test_observation_evidence_v1_discriminator_rejects_non_numeric(
     tampered["version"] = invalid
     with pytest.raises(
         PhotoIdentityEvidenceError,
-        match="observation evidence format/version",
+        match="observation evidence fields/format",
     ):
         validate_observation_evidence(tampered)
 
