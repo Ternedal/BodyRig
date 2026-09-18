@@ -11,6 +11,7 @@ from .personality_audition_suite import PersonalityAuditionSuiteError, build_aud
 from .personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
+    load_personality_trait_profile,
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
@@ -106,6 +107,34 @@ def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
 @app.get("/api/v1/personality/traits/catalog")
 def personality_trait_catalog() -> dict:
     return trait_catalog()
+
+
+@app.get(
+    "/api/v1/people/{person_id}/personality/revisions/{revision_id}/traits"
+)
+def personality_revision_traits(
+    person_id: str,
+    revision_id: str,
+) -> dict:
+    try:
+        value = load_personality_trait_profile(
+            person_library(),
+            person_id,
+            revision_id=revision_id,
+        )
+    except PersonalityAuthoringError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if value is None:
+        return {
+            "available": False,
+            "revision_id": revision_id,
+            "trait_profile_sha256": None,
+            "trait_profile": None,
+        }
+    return {
+        "available": True,
+        **value,
+    }
 
 
 @app.post("/api/v1/people/{person_id}/personality/guided/preview")
