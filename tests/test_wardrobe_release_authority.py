@@ -218,3 +218,38 @@ def test_frozen_render_authority_tamper_revokes_finalized_authority(tmp_path: Pa
             body_release_status=_body_release(),
             release_id=receipt["release_id"],
         )
+
+
+def test_finalized_release_version_discriminator_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_review_fixture(tmp_path, monkeypatch)
+    receipt = release.write_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        review_id=REVIEW_ID,
+        bodyrig_revision=BODYRIG_REVISION,
+    )
+
+    tampered = dict(receipt)
+    tampered["version"] = True
+    with pytest.raises(
+        release.WardrobeReleaseAuthorityError,
+        match="format/version/policy",
+    ):
+        release.validate_release_authority_structure(
+            tampered,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+        )
+
+    numeric = dict(receipt)
+    numeric["version"] = 1.0
+    validated = release.validate_release_authority_structure(
+        numeric,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+    )
+    assert validated["version"] == 1.0

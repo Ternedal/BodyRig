@@ -14,6 +14,7 @@ from .hands_feet_nails_authority import HandsFeetNailsAuthorityError, _assembly_
 from .wardrobe_authority import (
     CHECKLIST_FIELDS,
     WardrobeAuthorityError,
+    _is_numeric_v1,
     _sha256_file,
     authority_dir as review_authority_dir,
     read_authority,
@@ -86,7 +87,7 @@ def release_authority_dir(root: str | os.PathLike[str], person_id: str, person_r
 def validate_release_authority_structure(value: Mapping[str, Any], *, assembly_receipt: Mapping[str, Any], body_release_status: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise WardrobeReleaseAuthorityError("finalized wardrobe authority fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise WardrobeReleaseAuthorityError("finalized wardrobe authority format/version/policy mismatch")
     try:
         assembly = _assembly_identity(assembly_receipt)
