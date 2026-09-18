@@ -253,33 +253,86 @@ def build_identity_calibration_diagnostic(
     negative_rows_raw: list[tuple[float, dict[str, Any]]] = []
     for observation in negative_observations["observations"]:
         source = planned_sources[observation["source_key"]]
+        negative_vector = _embedding(
+            observation["embedding"],
+            dimension=dimension,
+            label="diagnostic negative embedding",
+        )
         score = _cosine(
-            _embedding(
-                observation["embedding"],
-                dimension=dimension,
-                label="diagnostic negative embedding",
-            ),
+            negative_vector,
             target_centroid,
         )
-        negative_rows_raw.append(
-            (
-                score,
-                {
-                    "cosine": round(score, 9),
-                    "subject_performer_id":
-                        observation["subject_performer_id"],
-                    "subject_performer_name":
-                        source.get("subject_performer_name", ""),
-                    "source_key": observation["source_key"],
-                    "resolved_path":
-                        str(source.get("resolved_path") or ""),
-                    "timestamp_seconds":
-                        observation.get("timestamp_seconds"),
-                    "eye": observation["eye"],
-                    "frame_sha256": observation["frame_sha256"],
-                },
-            )
+
+        positive_group_matches = [
+            {
+                "group_id": group_id,
+                "cosine": round(
+                    _cosine(
+                        negative_vector,
+                        group_centroids[group_id],
+                    ),
+                    9,
+                ),
+            }
+            for group_id in group_ids
+        ]
+        positive_group_matches.sort(
+            key=lambda item: float(item["cosine"]),
+            reverse=True,
         )
+
+        positive_reference_matches = [
+            {
+                "group_id": reference["group_id"],
+                "source_key": reference["source_key"],
+                "timestamp_seconds":
+                    reference.get("timestamp_seconds"),
+                "eye": reference["eye"],
+                "frame_sha256": reference["frame_sha256"],
+                "cosine": round(
+                    _cosine(negative_vector, vector),
+                    9,
+                ),
+            }
+            for reference, vector in reference_vectors
+        ]
+        positive_reference_matches.sort(
+            key=lambda item: float(item["cosine"]),
+            reverse=True,
+        )
+
+        row = {
+            "cosine": round(score, 9),
+            "subject_performer_id":
+                observation["subject_performer_id"],
+            "subject_performer_name":
+                source.get("subject_performer_name", ""),
+            "source_key": observation["source_key"],
+            "resolved_path":
+                str(source.get("resolved_path") or ""),
+            "timestamp_seconds":
+                observation.get("timestamp_seconds"),
+            "eye": observation["eye"],
+            "frame_sha256": observation["frame_sha256"],
+            "positive_group_matches": positive_group_matches,
+            "closest_positive_group":
+                positive_group_matches[0],
+            "positive_reference_matches":
+                positive_reference_matches,
+            "closest_positive_reference":
+                positive_reference_matches[0],
+        }
+
+        if len(positive_group_matches) >= 2:
+            row["closest_positive_group_margin"] = round(
+                float(positive_group_matches[0]["cosine"])
+                - float(positive_group_matches[1]["cosine"]),
+                9,
+            )
+        else:
+            row["closest_positive_group_margin"] = None
+
+        negative_rows_raw.append((score, row))
 
     negative_rows_raw.sort(
         key=lambda item: item[0],
@@ -486,6 +539,30 @@ def build_identity_calibration_diagnostic(
         if item[0] > maximum_allowed_negative
     ]
 
+    violating_closest_group_counts: dict[str, int] = {}
+    for _, row in violating_negative_rows:
+        group_id = str(
+            row["closest_positive_group"]["group_id"]
+        )
+        violating_closest_group_counts[group_id] = (
+            violating_closest_group_counts.get(group_id, 0) + 1
+        )
+
+    violating_closest_group_summaries = [
+        {
+            "group_id": group_id,
+            "observation_count": count,
+            "observation_fraction": round(
+                count / len(violating_negative_rows),
+                9,
+            ),
+        }
+        for group_id, count in sorted(
+            violating_closest_group_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+    ]
+
     positive_rows = [item[1] for item in positive_rows_raw]
     negative_rows = [item[1] for item in negative_rows_raw]
 
@@ -589,6 +666,8 @@ def build_identity_calibration_diagnostic(
                 for item in violating_negative_rows
             }
         ),
+        "violating_closest_positive_group_summaries":
+            violating_closest_group_summaries,
         "negative_performer_summaries": performer_summaries,
         "negative_source_summaries": source_summaries,
         "highest_collision_negative_performer":

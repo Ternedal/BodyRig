@@ -24,6 +24,14 @@ def test_operator_script_uses_run_root_diagnostic_cli() -> None:
     assert 'Stage-13 diagnostic summary' in text
     assert 'Separation margin: observed' in text
     assert 'Highest negative match' in text
+    assert 'Closest positive group:' in text
+    assert '$highest.closest_positive_group.group_id' in text
+    assert '$highest.closest_positive_group_margin' in text
+    assert 'Closest positive reference:' in text
+    assert '$highest.closest_positive_reference.group_id' in text
+    assert '$highest.closest_positive_reference.source_key' in text
+    assert '$highest.closest_positive_reference.cosine' in text
+    assert 'Closest positive reference timestamp seconds:' in text
     assert 'Source: $($highest.resolved_path)' in text
     assert 'Timestamp seconds: $($highest.timestamp_seconds)' in text
     assert 'Authority: diagnostic-only; no matching, training, or production authority.' in text

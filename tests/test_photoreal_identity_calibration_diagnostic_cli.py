@@ -140,6 +140,13 @@ def test_cli_summary_exposes_stage13_separation_context(
             "stage13_calibration_blockers": [
                 "positive/negative identity separation is insufficient"
             ],
+            "violating_closest_positive_group_summaries": [
+                {
+                    "group_id": "a",
+                    "observation_count": 1,
+                    "observation_fraction": 1.0,
+                }
+            ],
             "highest_negative_match": {
                 "subject_performer_id": "7",
                 "resolved_path": r"C:\negative\p7.mp4",
@@ -166,4 +173,13 @@ def test_cli_summary_exposes_stage13_separation_context(
     assert payload["maximum_allowed_negative_cosine"] == 0.7
     assert payload["stage13_calibration_blockers"] == [
         "positive/negative identity separation is insufficient"
+    ]
+    assert payload[
+        "violating_closest_positive_group_summaries"
+    ] == [
+        {
+            "group_id": "a",
+            "observation_count": 1,
+            "observation_fraction": 1.0,
+        }
     ]

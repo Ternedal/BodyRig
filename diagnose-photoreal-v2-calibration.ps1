@@ -113,6 +113,24 @@ Write-Host (
         $highest.subject_performer_name
 )
 Write-Host "Cosine: $($highest.cosine)"
+Write-Host (
+    "Closest positive group: {0} (cosine {1}; margin to next {2})" -f
+        $highest.closest_positive_group.group_id,
+        $highest.closest_positive_group.cosine,
+        $highest.closest_positive_group_margin
+)
+Write-Host (
+    "Closest positive reference: group {0}; source {1}; cosine {2}" -f
+        $highest.closest_positive_reference.group_id,
+        $highest.closest_positive_reference.source_key,
+        $highest.closest_positive_reference.cosine
+)
+if ($null -ne $highest.closest_positive_reference.timestamp_seconds) {
+    Write-Host (
+        "Closest positive reference timestamp seconds: {0}" -f
+            $highest.closest_positive_reference.timestamp_seconds
+    )
+}
 Write-Host "Source: $($highest.resolved_path)"
 if ($null -ne $highest.timestamp_seconds) {
     Write-Host "Timestamp seconds: $($highest.timestamp_seconds)"
