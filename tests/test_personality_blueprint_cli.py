@@ -5,6 +5,7 @@ from pathlib import Path
 
 from bodyrig import personality_blueprint_cli
 from bodyrig.person_profiles import create_profile, load_profile
+from bodyrig.personality_authoring import load_personality_trait_profile
 from bodyrig.personality_exemplar_approval import build_approval
 from bodyrig.personality_traits import (
     build_trait_profile,
@@ -260,3 +261,47 @@ def test_cli_rejects_invalid_trait_profile(
 
     assert rc == 1
     assert "trait profile is invalid" in capsys.readouterr().err
+
+def test_cli_saved_trait_candidate_persists_reloadable_canonical_evidence(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    library = tmp_path / "people"
+    profile = create_profile(library, display_name="Trait CLI")
+    traits = build_trait_profile(
+        inner_ring={"curiosity": 0.9},
+        outer_ring={"empathy": 0.85},
+    )
+    trait_file = tmp_path / "traits.json"
+    trait_file.write_text(json.dumps(traits), encoding="utf-8")
+    output = tmp_path / "blueprints" / "trait-personality.json"
+
+    rc = personality_blueprint_cli.main([
+        "--person-library", str(library),
+        "--person-id", profile["person_id"],
+        "--save-candidate",
+        "--out", str(output),
+        "--trait-profile", str(trait_file),
+    ])
+
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    digest = trait_profile_sha256(traits)
+    evidence = Path(result["trait_evidence_path"])
+    assert evidence == (
+        library
+        / "personality-traits"
+        / profile["person_id"]
+        / f"{digest}.json"
+    )
+    assert evidence.is_file()
+
+    loaded = load_personality_trait_profile(
+        library,
+        profile["person_id"],
+        revision_id=result["saved_personality_revision"],
+    )
+    assert loaded is not None
+    assert loaded["trait_profile_sha256"] == digest
+    assert loaded["trait_profile"] == traits
+
