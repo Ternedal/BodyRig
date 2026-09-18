@@ -401,7 +401,14 @@
     if(directStyleCount()+approvedTranscriptCount()>=12) return toast("Der kan højst være 12 style exemplars i alt, inklusive godkendte transcript-replikker.",true);
     const row=document.createElement("div"); row.className="example-row";
     row.innerHTML=`<input maxlength="1000" placeholder="En typisk replik eller formulering" value="${escapeHtml(value)}"><button class="secondary" type="button">×</button>`;
-    row.querySelector("input").addEventListener("input",()=>{updateTranscriptApprovalState();invalidate();});
+    row.querySelector("input").addEventListener("input",event=>{
+      if(directStyleCount()+approvedTranscriptCount()>12){
+        event.target.value="";
+        toast("Loftet på 12 style exemplars er allerede brugt af godkendte transcript-replikker.",true);
+      }
+      updateTranscriptApprovalState();
+      invalidate();
+    });
     row.querySelector("button").addEventListener("click",()=>{row.remove();updateTranscriptApprovalState();invalidate();});
     $("examples").appendChild(row);
   }
