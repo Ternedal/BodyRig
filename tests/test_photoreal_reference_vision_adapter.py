@@ -163,6 +163,109 @@ def test_frame_analyzer_routes_equi_through_unique_deprojected_viewports(monkeyp
     assert all(row["projection"] == "equi" for row in result["observations"])
 
 
+def test_calibration_result_retains_quality_metadata_without_granting_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(embedding_dimension=32)
+    request = {
+        "target_performer_id": "42",
+        "identity_bank_sha256": "d" * 64,
+        "sources": [
+            {
+                "source_key": "scene:s7:E:/p7.mp4",
+                "source_sha256": "7" * 64,
+                "subject_performer_id": "7",
+                "samples": [{"timestamp_seconds": 1.0, "eye": "mono"}],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="c" * 64,
+    )
+    monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), False))
+
+    def candidate_rows(_runtime, _image, *, base, candidate_prefix=""):
+        return [
+            {
+                **base,
+                "frame_sha256": "1" * 64,
+                "perceptual_hash": "0123456789abcdef",
+                "candidate_id": "person-000",
+                "person_detected": True,
+                "width": 1920,
+                "height": 1080,
+                "view_bin": "front",
+                "face_visibility": 0.9,
+                "full_body_visibility": 0.8,
+                "person_fraction": 0.25,
+                "sharpness": 0.7,
+                "motion": 0.0,
+                "occlusion": 0.1,
+                "identity_measurement_status": "available",
+                "identity_embedding": [1.0] + [0.0] * 31,
+            }
+        ]
+
+    monkeypatch.setattr(adapter, "_candidate_rows", candidate_rows)
+
+    result = adapter._calibration_result(runtime, request, args)
+    row = result["observations"][0]
+
+    assert row["candidate_id"] == "person-000"
+    assert row["candidate_count"] == 1
+    assert row["face_visibility"] == 0.9
+    assert row["full_body_visibility"] == 0.8
+    assert row["sharpness"] == 0.7
+    assert row["occlusion"] == 0.1
+    assert row["identity_measurement_status"] == "available"
+    assert row["identity_measurement_reason"] == "embedding-available"
+    assert row["embedding"] == [1.0] + [0.0] * 31
+    assert result["identity_matching_authority"] is False
+    assert result["teacher_training_authorized"] is False
+    assert result["photoreal_acceptance_authority"] is False
+    assert result["production_activation"] is False
+
+
+def test_calibration_result_preserves_exact_single_person_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(embedding_dimension=32)
+    request = {
+        "target_performer_id": "42",
+        "identity_bank_sha256": "d" * 64,
+        "sources": [
+            {
+                "source_key": "scene:s7:E:/p7.mp4",
+                "source_sha256": "7" * 64,
+                "subject_performer_id": "7",
+                "samples": [{"timestamp_seconds": 1.0, "eye": "mono"}],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="c" * 64,
+    )
+    monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), False))
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_rows",
+        lambda *_args, **kwargs: [
+            {"person_detected": True, "identity_measurement_status": "available"},
+            {"person_detected": True, "identity_measurement_status": "available"},
+        ],
+    )
+
+    with pytest.raises(
+        adapter.ReferenceVisionError,
+        match="no unambiguous non-target observations",
+    ):
+        adapter._calibration_result(runtime, request, args)
+
+
 def test_spatial_identity_bootstrap_remains_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), True))
     with pytest.raises(adapter.ReferenceVisionError, match="cannot establish identity authority"):
