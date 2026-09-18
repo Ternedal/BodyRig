@@ -184,8 +184,10 @@ function renderRevisionList(targetId, profile, kind, labelField) {
     const label = item[labelField] || item.voice_package || "";
     const personalityKind = kind === "personality" ? personalityRevisionKind(profile, item) : null;
     const meta = personalityKind ? `${label} · ${personalityKind.label}` : label;
+    const matrixQuery = personalityKind?.label === "Matrix v2 · 120 traits" ? "edit_revision" : "baseline_revision";
+    const matrixLabel = personalityKind?.label === "Matrix v2 · 120 traits" ? "Redigér 120 traits" : "Åbn som baseline";
     const matrixLink = kind === "personality"
-      ? `<a class="secondary personality-matrix-link" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&baseline_revision=${encodeURIComponent(item.revision_id)}">Åbn i 120 traits</a>`
+      ? `<a class="secondary personality-matrix-link" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&${matrixQuery}=${encodeURIComponent(item.revision_id)}">${matrixLabel}</a>`
       : "";
     const candidateAction = active
       ? '<span class="badge">I aktiv person</span>'
