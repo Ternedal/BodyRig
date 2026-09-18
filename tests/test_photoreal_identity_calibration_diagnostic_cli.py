@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections import defaultdict
+import json
 from pathlib import Path
 
 import pytest
 
+from bodyrig import photoreal_identity_calibration_diagnostic_cli as cli
 from bodyrig.photoreal_identity_calibration_diagnostic_cli import (
     _parser,
     _resolve_paths,
@@ -118,3 +121,49 @@ def test_explicit_mode_rejects_partial_paths(
         _resolve_paths(args, parser)
 
     assert exc.value.code == 2
+
+
+def test_cli_summary_exposes_stage13_separation_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result = defaultdict(
+        lambda: 0,
+        {
+            "format": "bodyrig-photoreal-identity-calibration-diagnostic",
+            "version": 1,
+            "target_performer_id": "42",
+            "observed_separation_margin": -0.125,
+            "minimum_required_separation_margin": 0.05,
+            "maximum_allowed_negative_cosine": 0.7,
+            "stage13_calibration_blockers": [
+                "positive/negative identity separation is insufficient"
+            ],
+            "highest_negative_match": {
+                "subject_performer_id": "7",
+                "resolved_path": r"C:\negative\p7.mp4",
+            },
+            "highest_collision_negative_source": {
+                "source_key": "n7",
+                "resolved_path": r"C:\negative\p7.mp4",
+            },
+        },
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "build_identity_calibration_diagnostic_files",
+        lambda *args, **kwargs: result,
+    )
+
+    exit_code = cli.main(["--run-root", str(tmp_path)])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["observed_separation_margin"] == -0.125
+    assert payload["minimum_required_separation_margin"] == 0.05
+    assert payload["maximum_allowed_negative_cosine"] == 0.7
+    assert payload["stage13_calibration_blockers"] == [
+        "positive/negative identity separation is insufficient"
+    ]
