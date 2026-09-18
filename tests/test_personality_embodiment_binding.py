@@ -483,3 +483,51 @@ def test_persisted_trait_evidence_must_match_digest_path(
             person_id=person_id,
             digest=digest,
         )
+
+def test_binding_accepts_exact_stash_transcript_style_suffix_for_bound_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bodyprint = _full_bodyprint()
+    _patch_body(monkeypatch, bodyprint)
+    blueprint = _blueprint(bodyprint)
+    suffix = (
+        " | style_report_sha256=" + "1" * 64
+        + " | style_approval_sha256=" + "2" * 64
+        + " | style_source=stash-source-transcript"
+        + " | style_source_body_revision=body-r0001"
+        + " | style_source_manifest_sha256=" + "3" * 64
+    )
+
+    receipt = build_binding(
+        _profile(blueprint, style_suffix=suffix),
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+    )
+
+    assert receipt["blueprint_sha256"] == blueprint_sha256(blueprint)
+
+
+def test_binding_rejects_stash_transcript_style_suffix_for_other_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bodyprint = _full_bodyprint()
+    _patch_body(monkeypatch, bodyprint)
+    blueprint = _blueprint(bodyprint)
+    suffix = (
+        " | style_report_sha256=" + "1" * 64
+        + " | style_approval_sha256=" + "2" * 64
+        + " | style_source=stash-source-transcript"
+        + " | style_source_body_revision=body-r0002"
+        + " | style_source_manifest_sha256=" + "3" * 64
+    )
+
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="style source body revision conflicts",
+    ):
+        build_binding(
+            _profile(blueprint, style_suffix=suffix),
+            personality_revision="personality-r0001",
+            blueprint=blueprint,
+        )
+
