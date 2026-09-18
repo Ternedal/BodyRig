@@ -44,8 +44,10 @@ def test_person_studio_labels_personality_provenance_and_links_to_matrix() -> No
         'evidenceKind.startsWith("stash-source-")',
         'evidenceKind === "personality-blueprint-v2"',
         'class="secondary personality-matrix-link"',
-        "baseline_revision=",
+        "baseline_revision",
+        "edit_revision",
         "Provenance:",
-        "Åbn i 120 traits",
+        "Redigér 120 traits",
+        "Åbn som baseline",
     ):
         assert token in app
