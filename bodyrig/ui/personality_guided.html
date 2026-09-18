@@ -6,7 +6,7 @@
   <title>BodyRig · Guided Personality</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}.trait-toolbar input[type="search"]{flex:1;min-width:180px}.trait-toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}.trait-toggle input{width:auto}.trait-rings{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.trait-ring{border:1px solid var(--border);border-radius:11px;background:var(--panel-2);padding:12px;min-width:0}.trait-ring summary{cursor:pointer;font-weight:740}.trait-list{margin-top:10px;display:grid;gap:7px}.trait-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(120px,1.25fr) 46px;gap:9px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}.trait-row:last-child{border-bottom:0}.trait-row label{margin:0;font-size:11px}.trait-row input{width:100%}.trait-row.hidden{display:none}.trait-value{text-align:right;font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted)}.trait-help{display:block;color:var(--muted);font-weight:400;font-size:10px;margin-top:2px}.trait-summary{font-size:12px;color:var(--muted)}@media(max-width:1000px){.trait-rings{grid-template-columns:1fr}}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}}
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.stash-style-review{margin-top:12px}.style-candidate-list{display:grid;gap:6px;max-height:360px;overflow:auto;margin:10px 0;padding-right:4px}.style-candidate-row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start;border:1px solid var(--border);border-radius:8px;padding:8px;background:#131619}.style-candidate-row input{width:auto;margin-top:2px}.style-candidate-index{color:var(--muted);font-size:10px}.style-candidate-suggested{font-size:10px;color:var(--muted)}.stash-style-confirmations{display:grid;gap:6px;margin-top:10px}.trait-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}.trait-toolbar input[type="search"]{flex:1;min-width:180px}.trait-toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}.trait-toggle input{width:auto}.trait-rings{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.trait-ring{border:1px solid var(--border);border-radius:11px;background:var(--panel-2);padding:12px;min-width:0}.trait-ring summary{cursor:pointer;font-weight:740}.trait-list{margin-top:10px;display:grid;gap:7px}.trait-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(120px,1.25fr) 46px;gap:9px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)}.trait-row:last-child{border-bottom:0}.trait-row label{margin:0;font-size:11px}.trait-row input{width:100%}.trait-row.hidden{display:none}.trait-value{text-align:right;font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted)}.trait-help{display:block;color:var(--muted);font-weight:400;font-size:10px;margin-top:2px}.trait-summary{font-size:12px;color:var(--muted)}@media(max-width:1000px){.trait-rings{grid-template-columns:1fr}}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -82,7 +82,39 @@
         <div id="examples"></div>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">5 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="card-row">
+          <div>
+            <div class="card-label">5 · Godkendt speaking-style evidence</div>
+            <div class="fine-print">Hent observerbare replikker fra den valgte Stash/body-source eller importér eksisterende report + approval. Evidence må kun påvirke phrasing/rytme — aldrig de 120 traits, biografi eller minder.</div>
+          </div>
+          <button id="clearEvidence" class="secondary" type="button">Ryd evidence</button>
+        </div>
+
+        <div class="evidence-box">
+          <div class="card-row">
+            <div>
+              <strong>Stash speaking-style</strong>
+              <div class="fine-print">BodyRig revaliderer den valgte body-source binding og transcript/caption-filer før kandidater vises.</div>
+            </div>
+            <button id="loadStashStyle" class="secondary" type="button">Hent fra Stash</button>
+          </div>
+          <div id="stashStyleStatus" class="fine-print">Vælg en body-grounding og hent Stash-kandidater.</div>
+          <div id="stashStyleReview" class="stash-style-review hidden">
+            <div class="card-row">
+              <div id="stashStyleSummary" class="fine-print"></div>
+              <button id="selectSuggestedStyle" class="secondary" type="button">Vælg forslag</button>
+            </div>
+            <div id="stashStyleCandidates" class="style-candidate-list"></div>
+            <div class="stash-style-confirmations">
+              <label class="check-row"><input id="stashSpeakerConfirmed" type="checkbox"> Jeg bekræfter, at replikkerne tilhører den valgte performer.</label>
+              <label class="check-row"><input id="stashStyleUseApproved" type="checkbox"> Jeg godkender brug af de valgte replikker som speaking-style evidence.</label>
+            </div>
+            <button id="approveStashStyle" class="primary full" type="button" disabled>Godkend valgte style-eksempler</button>
+            <p class="fine-print">Godkendelsen giver ingen personality-authority. De 120 traits ændres aldrig automatisk af Stash-data.</p>
+          </div>
+        </div>
+
+        <div class="fine-print space-top">Alternativt: importér en eksisterende kandidatrapport og dens præcist bundne approval receipt.</div>
         <div class="evidence-grid">
           <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
           <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
@@ -125,7 +157,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, traitCatalog: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, stashStyleReport: null, stashStyleBodyRevision: null, traitCatalog: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -298,14 +330,143 @@
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig."; return; }
     if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — vælg både candidate report og approval receipt før preview."; return; }
     const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
-    $("evidenceStatus").textContent=`Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
+    $("evidenceStatus").textContent=state.styleEvidenceOrigin==="stash"
+      ? `Stash speaking-style godkendt · ${count} replikker. Serveren verifierer report/approval-bindingen igen ved preview.`
+      : `Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
   }
+
+  function resetStashStyleReview(){
+    state.stashStyleReport=null;
+    state.stashStyleBodyRevision=null;
+    $("stashStyleCandidates").replaceChildren();
+    $("stashStyleReview").classList.add("hidden");
+    $("stashSpeakerConfirmed").checked=false;
+    $("stashStyleUseApproved").checked=false;
+    $("approveStashStyle").disabled=true;
+    $("stashStyleStatus").textContent="Vælg en body-grounding og hent Stash-kandidater.";
+    $("stashStyleSummary").textContent="";
+  }
+
+  function selectedStashStyleIndexes(){
+    return [...$("stashStyleCandidates").querySelectorAll('input[type="checkbox"]:checked')]
+      .map(input=>Number(input.dataset.index))
+      .filter(Number.isInteger)
+      .sort((a,b)=>a-b);
+  }
+
+  function updateStashStyleApprovalState(){
+    const count=selectedStashStyleIndexes().length;
+    const allowed=count>=1&&count<=12&&$("stashSpeakerConfirmed").checked&&$("stashStyleUseApproved").checked;
+    $("approveStashStyle").disabled=!allowed;
+    if(state.stashStyleReport){
+      $("stashStyleSummary").textContent=`${count}/12 valgt · ${state.stashStyleReport.candidate_count} kandidater i report`;
+    }
+  }
+
+  function renderStashStyleCandidates(result){
+    const report=result.report;
+    state.stashStyleReport=report;
+    state.stashStyleBodyRevision=result.body_revision;
+    const target=$("stashStyleCandidates");
+    target.replaceChildren();
+    const suggested=new Set(report.suggested_exemplars||[]);
+    report.candidates.forEach((text,index)=>{
+      const row=document.createElement("label");
+      row.className="style-candidate-row";
+      const input=document.createElement("input");
+      input.type="checkbox";
+      input.dataset.index=String(index);
+      input.addEventListener("change",()=>{
+        if(selectedStashStyleIndexes().length>12){input.checked=false;toast("Du kan højst godkende 12 style-eksempler.",true);}
+        updateStashStyleApprovalState();
+      });
+      const value=document.createElement("span");
+      value.textContent=text;
+      const meta=document.createElement("span");
+      meta.className=suggested.has(text)?"style-candidate-suggested":"style-candidate-index";
+      meta.textContent=suggested.has(text)?"foreslået":`#${index+1}`;
+      row.append(input,value,meta);
+      target.appendChild(row);
+    });
+    $("stashStyleReview").classList.remove("hidden");
+    $("stashStyleStatus").textContent=`${result.performer.name} · ${result.transcript_count} transcript/caption-kilder · source manifest ${result.source_manifest_sha256.slice(0,12)}…`;
+    updateStashStyleApprovalState();
+  }
+
+  async function loadStashStyle(){
+    if(!state.person) return toast("Vælg en person først.",true);
+    const bodyRevision=$("bodyRevision").value;
+    if(!bodyRevision) return toast("Vælg en body-grounding før Stash speaking-style hentes.",true);
+    $("loadStashStyle").disabled=true;
+    $("stashStyleStatus").textContent="Revaliderer den bundne Stash/body-source og transcript/caption-evidence…";
+    try{
+      const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/source-style-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
+      resetStashStyleReview();
+      if(result.available!==true||!result.report){
+        $("stashStyleStatus").textContent=`${result.performer?.name||"Performer"} · ingen transcript/caption-evidence i den valgte source. De 120 traits forbliver uændrede.`;
+        return;
+      }
+      renderStashStyleCandidates(result);
+    }catch(error){
+      resetStashStyleReview();
+      $("stashStyleStatus").textContent=`Stash style-preview fejlede fail-closed: ${error.message}`;
+      toast(error.message,true);
+    }finally{
+      $("loadStashStyle").disabled=false;
+    }
+  }
+
+  function selectSuggestedStashStyle(){
+    if(!state.stashStyleReport)return;
+    const suggested=new Set(state.stashStyleReport.suggested_exemplars||[]);
+    $("stashStyleCandidates").querySelectorAll('input[type="checkbox"]').forEach(input=>{
+      const index=Number(input.dataset.index);
+      input.checked=suggested.has(state.stashStyleReport.candidates[index]);
+    });
+    updateStashStyleApprovalState();
+  }
+
+  async function approveStashStyle(){
+    if(!state.stashStyleReport)return;
+    const indexes=selectedStashStyleIndexes();
+    try{
+      const result=await api("/api/v1/personality/style-exemplars/approval",{
+        method:"POST",
+        body:JSON.stringify({
+          report:state.stashStyleReport,
+          selected_candidate_indexes:indexes,
+          speaker_identity_confirmed:$("stashSpeakerConfirmed").checked,
+          style_use_approved:$("stashStyleUseApproved").checked
+        })
+      });
+      state.styleReport=state.stashStyleReport;
+      state.styleApproval=result.approval;
+      state.styleEvidenceOrigin="stash";
+      $("styleReportFile").value="";
+      $("styleApprovalFile").value="";
+      renderEvidenceStatus();
+      invalidate();
+      toast(`${indexes.length} Stash-replikker er godkendt som speaking-style evidence.`);
+    }catch(error){
+      toast(error.message,true);
+    }
+  }
+
   async function readEvidence(kind, file){
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
-    try{ const value=JSON.parse(await file.text()); state[kind]=value; renderEvidenceStatus(); invalidate(); }
+    try{ const value=JSON.parse(await file.text()); state[kind]=value;state.styleEvidenceOrigin="file";renderEvidenceStatus();invalidate(); }
     catch(error){ state[kind]=null; renderEvidenceStatus(); invalidate(); toast(`Ugyldig JSON evidence: ${error.message}`,true); }
   }
-  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+  function clearEvidence(){
+    state.styleReport=null;
+    state.styleApproval=null;
+    state.styleEvidenceOrigin=null;
+    $("styleReportFile").value="";
+    $("styleApprovalFile").value="";
+    resetStashStyleReview();
+    renderEvidenceStatus();
+    invalidate();
+  }
 
   async function loadPeople(){
     const data=await api("/api/v1/people"); state.people=data.people||[]; const select=$("personSelect"); select.innerHTML='<option value="">Vælg person</option>';
@@ -316,6 +477,7 @@
   }
   async function selectPerson(personId){
     if(!personId){state.person=null;return;}
+    if(state.person&&state.person.person_id!==personId) clearEvidence();
     state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
     const select=$("bodyRevision");
     select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
@@ -353,8 +515,9 @@
   buildSliders(); addExample(); renderEvidenceStatus();
   $("traitSearch").addEventListener("input",applyTraitFilter); $("traitOnlyChanged").addEventListener("change",applyTraitFilter); $("traitReset").addEventListener("click",()=>{$("traitRevisionSelect").value="";$("traitRevisionMeta").textContent="Neutral profil · ingen persisted trait-evidence valgt.";resetTraits();}); $("traitRevisionSelect").addEventListener("change",()=>loadTraitRevision());
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
+  $("loadStashStyle").addEventListener("click",loadStashStyle); $("selectSuggestedStyle").addEventListener("click",selectSuggestedStashStyle); $("approveStashStyle").addEventListener("click",approveStashStyle); $("stashSpeakerConfirmed").addEventListener("change",updateStashStyleApprovalState); $("stashStyleUseApproved").addEventListener("change",updateStashStyleApprovalState);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",()=>{if(state.stashStyleReport||state.styleEvidenceOrigin==="stash"){if(state.styleEvidenceOrigin==="stash"){state.styleReport=null;state.styleApproval=null;state.styleEvidenceOrigin=null;renderEvidenceStatus();}resetStashStyleReview();}invalidate();}); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   (async()=>{try{await loadTraitCatalog();await loadPeople();}catch(error){$("traitSummary").textContent="Trait-katalog eller persondata kunne ikke hentes.";toast(error.message,true);}})();
 })();
