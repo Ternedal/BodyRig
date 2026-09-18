@@ -43,6 +43,30 @@ def build_runtime_preflight_strict(*, workspace_root: str | Path) -> dict[str, A
     return result
 
 
+def validate_runtime_preflight_strict_file(
+    *,
+    workspace_root: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    output = Path(output_path).expanduser().resolve()
+    try:
+        existing = json.loads(output.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            f"runtime preflight output is unreadable: {output}"
+        ) from exc
+    if not isinstance(existing, dict):
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            "runtime preflight output must be a JSON object"
+        )
+    expected = build_runtime_preflight_strict(workspace_root=workspace_root)
+    if existing != expected:
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            "existing runtime preflight does not match the current pinned runtime/workspace"
+        )
+    return existing
+
+
 def build_runtime_preflight_strict_file(*, workspace_root: str | Path, output_path: str | Path) -> dict[str, Any]:
     result = build_runtime_preflight_strict(workspace_root=workspace_root)
     output = Path(output_path).expanduser().resolve()
