@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -35,6 +36,11 @@ from .personality_exemplar_approval import (
 
 class PersonalityAuthoringError(ValueError):
     pass
+
+
+TRAIT_PROFILE_SHA_RE = re.compile(
+    r"(?:^| \| )trait_profile_sha256=([0-9a-f]{64})(?: \||$)"
+)
 
 
 def _find_body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
@@ -267,6 +273,69 @@ def persist_blueprint_evidence(
     digest = blueprint_sha256(normalized)
     path = root_path / "personality-blueprints" / person_id / f"{digest}.json"
     return _persist_json(path, normalized, label="personality blueprint")
+
+
+def load_personality_trait_profile(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    revision_id: str,
+) -> dict[str, Any] | None:
+    root_path = Path(root).expanduser().resolve()
+    try:
+        profile = load_profile(root_path, person_id)
+    except PersonProfileError as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+
+    revision = next(
+        (
+            item
+            for item in profile.get("personality_revisions", [])
+            if item.get("revision_id") == revision_id
+        ),
+        None,
+    )
+    if revision is None:
+        raise PersonalityAuthoringError(
+            f"personality revision {revision_id!r} is not registered on this person"
+        )
+
+    style_notes = str(revision.get("style_notes") or "")
+    match = TRAIT_PROFILE_SHA_RE.search(style_notes)
+    if match is None:
+        return None
+    digest = match.group(1)
+    path = (
+        root_path
+        / "personality-traits"
+        / person_id
+        / f"{digest}.json"
+    )
+    if not path.is_file():
+        raise PersonalityAuthoringError(
+            "bound personality trait evidence is missing"
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+        normalized = validate_trait_profile(value)
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        PersonalityTraitProfileError,
+    ) as exc:
+        raise PersonalityAuthoringError(
+            f"bound personality trait evidence is invalid: {exc}"
+        ) from exc
+    if trait_profile_sha256(normalized) != digest:
+        raise PersonalityAuthoringError(
+            "bound personality trait evidence SHA-256 mismatch"
+        )
+    return {
+        "revision_id": revision_id,
+        "trait_profile_sha256": digest,
+        "trait_profile": normalized,
+    }
 
 
 def persist_trait_profile_evidence(
