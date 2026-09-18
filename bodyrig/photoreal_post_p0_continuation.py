@@ -28,6 +28,7 @@ from .photoreal_teacher_authority import (
     validate_teacher_input_upstream_versions,
 )
 from .photoreal_teacher_input import PhotorealTeacherInputError, build_teacher_input
+from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 from .photoreal_teacher_input_p0_root import (
     PhotorealTeacherInputP0RootError,
     resolve_authorized_p0_root,
@@ -56,12 +57,19 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     return value
 
 
-def _numeric_v1(value: Any, *, label: str) -> None:
+def _numeric_exact(value: Any, expected: float, *, label: str) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise PhotorealPostP0ContinuationError(f"{label} format/version mismatch")
+        raise PhotorealPostP0ContinuationError(f"{label} must be numeric {expected:g}")
     number = float(value)
-    if not math.isfinite(number) or number != 1.0:
-        raise PhotorealPostP0ContinuationError(f"{label} format/version mismatch")
+    if not math.isfinite(number) or number != expected:
+        raise PhotorealPostP0ContinuationError(f"{label} must be numeric {expected:g}")
+
+
+def _numeric_v1(value: Any, *, label: str) -> None:
+    try:
+        _numeric_exact(value, 1.0, label=label)
+    except PhotorealPostP0ContinuationError as exc:
+        raise PhotorealPostP0ContinuationError(f"{label} format/version mismatch") from exc
 
 
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
@@ -228,8 +236,12 @@ def validate_downstream_readiness(
         raise PhotorealPostP0ContinuationError("overnight summary revision mismatch")
     if not _same_path(_text(summary.get("output_root"), label="summary output root"), root):
         raise PhotorealPostP0ContinuationError("overnight summary output root mismatch")
-    if summary.get("status") != "completed" or summary.get("exit_code") != 0:
+    if summary.get("status") != "completed":
         raise PhotorealPostP0ContinuationError("overnight summary is not a completed P0 success")
+    try:
+        _numeric_exact(summary.get("exit_code"), 0.0, label="summary exit code")
+    except PhotorealPostP0ContinuationError as exc:
+        raise PhotorealPostP0ContinuationError("overnight summary is not a completed P0 success") from exc
     for field, expected in (
         ("teacher_training_authorized", True),
         ("human_visual_acceptance_required", True),
@@ -276,7 +288,7 @@ def _expected_teacher_input(
         teacher_input = build_teacher_input(plan, receipt, frame_index, selection)
         validate_teacher_input_document(teacher_input)
         return teacher_input
-    except (PhotorealTeacherInputP0RootError, PhotorealTeacherInputError) as exc:
+    except (PhotorealTeacherInputP0RootError, PhotorealTeacherInputError, PhotorealTeacherRunnerError) as exc:
         raise PhotorealPostP0ContinuationError(f"strict teacher input gate rejected continuation: {exc}") from exc
 
 
