@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
 from PIL import Image
 
 import bodyrig.hands_feet_nails_fingernail_geometry_candidate as subject
@@ -196,3 +201,120 @@ def test_plate_positions_are_offset_outward_from_source_surface(monkeypatch) -> 
         kind="VEC3",
     )
     assert abs(float(values[0][2]) - subject.OFFSET_METERS) < 1.0e-7
+
+
+def _persisted_fingernail_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    version: object,
+) -> tuple[Path, Path]:
+    package = tmp_path / "fingernail.mrbody"
+    package.write_bytes(b"fingernail-package")
+    receipt_path = tmp_path / "fingernail.json"
+    avatar = b"fingernail-avatar"
+    basecolor = b"basecolor"
+    source_detail_sha = "1" * 64
+    counts = {f"plate_{index:02d}": 1 for index in range(10)}
+    receipt = {
+        "format": subject.FORMAT,
+        "version": version,
+        "policy_revision": subject.POLICY_REVISION,
+        "body_id": "body-test",
+        "source_detail_receipt_sha256": "2" * 64,
+        "source_detail_package_sha256": source_detail_sha,
+        "geometry_package_sha256": hashlib.sha256(package.read_bytes()).hexdigest(),
+        "source_avatar_sha256": "3" * 64,
+        "geometry_avatar_sha256": hashlib.sha256(avatar).hexdigest(),
+        "uv_evidence_sha256": "4" * 64,
+        "uv_evidence_path_sha256": "5" * 64,
+        "active_basecolor_sha256": hashlib.sha256(basecolor).hexdigest(),
+        "node_name": subject.NODE_NAME,
+        "mesh_name": subject.MESH_NAME,
+        "material_name": subject.MATERIAL_NAME,
+        "plate_count": 10,
+        "triangle_count": 10,
+        "vertex_count": 30,
+        "plate_triangle_counts": counts,
+        "offset_meters": subject.OFFSET_METERS,
+        "skin_index": 0,
+        "source_grounded": True,
+        "additive_geometry_only": True,
+        "geometry_modified": True,
+        "texture_modified": False,
+        "human_review_required": True,
+        "production_activation": False,
+    }
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    monkeypatch.setattr(
+        subject,
+        "geometry_paths",
+        lambda *args, **kwargs: (package, receipt_path),
+    )
+    monkeypatch.setattr(
+        subject,
+        "_package_avatar",
+        lambda *args, **kwargs: (avatar, "body-test"),
+    )
+    document = {
+        "nodes": [{"name": subject.NODE_NAME}],
+        "meshes": [{"name": subject.MESH_NAME}],
+        "materials": [{"name": subject.MATERIAL_NAME}],
+        "extras": {
+            "bodyrig": {
+                "handsFeetNailsFingernailGeometry": {
+                    "sourceDetailPackageSha256": source_detail_sha,
+                }
+            }
+        },
+    }
+    monkeypatch.setattr(subject, "_read_glb", lambda raw: (document, b"binary"))
+    monkeypatch.setattr(
+        subject,
+        "_active_basecolor",
+        lambda *args, **kwargs: (basecolor, 0, 0, 0, 0),
+    )
+    return package, receipt_path
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_fingernail_geometry_persisted_version_rejects_non_numeric_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: object,
+) -> None:
+    _persisted_fingernail_fixture(
+        tmp_path,
+        monkeypatch,
+        version=invalid,
+    )
+    with pytest.raises(
+        subject.HandsFeetNailsFingernailGeometryError,
+        match="format/version/policy",
+    ):
+        subject.read_fingernail_geometry_candidate(
+            tmp_path,
+            "person-" + "1" * 32,
+            body_revision="body-r0001",
+            capture_id="hfncap-" + "2" * 32,
+            candidate_id="hfncand-" + "3" * 32,
+        )
+
+
+def test_fingernail_geometry_persisted_version_preserves_numeric_float_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _persisted_fingernail_fixture(
+        tmp_path,
+        monkeypatch,
+        version=1.0,
+    )
+    result = subject.read_fingernail_geometry_candidate(
+        tmp_path,
+        "person-" + "1" * 32,
+        body_revision="body-r0001",
+        capture_id="hfncap-" + "2" * 32,
+        candidate_id="hfncand-" + "3" * 32,
+    )
+    assert result["version"] == 1.0
