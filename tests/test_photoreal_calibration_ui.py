@@ -97,6 +97,23 @@ def _run(
                     "cosine": 0.91,
                     "resolved_path": r"C:\negative\p7.mp4",
                     "timestamp_seconds": 30.0,
+                    "quality_metadata_complete": True,
+                    "quality_metadata": {
+                        "candidate_id": "person-000",
+                        "candidate_count": 1,
+                        "person_detected": True,
+                        "width": 1920,
+                        "height": 1080,
+                        "view_bin": "front",
+                        "face_visibility": 0.9,
+                        "full_body_visibility": 0.8,
+                        "person_fraction": 0.25,
+                        "sharpness": 0.7,
+                        "motion": 0.0,
+                        "occlusion": 0.1,
+                        "identity_measurement_status": "available",
+                        "identity_measurement_reason": "embedding-available",
+                    },
                     "closest_positive_group": {
                         "group_id": "a",
                         "cosine": 0.95,
@@ -229,6 +246,16 @@ def test_status_combines_stage13_diagnostic_and_stash_context(
         value["run"]["diagnostic"]["highest_negative_match"]
         ["resolved_path"]
         == r"C:\negative\p7.mp4"
+    )
+    assert (
+        value["run"]["diagnostic"]["highest_negative_match"]
+        ["quality_metadata"]["sharpness"]
+        == 0.7
+    )
+    assert (
+        value["run"]["diagnostic"]["highest_negative_match"]
+        ["quality_metadata_complete"]
+        is True
     )
     assert value["stash"]["available"] is True
     assert value["stash"]["version"] == "v0.31.1"
