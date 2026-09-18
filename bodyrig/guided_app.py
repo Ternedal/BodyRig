@@ -14,7 +14,15 @@ from .personality_authoring import (
     load_personality_trait_profile,
     save_guided_personality,
 )
-from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_source import (
+    SourcePersonalityError,
+    build_source_personality,
+    build_source_style_candidates,
+)
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    build_approval,
+)
 from .personality_traits import (
     PersonalityTraitProfileError,
     build_trait_profile,
@@ -60,6 +68,17 @@ class GuidedPersonalityRequest(BaseModel):
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
     feedback: str = Field(default="", max_length=8000)
+
+
+class SourceStyleApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    report: dict[str, Any]
+    selected_candidate_indexes: list[int] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    speaker_identity_confirmed: bool
+    style_use_approved: bool
 
 
 class PersonalitySuiteSealRequest(BaseModel):
@@ -134,6 +153,43 @@ def personality_revision_traits(
     return {
         "available": True,
         **value,
+    }
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/source-style-candidates"
+)
+def source_style_candidates(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        return build_source_style_candidates(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/personality/style-exemplars/approval")
+def approve_style_exemplars(
+    request: SourceStyleApprovalRequest,
+) -> dict:
+    try:
+        approval = build_approval(
+            request.report,
+            selected_candidate_indexes=request.selected_candidate_indexes,
+            speaker_identity_confirmed=request.speaker_identity_confirmed,
+            style_use_approved=request.style_use_approved,
+        )
+    except PersonalityExemplarApprovalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "approval": approval,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
     }
 
 
