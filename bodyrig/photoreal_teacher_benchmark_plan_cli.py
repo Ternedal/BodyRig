@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .photoreal_teacher_benchmark_authority import (
     build_teacher_benchmark_plan_files_strict,
+    validate_teacher_benchmark_plan_files_strict,
 )
 from .photoreal_teacher_benchmark_plan import PhotorealTeacherBenchmarkPlanError
 
@@ -17,13 +18,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--teacher-input", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            result = validate_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
+        else:
+            result = build_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
     except PhotorealTeacherBenchmarkPlanError as exc:
         print(f"BodyRig Photoreal teacher benchmark plan: FAIL: {exc}", file=sys.stderr)
         return 1
