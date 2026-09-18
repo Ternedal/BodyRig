@@ -11,9 +11,16 @@ from typing import Any, Mapping
 
 from .package import MRBodyError, validate_package
 from .personality_blueprint import blueprint_sha256, compile_blueprint, validate_blueprint
+from .personality_traits import (
+    PersonalityTraitProfileError,
+    compile_trait_profile,
+    trait_profile_sha256,
+    validate_trait_profile,
+)
 
 FORMAT = "bodyrig-personality-embodiment-binding"
 VERSION = 1
+TRAIT_VERSION = 2
 PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
 PERSONALITY_REVISION_RE = re.compile(r"^personality-r[0-9]{4}$")
 BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
@@ -64,9 +71,24 @@ def _find_revision(profile: Mapping[str, Any], kind: str, revision_id: str) -> d
 def _verify_personality_compilation(
     blueprint: Mapping[str, Any],
     personality: Mapping[str, Any],
+    *,
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> None:
     compiled = compile_blueprint(blueprint)
-    if str(personality.get("instructions") or "") != compiled["instructions"]:
+    expected_instructions = compiled["instructions"]
+    expected_style = compiled["style_notes"]
+    if trait_profile is not None:
+        try:
+            traits = compile_trait_profile(
+                validate_trait_profile(trait_profile)
+            )
+        except PersonalityTraitProfileError as exc:
+            raise PersonalityEmbodimentBindingError(
+                f"personality trait profile is invalid: {exc}"
+            ) from exc
+        expected_instructions += "\n\n" + traits["instructions"]
+        expected_style += " | " + traits["style_notes"]
+    if str(personality.get("instructions") or "") != expected_instructions:
         raise PersonalityEmbodimentBindingError(
             "personality instructions are not the exact compilation of the bound blueprint"
         )
@@ -75,7 +97,7 @@ def _verify_personality_compilation(
             "personality language is not the exact compilation of the bound blueprint"
         )
 
-    compiled_style = compiled["style_notes"]
+    compiled_style = expected_style
     saved_style = str(personality.get("style_notes") or "")
     if saved_style == compiled_style:
         return
@@ -182,11 +204,61 @@ def read_blueprint_evidence(
     return normalized
 
 
+def trait_evidence_path(
+    root: str | os.PathLike[str],
+    person_id: str,
+    digest: str,
+) -> Path:
+    if not PERSON_ID_RE.fullmatch(person_id):
+        raise PersonalityEmbodimentBindingError("person_id is invalid")
+    if not SHA256_RE.fullmatch(digest):
+        raise PersonalityEmbodimentBindingError(
+            "trait profile SHA-256 is invalid"
+        )
+    return (
+        Path(root).expanduser().resolve()
+        / "personality-traits"
+        / person_id
+        / f"{digest}.json"
+    )
+
+
+def read_trait_evidence(
+    root: str | os.PathLike[str],
+    *,
+    person_id: str,
+    digest: str,
+) -> dict[str, Any]:
+    path = trait_evidence_path(root, person_id, digest)
+    if not path.is_file():
+        raise PersonalityEmbodimentBindingError(
+            "bound personality trait evidence is missing"
+        )
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+        normalized = validate_trait_profile(value)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as exc:
+        raise PersonalityEmbodimentBindingError(
+            "bound personality trait evidence is invalid"
+        ) from exc
+    if trait_profile_sha256(normalized) != digest:
+        raise PersonalityEmbodimentBindingError(
+            "bound personality trait evidence SHA-256 mismatch"
+        )
+    return normalized
+
+
 def build_binding(
     profile: Mapping[str, Any],
     *,
     personality_revision: str,
     blueprint: Mapping[str, Any],
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     person_id = profile.get("person_id")
     if not isinstance(person_id, str) or not PERSON_ID_RE.fullmatch(person_id):
@@ -200,7 +272,19 @@ def build_binding(
         raise PersonalityEmbodimentBindingError("inner/conversational personality must remain operator-authored")
 
     personality = _find_revision(profile, "personality", personality_revision)
-    _verify_personality_compilation(normalized_blueprint, personality)
+    normalized_traits = None
+    if trait_profile is not None:
+        try:
+            normalized_traits = validate_trait_profile(trait_profile)
+        except PersonalityTraitProfileError as exc:
+            raise PersonalityEmbodimentBindingError(
+                f"personality trait profile is invalid: {exc}"
+            ) from exc
+    _verify_personality_compilation(
+        normalized_blueprint,
+        personality,
+        trait_profile=normalized_traits,
+    )
     personality_receipt = {
         "revision_id": personality_revision,
         "instructions_sha256": _sha256_text(str(personality["instructions"])),
@@ -231,9 +315,13 @@ def build_binding(
     else:
         evidence_status = "complete-observed"
 
-    return {
+    result = {
         "format": FORMAT,
-        "version": VERSION,
+        "version": (
+            TRAIT_VERSION
+            if normalized_traits is not None
+            else VERSION
+        ),
         "person_id": person_id,
         "personality": personality_receipt,
         "blueprint_sha256": blueprint_sha256(normalized_blueprint),
@@ -251,6 +339,11 @@ def build_binding(
         "human_review_required": True,
         "production_authority": False,
     }
+    if normalized_traits is not None:
+        result["trait_profile_sha256"] = trait_profile_sha256(
+            normalized_traits
+        )
+    return result
 
 
 def _encode(value: Mapping[str, Any]) -> str:
@@ -269,11 +362,13 @@ def write_binding(
     *,
     personality_revision: str,
     blueprint: Mapping[str, Any],
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> Path:
     payload = build_binding(
         profile,
         personality_revision=personality_revision,
         blueprint=blueprint,
+        trait_profile=trait_profile,
     )
     target = binding_path(root, str(payload["person_id"]), personality_revision)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -324,9 +419,11 @@ def verify_binding(
     *,
     selected_body_revision: str | None = None,
     blueprint: Mapping[str, Any] | None = None,
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(binding, Mapping):
         raise PersonalityEmbodimentBindingError("embodiment binding must be an object")
+    version = binding.get("version")
     required = {
         "format",
         "version",
@@ -339,8 +436,26 @@ def verify_binding(
         "human_review_required",
         "production_authority",
     }
-    if set(binding) != required or binding.get("format") != FORMAT or binding.get("version") != VERSION:
-        raise PersonalityEmbodimentBindingError("embodiment binding fields/version are invalid")
+    if version == TRAIT_VERSION:
+        required.add("trait_profile_sha256")
+    if (
+        set(binding) != required
+        or binding.get("format") != FORMAT
+        or version not in {VERSION, TRAIT_VERSION}
+    ):
+        raise PersonalityEmbodimentBindingError(
+            "embodiment binding fields/version are invalid"
+        )
+    if version == TRAIT_VERSION:
+        trait_digest = binding.get("trait_profile_sha256")
+        if (
+            not isinstance(trait_digest, str)
+            or not SHA256_RE.fullmatch(trait_digest)
+        ):
+            raise PersonalityEmbodimentBindingError(
+                "embodiment binding trait profile SHA-256 is invalid"
+            )
+
     if binding.get("person_id") != profile.get("person_id"):
         raise PersonalityEmbodimentBindingError("embodiment binding person identity mismatch")
     if binding.get("human_review_required") is not True or binding.get("production_authority") is not False:
@@ -371,7 +486,35 @@ def verify_binding(
             raise PersonalityEmbodimentBindingError("blueprint bytes/semantics no longer match embodiment binding")
         if dict(binding.get("grounding") or {}) != normalized_blueprint["grounding"]:
             raise PersonalityEmbodimentBindingError("blueprint grounding no longer matches embodiment binding")
-        _verify_personality_compilation(normalized_blueprint, saved)
+        if version == TRAIT_VERSION:
+            if trait_profile is None:
+                raise PersonalityEmbodimentBindingError(
+                    "trait-bound embodiment verification requires trait evidence"
+                )
+            try:
+                normalized_traits = validate_trait_profile(trait_profile)
+            except PersonalityTraitProfileError as exc:
+                raise PersonalityEmbodimentBindingError(
+                    f"personality trait profile is invalid: {exc}"
+                ) from exc
+            if (
+                trait_profile_sha256(normalized_traits)
+                != binding.get("trait_profile_sha256")
+            ):
+                raise PersonalityEmbodimentBindingError(
+                    "trait profile no longer matches embodiment binding"
+                )
+        else:
+            if trait_profile is not None:
+                raise PersonalityEmbodimentBindingError(
+                    "legacy embodiment binding has unexpected trait evidence"
+                )
+            normalized_traits = None
+        _verify_personality_compilation(
+            normalized_blueprint,
+            saved,
+            trait_profile=normalized_traits,
+        )
 
     grounding = binding.get("grounding")
     if not isinstance(grounding, Mapping) or set(grounding) != {

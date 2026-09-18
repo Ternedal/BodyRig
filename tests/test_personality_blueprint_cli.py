@@ -6,6 +6,10 @@ from pathlib import Path
 from bodyrig import personality_blueprint_cli
 from bodyrig.person_profiles import create_profile, load_profile
 from bodyrig.personality_exemplar_approval import build_approval
+from bodyrig.personality_traits import (
+    build_trait_profile,
+    trait_profile_sha256,
+)
 
 
 def _style_report() -> dict:
@@ -199,3 +203,60 @@ def test_save_candidate_requires_create_only_blueprint_evidence(tmp_path: Path, 
     assert rc == 1
     assert "requires --out" in capsys.readouterr().err
     assert load_profile(library, profile["person_id"])["personality_revisions"] == []
+
+def test_cli_compiles_canonical_120_trait_profile(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    traits = build_trait_profile(
+        inner_ring={
+            "curiosity": 0.9,
+            "humor": 0.75,
+        },
+        outer_ring={
+            "empathy": 0.85,
+            "patience": 0.2,
+        },
+    )
+    trait_path = tmp_path / "traits.json"
+    trait_path.write_text(
+        json.dumps(traits),
+        encoding="utf-8",
+    )
+
+    rc = personality_blueprint_cli.main([
+        "--trait-profile",
+        str(trait_path),
+        "--default-language",
+        "da",
+    ])
+
+    assert rc == 0
+    result = json.loads(capsys.readouterr().out)
+    digest = trait_profile_sha256(traits)
+    assert result["trait_profile_sha256"] == digest
+    assert result["trait_summary"]["active_trait_count"] == 4
+    assert "very high Curiosity (0.90)" in result["candidate"]["instructions"]
+    assert "very high Empathy (0.85)" in result["candidate"]["instructions"]
+    assert f"trait_profile_sha256={digest}" in result["candidate"]["style_notes"]
+
+
+def test_cli_rejects_invalid_trait_profile(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    traits = build_trait_profile()
+    traits["inner_ring"].pop("candor")
+    trait_path = tmp_path / "bad-traits.json"
+    trait_path.write_text(
+        json.dumps(traits),
+        encoding="utf-8",
+    )
+
+    rc = personality_blueprint_cli.main([
+        "--trait-profile",
+        str(trait_path),
+    ])
+
+    assert rc == 1
+    assert "trait profile is invalid" in capsys.readouterr().err

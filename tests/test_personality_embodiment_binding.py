@@ -16,8 +16,14 @@ from bodyrig.personality_embodiment_binding import (
     build_binding,
     read_binding,
     read_blueprint_evidence,
+    read_trait_evidence,
     verify_binding,
     write_binding,
+)
+from bodyrig.personality_traits import (
+    build_trait_profile,
+    compile_trait_profile,
+    trait_profile_sha256,
 )
 
 
@@ -328,3 +334,152 @@ def test_persisted_blueprint_boolean_version_fails_closed(tmp_path: Path) -> Non
 
     with pytest.raises(PersonalityEmbodimentBindingError, match="blueprint evidence is invalid"):
         read_blueprint_evidence(tmp_path, person_id=person_id, digest=digest)
+
+def _trait_profile() -> dict:
+    return build_trait_profile(
+        inner_ring={
+            "curiosity": 0.9,
+            "sarcasm": 0.75,
+        },
+        outer_ring={
+            "empathy": 0.85,
+            "patience": 0.2,
+        },
+    )
+
+
+def _trait_profile_revision(
+    blueprint: dict,
+    traits: dict,
+) -> dict:
+    compiled = compile_blueprint(blueprint)
+    trait_compiled = compile_trait_profile(traits)
+    return {
+        "person_id": "person-" + "a" * 32,
+        "body_revisions": [
+            _body_revision(),
+            {
+                "revision_id": "body-r0002",
+                "body_id": "other-body",
+                "package_sha256": "c" * 64,
+                "package_path": "/unused/other.mrbody",
+            },
+        ],
+        "personality_revisions": [
+            {
+                "revision_id": "personality-r0001",
+                "instructions": (
+                    compiled["instructions"]
+                    + "\n\n"
+                    + trait_compiled["instructions"]
+                ),
+                "default_language": compiled["default_language"],
+                "style_notes": (
+                    compiled["style_notes"]
+                    + " | "
+                    + trait_compiled["style_notes"]
+                ),
+            }
+        ],
+    }
+
+
+def test_trait_bound_binding_is_versioned_and_exact() -> None:
+    blueprint = _blueprint()
+    traits = _trait_profile()
+    profile = _trait_profile_revision(blueprint, traits)
+
+    receipt = build_binding(
+        profile,
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+        trait_profile=traits,
+    )
+
+    assert receipt["version"] == 2
+    assert (
+        receipt["trait_profile_sha256"]
+        == trait_profile_sha256(traits)
+    )
+    verified = verify_binding(
+        profile,
+        receipt,
+        blueprint=blueprint,
+        trait_profile=traits,
+    )
+    assert verified == receipt
+
+
+def test_trait_bound_binding_rejects_wrong_or_missing_traits() -> None:
+    blueprint = _blueprint()
+    traits = _trait_profile()
+    profile = _trait_profile_revision(blueprint, traits)
+    receipt = build_binding(
+        profile,
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+        trait_profile=traits,
+    )
+
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="requires trait evidence",
+    ):
+        verify_binding(
+            profile,
+            receipt,
+            blueprint=blueprint,
+        )
+
+    wrong = build_trait_profile(
+        inner_ring={"curiosity": 0.1},
+    )
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="trait profile no longer matches",
+    ):
+        verify_binding(
+            profile,
+            receipt,
+            blueprint=blueprint,
+            trait_profile=wrong,
+        )
+
+
+def test_persisted_trait_evidence_must_match_digest_path(
+    tmp_path: Path,
+) -> None:
+    person_id = "person-" + "a" * 32
+    traits = _trait_profile()
+    digest = trait_profile_sha256(traits)
+    path = (
+        tmp_path
+        / "personality-traits"
+        / person_id
+        / f"{digest}.json"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(traits), encoding="utf-8")
+
+    assert (
+        read_trait_evidence(
+            tmp_path,
+            person_id=person_id,
+            digest=digest,
+        )
+        == traits
+    )
+
+    tampered = build_trait_profile(
+        inner_ring={"curiosity": 0.1},
+    )
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="trait evidence SHA-256 mismatch",
+    ):
+        read_trait_evidence(
+            tmp_path,
+            person_id=person_id,
+            digest=digest,
+        )

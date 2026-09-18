@@ -29,6 +29,52 @@ De er altid markeret som `operator-authored`.
 
 Blueprintet kompilerer dimensionerne deterministisk til eksisterende ModelRig system-instructions. Det betyder, at samme blueprint giver samme personality-kandidattekst og dermed samme assembly fingerprint, så længe de øvrige kandidater er uændrede.
 
+## 120-trait personality profile
+
+Guided Personality har et separat, versionsbundet trait-evidenceformat med **120 operator-authored akser**:
+
+- 60 **Inner Ring** traits,
+- 60 **Outer Ring** traits,
+- skala `0.00..1.00`,
+- `0.50` er neutral.
+
+Trait-listen er fast i `bodyrig-personality-trait-profile` v1. `Coordination` findes med vilje i begge ringe og behandles som to forskellige akser (`inner_ring.coordination` og `outer_ring.coordination`).
+
+Trait-profilen er ikke observeret eller infereret. BodyRig må **ikke** udlede f.eks. empathy, sociopathy, sexuality, morality, aggression, narcissism eller andre indre/personlige egenskaber fra krop, ansigt, video, Stash-metadata eller bevægelsesdata. De 120 værdier kommer kun fra operatorens eksplicitte authoring.
+
+### Compilation
+
+Hele 120-vektoren gemmes som immutable JSON-evidence under:
+
+```text
+personality-traits/<person-id>/<trait-profile-sha256>.json
+```
+
+Kandidatens `style_notes` indeholder trait-profile SHA-256 samt den fulde kompakte 120-vektor. Dermed ændrer enhver trait-ændring personality-kandidatens downstream identity/fingerprint.
+
+For at undgå en unødigt stor ModelRig-systemprompt omsætter compileren kun de mest markante afvigelser fra neutral (`|value - 0.50| >= 0.15`) til naturlige adfærdsinstruktioner. Hele profilen forbliver stadig hash-bundet som provenance.
+
+Trait-instruktionen siger eksplicit, at værdierne er **portrayal tendencies** og ikke:
+
+- diagnoser,
+- biografiske facts,
+- minder,
+- private sandheder,
+- permissions til at bryde safety eller aktiv ModelRig-kontekst.
+
+Guided Personality UI henter kataloget fra `GET /api/v1/personality/traits/catalog`, så browseren og backend bruger samme autoritative 60+60-liste. UI'en tilbyder søgning, “vis kun ændrede” og reset til neutral.
+
+CLI kan bruge samme canonical evidence:
+
+```powershell
+bodyrig-personality-blueprint `
+  --trait-profile "C:\path\personality-traits.json" `
+  --default-language da `
+  --out "C:\path\personality-blueprint-result.json"
+```
+
+Gamle Personality Blueprint v1-kandidater uden trait-profile ændres ikke og kompilerer som før. Trait-bundne embodiment bindings bruger binding v2 og kræver den eksakte persisted trait-evidence ved verification.
+
 ### Style exemplars
 
 Blueprintet kan indeholde op til 12 operator-godkendte eksempelreplikker. De må bruges af ModelRig til at efterligne:
