@@ -9,6 +9,7 @@ from bodyrig.guided_app import (
     GuidedPersonalityRequest,
     _authoring_kwargs,
     personality_revision_traits,
+    personality_stash_context,
     personality_trait_catalog,
 )
 from bodyrig.person_profiles import create_profile
@@ -192,4 +193,95 @@ def test_trait_revision_api_reports_legacy_revision_without_traits(
         "trait_profile_sha256": None,
         "trait_profile": None,
     }
+
+def test_personality_stash_context_api_is_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = {
+        "person_id": "person-" + "2" * 32,
+        "display_name": "Stash Context",
+        "source": {
+            "kind": "stash-performer",
+            "performer_id": "42",
+            "performer_name": "Target",
+            "disambiguation": "",
+        },
+    }
+
+    class _Client:
+        def version(self) -> str:
+            return "v0.31.1"
+
+        def performer(self, performer_id: str) -> dict:
+            return {
+                "id": performer_id,
+                "name": "Target",
+                "disambiguation": "",
+            }
+
+        def scenes_for_performer(
+            self,
+            performer_id: str,
+            *,
+            limit: int = 200,
+        ) -> list[dict]:
+            return [
+                {
+                    "id": "scene-1",
+                    "title": "Fixture",
+                    "performers": [
+                        {"id": performer_id, "name": "Target"},
+                    ],
+                    "tags": [{"name": "ContextTag"}],
+                    "files": [],
+                }
+            ]
+
+    monkeypatch.setattr(
+        "bodyrig.guided_app._profile",
+        lambda _person_id: profile,
+    )
+    monkeypatch.setattr(
+        "bodyrig.guided_app._optional_stash_client",
+        lambda: _Client(),
+    )
+
+    result = personality_stash_context(profile["person_id"])
+
+    assert result["available"] is True
+    assert result["scene_count_observed"] == 1
+    assert result["top_tags"] == [{"name": "ContextTag", "count": 1}]
+    assert result["authority"]["context_only"] is True
+    assert result["authority"]["personality_trait_authority"] is False
+    assert result["authority"]["personality_inference_authority"] is False
+    assert result["authority"]["activation_authority"] is False
+
+
+def test_guided_personality_ui_keeps_stash_outside_trait_authority() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(
+        encoding="utf-8"
+    )
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+
+    for token in (
+        "Stash-kontekst · read-only",
+        "stashContextRefresh",
+        "stashContextSummary",
+        "stashContextTags",
+        "stashContextScenes",
+        "/personality/stash-context",
+        "Stash-data er kun authoring-kontekst",
+        "må aldrig automatisk sætte de 120 personality-traits",
+    ):
+        assert token in html
+
+    assert "renderStashContext(result)" in html
+    assert "loadStashContext(personId)" in html
+    assert "input.value=String(numeric)" not in html[
+        html.index("function renderStashContext"):
+        html.index("async function loadStashContext")
+    ]
+    assert '@app.get(' in guided
+    assert '"/api/v1/people/{person_id}/personality/stash-context"' in guided
+    assert "inspect_personality_stash_context" in guided
 
