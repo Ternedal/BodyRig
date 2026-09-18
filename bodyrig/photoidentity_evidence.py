@@ -61,6 +61,16 @@ class PhotoIdentityEvidenceError(ValueError):
     pass
 
 
+def _is_numeric_v1(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric == 1.0
+
+
 def _sha256(path: Path) -> str:
     if not path.is_file():
         raise PhotoIdentityEvidenceError(f"photoidentity evidence file is missing: {path}")
@@ -254,7 +264,7 @@ def validate_observation_evidence(value: Mapping[str, Any]) -> dict[str, Any]:
         "generic_guessing_permitted",
         "production_activation",
     }
-    if set(value) != required or value.get("format") != OBSERVATION_FORMAT or value.get("version") != VERSION:
+    if set(value) != required or value.get("format") != OBSERVATION_FORMAT or not _is_numeric_v1(value.get("version")):
         raise PhotoIdentityEvidenceError("photoidentity observation evidence fields/format are invalid")
     analyzer = value.get("analyzer")
     if not isinstance(analyzer, Mapping) or set(analyzer) != {"adapter", "revision", "capabilities"}:
@@ -427,7 +437,7 @@ def validate_bundle(
         report = json.loads(report_file.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PhotoIdentityEvidenceError("photoidentity sufficiency report is invalid JSON") from exc
-    if not isinstance(report, dict) or report.get("format") != REPORT_FORMAT or report.get("version") != VERSION:
+    if not isinstance(report, dict) or report.get("format") != REPORT_FORMAT or not _is_numeric_v1(report.get("version")):
         raise PhotoIdentityEvidenceError("photoidentity sufficiency report format/version is invalid")
     observations_file = (
         Path(observation_path).expanduser().resolve()
