@@ -360,10 +360,18 @@ def test_post_p0_continuation_rejects_boolean_summary_exit_code(tmp_path: Path) 
     root, readiness = _build_p0(tmp_path)
     value = json.loads(readiness.read_text(encoding="utf-8"))
     summary_path = Path(value["overnight_summary"])
+    physical_path = Path(value["physical_verification"])
+
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     summary["exit_code"] = False
     _write_json(summary_path, summary)
+
+    physical = json.loads(physical_path.read_text(encoding="utf-8"))
+    physical["overnight_summary_sha256"] = _sha256(summary_path)
+    _write_json(physical_path, physical)
+
     value["overnight_summary_sha256"] = _sha256(summary_path)
+    value["physical_verification_sha256"] = _sha256(physical_path)
     _write_json(readiness, value)
 
     with pytest.raises(PhotorealPostP0ContinuationError, match="completed P0 success"):
