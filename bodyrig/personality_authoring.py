@@ -25,6 +25,10 @@ from .personality_traits import (
     trait_profile_sha256,
     validate_trait_profile,
 )
+from .personality_source import (
+    SourcePersonalityError,
+    preview_source_personality_exemplars,
+)
 from .personality_exemplar_approval import (
     PersonalityExemplarApprovalError,
     canonical_sha256 as exemplar_evidence_sha256,
@@ -116,6 +120,7 @@ def _build_guided(
     body_revision: str | None,
     style_report: Mapping[str, Any] | None,
     style_approval: Mapping[str, Any] | None,
+    style_source: Mapping[str, Any] | None,
     trait_profile: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     try:
@@ -126,6 +131,73 @@ def _build_guided(
     approved, style_evidence, normalized_report, normalized_approval = _resolve_style_evidence(
         style_report, style_approval
     )
+    if style_source is not None:
+        if style_evidence is None or normalized_report is None:
+            raise PersonalityAuthoringError(
+                "style source binding requires verified report and approval evidence"
+            )
+        if not isinstance(style_source, Mapping) or set(style_source) != {
+            "kind",
+            "body_revision",
+            "source_manifest_sha256",
+        }:
+            raise PersonalityAuthoringError(
+                "style source binding fields are invalid"
+            )
+        if style_source.get("kind") != "stash-source-transcript":
+            raise PersonalityAuthoringError(
+                "style source binding kind is invalid"
+            )
+        source_body_revision = str(
+            style_source.get("body_revision") or ""
+        )
+        if not body_revision or source_body_revision != body_revision:
+            raise PersonalityAuthoringError(
+                "Stash transcript style evidence is bound to a different body revision"
+            )
+        source_manifest_sha = str(
+            style_source.get("source_manifest_sha256") or ""
+        )
+        if (
+            len(source_manifest_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in source_manifest_sha)
+        ):
+            raise PersonalityAuthoringError(
+                "style source manifest SHA-256 is invalid"
+            )
+        try:
+            current_source = preview_source_personality_exemplars(
+                root,
+                person_id,
+                body_revision=body_revision,
+            )
+        except SourcePersonalityError as exc:
+            raise PersonalityAuthoringError(
+                f"Stash transcript source binding is invalid: {exc}"
+            ) from exc
+        current_report = current_source.get("candidate_report")
+        if not isinstance(current_report, Mapping):
+            raise PersonalityAuthoringError(
+                "bound Stash source no longer has transcript candidates"
+            )
+        if current_source.get("source_manifest_sha256") != source_manifest_sha:
+            raise PersonalityAuthoringError(
+                "Stash transcript source manifest changed"
+            )
+        if (
+            exemplar_evidence_sha256(normalized_report)
+            != exemplar_evidence_sha256(current_report)
+        ):
+            raise PersonalityAuthoringError(
+                "Stash transcript candidate report changed"
+            )
+        style_evidence = {
+            **style_evidence,
+            "source_kind": "stash-source-transcript",
+            "source_body_revision": body_revision,
+            "source_manifest_sha256": source_manifest_sha,
+        }
+
     combined_examples = [*list(style_exemplars or []), *approved]
     if len(combined_examples) > 12:
         raise PersonalityAuthoringError("combined direct and transcript-approved style exemplars exceed the 12-example limit")
@@ -166,6 +238,12 @@ def _build_guided(
             f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
             f" | style_approval_sha256={style_evidence['approval_sha256']}"
         )
+        if style_evidence.get("source_kind") == "stash-source-transcript":
+            candidate["style_notes"] += (
+                f" | style_source=stash-source-transcript"
+                f" | style_source_body_revision={style_evidence['source_body_revision']}"
+                f" | style_source_manifest_sha256={style_evidence['source_manifest_sha256']}"
+            )
     result = {
         "blueprint": blueprint,
         "blueprint_sha256": blueprint_sha256(blueprint),
@@ -205,6 +283,7 @@ def build_guided_personality(
     body_revision: str | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    style_source: Mapping[str, Any] | None = None,
     trait_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     result, _report, _approval = _build_guided(
@@ -217,6 +296,7 @@ def build_guided_personality(
         body_revision=body_revision,
         style_report=style_report,
         style_approval=style_approval,
+        style_source=style_source,
         trait_profile=trait_profile,
     )
     return result
@@ -399,6 +479,7 @@ def save_guided_personality(
     body_revision: str | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    style_source: Mapping[str, Any] | None = None,
     trait_profile: Mapping[str, Any] | None = None,
     feedback: str = "",
 ) -> dict[str, Any]:
@@ -412,6 +493,7 @@ def save_guided_personality(
         body_revision=body_revision,
         style_report=style_report,
         style_approval=style_approval,
+        style_source=style_source,
         trait_profile=trait_profile,
     )
     style_paths = None
