@@ -79,8 +79,6 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($linuxRepo)) {
 }
 
 $receipt = "$LinuxWorkspaceRoot/runtime-preflight.json"
-& $WslExe -d $Distribution -- /usr/bin/test '!' -e $receipt
-if ($LASTEXITCODE -ne 0) { throw "Runtime preflight receipt already exists: $receipt" }
 
 & $WslExe -d $Distribution -- /usr/bin/env `
     "PYTHONPATH=$linuxRepo" `
@@ -88,7 +86,8 @@ if ($LASTEXITCODE -ne 0) { throw "Runtime preflight receipt already exists: $rec
     $LinuxPython `
     -m bodyrig.photoreal_exavatar_runtime_preflight_cli `
     --workspace-root $LinuxWorkspaceRoot `
-    --out $receipt
+    --out $receipt `
+    --reuse-existing
 $preflightCode = $LASTEXITCODE
 if ($preflightCode -eq 2) {
     Write-Host ""
