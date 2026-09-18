@@ -114,3 +114,20 @@ def test_guided_matrix_keeps_existing_personality_as_read_only_reference() -> No
     assert "baselineRevision" not in payload_source
     assert 'inner_ring: traitPayload("inner")' in payload_source
     assert 'outer_ring: traitPayload("outer")' in payload_source
+
+
+
+def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        'id="changedTraitsOnly"',
+        'id="traitChangeSummary"',
+        "Kun ændrede",
+        "0 / 120 traits ændret fra neutral 0.50.",
+        "function updateTraitView()",
+        'Math.abs(Number(input.value)-0.5)>0.000001',
+        '$("changedTraitsOnly").addEventListener("change",updateTraitView)',
+        'placeholder="Fx Matrix v2 refinement"',
+    ):
+        assert token in html
