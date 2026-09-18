@@ -67,9 +67,9 @@ Guided Personality UI henter kataloget fra `GET /api/v1/personality/traits/catal
 CLI kan bruge samme canonical evidence:
 
 ```powershell
-bodyrig-personality-blueprint \
-  --trait-profile "C:\path\personality-traits.json" \
-  --default-language da \
+bodyrig-personality-blueprint `
+  --trait-profile "C:\path\personality-traits.json" `
+  --default-language da `
   --out "C:\path\personality-blueprint-result.json"
 ```
 
