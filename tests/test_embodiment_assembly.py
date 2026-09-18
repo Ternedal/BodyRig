@@ -92,6 +92,7 @@ def test_assembly_v2_fingerprint_binds_verified_embodiment_receipt() -> None:
     assert len(assembly["assembly_fingerprint"]) == 64
     assert len(assembly["embodiment_binding"]["binding_sha256"]) == 64
     assert assembly["embodiment_binding"]["blueprint_sha256"] == binding["blueprint_sha256"]
+    assert "trait_profile_sha256" not in assembly["embodiment_binding"]
     assert assembly["embodiment_binding"]["evidence_status"] == "operator-authored"
     assert assembly["human_review_required"] is True
     assert assembly["production_authority"] is False
