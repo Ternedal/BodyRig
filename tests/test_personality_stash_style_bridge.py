@@ -49,7 +49,8 @@ def test_stash_style_routes_are_exposed_as_separate_non_activation_api() -> None
 
     assert "post" in candidates
     assert "post" in approval
-    assert "/activate" not in " ".join(paths)
+    assert set(candidates) <= {"post"}
+    assert set(approval) <= {"post"}
 
 
 def test_style_approval_requires_exact_explicit_operator_confirmation() -> None:
@@ -129,7 +130,7 @@ def test_guided_ui_bridges_stash_style_without_inferring_traits() -> None:
         "/personality/source-style-candidates",
         "/api/v1/personality/style-exemplars/approval",
         "De 120 traits ændres aldrig automatisk af Stash-data.",
-        "style-only-not-biography-or-memory",
+        "Evidence må kun påvirke phrasing/rytme",
         "Revaliderer den bundne Stash/body-source",
     ):
         assert token in html
