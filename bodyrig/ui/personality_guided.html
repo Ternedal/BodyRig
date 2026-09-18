@@ -6,7 +6,7 @@
   <title>BodyRig · Guided Personality</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}}
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1.2fr) 48px;gap:8px;align-items:center;padding:5px 0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trait-slider-row input{width:100%}.trait-slider-row.hidden{display:none}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
   </style>
 </head>
 <body>
@@ -25,6 +25,9 @@
         <div class="card-label">1 · Vælg person og grounding</div>
         <label for="personSelect">Person</label>
         <select id="personSelect" class="full-select"><option value="">Henter personer…</option></select>
+        <label for="baselineRevision">Eksisterende personality-baseline · kun reference</label>
+        <select id="baselineRevision" class="full-select"><option value="">Ingen reference</option></select>
+        <p id="baselineHint" class="fine-print">Baselinen er read-only kontekst og indgår ikke i Matrix v2-payloaden. Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits.</p>
         <label for="bodyRevision">Body-grounding</label>
         <select id="bodyRevision" class="full-select"><option value="">Ingen — neutrale mannerisms</option></select>
         <p id="bodyHint" class="fine-print">Vælg en body revision for at hente observerbar energi, gestik, hovedbevægelse, gaze og speech-motion fra den validerede .mrbody.</p>
@@ -35,18 +38,39 @@
 
         <div class="field-row">
           <div><label for="language">Standardsprog</label><input id="language" value="da" maxlength="16"></div>
-          <div><label for="feedback">Revisionsnote</label><input id="feedback" maxlength="8000" placeholder="Fx guided blueprint v1"></div>
+          <div><label for="feedback">Revisionsnote</label><input id="feedback" maxlength="8000" placeholder="Fx Matrix v2 refinement"></div>
         </div>
 
         <label for="authoredNotes">Authored notes</label>
         <textarea id="authoredNotes" rows="4" maxlength="16000" placeholder="Fx tør og underspillet; undgå serviceagtig formulering."></textarea>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">3 · Direkte style exemplars</div><div class="fine-print">Kun replikker du selv author'er direkte her.</div></div><button id="addExample" class="secondary" type="button">+ eksempel</button></div>
+        <div class="card-row">
+          <div><div class="card-label">3 · Personality Matrix v2 · 120 traits</div><div class="fine-print">Alle værdier er eksplicit author'et. 0.50 er neutral. Coordination findes bevidst i både Inner Ring og Outer Ring som to separate akser.</div></div>
+        </div>
+        <div class="trait-tools">
+          <input id="traitSearch" class="trait-search" placeholder="Filtrér traits…">
+          <label class="check-row"><input id="changedTraitsOnly" type="checkbox"> Kun ændrede</label>
+          <button id="resetTraits" class="secondary" type="button">Nulstil alle til 0.50</button>
+        </div>
+        <div id="traitChangeSummary" class="fine-print">0 / 120 traits ændret fra neutral 0.50.</div>
+        <div class="trait-rings">
+          <details class="trait-ring" open>
+            <summary>Inner Ring · <span id="innerTraitCount">…</span></summary>
+            <div id="innerTraits" class="trait-grid"></div>
+          </details>
+          <details class="trait-ring">
+            <summary>Outer Ring · <span id="outerTraitCount">…</span></summary>
+            <div id="outerTraits" class="trait-grid"></div>
+          </details>
+        </div>
+
+        <div class="divider"></div>
+        <div class="card-row"><div><div class="card-label">4 · Direkte style exemplars</div><div class="fine-print">Kun replikker du selv author'er direkte her.</div></div><button id="addExample" class="secondary" type="button">+ eksempel</button></div>
         <div id="examples"></div>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">4 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="card-row"><div><div class="card-label">5 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
         <div class="evidence-grid">
           <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
           <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
@@ -55,7 +79,7 @@
 
         <div class="divider"></div>
         <div class="action-row">
-          <button id="previewButton" class="secondary" type="button">Byg preview</button>
+          <button id="previewButton" class="secondary" type="button" disabled>Byg preview</button>
           <button id="saveButton" class="primary" type="button" disabled>Gem som personality-kandidat</button>
         </div>
         <div id="status" class="status-line muted-text"></div>
@@ -64,6 +88,12 @@
 
       <section>
         <article class="card">
+          <div class="card-row"><div class="card-label">Eksisterende baseline · read-only</div><span id="baselineBadge" class="badge muted">Ingen</span></div>
+          <div id="baselineMeta" class="muted-text">Vælg en person for at se seneste source/personality-baseline.</div>
+          <pre id="baselineInstructions" class="proposal preview-box">Baseline-reference påvirker ikke Matrix v2.</pre>
+          <pre id="baselineStyleNotes" class="proposal">—</pre>
+        </article>
+        <article class="card space-top">
           <div class="card-row"><div class="card-label">Blueprint</div><span id="blueprintBadge" class="badge muted">Ikke bygget</span></div>
           <div id="grounding" class="grounding-summary muted-text">Ingen preview endnu.</div>
         </article>
@@ -89,7 +119,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -104,6 +134,52 @@
       target.appendChild(row);
       $(id).addEventListener("input",()=>{ $(`${id}Value`).textContent=Number($(id).value).toFixed(2); invalidate(); });
     }
+  }
+
+
+  function traitInputId(ring, traitId){ return `trait-${ring}-${traitId}`; }
+  function buildTraitRing(ring, traits){
+    const target=$(ring==="inner"?"innerTraits":"outerTraits"); target.innerHTML="";
+    for(const trait of traits){
+      const inputId=traitInputId(ring,trait.id);
+      const row=document.createElement("div"); row.className="trait-slider-row"; row.dataset.search=trait.label.toLocaleLowerCase("da");
+      row.innerHTML=`<label for="${inputId}" title="${escapeHtml(trait.label)}">${escapeHtml(trait.label)}</label><input id="${inputId}" type="range" min="0" max="1" step="0.05" value="0.5"><span id="${inputId}Value" class="slider-value">0.50</span>`;
+      target.appendChild(row);
+      $(inputId).addEventListener("input",()=>{ $(`${inputId}Value`).textContent=Number($(inputId).value).toFixed(2); updateTraitView(); invalidate(); });
+    }
+  }
+  async function loadTraitMatrix(){
+    const definition=await api("/api/v1/personality/trait-matrix");
+    const inner=definition?.rings?.inner||[], outer=definition?.rings?.outer||[];
+    if(definition.version!==2||inner.length!==60||outer.length!==60) throw new Error("Personality Matrix v2 definition er ufuldstændig.");
+    state.traitDefinition=definition; buildTraitRing("inner",inner); buildTraitRing("outer",outer);
+    $("innerTraitCount").textContent=inner.length; $("outerTraitCount").textContent=outer.length; updateTraitView(); $("previewButton").disabled=false;
+  }
+  function traitPayload(ring){
+    const traits=state.traitDefinition?.rings?.[ring]||[];
+    const result={};
+    for(const trait of traits) result[trait.id]=Number($(traitInputId(ring,trait.id)).value);
+    return result;
+  }
+  function resetTraits(){
+    if(!state.traitDefinition) return;
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
+      const id=traitInputId(ring,trait.id); $(id).value="0.5"; $(`${id}Value`).textContent="0.50";
+    }
+    updateTraitView(); invalidate();
+  }
+  function updateTraitView(){
+    const query=$("traitSearch").value.trim().toLocaleLowerCase("da");
+    const changedOnly=$("changedTraitsOnly").checked;
+    let changed=0;
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition?.rings?.[ring]||[]){
+      const input=$(traitInputId(ring,trait.id)); const row=input?.closest(".trait-slider-row"); if(!input||!row) continue;
+      const isChanged=Math.abs(Number(input.value)-0.5)>0.000001; if(isChanged) changed+=1;
+      const matchesSearch=!query||row.dataset.search.includes(query);
+      row.classList.toggle("hidden",!matchesSearch||(changedOnly&&!isChanged));
+    }
+    $("traitChangeSummary").textContent=`${changed} / 120 traits ændret fra neutral 0.50.`;
+    if(query||changedOnly) for(const details of document.querySelectorAll(".trait-ring")) details.open=true;
   }
 
   function addExample(value=""){
@@ -125,7 +201,9 @@
       style_exemplars,
       style_report: state.styleReport,
       style_approval: state.styleApproval,
-      body_revision: $("bodyRevision").value||null
+      body_revision: $("bodyRevision").value||null,
+      inner_ring: traitPayload("inner"),
+      outer_ring: traitPayload("outer")
     };
   }
   function key(){ return JSON.stringify(payload()); }
@@ -135,14 +213,92 @@
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig."; return; }
     if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — vælg både candidate report og approval receipt før preview."; return; }
     const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
+    if(state.styleEvidenceOrigin==="revision"){
+      $("evidenceStatus").textContent=`Transcript-evidence genindlæst og verifieret fra den immutable personality-revision · ${count} godkendte replikker.`;
+      return;
+    }
     $("evidenceStatus").textContent=`Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
   }
   async function readEvidence(kind, file){
+    state.styleEvidenceOrigin="file";
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
     try{ const value=JSON.parse(await file.text()); state[kind]=value; renderEvidenceStatus(); invalidate(); }
     catch(error){ state[kind]=null; renderEvidenceStatus(); invalidate(); toast(`Ugyldig JSON evidence: ${error.message}`,true); }
   }
-  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;state.styleEvidenceOrigin=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+
+  function personalityAlignment(revisionId){
+    return state.person?._source_alignment?.components?.personality?.[revisionId]||null;
+  }
+  function baselineKind(item){
+    const alignment=personalityAlignment(item?.revision_id);
+    const evidenceKind=String(alignment?.evidence_kind||"");
+    if(String(item?.style_notes||"").includes("trait matrix=v2")||evidenceKind==="personality-blueprint-v2") return {label:"Matrix v2 · 120 traits",evidenceKind};
+    if(evidenceKind.startsWith("stash-source-")) return {label:"Source baseline",evidenceKind};
+    return {label:"Manual / legacy",evidenceKind};
+  }
+  function renderBaseline(){
+    const revisionId=$("baselineRevision").value;
+    const item=(state.person?.personality_revisions||[]).find(value=>value.revision_id===revisionId)||null;
+    if(!item){
+      $("baselineBadge").textContent="Ingen"; $("baselineBadge").classList.add("muted");
+      $("baselineMeta").textContent="Ingen personality-baseline valgt. Matrix v2 author'es stadig eksplicit.";
+      $("baselineInstructions").textContent="Baseline-reference påvirker ikke Matrix v2.";
+      $("baselineStyleNotes").textContent="—";
+      return;
+    }
+    const kind=baselineKind(item);
+    $("baselineBadge").textContent=kind.label; $("baselineBadge").classList.remove("muted");
+    $("baselineMeta").textContent=`${item.revision_id} · ${item.default_language}${kind.evidenceKind?` · provenance ${kind.evidenceKind}`:""} · reference-only`;
+    $("baselineInstructions").textContent=item.instructions||"";
+    $("baselineStyleNotes").textContent=item.style_notes||"—";
+  }
+  function populateBaselines(){
+    const select=$("baselineRevision"); select.innerHTML='<option value="">Ingen reference</option>';
+    const items=state.person?.personality_revisions||[];
+    for(const item of items){
+      const kind=baselineKind(item); const option=document.createElement("option");
+      option.value=item.revision_id; option.textContent=`${item.revision_id} · ${kind.label}`; select.appendChild(option);
+    }
+    const requested=new URLSearchParams(location.search).get("baseline_revision");
+    const sourceBaseline=[...items].reverse().find(item=>baselineKind(item).label==="Source baseline");
+    const fallback=[...items].reverse()[0];
+    const selected=items.find(item=>item.revision_id===requested)||sourceBaseline||fallback||null;
+    select.value=selected?.revision_id||"";
+    renderBaseline();
+  }
+
+  function setSliderValue(id, value){
+    const input=$(id); if(!input) return;
+    input.value=String(value); const output=$(`${id}Value`); if(output) output.textContent=Number(value).toFixed(2);
+  }
+  function applyGuidedRevision(source){
+    const blueprint=source?.blueprint;
+    if(!blueprint||blueprint.version!==2) throw new Error("Kun Personality Matrix v2-revisioner kan genåbnes som redigerbar matrix.");
+    $("language").value=blueprint.default_language;
+    $("authoredNotes").value=blueprint.authored_notes||"";
+    for(const [id] of dimensions) setSliderValue(id,blueprint.communication[id]);
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
+      setSliderValue(traitInputId(ring,trait.id),blueprint[`${ring}_ring`][trait.id]);
+    }
+    $("bodyRevision").value=blueprint.grounding.body_revision||"";
+    $("examples").innerHTML="";
+    const direct=source.direct_style_exemplars||[];
+    if(direct.length) for(const example of direct) addExample(example); else addExample();
+    state.styleReport=source.style_report||null; state.styleApproval=source.style_approval||null;
+    state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null;
+    $("styleReportFile").value=""; $("styleApprovalFile").value=""; renderEvidenceStatus();
+    $("baselineRevision").value=source.revision_id; renderBaseline();
+    updateTraitView(); invalidate();
+    $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · byg preview før ny save.`;
+  }
+  async function loadRequestedEditRevision(){
+    const revisionId=new URLSearchParams(location.search).get("edit_revision");
+    if(!revisionId||!state.person) return;
+    if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
+    const source=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
+    applyGuidedRevision(source);
+  }
 
   async function loadPeople(){
     const data=await api("/api/v1/people"); state.people=data.people||[]; const select=$("personSelect"); select.innerHTML='<option value="">Vælg person</option>';
@@ -152,15 +308,17 @@
     else $("status").textContent="Opret først en person i Person Studio.";
   }
   async function selectPerson(personId){
-    if(!personId){state.person=null;return;}
+    if(!personId){state.person=null;populateBaselines();return;}
     state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
-    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);} invalidate();
+    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
+    populateBaselines(); invalidate(); await loadRequestedEditRevision();
   }
 
   function renderPreview(result){
     state.preview=result; state.requestKey=key(); $("saveButton").disabled=false; $("blueprintBadge").textContent=result.blueprint_sha256.slice(0,12)+"…"; $("blueprintBadge").classList.remove("muted");
     const g=result.blueprint.grounding; const e=result.blueprint.embodiment; const style=result.style_evidence;
-    $("grounding").innerHTML=`Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
+    const matrix=result.blueprint.version===2?`<br>Personality Matrix: <strong>v2 · ${Object.keys(result.blueprint.inner_ring).length} inner + ${Object.keys(result.blueprint.outer_ring).length} outer traits</strong>`:"";
+    $("grounding").innerHTML=`Blueprint: <strong>v${result.blueprint.version}</strong><br>Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}${matrix}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
     $("instructions").textContent=result.candidate.instructions; $("styleNotes").textContent=result.candidate.style_notes;
     const target=$("auditionSuite"); target.innerHTML=""; for(const probe of result.audition_suite.probes){const row=document.createElement("div");row.className="revision-item";row.innerHTML=`<div class="revision-id">${escapeHtml(probe.id)}</div><div class="revision-feedback">${escapeHtml(probe.prompt)}</div>`;target.appendChild(row);}
   }
@@ -171,16 +329,23 @@
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const request={...payload(),feedback:$("feedback").value.trim()}; $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
-    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)}); state.person=result.profile; $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;}
+    try{
+      const personId=state.person.person_id;
+      const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
+      state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+      populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
+    }
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
   }
 
   buildSliders(); addExample(); renderEvidenceStatus();
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
+  $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
-  loadPeople().catch(error=>toast(error.message,true));
+  loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
 </script>
 </body>

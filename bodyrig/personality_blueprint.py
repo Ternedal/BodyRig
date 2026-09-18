@@ -10,7 +10,8 @@ from typing import Any, Mapping, Sequence
 from .package import MRBodyError, validate_bodyprint
 
 FORMAT = "bodyrig-personality-blueprint"
-VERSION = 1
+LEGACY_VERSION = 1
+VERSION = 2
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
 BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
 
@@ -30,7 +31,7 @@ EMBODIMENT_FIELDS = {
     "gaze_strength",
     "speech_motion",
 }
-TOP_FIELDS = {
+V1_TOP_FIELDS = {
     "format",
     "version",
     "default_language",
@@ -40,7 +41,135 @@ TOP_FIELDS = {
     "style_exemplars",
     "authored_notes",
 }
+V2_TOP_FIELDS = V1_TOP_FIELDS | {"inner_ring", "outer_ring"}
+TOP_FIELDS = V1_TOP_FIELDS
 GROUNDING_FIELDS = {"communication", "embodiment", "body_revision"}
+
+INNER_RING_TRAITS = (
+    ("bulk_apperception", "Bulk Apperception"),
+    ("candor", "Candor"),
+    ("coordination", "Coordination"),
+    ("vindictiveness", "Vindictiveness"),
+    ("stubbornness", "Stubbornness"),
+    ("innovation", "Innovation"),
+    ("kindness", "Kindness"),
+    ("assurance", "Assurance"),
+    ("facility", "Facility"),
+    ("meticulousness", "Meticulousness"),
+    ("capriciousness", "Capriciousness"),
+    ("fastidiousness", "Fastidiousness"),
+    ("rhythm", "Rhythm"),
+    ("hubris", "Hubris"),
+    ("fragility", "Fragility"),
+    ("leadership", "Leadership"),
+    ("education", "Education"),
+    ("wisdom", "Wisdom"),
+    ("entitlement", "Entitlement"),
+    ("individualism", "Individualism"),
+    ("laziness", "Laziness"),
+    ("forgetfulness", "Forgetfulness"),
+    ("tenderness", "Tenderness"),
+    ("masculinity", "Masculinity"),
+    ("expressivity", "Expressivity"),
+    ("fashionableness", "Fashionableness"),
+    ("fidelity", "Fidelity"),
+    ("spirituality", "Spirituality"),
+    ("patriotism", "Patriotism"),
+    ("brusqueness", "Brusqueness"),
+    ("whimsy", "Whimsy"),
+    ("introversion", "Introversion"),
+    ("strength", "Strength"),
+    ("competitiveness", "Competitiveness"),
+    ("pride", "Pride"),
+    ("consideration", "Consideration"),
+    ("congeniality", "Congeniality"),
+    ("literalism", "Literalism"),
+    ("confidence", "Confidence"),
+    ("courtesy", "Courtesy"),
+    ("morality", "Morality"),
+    ("artistry", "Artistry"),
+    ("faith", "Faith"),
+    ("bellicosity", "Bellicosity"),
+    ("reserve", "Reserve"),
+    ("gentleness", "Gentleness"),
+    ("integrity", "Integrity"),
+    ("sarcasm", "Sarcasm"),
+    ("wanderlust", "Wanderlust"),
+    ("timidity", "Timidity"),
+    ("sociopathy", "Sociopathy"),
+    ("intuition", "Intuition"),
+    ("humor", "Humor"),
+    ("sensuality", "Sensuality"),
+    ("tenacity", "Tenacity"),
+    ("loyalty", "Loyalty"),
+    ("curiosity", "Curiosity"),
+    ("decisiveness", "Decisiveness"),
+    ("self_preservation", "Self-Preservation"),
+    ("humility", "Humility"),
+)
+
+OUTER_RING_TRAITS = (
+    ("vivacity", "Vivacity"),
+    ("coordination", "Coordination"),
+    ("generosity", "Generosity"),
+    ("narcissism", "Narcissism"),
+    ("lugubriousness", "Lugubriousness"),
+    ("adventurousness", "Adventurousness"),
+    ("articulateness", "Articulateness"),
+    ("poise", "Poise"),
+    ("paternalism", "Paternalism"),
+    ("delicacy", "Delicacy"),
+    ("cleanliness", "Cleanliness"),
+    ("health", "Health"),
+    ("self_esteem", "Self-Esteem"),
+    ("wonderment", "Wonderment"),
+    ("deceptiveness", "Deceptiveness"),
+    ("willingness", "Willingness"),
+    ("knowledgeableness", "Knowledgeableness"),
+    ("judiciousness", "Judiciousness"),
+    ("sexuality", "Sexuality"),
+    ("selfishness", "Selfishness"),
+    ("industry", "Industry"),
+    ("affection", "Affection"),
+    ("femininity", "Femininity"),
+    ("flexibility", "Flexibility"),
+    ("reflectiveness", "Reflectiveness"),
+    ("decorum", "Decorum"),
+    ("skepticism", "Skepticism"),
+    ("inhibition", "Inhibition"),
+    ("reticence", "Reticence"),
+    ("stoicism", "Stoicism"),
+    ("extroversion", "Extroversion"),
+    ("restraint", "Restraint"),
+    ("physicality", "Physicality"),
+    ("passivity", "Passivity"),
+    ("comprehensiveness", "Comprehensiveness"),
+    ("gregariousness", "Gregariousness"),
+    ("determination", "Determination"),
+    ("visionariness", "Visionariness"),
+    ("joy", "Joy"),
+    ("focus", "Focus"),
+    ("musicality", "Musicality"),
+    ("obedience", "Obedience"),
+    ("endurance", "Endurance"),
+    ("ribaldry", "Ribaldry"),
+    ("perseverance", "Perseverance"),
+    ("peacefulness", "Peacefulness"),
+    ("grit", "Grit"),
+    ("temperance", "Temperance"),
+    ("brazenness", "Brazenness"),
+    ("egocentricism", "Egocentricism"),
+    ("emotional_acuity", "Emotional Acuity"),
+    ("perception", "Perception"),
+    ("charm", "Charm"),
+    ("courage", "Courage"),
+    ("empathy", "Empathy"),
+    ("aggression", "Aggression"),
+    ("imagination", "Imagination"),
+    ("patience", "Patience"),
+    ("cruelty", "Cruelty"),
+    ("meekness", "Meekness"),
+)
 
 
 class PersonalityBlueprintError(ValueError):
@@ -83,11 +212,59 @@ def _style_exemplars(value: Any) -> list[str]:
     return result
 
 
+def personality_trait_definitions() -> dict[str, Any]:
+    return {
+        "format": "bodyrig-personality-trait-matrix-definition",
+        "version": VERSION,
+        "scale": {"minimum": 0.0, "neutral": 0.5, "maximum": 1.0},
+        "rings": {
+            "inner": [
+                {"id": trait_id, "label": label, "order": index}
+                for index, (trait_id, label) in enumerate(INNER_RING_TRAITS, start=1)
+            ],
+            "outer": [
+                {"id": trait_id, "label": label, "order": index}
+                for index, (trait_id, label) in enumerate(OUTER_RING_TRAITS, start=1)
+            ],
+        },
+    }
+
+
+def _trait_ring(
+    value: Any,
+    *,
+    ring: str,
+    definitions: Sequence[tuple[str, str]],
+) -> dict[str, float]:
+    expected = {trait_id for trait_id, _label in definitions}
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise PersonalityBlueprintError(
+            f"{ring}_ring fields must match personality blueprint v2 exactly"
+        )
+    return {
+        trait_id: _ratio(value[trait_id], field=f"{ring}_ring.{trait_id}")
+        for trait_id, _label in definitions
+    }
+
+
 def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
-        raise PersonalityBlueprintError("personality blueprint fields must match v1 exactly")
-    if value.get("format") != FORMAT or isinstance(value.get("version"), bool) or value.get("version") != VERSION:
+    if not isinstance(value, Mapping):
+        raise PersonalityBlueprintError("personality blueprint must be an object")
+
+    raw_version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(raw_version, bool)
+        or not isinstance(raw_version, (int, float))
+        or raw_version not in {LEGACY_VERSION, VERSION}
+    ):
         raise PersonalityBlueprintError("unsupported personality blueprint format/version")
+    version = int(raw_version)
+    expected_fields = V1_TOP_FIELDS if version == LEGACY_VERSION else V2_TOP_FIELDS
+    if set(value) != expected_fields:
+        raise PersonalityBlueprintError(
+            f"personality blueprint fields must match v{version} exactly"
+        )
 
     language = _text(value.get("default_language"), field="default_language", maximum=16)
     if LANGUAGE_RE.fullmatch(language) is None:
@@ -128,9 +305,9 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     if embodiment_grounding == "operator-authored" and body_revision is not None:
         raise PersonalityBlueprintError("operator-authored embodiment must not claim a body revision grounding")
 
-    return {
+    normalized = {
         "format": FORMAT,
-        "version": VERSION,
+        "version": version,
         "default_language": language,
         "communication": normalized_communication,
         "embodiment": normalized_embodiment,
@@ -140,9 +317,25 @@ def validate_blueprint(value: Mapping[str, Any] | Any) -> dict[str, Any]:
             "body_revision": body_revision,
         },
         "style_exemplars": _style_exemplars(value.get("style_exemplars")),
-        "authored_notes": _text(value.get("authored_notes"), field="authored_notes", maximum=16_000, empty=True),
+        "authored_notes": _text(
+            value.get("authored_notes"),
+            field="authored_notes",
+            maximum=16_000,
+            empty=True,
+        ),
     }
-
+    if version == VERSION:
+        normalized["inner_ring"] = _trait_ring(
+            value.get("inner_ring"),
+            ring="inner",
+            definitions=INNER_RING_TRAITS,
+        )
+        normalized["outer_ring"] = _trait_ring(
+            value.get("outer_ring"),
+            ring="outer",
+            definitions=OUTER_RING_TRAITS,
+        )
+    return normalized
 
 def blueprint_sha256(value: Mapping[str, Any] | Any) -> str:
     blueprint = validate_blueprint(value)
@@ -173,10 +366,18 @@ def build_blueprint(
     style_exemplars: Sequence[str] | None = None,
     bodyprint: Mapping[str, Any] | None = None,
     body_revision: str | None = None,
+    inner_ring: Mapping[str, Any] | None = None,
+    outer_ring: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     communication_values = {
         key: communication.get(key, 0.5) for key in COMMUNICATION_FIELDS
     }
+
+    if (inner_ring is None) != (outer_ring is None):
+        raise PersonalityBlueprintError(
+            "personality blueprint v2 requires both inner_ring and outer_ring"
+        )
+    version = VERSION if inner_ring is not None else LEGACY_VERSION
 
     if bodyprint is None:
         if body_revision is not None:
@@ -202,9 +403,9 @@ def build_blueprint(
         }
         embodiment_grounding = "bodyprint-observed"
 
-    return validate_blueprint({
+    payload: dict[str, Any] = {
         "format": FORMAT,
-        "version": VERSION,
+        "version": version,
         "default_language": default_language,
         "communication": communication_values,
         "embodiment": embodiment,
@@ -215,8 +416,11 @@ def build_blueprint(
         },
         "style_exemplars": list(style_exemplars or []),
         "authored_notes": authored_notes,
-    })
-
+    }
+    if version == VERSION:
+        payload["inner_ring"] = dict(inner_ring or {})
+        payload["outer_ring"] = dict(outer_ring or {})
+    return validate_blueprint(payload)
 
 def _band(value: float, low: str, middle: str, high: str) -> str:
     if value < 0.34:
@@ -224,6 +428,18 @@ def _band(value: float, low: str, middle: str, high: str) -> str:
     if value > 0.66:
         return high
     return middle
+
+
+def _trait_instruction_line(
+    label: str,
+    values: Mapping[str, float],
+    definitions: Sequence[tuple[str, str]],
+) -> str:
+    encoded = "; ".join(
+        f"{trait_label}={json.dumps(values[trait_id], allow_nan=False)}"
+        for trait_id, trait_label in definitions
+    )
+    return f"{label}: {encoded}"
 
 
 def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
@@ -242,6 +458,22 @@ def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
         _band(c["initiative"], "Mostly respond to what is asked instead of steering the exchange.", "Take a balanced amount of conversational initiative.", "Proactively connect ideas, ask useful follow-ups and move the exchange forward."),
         "Do not claim private thoughts, beliefs, memories, relationships or life events unless they are explicitly supplied by the active ModelRig context.",
     ]
+    if blueprint["version"] == VERSION:
+        instructions.extend(
+            [
+                "Use the following explicit operator-authored personality trait matrix as behavioral tendencies. Values are normalized from 0.0 (low) to 1.0 (high), with 0.5 neutral. Do not reinterpret trait values as biography, memory, relationships, beliefs or factual claims.",
+                _trait_instruction_line(
+                    "Inner ring",
+                    blueprint["inner_ring"],
+                    INNER_RING_TRAITS,
+                ),
+                _trait_instruction_line(
+                    "Outer ring",
+                    blueprint["outer_ring"],
+                    OUTER_RING_TRAITS,
+                ),
+            ]
+        )
     if blueprint["style_exemplars"]:
         instructions.extend([
             "The following operator-approved utterances are style exemplars only. Imitate their phrasing, rhythm and conversational texture when useful, but do not treat their factual content as current truth, biography or memory:",
@@ -262,6 +494,14 @@ def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
         f"speech motion={e['speech_motion']:.2f}",
         f"grounding={blueprint['grounding']['embodiment']}",
     ]
+    if blueprint["version"] == VERSION:
+        style_notes.extend(
+            [
+                "trait matrix=v2",
+                f"inner ring traits={len(INNER_RING_TRAITS)}",
+                f"outer ring traits={len(OUTER_RING_TRAITS)}",
+            ]
+        )
     if blueprint["grounding"]["body_revision"]:
         style_notes.append(f"body revision={blueprint['grounding']['body_revision']}")
 
@@ -270,3 +510,4 @@ def compile_blueprint(value: Mapping[str, Any] | Any) -> dict[str, str]:
         "default_language": blueprint["default_language"],
         "style_notes": " | ".join(style_notes),
     }
+

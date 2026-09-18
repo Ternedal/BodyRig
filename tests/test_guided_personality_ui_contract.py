@@ -57,3 +57,107 @@ def test_guided_ui_requires_bound_report_and_approval_for_transcript_examples() 
     assert "style_report_sha256=" in authoring
     assert "style_approval_sha256=" in authoring
     assert "personality-style-evidence" in authoring
+
+
+
+def test_guided_studio_loads_server_defined_120_trait_matrix_v2() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+    blueprint = Path("bodyrig/personality_blueprint.py").read_text(encoding="utf-8")
+
+    for token in (
+        "Personality Matrix v2 · 120 traits",
+        "/api/v1/personality/trait-matrix",
+        'id="innerTraits"',
+        'id="outerTraits"',
+        'id="traitSearch"',
+        'id="resetTraits"',
+        'inner_ring: traitPayload("inner")',
+        'outer_ring: traitPayload("outer")',
+        'inner.length!==60',
+        'outer.length!==60',
+        "Coordination findes bevidst i både Inner Ring og Outer Ring",
+    ):
+        assert token in html
+
+    assert 'inner_ring: dict[str, Ratio] | None = None' in guided
+    assert 'outer_ring: dict[str, Ratio] | None = None' in guided
+    assert 'def personality_trait_matrix_definition() -> dict:' in guided
+    assert '"bulk_apperception", "Bulk Apperception"' in blueprint
+    assert '"knowledgeableness", "Knowledgeableness"' in blueprint
+    assert '"egocentricism", "Egocentricism"' in blueprint
+    assert '"aggression", "Aggression"' in blueprint
+    assert blueprint.count('("coordination", "Coordination")') == 2
+
+
+
+def test_guided_matrix_keeps_existing_personality_as_read_only_reference() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        'id="baselineRevision"',
+        'id="baselineBadge"',
+        'id="baselineInstructions"',
+        'id="baselineStyleNotes"',
+        "Baseline-reference påvirker ikke Matrix v2",
+        "Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits",
+        'get("baseline_revision")',
+        'evidenceKind.startsWith("stash-source-")',
+        'evidenceKind==="personality-blueprint-v2"',
+        '$("baselineRevision").addEventListener("change",renderBaseline)',
+    ):
+        assert token in html
+
+    payload_start = html.index("function payload(){")
+    payload_end = html.index("function key(){", payload_start)
+    payload_source = html[payload_start:payload_end]
+    assert "baselineRevision" not in payload_source
+    assert 'inner_ring: traitPayload("inner")' in payload_source
+    assert 'outer_ring: traitPayload("outer")' in payload_source
+
+
+
+def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        'id="changedTraitsOnly"',
+        'id="traitChangeSummary"',
+        "Kun ændrede",
+        "0 / 120 traits ændret fra neutral 0.50.",
+        "function updateTraitView()",
+        'Math.abs(Number(input.value)-0.5)>0.000001',
+        '$("changedTraitsOnly").addEventListener("change",updateTraitView)',
+        'placeholder="Fx Matrix v2 refinement"',
+    ):
+        assert token in html
+
+
+def test_guided_matrix_reloads_provenance_after_save() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    save_start = html.index("async function save(){")
+    save_end = html.index("buildSliders();", save_start)
+    save_source = html[save_start:save_end]
+    assert 'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)' in save_source
+    assert 'populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();' in save_source
+    assert "Aktiv person er uændret" in save_source
+
+
+def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+
+    for token in (
+        'get("edit_revision")',
+        "function applyGuidedRevision(source)",
+        "function loadRequestedEditRevision()",
+        '/personality/guided/revisions/${encodeURIComponent(revisionId)}',
+        "Kun Personality Matrix v2-revisioner kan genåbnes som redigerbar matrix.",
+        'state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null',
+        "Transcript-evidence genindlæst og verifieret fra den immutable personality-revision",
+        "load_guided_personality_revision",
+    ):
+        assert token in html or token in guided
+
+    assert '@app.get("/api/v1/people/{person_id}/personality/guided/revisions/{revision_id}")' in guided

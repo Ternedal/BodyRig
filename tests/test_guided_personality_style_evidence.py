@@ -8,6 +8,7 @@ from bodyrig.person_profiles import create_profile, load_profile
 from bodyrig.personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
+    load_guided_personality_revision,
     save_guided_personality,
 )
 from bodyrig.personality_exemplar_approval import build_approval
@@ -144,3 +145,33 @@ def test_report_and_approval_must_be_supplied_together(tmp_path: Path) -> None:
             communication=_communication(),
             style_report=_report(),
         )
+
+
+
+def test_reload_preserves_direct_and_approved_style_provenance(tmp_path: Path) -> None:
+    root = tmp_path / "people"
+    profile = create_profile(root, display_name="Anna")
+    report = _report()
+    approval = _approval(report)
+
+    result = save_guided_personality(
+        root,
+        profile["person_id"],
+        default_language="da",
+        communication=_communication(),
+        style_exemplars=["Direkte author'et replik."],
+        style_report=report,
+        style_approval=approval,
+    )
+    reloaded = load_guided_personality_revision(
+        root,
+        profile["person_id"],
+        result["saved_personality_revision"],
+    )
+
+    assert reloaded["direct_style_exemplars"] == ["Direkte author'et replik."]
+    assert reloaded["style_report"] == report
+    assert reloaded["style_approval"]["approved_exemplars"] == [
+        "Ja ja, det går nok.",
+        "Det var da typisk.",
+    ]

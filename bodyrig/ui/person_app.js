@@ -64,6 +64,23 @@ function latestRevision(profile, kind) {
   return items.length ? items[items.length - 1] : null;
 }
 
+function sourceAlignmentForRevision(profile, kind, revisionId) {
+  return profile?._source_alignment?.components?.[kind]?.[revisionId] || null;
+}
+
+function personalityRevisionKind(profile, item) {
+  const alignment = sourceAlignmentForRevision(profile, "personality", item?.revision_id);
+  const evidenceKind = String(alignment?.evidence_kind || "");
+  const styleNotes = String(item?.style_notes || "");
+  if (styleNotes.includes("trait matrix=v2") || evidenceKind === "personality-blueprint-v2") {
+    return { label: "Matrix v2 · 120 traits", css: "matrix-v2", evidenceKind };
+  }
+  if (evidenceKind.startsWith("stash-source-")) {
+    return { label: "Source baseline", css: "source-baseline", evidenceKind };
+  }
+  return { label: "Manual / legacy", css: "legacy", evidenceKind };
+}
+
 function selectedAssemblyKey() {
   return [
     $("assembleBody")?.value || "",
@@ -165,13 +182,24 @@ function renderRevisionList(targetId, profile, kind, labelField) {
   [...items].reverse().forEach((item) => {
     const active = item.revision_id === activeId;
     const label = item[labelField] || item.voice_package || "";
+    const personalityKind = kind === "personality" ? personalityRevisionKind(profile, item) : null;
+    const meta = personalityKind ? `${label} · ${personalityKind.label}` : label;
+    const matrixQuery = personalityKind?.label === "Matrix v2 · 120 traits" ? "edit_revision" : "baseline_revision";
+    const matrixLabel = personalityKind?.label === "Matrix v2 · 120 traits" ? "Redigér 120 traits" : "Åbn som baseline";
+    const matrixLink = kind === "personality"
+      ? `<a class="secondary personality-matrix-link" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&${matrixQuery}=${encodeURIComponent(item.revision_id)}">${matrixLabel}</a>`
+      : "";
+    const candidateAction = active
+      ? '<span class="badge">I aktiv person</span>'
+      : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`;
     const row = document.createElement("div");
     row.className = `revision-item${active ? " active" : ""}`;
     row.innerHTML = `
       <div class="revision-top">
-        <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(label)}</div></div>
-        ${active ? '<span class="badge">I aktiv person</span>' : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`}
+        <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(meta)}</div></div>
+        <div class="action-row">${matrixLink}${candidateAction}</div>
       </div>
+      ${personalityKind?.evidenceKind ? `<div class="fine-print">Provenance: ${escapeHtml(personalityKind.evidenceKind)}</div>` : ""}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
     target.appendChild(row);
   });

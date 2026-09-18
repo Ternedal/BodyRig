@@ -30,3 +30,24 @@ def test_personality_navigation_does_not_add_activation_or_api_mutation() -> Non
     assert "/api/" not in tools
     assert "/activate/" not in tools
     assert "person_id" in tools
+
+
+
+def test_person_studio_labels_personality_provenance_and_links_to_matrix() -> None:
+    app = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
+
+    for token in (
+        "function personalityRevisionKind(profile, item)",
+        'label: "Matrix v2 · 120 traits"',
+        'label: "Source baseline"',
+        'label: "Manual / legacy"',
+        'evidenceKind.startsWith("stash-source-")',
+        'evidenceKind === "personality-blueprint-v2"',
+        'class="secondary personality-matrix-link"',
+        "baseline_revision",
+        "edit_revision",
+        "Provenance:",
+        "Redigér 120 traits",
+        "Åbn som baseline",
+    ):
+        assert token in app
