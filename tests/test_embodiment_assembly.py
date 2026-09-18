@@ -12,6 +12,11 @@ from bodyrig.embodiment_assembly import (
 )
 from bodyrig.personality_blueprint import blueprint_sha256, build_blueprint, compile_blueprint
 from bodyrig.personality_embodiment_binding import build_binding, write_binding
+from bodyrig.personality_traits import (
+    build_trait_profile,
+    compile_trait_profile,
+    trait_profile_sha256,
+)
 
 
 def _communication(**overrides: float) -> dict[str, float]:
@@ -151,3 +156,95 @@ def test_library_assembly_reloads_and_verifies_persisted_blueprint(tmp_path: Pat
             voice_revision="voice-r0001",
             personality_revision="personality-r0001",
         )
+
+def test_library_assembly_reloads_and_verifies_trait_evidence(
+    tmp_path: Path,
+) -> None:
+    profile, blueprint = _profile()
+    traits = build_trait_profile(
+        inner_ring={"curiosity": 0.9},
+        outer_ring={"empathy": 0.85},
+    )
+    base = compile_blueprint(blueprint)
+    trait_compiled = compile_trait_profile(traits)
+    profile["personality_revisions"][0]["instructions"] = (
+        base["instructions"]
+        + "\n\n"
+        + trait_compiled["instructions"]
+    )
+    profile["personality_revisions"][0]["style_notes"] = (
+        base["style_notes"]
+        + " | "
+        + trait_compiled["style_notes"]
+    )
+
+    write_binding(
+        tmp_path,
+        profile,
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+        trait_profile=traits,
+    )
+
+    blueprint_digest = blueprint_sha256(blueprint)
+    blueprint_path = (
+        tmp_path
+        / "personality-blueprints"
+        / profile["person_id"]
+        / f"{blueprint_digest}.json"
+    )
+    blueprint_path.parent.mkdir(parents=True)
+    blueprint_path.write_text(
+        json.dumps(blueprint),
+        encoding="utf-8",
+    )
+
+    trait_digest = trait_profile_sha256(traits)
+    trait_path = (
+        tmp_path
+        / "personality-traits"
+        / profile["person_id"]
+        / f"{trait_digest}.json"
+    )
+    trait_path.parent.mkdir(parents=True)
+    trait_path.write_text(
+        json.dumps(traits),
+        encoding="utf-8",
+    )
+
+    assembly = build_embodiment_bound_assembly_from_library(
+        tmp_path,
+        profile,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+    )
+
+    assert (
+        assembly["embodiment_binding"]["trait_profile_sha256"]
+        == trait_digest
+    )
+    assert (
+        assembly["embodiment_binding"]["blueprint_sha256"]
+        == blueprint_digest
+    )
+
+    tampered = build_trait_profile(
+        inner_ring={"curiosity": 0.1},
+    )
+    trait_path.write_text(
+        json.dumps(tampered),
+        encoding="utf-8",
+    )
+    with pytest.raises(
+        EmbodimentAssemblyError,
+        match="trait evidence SHA-256 mismatch",
+    ):
+        build_embodiment_bound_assembly_from_library(
+            tmp_path,
+            profile,
+            body_revision="body-r0001",
+            voice_revision="voice-r0001",
+            personality_revision="personality-r0001",
+        )
+\n
