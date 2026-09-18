@@ -37,9 +37,29 @@ Det samlede antal direkte + transcript-godkendte style exemplars er højst 12.
 
 Hvis en body revision vælges, validerer BodyRig den registrerede `.mrbody` og dens SHA-256 og bruger kun observerbare BodyPrint-felter som movement energy, gesture frequency/amplitude, head motion, gaze og speech-motion. Kommunikationspersonlighed bliver fortsat ikke infereret fra krop eller video.
 
+## Stash speaking-style direkte i Guided Personality
+
+Når personen er bundet til Stash og en konkret `body-rXXXX` er valgt som grounding, kan Guided Personality hente speaking-style kandidater direkte fra den samme source binding.
+
+Flowet er bevidst adskilt fra de 120 personality traits:
+
+1. BodyRig revaliderer den valgte body-source binding og de bundne source-bytes.
+2. Sidecar `.srt`, `.vtt` og `.txt` opdages kun ved de eksakte bundne mediefiler.
+3. Transcriptfilerne hashes og kompileres til en path-free `bodyrig-personality-exemplar-candidates` report.
+4. Browseren viser kandidaterne som tekst, ikke markup.
+5. Operatøren vælger højst 12 replikker og skal eksplicit bekræfte både speaker identity og style use.
+6. Ved approval revaliderer serveren Stash/body-source igen, regenererer reporten og kræver samme canonical report SHA-256. Hvis source/report har ændret sig, blokeres approval og kandidaterne skal reloades.
+7. Den server-verificerede report + approval sendes derefter gennem det normale Guided preview/save-flow.
+
+Stash-data må kun påvirke **ordvalg, rytme, register og conversational texture**. BodyRig må ikke bruge captions, video eller Stash-metadata til automatisk at sætte nogen af de 120 traits, biografi, minder, beliefs eller anden indre personality.
+
+Source-preview og approval opretter ingen personality revision og har `personality_authority=false`. Først `POST /api/v1/people/{person_id}/personality/guided/revisions` skriver den nye immutable personality candidate og den canonical report/approval evidence.
+
+Hvis den valgte source ikke har transcript/caption-evidence, vises det eksplicit, og trait-profilen forbliver uændret. Der laves ikke et psykologisk gæt som fallback.
+
 ## Browser-import af transcript evidence
 
-Guided Studio kan importere de to JSON-filer fra transcript-workflowet:
+Guided Studio kan fortsat importere de to JSON-filer fra transcript-workflowet:
 
 1. `bodyrig-personality-exemplar-candidates` report,
 2. `bodyrig-personality-exemplar-approval` receipt.
