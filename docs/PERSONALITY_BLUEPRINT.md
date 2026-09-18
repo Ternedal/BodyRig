@@ -73,6 +73,10 @@ bodyrig-personality-blueprint `
   --out "C:\path\personality-blueprint-result.json"
 ```
 
+Når `--save-candidate` bruges sammen med `--trait-profile`, skriver CLI'en også den canonical, content-addressed trait-evidence til `personality-traits/<person-id>/<sha256>.json`. Derfor kan en CLI-oprettet trait-kandidat genåbnes i Guided Personality på præcis samme måde som en UI-oprettet kandidat.
+
+Den almindelige fritekst-route `POST /api/v1/people/{person_id}/personality/revisions` må ikke indsætte machine-generated provenance-markører som `blueprint_sha256=`, `trait_profile_sha256=`, `style_report_sha256=` eller `style_approval_sha256=`. De markører er reserveret til de strukturerede authoring-flows, så en manuel kandidat ikke kan ligne verificeret evidence ved copy/paste.
+
 Gamle Personality Blueprint v1-kandidater uden trait-profile ændres ikke og kompilerer som før. Trait-bundne embodiment bindings bruger binding v2 og kræver den eksakte persisted trait-evidence ved verification.
 
 ### Style exemplars
