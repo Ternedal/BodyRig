@@ -108,3 +108,43 @@ def test_epoch_plan_rejects_group_crossing_split_boundary() -> None:
     index["observations"][1]["group_id"] = "scene:t"
     with pytest.raises(PhotorealAppearanceEpochError, match="crosses train/evaluation"):
         build_appearance_epoch_plan(index)
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_epoch_plan_rejects_non_numeric_frame_index_v1(invalid: object) -> None:
+    index = copy.deepcopy(_frame_index())
+    index["version"] = invalid
+    with pytest.raises(
+        PhotorealAppearanceEpochError,
+        match="frame index format/version mismatch",
+    ):
+        build_appearance_epoch_plan(index)
+
+
+def test_epoch_plan_preserves_numeric_float_v1() -> None:
+    index = copy.deepcopy(_frame_index())
+    index["version"] = 1.0
+    result = build_appearance_epoch_plan(index)
+    assert result["version"] == 1
+    assert result["teacher_input_authorized"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid", "message"),
+    [
+        ("performer_id", True, "performer id is invalid"),
+        ("analyzer_model_set_sha256", True, "model-set SHA-256 is invalid"),
+        ("identity_bank_sha256", 123, "identity bank SHA-256 is invalid"),
+        ("identity_calibration_sha256", {}, "identity calibration SHA-256 is invalid"),
+        ("performer_name", True, "performer name is invalid"),
+    ],
+)
+def test_epoch_plan_rejects_non_string_identity_provenance(
+    field: str,
+    invalid: object,
+    message: str,
+) -> None:
+    index = copy.deepcopy(_frame_index())
+    index[field] = invalid
+    with pytest.raises(PhotorealAppearanceEpochError, match=message):
+        build_appearance_epoch_plan(index)
