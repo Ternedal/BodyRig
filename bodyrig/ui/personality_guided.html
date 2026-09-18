@@ -6,7 +6,7 @@
   <title>BodyRig · Guided Personality</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1.2fr) 48px;gap:8px;align-items:center;padding:5px 0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trait-slider-row input{width:100%}.trait-slider-row.hidden{display:none}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1.2fr) 48px;gap:8px;align-items:center;padding:5px 0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trait-slider-row input{width:100%}.trait-slider-row.hidden{display:none}.transcript-review{border:1px solid var(--border,#333);border-radius:12px;padding:12px;margin-top:10px}.transcript-candidates{display:grid;gap:8px;margin:10px 0;max-height:320px;overflow:auto}.transcript-candidate-row{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:flex-start;border:1px solid var(--border,#333);border-radius:9px;padding:9px}.transcript-candidate-row input{margin-top:3px}.transcript-confirmations{display:grid;gap:6px;margin:10px 0}.transcript-source-meta{font-size:11px;color:var(--muted);padding:5px 0}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
   </style>
 </head>
 <body>
@@ -71,7 +71,25 @@
         <div id="examples"></div>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">5 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="card-row">
+          <div>
+            <div class="card-label">5 · Reviewed Stash transcript style</div>
+            <div class="fine-print">Find replikker i sidecar transcripts på den valgte source-bundne body revision. Replikker bliver kun style-evidence efter eksplicit review.</div>
+          </div>
+          <button id="stashTranscriptLoad" class="secondary" type="button">Find i Stash-kilder</button>
+        </div>
+        <div class="transcript-review">
+          <div id="stashTranscriptStatus" class="fine-print">Vælg en body revision og hent transcript-kandidater.</div>
+          <div id="stashTranscriptCandidates" class="transcript-candidates"></div>
+          <div class="transcript-confirmations">
+            <label class="check-row"><input id="stashTranscriptSpeakerConfirm" type="checkbox" disabled> Jeg bekræfter, at de valgte replikker tilhører den valgte performer</label>
+            <label class="check-row"><input id="stashTranscriptStyleConfirm" type="checkbox" disabled> Brug kun replikkerne som talestil — ikke som biografi, hukommelse, holdninger eller trait-authority</label>
+          </div>
+          <button id="stashTranscriptApprove" class="primary" type="button" disabled>Godkend valgte replikker som style-only evidence</button>
+        </div>
+
+        <div class="divider"></div>
+        <div class="card-row"><div><div class="card-label">6 · Importeret transcript-evidence</div><div class="fine-print">Alternativt: importér candidate report og approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
         <div class="evidence-grid">
           <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
           <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
@@ -120,7 +138,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -183,12 +201,22 @@
     if(query||changedOnly) for(const details of document.querySelectorAll(".trait-ring")) details.open=true;
   }
 
+  function approvedTranscriptCount(){
+    return Array.isArray(state.styleApproval?.approved_exemplars)
+      ? state.styleApproval.approved_exemplars.length
+      : 0;
+  }
+  function directStyleCount(){
+    return [...$("examples").querySelectorAll("input")].map(el=>el.value.trim()).filter(Boolean).length;
+  }
+  function transcriptSlotLimit(){ return Math.max(0,12-directStyleCount()); }
+
   function addExample(value=""){
-    if($("examples").children.length>=12) return toast("Der kan højst være 12 style exemplars i alt.",true);
+    if(directStyleCount()+approvedTranscriptCount()>=12) return toast("Der kan højst være 12 style exemplars i alt, inklusive godkendte transcript-replikker.",true);
     const row=document.createElement("div"); row.className="example-row";
     row.innerHTML=`<input maxlength="1000" placeholder="En typisk replik eller formulering" value="${escapeHtml(value)}"><button class="secondary" type="button">×</button>`;
-    row.querySelector("input").addEventListener("input",invalidate);
-    row.querySelector("button").addEventListener("click",()=>{row.remove();invalidate();});
+    row.querySelector("input").addEventListener("input",()=>{updateTranscriptApprovalState();invalidate();});
+    row.querySelector("button").addEventListener("click",()=>{row.remove();updateTranscriptApprovalState();invalidate();});
     $("examples").appendChild(row);
   }
 
@@ -202,6 +230,7 @@
       style_exemplars,
       style_report: state.styleReport,
       style_approval: state.styleApproval,
+      style_source: state.styleSource,
       body_revision: $("bodyRevision").value||null,
       inner_ring: traitPayload("inner"),
       outer_ring: traitPayload("outer"),
@@ -211,23 +240,145 @@
   function key(){ return JSON.stringify(payload()); }
   function invalidate(){ state.preview=null; state.requestKey=null; $("saveButton").disabled=true; $("blueprintBadge").textContent="Preview forældet"; $("blueprintBadge").classList.add("muted"); }
 
-  function renderEvidenceStatus(){
-    if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig."; return; }
-    if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — vælg både candidate report og approval receipt før preview."; return; }
-    const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
-    if(state.styleEvidenceOrigin==="revision"){
-      $("evidenceStatus").textContent=`Transcript-evidence genindlæst og verifieret fra den immutable personality-revision · ${count} godkendte replikker.`;
+  function selectedTranscriptIndexes(){
+    return [...document.querySelectorAll("#stashTranscriptCandidates input[type=checkbox]:checked")]
+      .map(input=>Number(input.dataset.index))
+      .filter(index=>Number.isInteger(index));
+  }
+  function hasSourceBoundTranscriptStyle(){ return state.styleSource?.kind==="stash-source-transcript"; }
+  function updateTranscriptApprovalState(){
+    const count=selectedTranscriptIndexes().length;
+    const limit=transcriptSlotLimit();
+    const ready=Boolean(
+      state.stashTranscriptPreview?.candidate_report
+      && count>=1
+      && count<=limit
+      && $("stashTranscriptSpeakerConfirm").checked
+      && $("stashTranscriptStyleConfirm").checked
+    );
+    $("stashTranscriptApprove").disabled=!ready;
+  }
+  function clearTranscriptPreview(message="Vælg en body revision og hent transcript-kandidater."){
+    state.stashTranscriptPreview=null;
+    state.stashTranscriptBodyRevision=null;
+    $("stashTranscriptStatus").textContent=message;
+    $("stashTranscriptCandidates").replaceChildren();
+    $("stashTranscriptSpeakerConfirm").checked=false;
+    $("stashTranscriptStyleConfirm").checked=false;
+    $("stashTranscriptSpeakerConfirm").disabled=true;
+    $("stashTranscriptStyleConfirm").disabled=true;
+    $("stashTranscriptApprove").disabled=true;
+  }
+  function renderTranscriptCandidates(result){
+    state.stashTranscriptPreview=result;
+    state.stashTranscriptBodyRevision=result.body_revision;
+    const report=result?.candidate_report;
+    const target=$("stashTranscriptCandidates");
+    target.replaceChildren();
+    if(!report||!Array.isArray(report.candidates)||!report.candidates.length){
+      clearTranscriptPreview(result?.transcript_count===0?"Ingen transcript-sidecars fundet på den valgte source-bundne body revision.":"Transcript-kilderne indeholdt ingen brugbare replikker.");
       return;
     }
-    $("evidenceStatus").textContent=`Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
+    const suggested=new Set(Array.isArray(report.suggested_exemplars)?report.suggested_exemplars:[]);
+    const limit=transcriptSlotLimit();
+    let preselected=0;
+    const meta=document.createElement("div"); meta.className="transcript-source-meta";
+    meta.textContent=`${result.transcript_count} transcript(s) · ${report.candidate_count} kandidater · ${limit} ledige pladser · source ${String(result.source_manifest_sha256||"").slice(0,12)}…`;
+    target.appendChild(meta);
+    report.candidates.forEach((utterance,index)=>{
+      const row=document.createElement("label"); row.className="transcript-candidate-row";
+      const input=document.createElement("input"); input.type="checkbox"; input.dataset.index=String(index);
+      input.checked=suggested.has(utterance)&&preselected<limit; if(input.checked) preselected+=1; input.disabled=limit===0;
+      const text=document.createElement("span"); text.textContent=utterance;
+      input.addEventListener("change",()=>{
+        if(selectedTranscriptIndexes().length>transcriptSlotLimit()){input.checked=false;toast(`Der er kun ${transcriptSlotLimit()} ledige style-pladser.`,true);}
+        updateTranscriptApprovalState();
+      });
+      row.append(input,text); target.appendChild(row);
+    });
+    $("stashTranscriptSpeakerConfirm").disabled=limit===0;
+    $("stashTranscriptStyleConfirm").disabled=limit===0;
+    $("stashTranscriptStatus").textContent=`Vælg højst ${limit} replikker og bekræft speaker + style-only brug.`;
+    updateTranscriptApprovalState();
+  }
+  async function loadStashTranscriptCandidates(){
+    if(!state.person) return toast("Vælg en person først.",true);
+    const bodyRevision=$("bodyRevision").value;
+    if(!bodyRevision) return toast("Vælg en body revision før transcript-søgning.",true);
+    clearTranscriptPreview("Validerer source-binding og leder efter transcript-sidecars…");
+    try{
+      const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/stash-transcript-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
+      if($("bodyRevision").value!==bodyRevision) return;
+      renderTranscriptCandidates(result);
+    }catch(error){clearTranscriptPreview(`Transcript-kandidater kunne ikke hentes: ${error.message}`);toast(error.message,true);}
+  }
+  async function approveStashTranscriptCandidates(){
+    if(!state.person||!state.stashTranscriptPreview?.candidate_report) return;
+    const bodyRevision=$("bodyRevision").value;
+    if(!bodyRevision||bodyRevision!==state.stashTranscriptBodyRevision) return toast("Body revision har ændret sig. Hent transcript-kandidater igen.",true);
+    const indexes=selectedTranscriptIndexes();
+    $("stashTranscriptApprove").disabled=true;
+    try{
+      const result=await api(
+        `/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/stash-transcript-approval?body_revision=${encodeURIComponent(bodyRevision)}`,
+        {method:"POST",body:JSON.stringify({
+          candidate_report:state.stashTranscriptPreview.candidate_report,
+          selected_candidate_indexes:indexes,
+          speaker_identity_confirmed:$("stashTranscriptSpeakerConfirm").checked,
+          style_use_approved:$("stashTranscriptStyleConfirm").checked
+        })}
+      );
+      state.styleReport=result.candidate_report;
+      state.styleApproval=result.approval;
+      state.styleSource={kind:"stash-source-transcript",body_revision:bodyRevision,source_manifest_sha256:result.source_manifest_sha256};
+      state.styleEvidenceOrigin="stash";
+      $("styleReportFile").value=""; $("styleApprovalFile").value="";
+      $("stackBaseline").checked=false;
+      renderBaseline();
+      renderEvidenceStatus();
+      invalidate();
+      toast("Stash-transcript evidence er godkendt til talestil.");
+    }catch(error){updateTranscriptApprovalState();toast(error.message,true);}
+  }
+  function renderEvidenceStatus(){
+    if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt."; return; }
+    if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — report og approval skal begge være til stede."; return; }
+    const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
+    const total=Number.isInteger(count)?directStyleCount()+count:null;
+    const suffix=total===null?"":` · samlet ${total}/12`;
+    if(hasSourceBoundTranscriptStyle()){
+      $("evidenceStatus").textContent=`Source-bound Stash transcript · ${count} style-only replikker${suffix} · ${state.styleSource.body_revision}.`;
+    }else if(state.styleEvidenceOrigin==="revision"){
+      $("evidenceStatus").textContent=`Transcript-evidence genindlæst og verifieret fra den immutable personality-revision · ${count} godkendte replikker${suffix}.`;
+    }else{
+      $("evidenceStatus").textContent=`Importeret report/approval · ${count} replikker${suffix}. Serveren verifierer bindingen ved preview.`;
+    }
   }
   async function readEvidence(kind, file){
-    state.styleEvidenceOrigin="file";
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
-    try{ const value=JSON.parse(await file.text()); state[kind]=value; renderEvidenceStatus(); invalidate(); }
-    catch(error){ state[kind]=null; renderEvidenceStatus(); invalidate(); toast(`Ugyldig JSON evidence: ${error.message}`,true); }
+    try{
+      const value=JSON.parse(await file.text());
+      state[kind]=value;
+      state.styleSource=null;
+      state.styleEvidenceOrigin="file";
+      clearTranscriptPreview("Manuel report/approval import er valgt.");
+      renderBaseline();
+      renderEvidenceStatus();
+      invalidate();
+    }catch(error){state[kind]=null;renderEvidenceStatus();invalidate();toast(`Ugyldig JSON evidence: ${error.message}`,true);}
   }
-  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;state.styleEvidenceOrigin=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+  function clearEvidence(){
+    state.styleReport=null;state.styleApproval=null;state.styleSource=null;state.styleEvidenceOrigin=null;
+    $("styleReportFile").value="";$("styleApprovalFile").value="";
+    clearTranscriptPreview();
+    renderBaseline();
+    renderEvidenceStatus();
+    invalidate();
+  }
+  function onBodyRevisionChange(){
+    if(hasSourceBoundTranscriptStyle()&&state.styleSource.body_revision!==$("bodyRevision").value) clearEvidence();
+    else {clearTranscriptPreview();invalidate();}
+  }
 
   function personalityAlignment(revisionId){
     return state.person?._source_alignment?.components?.personality?.[revisionId]||null;
@@ -255,8 +406,9 @@
     }
     const kind=baselineKind(item);
     const sourceBaseline=kind.label==="Source baseline";
-    if(!sourceBaseline) stackToggle.checked=false;
-    stackToggle.disabled=!sourceBaseline;
+    const transcriptBound=hasSourceBoundTranscriptStyle();
+    if(!sourceBaseline||transcriptBound) stackToggle.checked=false;
+    stackToggle.disabled=!sourceBaseline||transcriptBound;
     $("baselineBadge").textContent=kind.label; $("baselineBadge").classList.remove("muted");
     $("baselineMeta").textContent=`${item.revision_id} · ${item.default_language}${kind.evidenceKind?` · provenance ${kind.evidenceKind}`:""} · ${sourceBaseline?"kan stackes":"reference-only"}`;
     $("baselineInstructions").textContent=item.instructions||"";
@@ -294,7 +446,7 @@
     $("examples").innerHTML="";
     const direct=source.direct_style_exemplars||[];
     if(direct.length) for(const example of direct) addExample(example); else addExample();
-    state.styleReport=source.style_report||null; state.styleApproval=source.style_approval||null;
+    state.styleReport=source.style_report||null; state.styleApproval=source.style_approval||null; state.styleSource=source.style_source||null;
     state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null;
     $("styleReportFile").value=""; $("styleApprovalFile").value=""; renderEvidenceStatus();
     const stackedBaseline=source.source_baseline_revision||null;
@@ -319,7 +471,7 @@
     else $("status").textContent="Opret først en person i Person Studio.";
   }
   async function selectPerson(personId){
-    if(!personId){state.person=null;populateBaselines();return;}
+    if(!personId){state.person=null;clearEvidence();populateBaselines();return;}
     state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
     for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
     populateBaselines(); invalidate(); await loadRequestedEditRevision();
@@ -356,11 +508,12 @@
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
   }
 
-  buildSliders(); addExample(); renderEvidenceStatus();
+  buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
+  $("stashTranscriptLoad").addEventListener("click",loadStashTranscriptCandidates); $("stashTranscriptApprove").addEventListener("click",approveStashTranscriptCandidates); $("stashTranscriptSpeakerConfirm").addEventListener("change",updateTranscriptApprovalState); $("stashTranscriptStyleConfirm").addEventListener("change",updateTranscriptApprovalState);
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();

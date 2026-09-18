@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +15,17 @@ from .personality_authoring import (
     load_guided_personality_revision,
     save_guided_personality,
 )
-from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_source import (
+    SourcePersonalityError,
+    build_source_personality,
+    preview_source_personality_exemplars,
+)
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    build_approval,
+    canonical_sha256 as exemplar_evidence_sha256,
+    validate_candidate_report,
+)
 from .personality_suite_review import (
     PersonalitySuiteReviewError,
     seal_suite_review,
@@ -36,6 +46,17 @@ class GuidedCommunication(BaseModel):
     initiative: Ratio = 0.5
 
 
+class GuidedStyleSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["stash-source-transcript"]
+    body_revision: str = Field(min_length=1, max_length=24)
+    source_manifest_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+
+
 class GuidedPersonalityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_language: str = Field(default="da", min_length=2, max_length=16)
@@ -44,6 +65,7 @@ class GuidedPersonalityRequest(BaseModel):
     style_exemplars: list[str] = Field(default_factory=list, max_length=12)
     style_report: dict[str, Any] | None = None
     style_approval: dict[str, Any] | None = None
+    style_source: GuidedStyleSource | None = None
     body_revision: str | None = Field(default=None, max_length=24)
     inner_ring: dict[str, Ratio] | None = None
     outer_ring: dict[str, Ratio] | None = None
@@ -52,6 +74,14 @@ class GuidedPersonalityRequest(BaseModel):
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
     feedback: str = Field(default="", max_length=8000)
+
+
+class StashTranscriptApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_report: dict[str, Any]
+    selected_candidate_indexes: list[int] = Field(min_length=1, max_length=12)
+    speaker_identity_confirmed: bool
+    style_use_approved: bool
 
 
 class PersonalitySuiteSealRequest(BaseModel):
@@ -73,6 +103,11 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_exemplars": request.style_exemplars,
         "style_report": request.style_report,
         "style_approval": request.style_approval,
+        "style_source": (
+            request.style_source.model_dump()
+            if request.style_source is not None
+            else None
+        ),
         "body_revision": request.body_revision,
         "inner_ring": request.inner_ring,
         "outer_ring": request.outer_ring,
@@ -90,6 +125,72 @@ def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
 @app.get("/api/v1/personality/trait-matrix")
 def personality_trait_matrix_definition() -> dict:
     return personality_trait_definitions()
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/stash-transcript-candidates"
+)
+def personality_stash_transcript_candidates(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        return preview_source_personality_exemplars(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/stash-transcript-approval"
+)
+def personality_stash_transcript_approval(
+    person_id: str,
+    request: StashTranscriptApprovalRequest,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        current = preview_source_personality_exemplars(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+        current_report = current.get("candidate_report")
+        if not isinstance(current_report, dict):
+            raise SourcePersonalityError(
+                "selected source has no transcript exemplar candidates"
+            )
+        provided = validate_candidate_report(request.candidate_report)
+        if (
+            exemplar_evidence_sha256(provided)
+            != exemplar_evidence_sha256(current_report)
+        ):
+            raise SourcePersonalityError(
+                "source transcript candidate report changed; refresh before approval"
+            )
+        approval = build_approval(
+            current_report,
+            selected_candidate_indexes=request.selected_candidate_indexes,
+            speaker_identity_confirmed=request.speaker_identity_confirmed,
+            style_use_approved=request.style_use_approved,
+        )
+    except (
+        SourcePersonalityError,
+        PersonalityExemplarApprovalError,
+    ) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "candidate_report": current_report,
+        "approval": approval,
+        "body_revision": body_revision,
+        "transcript_count": current["transcript_count"],
+        "source_manifest_sha256": current["source_manifest_sha256"],
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
 
 
 @app.post("/api/v1/people/{person_id}/personality/guided/preview")
