@@ -102,6 +102,8 @@ def _build_guided(
     authored_notes: str,
     style_exemplars: Sequence[str] | None,
     body_revision: str | None,
+    inner_ring: Mapping[str, Any] | None,
+    outer_ring: Mapping[str, Any] | None,
     style_report: Mapping[str, Any] | None,
     style_approval: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
@@ -128,6 +130,8 @@ def _build_guided(
             style_exemplars=combined_examples,
             bodyprint=bodyprint,
             body_revision=body_revision,
+            inner_ring=inner_ring,
+            outer_ring=outer_ring,
         )
         candidate = compile_blueprint(blueprint)
     except PersonalityBlueprintError as exc:
@@ -157,6 +161,8 @@ def build_guided_personality(
     authored_notes: str = "",
     style_exemplars: Sequence[str] | None = None,
     body_revision: str | None = None,
+    inner_ring: Mapping[str, Any] | None = None,
+    outer_ring: Mapping[str, Any] | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -168,6 +174,8 @@ def build_guided_personality(
         authored_notes=authored_notes,
         style_exemplars=style_exemplars,
         body_revision=body_revision,
+        inner_ring=inner_ring,
+        outer_ring=outer_ring,
         style_report=style_report,
         style_approval=style_approval,
     )
@@ -258,6 +266,8 @@ def save_guided_personality(
     authored_notes: str = "",
     style_exemplars: Sequence[str] | None = None,
     body_revision: str | None = None,
+    inner_ring: Mapping[str, Any] | None = None,
+    outer_ring: Mapping[str, Any] | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
     feedback: str = "",
@@ -299,7 +309,7 @@ def save_guided_personality(
                 profile,
                 kind="personality",
                 revision_id=saved_revision,
-                evidence_kind="personality-blueprint-v1",
+                evidence_kind=f"personality-blueprint-v{result['blueprint']['version']}",
                 evidence_sha256=result["blueprint_sha256"],
                 evidence_ref=str(blueprint_path),
             )
