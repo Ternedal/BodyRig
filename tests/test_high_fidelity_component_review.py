@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -167,3 +168,37 @@ def test_review_status_is_required_before_receipt(monkeypatch: pytest.MonkeyPatc
         "hair": False,
         "eyes": False,
     }
+
+
+def test_component_review_persisted_v1_discriminator_is_bool_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    state = _preview()
+    _install_preview(monkeypatch, tmp_path, state)
+    write_review(
+        JOB_ID,
+        bodyrig_revision=REVISION,
+        checklist=_checklist(),
+        quality_note="Exact rendered component evidence was reviewed.",
+    )
+    path = review.review_path(
+        JOB_ID,
+        review_vrm_sha256=state["review_vrm_sha256"],
+    )
+    original = json.loads(path.read_text(encoding="utf-8"))
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        tampered = dict(original)
+        tampered["version"] = invalid
+        path.write_text(json.dumps(tampered), encoding="utf-8")
+        with pytest.raises(
+            HighFidelityComponentReviewError,
+            match="format/version/policy",
+        ):
+            read_review(JOB_ID)
+
+    numeric = dict(original)
+    numeric["version"] = 1.0
+    path.write_text(json.dumps(numeric), encoding="utf-8")
+    assert read_review(JOB_ID)["version"] == 1.0
