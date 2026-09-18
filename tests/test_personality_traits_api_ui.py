@@ -490,6 +490,8 @@ def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
         "speaker_identity_confirmed",
         "style_use_approved",
         "styleEvidenceOrigin",
+        "style_source: state.styleSource",
+        "source_manifest_sha256:result.source_manifest_sha256",
         "onBodyRevisionChange",
         "transcriptSlotLimit",
         "approvedTranscriptCount",
@@ -504,6 +506,8 @@ def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
     ]
     assert "state.styleReport=result.candidate_report" in approval_block
     assert "state.styleApproval=result.approval" in approval_block
+    assert 'kind:"stash-source-transcript"' in approval_block
+    assert "source_manifest_sha256:result.source_manifest_sha256" in approval_block
     assert "trait-" not in approval_block
     assert "input.value=" not in approval_block
 
@@ -519,4 +523,48 @@ def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
     ]
     assert 'state.styleEvidenceOrigin==="stash"' in body_block
     assert "clearEvidence()" in body_block
+
+def test_guided_style_source_schema_requires_canonical_stash_binding() -> None:
+    report = _transcript_candidate_report()
+    request = GuidedPersonalityRequest(
+        communication=_communication(),
+        style_report=report,
+        style_approval={
+            "format": "bodyrig-personality-exemplar-approval",
+            "version": 1,
+            "candidate_report_sha256": "a" * 64,
+            "selected_candidate_indexes": [0],
+            "approved_exemplars": [report["candidates"][0]],
+            "operator_review": {
+                "speaker_identity_confirmed": True,
+                "style_use_approved": True,
+            },
+            "personality_authority": False,
+            "content_semantics": "style-only-not-biography-or-memory",
+        },
+        style_source={
+            "kind": "stash-source-transcript",
+            "body_revision": "body-r0001",
+            "source_manifest_sha256": "b" * 64,
+        },
+        body_revision="body-r0001",
+    )
+
+    kwargs = _authoring_kwargs(request)
+
+    assert kwargs["style_source"] == {
+        "kind": "stash-source-transcript",
+        "body_revision": "body-r0001",
+        "source_manifest_sha256": "b" * 64,
+    }
+
+    with pytest.raises(ValidationError):
+        GuidedPersonalityRequest(
+            communication=_communication(),
+            style_source={
+                "kind": "stash-source-transcript",
+                "body_revision": "body-r0001",
+                "source_manifest_sha256": "not-a-sha",
+            },
+        )
 
