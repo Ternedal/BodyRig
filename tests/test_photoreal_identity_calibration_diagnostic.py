@@ -551,6 +551,7 @@ def test_diagnostic_reports_complete_negative_quality_metadata(
         observation.update(
             {
                 "candidate_id": "person-000",
+                "candidate_count": 1,
                 "person_detected": True,
                 "width": 1920,
                 "height": 1080,
@@ -562,6 +563,7 @@ def test_diagnostic_reports_complete_negative_quality_metadata(
                 "motion": 0.0,
                 "occlusion": 0.0,
                 "identity_measurement_status": "available",
+                "identity_measurement_reason": "embedding-available",
             }
         )
 
@@ -590,4 +592,8 @@ def test_diagnostic_reports_complete_negative_quality_metadata(
         count == 2
         for count in quality["field_presence_counts"].values()
     )
+    highest = result["highest_negative_match"]
+    assert highest["quality_metadata_complete"] is True
+    assert highest["quality_metadata"]["candidate_count"] == 1
+    assert highest["quality_metadata"]["identity_measurement_reason"] == "embedding-available"
 
