@@ -79,6 +79,16 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                 "positive_cosine_median":
                     result["positive_cosine_median"],
+                "positive_reference_to_target_cosine_min":
+                    result[
+                        "positive_reference_to_target_cosine_min"
+                    ],
+                "positive_cross_group_centroid_cosine_min":
+                    result[
+                        "positive_cross_group_centroid_cosine_min"
+                    ],
+                "positive_group_count":
+                    result["positive_group_count"],
                 "negative_cosine_median":
                     result["negative_cosine_median"],
                 "planned_negative_observation_count":
