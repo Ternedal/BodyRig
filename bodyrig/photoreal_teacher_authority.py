@@ -22,8 +22,10 @@ from .photoreal_teacher_input import (
 )
 from .photoreal_teacher_runner import (
     PhotorealTeacherRunnerError,
+    build_teacher_request,
     load_teacher_config,
     run_external_teacher,
+    validate_teacher_result,
 )
 
 ErrorType: TypeAlias = type[ValueError]
@@ -437,6 +439,30 @@ def build_teacher_input_files_strict(
         encoding="utf-8",
     )
     return result
+
+
+def validate_external_teacher_files_strict(
+    config_path: str | Path,
+    teacher_input_path: str | Path,
+    workspace: str | Path,
+) -> dict[str, Any]:
+    config = load_teacher_config(config_path)
+    teacher_input = _read_json(
+        teacher_input_path,
+        label="photoreal teacher input",
+        error_type=PhotorealTeacherRunnerError,
+    )
+    validated = validate_teacher_input_document(teacher_input)
+    request = build_teacher_request(config, validated)
+    output = Path(workspace).expanduser().resolve()
+    if not output.is_dir():
+        raise PhotorealTeacherRunnerError(f"teacher output workspace is missing: {output}")
+    manifest = _read_json(
+        output / "teacher-manifest.json",
+        label="photoreal teacher manifest",
+        error_type=PhotorealTeacherRunnerError,
+    )
+    return validate_teacher_result(manifest, request=request, output_dir=output)
 
 
 def run_external_teacher_files_strict(
