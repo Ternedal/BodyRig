@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -150,3 +151,49 @@ def test_source_capture_rejects_scene_outside_exact_body_source(tmp_path: Path, 
             selections=selections,
             runner=_runner,
         )
+
+
+def test_source_capture_readback_version_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _files, selections = _source_fixture(tmp_path, monkeypatch)
+    receipt = hfn.prepare_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        bodyrig_revision=BODYRIG_REVISION,
+        selections=selections,
+        runner=_runner,
+    )
+    manifest = (
+        hfn.capture_dir(tmp_path, PERSON_ID, BODY_REVISION, receipt["capture_id"])
+        / "source-capture.json"
+    )
+    original = json.loads(manifest.read_text(encoding="utf-8"))
+
+    for invalid in (True, False, "1", None, [], {}, 2):
+        tampered = dict(original)
+        tampered["version"] = invalid
+        manifest.write_text(json.dumps(tampered), encoding="utf-8")
+        with pytest.raises(
+            hfn.HandsFeetNailsSourceCaptureError,
+            match="format/version/policy",
+        ):
+            hfn.read_source_capture(
+                tmp_path,
+                PERSON_ID,
+                body_revision=BODY_REVISION,
+                capture_id=receipt["capture_id"],
+            )
+
+    numeric = dict(original)
+    numeric["version"] = 1.0
+    manifest.write_text(json.dumps(numeric), encoding="utf-8")
+    reread = hfn.read_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        capture_id=receipt["capture_id"],
+    )
+    assert reread["version"] == 1.0
