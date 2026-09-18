@@ -13,7 +13,11 @@ from bodyrig.guided_app import (
 )
 from bodyrig.person_profiles import create_profile
 from bodyrig.personality_authoring import save_guided_personality
-from bodyrig.personality_traits import INNER_KEYS, OUTER_KEYS
+from bodyrig.personality_traits import (
+    INNER_KEYS,
+    OUTER_KEYS,
+    build_trait_profile,
+)
 
 
 def _communication() -> dict[str, float]:
@@ -137,10 +141,7 @@ def test_trait_revision_api_returns_exact_persisted_profile(
         profile["person_id"],
         default_language="da",
         communication=_communication(),
-        trait_profile=__import__(
-            "bodyrig.personality_traits",
-            fromlist=["build_trait_profile"],
-        ).build_trait_profile(**traits),
+        trait_profile=build_trait_profile(**traits),
     )
 
     monkeypatch.setattr(
