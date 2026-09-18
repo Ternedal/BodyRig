@@ -280,6 +280,8 @@ def save_guided_personality(
         authored_notes=authored_notes,
         style_exemplars=style_exemplars,
         body_revision=body_revision,
+        inner_ring=inner_ring,
+        outer_ring=outer_ring,
         style_report=style_report,
         style_approval=style_approval,
     )
