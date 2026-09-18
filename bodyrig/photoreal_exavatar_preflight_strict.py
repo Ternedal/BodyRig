@@ -115,6 +115,36 @@ def build_exavatar_preflight_strict(
     return result
 
 
+def validate_exavatar_preflight_strict_file(
+    preflight_path: str | Path,
+    *,
+    dependency_root: str | Path,
+    asset_root: str | Path,
+    reference_model_root: str | Path,
+    smplx_gender: str,
+    require_colmap: bool = True,
+) -> dict[str, Any]:
+    source = Path(preflight_path).expanduser().resolve()
+    try:
+        existing = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarPreflightError(f"ExAvatar preflight output is unreadable: {source}") from exc
+    if not isinstance(existing, dict):
+        raise PhotorealExAvatarPreflightError("ExAvatar preflight output must be a JSON object")
+    expected = build_exavatar_preflight_strict(
+        dependency_root=dependency_root,
+        asset_root=asset_root,
+        reference_model_root=reference_model_root,
+        smplx_gender=smplx_gender,
+        require_colmap=require_colmap,
+    )
+    if existing != expected:
+        raise PhotorealExAvatarPreflightError(
+            "existing ExAvatar strict preflight does not match the current pinned environment/assets"
+        )
+    return existing
+
+
 def build_exavatar_preflight_strict_files(
     *,
     dependency_root: str | Path,
