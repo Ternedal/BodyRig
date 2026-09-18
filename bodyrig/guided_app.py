@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -59,6 +59,17 @@ class GuidedTraitProfile(BaseModel):
     outer_ring: dict[str, Ratio]
 
 
+class GuidedStyleSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["stash-source-transcript"]
+    body_revision: str = Field(min_length=1, max_length=24)
+    source_manifest_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+
+
 class GuidedPersonalityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_language: str = Field(default="da", min_length=2, max_length=16)
@@ -67,6 +78,7 @@ class GuidedPersonalityRequest(BaseModel):
     style_exemplars: list[str] = Field(default_factory=list, max_length=12)
     style_report: dict[str, Any] | None = None
     style_approval: dict[str, Any] | None = None
+    style_source: GuidedStyleSource | None = None
     body_revision: str | None = Field(default=None, max_length=24)
     trait_profile: GuidedTraitProfile | None = None
 
@@ -136,6 +148,11 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_exemplars": request.style_exemplars,
         "style_report": request.style_report,
         "style_approval": request.style_approval,
+        "style_source": (
+            request.style_source.model_dump()
+            if request.style_source is not None
+            else None
+        ),
         "body_revision": request.body_revision,
         "trait_profile": trait_profile,
     }
