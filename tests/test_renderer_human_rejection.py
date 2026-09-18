@@ -144,3 +144,30 @@ def test_operator_wrapper_requires_explicit_rejection_confirmation() -> None:
     assert "human_review_pass -ne $false" in source
     assert "production_activation -ne $false" in source
     assert "record-renderer-acceptance.ps1" not in source
+
+
+def test_rejection_persisted_v1_discriminator_is_bool_safe(tmp_path: Path) -> None:
+    write_rejection(
+        tmp_path,
+        **_kwargs(),
+        failed_checks=["source_identity"],
+        quality_note="Source identity visibly fails review.",
+    )
+    path = rejection_path(tmp_path, PLATFORM)
+    original = json.loads(path.read_text(encoding="utf-8"))
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        tampered = dict(original)
+        tampered["version"] = invalid
+        path.write_text(json.dumps(tampered) + "\n", encoding="utf-8")
+        with pytest.raises(
+            RendererHumanRejectionError,
+            match="format/version/policy",
+        ):
+            read_rejection(tmp_path, **_kwargs())
+
+    numeric = dict(original)
+    numeric["version"] = 1.0
+    path.write_text(json.dumps(numeric) + "\n", encoding="utf-8")
+    reread = read_rejection(tmp_path, **_kwargs())
+    assert reread["version"] == 1.0
