@@ -162,18 +162,41 @@ def select_hair_faces(
 
         by_vertex: dict[int, list[int]] = {}
         candidate_set = set(candidate_faces)
+        seed_set = set(seed_faces)
         for face_index in candidate_faces:
             for vertex in face_vertices[face_index]:
                 by_vertex.setdefault(vertex, []).append(face_index)
-        selected: set[int] = set(seed_faces)
-        queue: deque[int] = deque(seed_faces)
-        while queue:
-            face_index = queue.popleft()
-            for vertex in face_vertices[face_index]:
-                for neighbor in by_vertex.get(vertex, []):
-                    if neighbor in candidate_set and neighbor not in selected:
-                        selected.add(neighbor)
-                        queue.append(neighbor)
+
+        seed_components: list[tuple[set[int], int]] = []
+        visited_seed_components: set[int] = set()
+        for seed_face in sorted(seed_faces):
+            if seed_face in visited_seed_components:
+                continue
+            component: set[int] = {seed_face}
+            queue: deque[int] = deque([seed_face])
+            while queue:
+                face_index = queue.popleft()
+                for vertex in face_vertices[face_index]:
+                    for neighbor in by_vertex.get(vertex, []):
+                        if neighbor in candidate_set and neighbor not in component:
+                            component.add(neighbor)
+                            queue.append(neighbor)
+            visited_seed_components.update(component.intersection(seed_set))
+            seed_components.append((component, len(component.intersection(seed_set))))
+
+        # The v2 selector promises one connected retained shell. Multiple
+        # disconnected seed islands are alternatives, not additive authority.
+        # Prefer the largest seed-bearing connected candidate; use retained
+        # seed support and then the lowest face index only as deterministic
+        # tie-breakers. This changes no geometric thresholds.
+        selected, retained_seed_count = max(
+            seed_components,
+            key=lambda item: (
+                len(item[0]),
+                item[1],
+                -min(item[0]),
+            ),
+        )
 
         selected_faces = sorted(selected)
         selected_vertices = sorted({vertex for face_index in selected_faces for vertex in face_vertices[face_index]})
@@ -196,7 +219,7 @@ def select_hair_faces(
             "distance_max": max(selected_distances),
             "minimum_y_ratio": min(selected_y),
             "maximum_y_ratio": max(selected_y),
-            "seed_face_count": len(seed_faces),
+            "seed_face_count": retained_seed_count,
             "selection_mode": mode,
             "minimum_distance_body_ratio": minimum_distance_ratio,
             "seed_distance_body_ratio": seed_distance_ratio,

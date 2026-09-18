@@ -101,6 +101,36 @@ def test_hair_selector_does_not_bridge_disconnected_candidate_island() -> None:
     assert len(result["selected_face_indices"]) == 40
     assert max(result["selected_face_indices"]) < 40
 
+def test_hair_selector_keeps_only_one_connected_high_seed_component() -> None:
+    source, faces = _hair_grid()
+    original_face_count = len(faces)
+    offset = len(source)
+    high_seed_island = [
+        (-0.05, 1.84, 0.10),
+        (0.00, 1.84, 0.10),
+        (0.05, 1.84, 0.10),
+        (0.00, 1.92, 0.10),
+    ]
+    source.extend(high_seed_island)
+    faces.extend(
+        [
+            [(offset, offset), (offset + 1, offset + 1), (offset + 3, offset + 3)],
+            [(offset + 1, offset + 1), (offset + 2, offset + 2), (offset + 3, offset + 3)],
+        ]
+    )
+
+    result = select_hair_faces(
+        donor_positions=_donor(),
+        source_positions=source,
+        source_faces=faces,
+        source_to_donor_distance=[0.035] * len(source),
+    )
+
+    assert len(result["selected_face_indices"]) == original_face_count
+    assert max(result["selected_face_indices"]) < original_face_count
+    assert result["seed_face_count"] <= original_face_count
+
+
 def test_hair_selector_recovers_short_hair_close_to_scalp() -> None:
     source, faces = _hair_grid()
     distances = [0.008] * len(source)
