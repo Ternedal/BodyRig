@@ -461,16 +461,20 @@ try {
 
         Write-Host ""
         Write-Host "=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="
-        $diagnosticOutput = @(& $Python -m bodyrig.photoreal_identity_calibration_diagnostic_cli `
-            --identity-bank $IdentityBankPath `
-            --plan $CalibrationPlanPath `
-            --negative-observations $NegativeObservationsPath `
-            --out $CalibrationDiagnosticPath `
-            --top-matches 10)
-        $diagnosticExit = $LASTEXITCODE
-        foreach ($line in $diagnosticOutput) { Write-Host ([string]$line) }
-        if ($diagnosticExit -ne 0) {
-            Write-Host "WARNING: calibration diagnostic failed; authoritative Stage 13 block is unchanged."
+        try {
+            $diagnosticOutput = @(& $Python -m bodyrig.photoreal_identity_calibration_diagnostic_cli `
+                --identity-bank $IdentityBankPath `
+                --plan $CalibrationPlanPath `
+                --negative-observations $NegativeObservationsPath `
+                --out $CalibrationDiagnosticPath `
+                --top-matches 10)
+            $diagnosticExit = $LASTEXITCODE
+            foreach ($line in $diagnosticOutput) { Write-Host ([string]$line) }
+            if ($diagnosticExit -ne 0) {
+                Write-Host "WARNING: calibration diagnostic failed; authoritative Stage 13 block is unchanged."
+            }
+        } catch {
+            Write-Host ("WARNING: calibration diagnostic could not run; authoritative Stage 13 block is unchanged: " + $_.Exception.Message)
         }
 
         Write-Status -Status "identity-calibration-blocked" -TeacherTrainingAuthorized $false -Blockers $blockers
