@@ -71,6 +71,23 @@ def build_embodiment_bound_assembly(
         raise EmbodimentAssemblyError(str(exc)) from exc
 
     binding_sha = _canonical_sha256(verified)
+    binding_provenance = {
+        "binding_sha256": binding_sha,
+        "blueprint_sha256": verified["blueprint_sha256"],
+        "grounding": dict(verified["grounding"]),
+        "evidence_status": verified["embodiment_evidence"]["status"],
+        "observed_fields": list(
+            verified["embodiment_evidence"]["observed_fields"]
+        ),
+        "neutral_fallback_fields": list(
+            verified["embodiment_evidence"]["neutral_fallback_fields"]
+        ),
+    }
+    if verified.get("trait_profile_sha256") is not None:
+        binding_provenance["trait_profile_sha256"] = verified[
+            "trait_profile_sha256"
+        ]
+
     canonical = {
         "format": FORMAT,
         "version": VERSION,
@@ -78,17 +95,7 @@ def build_embodiment_bound_assembly(
         "body": dict(legacy["body"]),
         "voice": dict(legacy["voice"]),
         "personality": dict(legacy["personality"]),
-        "embodiment_binding": {
-            "binding_sha256": binding_sha,
-            "blueprint_sha256": verified["blueprint_sha256"],
-            "trait_profile_sha256": verified.get(
-                "trait_profile_sha256"
-            ),
-            "grounding": dict(verified["grounding"]),
-            "evidence_status": verified["embodiment_evidence"]["status"],
-            "observed_fields": list(verified["embodiment_evidence"]["observed_fields"]),
-            "neutral_fallback_fields": list(verified["embodiment_evidence"]["neutral_fallback_fields"]),
-        },
+        "embodiment_binding": binding_provenance,
     }
     return {
         **canonical,
