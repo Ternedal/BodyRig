@@ -398,11 +398,11 @@
   }
 
   function addExample(value=""){
-    if($("examples").children.length>=12) return toast("Der kan højst være 12 style exemplars i alt.",true);
+    if(directStyleCount()+approvedTranscriptCount()>=12) return toast("Der kan højst være 12 style exemplars i alt, inklusive godkendte transcript-replikker.",true);
     const row=document.createElement("div"); row.className="example-row";
     row.innerHTML=`<input maxlength="1000" placeholder="En typisk replik eller formulering" value="${escapeHtml(value)}"><button class="secondary" type="button">×</button>`;
-    row.querySelector("input").addEventListener("input",invalidate);
-    row.querySelector("button").addEventListener("click",()=>{row.remove();invalidate();});
+    row.querySelector("input").addEventListener("input",()=>{updateTranscriptApprovalState();invalidate();});
+    row.querySelector("button").addEventListener("click",()=>{row.remove();updateTranscriptApprovalState();invalidate();});
     $("examples").appendChild(row);
   }
 
@@ -423,6 +423,23 @@
   function key(){ return JSON.stringify(payload()); }
   function invalidate(){ state.preview=null; state.requestKey=null; $("saveButton").disabled=true; $("blueprintBadge").textContent="Preview forældet"; $("blueprintBadge").classList.add("muted"); }
 
+  function approvedTranscriptCount(){
+    return Array.isArray(state.styleApproval?.approved_exemplars)
+      ? state.styleApproval.approved_exemplars.length
+      : 0;
+  }
+
+  function directStyleCount(){
+    return [...$("examples").querySelectorAll("input")]
+      .map(input=>input.value.trim())
+      .filter(Boolean)
+      .length;
+  }
+
+  function transcriptSlotLimit(){
+    return Math.max(0,12-directStyleCount());
+  }
+
   function selectedTranscriptIndexes(){
     return [...document.querySelectorAll("#stashTranscriptCandidates input[type=checkbox]:checked")]
       .map(input=>Number(input.dataset.index))
@@ -431,10 +448,11 @@
 
   function updateTranscriptApprovalState(){
     const count=selectedTranscriptIndexes().length;
+    const limit=transcriptSlotLimit();
     const ready=Boolean(
       state.stashTranscriptPreview?.candidate_report
       && count>=1
-      && count<=12
+      && count<=limit
       && $("stashTranscriptSpeakerConfirm").checked
       && $("stashTranscriptStyleConfirm").checked
     );
@@ -466,24 +484,29 @@
       return;
     }
     const suggested=new Set(Array.isArray(report.suggested_exemplars)?report.suggested_exemplars:[]);
+    const limit=transcriptSlotLimit();
+    let preselected=0;
     const transcriptNames=(result.transcripts||[]).map(item=>item.name).join(", ");
-    $("stashTranscriptStatus").textContent=`${result.transcript_count} transcript(s) · ${report.candidate_count} kandidat-replikker · source manifest ${String(result.source_manifest_sha256||"").slice(0,12)}…`;
+    $("stashTranscriptStatus").textContent=`${result.transcript_count} transcript(s) · ${report.candidate_count} kandidat-replikker · ${limit} ledige style-pladser · source manifest ${String(result.source_manifest_sha256||"").slice(0,12)}…`;
     const meta=document.createElement("div"); meta.className="transcript-source-meta"; meta.textContent=transcriptNames||"Source-bound transcript evidence"; target.appendChild(meta);
     report.candidates.forEach((utterance,index)=>{
       const row=document.createElement("label"); row.className="transcript-candidate-row";
-      const input=document.createElement("input"); input.type="checkbox"; input.dataset.index=String(index); input.checked=suggested.has(utterance);
+      const input=document.createElement("input"); input.type="checkbox"; input.dataset.index=String(index); input.checked=suggested.has(utterance)&&preselected<limit; if(input.checked) preselected+=1; input.disabled=limit===0;
       const text=document.createElement("span"); text.className="transcript-candidate-text"; text.textContent=utterance;
       input.addEventListener("change",()=>{
-        if(selectedTranscriptIndexes().length>12){
+        if(selectedTranscriptIndexes().length>transcriptSlotLimit()){
           input.checked=false;
-          toast("Der kan højst godkendes 12 transcript-replikker.",true);
+          toast(`Der er kun ${transcriptSlotLimit()} ledige pladser inden for loftet på 12 style exemplars.`,true);
         }
         updateTranscriptApprovalState();
       });
       row.append(input,text); target.appendChild(row);
     });
-    $("stashTranscriptSpeakerConfirm").disabled=false;
-    $("stashTranscriptStyleConfirm").disabled=false;
+    $("stashTranscriptSpeakerConfirm").disabled=limit===0;
+    $("stashTranscriptStyleConfirm").disabled=limit===0;
+    if(limit===0){
+      $("stashTranscriptStatus").textContent+=" Fjern mindst ét direkte style exemplar for at godkende transcript-replikker.";
+    }
     updateTranscriptApprovalState();
   }
 
@@ -555,10 +578,12 @@
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt."; return; }
     if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — report og approval skal begge være til stede."; return; }
     const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
+    const total=Number.isInteger(count)?directStyleCount()+count:null;
+    const totalText=total===null?"":` · samlet ${total}/12`;
     if(state.styleEvidenceOrigin==="stash"){
-      $("evidenceStatus").textContent=`Stash source-bound approval · ${count} style-only replikker · ${state.stashTranscriptBodyRevision||"ukendt body revision"}. Serveren verifierer report/approval igen ved preview.`;
+      $("evidenceStatus").textContent=`Stash source-bound approval · ${count} style-only replikker${totalText} · ${state.stashTranscriptBodyRevision||"ukendt body revision"}. Serveren verifierer report/approval igen ved preview.`;
     }else{
-      $("evidenceStatus").textContent=`Importeret report/approval · ${count} replikker. Serveren verifierer bindingen ved preview.`;
+      $("evidenceStatus").textContent=`Importeret report/approval · ${count} replikker${totalText}. Serveren verifierer bindingen ved preview.`;
     }
   }
   async function readEvidence(kind, file){
