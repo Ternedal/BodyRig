@@ -33,10 +33,10 @@ class PersonalityAuthoringError(ValueError):
 
 
 BLUEPRINT_STYLE_SHA_RE = re.compile(
-    r"^blueprint_sha256=([0-9a-f]{64})(?: \\||$)"
+    r"^blueprint_sha256=([0-9a-f]{64})(?: \||$)"
 )
 STYLE_EVIDENCE_SUFFIX_RE = re.compile(
-    r" \\| style_report_sha256=([0-9a-f]{64}) \\| style_approval_sha256=([0-9a-f]{64})$"
+    r" \| style_report_sha256=([0-9a-f]{64}) \| style_approval_sha256=([0-9a-f]{64})$"
 )
 
 
