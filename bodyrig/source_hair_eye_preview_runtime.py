@@ -26,6 +26,14 @@ class SourceHairEyePreviewRuntimeError(ValueError):
     pass
 
 
+def _numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == expected
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -79,7 +87,7 @@ def _validate_source_receipt(receipt: Mapping[str, Any]) -> None:
         "physicalFaceCloseupReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "eyeComponentAuthority", "productionActivation",
     }
-    if set(receipt) != required or receipt.get("format") != SOURCE_FORMAT or receipt.get("version") != SOURCE_VERSION:
+    if set(receipt) != required or receipt.get("format") != SOURCE_FORMAT or not _numeric_version(receipt.get("version"), SOURCE_VERSION):
         raise SourceHairEyePreviewRuntimeError("source hair+eye review receipt fields/format do not match v1")
     _hex(receipt.get("bodyrigRevision"), length=40, label="source review BodyRig revision")
     for field in (

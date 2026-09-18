@@ -199,3 +199,34 @@ def test_write_binding_is_create_only(monkeypatch, tmp_path: Path) -> None:
     with pytest.raises(binding.SourceHairBodyBindingError, match="already exists"):
         binding.write_binding(package, candidate, output)
     assert output.read_bytes() == original
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_candidate_version_readback_rejects_non_numeric_v1(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = invalid
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(
+        binding.SourceHairBodyBindingError,
+        match="format/version",
+    ):
+        binding._candidate(candidate)
+
+
+def test_candidate_version_readback_preserves_numeric_float_v1(
+    tmp_path: Path,
+) -> None:
+    candidate = _candidate(tmp_path)
+    receipt_path = candidate / "source-hair-candidate.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["version"] = 1.0
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    validated, *_ = binding._candidate(candidate)
+    assert validated["version"] == 1.0

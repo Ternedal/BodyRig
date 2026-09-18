@@ -253,3 +253,29 @@ def test_fidelity_renderer_preview_mode_binds_probe_to_exact_review_vrm() -> Non
         'source-hair-eye-review-runtime',
     ):
         assert marker in wrapper
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_preview_source_receipt_rejects_non_numeric_v1(
+    invalid: object,
+) -> None:
+    receipt = _source_receipt(
+        package_sha="a" * 64,
+        review_vrm_sha="b" * 64,
+    )
+    receipt["version"] = invalid
+
+    with pytest.raises(
+        preview.SourceHairEyePreviewRuntimeError,
+        match="fields/format",
+    ):
+        preview._validate_source_receipt(receipt)
+
+
+def test_preview_source_receipt_preserves_numeric_float_v1() -> None:
+    receipt = _source_receipt(
+        package_sha="a" * 64,
+        review_vrm_sha="b" * 64,
+    )
+    receipt["version"] = 1.0
+    preview._validate_source_receipt(receipt)

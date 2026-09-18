@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 import zipfile
@@ -10,7 +11,12 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .avatar import AvatarError, validate_vrm1
-from .source_hair_body_binding import SourceHairBodyBindingError, build_binding
+from .source_hair_body_binding import (
+    FORMAT as BINDING_FORMAT,
+    VERSION as BINDING_VERSION,
+    SourceHairBodyBindingError,
+    build_binding,
+)
 
 FORMAT = "bodyrig-source-hair-review-runtime"
 VERSION = 1
@@ -24,6 +30,26 @@ REVISION_LENGTH = 40
 
 class SourceHairReviewRuntimeError(ValueError):
     pass
+
+
+def _numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and value == expected
+    )
+
+
+def _validate_persisted_binding_version(value: Mapping[str, Any]) -> None:
+    if (
+        not isinstance(value, Mapping)
+        or value.get("format") != BINDING_FORMAT
+        or not _numeric_version(value.get("version"), BINDING_VERSION)
+    ):
+        raise SourceHairReviewRuntimeError(
+            "persisted source hair/body binding format/version mismatch"
+        )
 
 
 def _sha256(path: Path) -> str:
@@ -155,7 +181,7 @@ def _bridge_result(path: Path) -> dict[str, Any]:
         "physicalSilhouetteReviewRequired", "comparisonOnly", "humanReviewRequired",
         "hairComponentAuthority", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BRIDGE_FORMAT or value.get("version") != BRIDGE_VERSION:
+    if set(value) != required or value.get("format") != BRIDGE_FORMAT or not _numeric_version(value.get("version"), BRIDGE_VERSION):
         raise SourceHairReviewRuntimeError("source hair review bridge result fields/format do not match v1")
     for field in ("baseAvatarVrmSha256", "sourceHairBodyBindingSha256", "reviewVrmSha256"):
         _sha(value.get(field), label=f"bridge {field}")
@@ -197,7 +223,7 @@ def _runtime_metadata(document: Mapping[str, Any]) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or set(value) != required:
         raise SourceHairReviewRuntimeError("review VRM runtime metadata fields do not match v1")
-    if value.get("format") != METADATA_FORMAT or value.get("version") != METADATA_VERSION:
+    if value.get("format") != METADATA_FORMAT or not _numeric_version(value.get("version"), METADATA_VERSION):
         raise SourceHairReviewRuntimeError("review VRM runtime metadata format/version mismatch")
     return dict(value)
 
@@ -230,6 +256,7 @@ def finalize(
         raise SourceHairReviewRuntimeError("source hair review runtime receipt is create-only")
 
     persisted_binding = _read_json(binding_path, label="source hair/body binding")
+    _validate_persisted_binding_version(persisted_binding)
     try:
         fresh_binding = build_binding(package, candidate)
     except SourceHairBodyBindingError as exc:

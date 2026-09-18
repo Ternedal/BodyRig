@@ -46,6 +46,15 @@ class HairReviewRuntimeError(ValueError):
     pass
 
 
+def _numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and value == expected
+    )
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -148,7 +157,7 @@ def _binding(path: Path, *, avatar_sha: str, geometry: Mapping[str, Any]) -> dic
         "runtimeIntegrationRequired", "physicalSilhouetteReviewRequired", "comparisonOnly",
         "humanReviewRequired", "productionActivation",
     }
-    if set(value) != required or value.get("format") != BINDING_FORMAT or value.get("version") != BINDING_VERSION:
+    if set(value) != required or value.get("format") != BINDING_FORMAT or not _numeric_version(value.get("version"), BINDING_VERSION):
         raise HairReviewRuntimeError("source hair body binding fields do not match v1")
     if value.get("avatarVrmSha256") != avatar_sha:
         raise HairReviewRuntimeError("source hair body binding targets different avatar bytes")
