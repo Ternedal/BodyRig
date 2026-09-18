@@ -88,3 +88,29 @@ def test_guided_studio_loads_server_defined_120_trait_matrix_v2() -> None:
     assert '"egocentricism", "Egocentricism"' in blueprint
     assert '"aggression", "Aggression"' in blueprint
     assert blueprint.count('("coordination", "Coordination")') == 2
+
+
+
+def test_guided_matrix_keeps_existing_personality_as_read_only_reference() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        'id="baselineRevision"',
+        'id="baselineBadge"',
+        'id="baselineInstructions"',
+        'id="baselineStyleNotes"',
+        "Baseline-reference påvirker ikke Matrix v2",
+        "Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits",
+        'get("baseline_revision")',
+        'evidenceKind.startsWith("stash-source-")',
+        'evidenceKind==="personality-blueprint-v2"',
+        '$("baselineRevision").addEventListener("change",renderBaseline)',
+    ):
+        assert token in html
+
+    payload_start = html.index("function payload(){")
+    payload_end = html.index("function key(){", payload_start)
+    payload_source = html[payload_start:payload_end]
+    assert "baselineRevision" not in payload_source
+    assert 'inner_ring: traitPayload("inner")' in payload_source
+    assert 'outer_ring: traitPayload("outer")' in payload_source
