@@ -4,7 +4,7 @@ import os
 from typing import Annotated, Any
 
 from fastapi import HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .app import DEFAULT_HOST, DEFAULT_PORT, app, person_library
 from .personality_audition_suite import PersonalityAuditionSuiteError, build_audition_suite
@@ -73,7 +73,7 @@ class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
 class SourceStyleApprovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     report: dict[str, Any]
-    selected_candidate_indexes: list[int] = Field(
+    selected_candidate_indexes: list[StrictInt] = Field(
         min_length=1,
         max_length=12,
     )
