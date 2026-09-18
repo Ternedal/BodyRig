@@ -189,12 +189,11 @@ def test_latest_run_uses_artifact_performer_binding(
         "performer-42-20260918-072820-resume4",
         performer_id="42",
     )
-    wrong = _run(
+    _run(
         tmp_path,
         "performer-42-20260918-080000-resume4",
         performer_id="99",
     )
-    wrong.touch()
 
     found = ui.find_latest_performer_run(tmp_path, "42")
 
