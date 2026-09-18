@@ -10,6 +10,7 @@ from bodyrig.personality_blueprint import personality_trait_definitions
 from bodyrig.personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
+    load_guided_personality_revision,
     persist_blueprint_evidence,
     save_guided_personality,
 )
@@ -163,3 +164,42 @@ def test_save_guided_v2_persists_exact_trait_matrix(tmp_path: Path) -> None:
     assert "trait matrix=v2" in revision["style_notes"]
     assert "Inner ring:" in revision["instructions"]
     assert "Outer ring:" in revision["instructions"]
+
+    reloaded = load_guided_personality_revision(
+        root,
+        profile["person_id"],
+        result["saved_personality_revision"],
+    )
+    assert reloaded["blueprint_sha256"] == result["blueprint_sha256"]
+    assert reloaded["blueprint"] == result["blueprint"]
+    assert reloaded["direct_style_exemplars"] == []
+    assert reloaded["style_report"] is None
+    assert reloaded["style_approval"] is None
+
+
+
+def test_reload_guided_revision_fails_closed_on_blueprint_tamper(tmp_path: Path) -> None:
+    root = tmp_path / "people"
+    profile = create_profile(root, display_name="Tamper Test")
+    definition = personality_trait_definitions()
+    inner = {item["id"]: 0.5 for item in definition["rings"]["inner"]}
+    outer = {item["id"]: 0.5 for item in definition["rings"]["outer"]}
+    result = save_guided_personality(
+        root,
+        profile["person_id"],
+        default_language="da",
+        communication=communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+    )
+    evidence = Path(result["evidence_path"])
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["outer_ring"]["aggression"] = 1.0
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(PersonalityAuthoringError, match="SHA-256 mismatch"):
+        load_guided_personality_revision(
+            root,
+            profile["person_id"],
+            result["saved_personality_revision"],
+        )
