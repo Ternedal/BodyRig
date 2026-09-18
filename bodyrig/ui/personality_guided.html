@@ -119,7 +119,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, traitDefinition: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -213,14 +213,19 @@
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt. Filerne læses lokalt i browseren; filstier sendes ikke til BodyRig."; return; }
     if(!state.styleReport||!state.styleApproval){ $("evidenceStatus").textContent="Evidence er ufuldstændig — vælg både candidate report og approval receipt før preview."; return; }
     const count=Array.isArray(state.styleApproval.approved_exemplars)?state.styleApproval.approved_exemplars.length:"?";
+    if(state.styleEvidenceOrigin==="revision"){
+      $("evidenceStatus").textContent=`Transcript-evidence genindlæst og verifieret fra den immutable personality-revision · ${count} godkendte replikker.`;
+      return;
+    }
     $("evidenceStatus").textContent=`Begge evidencefiler er læst lokalt · approval indeholder ${count} replikker. Serveren verifierer bindingen ved preview.`;
   }
   async function readEvidence(kind, file){
+    state.styleEvidenceOrigin="file";
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
     try{ const value=JSON.parse(await file.text()); state[kind]=value; renderEvidenceStatus(); invalidate(); }
     catch(error){ state[kind]=null; renderEvidenceStatus(); invalidate(); toast(`Ugyldig JSON evidence: ${error.message}`,true); }
   }
-  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
+  function clearEvidence(){ state.styleReport=null;state.styleApproval=null;state.styleEvidenceOrigin=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
 
   function personalityAlignment(revisionId){
     return state.person?._source_alignment?.components?.personality?.[revisionId]||null;
@@ -263,6 +268,38 @@
     renderBaseline();
   }
 
+  function setSliderValue(id, value){
+    const input=$(id); if(!input) return;
+    input.value=String(value); const output=$(`${id}Value`); if(output) output.textContent=Number(value).toFixed(2);
+  }
+  function applyGuidedRevision(source){
+    const blueprint=source?.blueprint;
+    if(!blueprint||blueprint.version!==2) throw new Error("Kun Personality Matrix v2-revisioner kan genåbnes som redigerbar matrix.");
+    $("language").value=blueprint.default_language;
+    $("authoredNotes").value=blueprint.authored_notes||"";
+    for(const [id] of dimensions) setSliderValue(id,blueprint.communication[id]);
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
+      setSliderValue(traitInputId(ring,trait.id),blueprint[`${ring}_ring`][trait.id]);
+    }
+    $("bodyRevision").value=blueprint.grounding.body_revision||"";
+    $("examples").innerHTML="";
+    const direct=source.direct_style_exemplars||[];
+    if(direct.length) for(const example of direct) addExample(example); else addExample();
+    state.styleReport=source.style_report||null; state.styleApproval=source.style_approval||null;
+    state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null;
+    $("styleReportFile").value=""; $("styleApprovalFile").value=""; renderEvidenceStatus();
+    $("baselineRevision").value=source.revision_id; renderBaseline();
+    updateTraitView(); invalidate();
+    $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · byg preview før ny save.`;
+  }
+  async function loadRequestedEditRevision(){
+    const revisionId=new URLSearchParams(location.search).get("edit_revision");
+    if(!revisionId||!state.person) return;
+    if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
+    const source=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
+    applyGuidedRevision(source);
+  }
+
   async function loadPeople(){
     const data=await api("/api/v1/people"); state.people=data.people||[]; const select=$("personSelect"); select.innerHTML='<option value="">Vælg person</option>';
     for(const p of state.people){ const o=document.createElement("option");o.value=p.person_id;o.textContent=p.display_name;select.appendChild(o); }
@@ -274,7 +311,7 @@
     if(!personId){state.person=null;populateBaselines();return;}
     state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
     for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
-    populateBaselines(); invalidate();
+    populateBaselines(); invalidate(); await loadRequestedEditRevision();
   }
 
   function renderPreview(result){
