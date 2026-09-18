@@ -55,11 +55,16 @@ def build_identity_calibration_diagnostic(
             "top_matches must be an integer in 1..100"
         )
 
-    core = build_identity_calibration(
-        bank,
-        plan,
-        negative_observations,
-    )
+    try:
+        core = build_identity_calibration(
+            bank,
+            plan,
+            negative_observations,
+        )
+    except PhotorealIdentityCalibrationError as exc:
+        raise PhotorealIdentityCalibrationDiagnosticError(
+            f"Stage-13 calibration input is invalid: {exc}"
+        ) from exc
 
     dimension = int(bank["embedding_dimension"])
     references = list(bank["references"])
