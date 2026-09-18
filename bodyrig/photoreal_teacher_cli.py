@@ -5,7 +5,10 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_teacher_authority import run_external_teacher_files_strict
+from .photoreal_teacher_authority import (
+    run_external_teacher_files_strict,
+    validate_external_teacher_files_strict,
+)
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 
 
@@ -16,13 +19,25 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--teacher-input", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = run_external_teacher_files_strict(args.config, args.teacher_input, args.workspace)
+        if args.reuse_existing and args.workspace.expanduser().resolve().is_dir():
+            result = validate_external_teacher_files_strict(
+                args.config,
+                args.teacher_input,
+                args.workspace,
+            )
+        else:
+            result = run_external_teacher_files_strict(
+                args.config,
+                args.teacher_input,
+                args.workspace,
+            )
     except PhotorealTeacherRunnerError as exc:
         print(f"BodyRig photoreal teacher: FAIL: {exc}", file=sys.stderr)
         return 1
