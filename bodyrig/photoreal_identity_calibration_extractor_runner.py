@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -17,6 +18,36 @@ REQUEST_FORMAT = "bodyrig-photoreal-identity-calibration-extractor-request"
 REQUEST_VERSION = 1
 RESULT_FORMAT = "bodyrig-photoreal-identity-negative-observations"
 RESULT_VERSION = 1
+_OPTIONAL_AUTHORITY_FIELDS = {
+    "identity_matching_authority",
+    "teacher_training_authorized",
+    "photoreal_acceptance_authority",
+}
+_QUALITY_FIELDS = {
+    "candidate_id",
+    "candidate_count",
+    "person_detected",
+    "width",
+    "height",
+    "view_bin",
+    "face_visibility",
+    "full_body_visibility",
+    "person_fraction",
+    "sharpness",
+    "motion",
+    "occlusion",
+    "identity_measurement_status",
+    "identity_measurement_reason",
+}
+_VALID_VIEW_BINS = {
+    "front",
+    "three-quarter-right",
+    "three-quarter-left",
+    "profile-right",
+    "profile-left",
+    "rear",
+    "unknown",
+}
 
 
 class PhotorealIdentityCalibrationExtractorError(ValueError):
@@ -154,6 +185,82 @@ def _log_tail(path: Path, limit: int = 6000) -> str:
     return raw[-limit:].decode("utf-8", errors="replace").strip()
 
 
+def _validate_quality_metadata(observation: Mapping[str, Any]) -> None:
+    present = _QUALITY_FIELDS.intersection(observation)
+    if not present:
+        return
+    if present != _QUALITY_FIELDS:
+        missing = sorted(_QUALITY_FIELDS.difference(observation))
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observation quality metadata is incomplete: "
+            + ", ".join(missing)
+        )
+    candidate_id = observation["candidate_id"]
+    if (
+        not isinstance(candidate_id, str)
+        or not candidate_id
+        or len(candidate_id) > 128
+        or any(not (ch.isalnum() or ch in "._-") for ch in candidate_id)
+    ):
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observation candidate_id is invalid"
+        )
+    candidate_count = observation["candidate_count"]
+    if (
+        isinstance(candidate_count, bool)
+        or not isinstance(candidate_count, int)
+        or candidate_count != 1
+    ):
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observation candidate_count must preserve the single-person rule"
+        )
+    if observation["person_detected"] is not True:
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observation quality metadata must describe a detected person"
+        )
+    for field in ("width", "height"):
+        value = observation[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise PhotorealIdentityCalibrationExtractorError(
+                f"identity negative observation {field} is invalid"
+            )
+    if observation["view_bin"] not in _VALID_VIEW_BINS:
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observation view_bin is invalid"
+        )
+    for field in (
+        "face_visibility",
+        "full_body_visibility",
+        "person_fraction",
+        "sharpness",
+        "motion",
+        "occlusion",
+    ):
+        value = observation[field]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise PhotorealIdentityCalibrationExtractorError(
+                f"identity negative observation {field} is invalid"
+            )
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise PhotorealIdentityCalibrationExtractorError(
+                f"identity negative observation {field} is invalid"
+            ) from exc
+        if not math.isfinite(numeric) or not 0.0 <= numeric <= 1.0:
+            raise PhotorealIdentityCalibrationExtractorError(
+                f"identity negative observation {field} is outside 0..1"
+            )
+    if observation["identity_measurement_status"] != "available":
+        raise PhotorealIdentityCalibrationExtractorError(
+            "accepted identity negative observation must have available identity measurement"
+        )
+    if observation["identity_measurement_reason"] != "embedding-available":
+        raise PhotorealIdentityCalibrationExtractorError(
+            "accepted identity negative observation measurement reason is invalid"
+        )
+
+
 def validate_calibration_extractor_result(
     value: Mapping[str, Any],
     *,
@@ -174,8 +281,11 @@ def validate_calibration_extractor_result(
         "build_only",
         "production_activation",
     }
-    if set(value) != required:
-        raise PhotorealIdentityCalibrationExtractorError("identity negative observations fields must match v1 exactly")
+    fields = set(value)
+    if not required.issubset(fields) or fields.difference(required, _OPTIONAL_AUTHORITY_FIELDS):
+        raise PhotorealIdentityCalibrationExtractorError(
+            "identity negative observations fields must match backward-compatible v1"
+        )
     version = value.get("version")
     if value.get("format") != RESULT_FORMAT or isinstance(version, bool) or version != RESULT_VERSION:
         raise PhotorealIdentityCalibrationExtractorError("identity negative observations format/version mismatch")
@@ -195,6 +305,17 @@ def validate_calibration_extractor_result(
     observations = value.get("observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealIdentityCalibrationExtractorError("identity calibration extractor returned no observations")
+    for observation in observations:
+        if not isinstance(observation, Mapping):
+            raise PhotorealIdentityCalibrationExtractorError(
+                "identity calibration extractor returned a non-object observation"
+            )
+        _validate_quality_metadata(observation)
+    for field in _OPTIONAL_AUTHORITY_FIELDS:
+        if field in value and value[field] is not False:
+            raise PhotorealIdentityCalibrationExtractorError(
+                f"identity calibration extractor crossed {field}"
+            )
     if value.get("calibration_only") is not True or value.get("build_only") is not True:
         raise PhotorealIdentityCalibrationExtractorError("identity calibration extractor crossed calibration/build authority")
     if value.get("production_activation") is not False:
