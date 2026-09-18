@@ -57,6 +57,14 @@ class HandsFeetNailsSourceCaptureError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == VERSION
+    )
+
+
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
     return json.dumps(
         value,
@@ -382,7 +390,7 @@ def read_source_capture(
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture is unreadable") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture format/version/policy mismatch")
     revision = str(value.get("bodyrig_revision") or "").lower()
     _canonical_identity(person, body, revision)
