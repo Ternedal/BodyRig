@@ -140,6 +140,19 @@ def test_cli_summary_exposes_stage13_separation_context(
             "stage13_calibration_blockers": [
                 "positive/negative identity separation is insufficient"
             ],
+            "negative_observation_quality_metadata": {
+                "expected_fields": ["face_visibility", "sharpness"],
+                "observed_fields": [],
+                "missing_fields": ["face_visibility", "sharpness"],
+                "field_presence_counts": {
+                    "face_visibility": 0,
+                    "sharpness": 0,
+                },
+                "complete_observation_count": 0,
+                "complete_observation_fraction": 0.0,
+                "complete_quality_audit_available": False,
+                "reextraction_required_for_complete_quality_audit": True,
+            },
             "violating_closest_positive_group_summaries": [
                 {
                     "group_id": "a",
@@ -174,6 +187,12 @@ def test_cli_summary_exposes_stage13_separation_context(
     assert payload["stage13_calibration_blockers"] == [
         "positive/negative identity separation is insufficient"
     ]
+    assert payload[
+        "negative_observation_quality_metadata"
+    ]["reextraction_required_for_complete_quality_audit"] is True
+    assert payload[
+        "negative_observation_quality_metadata"
+    ]["complete_quality_audit_available"] is False
     assert payload[
         "violating_closest_positive_group_summaries"
     ] == [
