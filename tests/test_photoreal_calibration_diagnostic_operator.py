@@ -19,7 +19,16 @@ def test_operator_script_uses_run_root_diagnostic_cli() -> None:
     assert '"--run-root"' in text
     assert '"--top-matches"' in text
     assert 'Authority: diagnostic-only' in text
-    assert 'exit $LASTEXITCODE' in text
+    assert '$jsonText = (& $python @arguments | Out-String).Trim()' in text
+    assert '$result = $jsonText | ConvertFrom-Json' in text
+    assert 'Stage-13 diagnostic summary' in text
+    assert 'Separation margin: observed' in text
+    assert 'Highest negative match' in text
+    assert 'Source: $($highest.resolved_path)' in text
+    assert 'Timestamp seconds: $($highest.timestamp_seconds)' in text
+    assert 'Authority: diagnostic-only; no matching, training, or production authority.' in text
+    assert 'exit $exitCode' in text
+    assert 'exit 0' in text
 
 
 def test_operator_script_requires_existing_calibration_artifacts() -> None:
