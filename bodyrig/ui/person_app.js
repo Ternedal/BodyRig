@@ -153,6 +153,13 @@ function renderPeople() {
   }
 }
 
+function personalityTraitDigest(styleNotes) {
+  const match = String(styleNotes || "").match(
+    /(?:^| \| )trait_profile_sha256=([0-9a-f]{64})(?: \||$)/
+  );
+  return match ? match[1] : null;
+}
+
 function renderRevisionList(targetId, profile, kind, labelField) {
   const target = $(targetId);
   const items = profile[`${kind}_revisions`] || [];
@@ -165,13 +172,26 @@ function renderRevisionList(targetId, profile, kind, labelField) {
   [...items].reverse().forEach((item) => {
     const active = item.revision_id === activeId;
     const label = item[labelField] || item.voice_package || "";
+    const traitDigest = kind === "personality"
+      ? personalityTraitDigest(item.style_notes)
+      : null;
+    const traitLink = traitDigest
+      ? `<a class="secondary" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&personality_revision=${encodeURIComponent(item.revision_id)}">Redigér 120 traits</a>`
+      : "";
+    const candidateAction = active
+      ? '<span class="badge">I aktiv person</span>'
+      : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`;
+    const traitMeta = traitDigest
+      ? `<div class="revision-feedback">120 traits · evidence ${escapeHtml(traitDigest.slice(0,16))}…</div>`
+      : "";
     const row = document.createElement("div");
     row.className = `revision-item${active ? " active" : ""}`;
     row.innerHTML = `
       <div class="revision-top">
         <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(label)}</div></div>
-        ${active ? '<span class="badge">I aktiv person</span>' : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`}
+        <div class="action-row">${traitLink}${candidateAction}</div>
       </div>
+      ${traitMeta}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
     target.appendChild(row);
   });
