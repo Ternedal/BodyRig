@@ -157,7 +157,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, stashStyleReport: null, stashStyleBodyRevision: null, traitCatalog: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, stashStyleReport: null, stashStyleReportSha: null, stashStyleBodyRevision: null, traitCatalog: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -337,6 +337,7 @@
 
   function resetStashStyleReview(){
     state.stashStyleReport=null;
+    state.stashStyleReportSha=null;
     state.stashStyleBodyRevision=null;
     $("stashStyleCandidates").replaceChildren();
     $("stashStyleReview").classList.add("hidden");
@@ -366,6 +367,7 @@
   function renderStashStyleCandidates(result){
     const report=result.report;
     state.stashStyleReport=report;
+    state.stashStyleReportSha=result.report_sha256;
     state.stashStyleBodyRevision=result.body_revision;
     const target=$("stashStyleCandidates");
     target.replaceChildren();
@@ -427,28 +429,37 @@
   }
 
   async function approveStashStyle(){
-    if(!state.stashStyleReport)return;
+    if(!state.stashStyleReport||!state.stashStyleReportSha||!state.stashStyleBodyRevision)return;
     const indexes=selectedStashStyleIndexes();
+    $("approveStashStyle").disabled=true;
+    $("stashStyleStatus").textContent="Revaliderer Stash-source og report-SHA før approval…";
     try{
-      const result=await api("/api/v1/personality/style-exemplars/approval",{
+      const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/source-style-approval`,{
         method:"POST",
         body:JSON.stringify({
-          report:state.stashStyleReport,
+          body_revision:state.stashStyleBodyRevision,
+          candidate_report_sha256:state.stashStyleReportSha,
           selected_candidate_indexes:indexes,
           speaker_identity_confirmed:$("stashSpeakerConfirmed").checked,
           style_use_approved:$("stashStyleUseApproved").checked
         })
       });
-      state.styleReport=state.stashStyleReport;
+      state.stashStyleReport=result.report;
+      state.stashStyleReportSha=result.report_sha256;
+      state.styleReport=result.report;
       state.styleApproval=result.approval;
       state.styleEvidenceOrigin="stash";
       $("styleReportFile").value="";
       $("styleApprovalFile").value="";
+      $("stashStyleStatus").textContent=`Stash-source revalideret · report ${result.report_sha256.slice(0,12)}… · ${indexes.length} style-eksempler godkendt.`;
       renderEvidenceStatus();
       invalidate();
       toast(`${indexes.length} Stash-replikker er godkendt som speaking-style evidence.`);
     }catch(error){
+      $("stashStyleStatus").textContent=`Stash approval fejlede fail-closed: ${error.message}`;
       toast(error.message,true);
+    }finally{
+      updateStashStyleApprovalState();
     }
   }
 
