@@ -47,6 +47,7 @@ class GuidedPersonalityRequest(BaseModel):
     body_revision: str | None = Field(default=None, max_length=24)
     inner_ring: dict[str, Ratio] | None = None
     outer_ring: dict[str, Ratio] | None = None
+    baseline_revision: str | None = Field(default=None, max_length=24)
 
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
@@ -75,6 +76,7 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "body_revision": request.body_revision,
         "inner_ring": request.inner_ring,
         "outer_ring": request.outer_ring,
+        "baseline_revision": request.baseline_revision,
     }
 
 
@@ -123,6 +125,9 @@ def guided_personality_revision(person_id: str, request: GuidedPersonalitySaveRe
         "candidate": result["candidate"],
         "audition_suite": result["audition_suite"],
         "style_evidence": result["style_evidence"],
+        "personality_stack": result["personality_stack"],
+        "personality_stack_sha256": result["personality_stack_sha256"],
+        "source_baseline_revision": result["source_baseline_revision"],
         "saved_personality_revision": result["saved_personality_revision"],
         "profile": result["profile"],
     }
