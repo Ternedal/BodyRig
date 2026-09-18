@@ -8,19 +8,25 @@ from pathlib import Path
 from .photoreal_exavatar_hand4whole_stage import (
     PhotorealExAvatarHand4WholeStageError,
     stage_hand4whole_assets,
+    validate_hand4whole_assets_receipt,
 )
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Stage strict Hand4Whole human-model assets inside an isolated ExAvatar workspace.")
     parser.add_argument("--workspace-root", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = stage_hand4whole_assets(workspace_root=args.workspace_root)
+        receipt = args.workspace_root.expanduser().resolve() / "hand4whole-assets-receipt.json"
+        if args.reuse_existing and receipt.is_file():
+            result = validate_hand4whole_assets_receipt(workspace_root=args.workspace_root)
+        else:
+            result = stage_hand4whole_assets(workspace_root=args.workspace_root)
     except PhotorealExAvatarHand4WholeStageError as exc:
         print(f"BodyRig ExAvatar Hand4Whole assets: FAIL: {exc}", file=sys.stderr)
         return 1
