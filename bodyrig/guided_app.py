@@ -14,7 +14,7 @@ from .personality_authoring import (
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
-from .personality_traits import trait_catalog
+from .personality_traits import build_trait_profile, trait_catalog
 from .personality_suite_review import (
     PersonalitySuiteReviewError,
     seal_suite_review,
@@ -78,7 +78,10 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_approval": request.style_approval,
         "body_revision": request.body_revision,
         "trait_profile": (
-            request.trait_profile.model_dump()
+            build_trait_profile(
+                inner_ring=request.trait_profile.inner_ring,
+                outer_ring=request.trait_profile.outer_ring,
+            )
             if request.trait_profile is not None
             else None
         ),
