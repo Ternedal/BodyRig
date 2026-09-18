@@ -18,6 +18,12 @@ from .personality_blueprint import (
     compile_blueprint,
     validate_blueprint,
 )
+from .personality_traits import (
+    PersonalityTraitProfileError,
+    compile_trait_profile,
+    trait_profile_sha256,
+    validate_trait_profile,
+)
 from .personality_exemplar_approval import (
     PersonalityExemplarApprovalError,
     canonical_sha256 as exemplar_evidence_sha256,
@@ -104,6 +110,7 @@ def _build_guided(
     body_revision: str | None,
     style_report: Mapping[str, Any] | None,
     style_approval: Mapping[str, Any] | None,
+    trait_profile: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     try:
         profile = load_profile(root, person_id)
@@ -133,6 +140,21 @@ def _build_guided(
     except PersonalityBlueprintError as exc:
         raise PersonalityAuthoringError(str(exc)) from exc
 
+    normalized_traits = None
+    trait_compilation = None
+    if trait_profile is not None:
+        try:
+            normalized_traits = validate_trait_profile(trait_profile)
+            trait_compilation = compile_trait_profile(normalized_traits)
+        except PersonalityTraitProfileError as exc:
+            raise PersonalityAuthoringError(str(exc)) from exc
+        candidate["instructions"] += (
+            "\n\n" + trait_compilation["instructions"]
+        )
+        candidate["style_notes"] += (
+            " | " + trait_compilation["style_notes"]
+        )
+
     if style_evidence is not None:
         candidate["style_notes"] += (
             f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
@@ -144,6 +166,24 @@ def _build_guided(
         "candidate": candidate,
         "audition_suite": build_audition_suite(candidate["default_language"]),
         "style_evidence": style_evidence,
+        "trait_profile": normalized_traits,
+        "trait_profile_sha256": (
+            trait_compilation["trait_profile_sha256"]
+            if trait_compilation is not None
+            else None
+        ),
+        "trait_summary": (
+            {
+                "active_trait_count":
+                    trait_compilation["active_trait_count"],
+                "salient_inner":
+                    trait_compilation["salient_inner"],
+                "salient_outer":
+                    trait_compilation["salient_outer"],
+            }
+            if trait_compilation is not None
+            else None
+        ),
     }
     return result, normalized_report, normalized_approval
 
@@ -159,6 +199,7 @@ def build_guided_personality(
     body_revision: str | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     result, _report, _approval = _build_guided(
         root,
@@ -170,6 +211,7 @@ def build_guided_personality(
         body_revision=body_revision,
         style_report=style_report,
         style_approval=style_approval,
+        trait_profile=trait_profile,
     )
     return result
 
@@ -227,6 +269,34 @@ def persist_blueprint_evidence(
     return _persist_json(path, normalized, label="personality blueprint")
 
 
+def persist_trait_profile_evidence(
+    root: str | os.PathLike[str],
+    person_id: str,
+    trait_profile: Mapping[str, Any],
+) -> Path:
+    root_path = Path(root).expanduser().resolve()
+    try:
+        load_profile(root_path, person_id)
+        normalized = validate_trait_profile(trait_profile)
+    except (
+        PersonProfileError,
+        PersonalityTraitProfileError,
+    ) as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+    digest = trait_profile_sha256(normalized)
+    path = (
+        root_path
+        / "personality-traits"
+        / person_id
+        / f"{digest}.json"
+    )
+    return _persist_json(
+        path,
+        normalized,
+        label="personality trait profile",
+    )
+
+
 def persist_style_evidence(
     root: str | os.PathLike[str],
     person_id: str,
@@ -260,6 +330,7 @@ def save_guided_personality(
     body_revision: str | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    trait_profile: Mapping[str, Any] | None = None,
     feedback: str = "",
 ) -> dict[str, Any]:
     result, normalized_report, normalized_approval = _build_guided(
@@ -272,10 +343,18 @@ def save_guided_personality(
         body_revision=body_revision,
         style_report=style_report,
         style_approval=style_approval,
+        trait_profile=trait_profile,
     )
     style_paths = None
     if normalized_report is not None and normalized_approval is not None:
         style_paths = persist_style_evidence(root, person_id, normalized_report, normalized_approval)
+    trait_path = None
+    if result["trait_profile"] is not None:
+        trait_path = persist_trait_profile_evidence(
+            root,
+            person_id,
+            result["trait_profile"],
+        )
     blueprint_path = persist_blueprint_evidence(root, person_id, result["blueprint"])
     candidate = result["candidate"]
     try:
@@ -309,6 +388,9 @@ def save_guided_personality(
     return {
         **result,
         "evidence_path": str(blueprint_path),
+        "trait_evidence_path": (
+            str(trait_path) if trait_path is not None else None
+        ),
         "style_evidence_paths": {key: str(path) for key, path in style_paths.items()} if style_paths else None,
         "source_binding": source_binding,
         "profile": profile,
