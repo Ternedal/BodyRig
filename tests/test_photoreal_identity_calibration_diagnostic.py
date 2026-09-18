@@ -339,3 +339,26 @@ def test_diagnostic_groups_multiple_observations_by_source(
     assert n7_yield["observation_count"] == 2
     assert n7_yield["extraction_yield_fraction"] == 1.0
 
+def test_diagnostic_rejects_invalid_planned_sample_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        _fake_core,
+    )
+
+    plan = _plan()
+    plan["sources"][0]["sample_count"] = 0
+    plan["sources"][0]["samples"] = []
+
+    with pytest.raises(
+        diagnostic.PhotorealIdentityCalibrationDiagnosticError,
+        match="sample_count is invalid",
+    ):
+        diagnostic.build_identity_calibration_diagnostic(
+            _bank(),
+            plan,
+            _observations(),
+        )
+
