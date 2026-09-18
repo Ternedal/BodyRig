@@ -1,0 +1,897 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/personality-blueprint-v2.schema.json",
+  "title": "BodyRig Personality Blueprint v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "default_language",
+    "communication",
+    "embodiment",
+    "grounding",
+    "style_exemplars",
+    "authored_notes",
+    "inner_ring",
+    "outer_ring"
+  ],
+  "properties": {
+    "format": {
+      "const": "bodyrig-personality-blueprint"
+    },
+    "version": {
+      "const": 2
+    },
+    "default_language": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$"
+    },
+    "communication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directness",
+        "warmth",
+        "playfulness",
+        "formality",
+        "verbosity",
+        "initiative"
+      ],
+      "properties": {
+        "directness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warmth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "playfulness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "formality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "verbosity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "initiative": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "embodiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "movement_energy",
+        "gesture_frequency",
+        "gesture_amplitude",
+        "head_motion",
+        "gaze_strength",
+        "speech_motion"
+      ],
+      "properties": {
+        "movement_energy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gesture_frequency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gesture_amplitude": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "head_motion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gaze_strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "speech_motion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "grounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "communication",
+        "embodiment",
+        "body_revision"
+      ],
+      "properties": {
+        "communication": {
+          "const": "operator-authored"
+        },
+        "embodiment": {
+          "enum": [
+            "operator-authored",
+            "bodyprint-observed",
+            "mixed"
+          ]
+        },
+        "body_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^body-r[0-9]{4}$"
+        }
+      }
+    },
+    "style_exemplars": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "authored_notes": {
+      "type": "string",
+      "maxLength": 16000
+    },
+    "inner_ring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bulk_apperception",
+        "candor",
+        "coordination",
+        "vindictiveness",
+        "stubbornness",
+        "innovation",
+        "kindness",
+        "assurance",
+        "facility",
+        "meticulousness",
+        "capriciousness",
+        "fastidiousness",
+        "rhythm",
+        "hubris",
+        "fragility",
+        "leadership",
+        "education",
+        "wisdom",
+        "entitlement",
+        "individualism",
+        "laziness",
+        "forgetfulness",
+        "tenderness",
+        "masculinity",
+        "expressivity",
+        "fashionableness",
+        "fidelity",
+        "spirituality",
+        "patriotism",
+        "brusqueness",
+        "whimsy",
+        "introversion",
+        "strength",
+        "competitiveness",
+        "pride",
+        "consideration",
+        "congeniality",
+        "literalism",
+        "confidence",
+        "courtesy",
+        "morality",
+        "artistry",
+        "faith",
+        "bellicosity",
+        "reserve",
+        "gentleness",
+        "integrity",
+        "sarcasm",
+        "wanderlust",
+        "timidity",
+        "sociopathy",
+        "intuition",
+        "humor",
+        "sensuality",
+        "tenacity",
+        "loyalty",
+        "curiosity",
+        "decisiveness",
+        "self_preservation",
+        "humility"
+      ],
+      "properties": {
+        "bulk_apperception": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "candor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "coordination": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vindictiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "stubbornness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "innovation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "kindness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "assurance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "facility": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "meticulousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "capriciousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fastidiousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rhythm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hubris": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fragility": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "leadership": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "education": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "wisdom": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "entitlement": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "individualism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "laziness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "forgetfulness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tenderness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "masculinity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "expressivity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fashionableness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "fidelity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "spirituality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "patriotism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "brusqueness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "whimsy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "introversion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "competitiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pride": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "consideration": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "congeniality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "literalism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "courtesy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "morality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "artistry": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "faith": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bellicosity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reserve": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gentleness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "integrity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sarcasm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "wanderlust": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "timidity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sociopathy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "intuition": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "humor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sensuality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tenacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "loyalty": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "curiosity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "decisiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "self_preservation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "humility": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "outer_ring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vivacity",
+        "coordination",
+        "generosity",
+        "narcissism",
+        "lugubriousness",
+        "adventurousness",
+        "articulateness",
+        "poise",
+        "paternalism",
+        "delicacy",
+        "cleanliness",
+        "health",
+        "self_esteem",
+        "wonderment",
+        "deceptiveness",
+        "willingness",
+        "knowledgeableness",
+        "judiciousness",
+        "sexuality",
+        "selfishness",
+        "industry",
+        "affection",
+        "femininity",
+        "flexibility",
+        "reflectiveness",
+        "decorum",
+        "skepticism",
+        "inhibition",
+        "reticence",
+        "stoicism",
+        "extroversion",
+        "restraint",
+        "physicality",
+        "passivity",
+        "comprehensiveness",
+        "gregariousness",
+        "determination",
+        "visionariness",
+        "joy",
+        "focus",
+        "musicality",
+        "obedience",
+        "endurance",
+        "ribaldry",
+        "perseverance",
+        "peacefulness",
+        "grit",
+        "temperance",
+        "brazenness",
+        "egocentricism",
+        "emotional_acuity",
+        "perception",
+        "charm",
+        "courage",
+        "empathy",
+        "aggression",
+        "imagination",
+        "patience",
+        "cruelty",
+        "meekness"
+      ],
+      "properties": {
+        "vivacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "coordination": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "generosity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "narcissism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lugubriousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "adventurousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "articulateness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "poise": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "paternalism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "delicacy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cleanliness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "health": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "self_esteem": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "wonderment": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "deceptiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "willingness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "knowledgeableness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "judiciousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sexuality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "selfishness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "industry": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "affection": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "femininity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "flexibility": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reflectiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "decorum": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "skepticism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "inhibition": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reticence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "stoicism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "extroversion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "restraint": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "physicality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "passivity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "comprehensiveness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "gregariousness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "determination": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "visionariness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "joy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "focus": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "musicality": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "obedience": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "endurance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "ribaldry": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "perseverance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "peacefulness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "grit": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "temperance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "brazenness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "egocentricism": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "emotional_acuity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "perception": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "charm": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "courage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "empathy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "aggression": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "imagination": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "patience": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cruelty": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "meekness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  }
+}
