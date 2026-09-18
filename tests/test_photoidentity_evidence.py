@@ -13,6 +13,7 @@ from bodyrig.photoidentity_evidence import (
     build_observation_evidence,
     evaluate_sufficiency,
     validate_bundle,
+    validate_observation_evidence,
     write_bundle,
 )
 
@@ -208,3 +209,87 @@ def test_bundle_huge_bound_numeric_fails_after_sha_binding(tmp_path: Path) -> No
 
     with pytest.raises(PhotoIdentityEvidenceError, match=r"target_confidence is outside 0\.0\.\.1\.0"):
         validate_bundle(report_path, observations)
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_observation_evidence_version_discriminator_is_bool_safe(
+    invalid: object,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view"],
+        rows=[_row("scene1", "front")],
+    )
+    evidence["version"] = invalid
+
+    with pytest.raises(
+        PhotoIdentityEvidenceError,
+        match="fields/format",
+    ):
+        validate_observation_evidence(evidence)
+
+
+def test_observation_evidence_preserves_numeric_float_v1() -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view"],
+        rows=[_row("scene1", "front")],
+    )
+    evidence["version"] = 1.0
+
+    validated = validate_observation_evidence(evidence)
+
+    assert validated["version"] == 1
+    assert validated["generic_guessing_permitted"] is False
+    assert validated["production_activation"] is False
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_sufficiency_report_version_discriminator_is_bool_safe(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view", "coarse-full-body-view"],
+        rows=[_row("scene1", "front"), _row("scene2", "front")],
+    )
+    observations, report_path, _report = write_bundle(
+        tmp_path / f"bundle-version-{type(invalid).__name__}-{str(invalid)}",
+        evidence,
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["version"] = invalid
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        PhotoIdentityEvidenceError,
+        match="report format/version",
+    ):
+        validate_bundle(report_path, observations)
+
+
+def test_sufficiency_report_preserves_numeric_float_v1_and_exact_sha_binding(
+    tmp_path: Path,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view", "coarse-full-body-view"],
+        rows=[_row("scene1", "front"), _row("scene2", "front")],
+    )
+    observations, report_path, original = write_bundle(
+        tmp_path / "bundle-float-v1",
+        evidence,
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["version"] = 1.0
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    validated = validate_bundle(report_path, observations)
+
+    assert validated["version"] == 1.0
+    assert validated["observation_evidence_sha256"] == original["observation_evidence_sha256"]
+    assert validated["generic_guessing_permitted"] is False
+    assert validated["production_activation"] is False
