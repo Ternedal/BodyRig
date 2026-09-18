@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
+
+import bodyrig.high_fidelity_anatomy_promotion as promotion
 
 from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt, with_component_status
 from bodyrig.bridges.face_secondary_fidelity import current_face_secondary_receipt
@@ -101,3 +106,63 @@ def test_promoted_avatar_rejects_already_complete_anatomy() -> None:
             component_review_sha256="3" * 64,
             source_package_sha256="4" * 64,
         )
+
+
+def test_anatomy_promotion_persisted_v1_discriminator_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review = {
+        "preview_job_id": "hfpreview-" + "1" * 32,
+        "canonical_body_id": "bodyid-test",
+        "bodyrig_revision": "2" * 40,
+        "target_family": "female",
+        "anatomy_gate_sha256": "3" * 64,
+    }
+    source = tmp_path / "source.mrbody"
+    destination = tmp_path / "promoted.mrbody"
+    review_receipt = tmp_path / "component-review.json"
+    receipt_path = tmp_path / "promotion.json"
+    source.write_bytes(b"source-package")
+    destination.write_bytes(b"promoted-package")
+    review_receipt.write_bytes(b"component-review")
+
+    monkeypatch.setattr(promotion, "read_review", lambda job_id: dict(review))
+    monkeypatch.setattr(promotion, "_candidate_package", lambda value: source)
+    monkeypatch.setattr(
+        promotion,
+        "_promotion_paths",
+        lambda value: (destination, receipt_path),
+    )
+    monkeypatch.setattr(
+        promotion,
+        "_review_receipt_path",
+        lambda value: review_receipt,
+    )
+
+    base = {field: None for field in promotion.TOP_FIELDS}
+    base.update(
+        {
+            "format": promotion.FORMAT,
+            "policy_revision": promotion.POLICY_REVISION,
+        }
+    )
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        value = dict(base)
+        value["version"] = invalid
+        receipt_path.write_text(json.dumps(value), encoding="utf-8")
+        with pytest.raises(
+            promotion.HighFidelityAnatomyPromotionError,
+            match="format/version/policy",
+        ):
+            promotion.read_promotion(review["preview_job_id"])
+
+    numeric = dict(base)
+    numeric["version"] = 1.0
+    receipt_path.write_text(json.dumps(numeric), encoding="utf-8")
+    with pytest.raises(
+        promotion.HighFidelityAnatomyPromotionError,
+        match="no longer matches exact authority: preview_job_id",
+    ):
+        promotion.read_promotion(review["preview_job_id"])
