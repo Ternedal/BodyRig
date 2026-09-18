@@ -10,7 +10,12 @@ import pytest
 
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
 from bodyrig.person_source_alignment import file_sha256, read_binding, write_binding
-from bodyrig.personality_source import SourcePersonalityError, _discover_transcripts, build_source_personality
+from bodyrig.personality_source import (
+    SourcePersonalityError,
+    _discover_transcripts,
+    build_source_personality,
+    preview_source_personality_exemplars,
+)
 
 
 def _source_profile(root: Path, *, with_transcript: bool) -> tuple[dict, Path, Path, Path | None]:
@@ -287,3 +292,89 @@ def test_transcript_discovery_scans_shared_media_directory_once(
         ("a", first_caption.name),
         ("b", second_caption.name),
     ]
+
+def test_source_transcript_preview_is_read_only_and_non_authoritative(
+    tmp_path: Path,
+) -> None:
+    profile, _, _, transcript = _source_profile(
+        tmp_path,
+        with_transcript=True,
+    )
+    assert transcript is not None
+
+    result = preview_source_personality_exemplars(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+    )
+
+    assert result["ok"] is True
+    assert result["transcript_count"] == 1
+    assert result["candidate_count"] == 2
+    assert result["operator_review_required"] is True
+    assert result["speaker_identity_authority"] is False
+    assert result["style_use_authority"] is False
+    assert result["personality_authority"] is False
+    assert result["content_semantics"] == "style-only-not-biography-or-memory"
+    assert result["transcripts"] == [
+        {
+            "scene_id": "scene-7",
+            "name": transcript.name,
+            "sha256": file_sha256(transcript),
+        }
+    ]
+    assert "path" not in result["transcripts"][0]
+    report = result["candidate_report"]
+    assert report["operator_review_required"] is True
+    assert report["speaker_identity_authority"] is False
+    assert report["personality_authority"] is False
+    assert "Well, that is actually pretty funny." in report["candidates"]
+    assert load_profile(
+        tmp_path,
+        profile["person_id"],
+    )["personality_revisions"] == []
+
+
+def test_source_transcript_preview_without_sidecars_does_not_create_fallback_revision(
+    tmp_path: Path,
+) -> None:
+    profile, _, _, _ = _source_profile(
+        tmp_path,
+        with_transcript=False,
+    )
+
+    result = preview_source_personality_exemplars(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+    )
+
+    assert result["transcript_count"] == 0
+    assert result["candidate_count"] == 0
+    assert result["candidate_report"] is None
+    assert result["suggested_exemplars"] == []
+    assert load_profile(
+        tmp_path,
+        profile["person_id"],
+    )["personality_revisions"] == []
+
+
+def test_source_transcript_preview_fails_closed_on_changed_bound_media(
+    tmp_path: Path,
+) -> None:
+    profile, _, media, _ = _source_profile(
+        tmp_path,
+        with_transcript=True,
+    )
+    media.write_bytes(b"tampered-preview-source")
+
+    with pytest.raises(
+        SourcePersonalityError,
+        match="bytes no longer match",
+    ):
+        preview_source_personality_exemplars(
+            tmp_path,
+            profile["person_id"],
+            body_revision="body-r0001",
+        )
+
