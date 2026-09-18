@@ -525,6 +525,12 @@ def build_identity_calibration_diagnostic(
         ),
         "positive_group_count": len(positive_group_summaries),
         "positive_group_summaries": positive_group_summaries,
+        "weakest_positive_group": min(
+            positive_group_summaries,
+            key=lambda item: float(
+                item["leave_group_out_cosine_min"]
+            ),
+        ),
         "positive_cross_group_pair_count":
             len(positive_cross_group_pairs),
         "positive_cross_group_centroid_cosine_min": round(
@@ -579,10 +585,18 @@ def build_identity_calibration_diagnostic(
         ),
         "negative_performer_summaries": performer_summaries,
         "negative_source_summaries": source_summaries,
+        "highest_collision_negative_performer":
+            performer_summaries[0],
+        "highest_collision_negative_source":
+            source_summaries[0],
         "negative_performer_yield_summaries":
             performer_yield_summaries,
         "negative_source_yield_summaries":
             source_yield_summaries,
+        "lowest_yield_negative_performer":
+            performer_yield_summaries[0],
+        "lowest_yield_negative_source":
+            source_yield_summaries[0],
         "top_negative_matches": negative_rows[:top_matches],
         "diagnostic_only": True,
         "identity_matching_authority": False,
