@@ -142,3 +142,22 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
     assert 'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)' in save_source
     assert 'populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();' in save_source
     assert "Aktiv person er uændret" in save_source
+
+
+def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+
+    for token in (
+        'get("edit_revision")',
+        "function applyGuidedRevision(source)",
+        "function loadRequestedEditRevision()",
+        '/personality/guided/revisions/${encodeURIComponent(revisionId)}',
+        "Kun Personality Matrix v2-revisioner kan genåbnes som redigerbar matrix.",
+        'state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null',
+        "Transcript-evidence genindlæst og verifieret fra den immutable personality-revision",
+        "load_guided_personality_revision",
+    ):
+        assert token in html or token in guided
+
+    assert '@app.get("/api/v1/people/{person_id}/personality/guided/revisions/{revision_id}")' in guided
