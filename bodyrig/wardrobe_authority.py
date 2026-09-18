@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -76,6 +77,16 @@ class WardrobeAuthorityError(RuntimeError):
     pass
 
 
+def _is_numeric_v1(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric == 1.0
+
+
 def _sha(value: Any, label: str) -> str:
     text = str(value or "").strip().lower()
     if not SHA256_RE.fullmatch(text):
@@ -121,7 +132,7 @@ def validate_render_manifest(path: str | os.PathLike[str], *, body_id: str, pack
     value = _read_json(source, "wardrobe render manifest")
     if set(value) != RENDER_MANIFEST_FIELDS:
         raise WardrobeAuthorityError("wardrobe render manifest fields are not canonical")
-    if value.get("format") != "bodyrig-wardrobe-render-set" or value.get("version") != 1:
+    if value.get("format") != "bodyrig-wardrobe-render-set" or not _is_numeric_v1(value.get("version")):
         raise WardrobeAuthorityError("wardrobe render manifest format/version mismatch")
     if value.get("semantics") != "human-review-diagnostic-not-physical-pass":
         raise WardrobeAuthorityError("wardrobe render manifest crossed the human-review-only boundary")
@@ -154,7 +165,7 @@ def validate_render_manifest(path: str | os.PathLike[str], *, body_id: str, pack
 def _validate_comparison(value: Mapping[str, Any], *, revision: str, package_sha256: str) -> str:
     if set(value) != COMPARISON_FIELDS:
         raise WardrobeAuthorityError("wardrobe comparison authority fields are not canonical")
-    if value.get("format") != "bodyrig-fidelity-comparison-authority" or value.get("version") != 1 or value.get("authority") != "validated-package-comparison-only":
+    if value.get("format") != "bodyrig-fidelity-comparison-authority" or not _is_numeric_v1(value.get("version")) or value.get("authority") != "validated-package-comparison-only":
         raise WardrobeAuthorityError("wardrobe comparison authority is not canonical validated-package comparison")
     if str(value.get("bodyrig_revision") or "").lower() != revision or _sha(value.get("package_sha256"), "comparison package SHA-256") != package_sha256:
         raise WardrobeAuthorityError("wardrobe comparison authority belongs to different revision/package bytes")
@@ -174,7 +185,7 @@ def validate_render_authority_bundle(
     if path.name != "wardrobe-render-authority.json" or not path.is_file():
         raise WardrobeAuthorityError("canonical wardrobe render authority is missing")
     value = _read_json(path, "wardrobe render authority")
-    if set(value) != RENDER_AUTHORITY_FIELDS or value.get("format") != "bodyrig-wardrobe-render-authority" or value.get("version") != 1:
+    if set(value) != RENDER_AUTHORITY_FIELDS or value.get("format") != "bodyrig-wardrobe-render-authority" or not _is_numeric_v1(value.get("version")):
         raise WardrobeAuthorityError("wardrobe render authority fields/format are invalid")
     revision = str(bodyrig_revision or "").lower()
     if not BODYRIG_REVISION_RE.fullmatch(revision) or str(value.get("bodyrig_revision") or "").lower() != revision:
@@ -206,7 +217,7 @@ def validate_render_authority_bundle(
         raise WardrobeAuthorityError("wardrobe runtime lineage differs from comparison authority")
 
     lineage = _read_json(lineage_path, "wardrobe package lineage")
-    if set(lineage) != PACKAGE_LINEAGE_FIELDS or lineage.get("format") != "bodyrig-wardrobe-package-lineage" or lineage.get("version") != 1:
+    if set(lineage) != PACKAGE_LINEAGE_FIELDS or lineage.get("format") != "bodyrig-wardrobe-package-lineage" or not _is_numeric_v1(lineage.get("version")):
         raise WardrobeAuthorityError("wardrobe package lineage fields/format are invalid")
     if str(lineage.get("canonical_body_id") or "") != body_id or _sha(lineage.get("package_sha256"), "lineage package SHA-256") != package_sha256:
         raise WardrobeAuthorityError("wardrobe package lineage belongs to different body/package bytes")
@@ -226,7 +237,7 @@ def validate_render_authority_bundle(
 
     machine = _read_json(machine_path, "wardrobe machine probe")
     deformation = _read_json(deformation_path, "wardrobe deformation probe")
-    if machine.get("format") != "bodyrig-renderer-probe" or machine.get("version") != 1 or machine.get("platform") != "windows-unity-univrm":
+    if machine.get("format") != "bodyrig-renderer-probe" or not _is_numeric_v1(machine.get("version")) or machine.get("platform") != "windows-unity-univrm":
         raise WardrobeAuthorityError("wardrobe machine probe format/platform is invalid")
     if str(machine.get("bodyrig_revision") or "").lower() != revision or str(machine.get("body_id") or "") != body_id:
         raise WardrobeAuthorityError("wardrobe machine probe revision/body is mismatched")
@@ -242,7 +253,7 @@ def validate_render_authority_bundle(
     expected_poses = ("neutral", "arms_abduction", "elbows_flexed", "arms_forward", "left_leg_lift", "knee_flexion")
     poses = deformation.get("poses")
     pose_ids = tuple(str(item.get("id") or "") for item in poses if isinstance(item, Mapping)) if isinstance(poses, list) else ()
-    if deformation.get("format") != "bodyrig-deformation-probe" or deformation.get("version") != 1 or deformation.get("platform") != "windows-unity-univrm":
+    if deformation.get("format") != "bodyrig-deformation-probe" or not _is_numeric_v1(deformation.get("version")) or deformation.get("platform") != "windows-unity-univrm":
         raise WardrobeAuthorityError("wardrobe deformation probe format/platform is invalid")
     if str(deformation.get("bodyrig_revision") or "").lower() != revision or str(deformation.get("body_id") or "") != body_id:
         raise WardrobeAuthorityError("wardrobe deformation probe revision/body is mismatched")
@@ -309,7 +320,7 @@ def authority_dir(root: str | os.PathLike[str], person_id: str, person_revision:
 def validate_authority_structure(value: Mapping[str, Any], *, assembly_receipt: Mapping[str, Any], body_release_status: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise WardrobeAuthorityError("wardrobe human-review authority fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise WardrobeAuthorityError("wardrobe authority format/version/policy mismatch")
     try:
         assembly = _assembly_identity(assembly_receipt)
