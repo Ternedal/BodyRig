@@ -46,6 +46,18 @@
           <label class="trait-toggle"><input id="traitOnlyChanged" type="checkbox">Vis kun ændrede</label>
           <span id="traitSummary" class="trait-summary">Henter 120-trait katalog…</span>
         </div>
+        <div class="field-row">
+          <div>
+            <label for="traitRevisionSelect">Start fra gemt 120-trait kandidat</label>
+            <select id="traitRevisionSelect" class="full-select">
+              <option value="">Neutral profil · 0.50</option>
+            </select>
+          </div>
+          <div>
+            <label>Trait evidence</label>
+            <div id="traitRevisionMeta" class="fine-print">Neutral profil · ingen persisted trait-evidence valgt.</div>
+          </div>
+        </div>
         <div class="trait-rings">
           <details class="trait-ring" open>
             <summary>Inner Ring · 60</summary>
@@ -198,6 +210,64 @@
     updateTraitSummary(); applyTraitFilter(); invalidate();
   }
 
+  function personalityTraitDigest(item){
+    const match=String(item?.style_notes||"").match(/(?:^| \| )trait_profile_sha256=([0-9a-f]{64})(?: \||$)/);
+    return match?match[1]:null;
+  }
+
+  function applyTraitProfile(profile){
+    const rings=[["inner_ring","inner"],["outer_ring","outer"]];
+    for(const [field,ring] of rings){
+      for(const trait of state.traitCatalog?.[field]||[]){
+        const input=$(traitInputId(ring,trait.id));
+        const numeric=Number(profile?.[field]?.[trait.id]);
+        if(!input||!Number.isFinite(numeric)) throw new Error(`Trait evidence mangler ${field}.${trait.id}.`);
+        input.value=String(numeric);
+        const value=input.parentElement.querySelector(".trait-value");
+        if(value) value.textContent=numeric.toFixed(2);
+      }
+    }
+    updateTraitSummary(); applyTraitFilter(); invalidate();
+  }
+
+  function populateTraitRevisionSelect(preferredRevision=""){
+    const select=$("traitRevisionSelect");
+    select.innerHTML='<option value="">Neutral profil · 0.50</option>';
+    const revisions=[...(state.person?.personality_revisions||[])].reverse();
+    for(const item of revisions){
+      const digest=personalityTraitDigest(item);
+      if(!digest) continue;
+      const option=document.createElement("option");
+      option.value=item.revision_id;
+      option.textContent=`${item.revision_id} · traits ${digest.slice(0,12)}…`;
+      select.appendChild(option);
+    }
+    if(preferredRevision&&[...select.options].some(option=>option.value===preferredRevision)){
+      select.value=preferredRevision;
+    }
+  }
+
+  async function loadTraitRevision(revisionId=$("traitRevisionSelect").value){
+    if(!revisionId){
+      resetTraits();
+      $("traitRevisionMeta").textContent="Neutral profil · ingen persisted trait-evidence valgt.";
+      return;
+    }
+    if(!state.person) return;
+    $("traitRevisionMeta").textContent="Henter SHA-bundet trait-evidence…";
+    try{
+      const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/revisions/${encodeURIComponent(revisionId)}/traits`);
+      if(result.available!==true||!result.trait_profile) throw new Error("Den valgte revision har ingen 120-trait evidence.");
+      applyTraitProfile(result.trait_profile);
+      $("traitRevisionMeta").textContent=`${result.trait_profile_sha256.slice(0,16)}… · indlæst fra ${result.revision_id}. Gem opretter altid en ny revision.`;
+    }catch(error){
+      resetTraits();
+      $("traitRevisionSelect").value="";
+      $("traitRevisionMeta").textContent=`Trait evidence kunne ikke indlæses: ${error.message}`;
+      toast(error.message,true);
+    }
+  }
+
   function addExample(value=""){
     if($("examples").children.length>=12) return toast("Der kan højst være 12 style exemplars i alt.",true);
     const row=document.createElement("div"); row.className="example-row";
@@ -246,8 +316,19 @@
   }
   async function selectPerson(personId){
     if(!personId){state.person=null;return;}
-    state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
-    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);} invalidate();
+    state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+    const select=$("bodyRevision");
+    select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
+    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
+    const requestedRevision=new URLSearchParams(location.search).get("personality_revision")||"";
+    populateTraitRevisionSelect(requestedRevision);
+    if(requestedRevision&&$("traitRevisionSelect").value===requestedRevision) await loadTraitRevision(requestedRevision);
+    else {
+      $("traitRevisionSelect").value="";
+      resetTraits();
+      $("traitRevisionMeta").textContent="Neutral profil · ingen persisted trait-evidence valgt.";
+    }
+    invalidate();
   }
 
   function renderPreview(result){
@@ -265,18 +346,17 @@
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const request={...payload(),feedback:$("feedback").value.trim()}; $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
-    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)}); state.person=result.profile; const traitRef=result.trait_profile_sha256?` · traits ${result.trait_profile_sha256.slice(0,12)}…`:""; $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…${traitRef}`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;}
+    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)}); state.person=result.profile; const traitRef=result.trait_profile_sha256?` · traits ${result.trait_profile_sha256.slice(0,12)}…`:""; populateTraitRevisionSelect(result.saved_personality_revision); if(result.trait_profile_sha256){$("traitRevisionMeta").textContent=`${result.trait_profile_sha256.slice(0,16)}… · gemt som ${result.saved_personality_revision}. Fortsat redigering opretter næste revision.`;} $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…${traitRef}`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;}
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
   }
 
   buildSliders(); addExample(); renderEvidenceStatus();
-  $("traitSearch").addEventListener("input",applyTraitFilter); $("traitOnlyChanged").addEventListener("change",applyTraitFilter); $("traitReset").addEventListener("click",resetTraits);
+  $("traitSearch").addEventListener("input",applyTraitFilter); $("traitOnlyChanged").addEventListener("change",applyTraitFilter); $("traitReset").addEventListener("click",()=>{$("traitRevisionSelect").value="";$("traitRevisionMeta").textContent="Neutral profil · ingen persisted trait-evidence valgt.";resetTraits();}); $("traitRevisionSelect").addEventListener("change",()=>loadTraitRevision());
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
   $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
-  loadTraitCatalog().catch(error=>{ $("traitSummary").textContent="Trait-katalog kunne ikke hentes."; toast(error.message,true); });
-  loadPeople().catch(error=>toast(error.message,true));
+  (async()=>{try{await loadTraitCatalog();await loadPeople();}catch(error){$("traitSummary").textContent="Trait-katalog eller persondata kunne ikke hentes.";toast(error.message,true);}})();
 })();
 </script>
 </body>
