@@ -12,6 +12,7 @@ from .personality_blueprint import personality_trait_definitions
 from .personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
+    load_guided_personality_revision,
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
@@ -92,6 +93,18 @@ def personality_trait_matrix_definition() -> dict:
 @app.post("/api/v1/people/{person_id}/personality/guided/preview")
 def guided_personality_preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
     return _preview(person_id, request)
+
+
+@app.get("/api/v1/people/{person_id}/personality/guided/revisions/{revision_id}")
+def guided_personality_revision_source(person_id: str, revision_id: str) -> dict:
+    try:
+        return load_guided_personality_revision(
+            person_library(),
+            person_id,
+            revision_id,
+        )
+    except PersonalityAuthoringError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/v1/people/{person_id}/personality/guided/revisions")
