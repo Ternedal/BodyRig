@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 from pathlib import Path
 
@@ -88,6 +89,64 @@ def test_prepare_and_readback_bind_four_real_source_views_and_inventory(tmp_path
         capture_id=receipt["capture_id"],
     )
     assert reread == receipt
+
+
+def test_source_capture_readback_version_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source(tmp_path)
+    monkeypatch.setattr(wardrobe, "_source_authority", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(wardrobe, "_run_version", lambda *_args, **_kwargs: "ffmpeg version fixture")
+    monkeypatch.setattr(
+        wardrobe,
+        "_extract",
+        lambda *, output, media, **_kwargs: _fake_png(output, media.name.encode("utf-8")),
+    )
+    receipt = wardrobe.prepare_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        bodyrig_revision=BODYRIG_REVISION,
+        views=_views(),
+        garments=_garments(),
+    )
+    manifest = (
+        wardrobe.capture_dir(
+            tmp_path,
+            PERSON_ID,
+            BODY_REVISION,
+            receipt["capture_id"],
+        )
+        / "source-capture.json"
+    )
+    original = json.loads(manifest.read_text(encoding="utf-8"))
+
+    for invalid in (True, False, "1", None, [], {}, 2):
+        tampered = dict(original)
+        tampered["version"] = invalid
+        manifest.write_text(json.dumps(tampered), encoding="utf-8")
+        with pytest.raises(
+            wardrobe.WardrobeSourceCaptureError,
+            match="format/version/policy",
+        ):
+            wardrobe.read_source_capture(
+                tmp_path,
+                PERSON_ID,
+                body_revision=BODY_REVISION,
+                capture_id=receipt["capture_id"],
+            )
+
+    numeric = dict(original)
+    numeric["version"] = 1.0
+    manifest.write_text(json.dumps(numeric), encoding="utf-8")
+    reread = wardrobe.read_source_capture(
+        tmp_path,
+        PERSON_ID,
+        body_revision=BODY_REVISION,
+        capture_id=receipt["capture_id"],
+    )
+    assert reread["version"] == 1.0
 
 
 def test_source_capture_requires_real_back_view() -> None:
