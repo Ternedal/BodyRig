@@ -89,7 +89,7 @@
         </div>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">6 · Importeret transcript-evidence</div><div class="fine-print">Alternativt: importér kandidatrapport og approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="card-row"><div><div class="card-label">6 · Importeret transcript-evidence</div><div class="fine-print">Alternativt: importér candidate report og approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
         <div class="evidence-grid">
           <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
           <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
@@ -349,7 +349,7 @@
     if(hasSourceBoundTranscriptStyle()){
       $("evidenceStatus").textContent=`Source-bound Stash transcript · ${count} style-only replikker${suffix} · ${state.styleSource.body_revision}.`;
     }else if(state.styleEvidenceOrigin==="revision"){
-      $("evidenceStatus").textContent=`Transcript-evidence genindlæst fra immutable revision · ${count} replikker${suffix}.`;
+      $("evidenceStatus").textContent=`Transcript-evidence genindlæst og verifieret fra den immutable personality-revision · ${count} godkendte replikker${suffix}.`;
     }else{
       $("evidenceStatus").textContent=`Importeret report/approval · ${count} replikker${suffix}. Serveren verifierer bindingen ved preview.`;
     }
