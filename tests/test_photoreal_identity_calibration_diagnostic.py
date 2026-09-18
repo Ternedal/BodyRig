@@ -169,6 +169,26 @@ def test_diagnostic_identifies_highest_negative(
         result["stage13_observed_separation_margin"]
         == result["observed_separation_margin"]
     )
+    assert result["violating_negative_observation_count"] == 1
+    assert result["violating_negative_performer_count"] == 1
+    assert result["violating_negative_source_count"] == 1
+    assert result["violating_negative_observation_fraction"] == 0.5
+    assert len(result["negative_source_summaries"]) == 2
+    assert (
+        result["negative_source_summaries"][0]["source_key"]
+        == "n7"
+    )
+    assert (
+        result["negative_source_summaries"][0]
+        ["violating_observation_count"]
+        == 1
+    )
+    assert result["positive_cosine_max"] >= result["positive_floor"]
+    assert (
+        result["negative_ceiling"]
+        >= result["negative_cosine_median"]
+        >= result["negative_cosine_min"]
+    )
 
 
 def test_diagnostic_rejects_stage13_math_mismatch(
@@ -238,4 +258,40 @@ def test_diagnostic_wraps_stage13_input_failure(
             _plan(),
             _observations(),
         )
+
+def test_diagnostic_groups_multiple_observations_by_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        _fake_core,
+    )
+
+    observations = _observations()
+    observations["observations"].append(
+        {
+            "source_key": "n7",
+            "subject_performer_id": "7",
+            "timestamp_seconds": 30.0,
+            "eye": "mono",
+            "frame_sha256": "9" * 64,
+            "embedding": _vec(5, 0.05),
+        }
+    )
+
+    result = diagnostic.build_identity_calibration_diagnostic(
+        _bank(),
+        _plan(),
+        observations,
+    )
+
+    n7 = next(
+        item
+        for item in result["negative_source_summaries"]
+        if item["source_key"] == "n7"
+    )
+    assert n7["observation_count"] == 2
+    assert n7["violating_observation_count"] == 1
+    assert n7["subject_performer_id"] == "7"
 
