@@ -14,6 +14,7 @@ from .personality_authoring import (
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_traits import trait_catalog
 from .personality_suite_review import (
     PersonalitySuiteReviewError,
     seal_suite_review,
@@ -34,6 +35,12 @@ class GuidedCommunication(BaseModel):
     initiative: Ratio = 0.5
 
 
+class GuidedTraitProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inner_ring: dict[str, Ratio]
+    outer_ring: dict[str, Ratio]
+
+
 class GuidedPersonalityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     default_language: str = Field(default="da", min_length=2, max_length=16)
@@ -43,6 +50,7 @@ class GuidedPersonalityRequest(BaseModel):
     style_report: dict[str, Any] | None = None
     style_approval: dict[str, Any] | None = None
     body_revision: str | None = Field(default=None, max_length=24)
+    trait_profile: GuidedTraitProfile | None = None
 
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
@@ -69,6 +77,11 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_report": request.style_report,
         "style_approval": request.style_approval,
         "body_revision": request.body_revision,
+        "trait_profile": (
+            request.trait_profile.model_dump()
+            if request.trait_profile is not None
+            else None
+        ),
     }
 
 
@@ -77,6 +90,11 @@ def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
         return build_guided_personality(person_library(), person_id, **_authoring_kwargs(request))
     except PersonalityAuthoringError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/personality/traits/catalog")
+def personality_trait_catalog() -> dict:
+    return trait_catalog()
 
 
 @app.post("/api/v1/people/{person_id}/personality/guided/preview")
@@ -100,6 +118,9 @@ def guided_personality_revision(person_id: str, request: GuidedPersonalitySaveRe
         "candidate": result["candidate"],
         "audition_suite": result["audition_suite"],
         "style_evidence": result["style_evidence"],
+        "trait_profile_sha256": result["trait_profile_sha256"],
+        "trait_summary": result["trait_summary"],
+        "trait_evidence_path": result["trait_evidence_path"],
         "saved_personality_revision": result["saved_personality_revision"],
         "profile": result["profile"],
     }
