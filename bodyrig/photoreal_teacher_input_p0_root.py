@@ -87,10 +87,9 @@ def _require_status_output_path(
         raise PhotorealTeacherInputP0RootError(f"P0 status output path mismatch: {key}")
 
 
-def resolve_authorized_p0_teacher_inputs(
+def resolve_authorized_p0_root(
     p0_root: str | Path,
-    epoch_selection_path: str | Path,
-) -> tuple[Path, Path, Path, Path]:
+) -> tuple[dict[str, Any], Path, Path, Path, Path]:
     root = Path(p0_root).expanduser().resolve()
     if not root.is_dir():
         raise PhotorealTeacherInputP0RootError(f"P0 root not found: {root}")
@@ -106,15 +105,11 @@ def resolve_authorized_p0_teacher_inputs(
     receipt_path = _need_file(root, "source-receipt.json", label="source receipt")
     frame_index_path = _need_file(root, "frame-index.json", label="frame index")
 
-    selection_path = Path(epoch_selection_path).expanduser().resolve()
-    if not selection_path.is_file():
-        raise PhotorealTeacherInputP0RootError(f"appearance epoch selection not found: {selection_path}")
-
     status = _read_json(status_path, label="P0 status")
     if status.get("format") != STATUS_FORMAT:
         raise PhotorealTeacherInputP0RootError("P0 status format/version mismatch")
     _numeric_version(status.get("version"), expected=STATUS_VERSION, label="P0 status")
-    performer_id = _text(status.get("performer_id"), label="P0 status performer id", maximum=256)
+    _text(status.get("performer_id"), label="P0 status performer id", maximum=256)
     _git_sha(status.get("bodyrig_revision"), label="P0 status BodyRig revision")
     status_state = _text(status.get("status"), label="P0 status state", maximum=256)
     if status_state != STATUS_TEACHER_TRAINING_AUTHORIZED:
@@ -142,6 +137,20 @@ def resolve_authorized_p0_teacher_inputs(
     _require_status_output_path(outputs, key="dataset_plan", expected=plan_path)
     _require_status_output_path(outputs, key="source_receipt", expected=receipt_path)
     _require_status_output_path(outputs, key="frame_index", expected=frame_index_path)
+
+    return status, status_path, plan_path, receipt_path, frame_index_path
+
+
+def resolve_authorized_p0_teacher_inputs(
+    p0_root: str | Path,
+    epoch_selection_path: str | Path,
+) -> tuple[Path, Path, Path, Path]:
+    status, _status_path, plan_path, receipt_path, frame_index_path = resolve_authorized_p0_root(p0_root)
+    performer_id = _text(status.get("performer_id"), label="P0 status performer id", maximum=256)
+
+    selection_path = Path(epoch_selection_path).expanduser().resolve()
+    if not selection_path.is_file():
+        raise PhotorealTeacherInputP0RootError(f"appearance epoch selection not found: {selection_path}")
 
     selection = _read_json(selection_path, label="appearance epoch selection")
     if selection.get("format") != SELECTION_FORMAT:
