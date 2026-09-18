@@ -65,6 +65,22 @@ def main(argv: list[str] | None = None) -> int:
                     result[
                         "violating_negative_observation_count"
                     ],
+                "violating_negative_observation_fraction":
+                    result[
+                        "violating_negative_observation_fraction"
+                    ],
+                "violating_negative_performer_count":
+                    result[
+                        "violating_negative_performer_count"
+                    ],
+                "violating_negative_source_count":
+                    result[
+                        "violating_negative_source_count"
+                    ],
+                "positive_cosine_median":
+                    result["positive_cosine_median"],
+                "negative_cosine_median":
+                    result["negative_cosine_median"],
                 "highest_negative_match":
                     result["highest_negative_match"],
                 "diagnostic_only":
