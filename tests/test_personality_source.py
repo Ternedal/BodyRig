@@ -9,6 +9,13 @@ from pathlib import Path
 import pytest
 
 from bodyrig.person_profiles import add_body_revision, create_profile, load_profile
+from bodyrig.personality_authoring import (
+    PersonalityAuthoringError,
+    build_guided_personality,
+    load_guided_personality_revision,
+    save_guided_personality,
+)
+from bodyrig.personality_blueprint import personality_trait_definitions
 from bodyrig.person_source_alignment import file_sha256, read_binding, write_binding
 from bodyrig.personality_source import SourcePersonalityError, _discover_transcripts, build_source_personality
 
@@ -287,3 +294,155 @@ def test_transcript_discovery_scans_shared_media_directory_once(
         ("a", first_caption.name),
         ("b", second_caption.name),
     ]
+
+
+
+def _neutral_trait_rings() -> tuple[dict[str, float], dict[str, float]]:
+    definition = personality_trait_definitions()
+    return (
+        {item["id"]: 0.5 for item in definition["rings"]["inner"]},
+        {item["id"]: 0.5 for item in definition["rings"]["outer"]},
+    )
+
+
+def _guided_communication() -> dict[str, float]:
+    return {
+        "directness": 0.65,
+        "warmth": 0.7,
+        "playfulness": 0.55,
+        "formality": 0.35,
+        "verbosity": 0.45,
+        "initiative": 0.6,
+    }
+
+
+def test_matrix_v2_can_stack_verified_source_speaking_style(tmp_path: Path) -> None:
+    profile, _, _, _ = _source_profile(tmp_path, with_transcript=True)
+    source = build_source_personality(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+        default_language="en",
+    )
+    inner, outer = _neutral_trait_rings()
+    inner["candor"] = 0.8
+    outer["empathy"] = 0.85
+
+    preview = build_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_guided_communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+        baseline_revision=source["personality_revision"],
+    )
+
+    assert preview["blueprint"]["version"] == 2
+    assert preview["source_baseline_revision"] == "personality-r0001"
+    assert preview["personality_stack"]["format"] == "bodyrig-personality-stack"
+    assert preview["personality_stack"]["semantics"].endswith(
+        "no-source-to-psychological-trait-inference"
+    )
+    assert (
+        preview["personality_stack"]["baseline"]["evidence_kind"]
+        == "stash-source-transcript-personality-v1"
+    )
+    assert "Well, that is actually pretty funny." in preview["candidate"]["instructions"]
+    assert "[EXPLICIT AUTHORED MATRIX V2 OVERLAY]" in preview["candidate"]["instructions"]
+    assert "Candor=0.8" in preview["candidate"]["instructions"]
+    assert preview["candidate"]["default_language"] == "da"
+
+    saved = save_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_guided_communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+        baseline_revision=source["personality_revision"],
+        feedback="source + matrix",
+    )
+
+    assert saved["saved_personality_revision"] == "personality-r0002"
+    assert Path(saved["personality_stack_path"]).is_file()
+    updated = load_profile(tmp_path, profile["person_id"])
+    receipt = read_binding(
+        tmp_path,
+        updated,
+        kind="personality",
+        revision_id="personality-r0002",
+    )
+    assert receipt["evidence"]["kind"] == "personality-stack-v1"
+    assert receipt["evidence"]["sha256"] == saved["personality_stack_sha256"]
+
+    reopened = load_guided_personality_revision(
+        tmp_path,
+        profile["person_id"],
+        "personality-r0002",
+    )
+    assert reopened["source_baseline_revision"] == "personality-r0001"
+    assert reopened["personality_stack_sha256"] == saved["personality_stack_sha256"]
+    assert reopened["blueprint"] == saved["blueprint"]
+
+
+def test_matrix_stack_rejects_non_source_baseline(tmp_path: Path) -> None:
+    root = tmp_path / "people"
+    profile = create_profile(root, display_name="Manual Baseline")
+    inner, outer = _neutral_trait_rings()
+    manual = save_guided_personality(
+        root,
+        profile["person_id"],
+        default_language="da",
+        communication=_guided_communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+    )
+
+    with pytest.raises(
+        PersonalityAuthoringError,
+        match="source personality baseline is invalid",
+    ):
+        build_guided_personality(
+            root,
+            profile["person_id"],
+            default_language="da",
+            communication=_guided_communication(),
+            inner_ring=inner,
+            outer_ring=outer,
+            baseline_revision=manual["saved_personality_revision"],
+        )
+
+
+def test_stacked_revision_reload_fails_closed_on_stack_tamper(tmp_path: Path) -> None:
+    profile, _, _, _ = _source_profile(tmp_path, with_transcript=False)
+    source = build_source_personality(
+        tmp_path,
+        profile["person_id"],
+        body_revision="body-r0001",
+        default_language="en",
+    )
+    inner, outer = _neutral_trait_rings()
+    saved = save_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_guided_communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+        baseline_revision=source["personality_revision"],
+    )
+    stack_path = Path(saved["personality_stack_path"])
+    stack = json.loads(stack_path.read_text(encoding="utf-8"))
+    stack["overlay"]["blueprint_sha256"] = "f" * 64
+    stack_path.write_text(json.dumps(stack), encoding="utf-8")
+
+    with pytest.raises(
+        PersonalityAuthoringError,
+        match="personality stack evidence SHA-256 mismatch",
+    ):
+        load_guided_personality_revision(
+            tmp_path,
+            profile["person_id"],
+            saved["saved_personality_revision"],
+        )
