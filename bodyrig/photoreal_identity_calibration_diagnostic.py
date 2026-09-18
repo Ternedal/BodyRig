@@ -238,6 +238,115 @@ def build_identity_calibration_diagnostic(
         reverse=True,
     )
 
+    source_yield_summaries: list[dict[str, Any]] = []
+    for source_key in sorted(planned_sources):
+        source = planned_sources[source_key]
+        planned_sample_count = int(
+            source.get(
+                "sample_count",
+                len(source.get("samples", [])),
+            )
+        )
+        rows = [
+            item
+            for item in negative_rows_raw
+            if str(item[1]["source_key"]) == str(source_key)
+        ]
+        observation_count = len(rows)
+        source_yield_summaries.append(
+            {
+                "source_key": source_key,
+                "subject_performer_id":
+                    source["subject_performer_id"],
+                "subject_performer_name":
+                    source.get("subject_performer_name", ""),
+                "planned_sample_count": planned_sample_count,
+                "observation_count": observation_count,
+                "extraction_yield_fraction": round(
+                    observation_count / planned_sample_count,
+                    9,
+                ),
+            }
+        )
+
+    source_yield_summaries.sort(
+        key=lambda item: (
+            float(item["extraction_yield_fraction"]),
+            str(item["source_key"]),
+        )
+    )
+
+    planned_performer_ids = sorted(
+        {
+            str(source["subject_performer_id"])
+            for source in planned_sources.values()
+        }
+    )
+    performer_yield_summaries: list[dict[str, Any]] = []
+    for performer_id in planned_performer_ids:
+        performer_sources = [
+            source
+            for source in planned_sources.values()
+            if str(source["subject_performer_id"]) == performer_id
+        ]
+        planned_sample_count = sum(
+            int(
+                source.get(
+                    "sample_count",
+                    len(source.get("samples", [])),
+                )
+            )
+            for source in performer_sources
+        )
+        rows = [
+            item
+            for item in negative_rows_raw
+            if str(item[1]["subject_performer_id"])
+            == performer_id
+        ]
+        observed_source_count = len(
+            {
+                str(item[1]["source_key"])
+                for item in rows
+            }
+        )
+        observation_count = len(rows)
+        performer_yield_summaries.append(
+            {
+                "subject_performer_id": performer_id,
+                "subject_performer_name":
+                    performer_sources[0].get(
+                        "subject_performer_name",
+                        "",
+                    ),
+                "planned_source_count": len(performer_sources),
+                "observed_source_count": observed_source_count,
+                "planned_sample_count": planned_sample_count,
+                "observation_count": observation_count,
+                "extraction_yield_fraction": round(
+                    observation_count / planned_sample_count,
+                    9,
+                ),
+            }
+        )
+
+    performer_yield_summaries.sort(
+        key=lambda item: (
+            float(item["extraction_yield_fraction"]),
+            str(item["subject_performer_id"]),
+        )
+    )
+
+    planned_negative_observation_count = sum(
+        int(
+            source.get(
+                "sample_count",
+                len(source.get("samples", [])),
+            )
+        )
+        for source in planned_sources.values()
+    )
+
     positive_scores = [
         item[0]
         for item in positive_rows_raw
@@ -263,6 +372,22 @@ def build_identity_calibration_diagnostic(
         "positive_reference_count": len(positive_rows),
         "negative_observation_count": len(negative_rows),
         "negative_performer_count": len(performer_summaries),
+        "planned_negative_observation_count":
+            planned_negative_observation_count,
+        "planned_negative_performer_count":
+            len(planned_performer_ids),
+        "planned_negative_source_count": len(planned_sources),
+        "observed_negative_source_count": len(
+            {
+                str(item[1]["source_key"])
+                for item in negative_rows_raw
+            }
+        ),
+        "negative_extraction_yield_fraction": round(
+            len(negative_rows)
+            / planned_negative_observation_count,
+            9,
+        ),
         "positive_floor": round(positive_floor, 9),
         "positive_cosine_median":
             round(statistics.median(positive_scores), 9),
@@ -305,6 +430,10 @@ def build_identity_calibration_diagnostic(
         ),
         "negative_performer_summaries": performer_summaries,
         "negative_source_summaries": source_summaries,
+        "negative_performer_yield_summaries":
+            performer_yield_summaries,
+        "negative_source_yield_summaries":
+            source_yield_summaries,
         "top_negative_matches": negative_rows[:top_matches],
         "diagnostic_only": True,
         "identity_matching_authority": False,
