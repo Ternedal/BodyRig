@@ -200,6 +200,58 @@ def build_identity_calibration_diagnostic(
         reverse=True,
     )
 
+    source_summaries: list[dict[str, Any]] = []
+    source_keys = sorted(
+        {
+            str(item[1]["source_key"])
+            for item in negative_rows_raw
+        }
+    )
+    for source_key in source_keys:
+        rows = [
+            item
+            for item in negative_rows_raw
+            if str(item[1]["source_key"]) == source_key
+        ]
+        scores = [item[0] for item in rows]
+        source_summaries.append(
+            {
+                "source_key": source_key,
+                "subject_performer_id":
+                    rows[0][1]["subject_performer_id"],
+                "subject_performer_name":
+                    rows[0][1]["subject_performer_name"],
+                "observation_count": len(rows),
+                "cosine_min": round(min(scores), 9),
+                "cosine_median":
+                    round(statistics.median(scores), 9),
+                "cosine_max": round(max(scores), 9),
+                "violating_observation_count": sum(
+                    score > maximum_allowed_negative
+                    for score in scores
+                ),
+            }
+        )
+
+    source_summaries.sort(
+        key=lambda item: float(item["cosine_max"]),
+        reverse=True,
+    )
+
+    positive_scores = [
+        item[0]
+        for item in positive_rows_raw
+    ]
+    negative_scores = [
+        item[0]
+        for item in negative_rows_raw
+    ]
+    violating_negative_rows = [
+        item
+        for item in negative_rows_raw
+        if item[0] > maximum_allowed_negative
+    ]
+
     positive_rows = [item[1] for item in positive_rows_raw]
     negative_rows = [item[1] for item in negative_rows_raw]
 
@@ -212,7 +264,13 @@ def build_identity_calibration_diagnostic(
         "negative_observation_count": len(negative_rows),
         "negative_performer_count": len(performer_summaries),
         "positive_floor": round(positive_floor, 9),
+        "positive_cosine_median":
+            round(statistics.median(positive_scores), 9),
+        "positive_cosine_max": round(max(positive_scores), 9),
         "negative_ceiling": round(negative_ceiling, 9),
+        "negative_cosine_median":
+            round(statistics.median(negative_scores), 9),
+        "negative_cosine_min": round(min(negative_scores), 9),
         "minimum_required_separation_margin":
             MIN_COSINE_SEPARATION_MARGIN,
         "maximum_allowed_negative_cosine":
@@ -226,11 +284,27 @@ def build_identity_calibration_diagnostic(
             core["calibration_blockers"],
         "lowest_positive_reference": positive_rows[0],
         "highest_negative_match": negative_rows[0],
-        "violating_negative_observation_count": sum(
-            score > maximum_allowed_negative
-            for score, _ in negative_rows_raw
+        "violating_negative_observation_count":
+            len(violating_negative_rows),
+        "violating_negative_observation_fraction": round(
+            len(violating_negative_rows)
+            / len(negative_rows_raw),
+            9,
+        ),
+        "violating_negative_performer_count": len(
+            {
+                str(item[1]["subject_performer_id"])
+                for item in violating_negative_rows
+            }
+        ),
+        "violating_negative_source_count": len(
+            {
+                str(item[1]["source_key"])
+                for item in violating_negative_rows
+            }
         ),
         "negative_performer_summaries": performer_summaries,
+        "negative_source_summaries": source_summaries,
         "top_negative_matches": negative_rows[:top_matches],
         "diagnostic_only": True,
         "identity_matching_authority": False,
