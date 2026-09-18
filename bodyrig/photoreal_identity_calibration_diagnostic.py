@@ -17,6 +17,21 @@ from .photoreal_identity_calibration import (
 FORMAT = "bodyrig-photoreal-identity-calibration-diagnostic"
 VERSION = 1
 
+NEGATIVE_OBSERVATION_QUALITY_FIELDS = (
+    "candidate_id",
+    "person_detected",
+    "width",
+    "height",
+    "view_bin",
+    "face_visibility",
+    "full_body_visibility",
+    "person_fraction",
+    "sharpness",
+    "motion",
+    "occlusion",
+    "identity_measurement_status",
+)
+
 
 class PhotorealIdentityCalibrationDiagnosticError(
     PhotorealIdentityCalibrationError
@@ -250,8 +265,37 @@ def build_identity_calibration_diagnostic(
         for source in plan["sources"]
     }
 
+    raw_negative_observations = list(
+        negative_observations["observations"]
+    )
+    quality_field_presence = {
+        field: sum(
+            field in observation
+            for observation in raw_negative_observations
+        )
+        for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+    }
+    complete_quality_observation_count = sum(
+        all(
+            field in observation
+            for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+        )
+        for observation in raw_negative_observations
+    )
+    observed_quality_fields = [
+        field
+        for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+        if quality_field_presence[field] > 0
+    ]
+    missing_quality_fields = [
+        field
+        for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+        if quality_field_presence[field]
+        < len(raw_negative_observations)
+    ]
+
     negative_rows_raw: list[tuple[float, dict[str, Any]]] = []
-    for observation in negative_observations["observations"]:
+    for observation in raw_negative_observations:
         source = planned_sources[observation["source_key"]]
         negative_vector = _embedding(
             observation["embedding"],
@@ -573,6 +617,26 @@ def build_identity_calibration_diagnostic(
         "identity_bank_sha256": bank["identity_bank_sha256"],
         "positive_reference_count": len(positive_rows),
         "negative_observation_count": len(negative_rows),
+        "negative_observation_quality_metadata": {
+            "expected_fields":
+                list(NEGATIVE_OBSERVATION_QUALITY_FIELDS),
+            "observed_fields": observed_quality_fields,
+            "missing_fields": missing_quality_fields,
+            "field_presence_counts": quality_field_presence,
+            "complete_observation_count":
+                complete_quality_observation_count,
+            "complete_observation_fraction": round(
+                complete_quality_observation_count
+                / len(raw_negative_observations),
+                9,
+            ),
+            "complete_quality_audit_available":
+                complete_quality_observation_count
+                == len(raw_negative_observations),
+            "reextraction_required_for_complete_quality_audit":
+                complete_quality_observation_count
+                != len(raw_negative_observations),
+        },
         "negative_performer_count": len(performer_summaries),
         "planned_negative_observation_count":
             planned_negative_observation_count,
