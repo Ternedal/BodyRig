@@ -47,6 +47,7 @@ from .person_profiles import (
     load_profile,
 )
 from .person_release_status import PersonReleaseStatusError, inspect_candidate_release_status
+from .photoreal_calibration_ui_api import router as photoreal_calibration_ui_router
 from .runtime import BodyRuntime
 from .stash_source import StashClient, StashConfig, StashSourceError
 from .storage import body_library as _body_library
@@ -59,6 +60,7 @@ DEFAULT_PORT = 8775
 runtime = BodyRuntime()
 app = FastAPI(title="BodyRig", version=__version__)
 app.include_router(high_fidelity_preview_router)
+app.include_router(photoreal_calibration_ui_router)
 UI_DIR = Path(__file__).resolve().parent / "ui"
 app.mount("/ui", StaticFiles(directory=str(UI_DIR)), name="ui")
 _APPROVAL_LOCK = threading.Lock()
