@@ -267,3 +267,132 @@ def test_frozen_render_authority_tamper_revokes_finalized_authority(tmp_path: Pa
             body_release_status=_body_release(),
             release_id=receipt["release_id"],
         )
+
+
+def test_comparison_and_render_authority_versions_are_bool_safe(
+    tmp_path: Path,
+) -> None:
+    render_path, review = _render_bundle(tmp_path)
+    comparison_path = render_path.parent / "comparison-authority.json"
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+    comparison["version"] = True
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="comparison authority format/version",
+    ):
+        release._validate_comparison(comparison, review=review)
+
+    comparison["version"] = 1.0
+    assert release._validate_comparison(
+        comparison,
+        review=review,
+    )["runtime_manifest_sha256"] == "f" * 64
+
+    render_value = json.loads(render_path.read_text(encoding="utf-8"))
+    render_value["version"] = True
+    render_path.write_text(json.dumps(render_value), encoding="utf-8")
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="render authority format/version",
+    ):
+        release._validate_render_authority_bundle(
+            render_path,
+            review=review,
+        )
+
+    render_value["version"] = 1.0
+    render_path.write_text(json.dumps(render_value), encoding="utf-8")
+    assert release._validate_render_authority_bundle(
+        render_path,
+        review=review,
+    )["value"]["version"] == 1.0
+
+
+def test_finalized_release_version_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render_path, review = _render_bundle(tmp_path)
+    _install_review_fixture(tmp_path, monkeypatch, review)
+    receipt = release.write_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        review_id=REVIEW_ID,
+        render_authority_path=render_path,
+    )
+
+    invalid = dict(receipt)
+    invalid["version"] = True
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="format/version/policy",
+    ):
+        release.validate_release_authority_structure(
+            invalid,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+        )
+
+    numeric = dict(receipt)
+    numeric["version"] = 1.0
+    assert release.validate_release_authority_structure(
+        numeric,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+    )["version"] == 1.0
+
+
+def test_frozen_render_readback_rejects_boolean_v1_and_accepts_float_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render_path, review = _render_bundle(tmp_path)
+    _install_review_fixture(tmp_path, monkeypatch, review)
+    receipt = release.write_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        review_id=REVIEW_ID,
+        render_authority_path=render_path,
+    )
+    target = release.release_authority_dir(
+        tmp_path,
+        PERSON_ID,
+        PERSON_REVISION,
+        receipt["release_id"],
+    )
+    frozen = target / "render-authority.json"
+    original_hash = release._sha256_file
+    expected_hash = receipt["render_authority_sha256"]
+
+    def hash_with_frozen_version_probe(path):
+        candidate = Path(path).resolve()
+        if candidate == frozen.resolve():
+            return expected_hash
+        return original_hash(path)
+
+    monkeypatch.setattr(release, "_sha256_file", hash_with_frozen_version_probe)
+
+    value = json.loads(frozen.read_text(encoding="utf-8"))
+    value["version"] = True
+    frozen.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="frozen M2 render authority is invalid",
+    ):
+        release.read_release_authority(
+            tmp_path,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+            release_id=receipt["release_id"],
+        )
+
+    value["version"] = 1.0
+    frozen.write_text(json.dumps(value), encoding="utf-8")
+    assert release.read_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        release_id=receipt["release_id"],
+    )["release_id"] == receipt["release_id"]
