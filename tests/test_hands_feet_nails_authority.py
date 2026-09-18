@@ -302,3 +302,57 @@ def test_review_rejects_noncanonical_body_release_status(tmp_path: Path, monkeyp
             checklist=_checklist(),
             quality_note="Review passed.",
         )
+
+
+def test_body_release_status_v1_discriminator_is_bool_safe() -> None:
+    assembly = authority._assembly_identity(_assembly())
+
+    invalid = _body_release()
+    invalid["version"] = True
+    with pytest.raises(
+        authority.HandsFeetNailsAuthorityError,
+        match="body-release status v1",
+    ):
+        authority._release_identity(invalid, assembly)
+
+    numeric = _body_release()
+    numeric["version"] = 1.0
+    assert authority._release_identity(numeric, assembly)["package_sha256"] == PACKAGE_SHA
+
+
+def test_human_review_authority_v1_discriminator_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _setup_source(tmp_path, monkeypatch)
+    render = _render_manifest(tmp_path)
+    receipt = authority.write_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        source_capture_id=source["capture_id"],
+        render_manifest_path=render,
+        bodyrig_revision=BODYRIG_REVISION,
+        checklist=_checklist(),
+        quality_note="Exact source-grounded hand, foot and nail review.",
+    )
+
+    invalid = dict(receipt)
+    invalid["version"] = True
+    with pytest.raises(
+        authority.HandsFeetNailsAuthorityError,
+        match="format/version/policy",
+    ):
+        authority.validate_authority_structure(
+            invalid,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+        )
+
+    numeric = dict(receipt)
+    numeric["version"] = 1.0
+    assert authority.validate_authority_structure(
+        numeric,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+    )["version"] == 1.0
