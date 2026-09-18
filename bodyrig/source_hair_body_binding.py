@@ -26,6 +26,15 @@ class SourceHairBodyBindingError(ValueError):
     pass
 
 
+def _numeric_version(value: Any, expected: int) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        and value == expected
+    )
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -89,7 +98,7 @@ def _candidate(candidate_dir: str | Path) -> tuple[dict[str, Any], Path, Path, P
     }
     if set(receipt) != required:
         raise SourceHairBodyBindingError("source hair candidate fields do not match v1")
-    if receipt.get("format") != CANDIDATE_FORMAT or receipt.get("version") != CANDIDATE_VERSION:
+    if receipt.get("format") != CANDIDATE_FORMAT or not _numeric_version(receipt.get("version"), CANDIDATE_VERSION):
         raise SourceHairBodyBindingError("source hair candidate format/version mismatch")
     if receipt.get("method") != "retained-sith-connected-head-shell-v2":
         raise SourceHairBodyBindingError("source hair candidate extraction method mismatch")
