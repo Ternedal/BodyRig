@@ -27,6 +27,11 @@ from .personality_exemplar_approval import (
     load_candidate_report,
     verify_approval,
 )
+from .personality_traits import (
+    PersonalityTraitProfileError,
+    compile_trait_profile,
+    validate_trait_profile,
+)
 from .storage import person_library as default_person_library
 
 RESULT_FORMAT = "bodyrig-personality-blueprint-result"
@@ -87,6 +92,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--initiative", type=float, default=0.5)
     parser.add_argument("--authored-notes", default="")
     parser.add_argument(
+        "--trait-profile",
+        default="",
+        help=(
+            "Optional canonical bodyrig-personality-trait-profile JSON with "
+            "60 Inner Ring + 60 Outer Ring operator-authored values."
+        ),
+    )
+    parser.add_argument(
         "--style-example",
         action="append",
         default=[],
@@ -145,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     profile = None
     saved_revision_id = None
     style_evidence = None
+    trait_profile = None
+    trait_compilation = None
 
     try:
         if bool(args.style_report) != bool(args.style_approval):
@@ -165,6 +180,28 @@ def main(argv: list[str] | None = None) -> int:
                 "approval_sha256": exemplar_evidence_sha256(verified),
                 "approved_count": len(approved_exemplars),
             }
+
+        if args.trait_profile:
+            trait_path = Path(args.trait_profile).expanduser().resolve()
+            if not trait_path.is_file():
+                raise PersonalityBlueprintError(
+                    f"trait profile not found: {trait_path}"
+                )
+            try:
+                trait_raw = json.loads(
+                    trait_path.read_text(encoding="utf-8-sig")
+                )
+                trait_profile = validate_trait_profile(trait_raw)
+                trait_compilation = compile_trait_profile(trait_profile)
+            except (
+                OSError,
+                UnicodeError,
+                json.JSONDecodeError,
+                PersonalityTraitProfileError,
+            ) as exc:
+                raise PersonalityBlueprintError(
+                    f"trait profile is invalid: {exc}"
+                ) from exc
 
         style_exemplars = [*args.style_example, *approved_exemplars]
         if len(style_exemplars) > 12:
@@ -247,6 +284,13 @@ def main(argv: list[str] | None = None) -> int:
             body_revision=body_revision,
         )
         candidate = compile_blueprint(blueprint)
+        if trait_compilation is not None:
+            candidate["instructions"] += (
+                "\n\n" + trait_compilation["instructions"]
+            )
+            candidate["style_notes"] += (
+                " | " + trait_compilation["style_notes"]
+            )
         if style_evidence is not None:
             candidate["style_notes"] += (
                 f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
@@ -275,6 +319,24 @@ def main(argv: list[str] | None = None) -> int:
             "candidate": candidate,
             "audition_suite": audition_suite,
             "style_evidence": style_evidence,
+            "trait_profile": trait_profile,
+            "trait_profile_sha256": (
+                trait_compilation["trait_profile_sha256"]
+                if trait_compilation is not None
+                else None
+            ),
+            "trait_summary": (
+                {
+                    "active_trait_count":
+                        trait_compilation["active_trait_count"],
+                    "salient_inner":
+                        trait_compilation["salient_inner"],
+                    "salient_outer":
+                        trait_compilation["salient_outer"],
+                }
+                if trait_compilation is not None
+                else None
+            ),
             "person_id": args.person_id or None,
             "saved_personality_revision": saved_revision_id,
         }
