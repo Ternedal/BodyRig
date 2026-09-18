@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .app import DEFAULT_HOST, DEFAULT_PORT, app, person_library
 from .personality_audition_suite import PersonalityAuditionSuiteError, build_audition_suite
+from .personality_blueprint import personality_trait_definitions
 from .personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
@@ -43,6 +44,8 @@ class GuidedPersonalityRequest(BaseModel):
     style_report: dict[str, Any] | None = None
     style_approval: dict[str, Any] | None = None
     body_revision: str | None = Field(default=None, max_length=24)
+    inner_ring: dict[str, Ratio] | None = None
+    outer_ring: dict[str, Ratio] | None = None
 
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
@@ -69,6 +72,8 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_report": request.style_report,
         "style_approval": request.style_approval,
         "body_revision": request.body_revision,
+        "inner_ring": request.inner_ring,
+        "outer_ring": request.outer_ring,
     }
 
 
@@ -77,6 +82,11 @@ def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
         return build_guided_personality(person_library(), person_id, **_authoring_kwargs(request))
     except PersonalityAuthoringError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/personality/trait-matrix")
+def personality_trait_matrix_definition() -> dict:
+    return personality_trait_definitions()
 
 
 @app.post("/api/v1/people/{person_id}/personality/guided/preview")
