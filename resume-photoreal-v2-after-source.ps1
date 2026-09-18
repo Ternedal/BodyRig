@@ -466,7 +466,7 @@ try {
             --plan $CalibrationPlanPath `
             --negative-observations $NegativeObservationsPath `
             --out $CalibrationDiagnosticPath `
-            --top-matches 10 2>&1)
+            --top-matches 10)
         $diagnosticExit = $LASTEXITCODE
         foreach ($line in $diagnosticOutput) { Write-Host ([string]$line) }
         if ($diagnosticExit -ne 0) {
