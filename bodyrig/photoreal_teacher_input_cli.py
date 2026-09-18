@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_teacher_input import PhotorealTeacherInputError, build_teacher_input_files
+from .photoreal_teacher_authority import build_teacher_input_files_strict
+from .photoreal_teacher_input import PhotorealTeacherInputError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -23,7 +24,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_teacher_input_files(
+        result = build_teacher_input_files_strict(
             args.plan,
             args.receipt,
             args.frame_index,
