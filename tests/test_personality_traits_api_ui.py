@@ -436,10 +436,7 @@ def test_stash_transcript_approval_rejects_stale_or_modified_report(
         style_use_approved=True,
     )
 
-    with pytest.raises(
-        HTTPException,
-        match="source transcript candidate report changed",
-    ) as exc:
+    with pytest.raises(HTTPException) as exc:
         personality_stash_transcript_approval(
             "person-" + "3" * 32,
             request,
@@ -447,6 +444,7 @@ def test_stash_transcript_approval_rejects_stale_or_modified_report(
         )
 
     assert exc.value.status_code == 409
+    assert "source transcript candidate report changed" in str(exc.value.detail)
 
 
 def test_stash_transcript_approval_requires_explicit_operator_confirmations(
@@ -464,7 +462,7 @@ def test_stash_transcript_approval_requires_explicit_operator_confirmations(
         style_use_approved=True,
     )
 
-    with pytest.raises(HTTPException, match="speaker identity") as exc:
+    with pytest.raises(HTTPException) as exc:
         personality_stash_transcript_approval(
             "person-" + "3" * 32,
             request,
@@ -472,6 +470,7 @@ def test_stash_transcript_approval_requires_explicit_operator_confirmations(
         )
 
     assert exc.value.status_code == 409
+    assert "speaker identity" in str(exc.value.detail)
 
 
 def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
@@ -492,6 +491,9 @@ def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
         "style_use_approved",
         "styleEvidenceOrigin",
         "onBodyRevisionChange",
+        "transcriptSlotLimit",
+        "approvedTranscriptCount",
+        "samlet ${total}/12",
         "style-only evidence",
     ):
         assert token in html
