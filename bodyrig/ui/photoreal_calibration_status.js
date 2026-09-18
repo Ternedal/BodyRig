@@ -232,12 +232,24 @@
     node("photorealCalibrationGroupProfile").textContent = groupText + referenceText;
 
     const quality = diagnostic.negative_observation_quality_metadata || {};
+    const collisionQuality = highest.quality_metadata || {};
+    const collisionQualityText = highest.quality_metadata_complete === true
+      ? (
+          `Collision-frame quality: candidate ${collisionQuality.candidate_id || "?"} · count ${collisionQuality.candidate_count ?? "?"} · ` +
+          `view ${collisionQuality.view_bin || "?"} · face ${formatNumber(collisionQuality.face_visibility, 2)} · ` +
+          `body ${formatNumber(collisionQuality.full_body_visibility, 2)} · occupancy ${formatNumber(collisionQuality.person_fraction, 2)} · ` +
+          `sharpness ${formatNumber(collisionQuality.sharpness, 2)} · motion ${formatNumber(collisionQuality.motion, 2)} · ` +
+          `occlusion ${formatNumber(collisionQuality.occlusion, 2)}.`
+        )
+      : "Collision-frame quality: ikke tilgængelig i denne gemte observation.";
     if (quality.complete_quality_audit_available === true) {
       node("photorealCalibrationQuality").textContent =
+        collisionQualityText + " " +
         `Quality-audit tilgængelig: ${quality.complete_observation_count ?? 0}/${diagnostic.negative_observation_count ?? 0} observations har komplet metadata.`;
     } else {
       const missing = Array.isArray(quality.missing_fields) ? quality.missing_fields.join(", ") : "ukendte felter";
       node("photorealCalibrationQuality").textContent =
+        collisionQualityText + " " +
         `Quality-audit kræver re-extraction: ${quality.complete_observation_count ?? 0}/${diagnostic.negative_observation_count ?? 0} komplette observations. Mangler: ${missing}.`;
     }
   }
