@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -29,6 +30,14 @@ from .personality_exemplar_approval import (
 
 class PersonalityAuthoringError(ValueError):
     pass
+
+
+BLUEPRINT_STYLE_SHA_RE = re.compile(
+    r"^blueprint_sha256=([0-9a-f]{64})(?: \\||$)"
+)
+STYLE_EVIDENCE_SUFFIX_RE = re.compile(
+    r" \\| style_report_sha256=([0-9a-f]{64}) \\| style_approval_sha256=([0-9a-f]{64})$"
+)
 
 
 def _find_body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
@@ -254,6 +263,145 @@ def persist_style_evidence(
     return {
         "report": _persist_json(base / "reports" / f"{report_sha}.json", normalized_report, label="style report"),
         "approval": _persist_json(base / "approvals" / f"{approval_sha}.json", verified_approval, label="style approval"),
+    }
+
+
+def _read_json_evidence(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PersonalityAuthoringError(f"{label} evidence is unreadable") from exc
+    if not isinstance(value, dict):
+        raise PersonalityAuthoringError(f"{label} evidence must be an object")
+    return value
+
+
+def load_guided_personality_revision(
+    root: str | os.PathLike[str],
+    person_id: str,
+    revision_id: str,
+) -> dict[str, Any]:
+    root_path = Path(root).expanduser().resolve()
+    try:
+        profile = load_profile(root_path, person_id)
+    except PersonProfileError as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+
+    revision = next(
+        (
+            dict(item)
+            for item in profile.get("personality_revisions", [])
+            if item.get("revision_id") == revision_id
+        ),
+        None,
+    )
+    if revision is None:
+        raise PersonalityAuthoringError("personality revision is not registered on this person")
+
+    saved_style = str(revision.get("style_notes") or "")
+    match = BLUEPRINT_STYLE_SHA_RE.match(saved_style)
+    if match is None:
+        raise PersonalityAuthoringError(
+            "personality revision is not backed by guided blueprint evidence"
+        )
+    digest = match.group(1)
+    blueprint_path = (
+        root_path
+        / "personality-blueprints"
+        / person_id
+        / f"{digest}.json"
+    )
+    blueprint_raw = _read_json_evidence(
+        blueprint_path,
+        label="personality blueprint",
+    )
+    try:
+        blueprint = validate_blueprint(blueprint_raw)
+    except PersonalityBlueprintError as exc:
+        raise PersonalityAuthoringError(
+            f"personality blueprint evidence is invalid: {exc}"
+        ) from exc
+    if blueprint_sha256(blueprint) != digest:
+        raise PersonalityAuthoringError(
+            "personality blueprint evidence SHA-256 mismatch"
+        )
+
+    compiled = compile_blueprint(blueprint)
+    if revision.get("instructions") != compiled["instructions"]:
+        raise PersonalityAuthoringError(
+            "saved personality instructions no longer match blueprint evidence"
+        )
+    if revision.get("default_language") != compiled["default_language"]:
+        raise PersonalityAuthoringError(
+            "saved personality language no longer matches blueprint evidence"
+        )
+
+    direct_examples = list(blueprint["style_exemplars"])
+    style_report = None
+    style_approval = None
+    if saved_style != compiled["style_notes"]:
+        if not saved_style.startswith(compiled["style_notes"]):
+            raise PersonalityAuthoringError(
+                "saved personality style notes no longer match blueprint evidence"
+            )
+        suffix = saved_style[len(compiled["style_notes"]):]
+        suffix_match = STYLE_EVIDENCE_SUFFIX_RE.fullmatch(suffix)
+        if suffix_match is None:
+            raise PersonalityAuthoringError(
+                "saved personality style evidence suffix is invalid"
+            )
+        report_sha, approval_sha = suffix_match.groups()
+        base = root_path / "personality-style-evidence" / person_id
+        report_raw = _read_json_evidence(
+            base / "reports" / f"{report_sha}.json",
+            label="style report",
+        )
+        approval_raw = _read_json_evidence(
+            base / "approvals" / f"{approval_sha}.json",
+            label="style approval",
+        )
+        try:
+            normalized_report = validate_candidate_report(report_raw)
+            verified_approval = verify_approval(
+                normalized_report,
+                validate_approval(approval_raw),
+            )
+        except PersonalityExemplarApprovalError as exc:
+            raise PersonalityAuthoringError(
+                f"saved style evidence is invalid: {exc}"
+            ) from exc
+        if exemplar_evidence_sha256(normalized_report) != report_sha:
+            raise PersonalityAuthoringError(
+                "saved style report SHA-256 mismatch"
+            )
+        if exemplar_evidence_sha256(verified_approval) != approval_sha:
+            raise PersonalityAuthoringError(
+                "saved style approval SHA-256 mismatch"
+            )
+        approved = list(verified_approval["approved_exemplars"])
+        if (
+            len(approved) > len(direct_examples)
+            or direct_examples[len(direct_examples) - len(approved):] != approved
+        ):
+            raise PersonalityAuthoringError(
+                "approved style exemplars no longer match blueprint evidence"
+            )
+        direct_examples = (
+            direct_examples[:-len(approved)]
+            if approved
+            else direct_examples
+        )
+        style_report = normalized_report
+        style_approval = verified_approval
+
+    return {
+        "person_id": person_id,
+        "revision_id": revision_id,
+        "blueprint_sha256": digest,
+        "blueprint": blueprint,
+        "direct_style_exemplars": direct_examples,
+        "style_report": style_report,
+        "style_approval": style_approval,
     }
 
 
