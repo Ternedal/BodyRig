@@ -153,6 +153,33 @@ function renderPeople() {
   }
 }
 
+const structuredPersonalityMarkers = [
+  "blueprint_sha256=",
+  "trait_profile_sha256=",
+  "style_report_sha256=",
+  "style_approval_sha256=",
+];
+
+function personalityTraitDigest(styleNotes) {
+  const match = String(styleNotes || "").match(
+    /(?:^| \| )trait_profile_sha256=([0-9a-f]{64})(?: \||$)/
+  );
+  return match ? match[1] : null;
+}
+
+function manualPersonalityHasStructuredProvenance() {
+  const styleNotes = $("personalityStyle").value;
+  return structuredPersonalityMarkers.some((marker) => styleNotes.includes(marker));
+}
+
+function updateManualPersonalityEditorState() {
+  const structured = manualPersonalityHasStructuredProvenance();
+  $("savePersonalityButton").disabled = structured;
+  $("personalityManualHint").textContent = structured
+    ? "Denne kandidat har SHA-bundet structured provenance. Redigér den via Guided Personality · 120 traits, så provenance og compilation forbliver verificerbar."
+    : "Fritekst-kandidater må ikke indeholde structured provenance-SHA'er. Personality bliver først aktiv som del af en godkendt Person Revision.";
+}
+
 function renderRevisionList(targetId, profile, kind, labelField) {
   const target = $(targetId);
   const items = profile[`${kind}_revisions`] || [];
@@ -165,13 +192,26 @@ function renderRevisionList(targetId, profile, kind, labelField) {
   [...items].reverse().forEach((item) => {
     const active = item.revision_id === activeId;
     const label = item[labelField] || item.voice_package || "";
+    const traitDigest = kind === "personality"
+      ? personalityTraitDigest(item.style_notes)
+      : null;
+    const traitLink = traitDigest
+      ? `<a class="secondary" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&personality_revision=${encodeURIComponent(item.revision_id)}">Redigér 120 traits</a>`
+      : "";
+    const candidateAction = active
+      ? '<span class="badge">I aktiv person</span>'
+      : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`;
+    const traitMeta = traitDigest
+      ? `<div class="revision-feedback">120 traits · evidence ${escapeHtml(traitDigest.slice(0,16))}…</div>`
+      : "";
     const row = document.createElement("div");
     row.className = `revision-item${active ? " active" : ""}`;
     row.innerHTML = `
       <div class="revision-top">
         <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(label)}</div></div>
-        ${active ? '<span class="badge">I aktiv person</span>' : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`}
+        <div class="action-row">${traitLink}${candidateAction}</div>
       </div>
+      ${traitMeta}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
     target.appendChild(row);
   });
@@ -284,6 +324,7 @@ function renderSelected() {
   $("personalityInstructions").value = personality?.instructions || "";
   $("personalityLanguage").value = personality?.default_language || "da";
   $("personalityStyle").value = personality?.style_notes || "";
+  updateManualPersonalityEditorState();
 
   fillSelect("assembleBody", p.body_revisions, activeBody, "body_id");
   fillSelect("assembleVoice", p.voice_revisions, activeVoice, "voice_package");
@@ -412,6 +453,9 @@ async function createPerson() {
 
 async function savePersonality() {
   if (!state.selected) return;
+  if (manualPersonalityHasStructuredProvenance()) {
+    return toast("Structured personality-kandidater skal redigeres via Guided Personality · 120 traits.", true);
+  }
   const instructions = $("personalityInstructions").value.trim();
   if (!instructions) return toast("Personligheden mangler instructions.", true);
   try {
@@ -623,6 +667,7 @@ function wire() {
   $("stashSearchInput").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); searchStash(); } });
   $("createPersonButton").addEventListener("click", createPerson);
   $("savePersonalityButton").addEventListener("click", savePersonality);
+  $("personalityStyle").addEventListener("input", updateManualPersonalityEditorState);
   $("refreshVoicesButton").addEventListener("click", loadVoiceLibrary);
   $("attachVoiceButton").addEventListener("click", attachVoice);
   $("prepareAssemblyButton").addEventListener("click", prepareAssembly);

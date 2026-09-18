@@ -111,7 +111,7 @@
               <label for="personalityFeedback">Hvad ændrede du?</label>
               <textarea id="personalityFeedback" rows="3" placeholder="Fx: mindre formel, mere tør humor"></textarea>
               <button id="savePersonalityButton" class="primary full">Gem som personality-kandidat</button>
-              <p class="fine-print">Personality køres gennem ModelRig under samlet audition og bliver kun aktiv som del af en godkendt Person Revision.</p>
+              <p id="personalityManualHint" class="fine-print">Personality køres gennem ModelRig under samlet audition og bliver kun aktiv som del af en godkendt Person Revision.</p>
             </article>
             <article class="card"><div class="card-label">Personality-kandidater</div><div id="personalityRevisions" class="revision-list"></div></article>
           </div>
@@ -119,7 +119,7 @@
             <div class="card-row">
               <div><div class="card-label">Personality-værktøjer</div><p class="muted-text">Arbejd videre med den valgte person uden at aktivere en komponent.</p></div>
               <div class="action-row">
-                <a id="guidedPersonalityLink" class="secondary" href="/ui/personality_guided.html" onclick="this.href='/ui/personality_guided.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Guided Personality</a>
+                <a id="guidedPersonalityLink" class="secondary" href="/ui/personality_guided.html" onclick="this.href='/ui/personality_guided.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Guided Personality · 120 traits</a>
                 <a id="personalitySuiteLink" class="secondary" href="/ui/personality_audition_suite.html" onclick="this.href='/ui/personality_audition_suite.html?person_id='+encodeURIComponent(document.getElementById('personId').textContent)">Kør 6-scenarie audition</a>
               </div>
             </div>

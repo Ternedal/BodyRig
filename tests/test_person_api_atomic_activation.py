@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 import bodyrig.app as app_module
@@ -269,3 +271,76 @@ def test_voice_preview_and_synthesis_are_bound_to_registered_package_bytes(tmp_p
     )
     assert synthesized.status_code == 200
     assert synthesized.content.startswith(b"RIFF")
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "blueprint_sha256=",
+        "trait_profile_sha256=",
+        "style_report_sha256=",
+        "style_approval_sha256=",
+    ],
+)
+def test_manual_personality_route_rejects_structured_provenance_markers(
+    tmp_path: Path,
+    monkeypatch,
+    marker: str,
+) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post(
+        "/api/v1/people",
+        json={
+            "display_name": "Manual",
+            "aliases": [],
+            "stash_performer": None,
+        },
+    ).json()["person_id"]
+
+    response = client.post(
+        f"/api/v1/people/{person_id}/personality/revisions",
+        json={
+            "instructions": "Manuel personality uden structured evidence.",
+            "default_language": "da",
+            "style_notes": f"manual note | {marker}{'a' * 64}",
+            "feedback": "manual",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Guided Personality" in response.json()["detail"]
+    assert load_profile(
+        app_module.person_library(),
+        person_id,
+    )["personality_revisions"] == []
+
+
+def test_manual_personality_route_still_allows_normal_style_notes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, _voice = _client(tmp_path, monkeypatch)
+    person_id = client.post(
+        "/api/v1/people",
+        json={
+            "display_name": "Manual Safe",
+            "aliases": [],
+            "stash_performer": None,
+        },
+    ).json()["person_id"]
+
+    response = client.post(
+        f"/api/v1/people/{person_id}/personality/revisions",
+        json={
+            "instructions": "Manuel personality.",
+            "default_language": "da",
+            "style_notes": "rolig, tør og direkte",
+            "feedback": "manual",
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.json()["personality_revisions"][0]["style_notes"]
+        == "rolig, tør og direkte"
+    )
+
