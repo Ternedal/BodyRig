@@ -39,6 +39,25 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _planned_sample_count(source: Mapping[str, Any]) -> int:
+    value = source.get("sample_count")
+    samples = source.get("samples")
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value <= 0
+    ):
+        raise PhotorealIdentityCalibrationDiagnosticError(
+            "calibration plan source sample_count is invalid"
+        )
+    if not isinstance(samples, list) or len(samples) != value:
+        raise PhotorealIdentityCalibrationDiagnosticError(
+            "calibration plan source samples/sample_count mismatch"
+        )
+    return value
+
+
 def build_identity_calibration_diagnostic(
     bank: Mapping[str, Any],
     plan: Mapping[str, Any],
@@ -241,12 +260,7 @@ def build_identity_calibration_diagnostic(
     source_yield_summaries: list[dict[str, Any]] = []
     for source_key in sorted(planned_sources):
         source = planned_sources[source_key]
-        planned_sample_count = int(
-            source.get(
-                "sample_count",
-                len(source.get("samples", [])),
-            )
-        )
+        planned_sample_count = _planned_sample_count(source)
         rows = [
             item
             for item in negative_rows_raw
@@ -290,12 +304,7 @@ def build_identity_calibration_diagnostic(
             if str(source["subject_performer_id"]) == performer_id
         ]
         planned_sample_count = sum(
-            int(
-                source.get(
-                    "sample_count",
-                    len(source.get("samples", [])),
-                )
-            )
+            _planned_sample_count(source)
             for source in performer_sources
         )
         rows = [
@@ -338,12 +347,7 @@ def build_identity_calibration_diagnostic(
     )
 
     planned_negative_observation_count = sum(
-        int(
-            source.get(
-                "sample_count",
-                len(source.get("samples", [])),
-            )
-        )
+        _planned_sample_count(source)
         for source in planned_sources.values()
     )
 
