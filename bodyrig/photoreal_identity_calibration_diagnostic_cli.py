@@ -18,26 +18,95 @@ def _parser() -> argparse.ArgumentParser:
             "separation without granting authority."
         )
     )
-    parser.add_argument("--identity-bank", type=Path, required=True)
-    parser.add_argument("--plan", type=Path, required=True)
+    parser.add_argument("--run-root", type=Path)
+    parser.add_argument("--identity-bank", type=Path)
+    parser.add_argument("--plan", type=Path)
     parser.add_argument(
         "--negative-observations",
         type=Path,
-        required=True,
     )
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
     parser.add_argument("--top-matches", type=int, default=10)
     return parser
 
 
+def _resolve_paths(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> tuple[Path, Path, Path, Path]:
+    if args.run_root is not None:
+        if any(
+            value is not None
+            for value in (
+                args.identity_bank,
+                args.plan,
+                args.negative_observations,
+            )
+        ):
+            parser.error(
+                "--run-root cannot be combined with explicit "
+                "identity-bank/plan/negative-observations paths"
+            )
+
+        root = args.run_root.expanduser().resolve()
+        output = (
+            args.out
+            if args.out is not None
+            else root / "identity-calibration-diagnostic.json"
+        )
+        return (
+            root / "identity-bank.json",
+            root / "identity-calibration-plan.json",
+            root
+            / "identity-calibration-extractor"
+            / "output"
+            / "negative-observations.json",
+            output,
+        )
+
+    missing = [
+        option
+        for option, value in (
+            ("--identity-bank", args.identity_bank),
+            ("--plan", args.plan),
+            (
+                "--negative-observations",
+                args.negative_observations,
+            ),
+            ("--out", args.out),
+        )
+        if value is None
+    ]
+    if missing:
+        parser.error(
+            "explicit diagnostic mode requires "
+            + ", ".join(missing)
+        )
+
+    return (
+        args.identity_bank,
+        args.plan,
+        args.negative_observations,
+        args.out,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    (
+        identity_bank_path,
+        plan_path,
+        negative_observations_path,
+        output_path,
+    ) = _resolve_paths(args, parser)
+
     try:
         result = build_identity_calibration_diagnostic_files(
-            args.identity_bank,
-            args.plan,
-            args.negative_observations,
-            args.out,
+            identity_bank_path,
+            plan_path,
+            negative_observations_path,
+            output_path,
             top_matches=args.top_matches,
         )
     except PhotorealIdentityCalibrationDiagnosticError as exc:
@@ -120,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
                 "production_activation":
                     result["production_activation"],
                 "output":
-                    str(args.out.expanduser().resolve()),
+                    str(output_path.expanduser().resolve()),
             },
             ensure_ascii=False,
             separators=(",", ":"),
