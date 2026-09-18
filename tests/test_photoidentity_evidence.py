@@ -13,6 +13,7 @@ from bodyrig.photoidentity_evidence import (
     build_observation_evidence,
     evaluate_sufficiency,
     validate_bundle,
+    validate_observation_evidence,
     write_bundle,
 )
 
@@ -208,3 +209,68 @@ def test_bundle_huge_bound_numeric_fails_after_sha_binding(tmp_path: Path) -> No
 
     with pytest.raises(PhotoIdentityEvidenceError, match=r"target_confidence is outside 0\.0\.\.1\.0"):
         validate_bundle(report_path, observations)
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_observation_evidence_v1_discriminator_rejects_non_numeric(
+    invalid: object,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view"],
+        rows=[_row("scene1", "front")],
+    )
+    tampered = copy.deepcopy(evidence)
+    tampered["version"] = invalid
+    with pytest.raises(
+        PhotoIdentityEvidenceError,
+        match="observation evidence fields/format",
+    ):
+        validate_observation_evidence(tampered)
+
+
+def test_observation_evidence_v1_discriminator_preserves_float_v1() -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view"],
+        rows=[_row("scene1", "front")],
+    )
+    evidence["version"] = 1.0
+    assert validate_observation_evidence(evidence)["version"] == 1.0
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_sufficiency_report_v1_discriminator_rejects_non_numeric(
+    tmp_path: Path,
+    invalid: object,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view", "coarse-full-body-view"],
+        rows=[_row("scene1", "front"), _row("scene2", "front")],
+    )
+    observations, report_path, _ = write_bundle(tmp_path / "bundle-version", evidence)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["version"] = invalid
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    with pytest.raises(
+        PhotoIdentityEvidenceError,
+        match="sufficiency report format/version",
+    ):
+        validate_bundle(report_path, observations)
+
+
+def test_sufficiency_report_v1_discriminator_preserves_float_v1(
+    tmp_path: Path,
+) -> None:
+    evidence = _evidence(
+        capabilities=["coarse-face-view", "coarse-full-body-view"],
+        rows=[_row("scene1", "front"), _row("scene2", "front")],
+    )
+    observations, report_path, report = write_bundle(
+        tmp_path / "bundle-version-float",
+        evidence,
+    )
+    numeric = dict(report)
+    numeric["version"] = 1.0
+    report_path.write_text(json.dumps(numeric), encoding="utf-8")
+    validated = validate_bundle(report_path, observations)
+    assert validated["version"] == 1.0
