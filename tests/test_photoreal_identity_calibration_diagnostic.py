@@ -214,3 +214,28 @@ def test_diagnostic_rejects_invalid_top_matches(
             _observations(),
             top_matches=0,
         )
+
+def test_diagnostic_wraps_stage13_input_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(*_args):
+        raise diagnostic.PhotorealIdentityCalibrationError(
+            "bad calibration input"
+        )
+
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        fail,
+    )
+
+    with pytest.raises(
+        diagnostic.PhotorealIdentityCalibrationDiagnosticError,
+        match="Stage-13 calibration input is invalid",
+    ):
+        diagnostic.build_identity_calibration_diagnostic(
+            _bank(),
+            _plan(),
+            _observations(),
+        )
+
