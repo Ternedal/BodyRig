@@ -483,4 +483,3 @@ def test_persisted_trait_evidence_must_match_digest_path(
             person_id=person_id,
             digest=digest,
         )
-\n
