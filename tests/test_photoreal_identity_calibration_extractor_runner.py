@@ -133,6 +133,76 @@ def test_calibration_result_rejects_wrong_bank() -> None:
         validate_calibration_extractor_result(result, plan=_plan(), config=_config(["python"]))
 
 
+def test_calibration_result_accepts_complete_additive_quality_metadata() -> None:
+    result = _result()
+    result.update(
+        {
+            "identity_matching_authority": False,
+            "teacher_training_authorized": False,
+            "photoreal_acceptance_authority": False,
+        }
+    )
+    result["observations"][0].update(
+        {
+            "candidate_id": "person-000",
+            "candidate_count": 1,
+            "person_detected": True,
+            "width": 1920,
+            "height": 1080,
+            "view_bin": "front",
+            "face_visibility": 0.9,
+            "full_body_visibility": 0.8,
+            "person_fraction": 0.25,
+            "sharpness": 0.7,
+            "motion": 0.0,
+            "occlusion": 0.1,
+            "identity_measurement_status": "available",
+            "identity_measurement_reason": "embedding-available",
+        }
+    )
+
+    validated = validate_calibration_extractor_result(
+        result,
+        plan=_plan(),
+        config=_config(["python"]),
+    )
+
+    assert validated["observations"][0]["candidate_count"] == 1
+    assert validated["identity_matching_authority"] is False
+    assert validated["teacher_training_authorized"] is False
+    assert validated["photoreal_acceptance_authority"] is False
+
+
+def test_calibration_result_rejects_partial_quality_metadata() -> None:
+    result = _result()
+    result["observations"][0]["candidate_id"] = "person-000"
+
+    with pytest.raises(
+        PhotorealIdentityCalibrationExtractorError,
+        match="quality metadata is incomplete",
+    ):
+        validate_calibration_extractor_result(
+            result,
+            plan=_plan(),
+            config=_config(["python"]),
+        )
+
+
+def test_calibration_result_rejects_quality_authority_escalation() -> None:
+    result = _result()
+    result["identity_matching_authority"] = True
+
+    with pytest.raises(
+        PhotorealIdentityCalibrationExtractorError,
+        match="crossed identity_matching_authority",
+    ):
+        validate_calibration_extractor_result(
+            result,
+            plan=_plan(),
+            config=_config(["python"]),
+        )
+
+
 def test_external_calibration_extractor_enforces_real_process_contract(tmp_path: Path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(
