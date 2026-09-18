@@ -25,6 +25,26 @@ def _read_json(path: str | Path) -> dict[str, Any]:
     return value
 
 
+def validate_teacher_benchmark_plan_files_strict(
+    teacher_input_path: str | Path,
+    benchmark_plan_path: str | Path,
+) -> dict[str, Any]:
+    teacher_input = _read_json(teacher_input_path)
+    try:
+        validated = validate_teacher_input_document(teacher_input)
+    except PhotorealTeacherRunnerError as exc:
+        raise PhotorealTeacherBenchmarkPlanError(
+            f"teacher input authority validation failed: {exc}"
+        ) from exc
+    expected = build_teacher_benchmark_plan(validated)
+    plan = _read_json(benchmark_plan_path)
+    if plan != expected:
+        raise PhotorealTeacherBenchmarkPlanError(
+            "existing teacher benchmark plan does not match strict current teacher input"
+        )
+    return plan
+
+
 def build_teacher_benchmark_plan_files_strict(
     teacher_input_path: str | Path,
     output_path: str | Path,
