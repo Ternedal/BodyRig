@@ -271,6 +271,8 @@ def build_identity_calibration_diagnostic(
                     "subject_performer_name":
                         source.get("subject_performer_name", ""),
                     "source_key": observation["source_key"],
+                    "resolved_path":
+                        str(source.get("resolved_path") or ""),
                     "timestamp_seconds":
                         observation.get("timestamp_seconds"),
                     "eye": observation["eye"],
@@ -315,6 +317,8 @@ def build_identity_calibration_diagnostic(
                 "subject_performer_id": performer_id,
                 "subject_performer_name":
                     rows[0][1]["subject_performer_name"],
+                "resolved_path":
+                    rows[0][1]["resolved_path"],
                 "observation_count": len(rows),
                 "source_count":
                     len({item[1]["source_key"] for item in rows}),
@@ -389,6 +393,8 @@ def build_identity_calibration_diagnostic(
                     source["subject_performer_id"],
                 "subject_performer_name":
                     source.get("subject_performer_name", ""),
+                "resolved_path":
+                    str(source.get("resolved_path") or ""),
                 "planned_sample_count": planned_sample_count,
                 "observation_count": observation_count,
                 "extraction_yield_fraction": round(
