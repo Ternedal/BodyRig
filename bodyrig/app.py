@@ -116,6 +116,14 @@ class PersonCreateRequest(BaseModel):
     stash_performer: StashPerformerRef | None = None
 
 
+STRUCTURED_PERSONALITY_PROVENANCE_MARKERS = (
+    "blueprint_sha256=",
+    "trait_profile_sha256=",
+    "style_report_sha256=",
+    "style_approval_sha256=",
+)
+
+
 class PersonalityRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     instructions: str = Field(min_length=1, max_length=64_000)
@@ -395,6 +403,23 @@ def get_person(person_id: str) -> dict:
 
 @app.post("/api/v1/people/{person_id}/personality/revisions")
 def create_personality_revision(person_id: str, request: PersonalityRevisionRequest) -> dict:
+    reserved = next(
+        (
+            marker
+            for marker in STRUCTURED_PERSONALITY_PROVENANCE_MARKERS
+            if marker in request.style_notes
+        ),
+        None,
+    )
+    if reserved is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Structured personality provenance markers are reserved for "
+                "Guided Personality evidence; remove the marker or create the "
+                "candidate through Guided Personality."
+            ),
+        )
     try:
         return add_personality_revision(
             person_library(),
