@@ -161,3 +161,39 @@ def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
         assert token in html or token in guided
 
     assert '@app.get("/api/v1/people/{person_id}/personality/guided/revisions/{revision_id}")' in guided
+
+
+
+def test_guided_matrix_can_explicitly_stack_verified_source_baseline() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
+
+    for token in (
+        'id="stackBaseline"',
+        "Bevar verificeret source speaking-style",
+        "Kun en source-derived Stash personality kan stackes.",
+        'baseline_revision: $("stackBaseline").checked',
+        'stackToggle.disabled=!sourceBaseline',
+        'source_baseline_revision',
+        "Personality stack:",
+        '$("stackBaseline").addEventListener("change",invalidate)',
+        'baseline_revision: str | None = Field(default=None, max_length=24)',
+        '"baseline_revision": request.baseline_revision',
+    ):
+        assert token in html or token in guided
+
+    payload_start = html.index("function payload(){")
+    payload_end = html.index("function key(){", payload_start)
+    payload_source = html[payload_start:payload_end]
+    assert "baseline_revision" in payload_source
+    assert "stackBaseline" in payload_source
+
+
+def test_reopened_stack_restores_exact_source_baseline_selection() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    apply_start = html.index("function applyGuidedRevision(source)")
+    apply_end = html.index("async function loadRequestedEditRevision()", apply_start)
+    apply_source = html[apply_start:apply_end]
+    assert "source.source_baseline_revision||null" in apply_source
+    assert '$("stackBaseline").checked=Boolean(stackedBaseline)' in apply_source

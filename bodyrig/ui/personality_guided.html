@@ -25,9 +25,10 @@
         <div class="card-label">1 · Vælg person og grounding</div>
         <label for="personSelect">Person</label>
         <select id="personSelect" class="full-select"><option value="">Henter personer…</option></select>
-        <label for="baselineRevision">Eksisterende personality-baseline · kun reference</label>
+        <label for="baselineRevision">Eksisterende personality-baseline</label>
         <select id="baselineRevision" class="full-select"><option value="">Ingen reference</option></select>
-        <p id="baselineHint" class="fine-print">Baselinen er read-only kontekst og indgår ikke i Matrix v2-payloaden. Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits.</p>
+        <label class="check-row"><input id="stackBaseline" type="checkbox" disabled> Bevar verificeret source speaking-style som baseline i den nye Matrix v2-kandidat</label>
+        <p id="baselineHint" class="fine-print">Kun en source-derived Stash personality kan stackes. Matrix-traits forbliver eksplicit authored. Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits.</p>
         <label for="bodyRevision">Body-grounding</label>
         <select id="bodyRevision" class="full-select"><option value="">Ingen — neutrale mannerisms</option></select>
         <p id="bodyHint" class="fine-print">Vælg en body revision for at hente observerbar energi, gestik, hovedbevægelse, gaze og speech-motion fra den validerede .mrbody.</p>
@@ -119,7 +120,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -203,7 +204,8 @@
       style_approval: state.styleApproval,
       body_revision: $("bodyRevision").value||null,
       inner_ring: traitPayload("inner"),
-      outer_ring: traitPayload("outer")
+      outer_ring: traitPayload("outer"),
+      baseline_revision: $("stackBaseline").checked ? (state.selectedBaselineRevision||null) : null
     };
   }
   function key(){ return JSON.stringify(payload()); }
@@ -233,23 +235,30 @@
   function baselineKind(item){
     const alignment=personalityAlignment(item?.revision_id);
     const evidenceKind=String(alignment?.evidence_kind||"");
+    if(String(item?.style_notes||"").startsWith("personality-stack-v1 |")||evidenceKind==="personality-stack-v1") return {label:"Source + Matrix v2",evidenceKind};
     if(String(item?.style_notes||"").includes("trait matrix=v2")||evidenceKind==="personality-blueprint-v2") return {label:"Matrix v2 · 120 traits",evidenceKind};
     if(evidenceKind.startsWith("stash-source-")) return {label:"Source baseline",evidenceKind};
     return {label:"Manual / legacy",evidenceKind};
   }
   function renderBaseline(){
     const revisionId=$("baselineRevision").value;
+    state.selectedBaselineRevision=revisionId||null;
     const item=(state.person?.personality_revisions||[]).find(value=>value.revision_id===revisionId)||null;
+    const stackToggle=$("stackBaseline");
     if(!item){
+      stackToggle.checked=false; stackToggle.disabled=true;
       $("baselineBadge").textContent="Ingen"; $("baselineBadge").classList.add("muted");
       $("baselineMeta").textContent="Ingen personality-baseline valgt. Matrix v2 author'es stadig eksplicit.";
-      $("baselineInstructions").textContent="Baseline-reference påvirker ikke Matrix v2.";
+      $("baselineInstructions").textContent="Ingen source speaking-style stackes.";
       $("baselineStyleNotes").textContent="—";
       return;
     }
     const kind=baselineKind(item);
+    const sourceBaseline=kind.label==="Source baseline";
+    if(!sourceBaseline) stackToggle.checked=false;
+    stackToggle.disabled=!sourceBaseline;
     $("baselineBadge").textContent=kind.label; $("baselineBadge").classList.remove("muted");
-    $("baselineMeta").textContent=`${item.revision_id} · ${item.default_language}${kind.evidenceKind?` · provenance ${kind.evidenceKind}`:""} · reference-only`;
+    $("baselineMeta").textContent=`${item.revision_id} · ${item.default_language}${kind.evidenceKind?` · provenance ${kind.evidenceKind}`:""} · ${sourceBaseline?"kan stackes":"reference-only"}`;
     $("baselineInstructions").textContent=item.instructions||"";
     $("baselineStyleNotes").textContent=item.style_notes||"—";
   }
@@ -288,7 +297,9 @@
     state.styleReport=source.style_report||null; state.styleApproval=source.style_approval||null;
     state.styleEvidenceOrigin=(state.styleReport&&state.styleApproval)?"revision":null;
     $("styleReportFile").value=""; $("styleApprovalFile").value=""; renderEvidenceStatus();
-    $("baselineRevision").value=source.revision_id; renderBaseline();
+    const stackedBaseline=source.source_baseline_revision||null;
+    $("baselineRevision").value=stackedBaseline||source.revision_id; renderBaseline();
+    $("stackBaseline").checked=Boolean(stackedBaseline)&&!$("stackBaseline").disabled;
     updateTraitView(); invalidate();
     $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · byg preview før ny save.`;
   }
@@ -318,7 +329,8 @@
     state.preview=result; state.requestKey=key(); $("saveButton").disabled=false; $("blueprintBadge").textContent=result.blueprint_sha256.slice(0,12)+"…"; $("blueprintBadge").classList.remove("muted");
     const g=result.blueprint.grounding; const e=result.blueprint.embodiment; const style=result.style_evidence;
     const matrix=result.blueprint.version===2?`<br>Personality Matrix: <strong>v2 · ${Object.keys(result.blueprint.inner_ring).length} inner + ${Object.keys(result.blueprint.outer_ring).length} outer traits</strong>`:"";
-    $("grounding").innerHTML=`Blueprint: <strong>v${result.blueprint.version}</strong><br>Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}${matrix}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
+    const stack=result.personality_stack?`<br>Personality stack: <strong>source ${escapeHtml(result.source_baseline_revision)} + Matrix v2</strong> · ${escapeHtml(result.personality_stack_sha256.slice(0,12))}…`:"<br>Personality stack: <strong>ingen</strong>";
+    $("grounding").innerHTML=`Blueprint: <strong>v${result.blueprint.version}</strong><br>Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}${matrix}${stack}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
     $("instructions").textContent=result.candidate.instructions; $("styleNotes").textContent=result.candidate.style_notes;
     const target=$("auditionSuite"); target.innerHTML=""; for(const probe of result.audition_suite.probes){const row=document.createElement("div");row.className="revision-item";row.innerHTML=`<div class="revision-id">${escapeHtml(probe.id)}</div><div class="revision-feedback">${escapeHtml(probe.prompt)}</div>`;target.appendChild(row);}
   }
@@ -334,6 +346,11 @@
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
       state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
       populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      if(result.source_baseline_revision){
+        $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
+      }else{
+        $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      }
       $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
     }
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
@@ -343,7 +360,7 @@
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
