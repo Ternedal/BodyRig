@@ -3,13 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from bodyrig.guided_app import (
     GuidedPersonalityRequest,
+    StashTranscriptApprovalRequest,
     _authoring_kwargs,
     personality_revision_traits,
     personality_stash_context,
+    personality_stash_transcript_approval,
+    personality_stash_transcript_candidates,
     personality_trait_catalog,
 )
 from bodyrig.person_profiles import create_profile
@@ -284,4 +288,233 @@ def test_guided_personality_ui_keeps_stash_outside_trait_authority() -> None:
     assert '@app.get(' in guided
     assert '"/api/v1/people/{person_id}/personality/stash-context"' in guided
     assert "inspect_personality_stash_context" in guided
+
+def _transcript_candidate_report() -> dict:
+    return {
+        "format": "bodyrig-personality-exemplar-candidates",
+        "version": 1,
+        "source_count": 1,
+        "source_sha256": ["a" * 64],
+        "candidate_count": 2,
+        "candidates": [
+            "Well, that is actually pretty funny.",
+            "Yeah, I mean, I would probably do that.",
+        ],
+        "suggested_exemplars": [
+            "Well, that is actually pretty funny.",
+        ],
+        "operator_review_required": True,
+        "speaker_identity_authority": False,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
+
+
+def _transcript_preview(report: dict | None = None) -> dict:
+    return {
+        "ok": True,
+        "person_id": "person-" + "3" * 32,
+        "body_revision": "body-r0001",
+        "performer": {"id": "42", "name": "Target"},
+        "source_manifest_sha256": "b" * 64,
+        "source_media_count": 1,
+        "transcript_count": 1 if report is not None else 0,
+        "transcripts": (
+            [
+                {
+                    "scene_id": "scene-7",
+                    "name": "scene.en.srt",
+                    "sha256": "a" * 64,
+                }
+            ]
+            if report is not None
+            else []
+        ),
+        "candidate_report": report,
+        "candidate_count": report["candidate_count"] if report else 0,
+        "suggested_exemplars": (
+            list(report["suggested_exemplars"]) if report else []
+        ),
+        "operator_review_required": True,
+        "speaker_identity_authority": False,
+        "style_use_authority": False,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
+
+
+def test_stash_transcript_candidate_api_is_preview_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _transcript_candidate_report()
+    calls: list[tuple[str, str]] = []
+
+    def _preview(root, person_id, *, body_revision):
+        del root
+        calls.append((person_id, body_revision))
+        return _transcript_preview(report)
+
+    monkeypatch.setattr(
+        "bodyrig.guided_app.preview_source_personality_exemplars",
+        _preview,
+    )
+    result = personality_stash_transcript_candidates(
+        "person-" + "3" * 32,
+        body_revision="body-r0001",
+    )
+
+    assert calls == [
+        ("person-" + "3" * 32, "body-r0001"),
+    ]
+    assert result["candidate_report"] == report
+    assert result["speaker_identity_authority"] is False
+    assert result["style_use_authority"] is False
+    assert result["personality_authority"] is False
+    assert "approval" not in result
+
+
+def test_stash_transcript_approval_revalidates_exact_source_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _transcript_candidate_report()
+    calls = 0
+
+    def _preview(root, person_id, *, body_revision):
+        nonlocal calls
+        del root
+        assert person_id == "person-" + "3" * 32
+        assert body_revision == "body-r0001"
+        calls += 1
+        return _transcript_preview(report)
+
+    monkeypatch.setattr(
+        "bodyrig.guided_app.preview_source_personality_exemplars",
+        _preview,
+    )
+    request = StashTranscriptApprovalRequest(
+        candidate_report=report,
+        selected_candidate_indexes=[0, 1],
+        speaker_identity_confirmed=True,
+        style_use_approved=True,
+    )
+
+    result = personality_stash_transcript_approval(
+        "person-" + "3" * 32,
+        request,
+        body_revision="body-r0001",
+    )
+
+    assert calls == 1
+    assert result["candidate_report"] == report
+    assert result["approval"]["approved_exemplars"] == report["candidates"]
+    assert result["approval"]["operator_review"] == {
+        "speaker_identity_confirmed": True,
+        "style_use_approved": True,
+    }
+    assert result["personality_authority"] is False
+    assert result["content_semantics"] == "style-only-not-biography-or-memory"
+
+
+def test_stash_transcript_approval_rejects_stale_or_modified_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = _transcript_candidate_report()
+    provided = _transcript_candidate_report()
+    provided["candidates"][0] = "Browser-modified utterance."
+    provided["suggested_exemplars"] = [
+        "Yeah, I mean, I would probably do that.",
+    ]
+
+    monkeypatch.setattr(
+        "bodyrig.guided_app.preview_source_personality_exemplars",
+        lambda root, person_id, *, body_revision: _transcript_preview(current),
+    )
+    request = StashTranscriptApprovalRequest(
+        candidate_report=provided,
+        selected_candidate_indexes=[0],
+        speaker_identity_confirmed=True,
+        style_use_approved=True,
+    )
+
+    with pytest.raises(
+        HTTPException,
+        match="source transcript candidate report changed",
+    ) as exc:
+        personality_stash_transcript_approval(
+            "person-" + "3" * 32,
+            request,
+            body_revision="body-r0001",
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_stash_transcript_approval_requires_explicit_operator_confirmations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = _transcript_candidate_report()
+    monkeypatch.setattr(
+        "bodyrig.guided_app.preview_source_personality_exemplars",
+        lambda root, person_id, *, body_revision: _transcript_preview(report),
+    )
+    request = StashTranscriptApprovalRequest(
+        candidate_report=report,
+        selected_candidate_indexes=[0],
+        speaker_identity_confirmed=False,
+        style_use_approved=True,
+    )
+
+    with pytest.raises(HTTPException, match="speaker identity") as exc:
+        personality_stash_transcript_approval(
+            "person-" + "3" * 32,
+            request,
+            body_revision="body-r0001",
+        )
+
+    assert exc.value.status_code == 409
+
+
+def test_guided_ui_requires_review_before_stash_transcript_style_use() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(
+        encoding="utf-8"
+    )
+
+    for token in (
+        "Find i Stash-kilder",
+        "stashTranscriptLoad",
+        "stashTranscriptCandidates",
+        "stashTranscriptSpeakerConfirm",
+        "stashTranscriptStyleConfirm",
+        "stashTranscriptApprove",
+        "/personality/stash-transcript-candidates",
+        "/personality/stash-transcript-approval",
+        "speaker_identity_confirmed",
+        "style_use_approved",
+        "styleEvidenceOrigin",
+        "onBodyRevisionChange",
+        "style-only evidence",
+    ):
+        assert token in html
+
+    approval_block = html[
+        html.index("async function approveStashTranscriptCandidates"):
+        html.index("function onBodyRevisionChange")
+    ]
+    assert "state.styleReport=result.candidate_report" in approval_block
+    assert "state.styleApproval=result.approval" in approval_block
+    assert "trait-" not in approval_block
+    assert "input.value=" not in approval_block
+
+    select_block = html[
+        html.index("async function selectPerson"):
+        html.index("function renderPreview")
+    ]
+    assert "loadStashTranscriptCandidates" not in select_block
+
+    body_block = html[
+        html.index("function onBodyRevisionChange"):
+        html.index("function renderEvidenceStatus")
+    ]
+    assert 'state.styleEvidenceOrigin==="stash"' in body_block
+    assert "clearEvidence()" in body_block
 
