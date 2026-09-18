@@ -142,6 +142,7 @@ function Write-Status {
             identity_negative_receipt = $script:NegativeReceiptPath
             identity_calibration_plan = $script:CalibrationPlanPath
             identity_calibration = $script:CalibrationPath
+            identity_calibration_diagnostic = $script:CalibrationDiagnosticPath
             frame_measurements = $script:FrameMeasurementsPath
             frame_authorized_observations = $script:AuthorizedObservationsPath
             frame_index = $script:FrameIndexPath
@@ -264,6 +265,7 @@ $CalibrationPlanPath = Join-Path $OutputRoot "identity-calibration-plan.json"
 $CalibrationExtractWorkspace = Join-Path $OutputRoot "identity-calibration-extractor"
 $NegativeObservationsPath = Join-Path $CalibrationExtractWorkspace "output\negative-observations.json"
 $CalibrationPath = Join-Path $OutputRoot "identity-calibration.json"
+$CalibrationDiagnosticPath = Join-Path $OutputRoot "identity-calibration-diagnostic.json"
 $FrameAnalyzerWorkspace = Join-Path $OutputRoot "frame-analyzer"
 $FrameMeasurementsPath = Join-Path $OutputRoot "frame-measurements.json"
 $AuthorizedObservationsPath = Join-Path $OutputRoot "frame-authorized-observations.json"
@@ -456,6 +458,25 @@ try {
     if ($calibrationExit -eq 2) {
         $calibration = Read-Json -Path $CalibrationPath -Label "Identity calibration"
         $blockers = @($calibration.calibration_blockers | ForEach-Object { [string]$_ })
+
+        Write-Host ""
+        Write-Host "=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="
+        try {
+            $diagnosticOutput = @(& $Python -m bodyrig.photoreal_identity_calibration_diagnostic_cli `
+                --identity-bank $IdentityBankPath `
+                --plan $CalibrationPlanPath `
+                --negative-observations $NegativeObservationsPath `
+                --out $CalibrationDiagnosticPath `
+                --top-matches 10)
+            $diagnosticExit = $LASTEXITCODE
+            foreach ($line in $diagnosticOutput) { Write-Host ([string]$line) }
+            if ($diagnosticExit -ne 0) {
+                Write-Host "WARNING: calibration diagnostic failed; authoritative Stage 13 block is unchanged."
+            }
+        } catch {
+            Write-Host ("WARNING: calibration diagnostic could not run; authoritative Stage 13 block is unchanged: " + $_.Exception.Message)
+        }
+
         Write-Status -Status "identity-calibration-blocked" -TeacherTrainingAuthorized $false -Blockers $blockers
         Write-Host "BodyRig Photoreal resume: IDENTITY CALIBRATION BLOCKED"
         $finalExitCode = 2
