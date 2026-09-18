@@ -79,6 +79,32 @@ Den almindelige fritekst-route `POST /api/v1/people/{person_id}/personality/revi
 
 Gamle Personality Blueprint v1-kandidater uden trait-profile ændres ikke og kompilerer som før. Trait-bundne embodiment bindings bruger binding v2 og kræver den eksakte persisted trait-evidence ved verification.
 
+### Stash-bundne transcript-eksempler
+
+Guided Personality kan hente style-kandidater direkte fra `.srt`, `.vtt` og `.txt` sidecars, der ligger ved de **eksakt source-bundne mediefiler** for den valgte `body-rXXXX`.
+
+Flowet er bevidst review-baseret:
+
+1. Operatøren vælger en body revision og trykker **Find i Stash-kilder**.
+2. BodyRig revaliderer source-bindingen og mediefilernes SHA-256, finder transcript-sidecars og bygger en ikke-authoritativ kandidatrapport.
+3. UI viser de konkrete replikker; højst 12 style exemplars kan bruges samlet med direkte authored eksempler.
+4. Operatøren skal eksplicit bekræfte både speaker identity og style-only brug.
+5. Approval-endpointet genvaliderer den eksakte source/report før receipt udstedes.
+6. Guided preview/save sender en `style_source` binding med body revision + source-manifest SHA-256.
+7. Authoring-laget genvaliderer body, source manifest og kandidatrapport igen. Save forbliver fail-closed.
+
+Stash-transcript evidence må kun påvirke **ordvalg, rytme, register og conversational texture**. Transcriptets faktuelle indhold må ikke blive biografi, minder, private sandheder eller 120-trait authority.
+
+Den kompilerede kandidat binder provenance i `style_notes` med:
+
+- `style_report_sha256`
+- `style_approval_sha256`
+- `style_source=stash-source-transcript`
+- `style_source_body_revision`
+- `style_source_manifest_sha256`
+
+Embodiment-verifieren accepterer kun den eksakte suffix-form og kræver, at `style_source_body_revision` matcher blueprintets body grounding.
+
 ### Style exemplars
 
 Blueprintet kan indeholde op til 12 operator-godkendte eksempelreplikker. De må bruges af ModelRig til at efterligne:
