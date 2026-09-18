@@ -247,4 +247,3 @@ def test_library_assembly_reloads_and_verifies_trait_evidence(
             voice_revision="voice-r0001",
             personality_revision="personality-r0001",
         )
-\n
