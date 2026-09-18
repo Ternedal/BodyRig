@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -128,3 +129,44 @@ def test_strict_preflight_digest_changes_with_supplemental_assets(monkeypatch: p
     )
 
     assert first["preflight_sha256"] != second["preflight_sha256"]
+
+
+
+def test_strict_preflight_readback_requires_exact_current_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    deps, assets, reference = _prepare_roots(tmp_path)
+    _patch_git_and_tools(monkeypatch)
+    expected = strict.build_exavatar_preflight_strict(
+        dependency_root=deps,
+        asset_root=assets,
+        reference_model_root=reference,
+        smplx_gender="female",
+    )
+    receipt = tmp_path / "preflight.json"
+    receipt.write_text(json.dumps(expected), encoding="utf-8")
+
+    validated = strict.validate_exavatar_preflight_strict_file(
+        receipt,
+        dependency_root=deps,
+        asset_root=assets,
+        reference_model_root=reference,
+        smplx_gender="female",
+    )
+    assert validated == expected
+
+    (assets / "human_model_files" / "flame" / "FLAME_texture.npz").write_bytes(
+        b"drifted-after-preflight"
+    )
+    with pytest.raises(
+        base.PhotorealExAvatarPreflightError,
+        match="does not match the current pinned environment/assets",
+    ):
+        strict.validate_exavatar_preflight_strict_file(
+            receipt,
+            dependency_root=deps,
+            asset_root=assets,
+            reference_model_root=reference,
+            smplx_gender="female",
+        )
