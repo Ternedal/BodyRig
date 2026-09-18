@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 
 from .photoreal_exavatar_preflight import PhotorealExAvatarPreflightError
-from .photoreal_exavatar_preflight_strict import build_exavatar_preflight_strict_files
+from .photoreal_exavatar_preflight_strict import (
+    build_exavatar_preflight_strict_files,
+    validate_exavatar_preflight_strict_file,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -17,20 +20,35 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--smplx-gender", choices=("female", "male", "neutral"), required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--no-colmap", action="store_true")
+    parser.add_argument(
+        "--reuse-existing",
+        action="store_true",
+        help="Revalidate an existing strict preflight receipt instead of failing because --out exists.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_exavatar_preflight_strict_files(
-            dependency_root=args.dependency_root,
-            asset_root=args.asset_root,
-            reference_model_root=args.reference_model_root,
-            smplx_gender=args.smplx_gender,
-            output_path=args.out,
-            require_colmap=not args.no_colmap,
-        )
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            result = validate_exavatar_preflight_strict_file(
+                args.out,
+                dependency_root=args.dependency_root,
+                asset_root=args.asset_root,
+                reference_model_root=args.reference_model_root,
+                smplx_gender=args.smplx_gender,
+                require_colmap=not args.no_colmap,
+            )
+        else:
+            result = build_exavatar_preflight_strict_files(
+                dependency_root=args.dependency_root,
+                asset_root=args.asset_root,
+                reference_model_root=args.reference_model_root,
+                smplx_gender=args.smplx_gender,
+                output_path=args.out,
+                require_colmap=not args.no_colmap,
+            )
     except PhotorealExAvatarPreflightError as exc:
         print(f"BodyRig Photoreal ExAvatar preflight: FAIL: {exc}", file=sys.stderr)
         return 1
