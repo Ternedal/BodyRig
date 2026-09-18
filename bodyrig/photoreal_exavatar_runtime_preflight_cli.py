@@ -9,6 +9,7 @@ from .photoreal_exavatar_runtime_preflight import PhotorealExAvatarRuntimePrefli
 from .photoreal_exavatar_runtime_preflight_strict import (
     PhotorealExAvatarRuntimePreflightStrictError,
     build_runtime_preflight_strict_file,
+    validate_runtime_preflight_strict_file,
 )
 
 
@@ -16,13 +17,23 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Verify pinned ExAvatar setup provenance, Python, CUDA and compiled runtime dependencies.")
     parser.add_argument("--workspace-root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_runtime_preflight_strict_file(workspace_root=args.workspace_root, output_path=args.out)
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            result = validate_runtime_preflight_strict_file(
+                workspace_root=args.workspace_root,
+                output_path=args.out,
+            )
+        else:
+            result = build_runtime_preflight_strict_file(
+                workspace_root=args.workspace_root,
+                output_path=args.out,
+            )
     except (PhotorealExAvatarRuntimePreflightError, PhotorealExAvatarRuntimePreflightStrictError) as exc:
         print(f"BodyRig Photoreal ExAvatar runtime preflight: FAIL: {exc}", file=sys.stderr)
         return 1
