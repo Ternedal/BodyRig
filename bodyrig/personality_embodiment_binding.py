@@ -26,7 +26,11 @@ PERSONALITY_REVISION_RE = re.compile(r"^personality-r[0-9]{4}$")
 BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 STYLE_EVIDENCE_SUFFIX_RE = re.compile(
-    r"^ \| style_report_sha256=[0-9a-f]{64} \| style_approval_sha256=[0-9a-f]{64}$"
+    r"^ \| style_report_sha256=[0-9a-f]{64}"
+    r" \| style_approval_sha256=[0-9a-f]{64}"
+    r"(?: \| style_source=stash-source-transcript"
+    r" \| style_source_body_revision=(?P<body_revision>body-r[0-9]{4})"
+    r" \| style_source_manifest_sha256=[0-9a-f]{64})?$"
 )
 
 BLUEPRINT_BODYPRINT_FIELDS = {
@@ -106,9 +110,19 @@ def _verify_personality_compilation(
             "personality style notes are not the exact compilation of the bound blueprint"
         )
     suffix = saved_style[len(compiled_style):]
-    if STYLE_EVIDENCE_SUFFIX_RE.fullmatch(suffix) is None:
+    match = STYLE_EVIDENCE_SUFFIX_RE.fullmatch(suffix)
+    if match is None:
         raise PersonalityEmbodimentBindingError(
             "personality style notes contain an unsupported suffix after blueprint compilation"
+        )
+    source_body_revision = match.group("body_revision")
+    if (
+        source_body_revision is not None
+        and source_body_revision
+        != validate_blueprint(blueprint)["grounding"]["body_revision"]
+    ):
+        raise PersonalityEmbodimentBindingError(
+            "Stash transcript style source body revision conflicts with blueprint grounding"
         )
 
 
