@@ -235,6 +235,7 @@
   function baselineKind(item){
     const alignment=personalityAlignment(item?.revision_id);
     const evidenceKind=String(alignment?.evidence_kind||"");
+    if(String(item?.style_notes||"").startsWith("personality-stack-v1 |")||evidenceKind==="personality-stack-v1") return {label:"Source + Matrix v2",evidenceKind};
     if(String(item?.style_notes||"").includes("trait matrix=v2")||evidenceKind==="personality-blueprint-v2") return {label:"Matrix v2 · 120 traits",evidenceKind};
     if(evidenceKind.startsWith("stash-source-")) return {label:"Source baseline",evidenceKind};
     return {label:"Manual / legacy",evidenceKind};
@@ -343,7 +344,12 @@
       const personId=state.person.person_id;
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
       state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      populateBaselines();
+      if(result.source_baseline_revision){
+        $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
+      }else{
+        $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      }
       $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
     }
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
