@@ -565,6 +565,13 @@
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
     try{
       const value=JSON.parse(await file.text());
+      if(state.styleEvidenceOrigin!=="file"){
+        state.styleReport=null;
+        state.styleApproval=null;
+      }
+      if(kind==="styleReport"){
+        state.styleApproval=null;
+      }
       state[kind]=value;
       state.styleEvidenceOrigin="file";
       state.stashTranscriptBodyRevision=null;
