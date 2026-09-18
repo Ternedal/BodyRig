@@ -22,6 +22,7 @@ from .personality_source import (
 from .personality_exemplar_approval import (
     PersonalityExemplarApprovalError,
     build_approval,
+    canonical_sha256 as exemplar_report_sha256,
 )
 from .personality_traits import (
     PersonalityTraitProfileError,
@@ -72,7 +73,12 @@ class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
 
 class SourceStyleApprovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    report: dict[str, Any]
+    body_revision: str = Field(min_length=1, max_length=24)
+    candidate_report_sha256: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     selected_candidate_indexes: list[StrictInt] = Field(
         min_length=1,
         max_length=12,
@@ -173,13 +179,40 @@ def source_style_candidates(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.post("/api/v1/personality/style-exemplars/approval")
-def approve_style_exemplars(
+@app.post(
+    "/api/v1/people/{person_id}/personality/source-style-approval"
+)
+def approve_source_style(
+    person_id: str,
     request: SourceStyleApprovalRequest,
 ) -> dict:
     try:
+        source = build_source_style_candidates(
+            person_library(),
+            person_id,
+            body_revision=request.body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    report = source.get("report")
+    if source.get("available") is not True or not isinstance(report, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="selected body source has no transcript/caption style evidence",
+        )
+    actual_sha = exemplar_report_sha256(report)
+    if actual_sha != request.candidate_report_sha256:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Stash style candidate report changed during revalidation; "
+                "reload candidates before approval"
+            ),
+        )
+    try:
         approval = build_approval(
-            request.report,
+            report,
             selected_candidate_indexes=request.selected_candidate_indexes,
             speaker_identity_confirmed=request.speaker_identity_confirmed,
             style_use_approved=request.style_use_approved,
@@ -187,7 +220,11 @@ def approve_style_exemplars(
     except PersonalityExemplarApprovalError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
+        "report": report,
+        "report_sha256": actual_sha,
         "approval": approval,
+        "body_revision": request.body_revision,
+        "source_manifest_sha256": source["source_manifest_sha256"],
         "personality_authority": False,
         "content_semantics": "style-only-not-biography-or-memory",
     }
