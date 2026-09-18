@@ -25,6 +25,15 @@ def test_resume_runs_nonfatal_diagnostic_only_after_stage13_block() -> None:
         "Stage 13 block is unchanged."
     ) in text
 
+    diagnostic_block = text[
+        text.index('"=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="'):
+        text.index(
+            'Write-Status -Status "identity-calibration-blocked"',
+            text.index('"=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="'),
+        )
+    ]
+    assert "2>&1" not in diagnostic_block
+
     diagnostic_index = text.index(
         '"=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="'
     )
