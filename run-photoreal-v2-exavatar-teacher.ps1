@@ -50,12 +50,13 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)][string]$Label,
         [int[]]$AllowedExitCodes = @(0)
     )
-    & $FilePath @Arguments
+    $output = @(& $FilePath @Arguments 2>&1)
     $code = $LASTEXITCODE
+    foreach ($line in $output) { Write-Host ([string]$line) }
     if ($AllowedExitCodes -notcontains $code) {
         throw "$Label failed with code $code."
     }
-    return $code
+    return [int]$code
 }
 
 function Test-WslFile {
