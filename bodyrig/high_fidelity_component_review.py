@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +65,16 @@ TOP_FIELDS = {
 
 class HighFidelityComponentReviewError(RuntimeError):
     pass
+
+
+def _is_numeric_v1(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric == 1.0
 
 
 def _canonical_job_id(value: str) -> str:
@@ -207,7 +218,7 @@ def read_review(preview_job_id: str) -> dict[str, Any]:
         raise HighFidelityComponentReviewError(f"component visual review is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HighFidelityComponentReviewError("component visual review fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HighFidelityComponentReviewError("component visual review format/version/policy mismatch")
 
     exact_fields = (
