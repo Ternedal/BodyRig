@@ -446,6 +446,16 @@ def verify_binding(
         raise PersonalityEmbodimentBindingError(
             "embodiment binding fields/version are invalid"
         )
+    if version == TRAIT_VERSION:
+        trait_digest = binding.get("trait_profile_sha256")
+        if (
+            not isinstance(trait_digest, str)
+            or not SHA256_RE.fullmatch(trait_digest)
+        ):
+            raise PersonalityEmbodimentBindingError(
+                "embodiment binding trait profile SHA-256 is invalid"
+            )
+
     if binding.get("person_id") != profile.get("person_id"):
         raise PersonalityEmbodimentBindingError("embodiment binding person identity mismatch")
     if binding.get("human_review_required") is not True or binding.get("production_authority") is not False:
@@ -481,7 +491,12 @@ def verify_binding(
                 raise PersonalityEmbodimentBindingError(
                     "trait-bound embodiment verification requires trait evidence"
                 )
-            normalized_traits = validate_trait_profile(trait_profile)
+            try:
+                normalized_traits = validate_trait_profile(trait_profile)
+            except PersonalityTraitProfileError as exc:
+                raise PersonalityEmbodimentBindingError(
+                    f"personality trait profile is invalid: {exc}"
+                ) from exc
             if (
                 trait_profile_sha256(normalized_traits)
                 != binding.get("trait_profile_sha256")
