@@ -197,6 +197,20 @@ def test_diagnostic_identifies_highest_negative(
         == 1
     )
     assert result["positive_cosine_max"] >= result["positive_floor"]
+    assert result["positive_group_count"] == 2
+    assert result["positive_cross_group_pair_count"] == 1
+    assert len(result["positive_group_summaries"]) == 2
+    assert len(result["positive_cross_group_pairs"]) == 1
+    assert (
+        result["positive_cross_group_centroid_cosine_min"]
+        == result["positive_cross_group_centroid_cosine_median"]
+        == result["positive_cross_group_centroid_cosine_max"]
+    )
+    assert (
+        result["positive_reference_to_target_cosine_max"]
+        >= result["positive_reference_to_target_cosine_median"]
+        >= result["positive_reference_to_target_cosine_min"]
+    )
     assert (
         result["negative_ceiling"]
         >= result["negative_cosine_median"]
@@ -361,4 +375,36 @@ def test_diagnostic_rejects_invalid_planned_sample_count(
             plan,
             _observations(),
         )
+
+def test_diagnostic_reports_positive_group_structure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        _fake_core,
+    )
+
+    result = diagnostic.build_identity_calibration_diagnostic(
+        _bank(),
+        _plan(),
+        _observations(),
+    )
+
+    groups = {
+        item["group_id"]: item
+        for item in result["positive_group_summaries"]
+    }
+
+    assert set(groups) == {"a", "b"}
+    assert groups["a"]["reference_count"] == 2
+    assert groups["b"]["reference_count"] == 2
+    assert groups["a"]["source_count"] == 1
+    assert groups["b"]["source_count"] == 1
+    assert groups["a"]["within_group_pairwise_cosine_min"] is not None
+    assert groups["b"]["within_group_pairwise_cosine_min"] is not None
+
+    pair = result["positive_cross_group_pairs"][0]
+    assert {pair["left_group_id"], pair["right_group_id"]} == {"a", "b"}
+    assert -1.0 <= pair["centroid_cosine"] <= 1.0
 
