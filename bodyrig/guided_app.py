@@ -15,6 +15,9 @@ from .personality_authoring import (
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_stash_context import inspect_personality_stash_context
+from .person_profiles import PersonProfileError, load_profile
+from .stash_source import StashClient, StashConfig, StashSourceError
 from .personality_traits import (
     PersonalityTraitProfileError,
     build_trait_profile,
@@ -73,6 +76,26 @@ class PersonalitySuiteSealRequest(BaseModel):
     audition_ids: dict[str, str]
 
 
+def _optional_stash_client() -> StashClient | None:
+    url = os.environ.get("STASH_URL", "").strip()
+    key = os.environ.get("STASH_API_KEY", "").strip()
+    if not url or not key:
+        return None
+    try:
+        return StashClient(
+            StashConfig(url=url, api_key=key)
+        )
+    except StashSourceError:
+        return None
+
+
+def _profile(person_id: str) -> dict[str, Any]:
+    try:
+        return load_profile(person_library(), person_id)
+    except PersonProfileError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
     try:
         trait_profile = (
@@ -107,6 +130,16 @@ def _preview(person_id: str, request: GuidedPersonalityRequest) -> dict:
 @app.get("/api/v1/personality/traits/catalog")
 def personality_trait_catalog() -> dict:
     return trait_catalog()
+
+
+@app.get(
+    "/api/v1/people/{person_id}/personality/stash-context"
+)
+def personality_stash_context(person_id: str) -> dict:
+    return inspect_personality_stash_context(
+        _profile(person_id),
+        stash_client=_optional_stash_client(),
+    )
 
 
 @app.get(
