@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_teacher_runner import PhotorealTeacherRunnerError, run_external_teacher_files
+from .photoreal_teacher_authority import run_external_teacher_files_strict
+from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -21,7 +22,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = run_external_teacher_files(args.config, args.teacher_input, args.workspace)
+        result = run_external_teacher_files_strict(args.config, args.teacher_input, args.workspace)
     except PhotorealTeacherRunnerError as exc:
         print(f"BodyRig photoreal teacher: FAIL: {exc}", file=sys.stderr)
         return 1
