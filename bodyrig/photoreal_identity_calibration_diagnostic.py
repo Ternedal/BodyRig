@@ -317,8 +317,6 @@ def build_identity_calibration_diagnostic(
                 "subject_performer_id": performer_id,
                 "subject_performer_name":
                     rows[0][1]["subject_performer_name"],
-                "resolved_path":
-                    rows[0][1]["resolved_path"],
                 "observation_count": len(rows),
                 "source_count":
                     len({item[1]["source_key"] for item in rows}),
@@ -359,6 +357,8 @@ def build_identity_calibration_diagnostic(
                     rows[0][1]["subject_performer_id"],
                 "subject_performer_name":
                     rows[0][1]["subject_performer_name"],
+                "resolved_path":
+                    rows[0][1]["resolved_path"],
                 "observation_count": len(rows),
                 "cosine_min": round(min(scores), 9),
                 "cosine_median":
