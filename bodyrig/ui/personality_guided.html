@@ -28,7 +28,7 @@
         <label for="baselineRevision">Eksisterende personality-baseline</label>
         <select id="baselineRevision" class="full-select"><option value="">Ingen reference</option></select>
         <label class="check-row"><input id="stackBaseline" type="checkbox" disabled> Bevar verificeret source speaking-style som baseline i den nye Matrix v2-kandidat</label>
-        <p id="baselineHint" class="fine-print">Kun en source-derived Stash personality kan stackes. Matrix-traits forbliver eksplicit authored; BodyRig omsætter aldrig source/transcript til psykologiske trait-værdier.</p>
+        <p id="baselineHint" class="fine-print">Kun en source-derived Stash personality kan stackes. Matrix-traits forbliver eksplicit authored. Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits.</p>
         <label for="bodyRevision">Body-grounding</label>
         <select id="bodyRevision" class="full-select"><option value="">Ingen — neutrale mannerisms</option></select>
         <p id="bodyHint" class="fine-print">Vælg en body revision for at hente observerbar energi, gestik, hovedbevægelse, gaze og speech-motion fra den validerede .mrbody.</p>
@@ -344,7 +344,7 @@
       const personId=state.person.person_id;
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
       state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      populateBaselines();
+      populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
       if(result.source_baseline_revision){
         $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
       }else{
@@ -359,7 +359,7 @@
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",()=>{renderBaseline();invalidate();}); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
