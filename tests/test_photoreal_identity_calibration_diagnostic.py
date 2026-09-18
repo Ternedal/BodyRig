@@ -239,6 +239,9 @@ def test_diagnostic_identifies_highest_negative(
     assert source_yields["n9"]["observation_count"] == 0
     assert source_yields["n9"]["extraction_yield_fraction"] == 0.0
 
+    for performer_summary in result["negative_performer_summaries"]:
+        assert "resolved_path" not in performer_summary
+
     performer_yields = {
         item["subject_performer_id"]: item
         for item in result["negative_performer_yield_summaries"]
