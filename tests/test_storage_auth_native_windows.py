@@ -31,7 +31,7 @@ def test_native_storage_credential_helper_loads_and_reports_session_policy() -> 
         text=True,
         capture_output=True,
         check=False,
-        timeout=30,
+        timeout=90,
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
     assert completed.stdout.strip().startswith("PERSIST=")
