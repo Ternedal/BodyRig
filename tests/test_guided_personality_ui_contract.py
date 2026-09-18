@@ -131,3 +131,14 @@ def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
         'placeholder="Fx Matrix v2 refinement"',
     ):
         assert token in html
+
+
+def test_guided_matrix_reloads_provenance_after_save() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    save_start = html.index("async function save(){")
+    save_end = html.index("buildSliders();", save_start)
+    save_source = html[save_start:save_end]
+    assert 'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)' in save_source
+    assert 'populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();' in save_source
+    assert "Aktiv person er uændret" in save_source
