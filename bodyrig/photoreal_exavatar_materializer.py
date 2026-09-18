@@ -312,6 +312,34 @@ def materialize_exavatar_benchmark(
     return _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
 
 
+def validate_exavatar_materialization_files(
+    plan_path: str | Path,
+    *,
+    workspace: str | Path,
+    distribution: str = "Ubuntu-22.04",
+    wsl_exe: str = "wsl.exe",
+) -> dict[str, Any]:
+    plan = _read_json(plan_path, label="photoreal teacher benchmark plan")
+    selected, observations = _validate_plan(plan)
+    root = Path(workspace).expanduser().resolve()
+    dataset_dir = root / "dataset"
+    receipt_path = dataset_dir / "materialization-receipt.json"
+    if not root.is_dir() or not dataset_dir.is_dir() or not receipt_path.is_file():
+        raise PhotorealExAvatarMaterializerError(
+            f"existing ExAvatar materialization workspace is incomplete: {root}"
+        )
+    try:
+        converter = make_wsl_path_converter(wsl_exe, _text(distribution, label="WSL distribution", maximum=160))
+        linux_source = converter(str(selected["resolved_path"]))
+    except (OSError, WslBridgeError) as exc:
+        raise PhotorealExAvatarMaterializerError(
+            f"ExAvatar materialization readback transport failed: {exc}"
+        ) from exc
+    request = _build_request(plan, selected, observations, linux_source)
+    receipt = _read_json(receipt_path, label="ExAvatar materialization receipt")
+    return _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
+
+
 def materialize_exavatar_benchmark_files(
     plan_path: str | Path,
     *,
