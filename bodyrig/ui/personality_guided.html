@@ -163,7 +163,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitCatalog: null, stashContext: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitCatalog: null, stashContext: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -423,6 +423,7 @@
       style_exemplars,
       style_report: state.styleReport,
       style_approval: state.styleApproval,
+      style_source: state.styleSource,
       body_revision: $("bodyRevision").value||null,
       trait_profile: traitProfile()
     };
@@ -559,6 +560,11 @@
       if($("bodyRevision").value!==bodyRevision) return;
       state.styleReport=result.candidate_report;
       state.styleApproval=result.approval;
+      state.styleSource={
+        kind:"stash-source-transcript",
+        body_revision:bodyRevision,
+        source_manifest_sha256:result.source_manifest_sha256
+      };
       state.styleEvidenceOrigin="stash";
       state.stashTranscriptBodyRevision=bodyRevision;
       $("stashTranscriptStatus").textContent=`${result.approval.approved_exemplars.length} replikker godkendt som style-only evidence · source manifest ${String(result.source_manifest_sha256||"").slice(0,12)}…`;
@@ -605,6 +611,7 @@
         state.styleApproval=null;
       }
       state[kind]=value;
+      state.styleSource=null;
       state.styleEvidenceOrigin="file";
       state.stashTranscriptBodyRevision=null;
       clearTranscriptPreview("Manuel report/approval import er valgt.");
@@ -616,6 +623,7 @@
   function clearEvidence(){
     state.styleReport=null;
     state.styleApproval=null;
+    state.styleSource=null;
     state.styleEvidenceOrigin=null;
     state.stashTranscriptBodyRevision=null;
     $("styleReportFile").value="";
