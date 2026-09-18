@@ -158,6 +158,89 @@ def _discover_transcripts(source_files: list[Mapping[str, Any]]) -> list[dict[st
     return found
 
 
+def preview_source_personality_exemplars(
+    root: str | os.PathLike[str],
+    person_id: str,
+    *,
+    body_revision: str,
+) -> dict[str, Any]:
+    """Preview source-bound transcript utterances without creating a revision.
+
+    The report is deliberately non-authoritative. Even when the underlying media
+    is bound to the selected Stash performer, transcript/caption text can contain
+    other speakers. Operator confirmation is therefore still required before any
+    utterance can become a Guided Personality style exemplar.
+    """
+
+    try:
+        profile = load_profile(root, person_id)
+        source = source_files_for_body(
+            root,
+            profile,
+            body_revision=body_revision,
+        )
+    except (PersonProfileError, PersonVoiceSourceError) as exc:
+        raise SourcePersonalityError(str(exc)) from exc
+
+    transcripts = _discover_transcripts(source["source_files"])
+    report: dict[str, Any] | None = None
+    if transcripts:
+        try:
+            report = build_exemplar_candidates(
+                [item["path"] for item in transcripts],
+                suggested_limit=_MAX_EXEMPLARS,
+            )
+        except PersonalityExemplarError as exc:
+            raise SourcePersonalityError(
+                f"source transcript evidence is invalid: {exc}"
+            ) from exc
+
+    source_binding = profile.get("source")
+    performer = {
+        "id": str(
+            source_binding.get("performer_id")
+            if isinstance(source_binding, Mapping)
+            else ""
+        ),
+        "name": str(
+            source_binding.get("performer_name")
+            if isinstance(source_binding, Mapping)
+            else ""
+        ),
+    }
+    return {
+        "ok": True,
+        "person_id": person_id,
+        "body_revision": body_revision,
+        "performer": performer,
+        "source_manifest_sha256": source["manifest_sha256"],
+        "source_media_count": len(source["source_files"]),
+        "transcript_count": len(transcripts),
+        "transcripts": [
+            {
+                "scene_id": str(item["scene_id"]),
+                "name": str(item["name"]),
+                "sha256": str(item["sha256"]),
+            }
+            for item in transcripts
+        ],
+        "candidate_report": report,
+        "candidate_count": (
+            int(report["candidate_count"]) if report is not None else 0
+        ),
+        "suggested_exemplars": (
+            list(report["suggested_exemplars"])
+            if report is not None
+            else []
+        ),
+        "operator_review_required": True,
+        "speaker_identity_authority": False,
+        "style_use_authority": False,
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
+
+
 def _instructions(exemplars: list[str]) -> str:
     lines = [
         "Portray this person consistently rather than describing a persona from the outside.",
