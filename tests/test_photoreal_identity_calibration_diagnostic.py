@@ -222,6 +222,10 @@ def test_diagnostic_identifies_highest_negative(
     assert result["planned_negative_source_count"] == 3
     assert result["observed_negative_source_count"] == 2
     assert result["planned_negative_performer_count"] == 3
+    assert (
+        result["weakest_positive_group"]["group_id"]
+        in {"a", "b"}
+    )
 
     source_yields = {
         item["source_key"]: item
@@ -238,6 +242,25 @@ def test_diagnostic_identifies_highest_negative(
     }
     assert performer_yields["9"]["observation_count"] == 0
     assert performer_yields["9"]["extraction_yield_fraction"] == 0.0
+
+    assert (
+        result["lowest_yield_negative_source"]["source_key"]
+        == "n9"
+    )
+    assert (
+        result["lowest_yield_negative_performer"]
+        ["subject_performer_id"]
+        == "9"
+    )
+    assert (
+        result["highest_collision_negative_source"]["source_key"]
+        == "n7"
+    )
+    assert (
+        result["highest_collision_negative_performer"]
+        ["subject_performer_id"]
+        == "7"
+    )
 
 
 def test_diagnostic_rejects_stage13_math_mismatch(
