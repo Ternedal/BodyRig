@@ -14,7 +14,11 @@ from .personality_authoring import (
     save_guided_personality,
 )
 from .personality_source import SourcePersonalityError, build_source_personality
-from .personality_traits import build_trait_profile, trait_catalog
+from .personality_traits import (
+    PersonalityTraitProfileError,
+    build_trait_profile,
+    trait_catalog,
+)
 from .personality_suite_review import (
     PersonalitySuiteReviewError,
     seal_suite_review,
@@ -69,6 +73,17 @@ class PersonalitySuiteSealRequest(BaseModel):
 
 
 def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
+    try:
+        trait_profile = (
+            build_trait_profile(
+                inner_ring=request.trait_profile.inner_ring,
+                outer_ring=request.trait_profile.outer_ring,
+            )
+            if request.trait_profile is not None
+            else None
+        )
+    except PersonalityTraitProfileError as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
     return {
         "default_language": request.default_language,
         "communication": request.communication.model_dump(),
@@ -77,14 +92,7 @@ def _authoring_kwargs(request: GuidedPersonalityRequest) -> dict[str, Any]:
         "style_report": request.style_report,
         "style_approval": request.style_approval,
         "body_revision": request.body_revision,
-        "trait_profile": (
-            build_trait_profile(
-                inner_ring=request.trait_profile.inner_ring,
-                outer_ring=request.trait_profile.outer_ring,
-            )
-            if request.trait_profile is not None
-            else None
-        ),
+        "trait_profile": trait_profile,
     }
 
 
