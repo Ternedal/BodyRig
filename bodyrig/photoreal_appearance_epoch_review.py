@@ -29,14 +29,18 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
-    result = str(value or "").strip()
-    if not result or len(result) > maximum:
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochReviewError(f"{label} is invalid")
+    result = value.strip()
+    if not result or len(value) > maximum:
         raise PhotorealAppearanceEpochReviewError(f"{label} is invalid")
     return result
 
 
 def _sha(value: Any, *, label: str) -> str:
-    result = str(value or "").strip().lower()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochReviewError(f"{label} is invalid")
+    result = value.strip().lower()
     if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealAppearanceEpochReviewError(f"{label} is invalid")
     return result
@@ -51,8 +55,22 @@ def apply_appearance_epoch_review(
     plan: Mapping[str, Any],
     review: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
+    plan_version = plan.get("version")
+    if (
+        plan.get("format") != PLAN_FORMAT
+        or isinstance(plan_version, bool)
+        or not isinstance(plan_version, (int, float))
+        or plan_version != PLAN_VERSION
+    ):
         raise PhotorealAppearanceEpochReviewError("appearance epoch plan format/version mismatch")
+    plan_sha = _sha(
+        plan.get("appearance_epoch_plan_sha256"),
+        label="appearance epoch plan SHA-256",
+    )
+    plan_core = dict(plan)
+    plan_core.pop("appearance_epoch_plan_sha256", None)
+    if _digest(plan_core) != plan_sha:
+        raise PhotorealAppearanceEpochReviewError("appearance epoch plan digest mismatch")
     if plan.get("human_epoch_review_required") is not True:
         raise PhotorealAppearanceEpochReviewError("appearance epoch plan does not require human review")
     if plan.get("human_epoch_review_complete") is not False:
@@ -82,12 +100,16 @@ def apply_appearance_epoch_review(
     if set(review) != expected_review_fields:
         raise PhotorealAppearanceEpochReviewError("appearance epoch review fields must match v1 exactly")
     version = review.get("version")
-    if review.get("format") != REVIEW_FORMAT or isinstance(version, bool) or version != REVIEW_VERSION:
+    if (
+        review.get("format") != REVIEW_FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != REVIEW_VERSION
+    ):
         raise PhotorealAppearanceEpochReviewError("appearance epoch review format/version mismatch")
     performer_id = _text(plan.get("performer_id"), label="plan performer id", maximum=256)
     if _text(review.get("performer_id"), label="review performer id", maximum=256) != performer_id:
         raise PhotorealAppearanceEpochReviewError("appearance epoch review performer mismatch")
-    plan_sha = _sha(plan.get("appearance_epoch_plan_sha256"), label="appearance epoch plan SHA-256")
     if _sha(review.get("appearance_epoch_plan_sha256"), label="review plan SHA-256") != plan_sha:
         raise PhotorealAppearanceEpochReviewError("appearance epoch review targets different plan")
     if review.get("human_review_complete") is not True or review.get("human_approved") is not True:
@@ -134,6 +156,14 @@ def apply_appearance_epoch_review(
             "approved appearance epoch must contain both train and held-out evaluation source groups"
         )
 
+    performer_name_raw = plan.get("performer_name")
+    if performer_name_raw is None:
+        performer_name = ""
+    elif isinstance(performer_name_raw, str):
+        performer_name = performer_name_raw
+    else:
+        raise PhotorealAppearanceEpochReviewError("plan performer name is invalid")
+
     selected_sorted = sorted(selected)
     review_core = {
         "format": REVIEW_FORMAT,
@@ -153,7 +183,7 @@ def apply_appearance_epoch_review(
         "format": FORMAT,
         "version": VERSION,
         "performer_id": performer_id,
-        "performer_name": str(plan.get("performer_name") or ""),
+        "performer_name": performer_name,
         "appearance_epoch_plan_sha256": plan_sha,
         "appearance_epoch_review_sha256": review_sha,
         "selected_epoch_id": selected_epoch_id,

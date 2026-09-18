@@ -27,14 +27,18 @@ def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
 
 
 def _text(value: Any, *, label: str, maximum: int = 4096) -> str:
-    result = str(value or "").strip()
-    if not result or len(result) > maximum:
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochError(f"{label} is invalid")
+    result = value.strip()
+    if not result or len(value) > maximum:
         raise PhotorealAppearanceEpochError(f"{label} is invalid")
     return result
 
 
 def _sha(value: Any, *, label: str) -> str:
-    result = str(value or "").strip().lower()
+    if not isinstance(value, str):
+        raise PhotorealAppearanceEpochError(f"{label} is invalid")
+    result = value.strip().lower()
     if len(result) != 64 or any(ch not in "0123456789abcdef" for ch in result):
         raise PhotorealAppearanceEpochError(f"{label} is invalid")
     return result
@@ -50,7 +54,13 @@ def build_appearance_epoch_plan(
     *,
     strategy: str = "human-review-required-v1",
 ) -> dict[str, Any]:
-    if frame_index.get("format") != FRAME_INDEX_FORMAT or frame_index.get("version") != FRAME_INDEX_VERSION:
+    frame_index_version = frame_index.get("version")
+    if (
+        frame_index.get("format") != FRAME_INDEX_FORMAT
+        or isinstance(frame_index_version, bool)
+        or not isinstance(frame_index_version, (int, float))
+        or frame_index_version != FRAME_INDEX_VERSION
+    ):
         raise PhotorealAppearanceEpochError("photoreal frame index format/version mismatch")
     if frame_index.get("teacher_training_authorized") is not True:
         raise PhotorealAppearanceEpochError("appearance epoch planning requires a teacher-training-authorized frame index")
@@ -154,11 +164,17 @@ def build_appearance_epoch_plan(
             "eligible": eligible,
         }
     )
+    performer_name = frame_index.get("performer_name")
+    if performer_name is None:
+        performer_name = ""
+    elif not isinstance(performer_name, str):
+        raise PhotorealAppearanceEpochError("performer name is invalid")
+
     plan_core = {
         "format": FORMAT,
         "version": VERSION,
         "performer_id": performer_id,
-        "performer_name": str(frame_index.get("performer_name") or ""),
+        "performer_name": performer_name,
         "strategy": _text(strategy, label="appearance epoch strategy", maximum=128),
         "source_frame_index_model_set_sha256": analyzer_model_sha,
         "identity_bank_sha256": identity_bank_sha,
