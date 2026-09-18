@@ -130,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
                     result["negative_ceiling"],
                 "observed_separation_margin":
                     result["observed_separation_margin"],
+                "minimum_required_separation_margin":
+                    result["minimum_required_separation_margin"],
+                "maximum_allowed_negative_cosine":
+                    result["maximum_allowed_negative_cosine"],
+                "stage13_calibration_blockers":
+                    result["stage13_calibration_blockers"],
                 "violating_negative_observation_count":
                     result[
                         "violating_negative_observation_count"
