@@ -176,6 +176,10 @@ def main(argv: list[str] | None = None) -> int:
                     result["planned_negative_observation_count"],
                 "negative_observation_count":
                     result["negative_observation_count"],
+                "negative_observation_quality_metadata":
+                    result[
+                        "negative_observation_quality_metadata"
+                    ],
                 "negative_extraction_yield_fraction":
                     result["negative_extraction_yield_fraction"],
                 "planned_negative_source_count":

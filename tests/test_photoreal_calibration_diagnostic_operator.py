@@ -23,6 +23,12 @@ def test_operator_script_uses_run_root_diagnostic_cli() -> None:
     assert '$result = $jsonText | ConvertFrom-Json' in text
     assert 'Stage-13 diagnostic summary' in text
     assert 'Separation margin: observed' in text
+    assert 'Calibration quality metadata:' in text
+    assert 'Calibration quality audit: RE-EXTRACTION REQUIRED' in text
+    assert 'Calibration quality audit: AVAILABLE FROM SAVED ARTIFACT' in text
+    assert '$quality.complete_observation_count' in text
+    assert '$quality.reextraction_required_for_complete_quality_audit' in text
+    assert '@($quality.missing_fields) -join ", "' in text
     assert 'Highest negative match' in text
     assert 'Closest positive group:' in text
     assert '$highest.closest_positive_group.group_id' in text

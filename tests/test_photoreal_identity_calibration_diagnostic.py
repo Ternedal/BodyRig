@@ -225,6 +225,23 @@ def test_diagnostic_identifies_highest_negative(
     assert result["planned_negative_source_count"] == 3
     assert result["observed_negative_source_count"] == 2
     assert result["planned_negative_performer_count"] == 3
+
+    quality = result["negative_observation_quality_metadata"]
+    assert quality["observed_fields"] == []
+    assert (
+        quality["missing_fields"]
+        == list(diagnostic.NEGATIVE_OBSERVATION_QUALITY_FIELDS)
+    )
+    assert quality["complete_observation_count"] == 0
+    assert quality["complete_observation_fraction"] == 0.0
+    assert quality["complete_quality_audit_available"] is False
+    assert (
+        quality[
+            "reextraction_required_for_complete_quality_audit"
+        ]
+        is True
+    )
+
     assert (
         result["weakest_positive_group"]["group_id"]
         in {"a", "b"}
@@ -518,5 +535,59 @@ def test_diagnostic_identifies_group_specific_negative_collision(
     assert (
         highest["closest_positive_reference"]["cosine"]
         == pytest.approx(1.0)
+    )
+
+def test_diagnostic_reports_complete_negative_quality_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        _fake_core,
+    )
+
+    observations = _observations()
+    for observation in observations["observations"]:
+        observation.update(
+            {
+                "candidate_id": "person-000",
+                "person_detected": True,
+                "width": 1920,
+                "height": 1080,
+                "view_bin": "frontal",
+                "face_visibility": 0.9,
+                "full_body_visibility": 0.7,
+                "person_fraction": 0.25,
+                "sharpness": 0.8,
+                "motion": 0.0,
+                "occlusion": 0.0,
+                "identity_measurement_status": "available",
+            }
+        )
+
+    result = diagnostic.build_identity_calibration_diagnostic(
+        _bank(),
+        _plan(),
+        observations,
+    )
+
+    quality = result["negative_observation_quality_metadata"]
+    assert (
+        quality["observed_fields"]
+        == list(diagnostic.NEGATIVE_OBSERVATION_QUALITY_FIELDS)
+    )
+    assert quality["missing_fields"] == []
+    assert quality["complete_observation_count"] == 2
+    assert quality["complete_observation_fraction"] == 1.0
+    assert quality["complete_quality_audit_available"] is True
+    assert (
+        quality[
+            "reextraction_required_for_complete_quality_audit"
+        ]
+        is False
+    )
+    assert all(
+        count == 2
+        for count in quality["field_presence_counts"].values()
     )
 
