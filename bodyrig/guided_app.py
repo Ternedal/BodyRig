@@ -14,8 +14,18 @@ from .personality_authoring import (
     load_personality_trait_profile,
     save_guided_personality,
 )
-from .personality_source import SourcePersonalityError, build_source_personality
+from .personality_source import (
+    SourcePersonalityError,
+    build_source_personality,
+    preview_source_personality_exemplars,
+)
 from .personality_stash_context import inspect_personality_stash_context
+from .personality_exemplar_approval import (
+    PersonalityExemplarApprovalError,
+    build_approval,
+    canonical_sha256 as exemplar_evidence_sha256,
+    validate_candidate_report,
+)
 from .person_profiles import PersonProfileError, load_profile
 from .stash_source import StashClient, StashConfig, StashSourceError
 from .personality_traits import (
@@ -63,6 +73,17 @@ class GuidedPersonalityRequest(BaseModel):
 
 class GuidedPersonalitySaveRequest(GuidedPersonalityRequest):
     feedback: str = Field(default="", max_length=8000)
+
+
+class StashTranscriptApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_report: dict[str, Any]
+    selected_candidate_indexes: list[int] = Field(
+        min_length=1,
+        max_length=12,
+    )
+    speaker_identity_confirmed: bool
+    style_use_approved: bool
 
 
 class PersonalitySuiteSealRequest(BaseModel):
@@ -140,6 +161,72 @@ def personality_stash_context(person_id: str) -> dict:
         _profile(person_id),
         stash_client=_optional_stash_client(),
     )
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/stash-transcript-candidates"
+)
+def personality_stash_transcript_candidates(
+    person_id: str,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        return preview_source_personality_exemplars(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+    except SourcePersonalityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/people/{person_id}/personality/stash-transcript-approval"
+)
+def personality_stash_transcript_approval(
+    person_id: str,
+    request: StashTranscriptApprovalRequest,
+    body_revision: str = Query(min_length=1, max_length=24),
+) -> dict:
+    try:
+        current = preview_source_personality_exemplars(
+            person_library(),
+            person_id,
+            body_revision=body_revision,
+        )
+        current_report = current.get("candidate_report")
+        if not isinstance(current_report, dict):
+            raise SourcePersonalityError(
+                "selected source has no transcript exemplar candidates"
+            )
+        provided = validate_candidate_report(request.candidate_report)
+        if (
+            exemplar_evidence_sha256(provided)
+            != exemplar_evidence_sha256(current_report)
+        ):
+            raise SourcePersonalityError(
+                "source transcript candidate report changed; refresh before approval"
+            )
+        approval = build_approval(
+            current_report,
+            selected_candidate_indexes=request.selected_candidate_indexes,
+            speaker_identity_confirmed=request.speaker_identity_confirmed,
+            style_use_approved=request.style_use_approved,
+        )
+    except (
+        SourcePersonalityError,
+        PersonalityExemplarApprovalError,
+    ) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "candidate_report": current_report,
+        "approval": approval,
+        "body_revision": body_revision,
+        "transcript_count": current["transcript_count"],
+        "source_manifest_sha256": current["source_manifest_sha256"],
+        "personality_authority": False,
+        "content_semantics": "style-only-not-biography-or-memory",
+    }
 
 
 @app.get(
