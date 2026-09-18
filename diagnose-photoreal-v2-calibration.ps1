@@ -105,6 +105,20 @@ Write-Host (
         $result.planned_negative_observation_count,
         $result.negative_extraction_yield_fraction
 )
+$quality = $result.negative_observation_quality_metadata
+Write-Host (
+    "Calibration quality metadata: {0}/{1} observations complete" -f
+        $quality.complete_observation_count,
+        $result.negative_observation_count
+)
+if ($quality.reextraction_required_for_complete_quality_audit) {
+    Write-Host (
+        "Calibration quality audit: RE-EXTRACTION REQUIRED; missing fields: {0}" -f
+            (@($quality.missing_fields) -join ", ")
+    )
+} else {
+    Write-Host "Calibration quality audit: AVAILABLE FROM SAVED ARTIFACT"
+}
 Write-Host ""
 Write-Host "Highest negative match"
 Write-Host (
