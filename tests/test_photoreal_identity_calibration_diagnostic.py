@@ -62,6 +62,7 @@ def _plan() -> dict[str, object]:
                 "source_key": "n7",
                 "subject_performer_id": "7",
                 "subject_performer_name": "P7",
+                "resolved_path": r"C:\negative\p7.mp4",
                 "sample_count": 2,
                 "samples": [{}, {}],
             },
@@ -69,6 +70,7 @@ def _plan() -> dict[str, object]:
                 "source_key": "n8",
                 "subject_performer_id": "8",
                 "subject_performer_name": "P8",
+                "resolved_path": r"C:\negative\p8.mp4",
                 "sample_count": 2,
                 "samples": [{}, {}],
             },
@@ -76,6 +78,7 @@ def _plan() -> dict[str, object]:
                 "source_key": "n9",
                 "subject_performer_id": "9",
                 "subject_performer_name": "P9",
+                "resolved_path": r"C:\negative\p9.mp4",
                 "sample_count": 2,
                 "samples": [{}, {}],
             },
@@ -257,6 +260,14 @@ def test_diagnostic_identifies_highest_negative(
         == "n7"
     )
     assert (
+        result["highest_collision_negative_source"]["resolved_path"]
+        == r"C:\negative\p7.mp4"
+    )
+    assert (
+        result["highest_negative_match"]["resolved_path"]
+        == r"C:\negative\p7.mp4"
+    )
+    assert (
         result["highest_collision_negative_performer"]
         ["subject_performer_id"]
         == "7"
@@ -366,12 +377,14 @@ def test_diagnostic_groups_multiple_observations_by_source(
     assert n7["observation_count"] == 2
     assert n7["violating_observation_count"] == 1
     assert n7["subject_performer_id"] == "7"
+    assert n7["resolved_path"] == r"C:\negative\p7.mp4"
 
     n7_yield = next(
         item
         for item in result["negative_source_yield_summaries"]
         if item["source_key"] == "n7"
     )
+    assert n7_yield["resolved_path"] == r"C:\negative\p7.mp4"
     assert n7_yield["planned_sample_count"] == 2
     assert n7_yield["observation_count"] == 2
     assert n7_yield["extraction_yield_fraction"] == 1.0
