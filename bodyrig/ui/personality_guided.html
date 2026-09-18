@@ -292,7 +292,13 @@
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const request={...payload(),feedback:$("feedback").value.trim()}; $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
-    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)}); state.person=result.profile; $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;}
+    try{
+      const personId=state.person.person_id;
+      const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
+      state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+      populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+      $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
+    }
     catch(error){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}
   }
 
