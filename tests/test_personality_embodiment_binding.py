@@ -221,6 +221,27 @@ def test_binding_allows_only_the_existing_approved_style_evidence_suffix() -> No
         )
 
 
+def test_binding_rejects_transcript_style_source_for_other_body_revision() -> None:
+    blueprint = _blueprint(_full_bodyprint())
+    suffix = (
+        " | style_report_sha256=" + "1" * 64
+        + " | style_approval_sha256=" + "2" * 64
+        + " | style_source=stash-source-transcript"
+        + " | style_source_body_revision=body-r0002"
+        + " | style_source_manifest_sha256=" + "3" * 64
+    )
+
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="conflicts with blueprint grounding",
+    ):
+        build_binding(
+            _profile(blueprint, style_suffix=suffix),
+            personality_revision="personality-r0001",
+            blueprint=blueprint,
+        )
+
+
 def test_verify_binding_fails_closed_on_selected_body_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
