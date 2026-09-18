@@ -10,7 +10,12 @@ from typing import Any, Mapping, Sequence
 
 from .package import MRBodyError, validate_package
 from .person_profiles import PersonProfileError, add_personality_revision, load_profile
-from .person_source_alignment import PersonSourceAlignmentError, write_binding as write_source_binding
+from .person_source_alignment import (
+    PersonSourceAlignmentError,
+    component_artifact_sha256,
+    read_binding as read_source_binding,
+    write_binding as write_source_binding,
+)
 from .personality_audition_suite import build_audition_suite
 from .personality_blueprint import (
     PersonalityBlueprintError,
@@ -18,6 +23,13 @@ from .personality_blueprint import (
     build_blueprint,
     compile_blueprint,
     validate_blueprint,
+)
+from .personality_stack import (
+    PersonalityStackError,
+    build_stack,
+    canonical_sha256 as personality_stack_sha256,
+    compile_stack,
+    validate_stack,
 )
 from .personality_exemplar_approval import (
     PersonalityExemplarApprovalError,
@@ -38,6 +50,57 @@ BLUEPRINT_STYLE_SHA_RE = re.compile(
 STYLE_EVIDENCE_SUFFIX_RE = re.compile(
     r" \| style_report_sha256=([0-9a-f]{64}) \| style_approval_sha256=([0-9a-f]{64})$"
 )
+
+
+def _find_personality_revision(
+    profile: Mapping[str, Any],
+    revision_id: str,
+) -> dict[str, Any]:
+    for item in profile.get("personality_revisions", []):
+        if item.get("revision_id") == revision_id:
+            return dict(item)
+    raise PersonalityAuthoringError(
+        f"personality revision {revision_id!r} is not registered on this person"
+    )
+
+
+def _verified_source_baseline(
+    root: str | os.PathLike[str],
+    profile: Mapping[str, Any],
+    revision_id: str,
+) -> dict[str, Any]:
+    revision = _find_personality_revision(profile, revision_id)
+    try:
+        binding = read_source_binding(
+            root,
+            profile,
+            kind="personality",
+            revision_id=revision_id,
+        )
+        artifact_sha = component_artifact_sha256(
+            profile,
+            "personality",
+            revision_id,
+        )
+    except PersonSourceAlignmentError as exc:
+        raise PersonalityAuthoringError(
+            f"source personality baseline is invalid: {exc}"
+        ) from exc
+
+    evidence = binding["evidence"]
+    evidence_kind = str(evidence.get("kind") or "")
+    if evidence_kind not in {
+        "stash-source-transcript-personality-v1",
+        "stash-source-personality-fallback-v1",
+    }:
+        raise PersonalityAuthoringError(
+            "baseline must be an exact source-derived Stash personality revision"
+        )
+    return {
+        "revision": revision,
+        "binding": binding,
+        "artifact_sha256": artifact_sha,
+    }
 
 
 def _find_body_revision(profile: Mapping[str, Any], revision_id: str) -> dict[str, Any]:
@@ -115,6 +178,7 @@ def _build_guided(
     outer_ring: Mapping[str, Any] | None,
     style_report: Mapping[str, Any] | None,
     style_approval: Mapping[str, Any] | None,
+    baseline_revision: str | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
     try:
         profile = load_profile(root, person_id)
@@ -151,12 +215,56 @@ def _build_guided(
             f" | style_report_sha256={style_evidence['candidate_report_sha256']}"
             f" | style_approval_sha256={style_evidence['approval_sha256']}"
         )
+
+    personality_stack = None
+    source_baseline = None
+    if baseline_revision is not None:
+        if blueprint["version"] != 2:
+            raise PersonalityAuthoringError(
+                "source baseline stacking requires a personality blueprint v2 overlay"
+            )
+        source_baseline = _verified_source_baseline(
+            root,
+            profile,
+            baseline_revision,
+        )
+        baseline = source_baseline["revision"]
+        binding = source_baseline["binding"]
+        try:
+            personality_stack = build_stack(
+                person_id=person_id,
+                baseline_revision_id=baseline_revision,
+                baseline_artifact_sha256=source_baseline["artifact_sha256"],
+                baseline_evidence_kind=binding["evidence"]["kind"],
+                baseline_evidence_sha256=binding["evidence"]["sha256"],
+                baseline_instructions=baseline["instructions"],
+                baseline_default_language=baseline["default_language"],
+                blueprint_sha256=blueprint_sha256(blueprint),
+                blueprint_version=blueprint["version"],
+                overlay_style_notes=candidate["style_notes"],
+                style_evidence=style_evidence,
+            )
+            candidate = compile_stack(
+                personality_stack,
+                baseline_instructions=baseline["instructions"],
+                overlay_candidate=candidate,
+            )
+        except PersonalityStackError as exc:
+            raise PersonalityAuthoringError(str(exc)) from exc
+
     result = {
         "blueprint": blueprint,
         "blueprint_sha256": blueprint_sha256(blueprint),
         "candidate": candidate,
         "audition_suite": build_audition_suite(candidate["default_language"]),
         "style_evidence": style_evidence,
+        "personality_stack": personality_stack,
+        "personality_stack_sha256": (
+            None
+            if personality_stack is None
+            else personality_stack_sha256(personality_stack)
+        ),
+        "source_baseline_revision": baseline_revision,
     }
     return result, normalized_report, normalized_approval
 
@@ -174,6 +282,7 @@ def build_guided_personality(
     outer_ring: Mapping[str, Any] | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    baseline_revision: str | None = None,
 ) -> dict[str, Any]:
     result, _report, _approval = _build_guided(
         root,
@@ -187,6 +296,7 @@ def build_guided_personality(
         outer_ring=outer_ring,
         style_report=style_report,
         style_approval=style_approval,
+        baseline_revision=baseline_revision,
     )
     return result
 
@@ -264,6 +374,26 @@ def persist_style_evidence(
         "report": _persist_json(base / "reports" / f"{report_sha}.json", normalized_report, label="style report"),
         "approval": _persist_json(base / "approvals" / f"{approval_sha}.json", verified_approval, label="style approval"),
     }
+
+
+def persist_personality_stack_evidence(
+    root: str | os.PathLike[str],
+    person_id: str,
+    stack: Mapping[str, Any],
+) -> Path:
+    root_path = Path(root).expanduser().resolve()
+    try:
+        load_profile(root_path, person_id)
+        normalized = validate_stack(stack)
+    except (PersonProfileError, PersonalityStackError) as exc:
+        raise PersonalityAuthoringError(str(exc)) from exc
+    if normalized["person_id"] != person_id:
+        raise PersonalityAuthoringError(
+            "personality stack person_id does not match target person"
+        )
+    digest = personality_stack_sha256(normalized)
+    path = root_path / "personality-stacks" / person_id / f"{digest}.json"
+    return _persist_json(path, normalized, label="personality stack")
 
 
 def _read_json_evidence(path: Path, *, label: str) -> dict[str, Any]:
@@ -418,6 +548,7 @@ def save_guided_personality(
     outer_ring: Mapping[str, Any] | None = None,
     style_report: Mapping[str, Any] | None = None,
     style_approval: Mapping[str, Any] | None = None,
+    baseline_revision: str | None = None,
     feedback: str = "",
 ) -> dict[str, Any]:
     result, normalized_report, normalized_approval = _build_guided(
@@ -432,11 +563,19 @@ def save_guided_personality(
         outer_ring=outer_ring,
         style_report=style_report,
         style_approval=style_approval,
+        baseline_revision=baseline_revision,
     )
     style_paths = None
     if normalized_report is not None and normalized_approval is not None:
         style_paths = persist_style_evidence(root, person_id, normalized_report, normalized_approval)
     blueprint_path = persist_blueprint_evidence(root, person_id, result["blueprint"])
+    stack_path = None
+    if result["personality_stack"] is not None:
+        stack_path = persist_personality_stack_evidence(
+            root,
+            person_id,
+            result["personality_stack"],
+        )
     candidate = result["candidate"]
     try:
         profile = add_personality_revision(
@@ -452,7 +591,30 @@ def save_guided_personality(
 
     saved_revision = profile["personality_revisions"][-1]["revision_id"]
     source_binding = None
-    if body_revision is not None and profile.get("source") is not None:
+    if result["personality_stack"] is not None:
+        baseline = _verified_source_baseline(
+            root,
+            profile,
+            str(result["source_baseline_revision"]),
+        )
+        try:
+            source_binding = write_source_binding(
+                root,
+                profile,
+                kind="personality",
+                revision_id=saved_revision,
+                evidence_kind="personality-stack-v1",
+                evidence_sha256=result["personality_stack_sha256"],
+                evidence_ref=str(stack_path),
+                source_files=list(
+                    baseline["binding"]["evidence"].get("source_files") or []
+                ),
+            )
+        except PersonSourceAlignmentError as exc:
+            raise PersonalityAuthoringError(
+                f"could not bind stacked personality to source: {exc}"
+            ) from exc
+    elif body_revision is not None and profile.get("source") is not None:
         try:
             source_binding = write_source_binding(
                 root,
@@ -469,6 +631,9 @@ def save_guided_personality(
     return {
         **result,
         "evidence_path": str(blueprint_path),
+        "personality_stack_path": (
+            None if stack_path is None else str(stack_path)
+        ),
         "style_evidence_paths": {key: str(path) for key, path in style_paths.items()} if style_paths else None,
         "source_binding": source_binding,
         "profile": profile,
