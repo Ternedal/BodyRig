@@ -15,6 +15,10 @@ from .person_profiles import (
     load_profile,
 )
 from .personality_audition_suite import build_audition_suite
+from .personality_authoring import (
+    PersonalityAuthoringError,
+    persist_trait_profile_evidence,
+)
 from .personality_blueprint import (
     PersonalityBlueprintError,
     build_blueprint,
@@ -160,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     style_evidence = None
     trait_profile = None
     trait_compilation = None
+    trait_evidence_path = None
 
     try:
         if bool(args.style_report) != bool(args.style_approval):
@@ -299,6 +304,15 @@ def main(argv: list[str] | None = None) -> int:
         audition_suite = build_audition_suite(candidate["default_language"])
 
         if args.save_candidate:
+            if trait_profile is not None:
+                try:
+                    trait_evidence_path = persist_trait_profile_evidence(
+                        person_root,
+                        args.person_id,
+                        trait_profile,
+                    )
+                except PersonalityAuthoringError as exc:
+                    raise PersonalityBlueprintError(str(exc)) from exc
             try:
                 updated = add_personality_revision(
                     person_root,
@@ -323,6 +337,11 @@ def main(argv: list[str] | None = None) -> int:
             "trait_profile_sha256": (
                 trait_compilation["trait_profile_sha256"]
                 if trait_compilation is not None
+                else None
+            ),
+            "trait_evidence_path": (
+                str(trait_evidence_path)
+                if trait_evidence_path is not None
                 else None
             ),
             "trait_summary": (
