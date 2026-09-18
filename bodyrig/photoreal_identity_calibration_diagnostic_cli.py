@@ -152,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
                     result[
                         "violating_negative_source_count"
                     ],
+                "violating_closest_positive_group_summaries":
+                    result[
+                        "violating_closest_positive_group_summaries"
+                    ],
                 "positive_cosine_median":
                     result["positive_cosine_median"],
                 "positive_reference_to_target_cosine_min":
