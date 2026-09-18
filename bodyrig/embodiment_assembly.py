@@ -10,6 +10,7 @@ from .personality_embodiment_binding import (
     PersonalityEmbodimentBindingError,
     read_binding,
     read_blueprint_evidence,
+    read_trait_evidence,
     verify_binding,
 )
 
@@ -40,6 +41,7 @@ def build_embodiment_bound_assembly(
     personality_revision: str,
     embodiment_binding: Mapping[str, Any],
     blueprint: Mapping[str, Any],
+    trait_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build person assembly v2 with exact blueprint/personality/body lineage."""
 
@@ -49,6 +51,7 @@ def build_embodiment_bound_assembly(
             embodiment_binding,
             selected_body_revision=body_revision,
             blueprint=blueprint,
+            trait_profile=trait_profile,
         )
     except PersonalityEmbodimentBindingError as exc:
         raise EmbodimentAssemblyError(str(exc)) from exc
@@ -78,6 +81,9 @@ def build_embodiment_bound_assembly(
         "embodiment_binding": {
             "binding_sha256": binding_sha,
             "blueprint_sha256": verified["blueprint_sha256"],
+            "trait_profile_sha256": verified.get(
+                "trait_profile_sha256"
+            ),
             "grounding": dict(verified["grounding"]),
             "evidence_status": verified["embodiment_evidence"]["status"],
             "observed_fields": list(verified["embodiment_evidence"]["observed_fields"]),
@@ -116,6 +122,16 @@ def build_embodiment_bound_assembly_from_library(
             person_id=person_id,
             digest=digest,
         )
+        trait_digest = binding.get("trait_profile_sha256")
+        trait_profile = (
+            read_trait_evidence(
+                root,
+                person_id=person_id,
+                digest=str(trait_digest),
+            )
+            if trait_digest is not None
+            else None
+        )
     except PersonalityEmbodimentBindingError as exc:
         raise EmbodimentAssemblyError(str(exc)) from exc
     return build_embodiment_bound_assembly(
@@ -125,4 +141,5 @@ def build_embodiment_bound_assembly_from_library(
         personality_revision=personality_revision,
         embodiment_binding=binding,
         blueprint=blueprint,
+        trait_profile=trait_profile,
     )
