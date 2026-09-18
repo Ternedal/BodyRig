@@ -267,3 +267,134 @@ def test_frozen_render_authority_tamper_revokes_finalized_authority(tmp_path: Pa
             body_release_status=_body_release(),
             release_id=receipt["release_id"],
         )
+
+
+def test_release_comparison_v1_discriminator_is_bool_safe(
+    tmp_path: Path,
+) -> None:
+    render_authority_path, review = _render_bundle(tmp_path / "comparison")
+    comparison_path = render_authority_path.parent / "comparison-authority.json"
+    comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+
+    rejected = dict(comparison)
+    rejected["version"] = True
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="comparison authority format/version",
+    ):
+        release._validate_comparison(rejected, review=review)
+
+    numeric = dict(comparison)
+    numeric["version"] = 1.0
+    assert release._validate_comparison(numeric, review=review)["package_sha256"] == PACKAGE_SHA
+
+
+def test_release_render_authority_v1_discriminator_is_bool_safe(
+    tmp_path: Path,
+) -> None:
+    render_authority_path, review = _render_bundle(tmp_path / "render")
+    original = json.loads(render_authority_path.read_text(encoding="utf-8"))
+
+    rejected = dict(original)
+    rejected["version"] = True
+    render_authority_path.write_text(json.dumps(rejected), encoding="utf-8")
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="render authority format/version",
+    ):
+        release._validate_render_authority_bundle(
+            render_authority_path,
+            review=review,
+        )
+
+    numeric = dict(original)
+    numeric["version"] = 1.0
+    render_authority_path.write_text(json.dumps(numeric), encoding="utf-8")
+    result = release._validate_render_authority_bundle(
+        render_authority_path,
+        review=review,
+    )
+    assert result["value"]["version"] == 1.0
+
+
+def test_finalized_release_v1_discriminator_is_bool_safe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render_authority_path, review = _render_bundle(tmp_path / "final")
+    _install_review_fixture(tmp_path, monkeypatch, review)
+    receipt = release.write_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        review_id=REVIEW_ID,
+        render_authority_path=render_authority_path,
+    )
+
+    rejected = dict(receipt)
+    rejected["version"] = True
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="format/version/policy",
+    ):
+        release.validate_release_authority_structure(
+            rejected,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+        )
+
+    numeric = dict(receipt)
+    numeric["version"] = 1.0
+    validated = release.validate_release_authority_structure(
+        numeric,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+    )
+    assert validated["version"] == 1.0
+
+
+def test_frozen_render_readback_rejects_boolean_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render_authority_path, review = _render_bundle(tmp_path / "frozen")
+    _install_review_fixture(tmp_path, monkeypatch, review)
+    receipt = release.write_release_authority(
+        tmp_path,
+        assembly_receipt=_assembly(),
+        body_release_status=_body_release(),
+        review_id=REVIEW_ID,
+        render_authority_path=render_authority_path,
+    )
+    target = release.release_authority_dir(
+        tmp_path,
+        PERSON_ID,
+        PERSON_REVISION,
+        receipt["release_id"],
+    )
+    frozen = target / "render-authority.json"
+    tampered = json.loads(frozen.read_text(encoding="utf-8"))
+    tampered["version"] = True
+    frozen.write_text(json.dumps(tampered), encoding="utf-8")
+
+    real_sha = release._sha256_file
+    monkeypatch.setattr(
+        release,
+        "_sha256_file",
+        lambda path: (
+            receipt["render_authority_sha256"]
+            if Path(path).name == "render-authority.json"
+            else real_sha(Path(path))
+        ),
+    )
+
+    with pytest.raises(
+        release.HandsFeetNailsReleaseAuthorityError,
+        match="frozen M2 render authority is invalid",
+    ):
+        release.read_release_authority(
+            tmp_path,
+            assembly_receipt=_assembly(),
+            body_release_status=_body_release(),
+            release_id=receipt["release_id"],
+        )
