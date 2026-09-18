@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bodyrig.local/contracts/personality-stack-v1.schema.json",
+  "title": "BodyRig Personality Stack v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "person_id",
+    "baseline",
+    "overlay",
+    "semantics"
+  ],
+  "properties": {
+    "format": {
+      "const": "bodyrig-personality-stack"
+    },
+    "version": {
+      "const": 1
+    },
+    "person_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision_id",
+        "artifact_sha256",
+        "evidence_kind",
+        "evidence_sha256",
+        "instructions_sha256",
+        "default_language"
+      ],
+      "properties": {
+        "revision_id": {
+          "type": "string",
+          "pattern": "^personality-r[0-9]{4}$"
+        },
+        "artifact_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidence_kind": {
+          "enum": [
+            "stash-source-transcript-personality-v1",
+            "stash-source-personality-fallback-v1"
+          ]
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "instructions_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "default_language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        }
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blueprint_sha256",
+        "blueprint_version",
+        "style_notes_sha256",
+        "style_report_sha256",
+        "style_approval_sha256"
+      ],
+      "properties": {
+        "blueprint_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "blueprint_version": {
+          "const": 2
+        },
+        "style_notes_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "style_report_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "style_approval_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "semantics": {
+      "const": "verified-source-speaking-style-plus-explicit-authored-matrix;no-source-to-psychological-trait-inference"
+    }
+  }
+}
