@@ -72,6 +72,9 @@ function personalityRevisionKind(profile, item) {
   const alignment = sourceAlignmentForRevision(profile, "personality", item?.revision_id);
   const evidenceKind = String(alignment?.evidence_kind || "");
   const styleNotes = String(item?.style_notes || "");
+  if (styleNotes.startsWith("personality-stack-v1 |") || evidenceKind === "personality-stack-v1") {
+    return { label: "Source + Matrix v2", css: "matrix-v2 source-stacked", evidenceKind };
+  }
   if (styleNotes.includes("trait matrix=v2") || evidenceKind === "personality-blueprint-v2") {
     return { label: "Matrix v2 · 120 traits", css: "matrix-v2", evidenceKind };
   }
@@ -184,8 +187,9 @@ function renderRevisionList(targetId, profile, kind, labelField) {
     const label = item[labelField] || item.voice_package || "";
     const personalityKind = kind === "personality" ? personalityRevisionKind(profile, item) : null;
     const meta = personalityKind ? `${label} · ${personalityKind.label}` : label;
-    const matrixQuery = personalityKind?.label === "Matrix v2 · 120 traits" ? "edit_revision" : "baseline_revision";
-    const matrixLabel = personalityKind?.label === "Matrix v2 · 120 traits" ? "Redigér 120 traits" : "Åbn som baseline";
+    const editableMatrix = personalityKind?.label === "Matrix v2 · 120 traits" || personalityKind?.label === "Source + Matrix v2";
+    const matrixQuery = editableMatrix ? "edit_revision" : "baseline_revision";
+    const matrixLabel = editableMatrix ? "Redigér 120 traits" : "Åbn som baseline";
     const matrixLink = kind === "personality"
       ? `<a class="secondary personality-matrix-link" href="/ui/personality_guided.html?person_id=${encodeURIComponent(profile.person_id)}&${matrixQuery}=${encodeURIComponent(item.revision_id)}">${matrixLabel}</a>`
       : "";
