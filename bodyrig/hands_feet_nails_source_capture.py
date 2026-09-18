@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -55,6 +56,16 @@ REGION_FIELDS = {
 
 class HandsFeetNailsSourceCaptureError(RuntimeError):
     pass
+
+
+def _is_numeric_v1(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric == 1.0
 
 
 def _canonical_json_bytes(value: Mapping[str, Any]) -> bytes:
@@ -382,7 +393,7 @@ def read_source_capture(
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture is unreadable") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HandsFeetNailsSourceCaptureError("hands/feet/nails source capture format/version/policy mismatch")
     revision = str(value.get("bodyrig_revision") or "").lower()
     _canonical_identity(person, body, revision)

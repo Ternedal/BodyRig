@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -86,6 +87,16 @@ RENDER_ENTRY_FIELDS = {"view", "file", "sha256", "width", "height"}
 
 class HandsFeetNailsAuthorityError(RuntimeError):
     pass
+
+
+def _is_numeric_v1(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return math.isfinite(numeric) and numeric == 1.0
 
 
 def _sha(value: Any, label: str) -> str:
@@ -178,7 +189,7 @@ def _assembly_identity(receipt: Mapping[str, Any]) -> dict[str, str]:
 def _release_identity(status: Mapping[str, Any], assembly: Mapping[str, str]) -> dict[str, str]:
     if not isinstance(status, Mapping):
         raise HandsFeetNailsAuthorityError("body release status is missing")
-    if status.get("format") != "bodyrig-person-release-status" or status.get("version") != 1:
+    if status.get("format") != "bodyrig-person-release-status" or not _is_numeric_v1(status.get("version")):
         raise HandsFeetNailsAuthorityError("hands/feet/nails authority requires canonical Person body-release status v1")
     person_id = str(status.get("person_id") or "").strip().lower()
     body_revision = str(status.get("body_revision") or "").strip().lower()
@@ -293,7 +304,7 @@ def validate_authority_structure(
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != TOP_FIELDS:
         raise HandsFeetNailsAuthorityError("hands/feet/nails authority fields are not canonical")
-    if value.get("format") != FORMAT or value.get("version") != VERSION or value.get("policy_revision") != POLICY_REVISION:
+    if value.get("format") != FORMAT or not _is_numeric_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
         raise HandsFeetNailsAuthorityError("hands/feet/nails authority format/version/policy mismatch")
     assembly = _assembly_identity(assembly_receipt)
     release = _release_identity(body_release_status, assembly)

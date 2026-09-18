@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
 from PIL import Image
 
 import bodyrig.hands_feet_nails_fingernail_geometry_candidate as subject
@@ -196,3 +199,73 @@ def test_plate_positions_are_offset_outward_from_source_surface(monkeypatch) -> 
         kind="VEC3",
     )
     assert abs(float(values[0][2]) - subject.OFFSET_METERS) < 1.0e-7
+
+
+@pytest.mark.parametrize("invalid", [True, False, "1", None, {}, [], 2])
+def test_fingernail_geometry_readback_rejects_non_numeric_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: object,
+) -> None:
+    package = tmp_path / "candidate.mrbody"
+    receipt_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        subject,
+        "geometry_paths",
+        lambda *args, **kwargs: (package, receipt_path),
+    )
+    monkeypatch.setattr(
+        subject,
+        "_read_json",
+        lambda *args, **kwargs: {
+            "format": subject.FORMAT,
+            "version": invalid,
+            "policy_revision": subject.POLICY_REVISION,
+        },
+    )
+
+    with pytest.raises(
+        subject.HandsFeetNailsFingernailGeometryError,
+        match="format/version/policy",
+    ):
+        subject.read_fingernail_geometry_candidate(
+            tmp_path,
+            "person-" + "1" * 32,
+            body_revision="body-r0001",
+            capture_id="hfncap-" + "2" * 32,
+            candidate_id="hfncand-" + "3" * 32,
+        )
+
+
+def test_fingernail_geometry_readback_preserves_numeric_float_v1(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = tmp_path / "candidate.mrbody"
+    receipt_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        subject,
+        "geometry_paths",
+        lambda *args, **kwargs: (package, receipt_path),
+    )
+    monkeypatch.setattr(
+        subject,
+        "_read_json",
+        lambda *args, **kwargs: {
+            "format": subject.FORMAT,
+            "version": 1.0,
+            "policy_revision": subject.POLICY_REVISION,
+        },
+    )
+
+    with pytest.raises(
+        subject.HandsFeetNailsFingernailGeometryError,
+        match="source_detail_receipt_sha256 is invalid",
+    ):
+        subject.read_fingernail_geometry_candidate(
+            tmp_path,
+            "person-" + "1" * 32,
+            body_revision="body-r0001",
+            capture_id="hfncap-" + "2" * 32,
+            candidate_id="hfncand-" + "3" * 32,
+        )
