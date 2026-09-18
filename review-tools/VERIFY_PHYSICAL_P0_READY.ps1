@@ -355,8 +355,9 @@ if (@($status.blockers).Count -ne 0) {
 }
 
 $summaryHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $SummaryPath).Hash.ToLowerInvariant()
-$receiptDirectory = Split-Path -Parent $SummaryPath
-$physicalOut = Join-Path $receiptDirectory "P0_PHYSICAL_VERIFICATION.json"
+# Receipts belong to the exact P0 output root, not the shared overnight directory.
+# Multiple runs may share one RunRoot; per-run placement prevents authority collisions.
+$physicalOut = Join-Path $outputRoot "P0_PHYSICAL_VERIFICATION.json"
 
 if (Test-Path -LiteralPath $physicalOut -PathType Leaf) {
     $physicalReceipt = Read-Json -Path $physicalOut -Label "Existing physical P0 verification"
@@ -454,7 +455,7 @@ $readiness = [ordered]@{
     verified_checks = $checkEvidence.Verified
 }
 
-$readinessOut = Join-Path $receiptDirectory "P0_DOWNSTREAM_READINESS.json"
+$readinessOut = Join-Path $outputRoot "P0_DOWNSTREAM_READINESS.json"
 if (Test-Path -LiteralPath $readinessOut) {
     throw "Readiness receipt already exists: $readinessOut"
 }

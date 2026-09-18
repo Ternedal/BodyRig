@@ -155,23 +155,42 @@ Even a clean frame index grants **teacher-training authority only**. It never gr
 
 ### Canonical post-P0 operator handoff
 
-After one P0 root has persisted canonical `teacher-training-authorized` status, the static-teacher path remains explicitly human-gated. Use create-only output paths for each step:
+After one P0 root has persisted canonical `teacher-training-authorized` status, use the checkout-bound continuation operator from exact clean current `main`:
+
+```powershell
+.\continue-photoreal-v2-teacher.ps1 -P0Root <P0_ROOT>
+```
+
+The operator discovers the bound overnight summary when unambiguous, creates/reuses per-run P0 physical/readiness receipts in the exact P0 root, revalidates the current tracked readiness verifier, builds the canonical appearance-epoch plan + review handoff, and then **stops with exit code 2 at human review**. It prints the available train/evaluation source groups but never selects or approves them.
+
+After visual review, rerun the same operator with an explicit epoch decision, at least one train group and one held-out evaluation group:
+
+```powershell
+.\continue-photoreal-v2-teacher.ps1 `
+  -P0Root <P0_ROOT> `
+  -SelectedEpochId <EPOCH_ID> `
+  -SourceGroup <TRAIN_GROUP> `
+  -SourceGroup <EVAL_GROUP> `
+  -ReviewedBy <OPERATOR> `
+  -ReviewNotes <NOTES> `
+  -ApproveHumanReview
+```
+
+Existing continuation artifacts are not trusted merely because they exist: the operator recomputes and requires exact canonical equality before reuse. The P0 root itself remains immutable; continuation artifacts are written to a sibling `<P0_ROOT>-teacher` workspace by default.
+
+The underlying create-only CLI stages remain available for audit/manual recovery:
 
 ```powershell
 bodyrig-photoreal-appearance-epoch --frame-index <P0_ROOT>/frame-index.json --out <EPOCH_PLAN>
-
 bodyrig-photoreal-appearance-epoch-handoff --plan <EPOCH_PLAN> --handoff-out <HANDOFF> --review-template-out <REVIEW_TEMPLATE>
-
 bodyrig-photoreal-appearance-epoch-review-record --plan <EPOCH_PLAN> --handoff <HANDOFF> --selected-epoch-id <EPOCH_ID> --source-group <TRAIN_GROUP> --source-group <EVAL_GROUP> --reviewed-by <OPERATOR> --review-notes <NOTES> --approve-human-review --out <HUMAN_REVIEW>
-
 bodyrig-photoreal-appearance-epoch-review --plan <EPOCH_PLAN> --human-review <HUMAN_REVIEW> --out <EPOCH_SELECTION>
-
 bodyrig-photoreal-teacher-input-from-p0 --p0-root <P0_ROOT> --epoch-selection <EPOCH_SELECTION> --out <TEACHER_INPUT>
 ```
 
-The handoff and editable review template are deliberately non-authoritative. The recorder requires explicit human approval and at least one selected train group plus one held-out evaluation group. The final selection may authorize teacher input/training only; it must keep `photoreal_acceptance_authority=false`, `human_visual_acceptance_required=true` and `production_activation=false`. The P0-root wrapper independently revalidates the canonical P0 status/files and then routes the result through the strict teacher-input authority gate.
+The handoff and editable review template are deliberately non-authoritative. The final selection may authorize teacher input/training only; it must keep `photoreal_acceptance_authority=false`, `human_visual_acceptance_required=true` and `production_activation=false`.
 
-Only after that strict teacher input exists may `bodyrig-photoreal-teacher-run` launch a pinned teacher adapter. Training completion is still not P1 acceptance; P1 requires the held-out human visual review described above.
+Only after strict teacher input exists may `bodyrig-photoreal-teacher-run` launch a pinned teacher adapter. Training completion is still not P1 acceptance; P1 requires the held-out human visual review described above.
 
 ## Stereo and spatial source handling
 
