@@ -25,6 +25,9 @@
         <div class="card-label">1 · Vælg person og grounding</div>
         <label for="personSelect">Person</label>
         <select id="personSelect" class="full-select"><option value="">Henter personer…</option></select>
+        <label for="baselineRevision">Eksisterende personality-baseline · kun reference</label>
+        <select id="baselineRevision" class="full-select"><option value="">Ingen reference</option></select>
+        <p id="baselineHint" class="fine-print">Baselinen er read-only kontekst og indgår ikke i Matrix v2-payloaden. Source-derived speaking style bliver derfor ikke omskrevet til psykologiske traits.</p>
         <label for="bodyRevision">Body-grounding</label>
         <select id="bodyRevision" class="full-select"><option value="">Ingen — neutrale mannerisms</option></select>
         <p id="bodyHint" class="fine-print">Vælg en body revision for at hente observerbar energi, gestik, hovedbevægelse, gaze og speech-motion fra den validerede .mrbody.</p>
@@ -83,6 +86,12 @@
 
       <section>
         <article class="card">
+          <div class="card-row"><div class="card-label">Eksisterende baseline · read-only</div><span id="baselineBadge" class="badge muted">Ingen</span></div>
+          <div id="baselineMeta" class="muted-text">Vælg en person for at se seneste source/personality-baseline.</div>
+          <pre id="baselineInstructions" class="proposal preview-box">Baseline-reference påvirker ikke Matrix v2.</pre>
+          <pre id="baselineStyleNotes" class="proposal">—</pre>
+        </article>
+        <article class="card space-top">
           <div class="card-row"><div class="card-label">Blueprint</div><span id="blueprintBadge" class="badge muted">Ikke bygget</span></div>
           <div id="grounding" class="grounding-summary muted-text">Ingen preview endnu.</div>
         </article>
@@ -203,6 +212,47 @@
   }
   function clearEvidence(){ state.styleReport=null;state.styleApproval=null;$("styleReportFile").value="";$("styleApprovalFile").value="";renderEvidenceStatus();invalidate(); }
 
+  function personalityAlignment(revisionId){
+    return state.person?._source_alignment?.components?.personality?.[revisionId]||null;
+  }
+  function baselineKind(item){
+    const alignment=personalityAlignment(item?.revision_id);
+    const evidenceKind=String(alignment?.evidence_kind||"");
+    if(String(item?.style_notes||"").includes("trait matrix=v2")||evidenceKind==="personality-blueprint-v2") return {label:"Matrix v2 · 120 traits",evidenceKind};
+    if(evidenceKind.startsWith("stash-source-")) return {label:"Source baseline",evidenceKind};
+    return {label:"Manual / legacy",evidenceKind};
+  }
+  function renderBaseline(){
+    const revisionId=$("baselineRevision").value;
+    const item=(state.person?.personality_revisions||[]).find(value=>value.revision_id===revisionId)||null;
+    if(!item){
+      $("baselineBadge").textContent="Ingen"; $("baselineBadge").classList.add("muted");
+      $("baselineMeta").textContent="Ingen personality-baseline valgt. Matrix v2 author'es stadig eksplicit.";
+      $("baselineInstructions").textContent="Baseline-reference påvirker ikke Matrix v2.";
+      $("baselineStyleNotes").textContent="—";
+      return;
+    }
+    const kind=baselineKind(item);
+    $("baselineBadge").textContent=kind.label; $("baselineBadge").classList.remove("muted");
+    $("baselineMeta").textContent=`${item.revision_id} · ${item.default_language}${kind.evidenceKind?` · provenance ${kind.evidenceKind}`:""} · reference-only`;
+    $("baselineInstructions").textContent=item.instructions||"";
+    $("baselineStyleNotes").textContent=item.style_notes||"—";
+  }
+  function populateBaselines(){
+    const select=$("baselineRevision"); select.innerHTML='<option value="">Ingen reference</option>';
+    const items=state.person?.personality_revisions||[];
+    for(const item of items){
+      const kind=baselineKind(item); const option=document.createElement("option");
+      option.value=item.revision_id; option.textContent=`${item.revision_id} · ${kind.label}`; select.appendChild(option);
+    }
+    const requested=new URLSearchParams(location.search).get("baseline_revision");
+    const sourceBaseline=[...items].reverse().find(item=>baselineKind(item).label==="Source baseline");
+    const fallback=[...items].reverse()[0];
+    const selected=items.find(item=>item.revision_id===requested)||sourceBaseline||fallback||null;
+    select.value=selected?.revision_id||"";
+    renderBaseline();
+  }
+
   async function loadPeople(){
     const data=await api("/api/v1/people"); state.people=data.people||[]; const select=$("personSelect"); select.innerHTML='<option value="">Vælg person</option>';
     for(const p of state.people){ const o=document.createElement("option");o.value=p.person_id;o.textContent=p.display_name;select.appendChild(o); }
@@ -211,9 +261,10 @@
     else $("status").textContent="Opret først en person i Person Studio.";
   }
   async function selectPerson(personId){
-    if(!personId){state.person=null;return;}
+    if(!personId){state.person=null;populateBaselines();return;}
     state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`); const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
-    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);} invalidate();
+    for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
+    populateBaselines(); invalidate();
   }
 
   function renderPreview(result){
@@ -239,7 +290,7 @@
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
   $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",filterTraits);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
-  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
+  $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
   loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
