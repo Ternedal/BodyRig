@@ -50,6 +50,14 @@ class HandsFeetNailsFingernailGeometryError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and value == VERSION
+    )
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -722,7 +730,7 @@ def read_fingernail_geometry_candidate(
 ) -> dict[str, Any]:
     package_path, receipt_path = geometry_paths(root, person_id, body_revision, capture_id, candidate_id)
     receipt = _read_json(receipt_path, label="HFN fingernail geometry receipt")
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION or receipt.get("policy_revision") != POLICY_REVISION:
+    if receipt.get("format") != FORMAT or not _is_v1(receipt.get("version")) or receipt.get("policy_revision") != POLICY_REVISION:
         raise HandsFeetNailsFingernailGeometryError("HFN fingernail geometry receipt format/version/policy mismatch")
     for field in (
         "source_detail_receipt_sha256", "source_detail_package_sha256", "geometry_package_sha256",
