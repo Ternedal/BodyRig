@@ -38,7 +38,7 @@
 
         <div class="field-row">
           <div><label for="language">Standardsprog</label><input id="language" value="da" maxlength="16"></div>
-          <div><label for="feedback">Revisionsnote</label><input id="feedback" maxlength="8000" placeholder="Fx guided blueprint v1"></div>
+          <div><label for="feedback">Revisionsnote</label><input id="feedback" maxlength="8000" placeholder="Fx Matrix v2 refinement"></div>
         </div>
 
         <label for="authoredNotes">Authored notes</label>
@@ -50,8 +50,10 @@
         </div>
         <div class="trait-tools">
           <input id="traitSearch" class="trait-search" placeholder="Filtrér traits…">
+          <label class="check-row"><input id="changedTraitsOnly" type="checkbox"> Kun ændrede</label>
           <button id="resetTraits" class="secondary" type="button">Nulstil alle til 0.50</button>
         </div>
+        <div id="traitChangeSummary" class="fine-print">0 / 120 traits ændret fra neutral 0.50.</div>
         <div class="trait-rings">
           <details class="trait-ring" open>
             <summary>Inner Ring · <span id="innerTraitCount">…</span></summary>
@@ -143,7 +145,7 @@
       const row=document.createElement("div"); row.className="trait-slider-row"; row.dataset.search=trait.label.toLocaleLowerCase("da");
       row.innerHTML=`<label for="${inputId}" title="${escapeHtml(trait.label)}">${escapeHtml(trait.label)}</label><input id="${inputId}" type="range" min="0" max="1" step="0.05" value="0.5"><span id="${inputId}Value" class="slider-value">0.50</span>`;
       target.appendChild(row);
-      $(inputId).addEventListener("input",()=>{ $(`${inputId}Value`).textContent=Number($(inputId).value).toFixed(2); invalidate(); });
+      $(inputId).addEventListener("input",()=>{ $(`${inputId}Value`).textContent=Number($(inputId).value).toFixed(2); updateTraitView(); invalidate(); });
     }
   }
   async function loadTraitMatrix(){
@@ -151,7 +153,7 @@
     const inner=definition?.rings?.inner||[], outer=definition?.rings?.outer||[];
     if(definition.version!==2||inner.length!==60||outer.length!==60) throw new Error("Personality Matrix v2 definition er ufuldstændig.");
     state.traitDefinition=definition; buildTraitRing("inner",inner); buildTraitRing("outer",outer);
-    $("innerTraitCount").textContent=inner.length; $("outerTraitCount").textContent=outer.length; $("previewButton").disabled=false;
+    $("innerTraitCount").textContent=inner.length; $("outerTraitCount").textContent=outer.length; updateTraitView(); $("previewButton").disabled=false;
   }
   function traitPayload(ring){
     const traits=state.traitDefinition?.rings?.[ring]||[];
@@ -164,12 +166,20 @@
     for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
       const id=traitInputId(ring,trait.id); $(id).value="0.5"; $(`${id}Value`).textContent="0.50";
     }
-    invalidate();
+    updateTraitView(); invalidate();
   }
-  function filterTraits(){
+  function updateTraitView(){
     const query=$("traitSearch").value.trim().toLocaleLowerCase("da");
-    for(const row of document.querySelectorAll(".trait-slider-row")) row.classList.toggle("hidden",Boolean(query)&&!row.dataset.search.includes(query));
-    if(query) for(const details of document.querySelectorAll(".trait-ring")) details.open=true;
+    const changedOnly=$("changedTraitsOnly").checked;
+    let changed=0;
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition?.rings?.[ring]||[]){
+      const input=$(traitInputId(ring,trait.id)); const row=input?.closest(".trait-slider-row"); if(!input||!row) continue;
+      const isChanged=Math.abs(Number(input.value)-0.5)>0.000001; if(isChanged) changed+=1;
+      const matchesSearch=!query||row.dataset.search.includes(query);
+      row.classList.toggle("hidden",!matchesSearch||(changedOnly&&!isChanged));
+    }
+    $("traitChangeSummary").textContent=`${changed} / 120 traits ændret fra neutral 0.50.`;
+    if(query||changedOnly) for(const details of document.querySelectorAll(".trait-ring")) details.open=true;
   }
 
   function addExample(value=""){
@@ -288,7 +298,7 @@
 
   buildSliders(); addExample(); renderEvidenceStatus();
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
-  $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",filterTraits);
+  $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",updateTraitView); $("changedTraitsOnly").addEventListener("change",updateTraitView);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
   $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("baselineRevision").addEventListener("change",renderBaseline); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
