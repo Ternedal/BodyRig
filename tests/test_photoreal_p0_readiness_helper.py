@@ -142,3 +142,12 @@ def test_readiness_helper_powershell_parses_when_pwsh_is_available() -> None:
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+
+def test_readiness_helper_scopes_receipts_to_exact_p0_output_root() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert '$physicalOut = Join-Path $outputRoot "P0_PHYSICAL_VERIFICATION.json"' in source
+    assert '$readinessOut = Join-Path $outputRoot "P0_DOWNSTREAM_READINESS.json"' in source
+    assert 'Join-Path $receiptDirectory "P0_PHYSICAL_VERIFICATION.json"' not in source
+    assert 'Join-Path $receiptDirectory "P0_DOWNSTREAM_READINESS.json"' not in source
