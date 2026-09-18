@@ -81,6 +81,16 @@ def main(argv: list[str] | None = None) -> int:
                     result["positive_cosine_median"],
                 "negative_cosine_median":
                     result["negative_cosine_median"],
+                "planned_negative_observation_count":
+                    result["planned_negative_observation_count"],
+                "negative_observation_count":
+                    result["negative_observation_count"],
+                "negative_extraction_yield_fraction":
+                    result["negative_extraction_yield_fraction"],
+                "planned_negative_source_count":
+                    result["planned_negative_source_count"],
+                "observed_negative_source_count":
+                    result["observed_negative_source_count"],
                 "highest_negative_match":
                     result["highest_negative_match"],
                 "diagnostic_only":
