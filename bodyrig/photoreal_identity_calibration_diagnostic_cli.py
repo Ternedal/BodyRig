@@ -89,6 +89,8 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                 "positive_group_count":
                     result["positive_group_count"],
+                "weakest_positive_group":
+                    result["weakest_positive_group"],
                 "negative_cosine_median":
                     result["negative_cosine_median"],
                 "planned_negative_observation_count":
@@ -101,6 +103,14 @@ def main(argv: list[str] | None = None) -> int:
                     result["planned_negative_source_count"],
                 "observed_negative_source_count":
                     result["observed_negative_source_count"],
+                "lowest_yield_negative_performer":
+                    result["lowest_yield_negative_performer"],
+                "lowest_yield_negative_source":
+                    result["lowest_yield_negative_source"],
+                "highest_collision_negative_performer":
+                    result["highest_collision_negative_performer"],
+                "highest_collision_negative_source":
+                    result["highest_collision_negative_source"],
                 "highest_negative_match":
                     result["highest_negative_match"],
                 "diagnostic_only":
