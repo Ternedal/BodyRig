@@ -120,7 +120,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleEvidenceOrigin: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -205,7 +205,7 @@
       body_revision: $("bodyRevision").value||null,
       inner_ring: traitPayload("inner"),
       outer_ring: traitPayload("outer"),
-      baseline_revision: $("stackBaseline").checked ? ($("baselineRevision").value||null) : null
+      baseline_revision: $("stackBaseline").checked ? (state.selectedBaselineRevision||null) : null
     };
   }
   function key(){ return JSON.stringify(payload()); }
@@ -242,6 +242,7 @@
   }
   function renderBaseline(){
     const revisionId=$("baselineRevision").value;
+    state.selectedBaselineRevision=revisionId||null;
     const item=(state.person?.personality_revisions||[]).find(value=>value.revision_id===revisionId)||null;
     const stackToggle=$("stackBaseline");
     if(!item){
