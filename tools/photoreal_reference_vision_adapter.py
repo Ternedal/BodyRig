@@ -531,13 +531,71 @@ def _identity_result(runtime: Runtime, request: Mapping[str, Any], args: argpars
 def _calibration_result(runtime: Runtime, request: Mapping[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     for source, sample in _iter_samples(request["sources"], "samples"):
-        measured = _single_identity(runtime, source, sample)
-        if measured is not None:
-            frame_sha, vector = measured
-            observations.append({"source_key": source["source_key"], "source_sha256": source["source_sha256"], "subject_performer_id": source["subject_performer_id"], "timestamp_seconds": sample.get("timestamp_seconds"), "eye": sample["eye"], "frame_sha256": frame_sha, "embedding": vector})
+        image, spatial = _read_sample(runtime, source, sample)
+        if spatial:
+            raise ReferenceVisionError(
+                "spatial source cannot establish calibration identity before projection-specific deprojection"
+            )
+        base = {
+            "source_key": source["source_key"],
+            "source_sha256": source["source_sha256"],
+            "timestamp_seconds": sample.get("timestamp_seconds"),
+            "eye": sample["eye"],
+        }
+        rows = _candidate_rows(runtime, image, base=base)
+        detected = [row for row in rows if row["person_detected"] is True]
+        if len(detected) != 1:
+            continue
+        row = detected[0]
+        if (
+            row["identity_measurement_status"] != "available"
+            or row["identity_embedding"] is None
+        ):
+            continue
+        observations.append(
+            {
+                "source_key": row["source_key"],
+                "source_sha256": row["source_sha256"],
+                "subject_performer_id": source["subject_performer_id"],
+                "timestamp_seconds": row.get("timestamp_seconds"),
+                "eye": row["eye"],
+                "frame_sha256": row["frame_sha256"],
+                "candidate_id": row["candidate_id"],
+                "candidate_count": len(detected),
+                "person_detected": row["person_detected"],
+                "width": row["width"],
+                "height": row["height"],
+                "view_bin": row["view_bin"],
+                "face_visibility": row["face_visibility"],
+                "full_body_visibility": row["full_body_visibility"],
+                "person_fraction": row["person_fraction"],
+                "sharpness": row["sharpness"],
+                "motion": row["motion"],
+                "occlusion": row["occlusion"],
+                "identity_measurement_status": row["identity_measurement_status"],
+                "identity_measurement_reason": "embedding-available",
+                "embedding": row["identity_embedding"],
+            }
+        )
     if not observations:
         raise ReferenceVisionError("calibration extractor found no unambiguous non-target observations")
-    return {"format": "bodyrig-photoreal-identity-negative-observations", "version": 1, "target_performer_id": request["target_performer_id"], "identity_bank_sha256": request["identity_bank_sha256"], "extractor": args.bodyrig_adapter, "extractor_revision": args.bodyrig_revision, "model_set_sha256": args.bodyrig_model_set_sha256, "embedding_dimension": runtime.embedding_dimension, "observations": observations, "calibration_only": True, "build_only": True, "production_activation": False}
+    return {
+        "format": "bodyrig-photoreal-identity-negative-observations",
+        "version": 1,
+        "target_performer_id": request["target_performer_id"],
+        "identity_bank_sha256": request["identity_bank_sha256"],
+        "extractor": args.bodyrig_adapter,
+        "extractor_revision": args.bodyrig_revision,
+        "model_set_sha256": args.bodyrig_model_set_sha256,
+        "embedding_dimension": runtime.embedding_dimension,
+        "observations": observations,
+        "calibration_only": True,
+        "build_only": True,
+        "identity_matching_authority": False,
+        "teacher_training_authorized": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
 
 
 def _frame_result(runtime: Runtime, request: Mapping[str, Any], args: argparse.Namespace) -> dict[str, Any]:
