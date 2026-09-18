@@ -6,7 +6,7 @@
   <title>BodyRig · Guided Personality</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}}
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1.2fr) 48px;gap:8px;align-items:center;padding:5px 0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trait-slider-row input{width:100%}.trait-slider-row.hidden{display:none}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
   </style>
 </head>
 <body>
@@ -42,11 +42,30 @@
         <textarea id="authoredNotes" rows="4" maxlength="16000" placeholder="Fx tør og underspillet; undgå serviceagtig formulering."></textarea>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">3 · Direkte style exemplars</div><div class="fine-print">Kun replikker du selv author'er direkte her.</div></div><button id="addExample" class="secondary" type="button">+ eksempel</button></div>
+        <div class="card-row">
+          <div><div class="card-label">3 · Personality Matrix v2 · 120 traits</div><div class="fine-print">Alle værdier er eksplicit author'et. 0.50 er neutral. Coordination findes bevidst i både Inner Ring og Outer Ring som to separate akser.</div></div>
+        </div>
+        <div class="trait-tools">
+          <input id="traitSearch" class="trait-search" placeholder="Filtrér traits…">
+          <button id="resetTraits" class="secondary" type="button">Nulstil alle til 0.50</button>
+        </div>
+        <div class="trait-rings">
+          <details class="trait-ring" open>
+            <summary>Inner Ring · <span id="innerTraitCount">…</span></summary>
+            <div id="innerTraits" class="trait-grid"></div>
+          </details>
+          <details class="trait-ring">
+            <summary>Outer Ring · <span id="outerTraitCount">…</span></summary>
+            <div id="outerTraits" class="trait-grid"></div>
+          </details>
+        </div>
+
+        <div class="divider"></div>
+        <div class="card-row"><div><div class="card-label">4 · Direkte style exemplars</div><div class="fine-print">Kun replikker du selv author'er direkte her.</div></div><button id="addExample" class="secondary" type="button">+ eksempel</button></div>
         <div id="examples"></div>
 
         <div class="divider"></div>
-        <div class="card-row"><div><div class="card-label">4 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
+        <div class="card-row"><div><div class="card-label">5 · Godkendte transcript-eksempler</div><div class="fine-print">Importér både kandidatrapport og den approval receipt, der er bundet til præcis den rapport.</div></div><button id="clearEvidence" class="secondary" type="button">Ryd evidence</button></div>
         <div class="evidence-grid">
           <div class="evidence-box"><label for="styleReportFile">Candidate report JSON</label><input id="styleReportFile" type="file" accept="application/json,.json"></div>
           <div class="evidence-box"><label for="styleApprovalFile">Approval receipt JSON</label><input id="styleApprovalFile" type="file" accept="application/json,.json"></div>
@@ -55,7 +74,7 @@
 
         <div class="divider"></div>
         <div class="action-row">
-          <button id="previewButton" class="secondary" type="button">Byg preview</button>
+          <button id="previewButton" class="secondary" type="button" disabled>Byg preview</button>
           <button id="saveButton" class="primary" type="button" disabled>Gem som personality-kandidat</button>
         </div>
         <div id="status" class="status-line muted-text"></div>
@@ -89,7 +108,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null };
+  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, traitDefinition: null };
   const $ = id => document.getElementById(id);
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -104,6 +123,44 @@
       target.appendChild(row);
       $(id).addEventListener("input",()=>{ $(`${id}Value`).textContent=Number($(id).value).toFixed(2); invalidate(); });
     }
+  }
+
+
+  function traitInputId(ring, traitId){ return `trait-${ring}-${traitId}`; }
+  function buildTraitRing(ring, traits){
+    const target=$(ring==="inner"?"innerTraits":"outerTraits"); target.innerHTML="";
+    for(const trait of traits){
+      const inputId=traitInputId(ring,trait.id);
+      const row=document.createElement("div"); row.className="trait-slider-row"; row.dataset.search=trait.label.toLocaleLowerCase("da");
+      row.innerHTML=`<label for="${inputId}" title="${escapeHtml(trait.label)}">${escapeHtml(trait.label)}</label><input id="${inputId}" type="range" min="0" max="1" step="0.05" value="0.5"><span id="${inputId}Value" class="slider-value">0.50</span>`;
+      target.appendChild(row);
+      $(inputId).addEventListener("input",()=>{ $(`${inputId}Value`).textContent=Number($(inputId).value).toFixed(2); invalidate(); });
+    }
+  }
+  async function loadTraitMatrix(){
+    const definition=await api("/api/v1/personality/trait-matrix");
+    const inner=definition?.rings?.inner||[], outer=definition?.rings?.outer||[];
+    if(definition.version!==2||inner.length!==60||outer.length!==60) throw new Error("Personality Matrix v2 definition er ufuldstændig.");
+    state.traitDefinition=definition; buildTraitRing("inner",inner); buildTraitRing("outer",outer);
+    $("innerTraitCount").textContent=inner.length; $("outerTraitCount").textContent=outer.length; $("previewButton").disabled=false;
+  }
+  function traitPayload(ring){
+    const traits=state.traitDefinition?.rings?.[ring]||[];
+    const result={};
+    for(const trait of traits) result[trait.id]=Number($(traitInputId(ring,trait.id)).value);
+    return result;
+  }
+  function resetTraits(){
+    if(!state.traitDefinition) return;
+    for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
+      const id=traitInputId(ring,trait.id); $(id).value="0.5"; $(`${id}Value`).textContent="0.50";
+    }
+    invalidate();
+  }
+  function filterTraits(){
+    const query=$("traitSearch").value.trim().toLocaleLowerCase("da");
+    for(const row of document.querySelectorAll(".trait-slider-row")) row.classList.toggle("hidden",Boolean(query)&&!row.dataset.search.includes(query));
+    if(query) for(const details of document.querySelectorAll(".trait-ring")) details.open=true;
   }
 
   function addExample(value=""){
@@ -125,7 +182,9 @@
       style_exemplars,
       style_report: state.styleReport,
       style_approval: state.styleApproval,
-      body_revision: $("bodyRevision").value||null
+      body_revision: $("bodyRevision").value||null,
+      inner_ring: traitPayload("inner"),
+      outer_ring: traitPayload("outer")
     };
   }
   function key(){ return JSON.stringify(payload()); }
@@ -160,7 +219,8 @@
   function renderPreview(result){
     state.preview=result; state.requestKey=key(); $("saveButton").disabled=false; $("blueprintBadge").textContent=result.blueprint_sha256.slice(0,12)+"…"; $("blueprintBadge").classList.remove("muted");
     const g=result.blueprint.grounding; const e=result.blueprint.embodiment; const style=result.style_evidence;
-    $("grounding").innerHTML=`Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
+    const matrix=result.blueprint.version===2?`<br>Personality Matrix: <strong>v2 · ${Object.keys(result.blueprint.inner_ring).length} inner + ${Object.keys(result.blueprint.outer_ring).length} outer traits</strong>`:"";
+    $("grounding").innerHTML=`Blueprint: <strong>v${result.blueprint.version}</strong><br>Kommunikation: <strong>${escapeHtml(g.communication)}</strong><br>Embodiment: <strong>${escapeHtml(g.embodiment)}</strong>${g.body_revision?` · ${escapeHtml(g.body_revision)}`:""}${matrix}<br>Energi ${e.movement_energy.toFixed(2)} · gestik ${e.gesture_frequency.toFixed(2)}/${e.gesture_amplitude.toFixed(2)} · hoved ${e.head_motion.toFixed(2)} · gaze ${e.gaze_strength.toFixed(2)} · speech-motion ${e.speech_motion.toFixed(2)}${style?`<br>Transcript evidence: <strong>${style.approved_count} godkendte</strong> · report ${escapeHtml(style.candidate_report_sha256.slice(0,12))}… · approval ${escapeHtml(style.approval_sha256.slice(0,12))}…`:""}`;
     $("instructions").textContent=result.candidate.instructions; $("styleNotes").textContent=result.candidate.style_notes;
     const target=$("auditionSuite"); target.innerHTML=""; for(const probe of result.audition_suite.probes){const row=document.createElement("div");row.className="revision-item";row.innerHTML=`<div class="revision-id">${escapeHtml(probe.id)}</div><div class="revision-feedback">${escapeHtml(probe.prompt)}</div>`;target.appendChild(row);}
   }
@@ -177,10 +237,11 @@
 
   buildSliders(); addExample(); renderEvidenceStatus();
   $("addExample").addEventListener("click",()=>addExample()); $("previewButton").addEventListener("click",preview); $("saveButton").addEventListener("click",save); $("clearEvidence").addEventListener("click",clearEvidence);
+  $("resetTraits").addEventListener("click",resetTraits); $("traitSearch").addEventListener("input",filterTraits);
   $("styleReportFile").addEventListener("change",event=>readEvidence("styleReport",event.target.files[0])); $("styleApprovalFile").addEventListener("change",event=>readEvidence("styleApproval",event.target.files[0]));
   $("personSelect").addEventListener("change",()=>selectPerson($("personSelect").value)); $("bodyRevision").addEventListener("change",invalidate); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
   api("/api/v1/health").then(p=>{$("healthBadge").textContent=p.ok?"Lokal":"Fejl";$("healthBadge").classList.toggle("muted",!p.ok);}).catch(()=>{$("healthBadge").textContent="Offline";});
-  loadPeople().catch(error=>toast(error.message,true));
+  loadTraitMatrix().then(loadPeople).catch(error=>{ $("previewButton").disabled=true; toast(error.message,true); });
 })();
 </script>
 </body>
