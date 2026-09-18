@@ -42,6 +42,13 @@ def test_person_studio_loads_calibration_status_ui() -> None:
     assert 'Stash-kontekst' in js
     assert 'Stash-data er kun kontekst' in js
     assert 'Quality-audit kræver re-extraction' in js
+    assert 'Collision-frame quality:' in js
+    assert 'collisionQuality.face_visibility' in js
+    assert 'collisionQuality.full_body_visibility' in js
+    assert 'collisionQuality.person_fraction' in js
+    assert 'collisionQuality.sharpness' in js
+    assert 'collisionQuality.motion' in js
+    assert 'collisionQuality.occlusion' in js
     assert 'Closest positive group:' not in js
     assert 'Nærmeste positive group' in js
     assert '/body/photoreal-calibration' in js
