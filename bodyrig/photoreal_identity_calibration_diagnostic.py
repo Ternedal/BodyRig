@@ -130,6 +130,121 @@ def build_identity_calibration_diagnostic(
     positive_rows_raw.sort(key=lambda item: item[0])
     positive_floor = positive_rows_raw[0][0]
 
+    reference_vectors = [
+        (
+            reference,
+            _embedding(
+                reference["embedding"],
+                dimension=dimension,
+                label="diagnostic positive reference embedding",
+            ),
+        )
+        for reference in references
+    ]
+
+    reference_to_target_scores = [
+        _cosine(vector, target_centroid)
+        for _, vector in reference_vectors
+    ]
+
+    positive_group_summaries: list[dict[str, Any]] = []
+    group_centroids: dict[str, list[float]] = {}
+    group_ids = sorted(
+        {
+            str(reference["group_id"])
+            for reference in references
+        }
+    )
+    for group_id in group_ids:
+        group_rows = [
+            (reference, vector)
+            for reference, vector in reference_vectors
+            if str(reference["group_id"]) == group_id
+        ]
+        group_vectors = [
+            vector
+            for _, vector in group_rows
+        ]
+        group_centroid = _centroid(group_vectors)
+        group_centroids[group_id] = group_centroid
+
+        pairwise_scores = [
+            _cosine(group_vectors[left], group_vectors[right])
+            for left in range(len(group_vectors))
+            for right in range(left + 1, len(group_vectors))
+        ]
+        leave_group_out_scores = [
+            score
+            for score, row in positive_rows_raw
+            if str(row["group_id"]) == group_id
+        ]
+
+        positive_group_summaries.append(
+            {
+                "group_id": group_id,
+                "reference_count": len(group_rows),
+                "source_count": len(
+                    {
+                        str(reference["source_key"])
+                        for reference, _ in group_rows
+                    }
+                ),
+                "centroid_to_target_cosine": round(
+                    _cosine(group_centroid, target_centroid),
+                    9,
+                ),
+                "leave_group_out_cosine_min": round(
+                    min(leave_group_out_scores),
+                    9,
+                ),
+                "leave_group_out_cosine_median": round(
+                    statistics.median(leave_group_out_scores),
+                    9,
+                ),
+                "leave_group_out_cosine_max": round(
+                    max(leave_group_out_scores),
+                    9,
+                ),
+                "within_group_pairwise_cosine_min":
+                    None
+                    if not pairwise_scores
+                    else round(min(pairwise_scores), 9),
+                "within_group_pairwise_cosine_median":
+                    None
+                    if not pairwise_scores
+                    else round(
+                        statistics.median(pairwise_scores),
+                        9,
+                    ),
+                "within_group_pairwise_cosine_max":
+                    None
+                    if not pairwise_scores
+                    else round(max(pairwise_scores), 9),
+            }
+        )
+
+    positive_cross_group_pairs: list[dict[str, Any]] = []
+    for left_index, left_group in enumerate(group_ids):
+        for right_group in group_ids[left_index + 1:]:
+            positive_cross_group_pairs.append(
+                {
+                    "left_group_id": left_group,
+                    "right_group_id": right_group,
+                    "centroid_cosine": round(
+                        _cosine(
+                            group_centroids[left_group],
+                            group_centroids[right_group],
+                        ),
+                        9,
+                    ),
+                }
+            )
+
+    cross_group_scores = [
+        float(item["centroid_cosine"])
+        for item in positive_cross_group_pairs
+    ]
+
     planned_sources = {
         source["source_key"]: source
         for source in plan["sources"]
@@ -396,6 +511,36 @@ def build_identity_calibration_diagnostic(
         "positive_cosine_median":
             round(statistics.median(positive_scores), 9),
         "positive_cosine_max": round(max(positive_scores), 9),
+        "positive_reference_to_target_cosine_min": round(
+            min(reference_to_target_scores),
+            9,
+        ),
+        "positive_reference_to_target_cosine_median": round(
+            statistics.median(reference_to_target_scores),
+            9,
+        ),
+        "positive_reference_to_target_cosine_max": round(
+            max(reference_to_target_scores),
+            9,
+        ),
+        "positive_group_count": len(positive_group_summaries),
+        "positive_group_summaries": positive_group_summaries,
+        "positive_cross_group_pair_count":
+            len(positive_cross_group_pairs),
+        "positive_cross_group_centroid_cosine_min": round(
+            min(cross_group_scores),
+            9,
+        ),
+        "positive_cross_group_centroid_cosine_median": round(
+            statistics.median(cross_group_scores),
+            9,
+        ),
+        "positive_cross_group_centroid_cosine_max": round(
+            max(cross_group_scores),
+            9,
+        ),
+        "positive_cross_group_pairs":
+            positive_cross_group_pairs,
         "negative_ceiling": round(negative_ceiling, 9),
         "negative_cosine_median":
             round(statistics.median(negative_scores), 9),
