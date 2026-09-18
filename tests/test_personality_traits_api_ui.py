@@ -93,3 +93,21 @@ def test_guided_personality_ui_is_catalog_driven_and_trait_complete() -> None:
     assert 'result.trait_profile_sha256' in html
     assert 'traits?.active_trait_count' in html
     assert "Guided Personality · 120 traits" in person
+
+def test_guided_request_unknown_trait_normalizes_to_authoring_error() -> None:
+    request = GuidedPersonalityRequest(
+        communication=_communication(),
+        trait_profile={
+            "inner_ring": {"not_a_trait": 0.7},
+            "outer_ring": {},
+        },
+    )
+
+    from bodyrig.personality_authoring import PersonalityAuthoringError
+
+    with pytest.raises(
+        PersonalityAuthoringError,
+        match="unknown inner-ring traits",
+    ):
+        _authoring_kwargs(request)
+
