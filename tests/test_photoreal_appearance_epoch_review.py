@@ -6,17 +6,17 @@ import pytest
 
 from bodyrig.photoreal_appearance_epoch_review import (
     PhotorealAppearanceEpochReviewError,
+    _digest,
     apply_appearance_epoch_review,
 )
 
 
 def _plan() -> dict[str, object]:
-    return {
+    value: dict[str, object] = {
         "format": "bodyrig-photoreal-appearance-epoch-plan",
         "version": 1,
         "performer_id": "42",
         "performer_name": "Performer 42",
-        "appearance_epoch_plan_sha256": "a" * 64,
         "eligible_source_groups": [
             {"group_id": "scene:t", "split": "train"},
             {"group_id": "scene:e", "split": "evaluation"},
@@ -31,14 +31,24 @@ def _plan() -> dict[str, object]:
         "runtime_dependency": False,
         "production_activation": False,
     }
+    value["appearance_epoch_plan_sha256"] = _digest(value)
+    return value
+
+
+def _reseal_plan(value: dict[str, object]) -> dict[str, object]:
+    value = copy.deepcopy(value)
+    value.pop("appearance_epoch_plan_sha256", None)
+    value["appearance_epoch_plan_sha256"] = _digest(value)
+    return value
 
 
 def _review() -> dict[str, object]:
+    plan = _plan()
     return {
         "format": "bodyrig-photoreal-appearance-epoch-review",
         "version": 1,
         "performer_id": "42",
-        "appearance_epoch_plan_sha256": "a" * 64,
+        "appearance_epoch_plan_sha256": plan["appearance_epoch_plan_sha256"],
         "selected_epoch_id": "epoch-2026-a",
         "selected_source_group_ids": ["scene:t", "scene:e"],
         "human_review_complete": True,
@@ -98,3 +108,49 @@ def test_epoch_review_rejects_extra_authority_fields() -> None:
     review["photoreal_acceptance"] = True
     with pytest.raises(PhotorealAppearanceEpochReviewError, match="fields must match v1 exactly"):
         apply_appearance_epoch_review(_plan(), review)
+
+
+def test_epoch_review_rejects_boolean_plan_v1_before_authority_use() -> None:
+    plan = _plan()
+    plan["version"] = True
+    with pytest.raises(
+        PhotorealAppearanceEpochReviewError,
+        match="plan format/version mismatch",
+    ):
+        apply_appearance_epoch_review(plan, _review())
+
+
+def test_epoch_review_rejects_resealed_plan_content_drift() -> None:
+    plan = _plan()
+    plan["performer_id"] = "99"
+    with pytest.raises(
+        PhotorealAppearanceEpochReviewError,
+        match="plan digest mismatch",
+    ):
+        apply_appearance_epoch_review(plan, _review())
+
+
+def test_epoch_review_rejects_non_string_plan_sha() -> None:
+    plan = _plan()
+    plan["appearance_epoch_plan_sha256"] = True
+    with pytest.raises(
+        PhotorealAppearanceEpochReviewError,
+        match="plan SHA-256 is invalid",
+    ):
+        apply_appearance_epoch_review(plan, _review())
+
+
+def test_epoch_review_preserves_numeric_float_v1() -> None:
+    plan = _plan()
+    plan["version"] = 1.0
+    plan = _reseal_plan(plan)
+    review = _review()
+    review["version"] = 1.0
+    review["appearance_epoch_plan_sha256"] = plan[
+        "appearance_epoch_plan_sha256"
+    ]
+
+    result = apply_appearance_epoch_review(plan, review)
+
+    assert result["teacher_input_authorized"] is True
+    assert result["production_activation"] is False
