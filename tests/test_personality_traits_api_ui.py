@@ -106,9 +106,14 @@ def test_guided_personality_ui_is_catalog_driven_and_trait_complete() -> None:
     assert 'result.trait_profile_sha256' in html
     assert 'traits?.active_trait_count' in html
     assert "Guided Personality · 120 traits" in person
+    assert 'id="personalityManualHint"' in person
     assert "Redigér 120 traits" in person_js
     assert "trait_profile_sha256=" in person_js
     assert "personality_revision=" in person_js
+    assert "structuredPersonalityMarkers" in person_js
+    assert "manualPersonalityHasStructuredProvenance" in person_js
+    assert "updateManualPersonalityEditorState" in person_js
+    assert "Structured personality-kandidater skal redigeres via Guided Personality" in person_js
 
 def test_guided_request_unknown_trait_normalizes_to_authoring_error() -> None:
     request = GuidedPersonalityRequest(
