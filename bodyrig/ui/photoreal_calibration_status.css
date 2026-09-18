@@ -1,0 +1,121 @@
+.photoreal-calibration-card {
+  overflow: hidden;
+}
+
+.photoreal-calibration-header {
+  align-items: flex-start;
+}
+
+.photoreal-calibration-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.photoreal-calibration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.photoreal-calibration-panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--panel-2);
+  padding: 13px;
+}
+
+.photoreal-calibration-value {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.photoreal-calibration-blockers {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.photoreal-calibration-blocker {
+  border-left: 3px solid var(--danger);
+  padding: 7px 9px;
+  background: rgba(229, 115, 115, .08);
+  color: #ffd5d5;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.photoreal-calibration-sources {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.photoreal-calibration-source {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: #131619;
+  border-radius: 9px;
+  padding: 9px 10px;
+}
+
+.photoreal-calibration-source-top {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.photoreal-calibration-source-top strong {
+  font-size: 12px;
+}
+
+.photoreal-calibration-source-top span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.photoreal-calibration-source code {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.photoreal-calibration-authority {
+  border-top: 1px solid var(--border);
+  padding-top: 11px;
+  margin-top: 14px;
+}
+
+@media (max-width: 920px) {
+  .photoreal-calibration-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .photoreal-calibration-header {
+    flex-direction: column;
+  }
+
+  .photoreal-calibration-actions {
+    justify-content: flex-start;
+  }
+
+  .photoreal-calibration-source-top {
+    display: grid;
+  }
+
+  .photoreal-calibration-source-top span {
+    text-align: left;
+  }
+}
