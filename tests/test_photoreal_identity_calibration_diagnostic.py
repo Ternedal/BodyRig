@@ -270,6 +270,35 @@ def test_diagnostic_identifies_highest_negative(
         result["highest_negative_match"]["resolved_path"]
         == r"C:\negative\p7.mp4"
     )
+
+    highest = result["highest_negative_match"]
+    assert len(highest["positive_group_matches"]) == 2
+    assert len(highest["positive_reference_matches"]) == 4
+    assert (
+        highest["closest_positive_group"]
+        == highest["positive_group_matches"][0]
+    )
+    assert (
+        highest["closest_positive_reference"]
+        == highest["positive_reference_matches"][0]
+    )
+    assert (
+        highest["positive_group_matches"][0]["cosine"]
+        >= highest["positive_group_matches"][1]["cosine"]
+    )
+    assert highest["closest_positive_group_margin"] >= 0.0
+
+    group_violation_summary = result[
+        "violating_closest_positive_group_summaries"
+    ]
+    assert sum(
+        item["observation_count"]
+        for item in group_violation_summary
+    ) == result["violating_negative_observation_count"]
+    assert sum(
+        item["observation_fraction"]
+        for item in group_violation_summary
+    ) == pytest.approx(1.0)
     assert (
         result["highest_collision_negative_performer"]
         ["subject_performer_id"]
@@ -446,4 +475,48 @@ def test_diagnostic_reports_positive_group_structure(
     pair = result["positive_cross_group_pairs"][0]
     assert {pair["left_group_id"], pair["right_group_id"]} == {"a", "b"}
     assert -1.0 <= pair["centroid_cosine"] <= 1.0
+
+def test_diagnostic_identifies_group_specific_negative_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "build_identity_calibration",
+        _fake_core,
+    )
+
+    bank = _bank()
+    bank["centroid_embedding"] = [
+        1.0 if index in {0, 5} else 0.0
+        for index in range(32)
+    ]
+    for reference in bank["references"]:
+        if reference["group_id"] == "a":
+            reference["embedding"] = _vec(0)
+        else:
+            reference["embedding"] = _vec(5)
+
+    observations = _observations()
+    observations["observations"][0]["embedding"] = _vec(0)
+    observations["observations"][1]["embedding"] = _vec(9)
+
+    result = diagnostic.build_identity_calibration_diagnostic(
+        bank,
+        _plan(),
+        observations,
+    )
+
+    highest = result["highest_negative_match"]
+    assert highest["subject_performer_id"] == "7"
+    assert highest["closest_positive_group"]["group_id"] == "a"
+    assert highest["closest_positive_group"]["cosine"] == pytest.approx(1.0)
+    assert highest["closest_positive_group_margin"] == pytest.approx(1.0)
+    assert (
+        highest["closest_positive_reference"]["group_id"]
+        == "a"
+    )
+    assert (
+        highest["closest_positive_reference"]["cosine"]
+        == pytest.approx(1.0)
+    )
 
