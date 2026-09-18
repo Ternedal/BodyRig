@@ -33,6 +33,12 @@ def test_resume_runs_nonfatal_diagnostic_only_after_stage13_block() -> None:
         )
     ]
     assert "2>&1" not in diagnostic_block
+    assert "try {" in diagnostic_block
+    assert "} catch {" in diagnostic_block
+    assert (
+        "calibration diagnostic could not run; authoritative "
+        "Stage 13 block is unchanged"
+    ) in diagnostic_block
 
     diagnostic_index = text.index(
         '"=== 13D/16 DIAGNOSE IDENTITY CALIBRATION BLOCK ==="'
