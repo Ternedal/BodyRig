@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from bodyrig.person_profiles import create_profile, load_profile
+from bodyrig.personality_blueprint import personality_trait_definitions
 from bodyrig.personality_authoring import (
     PersonalityAuthoringError,
     build_guided_personality,
@@ -124,3 +125,41 @@ def test_invalid_guided_values_fail_closed(tmp_path: Path) -> None:
             default_language="da",
             communication={**communication(), "warmth": 2.0},
         )
+
+
+
+def test_save_guided_v2_persists_exact_trait_matrix(tmp_path: Path) -> None:
+    root = tmp_path / "people"
+    profile = create_profile(root, display_name="Trait Person")
+    definition = personality_trait_definitions()
+    inner = {item["id"]: 0.5 for item in definition["rings"]["inner"]}
+    outer = {item["id"]: 0.5 for item in definition["rings"]["outer"]}
+    inner["coordination"] = 0.15
+    outer["coordination"] = 0.85
+    outer["aggression"] = 0.9
+
+    result = save_guided_personality(
+        root,
+        profile["person_id"],
+        default_language="da",
+        communication=communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+        feedback="120-trait matrix v2",
+    )
+
+    assert result["blueprint"]["version"] == 2
+    assert result["blueprint"]["inner_ring"]["coordination"] == pytest.approx(0.15)
+    assert result["blueprint"]["outer_ring"]["coordination"] == pytest.approx(0.85)
+    evidence = json.loads(Path(result["evidence_path"]).read_text(encoding="utf-8"))
+    assert evidence["version"] == 2
+    assert len(evidence["inner_ring"]) == 60
+    assert len(evidence["outer_ring"]) == 60
+    assert evidence["outer_ring"]["aggression"] == pytest.approx(0.9)
+
+    saved = load_profile(root, profile["person_id"])
+    revision = saved["personality_revisions"][-1]
+    assert revision["feedback"] == "120-trait matrix v2"
+    assert "trait matrix=v2" in revision["style_notes"]
+    assert "Inner ring:" in revision["instructions"]
+    assert "Outer ring:" in revision["instructions"]
