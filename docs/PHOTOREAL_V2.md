@@ -153,6 +153,26 @@ The current core frame-index gate rejects train/evaluation frames with a 64-bit 
 
 Even a clean frame index grants **teacher-training authority only**. It never grants photoreal, human or production acceptance.
 
+### Canonical post-P0 operator handoff
+
+After one P0 root has persisted canonical `teacher-training-authorized` status, the static-teacher path remains explicitly human-gated. Use create-only output paths for each step:
+
+```powershell
+bodyrig-photoreal-appearance-epoch --frame-index <P0_ROOT>/frame-index.json --out <EPOCH_PLAN>
+
+bodyrig-photoreal-appearance-epoch-handoff --plan <EPOCH_PLAN> --handoff-out <HANDOFF> --review-template-out <REVIEW_TEMPLATE>
+
+bodyrig-photoreal-appearance-epoch-review-record --plan <EPOCH_PLAN> --handoff <HANDOFF> --selected-epoch-id <EPOCH_ID> --source-group <TRAIN_GROUP> --source-group <EVAL_GROUP> --reviewed-by <OPERATOR> --review-notes <NOTES> --approve-human-review --out <HUMAN_REVIEW>
+
+bodyrig-photoreal-appearance-epoch-review --plan <EPOCH_PLAN> --human-review <HUMAN_REVIEW> --out <EPOCH_SELECTION>
+
+bodyrig-photoreal-teacher-input-from-p0 --p0-root <P0_ROOT> --epoch-selection <EPOCH_SELECTION> --out <TEACHER_INPUT>
+```
+
+The handoff and editable review template are deliberately non-authoritative. The recorder requires explicit human approval and at least one selected train group plus one held-out evaluation group. The final selection may authorize teacher input/training only; it must keep `photoreal_acceptance_authority=false`, `human_visual_acceptance_required=true` and `production_activation=false`. The P0-root wrapper independently revalidates the canonical P0 status/files and then routes the result through the strict teacher-input authority gate.
+
+Only after that strict teacher input exists may `bodyrig-photoreal-teacher-run` launch a pinned teacher adapter. Training completion is still not P1 acceptance; P1 requires the held-out human visual review described above.
+
 ## Stereo and spatial source handling
 
 Spatial material is evidence, not noise.
