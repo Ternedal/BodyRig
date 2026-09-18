@@ -5,10 +5,10 @@ import json
 import sys
 from pathlib import Path
 
-from .photoreal_teacher_benchmark_plan import (
-    PhotorealTeacherBenchmarkPlanError,
-    build_teacher_benchmark_plan_files,
+from .photoreal_teacher_benchmark_authority import (
+    build_teacher_benchmark_plan_files_strict,
 )
+from .photoreal_teacher_benchmark_plan import PhotorealTeacherBenchmarkPlanError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -23,7 +23,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_teacher_benchmark_plan_files(args.teacher_input, args.out)
+        result = build_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
     except PhotorealTeacherBenchmarkPlanError as exc:
         print(f"BodyRig Photoreal teacher benchmark plan: FAIL: {exc}", file=sys.stderr)
         return 1
