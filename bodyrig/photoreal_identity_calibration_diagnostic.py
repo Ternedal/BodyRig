@@ -19,6 +19,7 @@ VERSION = 1
 
 NEGATIVE_OBSERVATION_QUALITY_FIELDS = (
     "candidate_id",
+    "candidate_count",
     "person_detected",
     "width",
     "height",
@@ -30,6 +31,7 @@ NEGATIVE_OBSERVATION_QUALITY_FIELDS = (
     "motion",
     "occlusion",
     "identity_measurement_status",
+    "identity_measurement_reason",
 )
 
 
@@ -358,6 +360,15 @@ def build_identity_calibration_diagnostic(
                 observation.get("timestamp_seconds"),
             "eye": observation["eye"],
             "frame_sha256": observation["frame_sha256"],
+            "quality_metadata": {
+                field: observation[field]
+                for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+                if field in observation
+            },
+            "quality_metadata_complete": all(
+                field in observation
+                for field in NEGATIVE_OBSERVATION_QUALITY_FIELDS
+            ),
             "positive_group_matches": positive_group_matches,
             "closest_positive_group":
                 positive_group_matches[0],
