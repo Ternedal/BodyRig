@@ -60,11 +60,24 @@ def _plan() -> dict[str, object]:
         "sources": [
             {
                 "source_key": "n7",
+                "subject_performer_id": "7",
                 "subject_performer_name": "P7",
+                "sample_count": 2,
+                "samples": [{}, {}],
             },
             {
                 "source_key": "n8",
+                "subject_performer_id": "8",
                 "subject_performer_name": "P8",
+                "sample_count": 2,
+                "samples": [{}, {}],
+            },
+            {
+                "source_key": "n9",
+                "subject_performer_id": "9",
+                "subject_performer_name": "P9",
+                "sample_count": 2,
+                "samples": [{}, {}],
             },
         ]
     }
@@ -189,6 +202,28 @@ def test_diagnostic_identifies_highest_negative(
         >= result["negative_cosine_median"]
         >= result["negative_cosine_min"]
     )
+    assert result["planned_negative_observation_count"] == 6
+    assert result["negative_observation_count"] == 2
+    assert result["negative_extraction_yield_fraction"] == 0.333333333
+    assert result["planned_negative_source_count"] == 3
+    assert result["observed_negative_source_count"] == 2
+    assert result["planned_negative_performer_count"] == 3
+
+    source_yields = {
+        item["source_key"]: item
+        for item in result["negative_source_yield_summaries"]
+    }
+    assert source_yields["n7"]["extraction_yield_fraction"] == 0.5
+    assert source_yields["n8"]["extraction_yield_fraction"] == 0.5
+    assert source_yields["n9"]["observation_count"] == 0
+    assert source_yields["n9"]["extraction_yield_fraction"] == 0.0
+
+    performer_yields = {
+        item["subject_performer_id"]: item
+        for item in result["negative_performer_yield_summaries"]
+    }
+    assert performer_yields["9"]["observation_count"] == 0
+    assert performer_yields["9"]["extraction_yield_fraction"] == 0.0
 
 
 def test_diagnostic_rejects_stage13_math_mismatch(
@@ -294,4 +329,13 @@ def test_diagnostic_groups_multiple_observations_by_source(
     assert n7["observation_count"] == 2
     assert n7["violating_observation_count"] == 1
     assert n7["subject_performer_id"] == "7"
+
+    n7_yield = next(
+        item
+        for item in result["negative_source_yield_summaries"]
+        if item["source_key"] == "n7"
+    )
+    assert n7_yield["planned_sample_count"] == 2
+    assert n7_yield["observation_count"] == 2
+    assert n7_yield["extraction_yield_fraction"] == 1.0
 
