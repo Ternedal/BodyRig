@@ -8,6 +8,7 @@ from pathlib import Path
 from .photoreal_exavatar_materializer import (
     PhotorealExAvatarMaterializerError,
     materialize_exavatar_benchmark_files,
+    validate_exavatar_materialization_files,
 )
 
 
@@ -19,20 +20,29 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--distribution", default="Ubuntu-22.04")
     parser.add_argument("--linux-python", default="/opt/bodyrig-photoreal/bin/python")
     parser.add_argument("--wsl-exe", default="wsl.exe")
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = materialize_exavatar_benchmark_files(
-            args.benchmark_plan,
-            workspace=args.workspace,
-            tool_path=args.tool_path,
-            distribution=args.distribution,
-            linux_python=args.linux_python,
-            wsl_exe=args.wsl_exe,
-        )
+        if args.reuse_existing and args.workspace.expanduser().resolve().is_dir():
+            result = validate_exavatar_materialization_files(
+                args.benchmark_plan,
+                workspace=args.workspace,
+                distribution=args.distribution,
+                wsl_exe=args.wsl_exe,
+            )
+        else:
+            result = materialize_exavatar_benchmark_files(
+                args.benchmark_plan,
+                workspace=args.workspace,
+                tool_path=args.tool_path,
+                distribution=args.distribution,
+                linux_python=args.linux_python,
+                wsl_exe=args.wsl_exe,
+            )
     except PhotorealExAvatarMaterializerError as exc:
         print(f"BodyRig Photoreal ExAvatar materializer: FAIL: {exc}", file=sys.stderr)
         return 1
