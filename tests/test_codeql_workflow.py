@@ -29,11 +29,11 @@ def test_codeql_workflow_exists_and_scans_python_only() -> None:
     assert "languages: go" not in text.lower()
 
 
-def test_codeql_workflow_runs_on_main_pr_push_and_schedule() -> None:
+def test_codeql_workflow_runs_on_main_push_all_prs_and_schedule() -> None:
     text = _text()
-    assert "push:" in text
-    assert "pull_request:" in text
-    assert text.count("branches: [main]") == 2
+    assert "push:\n    branches: [main]" in text
+    assert "pull_request:\n  schedule:" in text
+    assert text.count("branches: [main]") == 1
     assert "schedule:" in text
     assert "cron:" in text
 
