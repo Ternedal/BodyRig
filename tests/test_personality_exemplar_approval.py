@@ -8,6 +8,8 @@ from bodyrig.personality_exemplar_approval import (
     PersonalityExemplarApprovalError,
     build_approval,
     canonical_sha256,
+    validate_approval,
+    validate_candidate_report,
     verify_approval,
 )
 
@@ -122,3 +124,42 @@ def test_selected_indexes_must_be_unique_and_in_range() -> None:
             speaker_identity_confirmed=True,
             style_use_approved=True,
         )
+
+
+def test_candidate_report_version_discriminator_is_bool_safe() -> None:
+    source = report()
+    numeric = copy.deepcopy(source)
+    numeric["version"] = 1.0
+    assert validate_candidate_report(numeric)["version"] == 1
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        tampered = copy.deepcopy(source)
+        tampered["version"] = invalid
+        with pytest.raises(
+            PersonalityExemplarApprovalError,
+            match="format/version",
+        ):
+            validate_candidate_report(tampered)
+
+
+def test_approval_version_discriminator_is_bool_safe() -> None:
+    source = report()
+    approval = build_approval(
+        source,
+        selected_candidate_indexes=[0],
+        speaker_identity_confirmed=True,
+        style_use_approved=True,
+    )
+
+    numeric = copy.deepcopy(approval)
+    numeric["version"] = 1.0
+    assert validate_approval(numeric)["version"] == 1
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        tampered = copy.deepcopy(approval)
+        tampered["version"] = invalid
+        with pytest.raises(
+            PersonalityExemplarApprovalError,
+            match="format/version",
+        ):
+            validate_approval(tampered)

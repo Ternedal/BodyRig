@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from bodyrig.personality_suite_review import (
     review_path,
     seal_suite_review,
     suite_review_sha256,
+    validate_suite_review,
     verify_suite_review,
 )
 
@@ -225,3 +228,21 @@ def test_suite_review_rejects_fingerprint_for_different_personality_revision(tmp
             default_language="da",
             audition_ids=audition_ids,
         )
+
+
+def test_suite_review_version_discriminator_is_bool_safe(tmp_path: Path) -> None:
+    profile = _profile(tmp_path)
+    review = _seal(tmp_path, profile, _auditions(tmp_path, profile))
+
+    numeric = copy.deepcopy(review)
+    numeric["version"] = 1.0
+    assert validate_suite_review(numeric)["version"] == 1
+
+    for invalid in (True, False, "1", None, {}, [], 2):
+        tampered = copy.deepcopy(review)
+        tampered["version"] = invalid
+        with pytest.raises(
+            PersonalitySuiteReviewError,
+            match="format/version",
+        ):
+            validate_suite_review(tampered)

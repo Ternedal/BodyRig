@@ -142,7 +142,13 @@ def validate_suite_review(value: Mapping[str, Any] | Any) -> dict[str, Any]:
     }
     if not isinstance(value, Mapping) or set(value) != fields:
         raise PersonalitySuiteReviewError("suite review fields must match v1 exactly")
-    if value.get("format") != FORMAT or value.get("version") != VERSION:
+    version = value.get("version")
+    if (
+        value.get("format") != FORMAT
+        or isinstance(version, bool)
+        or not isinstance(version, (int, float))
+        or version != VERSION
+    ):
         raise PersonalitySuiteReviewError("unsupported suite review format/version")
     review_id = value.get("review_id")
     person_id = value.get("person_id")
