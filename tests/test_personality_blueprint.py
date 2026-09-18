@@ -9,6 +9,7 @@ from bodyrig.personality_blueprint import (
     blueprint_sha256,
     build_blueprint,
     compile_blueprint,
+    personality_trait_definitions,
     validate_blueprint,
 )
 
@@ -206,3 +207,115 @@ def test_blueprint_preserves_schema_numeric_version_equality() -> None:
     value = build_blueprint(default_language="da", communication=communication())
     value["version"] = 1.0
     assert validate_blueprint(value)["version"] == 1
+
+
+
+def trait_rings() -> tuple[dict[str, float], dict[str, float]]:
+    definition = personality_trait_definitions()
+    return (
+        {item["id"]: 0.5 for item in definition["rings"]["inner"]},
+        {item["id"]: 0.5 for item in definition["rings"]["outer"]},
+    )
+
+
+def test_v1_default_blueprint_digest_remains_stable() -> None:
+    value = build_blueprint(
+        default_language="da",
+        communication=communication(),
+    )
+
+    assert value["version"] == 1
+    assert "inner_ring" not in value
+    assert "outer_ring" not in value
+    assert (
+        blueprint_sha256(value)
+        == "238a50dd29550f85bdf44e6ef592fb709a8346817fa450fe152ad1a112570a4f"
+    )
+
+
+def test_v2_trait_matrix_has_exact_60_plus_60_definition() -> None:
+    definition = personality_trait_definitions()
+
+    assert definition["version"] == 2
+    assert len(definition["rings"]["inner"]) == 60
+    assert len(definition["rings"]["outer"]) == 60
+    assert definition["rings"]["inner"][0] == {
+        "id": "bulk_apperception",
+        "label": "Bulk Apperception",
+        "order": 1,
+    }
+    assert definition["rings"]["inner"][-1]["label"] == "Humility"
+    assert definition["rings"]["outer"][0]["label"] == "Vivacity"
+    assert definition["rings"]["outer"][-1]["label"] == "Meekness"
+
+
+def test_v2_keeps_inner_and_outer_coordination_independent() -> None:
+    inner, outer = trait_rings()
+    inner["coordination"] = 0.1
+    outer["coordination"] = 0.9
+
+    value = build_blueprint(
+        default_language="da",
+        communication=communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+    )
+    compiled = compile_blueprint(value)
+
+    assert value["version"] == 2
+    assert value["inner_ring"]["coordination"] == pytest.approx(0.1)
+    assert value["outer_ring"]["coordination"] == pytest.approx(0.9)
+    lines = compiled["instructions"].splitlines()
+    inner_line = next(line for line in lines if line.startswith("Inner ring:"))
+    outer_line = next(line for line in lines if line.startswith("Outer ring:"))
+    assert "Coordination=0.1" in inner_line
+    assert "Coordination=0.9" in outer_line
+    assert "trait matrix=v2" in compiled["style_notes"]
+    assert "inner ring traits=60" in compiled["style_notes"]
+    assert "outer ring traits=60" in compiled["style_notes"]
+
+
+def test_v2_digest_and_runtime_instructions_change_with_trait_value() -> None:
+    inner, outer = trait_rings()
+    first = build_blueprint(
+        default_language="da",
+        communication=communication(),
+        inner_ring=inner,
+        outer_ring=outer,
+    )
+    outer_changed = dict(outer)
+    outer_changed["aggression"] = 0.95
+    second = build_blueprint(
+        default_language="da",
+        communication=communication(),
+        inner_ring=inner,
+        outer_ring=outer_changed,
+    )
+
+    assert blueprint_sha256(first) != blueprint_sha256(second)
+    assert compile_blueprint(first)["instructions"] != compile_blueprint(second)["instructions"]
+    assert "Aggression=0.95" in compile_blueprint(second)["instructions"]
+
+
+def test_v2_rejects_incomplete_trait_ring() -> None:
+    inner, outer = trait_rings()
+    del outer["meekness"]
+
+    with pytest.raises(PersonalityBlueprintError, match="outer_ring fields"):
+        build_blueprint(
+            default_language="da",
+            communication=communication(),
+            inner_ring=inner,
+            outer_ring=outer,
+        )
+
+
+def test_v2_requires_both_rings() -> None:
+    inner, _outer = trait_rings()
+
+    with pytest.raises(PersonalityBlueprintError, match="requires both inner_ring and outer_ring"):
+        build_blueprint(
+            default_language="da",
+            communication=communication(),
+            inner_ring=inner,
+        )
