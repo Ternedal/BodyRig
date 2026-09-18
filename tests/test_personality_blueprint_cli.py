@@ -260,4 +260,3 @@ def test_cli_rejects_invalid_trait_profile(
 
     assert rc == 1
     assert "trait profile is invalid" in capsys.readouterr().err
-\n
