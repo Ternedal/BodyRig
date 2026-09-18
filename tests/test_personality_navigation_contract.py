@@ -51,3 +51,13 @@ def test_person_studio_labels_personality_provenance_and_links_to_matrix() -> No
         "Åbn som baseline",
     ):
         assert token in app
+
+
+
+def test_person_studio_labels_source_stacked_matrix_revision() -> None:
+    app = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
+
+    assert 'label: "Source + Matrix v2"' in app
+    assert 'evidenceKind === "personality-stack-v1"' in app
+    assert 'styleNotes.startsWith("personality-stack-v1 |")' in app
+    assert 'personalityKind?.label === "Source + Matrix v2"' in app
