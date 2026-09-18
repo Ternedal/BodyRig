@@ -156,6 +156,14 @@ def apply_appearance_epoch_review(
             "approved appearance epoch must contain both train and held-out evaluation source groups"
         )
 
+    performer_name_raw = plan.get("performer_name")
+    if performer_name_raw is None:
+        performer_name = ""
+    elif isinstance(performer_name_raw, str):
+        performer_name = performer_name_raw
+    else:
+        raise PhotorealAppearanceEpochReviewError("plan performer name is invalid")
+
     selected_sorted = sorted(selected)
     review_core = {
         "format": REVIEW_FORMAT,
@@ -175,15 +183,7 @@ def apply_appearance_epoch_review(
         "format": FORMAT,
         "version": VERSION,
         "performer_id": performer_id,
-        "performer_name": (
-            plan.get("performer_name")
-            if isinstance(plan.get("performer_name"), str)
-            else ""
-            if plan.get("performer_name") is None
-            else (_ for _ in ()).throw(
-                PhotorealAppearanceEpochReviewError("plan performer name is invalid")
-            )
-        ),
+        "performer_name": performer_name,
         "appearance_epoch_plan_sha256": plan_sha,
         "appearance_epoch_review_sha256": review_sha,
         "selected_epoch_id": selected_epoch_id,
