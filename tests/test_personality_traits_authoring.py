@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from pathlib import Path
 
 from bodyrig.person_profiles import create_profile, load_profile
 from bodyrig.personality_authoring import (
+    PersonalityAuthoringError,
     build_guided_personality,
+    load_personality_trait_profile,
     save_guided_personality,
 )
 from bodyrig.personality_traits import (
@@ -126,3 +130,90 @@ def test_trait_profile_changes_personality_candidate_identity(
 
     assert first["candidate"]["style_notes"] != second["candidate"]["style_notes"]
     assert first["trait_profile_sha256"] != second["trait_profile_sha256"]
+
+def test_saved_trait_profile_roundtrips_by_personality_revision(
+    tmp_path: Path,
+) -> None:
+    profile = create_profile(tmp_path, display_name="Roundtrip")
+    traits = build_trait_profile(
+        inner_ring={"curiosity": 0.9},
+        outer_ring={"empathy": 0.85},
+    )
+    saved = save_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_communication(),
+        trait_profile=traits,
+    )
+
+    loaded = load_personality_trait_profile(
+        tmp_path,
+        profile["person_id"],
+        revision_id=saved["saved_personality_revision"],
+    )
+
+    assert loaded is not None
+    assert loaded["revision_id"] == "personality-r0001"
+    assert loaded["trait_profile"] == traits
+    assert (
+        loaded["trait_profile_sha256"]
+        == trait_profile_sha256(traits)
+    )
+
+
+def test_legacy_personality_revision_has_no_trait_profile(
+    tmp_path: Path,
+) -> None:
+    profile = create_profile(tmp_path, display_name="Legacy Load")
+    saved = save_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_communication(),
+    )
+
+    assert (
+        load_personality_trait_profile(
+            tmp_path,
+            profile["person_id"],
+            revision_id=saved["saved_personality_revision"],
+        )
+        is None
+    )
+
+
+def test_trait_profile_reload_fails_closed_on_tampered_evidence(
+    tmp_path: Path,
+) -> None:
+    profile = create_profile(tmp_path, display_name="Tamper")
+    traits = build_trait_profile(
+        inner_ring={"curiosity": 0.9},
+    )
+    saved = save_guided_personality(
+        tmp_path,
+        profile["person_id"],
+        default_language="da",
+        communication=_communication(),
+        trait_profile=traits,
+    )
+    evidence = Path(saved["trait_evidence_path"])
+    evidence.write_text(
+        json.dumps(
+            build_trait_profile(
+                inner_ring={"curiosity": 0.1},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        PersonalityAuthoringError,
+        match="SHA-256 mismatch",
+    ):
+        load_personality_trait_profile(
+            tmp_path,
+            profile["person_id"],
+            revision_id=saved["saved_personality_revision"],
+        )
+
