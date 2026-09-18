@@ -13,6 +13,7 @@ from typing import Any, Mapping
 from .person_profiles import PersonProfileError, add_personality_revision, load_profile
 from .person_source_alignment import PersonSourceAlignmentError, file_sha256, write_binding
 from .person_voice_source import PersonVoiceSourceError, source_files_for_body
+from .personality_exemplar_approval import canonical_sha256 as exemplar_report_sha256
 from .personality_exemplars import PersonalityExemplarError, build_exemplar_candidates
 
 
@@ -235,6 +236,11 @@ def build_source_style_candidates(
             for item in transcripts
         ],
         "report": report,
+        "report_sha256": (
+            exemplar_report_sha256(report)
+            if report is not None
+            else None
+        ),
         "operator_review_required": True,
         "speaker_identity_authority": False,
         "personality_authority": False,
