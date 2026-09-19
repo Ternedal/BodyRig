@@ -187,7 +187,8 @@ Editoren giver:
 - redigering fra inspectorens slider, som skriver tilbage til den eksisterende trait-slider og sender det samme `input`-event som manuel slider-authoring;
 - read-only overlay af en verificeret Matrix v2-baseline;
 - exact baseline/current delta i inspector-panelet;
-- adgang til den fulde rå 120-slider-visning via `Vis rå 120 sliders`.
+- adgang til den fulde rå 120-slider-visning via `Vis rå 120 sliders`;
+- `Byg preview` og `Gem revision` direkte i Matrix-cockpittet. De er kun UI-proxyer til de eksisterende Guided Studio-knapper, så den eksisterende preview/request-key-gate og save-kontrakt bruges uændret.
 
 Når en valgt personality-revision ikke indeholder et verificeret Matrix v2-blueprint, tegnes intet baseline-overlay. Source-derived eller legacy/manual revisions bliver ikke fortolket som Matrix-data.
 
