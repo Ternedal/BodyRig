@@ -75,7 +75,12 @@ def _projection_metadata(tags: Iterable[str], *, width: int, height: int) -> tup
         stereo_layout = "side-by-side"
     elif "overunder" in compact or "topbottom" in compact or "ou" in words:
         stereo_layout = "over-under"
-    elif "stereo" in words or "stereoscopic" in compact:
+    elif (
+        "stereo" in words
+        or "stereoscopic" in compact
+        or "3d" in words
+        or "3davailable" in compact
+    ):
         stereo_layout = "stereo-unknown"
     else:
         stereo_layout = "mono"
