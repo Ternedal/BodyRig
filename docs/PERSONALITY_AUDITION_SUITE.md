@@ -138,10 +138,13 @@ Efter en successful suite-forsegling viser UI'et **Fortsæt til samlet compatibi
  &body_revision=body-rXXXX
  &voice_revision=voice-rXXXX
  &personality_revision=personality-rXXXX
+ &model=<exact-suite-model>
  &tab=assemble
 ```
 
 Person Studio accepterer kun handoffet, hvis alle tre revisions-ID'er faktisk tilhører den angivne Person. Manglende, fremmede eller stale revisions-ID'er bruges ikke som implicit fallback.
+
+Suite-modellen forvælges kun, hvis det eksakte modelnavn stadig findes i den aktuelle ModelRig-library. Hvis modellen er væk eller omdøbt, nulstiller Person Studio modelvalget og kræver et manuelt valg i stedet for lydløst at vælge en anden model.
 
 Handoffet er **kun selection/navigation**. Suite-reviewets seks executions bliver ikke genbrugt som activation-evidence og åbner ikke compatibility-reviewet. Person Studio nulstiller sin assembly/audition-state og kræver fortsat en ny canonical samlet ModelRig + VoiceRig audition, body-preview, afspilning til ende og eksplicit human compatibility review før en Person Revision kan oprettes eller aktiveres.
 
