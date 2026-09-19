@@ -207,6 +207,16 @@
         </aside>
       </div>
       <div id="matrixStatus" class="matrix-status"></div>
+      <div class="matrix-save-strip">
+        <div class="matrix-save-copy">
+          <div id="matrixSaveState" class="matrix-save-state" data-state="dirty">Ikke gemt</div>
+          <div id="matrixSaveNote" class="matrix-save-note">Byg preview før du gemmer en ny immutable personality-revision.</div>
+        </div>
+        <div class="matrix-save-actions">
+          <button id="matrixPreviewButton" class="secondary" type="button">Byg preview</button>
+          <button id="matrixSaveButton" class="primary" type="button" disabled>Gem revision</button>
+        </div>
+      </div>
       <div class="matrix-footer">
         <div class="matrix-legend">
           <span class="matrix-legend-item"><i class="matrix-legend-swatch"></i>Current authored</span>
@@ -286,8 +296,54 @@
     $("matrixNeutralButton")?.addEventListener("click", () => setSelectedValue(NEUTRAL));
     $("matrixJumpButton")?.addEventListener("click", jumpToRawSlider);
     $("matrixRawToggle")?.addEventListener("click", toggleRawControls);
+    $("matrixPreviewButton")?.addEventListener("click", () => $("previewButton")?.click());
+    $("matrixSaveButton")?.addEventListener("click", () => $("saveButton")?.click());
+    syncSaveControls();
 
     return cockpit;
+  }
+
+  function syncSaveControls() {
+    const sourcePreview = $("previewButton");
+    const sourceSave = $("saveButton");
+    const mirrorPreview = $("matrixPreviewButton");
+    const mirrorSave = $("matrixSaveButton");
+    const stateTarget = $("matrixSaveState");
+    const noteTarget = $("matrixSaveNote");
+    if (!sourcePreview || !sourceSave || !mirrorPreview || !mirrorSave || !stateTarget || !noteTarget) return;
+
+    mirrorPreview.disabled = sourcePreview.disabled;
+    mirrorSave.disabled = sourceSave.disabled;
+
+    const status = $("status")?.textContent?.trim() || "";
+    const blueprint = $("blueprintBadge")?.textContent?.trim() || "";
+    let stateName = "dirty";
+    let stateText = "Ikke gemt";
+    let noteText = "Byg preview før du gemmer en ny immutable personality-revision.";
+
+    if (/gemt · blueprint/i.test(status)) {
+      stateName = "saved";
+      stateText = "Gemt";
+      noteText = status;
+    } else if (/Gemmer immutable/i.test(status)) {
+      stateName = "saving";
+      stateText = "Gemmer…";
+      noteText = status;
+    } else if (!sourceSave.disabled || /Preview klar/i.test(status)) {
+      stateName = "ready";
+      stateText = "Preview klar";
+      noteText = "Preview er verificeret for de aktuelle værdier. Gem revision for at persistere dem.";
+    } else if (/Preview forældet/i.test(blueprint)) {
+      stateName = "dirty";
+      stateText = "Ikke gemte ændringer";
+      noteText = "Matrixen er ændret siden sidste preview. Byg preview igen før gem.";
+    } else if (status) {
+      noteText = status;
+    }
+
+    stateTarget.dataset.state = stateName;
+    stateTarget.textContent = stateText;
+    noteTarget.textContent = noteText;
   }
 
   function selectedEntry() {
@@ -677,6 +733,7 @@
     renderSvg(entries, selected);
     renderInspector(selected);
     renderStatus(entries);
+    syncSaveControls();
   }
 
   function scheduleRender() {
@@ -691,11 +748,25 @@
   const changeSummary = $("traitChangeSummary");
   if (!changeSummary) return;
 
-  new MutationObserver(scheduleRender).observe(changeSummary, {
+  new MutationObserver(() => {
+    scheduleRender();
+    syncSaveControls();
+  }).observe(changeSummary, {
     childList: true,
     characterData: true,
     subtree: true,
   });
+
+  const saveUiObserver = new MutationObserver(syncSaveControls);
+  for (const target of [$("previewButton"), $("saveButton"), $("status"), $("blueprintBadge")]) {
+    if (target) saveUiObserver.observe(target, {
+      attributes: true,
+      attributeFilter: ["disabled", "class"],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  }
 
   const baselineSelect = $("baselineRevision");
   if (baselineSelect) {
