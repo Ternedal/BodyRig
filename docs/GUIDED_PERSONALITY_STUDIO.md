@@ -143,3 +143,15 @@ bodyrig-personality-exemplars
 ```
 
 Forskellen er nu, at de to færdige evidencefiler kan trækkes direkte ind i Guided Studio, så man ikke behøver bruge blueprint-CLI'en bagefter. UI'en laver **ikke** approval selv og kan derfor ikke omgå speaker/style-gaten.
+
+
+## Signature traits i Matrix v2
+
+Guided Studio viser et read-only overblik over op til 10 traits med størst absolut afvigelse fra den neutrale værdi `0.50`. Overblikket er udelukkende en navigation over de eksplicit authored Matrix-værdier:
+
+- det infererer ikke psykologiske egenskaber fra body, transcripts eller andre kilder;
+- Inner/Outer Ring vises eksplicit, så de to separate `Coordination`-akser ikke blandes sammen;
+- pil + værdi viser kun retning og den eksakte slider-værdi;
+- klik på et trait rydder midlertidige filtre, åbner den relevante ring og fokuserer den eksisterende slider.
+
+Signature-overblikket er UI-state og skaber ingen ny evidence, personality-authority eller production-authority. Blueprintet og den eksisterende preview/save-kontrakt er uændret.
