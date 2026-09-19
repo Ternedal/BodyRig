@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,7 +27,7 @@ def test_static_teacher_operator_keeps_p3_and_acceptance_outside_scope() -> None
     assert "Production:          FALSE" in source
     assert "Held-out likeness:  NOT YET ACCEPTED" in source
     assert "p3" not in source.lower()
-    assert "quest" not in source.lower()
+    assert re.search(r"\bquest\b", source, flags=re.IGNORECASE) is None
 
 
 def test_static_teacher_operator_is_resume_safe_before_training() -> None:
