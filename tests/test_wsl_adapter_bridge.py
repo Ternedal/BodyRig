@@ -126,7 +126,7 @@ def test_make_wsl_path_converter_escapes_backslashes_before_wslpath(monkeypatch)
         "-d",
         "Ubuntu-22.04",
         "--",
-        "wslpath",
+        "/usr/bin/wslpath",
         "-a",
         "-u",
         r"C:\\temp\\request.json",
