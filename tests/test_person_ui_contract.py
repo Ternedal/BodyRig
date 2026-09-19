@@ -120,7 +120,7 @@ def test_person_ui_accepts_exact_suite_handoff_but_requires_fresh_audition() -> 
         'let message = "Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition."',
         "resetAssembly(message)",
         'switchTab("assemble")',
-        "await loadPeople(handoff.personId || null)",
+        "await Promise.all([loadPeople(handoff.personId || null), modelLibraryPromise])",
         "applyRequestedAssemblyHandoff(handoff)",
     ):
         assert token in js
