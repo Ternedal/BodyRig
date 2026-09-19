@@ -192,3 +192,10 @@ Editoren giver:
 Når en valgt personality-revision ikke indeholder et verificeret Matrix v2-blueprint, tegnes intet baseline-overlay. Source-derived eller legacy/manual revisions bliver ikke fortolket som Matrix-data.
 
 Radial-editoren er ephemeral UI-state. Den ændrer ikke request schema, preview-key, blueprint, evidence, activation eller authority-kæden.
+
+
+### Persisted editor state og sammenligning
+
+Når en Matrix v2-kandidat gemmes, opdaterer Guided Studio URL'ens `edit_revision` til den præcise nye `personality-rXXXX`. En efterfølgende reload genåbner derfor den verificerede gemte blueprint i editoren i stedet for at nulstille traits til `0.50`. Hvis siden åbnes uden `edit_revision`, genåbnes den seneste kendte Matrix v2-revision for den valgte person, når en sådan findes.
+
+Source speaking-style stacking og visuel Matrix-sammenligning er separate UI-koncepter. Den eksisterende personality-baseline kan fortsat være en source baseline for stack-kontrakten, mens radial-editorens **Sammenlign med** kun viser Matrix v2-revisioner. Den vælger som udgangspunkt den seneste anden Matrix v2-revision end den revision, der aktuelt redigeres, så current-vs-previous kan ses uden at ændre save-payload, source stacking eller authority.
