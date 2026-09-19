@@ -317,8 +317,8 @@
     if (!targets) return;
     const entries = allTraitEntries();
     renderSignature(targets.signatureTarget, entries);
-    renderRevisionDelta(targets.deltaTarget, entries);
     void loadBaselineIfNeeded();
+    renderRevisionDelta(targets.deltaTarget, entries);
   }
 
   let scheduled = false;
