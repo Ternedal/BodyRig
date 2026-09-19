@@ -200,3 +200,20 @@ Radial-editoren er ephemeral UI-state. Den ændrer ikke request schema, preview-
 Når en Matrix v2-kandidat gemmes, opdaterer Guided Studio URL'ens `edit_revision` til den præcise nye `personality-rXXXX`. En efterfølgende reload genåbner derfor den verificerede gemte blueprint i editoren i stedet for at nulstille traits til `0.50`. Hvis siden åbnes uden `edit_revision`, genåbnes den seneste kendte Matrix v2-revision for den valgte person, når en sådan findes.
 
 Source speaking-style stacking og visuel Matrix-sammenligning er separate UI-koncepter. Den eksisterende personality-baseline kan fortsat være en source baseline for stack-kontrakten, mens radial-editorens **Sammenlign med** kun viser Matrix v2-revisioner. Den vælger som udgangspunkt den seneste anden Matrix v2-revision end den revision, der aktuelt redigeres, så current-vs-previous kan ses uden at ændre save-payload, source stacking eller authority.
+
+
+## Audition-handoff fra Matrix-editoren
+
+En verificeret gemt Matrix v2-revision kan sendes direkte videre til den eksisterende 6-scenarie Personality Audition Suite fra Matrix-inspectorens save-panel.
+
+Handoff-linket bærer både den konkrete Person og den eksakte immutable personality-revision:
+
+```text
+/ui/personality_audition_suite.html?person_id=<person-id>&personality_revision=personality-rXXXX
+```
+
+Audition-siden vælger den angivne personality-revision, når den faktisk findes på den valgte Person. Body- og voice-selection følger fortsat audition-suitens eksisterende aktive/seneste selection-regler.
+
+Linket vises kun, mens Matrix-editoren repræsenterer en gemt revision uden efterfølgende authoring-ændringer. Så snart en trait eller anden request-bærende authoring-værdi ændres, går editoren tilbage til dirty state og handoffet skjules indtil den nye candidate igen er previewet og gemt.
+
+En genåbnet immutable Matrix-revision behandles som gemt state i UI'et. Den bliver først `Preview forældet`, når operatoren faktisk ændrer noget. Audition-handoffet opretter ingen ny evidence eller activation authority; selve audition execution/review bruger den eksisterende assembly-fingerprint- og human-review-kæde.
