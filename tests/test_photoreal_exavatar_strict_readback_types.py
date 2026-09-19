@@ -102,3 +102,15 @@ def test_benchmark_plan_readback_rejects_boolean_version(
 
     with pytest.raises(benchmark_authority.PhotorealTeacherBenchmarkPlanError, match="does not match"):
         benchmark_authority.validate_teacher_benchmark_plan_files_strict(teacher, plan)
+
+
+def test_materializer_numeric_boundaries_reject_coercion() -> None:
+    assert materializer._is_exact_count(2, 2)
+    assert not materializer._is_exact_count(True, 1)
+    assert not materializer._is_exact_count(2.0, 2)
+    assert materializer._timestamp(1, label="timestamp") == 1.0
+    assert materializer._timestamp(1.25, label="timestamp") == 1.25
+
+    for value in (True, "1.0", float("nan"), float("inf"), -0.1):
+        with pytest.raises(materializer.PhotorealExAvatarMaterializerError, match="timestamp is invalid"):
+            materializer._timestamp(value, label="timestamp")
