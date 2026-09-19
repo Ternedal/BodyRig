@@ -120,7 +120,10 @@
 
   function baselineSelection() {
     const personId = document.getElementById("personSelect")?.value || "";
-    const revision = document.getElementById("baselineRevision")?.value || "";
+    const revision =
+      document.getElementById("matrixCompareRevision")?.value ||
+      document.getElementById("baselineRevision")?.value ||
+      "";
     if (!personId || !revision) return null;
     return {
       personId,
@@ -349,6 +352,7 @@
     });
   }
   document.getElementById("personSelect")?.addEventListener("change", scheduleRender);
+  document.addEventListener("bodyrig:matrix-compare-change", scheduleRender);
 
   scheduleRender();
 })();
