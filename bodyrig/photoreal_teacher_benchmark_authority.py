@@ -12,6 +12,20 @@ from .photoreal_teacher_benchmark_plan import (
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _read_json(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     try:
@@ -23,6 +37,26 @@ def _read_json(path: str | Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise PhotorealTeacherBenchmarkPlanError("photoreal teacher input must be a JSON object")
     return value
+
+
+def validate_teacher_benchmark_plan_files_strict(
+    teacher_input_path: str | Path,
+    benchmark_plan_path: str | Path,
+) -> dict[str, Any]:
+    teacher_input = _read_json(teacher_input_path)
+    try:
+        validated = validate_teacher_input_document(teacher_input)
+    except PhotorealTeacherRunnerError as exc:
+        raise PhotorealTeacherBenchmarkPlanError(
+            f"teacher input authority validation failed: {exc}"
+        ) from exc
+    expected = build_teacher_benchmark_plan(validated)
+    plan = _read_json(benchmark_plan_path)
+    if not _strict_json_equal(plan, expected):
+        raise PhotorealTeacherBenchmarkPlanError(
+            "existing teacher benchmark plan does not match strict current teacher input"
+        )
+    return plan
 
 
 def build_teacher_benchmark_plan_files_strict(

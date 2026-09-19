@@ -21,6 +21,20 @@ class PhotorealExAvatarTeacherConfigError(ValueError):
     pass
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
     result = str(value or "").strip()
     if not result or len(result) > maximum or "\n" in result or "\r" in result:
@@ -97,6 +111,44 @@ def build_exavatar_teacher_config(
         ],
         "timeout_seconds": timeout_seconds,
     }
+
+
+def validate_exavatar_teacher_config_file(
+    *,
+    config_path: str | Path,
+    windows_python: str | Path,
+    bridge_path: str | Path,
+    adapter_path: str | Path,
+    linux_workspace_root: str,
+    linux_runtime_preflight: str,
+    linux_python: str = "/opt/bodyrig-exavatar/bin/python",
+    distribution: str = "Ubuntu-22.04",
+    wsl_exe: str = "wsl.exe",
+    timeout_seconds: int = MAX_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    source = Path(config_path).expanduser().resolve()
+    try:
+        existing = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarTeacherConfigError(f"teacher config is unreadable: {source}") from exc
+    if not isinstance(existing, dict):
+        raise PhotorealExAvatarTeacherConfigError("teacher config must be a JSON object")
+    expected = build_exavatar_teacher_config(
+        windows_python=windows_python,
+        bridge_path=bridge_path,
+        adapter_path=adapter_path,
+        linux_workspace_root=linux_workspace_root,
+        linux_runtime_preflight=linux_runtime_preflight,
+        linux_python=linux_python,
+        distribution=distribution,
+        wsl_exe=wsl_exe,
+        timeout_seconds=timeout_seconds,
+    )
+    if not _strict_json_equal(existing, expected):
+        raise PhotorealExAvatarTeacherConfigError(
+            "existing teacher config does not match the current bridge/adapter/runtime authority"
+        )
+    return existing
 
 
 def build_exavatar_teacher_config_file(

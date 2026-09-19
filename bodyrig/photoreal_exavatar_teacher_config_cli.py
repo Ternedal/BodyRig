@@ -9,6 +9,7 @@ from .photoreal_exavatar_teacher_config import (
     MAX_TIMEOUT_SECONDS,
     PhotorealExAvatarTeacherConfigError,
     build_exavatar_teacher_config_file,
+    validate_exavatar_teacher_config_file,
 )
 
 
@@ -24,14 +25,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--wsl-exe", default="wsl.exe")
     parser.add_argument("--timeout-seconds", type=int, default=MAX_TIMEOUT_SECONDS)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        result = build_exavatar_teacher_config_file(
-            output_path=args.out,
+        kwargs = dict(
             windows_python=args.windows_python,
             bridge_path=args.bridge,
             adapter_path=args.adapter,
@@ -42,6 +43,16 @@ def main(argv: list[str] | None = None) -> int:
             wsl_exe=args.wsl_exe,
             timeout_seconds=args.timeout_seconds,
         )
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            result = validate_exavatar_teacher_config_file(
+                config_path=args.out,
+                **kwargs,
+            )
+        else:
+            result = build_exavatar_teacher_config_file(
+                output_path=args.out,
+                **kwargs,
+            )
     except PhotorealExAvatarTeacherConfigError as exc:
         print(f"BodyRig Photoreal ExAvatar teacher config: FAIL: {exc}", file=sys.stderr)
         return 1

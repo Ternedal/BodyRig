@@ -54,6 +54,9 @@ Write-Host "Original video:     NOT COPIED"
 Write-Host "Production:         FALSE"
 Write-Host "============================================================"
 
+& $WslExe -d $Distribution -- /usr/bin/test -f "$LinuxWorkspaceRoot/workspace-receipt.json" 2>$null
+$reuseExisting = ($LASTEXITCODE -eq 0)
+
 $code = @'
 import json
 import sys
@@ -61,21 +64,35 @@ from pathlib import Path
 
 repo = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo))
-from bodyrig.photoreal_exavatar_workspace_wsl import prepare_exavatar_workspace_wsl
-
-result = prepare_exavatar_workspace_wsl(
-    materialized_dataset_dir=sys.argv[2],
-    materialization_receipt_path=sys.argv[3],
-    strict_preflight_path=sys.argv[4],
-    linux_dependency_root=sys.argv[5],
-    asset_root=sys.argv[6],
-    reference_model_root=sys.argv[7],
-    linux_workspace_root=sys.argv[8],
-    smplx_gender=sys.argv[9],
-    distribution=sys.argv[10],
-    linux_python=sys.argv[11],
-    wsl_exe=sys.argv[12],
+from bodyrig.photoreal_exavatar_workspace_wsl import (
+    prepare_exavatar_workspace_wsl,
+    validate_exavatar_workspace_wsl,
 )
+
+reuse = sys.argv[13].lower() == "true"
+if reuse:
+    result = validate_exavatar_workspace_wsl(
+        materialization_receipt_path=sys.argv[3],
+        strict_preflight_path=sys.argv[4],
+        linux_workspace_root=sys.argv[8],
+        smplx_gender=sys.argv[9],
+        distribution=sys.argv[10],
+        wsl_exe=sys.argv[12],
+    )
+else:
+    result = prepare_exavatar_workspace_wsl(
+        materialized_dataset_dir=sys.argv[2],
+        materialization_receipt_path=sys.argv[3],
+        strict_preflight_path=sys.argv[4],
+        linux_dependency_root=sys.argv[5],
+        asset_root=sys.argv[6],
+        reference_model_root=sys.argv[7],
+        linux_workspace_root=sys.argv[8],
+        smplx_gender=sys.argv[9],
+        distribution=sys.argv[10],
+        linux_python=sys.argv[11],
+        wsl_exe=sys.argv[12],
+    )
 print(json.dumps({
     "format": result["format"],
     "version": result["version"],
@@ -101,7 +118,8 @@ print(json.dumps({
     $SmplxGender `
     $Distribution `
     $LinuxPython `
-    $WslExe
+    $WslExe `
+    $reuseExisting.ToString().ToLowerInvariant()
 
 if ($LASTEXITCODE -ne 0) {
     throw "BodyRig Photoreal ExAvatar workspace preparation failed with code $LASTEXITCODE"

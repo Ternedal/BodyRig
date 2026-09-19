@@ -20,6 +20,20 @@ class PhotorealExAvatarRuntimePreflightStrictError(PhotorealExAvatarRuntimePrefl
     pass
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     payload = {key: item for key, item in value.items() if key != omit}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -41,6 +55,30 @@ def build_runtime_preflight_strict(*, workspace_root: str | Path) -> dict[str, A
     result["runtime_setup_provenance_verified"] = True
     result["runtime_preflight_sha256"] = _digest(result, omit="runtime_preflight_sha256")
     return result
+
+
+def validate_runtime_preflight_strict_file(
+    *,
+    workspace_root: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    output = Path(output_path).expanduser().resolve()
+    try:
+        existing = json.loads(output.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            f"runtime preflight output is unreadable: {output}"
+        ) from exc
+    if not isinstance(existing, dict):
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            "runtime preflight output must be a JSON object"
+        )
+    expected = build_runtime_preflight_strict(workspace_root=workspace_root)
+    if not _strict_json_equal(existing, expected):
+        raise PhotorealExAvatarRuntimePreflightStrictError(
+            "existing runtime preflight does not match the current pinned runtime/workspace"
+        )
+    return existing
 
 
 def build_runtime_preflight_strict_file(*, workspace_root: str | Path, output_path: str | Path) -> dict[str, Any]:

@@ -43,7 +43,8 @@ Write-Host "=== HAND4WHOLE HUMAN-MODEL ASSET STAGE ==="
     "PYTHONNOUSERSITE=1" `
     $LinuxPython `
     -m bodyrig.photoreal_exavatar_hand4whole_stage_cli `
-    --workspace-root $LinuxWorkspaceRoot
+    --workspace-root $LinuxWorkspaceRoot `
+    --reuse-existing
 $code = $LASTEXITCODE
 if ($code -ne 0) {
     throw "BodyRig Hand4Whole asset staging failed with code $code"

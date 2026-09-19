@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,6 +21,23 @@ UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
 
 class PhotorealExAvatarMaterializerError(ValueError):
     pass
+
+
+def _is_version(value: Any, expected: int) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == expected
+
+
+def _is_exact_count(value: Any, expected: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
+
+
+def _timestamp(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealExAvatarMaterializerError(f"{label} is invalid")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise PhotorealExAvatarMaterializerError(f"{label} is invalid")
+    return round(number, 6)
 
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
@@ -68,7 +86,7 @@ def _file_sha(path: Path) -> str:
 
 
 def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
+    if plan.get("format") != PLAN_FORMAT or not _is_version(plan.get("version"), PLAN_VERSION):
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan format/version mismatch")
     if plan.get("benchmark") != "exavatar" or plan.get("upstream_commit") != UPSTREAM_COMMIT:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan targets unsupported benchmark/upstream")
@@ -106,7 +124,7 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
     observations = plan.get("selected_observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan has no selected observations")
-    if int(plan.get("selected_observation_count") or 0) != len(observations):
+    if not _is_exact_count(plan.get("selected_observation_count"), len(observations)):
         raise PhotorealExAvatarMaterializerError("selected benchmark observation count mismatch")
     normalized: list[dict[str, Any]] = []
     seen: set[tuple[str, float, str]] = set()
@@ -119,10 +137,10 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
         eye = _text(raw.get("eye"), label="benchmark observation eye", maximum=16)
         if eye != "mono":
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization requires mono observations")
-        timestamp_raw = raw.get("timestamp_seconds")
-        if isinstance(timestamp_raw, bool) or not isinstance(timestamp_raw, (int, float)) or float(timestamp_raw) < 0:
-            raise PhotorealExAvatarMaterializerError("benchmark observation timestamp is invalid")
-        timestamp = round(float(timestamp_raw), 6)
+        timestamp = _timestamp(
+            raw.get("timestamp_seconds"),
+            label="benchmark observation timestamp",
+        )
         frame_sha = _sha(raw.get("frame_sha256"), label="benchmark observation frame SHA-256")
         key = (frame_sha, timestamp, eye)
         if key in seen:
@@ -168,7 +186,7 @@ def _build_request(plan: Mapping[str, Any], selected: Mapping[str, Any], observa
 
 
 def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any], dataset_dir: Path) -> dict[str, Any]:
-    if receipt.get("format") != RECEIPT_FORMAT or receipt.get("version") != RECEIPT_VERSION:
+    if receipt.get("format") != RECEIPT_FORMAT or not _is_version(receipt.get("version"), RECEIPT_VERSION):
         raise PhotorealExAvatarMaterializerError("ExAvatar materialization receipt format/version mismatch")
     for field in ("benchmark_plan_sha256", "teacher_input_sha256", "performer_id", "selected_epoch_id", "upstream_commit"):
         if receipt.get(field) != request.get(field):
@@ -199,7 +217,11 @@ def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any],
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization frame source mismatch")
         if _sha(raw.get("source_frame_sha256"), label="materialized source frame SHA-256") != expected["frame_sha256"]:
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization source frame SHA mismatch")
-        if round(float(raw.get("timestamp_seconds")), 6) != expected["timestamp_seconds"] or raw.get("eye") != "mono":
+        timestamp = _timestamp(
+            raw.get("timestamp_seconds"),
+            label="materialized ExAvatar timestamp",
+        )
+        if timestamp != expected["timestamp_seconds"] or raw.get("eye") != "mono":
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization timestamp/eye mismatch")
         relative = f"frames/{index}.png"
         if raw.get("relative_path") != relative:
@@ -308,6 +330,34 @@ def materialize_exavatar_benchmark(
     receipt_path = dataset_dir / "materialization-receipt.json"
     if not receipt_path.is_file():
         raise PhotorealExAvatarMaterializerError("ExAvatar materializer did not create materialization-receipt.json")
+    receipt = _read_json(receipt_path, label="ExAvatar materialization receipt")
+    return _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
+
+
+def validate_exavatar_materialization_files(
+    plan_path: str | Path,
+    *,
+    workspace: str | Path,
+    distribution: str = "Ubuntu-22.04",
+    wsl_exe: str = "wsl.exe",
+) -> dict[str, Any]:
+    plan = _read_json(plan_path, label="photoreal teacher benchmark plan")
+    selected, observations = _validate_plan(plan)
+    root = Path(workspace).expanduser().resolve()
+    dataset_dir = root / "dataset"
+    receipt_path = dataset_dir / "materialization-receipt.json"
+    if not root.is_dir() or not dataset_dir.is_dir() or not receipt_path.is_file():
+        raise PhotorealExAvatarMaterializerError(
+            f"existing ExAvatar materialization workspace is incomplete: {root}"
+        )
+    try:
+        converter = make_wsl_path_converter(wsl_exe, _text(distribution, label="WSL distribution", maximum=160))
+        linux_source = converter(str(selected["resolved_path"]))
+    except (OSError, WslBridgeError) as exc:
+        raise PhotorealExAvatarMaterializerError(
+            f"ExAvatar materialization readback transport failed: {exc}"
+        ) from exc
+    request = _build_request(plan, selected, observations, linux_source)
     receipt = _read_json(receipt_path, label="ExAvatar materialization receipt")
     return _validate_receipt(receipt, request=request, dataset_dir=dataset_dir)
 

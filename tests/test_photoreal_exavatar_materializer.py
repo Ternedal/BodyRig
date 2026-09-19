@@ -233,3 +233,66 @@ def test_materializer_request_contains_no_held_out_evaluation_data(monkeypatch: 
     assert "secret.mp4" not in encoded
     assert "held_out_evaluation_sources" not in encoded
     assert captured_request["held_out_evaluation_disclosed"] is False
+
+
+
+def test_materializer_readback_revalidates_exact_existing_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan = build_teacher_benchmark_plan(_teacher_input())
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    dataset = workspace / "dataset"
+    dataset.mkdir(parents=True)
+    _write_fake_dataset(dataset, plan)
+
+    monkeypatch.setattr(
+        materializer,
+        "make_wsl_path_converter",
+        lambda _exe, _distribution: (
+            lambda path: "/bodyrig/" + Path(path.replace("\\", "/")).name
+        ),
+    )
+
+    result = materializer.validate_exavatar_materialization_files(
+        plan_path,
+        workspace=workspace,
+        distribution="Ubuntu-22.04",
+    )
+
+    assert result["teacher_input_sha256"] == plan["teacher_input_sha256"]
+    assert result["benchmark_plan_sha256"] == plan["benchmark_plan_sha256"]
+    assert result["exact_p0_frame_hashes_reproduced"] is True
+
+
+def test_materializer_readback_rejects_frame_byte_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan = build_teacher_benchmark_plan(_teacher_input())
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    dataset = workspace / "dataset"
+    dataset.mkdir(parents=True)
+    _write_fake_dataset(dataset, plan)
+    (dataset / "frames" / "0.png").write_bytes(b"tampered")
+
+    monkeypatch.setattr(
+        materializer,
+        "make_wsl_path_converter",
+        lambda _exe, _distribution: (
+            lambda path: "/bodyrig/" + Path(path.replace("\\", "/")).name
+        ),
+    )
+
+    with pytest.raises(
+        materializer.PhotorealExAvatarMaterializerError,
+        match="staged PNG SHA mismatch",
+    ):
+        materializer.validate_exavatar_materialization_files(
+            plan_path,
+            workspace=workspace,
+        )

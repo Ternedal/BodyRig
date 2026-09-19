@@ -34,6 +34,20 @@ STRICT_HAND4WHOLE_ASSETS: tuple[tuple[str, str], ...] = (
 STRICT_EXTRA_ASSETS = STRICT_FLAME_ASSETS + STRICT_HAND4WHOLE_ASSETS
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _file_sha(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -113,6 +127,36 @@ def build_exavatar_preflight_strict(
     result["benchmark_environment_ready"] = not blockers
     _recompute_digest(result)
     return result
+
+
+def validate_exavatar_preflight_strict_file(
+    preflight_path: str | Path,
+    *,
+    dependency_root: str | Path,
+    asset_root: str | Path,
+    reference_model_root: str | Path,
+    smplx_gender: str,
+    require_colmap: bool = True,
+) -> dict[str, Any]:
+    source = Path(preflight_path).expanduser().resolve()
+    try:
+        existing = json.loads(source.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PhotorealExAvatarPreflightError(f"ExAvatar preflight output is unreadable: {source}") from exc
+    if not isinstance(existing, dict):
+        raise PhotorealExAvatarPreflightError("ExAvatar preflight output must be a JSON object")
+    expected = build_exavatar_preflight_strict(
+        dependency_root=dependency_root,
+        asset_root=asset_root,
+        reference_model_root=reference_model_root,
+        smplx_gender=smplx_gender,
+        require_colmap=require_colmap,
+    )
+    if not _strict_json_equal(existing, expected):
+        raise PhotorealExAvatarPreflightError(
+            "existing ExAvatar strict preflight does not match the current pinned environment/assets"
+        )
+    return existing
 
 
 def build_exavatar_preflight_strict_files(
