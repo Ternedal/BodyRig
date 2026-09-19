@@ -314,6 +314,11 @@
 
     mirrorPreview.disabled = sourcePreview.disabled;
     mirrorSave.disabled = sourceSave.disabled;
+    const saveReady = !sourceSave.disabled;
+    mirrorPreview.classList.toggle("primary", !saveReady);
+    mirrorPreview.classList.toggle("secondary", saveReady);
+    mirrorSave.classList.toggle("primary", saveReady);
+    mirrorSave.classList.toggle("secondary", !saveReady);
 
     const status = $("status")?.textContent?.trim() || "";
     const blueprint = $("blueprintBadge")?.textContent?.trim() || "";
