@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,7 +14,9 @@ MAX_REFERENCE_SAMPLES_PER_SOURCE = 120
 MIN_BOOTSTRAP_GROUPS = 2
 MIN_BOOTSTRAP_SOURCES = 2
 MIN_BOOTSTRAP_REFERENCE_SAMPLES = 4
-IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
+IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split", "spatial-deprojection-required"}
+PROJECTION_AUTHORITY_FORMATS = {"bodyrig-spherical-v2-projection-authority", "bodyrig-explicit-projection-authority"}
+PROJECTION_AUTHORITY_VERSION = 1
 
 
 class PhotorealIdentityBootstrapError(ValueError):
@@ -57,10 +60,30 @@ def _count(value: Any, *, label: str) -> int:
     return result
 
 
+def _spatial_projection_authorized(source: Mapping[str, Any]) -> bool:
+    if source.get("decode_mode") != "spatial-deprojection-required":
+        return True
+    if source.get("kind") != "video" or source.get("projection") != "equi":
+        return False
+    authority = source.get("projection_authority")
+    if not isinstance(authority, Mapping):
+        return False
+    version = authority.get("version")
+    return (
+        authority.get("format") in PROJECTION_AUTHORITY_FORMATS
+        and not isinstance(version, bool)
+        and version == PROJECTION_AUTHORITY_VERSION
+        and authority.get("projection_type") == "equi"
+        and authority.get("deprojection_authority") is False
+    )
+
+
 def _authoritative_source(source: Mapping[str, Any]) -> bool:
     if source.get("split") != "train" or _count(source.get("performer_count"), label="performer_count") != 1:
         return False
     if source.get("decode_mode") not in IDENTITY_BOOTSTRAP_DECODE_MODES:
+        return False
+    if not _spatial_projection_authorized(source):
         return False
     kind = source.get("kind")
     binding = source.get("source_binding")
@@ -181,6 +204,7 @@ def build_identity_bootstrap_plan(scan_plan: Mapping[str, Any]) -> dict[str, Any
                 "source_binding": _text(raw.get("source_binding"), label="source binding", maximum=128),
                 "performer_count": _count(raw.get("performer_count"), label="performer_count"),
                 "projection": _text(raw.get("projection"), label="projection", maximum=128),
+                "projection_authority": copy.deepcopy(raw.get("projection_authority")),
                 "stereo_layout": _text(raw.get("stereo_layout"), label="stereo layout", maximum=128),
                 "decode_mode": _text(raw.get("decode_mode"), label="decode mode", maximum=128),
                 "reference_sample_count": len(references),
