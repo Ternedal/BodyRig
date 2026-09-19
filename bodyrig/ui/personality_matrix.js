@@ -314,11 +314,6 @@
 
     mirrorPreview.disabled = sourcePreview.disabled;
     mirrorSave.disabled = sourceSave.disabled;
-    const saveReady = !sourceSave.disabled;
-    mirrorPreview.classList.toggle("primary", !saveReady);
-    mirrorPreview.classList.toggle("secondary", saveReady);
-    mirrorSave.classList.toggle("primary", saveReady);
-    mirrorSave.classList.toggle("secondary", !saveReady);
 
     const status = $("status")?.textContent?.trim() || "";
     const blueprint = $("blueprintBadge")?.textContent?.trim() || "";
@@ -345,6 +340,13 @@
     } else if (status) {
       noteText = status;
     }
+
+    const previewPrimary = stateName === "dirty";
+    const savePrimary = stateName === "ready";
+    mirrorPreview.classList.toggle("primary", previewPrimary);
+    mirrorPreview.classList.toggle("secondary", !previewPrimary);
+    mirrorSave.classList.toggle("primary", savePrimary);
+    mirrorSave.classList.toggle("secondary", !savePrimary);
 
     stateTarget.dataset.state = stateName;
     stateTarget.textContent = stateText;
