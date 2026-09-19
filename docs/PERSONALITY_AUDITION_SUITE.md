@@ -127,3 +127,22 @@ body + voice + personality candidate
 ```
 
 Suite-reportet er stærkere review-evidence, som kan bruges under den menneskelige vurdering. Først efter fysisk erfaring med flere reelle kloner bør vi beslutte, om hele eller dele af suiten senere skal være obligatorisk activation evidence.
+
+
+## Handoff til canonical compatibility review
+
+Efter en successful suite-forsegling viser UI'et **Fortsæt til samlet compatibility review**. Linket åbner den canonical Person Studio på `/` og bærer den eksakte komponentkombination, som suiten blev kørt med:
+
+```text
+/?person_id=<person-id>
+ &body_revision=body-rXXXX
+ &voice_revision=voice-rXXXX
+ &personality_revision=personality-rXXXX
+ &tab=assemble
+```
+
+Person Studio accepterer kun handoffet, hvis alle tre revisions-ID'er faktisk tilhører den angivne Person. Manglende, fremmede eller stale revisions-ID'er bruges ikke som implicit fallback.
+
+Handoffet er **kun selection/navigation**. Suite-reviewets seks executions bliver ikke genbrugt som activation-evidence og åbner ikke compatibility-reviewet. Person Studio nulstiller sin assembly/audition-state og kræver fortsat en ny canonical samlet ModelRig + VoiceRig audition, body-preview, afspilning til ende og eksplicit human compatibility review før en Person Revision kan oprettes eller aktiveres.
+
+Når en ny 6-scenarie-suite startes eller valg ændres, skjules et tidligere handoff igen, så CTA'en ikke kan pege på stale suite-evidence.
