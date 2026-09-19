@@ -34,6 +34,7 @@ def _probe_result(revision: str, **overrides: object) -> dict[str, object]:
         "identity_embedding_dimension": 512,
         "face_inference_executed": True,
         "pose_inference_executed": True,
+        "face_execution_providers": ["CUDAExecutionProvider", "CPUExecutionProvider"],
         "synthetic_face_count": 0,
         "synthetic_pose_count": 0,
         "synthetic_frame_sha256": "a" * 64,
