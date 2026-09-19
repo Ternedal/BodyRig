@@ -6,7 +6,7 @@
   <title>BodyRig · Personality Audition Suite</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .suite-shell{max-width:1240px;margin:0 auto;padding:28px}.suite-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.suite-grid{display:grid;grid-template-columns:minmax(300px,.75fr) minmax(430px,1.25fr);gap:18px}.select-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full-select{width:100%}.action-row{display:flex;gap:10px;flex-wrap:wrap}.probe{margin-top:12px}.probe-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.probe-purpose{font-size:.9rem}.probe-prompt,.probe-reply{white-space:pre-wrap}.probe audio{width:100%;margin-top:10px}.hash{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem;word-break:break-all}.status-line{min-height:24px}.sticky{position:sticky;top:18px}@media(max-width:900px){.suite-grid{grid-template-columns:1fr}.sticky{position:static}.select-grid{grid-template-columns:1fr}.suite-head{flex-direction:column}}
+    .suite-shell{max-width:1240px;margin:0 auto;padding:28px}.suite-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.suite-grid{display:grid;grid-template-columns:minmax(300px,.75fr) minmax(430px,1.25fr);gap:18px}.select-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.full-select{width:100%}.action-row{display:flex;gap:10px;flex-wrap:wrap}.probe{margin-top:12px}.probe-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.probe-purpose{font-size:.9rem}.probe-prompt,.probe-reply{white-space:pre-wrap}.probe audio{width:100%;margin-top:10px}.hash{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem;word-break:break-all}.status-line{min-height:24px}.review-handoff{display:block;margin-top:12px;text-align:center;text-decoration:none}.sticky{position:sticky;top:18px}@media(max-width:900px){.suite-grid{grid-template-columns:1fr}.sticky{position:static}.select-grid{grid-template-columns:1fr}.suite-head{flex-direction:column}}
   </style>
 </head>
 <body>
@@ -52,7 +52,7 @@
       <div class="card-label">Evidence</div>
       <div id="fingerprint" class="hash muted-text">Assembly: —</div>
       <div id="reviewEvidence" class="hash muted-text">Suite review: —</div>
-      <a id="continueReviewLink" class="primary full" href="/" hidden>Fortsæt til samlet compatibility review →</a>
+      <a id="continueReviewLink" class="primary full review-handoff" href="/" hidden>Fortsæt til samlet compatibility review →</a>
       <p class="fine-print">Forsegling beviser hvilke seks executions der blev kørt mod hvilken assembly/model. Den siger ikke, at et menneske har godkendt resultaterne, og den kan ikke aktivere en Person Revision. Handoffet til Person Studio vælger kun de samme kandidater; den canonical samlede audition skal stadig køres dér.</p>
     </section>
 
