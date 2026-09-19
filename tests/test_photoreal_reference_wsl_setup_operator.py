@@ -71,3 +71,16 @@ def test_reference_wsl_force_repair_rebuilds_partial_environment() -> None:
 
     assert force_guard < remove_venv < create_venv
     assert 'Use -Force to rebuild.' in SCRIPT
+
+
+def test_reference_wsl_setup_pins_cudnn9_for_onnxruntime_cuda12() -> None:
+    assert '$cudnnVersion = "9.1.0.70"' in SCRIPT
+    assert '"nvidia-cudnn-cu12==$cudnnVersion"' in SCRIPT
+    assert '"pip", "install", "--no-deps"' in SCRIPT
+    assert '"zlib1g"' in SCRIPT
+    assert 'bodyrig-photoreal-cudnn9.conf' in SCRIPT
+    assert 'Invoke-Wsl -Root -Arguments @("/sbin/ldconfig")' in SCRIPT
+    assert 'ctypes.CDLL("libcudnn.so.9")' in SCRIPT
+    assert 'if ($probe.cudnn9_loader_ready -ne $true)' in SCRIPT
+    assert 'if ([string]$probe.nvidia_cudnn -ne $cudnnVersion)' in SCRIPT
+    assert 'nvidia_cudnn = $cudnnVersion' in SCRIPT
