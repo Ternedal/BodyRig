@@ -81,6 +81,6 @@ def test_m4_embodiment_probe_preserves_numeric_float_v1(
     )
 
     assert authority["body_id"] == "body-test"
-    assert authority_raw == b"{}\n"
+    assert json.loads(authority_raw.decode("utf-8")) == {}
     assert probe["version"] == 1.0
     assert probe_raw
