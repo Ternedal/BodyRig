@@ -60,7 +60,14 @@ def _performer_ids(item: Mapping[str, Any]) -> set[str]:
 
 
 def _projection_metadata(tags: Iterable[str], *, width: int, height: int) -> tuple[str, str]:
-    normalized = " ".join(str(tag).lower().replace("_", " ").replace("-", " ") for tag in tags)
+    normalized = " ".join(
+        str(tag)
+        .lower()
+        .replace("_", " ")
+        .replace("-", " ")
+        .replace("°", " degree ")
+        for tag in tags
+    )
     compact = "".join(normalized.split())
     words = set(normalized.split())
 
@@ -73,13 +80,17 @@ def _projection_metadata(tags: Iterable[str], *, width: int, height: int) -> tup
     else:
         stereo_layout = "mono"
 
-    if "vr180" in compact:
+    if (
+        "vr180" in compact
+        or "180degree" in compact
+        or "180degrees" in compact
+    ):
         projection = "vr180"
     elif "vr360" in compact or "360vr" in compact:
         projection = "vr360"
     elif "equirectangular" in compact or "panorama" in compact or "panoramic" in compact:
         projection = "equirectangular"
-    elif width >= 2880 and height >= 1440 and height > 0 and 1.95 <= width / height <= 2.05:
+    elif width > 0 and height > 0 and 1.95 <= width / height <= 2.05:
         projection = "projection-ambiguous-2to1"
     else:
         projection = "flat"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from bodyrig.photoreal_stash_inventory import fetch_photoreal_source_inventory
+from bodyrig.photoreal_stash_inventory import _projection_metadata, fetch_photoreal_source_inventory
 from bodyrig.stash_source import StashClient, StashConfig
 
 
@@ -172,3 +172,29 @@ def test_photoreal_inventory_keeps_spatial_video_and_gallery_images() -> None:
     assert result["photoreal_teacher_input"] is True
     assert result["runtime_dependency"] is False
     assert result["production_activation"] is False
+
+
+
+def test_projection_metadata_treats_lowres_two_to_one_as_ambiguous() -> None:
+    projection, stereo = _projection_metadata([], width=1920, height=960)
+
+    assert projection == "projection-ambiguous-2to1"
+    assert stereo == "unknown"
+
+
+def test_projection_metadata_recognizes_degree_symbol_vr180_hint() -> None:
+    projection, stereo = _projection_metadata(
+        ["180°", "3D Available"],
+        width=1920,
+        height=960,
+    )
+
+    assert projection == "vr180"
+    assert stereo == "mono"
+
+
+def test_projection_metadata_keeps_standard_flat_widescreen_flat() -> None:
+    projection, stereo = _projection_metadata([], width=3840, height=2160)
+
+    assert projection == "flat"
+    assert stereo == "mono"
