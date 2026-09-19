@@ -205,10 +205,10 @@ def test_guided_matrix_surfaces_authored_signature_traits() -> None:
 
     assert '<script src="/ui/personality_signature.js"></script>' in html
     for token in (
-        'target.id = "traitSignature"',
+        'signatureTarget.id = "traitSignature"',
         "Signature traits · størst authored afvigelse fra neutral",
-        "entries.slice(0, LIMIT)",
-        "Math.abs(value - NEUTRAL)",
+        "signature.slice(0, LIMIT)",
+        "Math.abs(entry.value - NEUTRAL)",
         'left.label.localeCompare(right.label, "da")',
         'entry.value > NEUTRAL ? "↑" : "↓"',
         'entry.input.closest(".trait-ring")',
