@@ -606,13 +606,13 @@
 
   function render() {
     if (!ensureUi()) return;
+    void loadBaselineIfNeeded();
     const entries = traitEntries();
     if (!entries.length) return;
     const selected = ensureSelection(entries);
     renderSvg(entries, selected);
     renderInspector(selected);
     renderStatus(entries);
-    void loadBaselineIfNeeded();
   }
 
   function scheduleRender() {
