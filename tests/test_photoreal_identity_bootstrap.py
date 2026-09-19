@@ -152,14 +152,32 @@ def test_identity_bootstrap_uses_only_authoritative_train_sources() -> None:
     }
 
 
-def test_identity_bootstrap_caps_video_references_and_preserves_both_stereo_eyes() -> None:
+def test_identity_bootstrap_uses_full_bounded_scout_pool_and_preserves_both_stereo_eyes() -> None:
     result = build_identity_bootstrap_plan(_scan_plan())
     video = next(item for item in result["sources"] if item["kind"] == "video")
 
     assert video["decode_mode"] == "rectilinear-stereo-split"
-    assert video["reference_sample_count"] == 12
+    assert video["reference_sample_count"] == 40
     assert {item["eye"] for item in video["reference_samples"]} == {"left", "right"}
     assert all(item["timestamp_seconds"] is not None for item in video["reference_samples"])
+
+
+def test_identity_bootstrap_caps_large_stereo_candidate_pool_at_120() -> None:
+    plan = _scan_plan()
+    video = next(item for item in plan["sources"] if item["source_key"] == "scene:s1:E:/single.mp4")
+    video["samples"] = [
+        {"timestamp_seconds": float(index + 1), "eye": eye}
+        for index in range(150)
+        for eye in ("left", "right")
+    ]
+    video["sample_count"] = len(video["samples"])
+
+    result = build_identity_bootstrap_plan(plan)
+    selected = next(item for item in result["sources"] if item["source_key"] == video["source_key"])
+
+    assert selected["reference_sample_count"] == 120
+    assert sum(1 for item in selected["reference_samples"] if item["eye"] == "left") == 60
+    assert sum(1 for item in selected["reference_samples"] if item["eye"] == "right") == 60
 
 
 def test_identity_bootstrap_excludes_spatial_deprojection_sources() -> None:
