@@ -54,7 +54,8 @@ if ([string]::IsNullOrWhiteSpace($ModelRoot)) {
 }
 $ModelRoot = Need-Directory $ModelRoot "Photoreal reference model root"
 
-$workspace = Join-Path $RunDirectory "portrait-seed-diagnostic"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$workspace = Join-Path $RunDirectory ("portrait-seed-diagnostic-{0}" -f $stamp)
 if (Test-Path -LiteralPath $workspace) { throw "Portrait seed diagnostic workspace already exists: $workspace" }
 New-Item -ItemType Directory -Path $workspace | Out-Null
 $references = Join-Path $workspace "references"
