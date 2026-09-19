@@ -232,6 +232,66 @@
   margin-top:14px;
 }
 .matrix-inspector-actions button{width:100%}
+.matrix-save-strip{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:12px 14px;
+  border-top:1px solid #273139;
+  background:#0f1418;
+}
+.matrix-save-copy{min-width:0}
+.matrix-save-state{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.04em;
+}
+.matrix-save-state::before{
+  content:"";
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#6f7e87;
+  box-shadow:0 0 0 3px rgba(111,126,135,.10);
+}
+.matrix-save-state[data-state="ready"]{color:#d7edf8}
+.matrix-save-state[data-state="ready"]::before{
+  background:#69bce9;
+  box-shadow:0 0 0 3px rgba(105,188,233,.12);
+}
+.matrix-save-state[data-state="saved"]{color:#b8e2c6}
+.matrix-save-state[data-state="saved"]::before{
+  background:#78c091;
+  box-shadow:0 0 0 3px rgba(120,192,145,.12);
+}
+.matrix-save-state[data-state="saving"]{color:#e7c98e}
+.matrix-save-state[data-state="saving"]::before{
+  background:#e5b567;
+  box-shadow:0 0 0 3px rgba(229,181,103,.12);
+}
+.matrix-save-note{
+  margin-top:3px;
+  max-width:760px;
+  color:#75838c;
+  font-size:10px;
+  line-height:1.45;
+}
+.matrix-save-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:0 0 auto;
+}
+.matrix-save-actions button{min-width:118px}
+.matrix-save-actions .primary:disabled,
+.matrix-save-actions .secondary:disabled{
+  opacity:.42;
+  cursor:not-allowed;
+}
 .matrix-footer{
   display:flex;
   align-items:center;
@@ -268,6 +328,9 @@ body.matrix-raw-hidden .trait-rings{display:none}
 }
 @media(max-width:700px){
   .matrix-cockpit-head{flex-direction:column}
+  .matrix-save-strip{align-items:stretch;flex-direction:column}
+  .matrix-save-actions{width:100%}
+  .matrix-save-actions button{flex:1;min-width:0}
   .matrix-head-controls{align-items:flex-start;width:100%}
   .matrix-compare-control{align-items:flex-start;flex-direction:column;width:100%}
   .matrix-compare-control select{min-width:0;max-width:none;width:100%}
