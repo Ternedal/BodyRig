@@ -141,6 +141,20 @@ def test_bind_adds_exact_nonactivating_source_geometry_authority(monkeypatch, tm
     assert receipt["sourceMeshSha256"] == _sha((workspace / "sith-input-v1/meshes/000_reco.obj").read_bytes())
 
 
+def test_bind_rejects_boolean_reconstruction_v1(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    reconstruction_path = workspace / "sith-input-v1" / "reconstruction.json"
+    reconstruction = json.loads(reconstruction_path.read_text(encoding="utf-8"))
+    reconstruction["version"] = True
+    reconstruction_path.write_text(json.dumps(reconstruction), encoding="utf-8")
+
+    with pytest.raises(
+        authority.SithBodyGeometryAuthorityError,
+        match="SiTH reconstruction format/version mismatch",
+    ):
+        authority.bind_sith_body_geometry_authority(b"input-vrm", workspace)
+
+
 def test_bind_embeds_only_replayable_geometry_deltas_and_exact_evidence_sha(monkeypatch, tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     captured: dict = {}
