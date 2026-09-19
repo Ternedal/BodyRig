@@ -34,6 +34,20 @@ STRICT_HAND4WHOLE_ASSETS: tuple[tuple[str, str], ...] = (
 STRICT_EXTRA_ASSETS = STRICT_FLAME_ASSETS + STRICT_HAND4WHOLE_ASSETS
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _file_sha(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -138,7 +152,7 @@ def validate_exavatar_preflight_strict_file(
         smplx_gender=smplx_gender,
         require_colmap=require_colmap,
     )
-    if existing != expected:
+    if not _strict_json_equal(existing, expected):
         raise PhotorealExAvatarPreflightError(
             "existing ExAvatar strict preflight does not match the current pinned environment/assets"
         )
