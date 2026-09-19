@@ -230,3 +230,25 @@ def test_identity_bootstrap_rejects_authority_boundary_crossing() -> None:
 
     with pytest.raises(PhotorealIdentityBootstrapError, match="production authority"):
         build_identity_bootstrap_plan(plan)
+
+
+def test_identity_bootstrap_accepts_authorized_equi_spatial_source() -> None:
+    plan = copy.deepcopy(_scan_plan())
+    spatial = next(item for item in plan["sources"] if item["decode_mode"] == "spatial-deprojection-required")
+    spatial["projection"] = "equi"
+    spatial["projection_authority"] = {
+        "format": "bodyrig-explicit-projection-authority",
+        "version": 1,
+        "projection_type": "equi",
+        "deprojection_authority": False,
+    }
+    spatial["identity_bootstrap_eligible"] = True
+
+    result = build_identity_bootstrap_plan(plan)
+    selected = next(item for item in result["sources"] if item["source_key"] == spatial["source_key"])
+
+    assert selected["decode_mode"] == "spatial-deprojection-required"
+    assert selected["projection"] == "equi"
+    assert selected["projection_authority"] == spatial["projection_authority"]
+    assert selected["reference_sample_count"] == 40
+    assert {sample["eye"] for sample in selected["reference_samples"]} == {"left", "right"}
