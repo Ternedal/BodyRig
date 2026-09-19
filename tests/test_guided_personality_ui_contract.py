@@ -294,10 +294,14 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     ):
         assert token in matrix
 
+    assert ".guided-shell{max-width:1440px}" in css
+    assert ".guided-grid{grid-template-columns:minmax(0,1fr)}" in css
     assert "body.matrix-raw-hidden .trait-rings" in css
     assert ".matrix-stage" in css
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
+    assert "maxScore <= EPSILON" in matrix
+    assert 'event.target.closest?.("#traitSignature button, #traitRevisionDelta button")' in matrix
 
     # The radial editor reads/writes the already-authored slider controls only.
     # It must not mint evidence or claim authority of its own.
