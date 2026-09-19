@@ -52,6 +52,29 @@ def test_suite_deep_link_selects_exact_personality_revision() -> None:
 
 
 
+def test_sealed_suite_handoff_preserves_exact_candidates_without_activation() -> None:
+    html = Path("bodyrig/ui/personality_audition_suite.html").read_text(encoding="utf-8")
+
+    for token in (
+        'id="continueReviewLink"',
+        "Fortsæt til samlet compatibility review",
+        '$("continueReviewLink").hidden=true',
+        '$("continueReviewLink").href="/"',
+        'reviewLink.href=`/?person_id=${encodeURIComponent(state.person.person_id)}',
+        '&body_revision=${encodeURIComponent(sel.body_revision)}',
+        '&voice_revision=${encodeURIComponent(sel.voice_revision)}',
+        '&personality_revision=${encodeURIComponent(sel.personality_revision)}',
+        "&tab=assemble",
+        "reviewLink.hidden=false",
+        "kør en ny canonical samlet audition",
+    ):
+        assert token in html
+
+    # The supplementary suite may only hand selection state to Person Studio.
+    assert "/activate/" not in html
+    assert "approvePersonButton" not in html
+
+
 def test_suite_review_contract_is_explicitly_supplementary() -> None:
     suite = Path("bodyrig/personality_audition_suite.py").read_text(encoding="utf-8")
     review = Path("bodyrig/personality_suite_review.py").read_text(encoding="utf-8")
