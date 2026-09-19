@@ -21,6 +21,7 @@ $mmcvVersion = "2.1.0"
 $mmengineVersion = "0.10.7"
 $insightfaceVersion = "0.7.3"
 $onnxruntimeVersion = "1.20.2"
+$cudnnVersion = "9.1.0.70"
 $openmimVersion = "0.3.9"
 $xtcocotoolsVersion = "1.14.3"
 
@@ -82,7 +83,7 @@ Invoke-Wsl -Root -Arguments @("/usr/bin/apt-get", "update")
 Invoke-Wsl -Root -Arguments @(
     "/usr/bin/apt-get", "install", "-y",
     "python3", "python3-venv", "python3-dev", "build-essential", "git", "ffmpeg",
-    "libgl1", "libglib2.0-0", "libgomp1"
+    "libgl1", "libglib2.0-0", "libgomp1", "zlib1g"
 )
 
 if ($Force) {
@@ -110,6 +111,30 @@ Invoke-Wsl -Root -Arguments @(
     "munkres",
     "xtcocotools==$xtcocotoolsVersion"
 )
+Invoke-Wsl -Root -Arguments @(
+    $LinuxPython, "-m", "pip", "install", "--no-deps",
+    "nvidia-cudnn-cu12==$cudnnVersion"
+)
+
+$cudnnPathCode = @'
+from pathlib import Path
+import nvidia.cudnn
+path = (Path(nvidia.cudnn.__file__).resolve().parent / "lib").resolve()
+if not path.is_dir():
+    raise SystemExit(f"cuDNN library directory not found: {path}")
+print(path.as_posix())
+'@
+$cudnnRaw = Invoke-Wsl -Arguments @($LinuxPython, "-c", $cudnnPathCode) -Capture
+$cudnnLib = ($cudnnRaw | Select-Object -Last 1).ToString().Trim()
+if ($cudnnLib -notmatch '^/[A-Za-z0-9._/-]+$') {
+    throw "Resolved cuDNN library path is invalid: $cudnnLib"
+}
+$ldConfigCode = @"
+from pathlib import Path
+Path("/etc/ld.so.conf.d/bodyrig-photoreal-cudnn9.conf").write_text("$cudnnLib\n", encoding="utf-8")
+"@
+Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-c", $ldConfigCode)
+Invoke-Wsl -Root -Arguments @("/sbin/ldconfig")
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
@@ -121,7 +146,9 @@ Invoke-Wsl -Root -Arguments @(
 )
 
 $probeCode = @'
+import ctypes
 import json
+from importlib import metadata
 import cv2
 import insightface
 import mmcv
@@ -132,6 +159,7 @@ import numpy
 import onnxruntime
 import torch
 import torchvision
+ctypes.CDLL("libcudnn.so.9")
 payload = {
     "python": __import__("sys").version.split()[0],
     "torch": torch.__version__,
@@ -143,6 +171,8 @@ payload = {
     "mmpose": mmpose.__version__,
     "insightface": insightface.__version__,
     "onnxruntime": onnxruntime.__version__,
+    "nvidia_cudnn": metadata.version("nvidia-cudnn-cu12"),
+    "cudnn9_loader_ready": True,
     "opencv": cv2.__version__,
     "torch_cuda_available": bool(torch.cuda.is_available()),
     "torch_cuda_version": torch.version.cuda,
@@ -158,6 +188,12 @@ catch { throw "Reference environment probe did not return valid JSON: $probeLine
 if ($probe.torch_cuda_available -ne $true) { throw "PyTorch CUDA is not available in the reference WSL environment." }
 if (@($probe.onnxruntime_providers) -notcontains "CUDAExecutionProvider") {
     throw "ONNX Runtime CUDAExecutionProvider is not available in the reference WSL environment."
+}
+if ($probe.cudnn9_loader_ready -ne $true) {
+    throw "cuDNN 9 is not loadable in the reference WSL environment."
+}
+if ([string]$probe.nvidia_cudnn -ne $cudnnVersion) {
+    throw "Unexpected NVIDIA cuDNN version: $($probe.nvidia_cudnn)"
 }
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
@@ -182,6 +218,7 @@ $receipt = [ordered]@{
         mmpose = $mmposeVersion
         insightface = $insightfaceVersion
         onnxruntime = $onnxruntimeVersion
+        nvidia_cudnn = $cudnnVersion
         openmim = $openmimVersion
         xtcocotools = $xtcocotoolsVersion
     }
