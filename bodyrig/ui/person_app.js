@@ -230,18 +230,34 @@ function renderRevisionList(targetId, profile, kind, labelField) {
     const candidateAction = active
       ? '<span class="badge">I aktiv person</span>'
       : `<button class="secondary use-candidate" data-kind="${kind}" data-revision="${item.revision_id}">Brug i samling</button>`;
+    const personalityPersonRefs = kind === "personality"
+      ? (profile.person_revisions || []).filter((value) => value.personality_revision === item.revision_id).map((value) => value.revision_id)
+      : [];
+    const personalityStackRefs = kind === "personality"
+      ? (profile.personality_revisions || []).filter((value) =>
+          value.revision_id !== item.revision_id
+          && String(value.style_notes || "").includes(`baseline_revision=${item.revision_id}`)
+        ).map((value) => value.revision_id)
+      : [];
+    const deleteBlockedBy = [...personalityPersonRefs, ...personalityStackRefs];
+    const deleteAction = kind !== "personality"
+      ? ""
+      : deleteBlockedBy.length
+        ? `<span class="badge muted" title="Kan ikke slettes: refereret af ${escapeHtml(deleteBlockedBy.join(", "))}">Låst</span>`
+        : `<button class="secondary delete-personality-candidate" data-revision="${item.revision_id}">Slet kandidat</button>`;
     const row = document.createElement("div");
     row.className = `revision-item${active ? " active" : ""}`;
     row.innerHTML = `
       <div class="revision-top">
         <div><div class="revision-id">${escapeHtml(item.revision_id)}</div><div class="revision-meta">${escapeHtml(meta)}</div></div>
-        <div class="action-row">${matrixLink}${candidateAction}</div>
+        <div class="action-row">${matrixLink}${candidateAction}${deleteAction}</div>
       </div>
       ${personalityKind?.evidenceKind ? `<div class="fine-print">Provenance: ${escapeHtml(personalityKind.evidenceKind)}</div>` : ""}
       ${item.feedback ? `<div class="revision-feedback">${escapeHtml(item.feedback)}</div>` : ""}`;
     target.appendChild(row);
   });
   target.querySelectorAll(".use-candidate").forEach((button) => button.addEventListener("click", () => useCandidate(button.dataset.kind, button.dataset.revision)));
+  target.querySelectorAll(".delete-personality-candidate").forEach((button) => button.addEventListener("click", () => deletePersonalityCandidate(button.dataset.revision)));
 }
 
 function renderPersonRevisions(profile) {
@@ -598,6 +614,25 @@ async function approvePersonRevision() {
     toast(`${active} er audition-bundet, godkendt og aktiv som samlet person.`);
   } catch (error) { toast(error.message, true); }
 }
+
+async function deletePersonalityCandidate(revisionId) {
+  if (!state.selected || !revisionId) return;
+  const confirmed = window.confirm(
+    `Slet ${revisionId} som personality-kandidat?\n\nRevisionen fjernes fra Person Profile, men immutable blueprint/evidence-filer bevares. Handlingen kan ikke fortrydes fra UI'et.`
+  );
+  if (!confirmed) return;
+  try {
+    state.selected = await api(
+      `/api/v1/people/${encodeURIComponent(state.selected.person_id)}/personality/revisions/${encodeURIComponent(revisionId)}`,
+      { method: "DELETE" },
+    );
+    renderSelected();
+    toast(`${revisionId} er slettet som ubrugt personality-kandidat. Evidence er bevaret.`);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
 
 async function activatePersonRevision(revisionId) {
   if (!state.selected) return;
