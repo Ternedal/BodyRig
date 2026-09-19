@@ -273,10 +273,16 @@ def test_unused_personality_revision_can_be_deleted_without_id_reuse(tmp_path: P
     profile = delete_personality_revision(tmp_path, person_id, "personality-r0002")
     assert [item["revision_id"] for item in profile["personality_revisions"]] == ["personality-r0001"]
 
+    deletion = tmp_path / "personality-candidate-deletions" / person_id / "personality-r0002.json"
+    assert deletion.is_file()
+    tombstone = json.loads(deletion.read_text(encoding="utf-8"))
+    assert tombstone["format"] == "bodyrig-personality-candidate-deletion"
+    assert tombstone["revision_id"] == "personality-r0002"
+
     profile = add_personality_revision(tmp_path, person_id, instructions="candidate three")
     assert [item["revision_id"] for item in profile["personality_revisions"]] == [
         "personality-r0001",
-        "personality-r0002",
+        "personality-r0003",
     ]
 
 
