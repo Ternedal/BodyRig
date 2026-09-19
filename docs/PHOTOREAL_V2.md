@@ -241,6 +241,8 @@ The first reproducible P0 measurement benchmark is deliberately external to Body
 
 The same identity model space is used for target bootstrap, non-target calibration and frame analysis. A threshold learned in one embedding space is never applied to another.
 
+Negative video calibration uses a deterministic aggregate timestamp budget distributed across all verified negative video sources. The sampling budget is intentionally much denser than the original six-timestamp scout because calibration still requires at least eight accepted identity observations from at least two distinct negative performers; sampling density never lowers those authority gates.
+
 The reference adapter returns multiple person candidates rather than silently selecting the largest face. BodyRig core owns the target decision.
 
 The model weights remain external research dependencies. The `buffalo_l` model package has research/non-commercial licensing; BodyRig setup requires an explicit operator acceptance switch and never records acceptance automatically.
