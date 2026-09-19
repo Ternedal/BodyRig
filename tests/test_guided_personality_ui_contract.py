@@ -144,6 +144,29 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
     assert "Aktiv person er uændret" in save_source
 
 
+def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        "function isMatrixRevisionItem(item)",
+        "function latestMatrixRevisionItem()",
+        "function setEditRevisionUrl(revisionId)",
+        'url.searchParams.set("edit_revision",revisionId)',
+        "history.replaceState",
+        "const fallback=latestMatrixRevisionItem()?.revision_id||",
+        "const revisionId=requested||fallback",
+        "if(!requested) setEditRevisionUrl(revisionId)",
+        "setEditRevisionUrl(result.saved_personality_revision)",
+    ):
+        assert token in html
+
+    save_start = html.index("async function save(){")
+    save_end = html.index("buildSliders();", save_start)
+    save_source = html[save_start:save_end]
+    assert save_source.index("setEditRevisionUrl(result.saved_personality_revision)") < save_source.index(
+        'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
+    )
+
 def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
     guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
@@ -242,6 +265,8 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
         "Δ ${sign}${entry.signedDelta.toFixed(2)}",
         "Delta gemmes ikke.",
         'new MutationObserver(scheduleRender).observe(baselineSelect',
+        'document.getElementById("matrixCompareRevision")?.value',
+        'document.addEventListener("bodyrig:matrix-compare-change", scheduleRender)',
     ):
         assert token in signature
 
@@ -280,6 +305,11 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         'data-ring="inner"',
         'data-ring="outer"',
         'id="personalityMatrixSvg"',
+        'id="matrixCompareRevision"',
+        "function syncCompareOptions()",
+        'option.textContent.includes("Matrix v2")',
+        "option.value !== editingRevision",
+        'new CustomEvent("bodyrig:matrix-compare-change")',
         "polygonPoints(entries",
         "matrix-current-shape",
         "matrix-baseline-shape",
@@ -304,6 +334,7 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert ".guided-grid{grid-template-columns:minmax(0,1fr)}" in css
     assert "body.matrix-raw-hidden .trait-rings" in css
     assert ".matrix-stage" in css
+    assert ".matrix-compare-control" in css
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
     assert "touch-action:none" in css
