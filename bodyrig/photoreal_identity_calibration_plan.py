@@ -12,7 +12,8 @@ BANK_VERSION = 1
 FORMAT = "bodyrig-photoreal-identity-calibration-plan"
 VERSION = 1
 LABEL_AUTHORITY = "stash-single-performer-other-id-v1"
-VIDEO_TIMESTAMPS_PER_SOURCE = 6
+TARGET_NEGATIVE_VIDEO_TIMESTAMP_BUDGET = 320
+MAX_VIDEO_TIMESTAMPS_PER_SOURCE = 320
 MIN_NEGATIVE_PERFORMERS = 2
 MIN_NEGATIVE_SOURCES = 2
 
@@ -86,10 +87,15 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
     )
 
 
-def _video_samples(duration: float, stereo_layout: str) -> list[dict[str, Any]]:
+def _video_samples(
+    duration: float,
+    stereo_layout: str,
+    *,
+    timestamps_per_source: int,
+) -> list[dict[str, Any]]:
     timestamps = [
-        round(duration * (index + 0.5) / VIDEO_TIMESTAMPS_PER_SOURCE, 6)
-        for index in range(VIDEO_TIMESTAMPS_PER_SOURCE)
+        round(duration * (index + 0.5) / timestamps_per_source, 6)
+        for index in range(timestamps_per_source)
     ]
     return [
         {"timestamp_seconds": timestamp, "eye": eye}
@@ -150,6 +156,20 @@ def build_identity_calibration_plan(
             f"identity calibration requires at least {MIN_NEGATIVE_PERFORMERS} distinct negative performers"
         )
 
+    video_source_count = sum(
+        1
+        for item in values
+        if isinstance(item, Mapping) and str(item.get("kind") or "").strip() == "video"
+    )
+    video_timestamps_per_source = (
+        min(
+            MAX_VIDEO_TIMESTAMPS_PER_SOURCE,
+            math.ceil(TARGET_NEGATIVE_VIDEO_TIMESTAMP_BUDGET / video_source_count),
+        )
+        if video_source_count > 0
+        else 1
+    )
+
     sources: list[dict[str, Any]] = []
     total_samples = 0
     seen_keys: set[str] = set()
@@ -178,6 +198,7 @@ def build_identity_calibration_plan(
             samples = _video_samples(
                 _positive(raw.get("duration_seconds"), label="negative video duration"),
                 stereo_layout,
+                timestamps_per_source=video_timestamps_per_source,
             )
         else:
             raise PhotorealIdentityCalibrationPlanError(f"unsupported identity negative source kind: {kind}")
@@ -219,7 +240,7 @@ def build_identity_calibration_plan(
         "negative_performer_count": len(subjects),
         "source_count": len(sources),
         "planned_negative_observation_count": total_samples,
-        "video_timestamps_per_source": VIDEO_TIMESTAMPS_PER_SOURCE,
+        "video_timestamps_per_source": video_timestamps_per_source,
         "sources": sources,
         "negative_embedding_extraction_required": True,
         "calibration_only": True,
