@@ -205,10 +205,10 @@ def test_guided_matrix_surfaces_authored_signature_traits() -> None:
 
     assert '<script src="/ui/personality_signature.js"></script>' in html
     for token in (
-        'target.id = "traitSignature"',
+        'signatureTarget.id = "traitSignature"',
         "Signature traits · størst authored afvigelse fra neutral",
-        "entries.slice(0, LIMIT)",
-        "Math.abs(value - NEUTRAL)",
+        "signature.slice(0, LIMIT)",
+        "Math.abs(entry.value - NEUTRAL)",
         'left.label.localeCompare(right.label, "da")',
         'entry.value > NEUTRAL ? "↑" : "↓"',
         'entry.input.closest(".trait-ring")',
@@ -218,5 +218,40 @@ def test_guided_matrix_surfaces_authored_signature_traits() -> None:
     ):
         assert token in signature
 
+    assert "personality_authority" not in signature
+    assert "production_activation" not in signature
+
+
+def test_guided_matrix_compares_current_traits_with_verified_revision_baseline() -> None:
+    signature = Path("bodyrig/ui/personality_signature.js").read_text(encoding="utf-8")
+
+    for token in (
+        "Revision delta · mod valgt Matrix v2 baseline",
+        'deltaTarget.id = "traitRevisionDelta"',
+        "async function loadBaselineIfNeeded()",
+        "/personality/guided/revisions/",
+        "encodeURIComponent(selection.personId)",
+        "encodeURIComponent(selection.revision)",
+        "validMatrixBlueprint(source?.blueprint)",
+        "Object.keys(value.inner_ring).length === 60",
+        "Object.keys(value.outer_ring).length === 60",
+        'baselineState.status = "unavailable"',
+        'baselineState.status = "ready"',
+        "const signedDelta = entry.value - baselineValue",
+        "Math.abs(signedDelta)",
+        "Δ ${sign}${entry.signedDelta.toFixed(2)}",
+        "Delta gemmes ikke.",
+        'new MutationObserver(scheduleRender).observe(baselineSelect',
+    ):
+        assert token in signature
+
+    render_start = signature.index("function render()")
+    render_end = signature.index("let scheduled", render_start)
+    render_source = signature[render_start:render_end]
+    assert render_source.index("void loadBaselineIfNeeded()") < render_source.index(
+        "renderRevisionDelta(targets.deltaTarget, entries)"
+    )
+
+    assert "style_report" not in signature
     assert "personality_authority" not in signature
     assert "production_activation" not in signature

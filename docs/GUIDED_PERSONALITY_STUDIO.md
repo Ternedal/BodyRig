@@ -155,3 +155,19 @@ Guided Studio viser et read-only overblik over op til 10 traits med størst abso
 - klik på et trait rydder midlertidige filtre, åbner den relevante ring og fokuserer den eksisterende slider.
 
 Signature-overblikket er UI-state og skaber ingen ny evidence, personality-authority eller production-authority. Blueprintet og den eksisterende preview/save-kontrakt er uændret.
+
+
+## Revision delta i Matrix v2
+
+Når en `personality-rXXXX` er valgt som baseline, forsøger Guided Studio read-only at hente revisionen gennem den eksisterende verificerede Guided Personality revision-endpoint. Kun en gyldig Personality Blueprint v2 med 60 Inner Ring- og 60 Outer Ring-traits bruges som sammenligningsgrundlag.
+
+UI'et viser op til 10 aktuelle traits med størst absolut forskel fra baseline og viser:
+
+- Inner/Outer Ring eksplicit;
+- signed delta fra baseline;
+- den aktuelle authored værdi;
+- direkte navigation tilbage til den eksisterende slider.
+
+Source-derived eller legacy/manual personality-revisioner uden et verificeret Matrix v2 blueprint bliver ikke omskrevet eller fortolket som Matrix-data; delta-panelet viser i stedet, at baseline ikke har et verificeret Matrix v2 blueprint.
+
+Revision-deltaen er **ephemeral UI-state**. Den ændrer ikke blueprint-requesten, preview-key'en, save-payloaden, evidence, personality authority, human review eller production authority. Ved baseline-skift nulstilles cached sammenligning før den nye revision hentes, så et gammelt delta ikke kan vises som om det tilhører en ny baseline.
