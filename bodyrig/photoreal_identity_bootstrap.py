@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -10,10 +11,13 @@ FORMAT = "bodyrig-photoreal-identity-bootstrap-plan"
 VERSION = 1
 POLICY = "train-only-single-performer-direct-binding-v1"
 MAX_REFERENCE_SAMPLES_PER_SOURCE = 120
+TARGET_REFERENCE_SAMPLE_BUDGET = 320
 MIN_BOOTSTRAP_GROUPS = 2
 MIN_BOOTSTRAP_SOURCES = 2
 MIN_BOOTSTRAP_REFERENCE_SAMPLES = 4
-IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
+IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split", "spatial-deprojection-required"}
+PROJECTION_AUTHORITY_FORMATS = {"bodyrig-spherical-v2-projection-authority", "bodyrig-explicit-projection-authority"}
+PROJECTION_AUTHORITY_VERSION = 1
 
 
 class PhotorealIdentityBootstrapError(ValueError):
@@ -57,10 +61,30 @@ def _count(value: Any, *, label: str) -> int:
     return result
 
 
+def _spatial_projection_authorized(source: Mapping[str, Any]) -> bool:
+    if source.get("decode_mode") != "spatial-deprojection-required":
+        return True
+    if source.get("kind") != "video" or source.get("projection") != "equi":
+        return False
+    authority = source.get("projection_authority")
+    if not isinstance(authority, Mapping):
+        return False
+    version = authority.get("version")
+    return (
+        authority.get("format") in PROJECTION_AUTHORITY_FORMATS
+        and not isinstance(version, bool)
+        and version == PROJECTION_AUTHORITY_VERSION
+        and authority.get("projection_type") == "equi"
+        and authority.get("deprojection_authority") is False
+    )
+
+
 def _authoritative_source(source: Mapping[str, Any]) -> bool:
     if source.get("split") != "train" or _count(source.get("performer_count"), label="performer_count") != 1:
         return False
     if source.get("decode_mode") not in IDENTITY_BOOTSTRAP_DECODE_MODES:
+        return False
+    if not _spatial_projection_authorized(source):
         return False
     kind = source.get("kind")
     binding = source.get("source_binding")
@@ -92,7 +116,7 @@ def _take_evenly(values: list[dict[str, Any]], limit: int) -> list[dict[str, Any
     return selected
 
 
-def _select_reference_samples(source: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _select_reference_samples(source: Mapping[str, Any], *, limit: int) -> list[dict[str, Any]]:
     raw = source.get("samples")
     if not isinstance(raw, list) or not raw:
         raise PhotorealIdentityBootstrapError("identity bootstrap source has no scout samples")
@@ -121,14 +145,17 @@ def _select_reference_samples(source: Mapping[str, Any]) -> list[dict[str, Any]]
         by_eye.setdefault(item["eye"], []).append(item)
     eyes = sorted(by_eye)
     if len(eyes) == 1:
-        return _take_evenly(by_eye[eyes[0]], MAX_REFERENCE_SAMPLES_PER_SOURCE)
+        return _take_evenly(by_eye[eyes[0]], limit)
 
-    per_eye = max(1, MAX_REFERENCE_SAMPLES_PER_SOURCE // len(eyes))
+    per_eye = limit // len(eyes)
+    remainder = limit % len(eyes)
     selected: list[dict[str, Any]] = []
-    for eye in eyes:
-        selected.extend(_take_evenly(by_eye[eye], per_eye))
+    for index, eye in enumerate(eyes):
+        eye_limit = per_eye + (1 if index < remainder else 0)
+        if eye_limit > 0:
+            selected.extend(_take_evenly(by_eye[eye], eye_limit))
     selected.sort(key=lambda item: (float(item["timestamp_seconds"] or -1.0), item["eye"]))
-    return selected[:MAX_REFERENCE_SAMPLES_PER_SOURCE]
+    return selected[:limit]
 
 
 def build_identity_bootstrap_plan(scan_plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -151,7 +178,7 @@ def build_identity_bootstrap_plan(scan_plan: Mapping[str, Any]) -> dict[str, Any
     if not isinstance(values, list) or not values:
         raise PhotorealIdentityBootstrapError("photoreal scan plan contains no sources")
 
-    selected_sources: list[dict[str, Any]] = []
+    authoritative_sources: list[Mapping[str, Any]] = []
     seen_keys: set[str] = set()
     for raw in values:
         if not isinstance(raw, Mapping):
@@ -167,10 +194,27 @@ def build_identity_bootstrap_plan(scan_plan: Mapping[str, Any]) -> dict[str, Any
             raise PhotorealIdentityBootstrapError(
                 f"identity bootstrap eligibility disagrees with source authority: {source_key}"
             )
-        if not authoritative:
-            continue
+        if authoritative:
+            authoritative_sources.append(raw)
 
-        references = _select_reference_samples(raw)
+    authoritative_sources.sort(
+        key=lambda item: (
+            _text(item.get("group_id"), label="source group"),
+            _text(item.get("source_key"), label="source key"),
+        )
+    )
+    source_count = len(authoritative_sources)
+    base_limit = 0 if source_count == 0 else TARGET_REFERENCE_SAMPLE_BUDGET // source_count
+    remainder = 0 if source_count == 0 else TARGET_REFERENCE_SAMPLE_BUDGET % source_count
+
+    selected_sources: list[dict[str, Any]] = []
+    for index, raw in enumerate(authoritative_sources):
+        source_key = _text(raw.get("source_key"), label="source key")
+        source_limit = min(
+            MAX_REFERENCE_SAMPLES_PER_SOURCE,
+            base_limit + (1 if index < remainder else 0),
+        )
+        references = _select_reference_samples(raw, limit=max(1, source_limit))
         selected_sources.append(
             {
                 "source_key": source_key,
@@ -181,14 +225,13 @@ def build_identity_bootstrap_plan(scan_plan: Mapping[str, Any]) -> dict[str, Any
                 "source_binding": _text(raw.get("source_binding"), label="source binding", maximum=128),
                 "performer_count": _count(raw.get("performer_count"), label="performer_count"),
                 "projection": _text(raw.get("projection"), label="projection", maximum=128),
+                "projection_authority": copy.deepcopy(raw.get("projection_authority")),
                 "stereo_layout": _text(raw.get("stereo_layout"), label="stereo layout", maximum=128),
                 "decode_mode": _text(raw.get("decode_mode"), label="decode mode", maximum=128),
                 "reference_sample_count": len(references),
                 "reference_samples": references,
             }
         )
-
-    selected_sources.sort(key=lambda item: (item["group_id"], item["source_key"]))
     groups = {item["group_id"] for item in selected_sources}
     reference_count = sum(int(item["reference_sample_count"]) for item in selected_sources)
     blockers: list[str] = []

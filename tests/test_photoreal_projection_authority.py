@@ -420,7 +420,7 @@ def test_scan_plan_cli_preserves_exact_geometry_without_granting_deprojection(
     assert source["decode_mode"] == "spatial-deprojection-required"
     assert source["sample_count"] == 24
     assert {item["eye"] for item in source["samples"]} == {"left", "right"}
-    assert source["identity_bootstrap_eligible"] is False
+    assert source["identity_bootstrap_eligible"] is (projection_type == "equi")
     flat = next(item for item in scan["sources"] if item["source_key"].startswith("scene:s2:"))
     assert flat["projection_authority"] is None
     assert scan["teacher_training_authorized"] is False

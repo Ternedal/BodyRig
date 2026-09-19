@@ -141,7 +141,7 @@ def test_frame_analyzer_routes_cbmp_through_unique_deprojected_viewports(monkeyp
 
 def test_mesh_wrapper_keeps_spatial_identity_bootstrap_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter.base, "_read_sample", lambda *_args: (object(), True))
-    with pytest.raises(adapter.ReferenceVisionError, match="cannot establish identity authority"):
+    with pytest.raises(adapter.ReferenceVisionError, match="requires exact equirectangular projection authority"):
         adapter.base._single_identity(SimpleNamespace(), {}, {})
 
 

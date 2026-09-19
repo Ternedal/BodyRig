@@ -26,7 +26,7 @@ PROJECTION_AUTHORITY_FORMATS = {
     EXPLICIT_PROJECTION_AUTHORITY_FORMAT,
 }
 PROJECTION_AUTHORITY_VERSION = 1
-IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split"}
+IDENTITY_BOOTSTRAP_DECODE_MODES = {"image-direct", "rectilinear-mono", "rectilinear-stereo-split", "spatial-deprojection-required"}
 
 
 class PhotorealScanPlanError(ValueError):
@@ -194,10 +194,30 @@ def _decode_mode(projection: str, stereo_layout: str) -> str:
     return "spatial-deprojection-required"
 
 
+def _spatial_identity_bootstrap_authorized(source: Mapping[str, Any]) -> bool:
+    if source.get("decode_mode") != "spatial-deprojection-required":
+        return True
+    if source.get("kind") != "video" or source.get("projection") != "equi":
+        return False
+    authority = source.get("projection_authority")
+    if not isinstance(authority, Mapping):
+        return False
+    version = authority.get("version")
+    return (
+        authority.get("format") in PROJECTION_AUTHORITY_FORMATS
+        and not isinstance(version, bool)
+        and version == PROJECTION_AUTHORITY_VERSION
+        and authority.get("projection_type") == "equi"
+        and authority.get("deprojection_authority") is False
+    )
+
+
 def _identity_bootstrap_eligible(source: Mapping[str, Any]) -> bool:
     if source["split"] != "train" or int(source["performer_count"]) != 1:
         return False
     if source.get("decode_mode") not in IDENTITY_BOOTSTRAP_DECODE_MODES:
+        return False
+    if not _spatial_identity_bootstrap_authorized(source):
         return False
     if source["kind"] == "video":
         return source["source_binding"] == "scene-performer"

@@ -27,30 +27,75 @@
     "production_activation"
   ],
   "properties": {
-    "format": {"const": "bodyrig-photoreal-identity-bootstrap-plan"},
-    "version": {"const": 1},
-    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
-    "performer_name": {"type": "string"},
-    "policy": {"const": "train-only-single-performer-direct-binding-v1"},
-    "source_count": {"type": "integer", "minimum": 2},
-    "source_group_count": {"type": "integer", "minimum": 2},
-    "reference_sample_count": {"type": "integer", "minimum": 4},
-    "maximum_reference_samples_per_source": {"const": 12},
+    "format": {
+      "const": "bodyrig-photoreal-identity-bootstrap-plan"
+    },
+    "version": {
+      "const": 1
+    },
+    "performer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "performer_name": {
+      "type": "string"
+    },
+    "policy": {
+      "const": "train-only-single-performer-direct-binding-v1"
+    },
+    "source_count": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "source_group_count": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "reference_sample_count": {
+      "type": "integer",
+      "minimum": 4
+    },
+    "maximum_reference_samples_per_source": {
+      "const": 120
+    },
     "sources": {
       "type": "array",
       "minItems": 2,
-      "items": {"$ref": "#/$defs/source"}
+      "items": {
+        "$ref": "#/$defs/source"
+      }
     },
-    "train_only": {"const": true},
-    "evaluation_source_count": {"const": 0},
-    "source_bytes_bound": {"const": true},
-    "identity_embedding_extraction_required": {"const": true},
-    "identity_bank_build_authorized": {"const": true},
-    "teacher_training_authorized": {"const": false},
-    "photoreal_acceptance_authority": {"const": false},
-    "build_only": {"const": true},
-    "runtime_dependency": {"const": false},
-    "production_activation": {"const": false}
+    "train_only": {
+      "const": true
+    },
+    "evaluation_source_count": {
+      "const": 0
+    },
+    "source_bytes_bound": {
+      "const": true
+    },
+    "identity_embedding_extraction_required": {
+      "const": true
+    },
+    "identity_bank_build_authorized": {
+      "const": true
+    },
+    "teacher_training_authorized": {
+      "const": false
+    },
+    "photoreal_acceptance_authority": {
+      "const": false
+    },
+    "build_only": {
+      "const": true
+    },
+    "runtime_dependency": {
+      "const": false
+    },
+    "production_activation": {
+      "const": false
+    }
   },
   "$defs": {
     "sha256": {
@@ -60,15 +105,29 @@
     "sample": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timestamp_seconds", "eye"],
+      "required": [
+        "timestamp_seconds",
+        "eye"
+      ],
       "properties": {
         "timestamp_seconds": {
           "oneOf": [
-            {"type": "number", "minimum": 0.0},
-            {"type": "null"}
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
           ]
         },
-        "eye": {"enum": ["mono", "left", "right"]}
+        "eye": {
+          "enum": [
+            "mono",
+            "left",
+            "right"
+          ]
+        }
       }
     },
     "source": {
@@ -83,30 +142,415 @@
         "source_binding",
         "performer_count",
         "projection",
+        "projection_authority",
         "stereo_layout",
         "decode_mode",
         "reference_sample_count",
         "reference_samples"
       ],
       "properties": {
-        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "source_sha256": {"$ref": "#/$defs/sha256"},
-        "resolved_path": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "kind": {"enum": ["video", "image"]},
-        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "source_binding": {"enum": ["scene-performer", "direct-performer"]},
-        "performer_count": {"const": 1},
-        "projection": {"type": "string", "minLength": 1, "maxLength": 128},
-        "stereo_layout": {"type": "string", "minLength": 1, "maxLength": 128},
-        "decode_mode": {"type": "string", "minLength": 1, "maxLength": 128},
-        "reference_sample_count": {"type": "integer", "minimum": 1, "maximum": 12},
+        "source_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resolved_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "kind": {
+          "enum": [
+            "video",
+            "image"
+          ]
+        },
+        "group_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "source_binding": {
+          "enum": [
+            "scene-performer",
+            "direct-performer"
+          ]
+        },
+        "performer_count": {
+          "const": 1
+        },
+        "projection": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stereo_layout": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "decode_mode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "reference_sample_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120
+        },
         "reference_samples": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 12,
-          "items": {"$ref": "#/$defs/sample"}
+          "maxItems": 120,
+          "items": {
+            "$ref": "#/$defs/sample"
+          }
+        },
+        "projection_authority": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/projection_authority"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
+    },
+    "crc32": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}$"
+    },
+    "pose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "yaw",
+        "pitch",
+        "roll"
+      ],
+      "properties": {
+        "yaw": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "pitch": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "roll": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      }
+    },
+    "equirectangular_bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "top",
+        "bottom",
+        "left",
+        "right"
+      ],
+      "properties": {
+        "top": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bottom": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "left": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "right": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "projection_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "version",
+        "projection_type",
+        "pose_degrees",
+        "equirectangular_bounds_fraction",
+        "cubemap_layout",
+        "cubemap_padding_pixels",
+        "mesh_projection_crc32",
+        "mesh_projection_encoding",
+        "mesh_projection_payload_bytes",
+        "mesh_projection_geometry_sha256",
+        "mesh_projection_mesh_count",
+        "mesh_projection_total_vertex_count",
+        "mesh_projection_total_index_count",
+        "mesh_projection_texture_ids",
+        "mesh_projection_index_types",
+        "mesh_projection_unknown_box_types",
+        "deprojection_authority"
+      ],
+      "properties": {
+        "format": {
+          "enum": [
+            "bodyrig-spherical-v2-projection-authority",
+            "bodyrig-explicit-projection-authority"
+          ]
+        },
+        "version": {
+          "const": 1
+        },
+        "projection_type": {
+          "enum": [
+            "equi",
+            "mshp",
+            "cbmp"
+          ]
+        },
+        "pose_degrees": {
+          "$ref": "#/$defs/pose"
+        },
+        "equirectangular_bounds_fraction": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/equirectangular_bounds"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cubemap_layout": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cubemap_padding_pixels": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_crc32": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/crc32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_encoding": {
+          "oneOf": [
+            {
+              "enum": [
+                "raw ",
+                "dfl8"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_payload_bytes": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_geometry_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_mesh_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_total_vertex_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_total_index_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_texture_ids": {
+          "oneOf": [
+            {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_index_types": {
+          "oneOf": [
+            {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mesh_projection_unknown_box_types": {
+          "oneOf": [
+            {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 4
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deprojection_authority": {
+          "const": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "format": {
+                "const": "bodyrig-explicit-projection-authority"
+              }
+            },
+            "required": [
+              "format"
+            ]
+          },
+          "then": {
+            "properties": {
+              "projection_type": {
+                "const": "equi"
+              },
+              "equirectangular_bounds_fraction": {
+                "$ref": "#/$defs/equirectangular_bounds"
+              },
+              "cubemap_layout": {
+                "type": "null"
+              },
+              "cubemap_padding_pixels": {
+                "type": "null"
+              },
+              "mesh_projection_crc32": {
+                "type": "null"
+              },
+              "mesh_projection_encoding": {
+                "type": "null"
+              },
+              "mesh_projection_payload_bytes": {
+                "type": "null"
+              },
+              "mesh_projection_geometry_sha256": {
+                "type": "null"
+              },
+              "mesh_projection_mesh_count": {
+                "type": "null"
+              },
+              "mesh_projection_total_vertex_count": {
+                "type": "null"
+              },
+              "mesh_projection_total_index_count": {
+                "type": "null"
+              },
+              "mesh_projection_texture_ids": {
+                "type": "null"
+              },
+              "mesh_projection_index_types": {
+                "type": "null"
+              },
+              "mesh_projection_unknown_box_types": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

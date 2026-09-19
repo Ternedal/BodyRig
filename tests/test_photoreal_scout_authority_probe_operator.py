@@ -57,7 +57,8 @@ def test_scout_authority_replay_never_grants_downstream_authority() -> None:
     assert 'Test-StrictBoolean -Value $Probe.production_activation -Expected $false' in SCRIPT
     assert 'Test-StrictBoolean -Value $Scan.teacher_training_authorized -Expected $false' in SCRIPT
     assert 'Test-StrictBoolean -Value $Scan.production_activation -Expected $false' in SCRIPT
-    assert 'Spatial bootstrap:    FALSE' in SCRIPT
+    assert 'Spatial bootstrap:    $spatialBootstrap (exact equi authority only)' in SCRIPT
+    assert 'granted spatial identity bootstrap without exact equirectangular projection authority' in SCRIPT
     assert 'Do not reuse this diagnostic scout plan as canonical P0 authority.' in SCRIPT
     assert 'teacher_training_authorized = $true' not in SCRIPT
     assert 'production_activation = $true' not in SCRIPT

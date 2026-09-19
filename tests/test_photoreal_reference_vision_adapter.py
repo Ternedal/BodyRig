@@ -364,5 +364,5 @@ def test_calibration_result_preserves_exact_single_person_rule(
 
 def test_spatial_identity_bootstrap_remains_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), True))
-    with pytest.raises(adapter.ReferenceVisionError, match="cannot establish identity authority"):
+    with pytest.raises(adapter.ReferenceVisionError, match="requires exact equirectangular projection authority"):
         adapter._single_identity(SimpleNamespace(), {}, {})
