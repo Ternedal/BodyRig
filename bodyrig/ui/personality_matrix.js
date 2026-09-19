@@ -53,9 +53,43 @@
 
   function baselineSelection() {
     const personId = $("personSelect")?.value || "";
-    const revision = $("baselineRevision")?.value || "";
+    const revision = $("matrixCompareRevision")?.value || "";
     if (!personId || !revision) return null;
     return { personId, revision, key: `${personId}|${revision}` };
+  }
+
+  function syncCompareOptions() {
+    const source = $("baselineRevision");
+    const target = $("matrixCompareRevision");
+    if (!source || !target) return;
+
+    const previous = target.value;
+    const editingRevision = new URLSearchParams(location.search).get("edit_revision") || "";
+    const matrixOptions = [...source.options].filter(
+      option => option.value && option.textContent.includes("Matrix v2")
+    );
+
+    target.replaceChildren();
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "Ingen sammenligning";
+    target.appendChild(empty);
+
+    for (const sourceOption of matrixOptions) {
+      const option = document.createElement("option");
+      option.value = sourceOption.value;
+      option.textContent = sourceOption.textContent;
+      target.appendChild(option);
+    }
+
+    const values = new Set(matrixOptions.map(option => option.value));
+    const previousStillComparable = previous && previous !== editingRevision && values.has(previous);
+    const fallback = [...matrixOptions].reverse().find(option => option.value !== editingRevision);
+    target.value = previousStillComparable ? previous : (fallback?.value || "");
+
+    if (target.value !== previous) {
+      document.dispatchEvent(new CustomEvent("bodyrig:matrix-compare-change"));
+    }
   }
 
   function validMatrixBlueprint(value) {
@@ -141,9 +175,15 @@
           <h2 class="matrix-cockpit-title">Authored personality shape</h2>
           <p class="matrix-cockpit-copy">Grafen er en deterministisk editor af de 120 authored Matrix-værdier. Klik et punkt for at inspicere det, eller træk punktet radialt for at ændre den præcise trait.</p>
         </div>
-        <div class="matrix-ring-tabs" role="tablist" aria-label="Personality Matrix ring">
-          <button class="matrix-ring-tab active" type="button" data-ring="inner" role="tab" aria-selected="true">Inner · 60</button>
-          <button class="matrix-ring-tab" type="button" data-ring="outer" role="tab" aria-selected="false">Outer · 60</button>
+        <div class="matrix-head-controls">
+          <label class="matrix-compare-control" for="matrixCompareRevision">
+            <span>Sammenlign med</span>
+            <select id="matrixCompareRevision"><option value="">Ingen sammenligning</option></select>
+          </label>
+          <div class="matrix-ring-tabs" role="tablist" aria-label="Personality Matrix ring">
+            <button class="matrix-ring-tab active" type="button" data-ring="inner" role="tab" aria-selected="true">Inner · 60</button>
+            <button class="matrix-ring-tab" type="button" data-ring="outer" role="tab" aria-selected="false">Outer · 60</button>
+          </div>
         </div>
       </div>
       <div class="matrix-stage">
@@ -180,6 +220,15 @@
     else changeSummary.insertAdjacentElement("afterend", cockpit);
 
     document.body.classList.add("matrix-raw-hidden");
+    syncCompareOptions();
+    $("matrixCompareRevision")?.addEventListener("change", () => {
+      state.baselineKey = null;
+      state.baselineRevision = null;
+      state.baselineStatus = "idle";
+      state.baselineBlueprint = null;
+      document.dispatchEvent(new CustomEvent("bodyrig:matrix-compare-change"));
+      scheduleRender();
+    });
 
     cockpit.querySelectorAll(".matrix-ring-tab").forEach(button => {
       button.addEventListener("click", () => {
@@ -648,14 +697,19 @@
 
   const baselineSelect = $("baselineRevision");
   if (baselineSelect) {
-    baselineSelect.addEventListener("change", scheduleRender);
-    new MutationObserver(scheduleRender).observe(baselineSelect, {
+    new MutationObserver(() => {
+      syncCompareOptions();
+      scheduleRender();
+    }).observe(baselineSelect, {
       childList: true,
       subtree: true,
     });
   }
 
-  $("personSelect")?.addEventListener("change", scheduleRender);
+  $("personSelect")?.addEventListener("change", () => {
+    syncCompareOptions();
+    scheduleRender();
+  });
   document.addEventListener("click", event => {
     const summaryButton = event.target.closest?.("#traitSignature button, #traitRevisionDelta button");
     if (summaryButton && !state.rawVisible) toggleRawControls();
