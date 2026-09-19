@@ -461,6 +461,32 @@ def _personality_deletion_directory(root: str | os.PathLike[str], person_id: str
     )
 
 
+def _write_personality_deletion_tombstone(
+    path: Path,
+    value: Mapping[str, Any],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            existing = json.loads(
+                path.read_text(encoding="utf-8-sig"),
+                parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise PersonProfileError("personality deletion tombstone is unreadable") from exc
+        if (
+            not isinstance(existing, Mapping)
+            or existing.get("format") != PERSONALITY_DELETION_FORMAT
+            or existing.get("version") != PERSONALITY_DELETION_VERSION
+            or existing.get("person_id") != value.get("person_id")
+            or existing.get("revision_id") != value.get("revision_id")
+            or existing.get("candidate_created_utc") != value.get("candidate_created_utc")
+        ):
+            raise PersonProfileError("personality deletion tombstone conflicts with candidate")
+        return
+    _write_create(path, value)
+
+
 def _next_personality_revision(
     root: str | os.PathLike[str],
     profile: Mapping[str, Any],
@@ -599,8 +625,7 @@ def delete_personality_revision(
         "candidate_created_utc": selected["created_utc"],
     }
     deletion_path = _personality_deletion_directory(root, person_id) / f"{revision_id}.json"
-    deletion_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_create(deletion_path, deletion)
+    _write_personality_deletion_tombstone(deletion_path, deletion)
 
     profile["personality_revisions"] = [
         item
