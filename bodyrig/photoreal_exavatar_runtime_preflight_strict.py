@@ -20,6 +20,20 @@ class PhotorealExAvatarRuntimePreflightStrictError(PhotorealExAvatarRuntimePrefl
     pass
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _digest(value: Mapping[str, Any], *, omit: str) -> str:
     payload = {key: item for key, item in value.items() if key != omit}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -60,7 +74,7 @@ def validate_runtime_preflight_strict_file(
             "runtime preflight output must be a JSON object"
         )
     expected = build_runtime_preflight_strict(workspace_root=workspace_root)
-    if existing != expected:
+    if not _strict_json_equal(existing, expected):
         raise PhotorealExAvatarRuntimePreflightStrictError(
             "existing runtime preflight does not match the current pinned runtime/workspace"
         )
