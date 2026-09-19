@@ -255,3 +255,12 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
     assert "style_report" not in signature
     assert "personality_authority" not in signature
     assert "production_activation" not in signature
+
+
+def test_guided_matrix_trait_rows_do_not_force_two_columns() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    assert ".trait-grid{display:grid;grid-template-columns:1fr;gap:2px" in html
+    assert "grid-template-columns:minmax(150px,.9fr) minmax(180px,1.6fr) 52px" in html
+    assert ".trait-slider-row input{width:100%;min-width:0}" in html
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in html
