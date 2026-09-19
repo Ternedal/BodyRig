@@ -120,10 +120,10 @@
 
   function baselineSelection() {
     const personId = document.getElementById("personSelect")?.value || "";
-    const revision =
-      document.getElementById("matrixCompareRevision")?.value ||
-      document.getElementById("baselineRevision")?.value ||
-      "";
+    const compareSelect = document.getElementById("matrixCompareRevision");
+    const revision = compareSelect
+      ? compareSelect.value
+      : (document.getElementById("baselineRevision")?.value || "");
     if (!personId || !revision) return null;
     return {
       personId,
