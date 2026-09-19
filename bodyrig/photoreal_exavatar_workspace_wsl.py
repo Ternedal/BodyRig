@@ -20,6 +20,10 @@ def _is_v1(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == VERSION
 
 
+def _is_exact_count(value: Any, expected: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
+
+
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
     result = str(value or "").strip()
     if not result or len(result) > maximum or "\n" in result or "\r" in result:
@@ -157,7 +161,7 @@ def validate_exavatar_workspace_wsl(
     frames = materialization.get("frames")
     if not isinstance(frames, list) or not frames:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar materialization receipt contains no frames")
-    if receipt.get("frame_count") != len(frames):
+    if not _is_exact_count(receipt.get("frame_count"), len(frames)):
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace frame count mismatch")
     for raw in frames:
         if not isinstance(raw, dict):
