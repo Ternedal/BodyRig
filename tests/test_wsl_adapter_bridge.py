@@ -126,11 +126,65 @@ def test_make_wsl_path_converter_escapes_backslashes_before_wslpath(monkeypatch)
         "-d",
         "Ubuntu-22.04",
         "--",
-        "wslpath",
+        "/usr/bin/wslpath",
         "-a",
         "-u",
         r"C:\\temp\\request.json",
     ]]
+
+
+def test_make_wsl_path_converter_retries_raw_windows_path(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(list(command))
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(command, 1, stdout="escaped form rejected\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="/mnt/c/temp/request.json\n", stderr="")
+
+    monkeypatch.setattr(bridge, "expand_subst_path", lambda path: path)
+    monkeypatch.setattr(bridge, "resolve_windows_reparse_path", lambda path: path)
+    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+    converter = make_wsl_path_converter("wsl.exe", "Ubuntu-22.04")
+
+    assert converter(r"C:\\temp\\request.json") == "/mnt/c/temp/request.json"
+    assert calls == [
+        [
+            "wsl.exe",
+            "-d",
+            "Ubuntu-22.04",
+            "--",
+            "/usr/bin/wslpath",
+            "-a",
+            "-u",
+            r"C:\\\\temp\\\\request.json",
+        ],
+        [
+            "wsl.exe",
+            "-d",
+            "Ubuntu-22.04",
+            "--",
+            "/usr/bin/wslpath",
+            "-a",
+            "-u",
+            r"C:\\temp\\request.json",
+        ],
+    ]
+
+
+def test_make_wsl_path_converter_reports_stdout_when_both_forms_fail(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[-1] == r"C:\\\\temp\\\\request.json":
+            return subprocess.CompletedProcess(command, 1, stdout="escaped failure\n", stderr="")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="raw failure\n")
+
+    monkeypatch.setattr(bridge, "expand_subst_path", lambda path: path)
+    monkeypatch.setattr(bridge, "resolve_windows_reparse_path", lambda path: path)
+    monkeypatch.setattr(bridge.subprocess, "run", fake_run)
+    converter = make_wsl_path_converter("wsl.exe", "Ubuntu-22.04")
+
+    with pytest.raises(WslBridgeError, match="escaped=escaped failure; raw=raw failure"):
+        converter(r"C:\\temp\\request.json")
 
 
 def test_split_unc_path_preserves_share_root_and_suffix():
