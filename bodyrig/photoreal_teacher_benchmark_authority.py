@@ -12,6 +12,20 @@ from .photoreal_teacher_benchmark_plan import (
 from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 
 
+def _strict_json_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _strict_json_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _strict_json_equal(a, b) for a, b in zip(left, right)
+        )
+    return left == right
+
+
 def _read_json(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     try:
@@ -38,7 +52,7 @@ def validate_teacher_benchmark_plan_files_strict(
         ) from exc
     expected = build_teacher_benchmark_plan(validated)
     plan = _read_json(benchmark_plan_path)
-    if plan != expected:
+    if not _strict_json_equal(plan, expected):
         raise PhotorealTeacherBenchmarkPlanError(
             "existing teacher benchmark plan does not match strict current teacher input"
         )
