@@ -57,6 +57,8 @@ def test_sealed_suite_handoff_preserves_exact_candidates_without_activation() ->
 
     for token in (
         'id="continueReviewLink"',
+        'class="primary full review-handoff"',
+        ".review-handoff{display:block",
         "Fortsæt til samlet compatibility review",
         '$("continueReviewLink").hidden=true',
         '$("continueReviewLink").href="/"',
