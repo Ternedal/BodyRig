@@ -227,7 +227,7 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
 
     for token in (
         "Revision delta · mod valgt Matrix v2 baseline",
-        'target.id = "traitRevisionDelta"',
+        'deltaTarget.id = "traitRevisionDelta"',
         "async function loadBaselineIfNeeded()",
         "/personality/guided/revisions/",
         "encodeURIComponent(selection.personId)",
