@@ -49,10 +49,6 @@
     return entries;
   }
 
-  function allEntries() {
-    return [...traitEntries("inner"), ...traitEntries("outer")];
-  }
-
   function baselineSelection() {
     const personId = $("personSelect")?.value || "";
     const revision = $("baselineRevision")?.value || "";
@@ -258,14 +254,29 @@
   }
 
   function labelledEntries(entries, selected) {
-    const ranked = [...entries]
-      .map((entry, index) => ({ entry, index, score: signatureScore(entry) }))
-      .sort((a, b) => b.score - a.score || a.entry.label.localeCompare(b.entry.label, "da"));
-    const selectedSet = new Set(ranked.slice(0, LABEL_LIMIT).map(item => item.entry.traitId));
-    if (selected) selectedSet.add(selected.traitId);
-    return entries
-      .map((entry, index) => ({ entry, index }))
-      .filter(item => selectedSet.has(item.entry.traitId));
+    const scored = entries.map((entry, index) => ({ entry, index, score: signatureScore(entry) }));
+    const maxScore = scored.reduce((max, item) => Math.max(max, item.score), 0);
+    let selectedIndexes;
+
+    if (maxScore <= EPSILON) {
+      const stride = Math.max(1, Math.floor(entries.length / LABEL_LIMIT));
+      selectedIndexes = new Set();
+      for (let index = 0; index < entries.length && selectedIndexes.size < LABEL_LIMIT; index += stride) {
+        selectedIndexes.add(index);
+      }
+    } else {
+      const ranked = [...scored].sort(
+        (a, b) => b.score - a.score || a.entry.label.localeCompare(b.entry.label, "da")
+      );
+      selectedIndexes = new Set(ranked.slice(0, LABEL_LIMIT).map(item => item.index));
+    }
+
+    if (selected) {
+      const selectedIndex = entries.findIndex(entry => entry.traitId === selected.traitId);
+      if (selectedIndex >= 0) selectedIndexes.add(selectedIndex);
+    }
+
+    return scored.filter(item => selectedIndexes.has(item.index));
   }
 
   function relaxedLabels(items) {
@@ -574,6 +585,10 @@
   }
 
   $("personSelect")?.addEventListener("change", scheduleRender);
+  document.addEventListener("click", event => {
+    const summaryButton = event.target.closest?.("#traitSignature button, #traitRevisionDelta button");
+    if (summaryButton && !state.rawVisible) toggleRawControls();
+  }, true);
   window.addEventListener("resize", scheduleRender);
   scheduleRender();
 })();
