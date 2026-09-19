@@ -212,6 +212,7 @@
             <div class="matrix-save-actions">
               <button id="matrixPreviewButton" class="secondary" type="button">Byg preview</button>
               <button id="matrixSaveButton" class="primary" type="button" disabled>Gem revision</button>
+              <a id="matrixAuditionLink" class="secondary matrix-audition-link" href="/ui/personality_audition_suite.html" hidden>Test denne revision · 6 scenarier</a>
             </div>
           </div>
         </aside>
@@ -321,11 +322,7 @@
     let stateText = "Ikke gemt";
     let noteText = "Byg preview før du gemmer en ny immutable personality-revision.";
 
-    if (/gemt · blueprint/i.test(status)) {
-      stateName = "saved";
-      stateText = "Gemt";
-      noteText = status;
-    } else if (/Gemmer immutable/i.test(status)) {
+    if (/Gemmer immutable/i.test(status)) {
       stateName = "saving";
       stateText = "Gemmer…";
       noteText = status;
@@ -337,6 +334,10 @@
       stateName = "dirty";
       stateText = "Ikke gemte ændringer";
       noteText = "Matrixen er ændret siden sidste preview. Byg preview igen før gem.";
+    } else if (/gemt · blueprint/i.test(status) || /genindlæst fra verificeret blueprint/i.test(status)) {
+      stateName = "saved";
+      stateText = "Gemt";
+      noteText = status;
     } else if (status) {
       noteText = status;
     }
@@ -347,6 +348,20 @@
     mirrorPreview.classList.toggle("secondary", !previewPrimary);
     mirrorSave.classList.toggle("primary", savePrimary);
     mirrorSave.classList.toggle("secondary", !savePrimary);
+
+    const auditionLink = $("matrixAuditionLink");
+    if (auditionLink) {
+      const personId = $("personSelect")?.value || "";
+      const revision = new URLSearchParams(location.search).get("edit_revision") || "";
+      const revisionExists = [...($("baselineRevision")?.options || [])].some(
+        option => option.value === revision
+      );
+      const auditionReady = stateName === "saved" && Boolean(personId && revision && revisionExists);
+      auditionLink.hidden = !auditionReady;
+      auditionLink.href = auditionReady
+        ? `/ui/personality_audition_suite.html?person_id=${encodeURIComponent(personId)}&personality_revision=${encodeURIComponent(revision)}`
+        : "/ui/personality_audition_suite.html";
+    }
 
     stateTarget.dataset.state = stateName;
     stateTarget.textContent = stateText;
