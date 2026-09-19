@@ -228,6 +228,102 @@ def test_calibration_result_retains_quality_metadata_without_granting_authority(
     assert result["production_activation"] is False
 
 
+def test_calibration_result_skips_decode_failure_but_keeps_other_negative_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(embedding_dimension=32)
+    request = {
+        "target_performer_id": "42",
+        "identity_bank_sha256": "d" * 64,
+        "sources": [
+            {
+                "source_key": "scene:s7:E:/p7.mp4",
+                "source_sha256": "7" * 64,
+                "subject_performer_id": "7",
+                "samples": [
+                    {"timestamp_seconds": 1.0, "eye": "mono"},
+                    {"timestamp_seconds": 2.0, "eye": "mono"},
+                ],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="c" * 64,
+    )
+    calls = 0
+
+    def read_sample(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise adapter.ReferenceVisionDecodeError("could not decode video frame")
+        return object(), False
+
+    monkeypatch.setattr(adapter, "_read_sample", read_sample)
+    monkeypatch.setattr(
+        adapter,
+        "_candidate_rows",
+        lambda *_args, **kwargs: [
+            {
+                **kwargs["base"],
+                "frame_sha256": "2" * 64,
+                "perceptual_hash": "0123456789abcdef",
+                "candidate_id": "person-000",
+                "person_detected": True,
+                "width": 1920,
+                "height": 1080,
+                "view_bin": "front",
+                "face_visibility": 0.9,
+                "full_body_visibility": 0.8,
+                "person_fraction": 0.25,
+                "sharpness": 0.7,
+                "motion": 0.0,
+                "occlusion": 0.1,
+                "identity_measurement_status": "available",
+                "identity_embedding": [1.0] + [0.0] * 31,
+            }
+        ],
+    )
+
+    result = adapter._calibration_result(runtime, request, args)
+
+    assert len(result["observations"]) == 1
+    assert result["observations"][0]["timestamp_seconds"] == 2.0
+
+
+def test_calibration_result_does_not_swallow_structural_reference_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = SimpleNamespace(embedding_dimension=32)
+    request = {
+        "target_performer_id": "42",
+        "identity_bank_sha256": "d" * 64,
+        "sources": [
+            {
+                "source_key": "scene:s7:E:/p7.mp4",
+                "source_sha256": "7" * 64,
+                "subject_performer_id": "7",
+                "samples": [{"timestamp_seconds": 1.0, "eye": "mono"}],
+            }
+        ],
+    }
+    args = SimpleNamespace(
+        bodyrig_adapter=adapter.ADAPTER_NAME,
+        bodyrig_revision="r1",
+        bodyrig_model_set_sha256="c" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_read_sample",
+        lambda *_args: (_ for _ in ()).throw(adapter.ReferenceVisionError("invalid side-by-side sample")),
+    )
+
+    with pytest.raises(adapter.ReferenceVisionError, match="invalid side-by-side sample"):
+        adapter._calibration_result(runtime, request, args)
+
+
 def test_calibration_result_preserves_exact_single_person_rule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
