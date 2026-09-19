@@ -252,3 +252,31 @@ def test_identity_bootstrap_accepts_authorized_equi_spatial_source() -> None:
     assert selected["projection_authority"] == spatial["projection_authority"]
     assert selected["reference_sample_count"] == 40
     assert {sample["eye"] for sample in selected["reference_samples"]} == {"left", "right"}
+
+
+def test_identity_bootstrap_distributes_aggregate_budget_across_many_sources() -> None:
+    plan = _scan_plan()
+    template = next(item for item in plan["sources"] if item["source_key"] == "scene:s1:E:/single.mp4")
+    sources = []
+    for index in range(4):
+        source = copy.deepcopy(template)
+        source["source_key"] = f"scene:b{index}:E:/budget-{index}.mp4"
+        source["group_id"] = f"scene:b{index}"
+        source["source_sha256"] = format(index + 1, "x") * 64
+        source["samples"] = [
+            {"timestamp_seconds": float(sample + 1), "eye": eye}
+            for sample in range(100)
+            for eye in ("left", "right")
+        ]
+        source["sample_count"] = len(source["samples"])
+        sources.append(source)
+    plan["sources"] = sources
+
+    result = build_identity_bootstrap_plan(plan)
+
+    assert result["source_count"] == 4
+    assert result["reference_sample_count"] == 320
+    assert {item["reference_sample_count"] for item in result["sources"]} == {80}
+    for item in result["sources"]:
+        assert sum(1 for sample in item["reference_samples"] if sample["eye"] == "left") == 40
+        assert sum(1 for sample in item["reference_samples"] if sample["eye"] == "right") == 40
