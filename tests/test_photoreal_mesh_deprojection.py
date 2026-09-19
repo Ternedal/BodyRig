@@ -147,3 +147,20 @@ def test_mesh_projection_authority_mismatch_fails_closed() -> None:
     authority["mesh_projection_geometry_sha256"] = "b" * 64
     with pytest.raises(PhotorealMeshDeprojectionError, match="disagrees"):
         validate_authority(authority, geometry)
+
+
+@pytest.mark.parametrize("target", ["authority", "geometry"])
+def test_mesh_projection_rejects_boolean_v1_versions(target: str) -> None:
+    from bodyrig.photoreal_mesh_deprojection import _authority as validate_authority
+
+    geometry = _geometry()
+    authority = _authority(geometry)
+    if target == "authority":
+        authority["version"] = True
+        match = "mesh projection authority format/version mismatch"
+    else:
+        geometry["version"] = True
+        match = "mesh geometry format/version mismatch"
+
+    with pytest.raises(PhotorealMeshDeprojectionError, match=match):
+        validate_authority(authority, geometry)
