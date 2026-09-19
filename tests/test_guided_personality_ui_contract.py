@@ -197,3 +197,26 @@ def test_reopened_stack_restores_exact_source_baseline_selection() -> None:
     apply_source = html[apply_start:apply_end]
     assert "source.source_baseline_revision||null" in apply_source
     assert '$("stackBaseline").checked=Boolean(stackedBaseline)' in apply_source
+
+
+def test_guided_matrix_surfaces_authored_signature_traits() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    signature = Path("bodyrig/ui/personality_signature.js").read_text(encoding="utf-8")
+
+    assert '<script src="/ui/personality_signature.js"></script>' in html
+    for token in (
+        'target.id = "traitSignature"',
+        "Signature traits · størst authored afvigelse fra neutral",
+        "entries.slice(0, LIMIT)",
+        "Math.abs(value - NEUTRAL)",
+        'left.label.localeCompare(right.label, "da")',
+        'entry.value > NEUTRAL ? "↑" : "↓"',
+        'entry.input.closest(".trait-ring")',
+        'search.dispatchEvent(new Event("input", { bubbles: true }))',
+        'changedOnly.dispatchEvent(new Event("change", { bubbles: true }))',
+        "Ingen traits afviger fra neutral endnu.",
+    ):
+        assert token in signature
+
+    assert "personality_authority" not in signature
+    assert "production_activation" not in signature
