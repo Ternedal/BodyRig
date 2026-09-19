@@ -14,6 +14,7 @@ from bodyrig.person_profiles import (
     add_personality_revision,
     add_voice_revision,
     create_profile,
+    delete_personality_revision,
     list_profiles,
     load_profile,
     validate_profile,
@@ -261,3 +262,80 @@ def test_voice_package_must_be_safe_filename(tmp_path: Path) -> None:
             voice_package=r"..\evil.mrvoice",
             package_sha256=HASH_B,
         )
+
+
+def test_unused_personality_revision_can_be_deleted_without_id_reuse(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="Disposable")
+    person_id = profile["person_id"]
+    add_personality_revision(tmp_path, person_id, instructions="candidate one")
+    add_personality_revision(tmp_path, person_id, instructions="candidate two")
+
+    profile = delete_personality_revision(tmp_path, person_id, "personality-r0002")
+    assert [item["revision_id"] for item in profile["personality_revisions"]] == ["personality-r0001"]
+
+    profile = add_personality_revision(tmp_path, person_id, instructions="candidate three")
+    assert [item["revision_id"] for item in profile["personality_revisions"]] == [
+        "personality-r0001",
+        "personality-r0002",
+    ]
+
+
+def test_deleted_middle_personality_revision_id_is_not_reused(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="No reuse")
+    person_id = profile["person_id"]
+    for index in range(3):
+        add_personality_revision(tmp_path, person_id, instructions=f"candidate {index + 1}")
+
+    delete_personality_revision(tmp_path, person_id, "personality-r0002")
+    profile = add_personality_revision(tmp_path, person_id, instructions="candidate four")
+    assert [item["revision_id"] for item in profile["personality_revisions"]] == [
+        "personality-r0001",
+        "personality-r0003",
+        "personality-r0004",
+    ]
+
+
+def test_personality_revision_referenced_by_person_revision_cannot_be_deleted(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="Referenced")
+    person_id = profile["person_id"]
+    _components(tmp_path, person_id)
+    add_person_revision(
+        tmp_path,
+        person_id,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+        compatibility_review=_review(),
+    )
+
+    with pytest.raises(PersonProfileError, match=r"referenced by Person Revision.*person-r0001"):
+        delete_personality_revision(tmp_path, person_id, "personality-r0001")
+
+
+def test_personality_stack_baseline_cannot_be_deleted(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="Stacked")
+    person_id = profile["person_id"]
+    add_personality_revision(
+        tmp_path,
+        person_id,
+        instructions="source baseline",
+        style_notes="source",
+    )
+    add_personality_revision(
+        tmp_path,
+        person_id,
+        instructions="stacked candidate",
+        style_notes=(
+            "personality-stack-v1 | stack_sha256=" + "a" * 64
+            + " | baseline_revision=personality-r0001 | blueprint_sha256=" + "b" * 64
+        ),
+    )
+
+    with pytest.raises(PersonProfileError, match=r"source baseline.*personality-r0002"):
+        delete_personality_revision(tmp_path, person_id, "personality-r0001")
+
+
+def test_unknown_personality_revision_cannot_be_deleted(tmp_path: Path) -> None:
+    profile = create_profile(tmp_path, display_name="Unknown")
+    with pytest.raises(PersonProfileError, match="personality revision not found"):
+        delete_personality_revision(tmp_path, profile["person_id"], "personality-r0001")
