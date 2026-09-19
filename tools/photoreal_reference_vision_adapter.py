@@ -32,6 +32,11 @@ class ReferenceVisionError(RuntimeError):
     pass
 
 
+class ReferenceVisionDecodeError(ReferenceVisionError):
+    """A source/sample could not be decoded, without weakening structural authority."""
+    pass
+
+
 @dataclass(frozen=True)
 class ModelManifest:
     insightface_root: Path
@@ -223,7 +228,7 @@ def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[st
     if kind == "image":
         image = runtime.cv2.imread(str(path), runtime.cv2.IMREAD_COLOR)
         if image is None:
-            raise ReferenceVisionError(f"could not decode image: {path}")
+            raise ReferenceVisionDecodeError(f"could not decode image: {path}")
     elif kind == "video":
         timestamp = sample.get("timestamp_seconds")
         if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or float(timestamp) < 0:
@@ -231,11 +236,11 @@ def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[st
         capture = runtime.cv2.VideoCapture(str(path))
         try:
             if not capture.isOpened():
-                raise ReferenceVisionError(f"could not open video: {path}")
+                raise ReferenceVisionDecodeError(f"could not open video: {path}")
             capture.set(runtime.cv2.CAP_PROP_POS_MSEC, float(timestamp) * 1000.0)
             ok, image = capture.read()
             if not ok or image is None:
-                raise ReferenceVisionError(f"could not decode video frame at {timestamp}s: {path}")
+                raise ReferenceVisionDecodeError(f"could not decode video frame at {timestamp}s: {path}")
         finally:
             capture.release()
     else:
@@ -260,7 +265,7 @@ def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[st
     else:
         raise ReferenceVisionError(f"unsupported stereo layout: {layout}")
     if image.size == 0:
-        raise ReferenceVisionError("decoded frame is empty")
+        raise ReferenceVisionDecodeError("decoded frame is empty")
     return runtime.np.ascontiguousarray(image), str(source.get("decode_mode") or "") == "spatial-deprojection-required"
 
 
@@ -531,7 +536,14 @@ def _identity_result(runtime: Runtime, request: Mapping[str, Any], args: argpars
 def _calibration_result(runtime: Runtime, request: Mapping[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     for source, sample in _iter_samples(request["sources"], "samples"):
-        image, spatial = _read_sample(runtime, source, sample)
+        try:
+            image, spatial = _read_sample(runtime, source, sample)
+        except ReferenceVisionDecodeError:
+            # Negative calibration is deliberately evidence-thresholded downstream.
+            # A corrupt/unseekable negative sample may be omitted, while structural
+            # path/layout/provenance errors remain fatal. Stage 13 still requires
+            # enough observations from enough distinct negative performers.
+            continue
         if spatial:
             raise ReferenceVisionError(
                 "spatial source cannot establish calibration identity before projection-specific deprojection"
