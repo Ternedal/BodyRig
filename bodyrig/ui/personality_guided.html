@@ -6,8 +6,9 @@
   <title>BodyRig · Guided Personality</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <style>
-    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 18px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1.2fr) 48px;gap:8px;align-items:center;padding:5px 0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trait-slider-row input{width:100%}.trait-slider-row.hidden{display:none}.transcript-review{border:1px solid var(--border,#333);border-radius:12px;padding:12px;margin-top:10px}.transcript-candidates{display:grid;gap:8px;margin:10px 0;max-height:320px;overflow:auto}.transcript-candidate-row{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:flex-start;border:1px solid var(--border,#333);border-radius:9px;padding:9px}.transcript-candidate-row input{margin-top:3px}.transcript-confirmations{display:grid;gap:6px;margin:10px 0}.transcript-source-meta{font-size:11px;color:var(--muted);padding:5px 0}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
+    .guided-shell{max-width:1180px;margin:0 auto;padding:28px}.guided-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.guided-grid{display:grid;grid-template-columns:minmax(320px,0.9fr) minmax(360px,1.1fr);gap:18px}.slider-row{display:grid;grid-template-columns:150px 1fr 52px;gap:12px;align-items:center;margin:12px 0}.slider-row input{width:100%}.slider-value{text-align:right;font-variant-numeric:tabular-nums}.example-row{display:flex;gap:8px;margin:8px 0}.example-row input{flex:1}.preview-box{white-space:pre-wrap;min-height:180px;max-height:460px;overflow:auto}.action-row{display:flex;gap:10px;flex-wrap:wrap}.status-line{min-height:24px}.grounding-summary{line-height:1.6}.full-select{width:100%}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.evidence-box{border:1px solid var(--border, #333);border-radius:10px;padding:12px}.evidence-box input{width:100%}.trait-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.trait-search{min-width:220px;flex:1}.trait-rings{display:grid;gap:10px;margin-top:12px}.trait-ring{border:1px solid var(--border, #333);border-radius:12px;padding:10px 12px}.trait-ring summary{cursor:pointer;font-weight:700}.trait-grid{display:grid;grid-template-columns:1fr;gap:2px;margin-top:10px}.trait-slider-row{display:grid;grid-template-columns:minmax(150px,.9fr) minmax(180px,1.6fr) 52px;gap:12px;align-items:center;padding:6px 0;min-width:0}.trait-slider-row label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.trait-slider-row input{width:100%;min-width:0}.trait-slider-row.hidden{display:none}.transcript-review{border:1px solid var(--border,#333);border-radius:12px;padding:12px;margin-top:10px}.transcript-candidates{display:grid;gap:8px;margin:10px 0;max-height:320px;overflow:auto}.transcript-candidate-row{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:flex-start;border:1px solid var(--border,#333);border-radius:9px;padding:9px}.transcript-candidate-row input{margin-top:3px}.transcript-confirmations{display:grid;gap:6px;margin:10px 0}.transcript-source-meta{font-size:11px;color:var(--muted);padding:5px 0}@media(max-width:860px){.guided-grid{grid-template-columns:1fr}.guided-head{flex-direction:column}.slider-row{grid-template-columns:118px 1fr 48px}.evidence-grid{grid-template-columns:1fr}.trait-grid{grid-template-columns:1fr}.trait-slider-row{grid-template-columns:minmax(110px,1fr) 1.2fr 48px}}
   </style>
+  <link rel="stylesheet" href="/ui/personality_matrix.css">
 </head>
 <body>
   <main class="guided-shell">
@@ -414,6 +415,20 @@
     $("baselineInstructions").textContent=item.instructions||"";
     $("baselineStyleNotes").textContent=item.style_notes||"—";
   }
+  function isMatrixRevisionItem(item){
+    const label=baselineKind(item).label;
+    return label==="Matrix v2 · 120 traits"||label==="Source + Matrix v2";
+  }
+  function latestMatrixRevisionItem(){
+    return [...(state.person?.personality_revisions||[])].reverse().find(isMatrixRevisionItem)||null;
+  }
+  function setEditRevisionUrl(revisionId){
+    const url=new URL(location.href);
+    if(state.person?.person_id) url.searchParams.set("person_id",state.person.person_id);
+    if(revisionId) url.searchParams.set("edit_revision",revisionId);
+    else url.searchParams.delete("edit_revision");
+    history.replaceState(null,"",`${url.pathname}${url.search}${url.hash}`);
+  }
   function populateBaselines(){
     const select=$("baselineRevision"); select.innerHTML='<option value="">Ingen reference</option>';
     const items=state.person?.personality_revisions||[];
@@ -422,9 +437,10 @@
       option.value=item.revision_id; option.textContent=`${item.revision_id} · ${kind.label}`; select.appendChild(option);
     }
     const requested=new URLSearchParams(location.search).get("baseline_revision");
+    const matrixBaseline=[...items].reverse().find(isMatrixRevisionItem);
     const sourceBaseline=[...items].reverse().find(item=>baselineKind(item).label==="Source baseline");
     const fallback=[...items].reverse()[0];
-    const selected=items.find(item=>item.revision_id===requested)||sourceBaseline||fallback||null;
+    const selected=items.find(item=>item.revision_id===requested)||matrixBaseline||sourceBaseline||fallback||null;
     select.value=selected?.revision_id||"";
     renderBaseline();
   }
@@ -456,11 +472,15 @@
     $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · byg preview før ny save.`;
   }
   async function loadRequestedEditRevision(){
-    const revisionId=new URLSearchParams(location.search).get("edit_revision");
-    if(!revisionId||!state.person) return;
+    if(!state.person) return;
+    const requested=new URLSearchParams(location.search).get("edit_revision");
+    const fallback=latestMatrixRevisionItem()?.revision_id||"";
+    const revisionId=requested||fallback;
+    if(!revisionId) return;
     if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
     const source=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
     applyGuidedRevision(source);
+    if(!requested) setEditRevisionUrl(revisionId);
   }
 
   async function loadPeople(){
@@ -496,6 +516,7 @@
     try{
       const personId=state.person.person_id;
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
+      setEditRevisionUrl(result.saved_personality_revision);
       state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
       populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
       if(result.source_baseline_revision){
@@ -519,5 +540,6 @@
 })();
 </script>
 <script src="/ui/personality_signature.js"></script>
+<script src="/ui/personality_matrix.js"></script>
 </body>
 </html>

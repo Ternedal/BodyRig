@@ -171,3 +171,32 @@ UI'et viser op til 10 aktuelle traits med størst absolut forskel fra baseline o
 Source-derived eller legacy/manual personality-revisioner uden et verificeret Matrix v2 blueprint bliver ikke omskrevet eller fortolket som Matrix-data; delta-panelet viser i stedet, at baseline ikke har et verificeret Matrix v2 blueprint.
 
 Revision-deltaen er **ephemeral UI-state**. Den ændrer ikke blueprint-requesten, preview-key'en, save-payloaden, evidence, personality authority, human review eller production authority. Ved baseline-skift nulstilles cached sammenligning før den nye revision hentes, så et gammelt delta ikke kan vises som om det tilhører en ny baseline.
+
+
+## Radial Matrix-editor
+
+Personality Matrix v2 har en radial editor som primær visning af de samme 120 authored trait-værdier. Visualiseringen introducerer ingen ny personality-semantik: de eksisterende 60 Inner Ring- og 60 Outer Ring-sliderinputs er fortsat den eneste browser-side source of truth og er dem preview/save læser.
+
+Editoren giver:
+
+- separat Inner/Outer Ring-visning med alle 60 akser tegnet;
+- en current-authored polygon, hvor radius er den eksakte 0..1-værdi;
+- neutral `0.50` som fast reference-ring;
+- op til 14 labels prioriteret efter authored afvigelse fra neutral og, når relevant, forskel fra valgt baseline;
+- klikbare datapunkter og labels med en trait-inspector;
+- redigering fra inspectorens slider, som skriver tilbage til den eksisterende trait-slider og sender det samme `input`-event som manuel slider-authoring;
+- read-only overlay af en verificeret Matrix v2-baseline;
+- exact baseline/current delta i inspector-panelet;
+- adgang til den fulde rå 120-slider-visning via `Vis rå 120 sliders`;
+- `Byg preview` og `Gem revision` direkte i Matrix-cockpittet. De er kun UI-proxyer til de eksisterende Guided Studio-knapper, så den eksisterende preview/request-key-gate og save-kontrakt bruges uændret.
+
+Når en valgt personality-revision ikke indeholder et verificeret Matrix v2-blueprint, tegnes intet baseline-overlay. Source-derived eller legacy/manual revisions bliver ikke fortolket som Matrix-data.
+
+Radial-editoren er ephemeral UI-state. Den ændrer ikke request schema, preview-key, blueprint, evidence, activation eller authority-kæden.
+
+
+### Persisted editor state og sammenligning
+
+Når en Matrix v2-kandidat gemmes, opdaterer Guided Studio URL'ens `edit_revision` til den præcise nye `personality-rXXXX`. En efterfølgende reload genåbner derfor den verificerede gemte blueprint i editoren i stedet for at nulstille traits til `0.50`. Hvis siden åbnes uden `edit_revision`, genåbnes den seneste kendte Matrix v2-revision for den valgte person, når en sådan findes.
+
+Source speaking-style stacking og visuel Matrix-sammenligning er separate UI-koncepter. Den eksisterende personality-baseline kan fortsat være en source baseline for stack-kontrakten, mens radial-editorens **Sammenlign med** kun viser Matrix v2-revisioner. Den vælger som udgangspunkt den seneste anden Matrix v2-revision end den revision, der aktuelt redigeres, så current-vs-previous kan ses uden at ændre save-payload, source stacking eller authority.

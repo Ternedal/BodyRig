@@ -144,6 +144,29 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
     assert "Aktiv person er uændret" in save_source
 
 
+def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        "function isMatrixRevisionItem(item)",
+        "function latestMatrixRevisionItem()",
+        "function setEditRevisionUrl(revisionId)",
+        'url.searchParams.set("edit_revision",revisionId)',
+        "history.replaceState",
+        "const fallback=latestMatrixRevisionItem()?.revision_id||",
+        "const revisionId=requested||fallback",
+        "if(!requested) setEditRevisionUrl(revisionId)",
+        "setEditRevisionUrl(result.saved_personality_revision)",
+    ):
+        assert token in html
+
+    save_start = html.index("async function save(){")
+    save_end = html.index("buildSliders();", save_start)
+    save_source = html[save_start:save_end]
+    assert save_source.index("setEditRevisionUrl(result.saved_personality_revision)") < save_source.index(
+        'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
+    )
+
 def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
     guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
@@ -242,6 +265,9 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
         "Δ ${sign}${entry.signedDelta.toFixed(2)}",
         "Delta gemmes ikke.",
         'new MutationObserver(scheduleRender).observe(baselineSelect',
+        'const compareSelect = document.getElementById("matrixCompareRevision")',
+        '? compareSelect.value',
+        'document.addEventListener("bodyrig:matrix-compare-change", scheduleRender)',
     ):
         assert token in signature
 
@@ -255,3 +281,102 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
     assert "style_report" not in signature
     assert "personality_authority" not in signature
     assert "production_activation" not in signature
+
+
+def test_guided_matrix_trait_rows_do_not_force_two_columns() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    assert ".trait-grid{display:grid;grid-template-columns:1fr;gap:2px" in html
+    assert "grid-template-columns:minmax(150px,.9fr) minmax(180px,1.6fr) 52px" in html
+    assert ".trait-slider-row input{width:100%;min-width:0}" in html
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in html
+
+
+def test_guided_matrix_radial_editor_is_ui_only() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    matrix = Path("bodyrig/ui/personality_matrix.js").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/personality_matrix.css").read_text(encoding="utf-8")
+
+    assert '<link rel="stylesheet" href="/ui/personality_matrix.css">' in html
+    assert '<script src="/ui/personality_matrix.js"></script>' in html
+
+    for token in (
+        'id = "personalityMatrixCockpit"',
+        "PERSONALITY MATRIX V2 · RADIAL EDITOR",
+        'data-ring="inner"',
+        'data-ring="outer"',
+        'id="personalityMatrixSvg"',
+        'id="matrixCompareRevision"',
+        'id="matrixPreviewButton"',
+        'id="matrixSaveButton"',
+        "function syncSaveControls()",
+        'const previewPrimary = stateName === "dirty"',
+        'const savePrimary = stateName === "ready"',
+        'mirrorPreview.classList.toggle("primary", previewPrimary)',
+        'mirrorSave.classList.toggle("primary", savePrimary)',
+        'mirrorSave.classList.toggle("secondary", !savePrimary)',
+        '$("matrixPreviewButton")?.addEventListener("click", () => $("previewButton")?.click())',
+        '$("matrixSaveButton")?.addEventListener("click", () => $("saveButton")?.click())',
+        '"Ikke gemte ændringer"',
+        '"Preview klar"',
+        '"Gemt"',
+        "function syncCompareOptions()",
+        'option.textContent.includes("Matrix v2")',
+        "Ingen tidligere Matrix v2-revisioner",
+        "option.value !== editingRevision",
+        'new CustomEvent("bodyrig:matrix-compare-change")',
+        "polygonPoints(entries",
+        "matrix-current-shape",
+        "matrix-baseline-shape",
+        "matrixInspectorRange",
+        "pointerdown",
+        "pointermove",
+        "setPointerCapture",
+        "updateDraggedTrait(svg, event)",
+        "Math.round(clamped / 0.05) * 0.05",
+        '"data-trait-id": entry.traitId',
+        'entry.input.dispatchEvent(new Event("input", { bubbles: true }))',
+        "Vis rå 120 sliders",
+        "Skjul rå 120 sliders",
+        "Kun de mest markante labels vises; alle 60 akser er tegnet.",
+        "/personality/guided/revisions/",
+        "Object.keys(value.inner_ring).length === 60",
+        "Object.keys(value.outer_ring).length === 60",
+    ):
+        assert token in matrix
+
+    assert ".guided-shell{max-width:1440px}" in css
+    assert ".guided-grid{grid-template-columns:minmax(0,1fr)}" in css
+    assert "body.matrix-raw-hidden .trait-rings" in css
+    assert ".matrix-stage" in css
+    assert ".matrix-compare-control" in css
+    assert ".matrix-save-panel" in css
+    assert ".matrix-save-state[data-state=\"saved\"]" in css
+    assert ".matrix-save-actions" in css
+    assert matrix.index('class="matrix-save-panel"') < matrix.index('</aside>')
+    assert ".matrix-current-shape" in css
+    assert ".matrix-baseline-shape" in css
+    assert "touch-action:none" in css
+    assert ".matrix-svg.dragging{cursor:grabbing}" in css
+    assert "maxScore <= EPSILON" in matrix
+    assert "Math.floor((slot * entries.length) / LABEL_LIMIT)" in matrix
+    assert 'state.selectedId = entries[0].traitId' in matrix
+    assert 'item.x = side === "right" ? SIZE - 62 : 62' in matrix
+    assert "const gap = 27" in matrix
+    assert 'event.target.closest?.("#traitSignature button, #traitRevisionDelta button")' in matrix
+
+    render_start = matrix.index("function render()")
+    render_end = matrix.index("function scheduleRender()", render_start)
+    render_source = matrix[render_start:render_end]
+    assert render_source.index("void loadBaselineIfNeeded()") < render_source.index(
+        "renderSvg(entries, selected)"
+    )
+
+    # The radial editor reads/writes the already-authored slider controls only.
+    # It must not mint evidence or claim authority of its own.
+    for forbidden in ("personality_authority", "production_activation", "style_report"):
+        assert forbidden not in matrix
+
+    # Cockpit actions must proxy the existing preview/save controls rather than
+    # bypassing the established request-key and preview gate with their own POST.
+    assert 'method:"POST"' not in matrix
