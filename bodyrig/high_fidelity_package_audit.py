@@ -66,6 +66,10 @@ class HighFidelityPackageAuditError(ValueError):
     pass
 
 
+def _is_numeric_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _read_glb_document(value: bytes) -> dict[str, Any]:
     if not isinstance(value, bytes) or len(value) < 20 or value[:4] != GLB_MAGIC:
         raise HighFidelityPackageAuditError("avatar.vrm is not a GLB/VRM")
@@ -183,7 +187,7 @@ def _require_promotion(
         )
     if (
         value.get("format") != expected_format
-        or value.get("version") != 1
+        or not _is_numeric_v1(value.get("version"))
         or value.get("component") != component
         or value.get("productionActivation") is not False
     ):
