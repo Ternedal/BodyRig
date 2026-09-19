@@ -510,15 +510,41 @@ def _iter_samples(sources: Iterable[Mapping[str, Any]], field: str) -> Iterable[
             yield source, sample
 
 
-def _single_identity(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[str, Any]) -> tuple[str, list[float]] | None:
-    image, spatial = _read_sample(runtime, source, sample)
-    if spatial:
-        raise ReferenceVisionError("spatial source cannot establish identity authority before projection-specific deprojection")
+def _single_identity_from_image(runtime: Runtime, image: Any) -> tuple[str, list[float]] | None:
     candidates = _candidates(runtime, image)
     if len(candidates) != 1 or candidates[0]["face"] is None:
         return None
     vector = _embedding(candidates[0]["face"], runtime.embedding_dimension)
     return None if vector is None else (_frame_sha(image), vector)
+
+
+def _single_identity(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[str, Any]) -> tuple[str, list[float]] | None:
+    image, spatial = _read_sample(runtime, source, sample)
+    if not spatial:
+        return _single_identity_from_image(runtime, image)
+
+    if source.get("projection") != "equi":
+        raise ReferenceVisionError(
+            "spatial identity bootstrap requires exact equirectangular projection authority"
+        )
+    authority = source.get("projection_authority")
+    if not isinstance(authority, Mapping):
+        raise ReferenceVisionError(
+            "spatial identity bootstrap requires exact equirectangular projection authority"
+        )
+    try:
+        viewports = deproject_equirectangular_views(runtime, image, authority)
+    except PhotorealEquirectangularDeprojectionError as exc:
+        raise ReferenceVisionError(f"identity equirectangular deprojection failed: {exc}") from exc
+
+    measurements: list[tuple[str, list[float]]] = []
+    for _viewport_id, viewport_image in viewports:
+        measured = _single_identity_from_image(runtime, viewport_image)
+        if measured is not None:
+            measurements.append(measured)
+    if len(measurements) != 1:
+        return None
+    return measurements[0]
 
 
 def _identity_result(runtime: Runtime, request: Mapping[str, Any], args: argparse.Namespace) -> dict[str, Any]:
