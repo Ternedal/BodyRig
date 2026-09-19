@@ -419,7 +419,7 @@ def delete_personality_candidate(person_id: str, revision_id: str) -> dict:
         )
     except PersonProfileError as exc:
         detail = str(exc)
-        status = 404 if detail in {"person profile not found", "personality revision not found"} else 409
+        status = 404 if detail.startswith("person profile not found:") or detail == "personality revision not found" else 409
         raise HTTPException(status_code=status, detail=detail) from exc
 
 
