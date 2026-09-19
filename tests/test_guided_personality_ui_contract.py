@@ -345,9 +345,10 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert "body.matrix-raw-hidden .trait-rings" in css
     assert ".matrix-stage" in css
     assert ".matrix-compare-control" in css
-    assert ".matrix-save-strip" in css
+    assert ".matrix-save-panel" in css
     assert ".matrix-save-state[data-state=\"saved\"]" in css
     assert ".matrix-save-actions" in css
+    assert matrix.index('class="matrix-save-panel"') < matrix.index('</aside>')
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
     assert "touch-action:none" in css
