@@ -187,6 +187,25 @@ def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
 
 
 
+def test_reopened_matrix_remains_saved_until_operator_changes_it() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    apply_start = html.index("function applyGuidedRevision(source)")
+    apply_end = html.index("async function loadRequestedEditRevision()", apply_start)
+    apply_source = html[apply_start:apply_end]
+
+    assert "updateTraitView();" in apply_source
+    assert "state.preview=null; state.requestKey=null" in apply_source
+    assert '$("saveButton").disabled=true' in apply_source
+    assert '$("blueprintBadge").textContent=source.blueprint_sha256.slice(0,12)+"…"' in apply_source
+    assert "gemt revision." in apply_source
+    assert "invalidate();" not in apply_source
+
+    # Real authoring changes still use the normal invalidation path.
+    assert 'entry.input.dispatchEvent(new Event("input", { bubbles: true }))' not in html
+    assert 'input.addEventListener("input",()=>{' in html or 'addEventListener("input",invalidate)' in html
+
+
 def test_guided_matrix_can_explicitly_stack_verified_source_baseline() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
     guided = Path("bodyrig/guided_app.py").read_text(encoding="utf-8")
@@ -309,6 +328,13 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         'id="matrixCompareRevision"',
         'id="matrixPreviewButton"',
         'id="matrixSaveButton"',
+        'id="matrixAuditionLink"',
+        "Test denne revision · 6 scenarier",
+        'stateName === "saved"',
+        'get("edit_revision")',
+        "revisionExists",
+        "/ui/personality_audition_suite.html?person_id=",
+        "&personality_revision=",
         "function syncSaveControls()",
         'const previewPrimary = stateName === "dirty"',
         'const savePrimary = stateName === "ready"',
@@ -353,6 +379,7 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert ".matrix-save-panel" in css
     assert ".matrix-save-state[data-state=\"saved\"]" in css
     assert ".matrix-save-actions" in css
+    assert ".matrix-audition-link" in css
     assert matrix.index('class="matrix-save-panel"') < matrix.index('</aside>')
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
