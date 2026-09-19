@@ -92,6 +92,27 @@ def test_hair_complete_requires_concrete_render_payload() -> None:
         )
 
 
+def test_hair_promotion_rejects_boolean_v1() -> None:
+    top = with_component_status(current_pipeline_receipt(), component="hair", status="complete")
+    with pytest.raises(
+        HighFidelityPackageAuditError,
+        match="hair=complete with invalid embedded hairPromotion authority",
+    ):
+        audit_fidelity_document(
+            _document(
+                top=top,
+                face=current_face_secondary_receipt(),
+                hairPromotion={
+                    "format": "bodyrig-hair-promotion",
+                    "version": True,
+                    "component": "hair",
+                    "eyesImported": False,
+                    "productionActivation": False,
+                },
+            )
+        )
+
+
 def test_eyes_complete_requires_concrete_render_payload() -> None:
     top = with_component_status(current_pipeline_receipt(), component="eyes", status="complete")
     with pytest.raises(HighFidelityPackageAuditError, match="eyes render payload requires glTF nodes array"):
