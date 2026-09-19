@@ -468,8 +468,10 @@
     const stackedBaseline=source.source_baseline_revision||null;
     $("baselineRevision").value=stackedBaseline||source.revision_id; renderBaseline();
     $("stackBaseline").checked=Boolean(stackedBaseline)&&!$("stackBaseline").disabled;
-    updateTraitView(); invalidate();
-    $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · byg preview før ny save.`;
+    updateTraitView();
+    state.preview=null; state.requestKey=null; $("saveButton").disabled=true;
+    $("blueprintBadge").textContent=source.blueprint_sha256.slice(0,12)+"…"; $("blueprintBadge").classList.remove("muted");
+    $("status").textContent=`${source.revision_id} genindlæst fra verificeret blueprint ${source.blueprint_sha256.slice(0,12)}… · gemt revision.`;
   }
   async function loadRequestedEditRevision(){
     if(!state.person) return;

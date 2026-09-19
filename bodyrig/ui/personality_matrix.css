@@ -283,6 +283,15 @@
   margin-top:11px;
 }
 .matrix-save-actions button{width:100%;min-width:0}
+.matrix-audition-link{
+  display:block;
+  width:100%;
+  box-sizing:border-box;
+  text-align:center;
+  text-decoration:none;
+  padding:10px 12px;
+}
+.matrix-audition-link[hidden]{display:none}
 .matrix-save-actions .primary:disabled,
 .matrix-save-actions .secondary:disabled{
   opacity:.42;
