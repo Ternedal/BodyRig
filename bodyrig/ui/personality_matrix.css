@@ -31,6 +31,42 @@
   font-size:11px;
   line-height:1.45;
 }
+.matrix-head-controls{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+  flex:0 0 auto;
+}
+.matrix-compare-control{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:0;
+  color:#7f8d96;
+  font-size:10px;
+  font-weight:700;
+}
+.matrix-compare-control span{
+  text-transform:uppercase;
+  letter-spacing:.10em;
+  white-space:nowrap;
+}
+.matrix-compare-control select{
+  min-width:220px;
+  max-width:300px;
+  border:1px solid #303a42;
+  border-radius:9px;
+  background:#0b0f12;
+  color:#dbe7ee;
+  padding:7px 9px;
+  font:inherit;
+  outline:none;
+}
+.matrix-compare-control select:focus{
+  border-color:#52758a;
+  box-shadow:0 0 0 2px rgba(105,188,233,.10);
+}
 .matrix-ring-tabs{
   display:inline-flex;
   padding:3px;
@@ -232,6 +268,9 @@ body.matrix-raw-hidden .trait-rings{display:none}
 }
 @media(max-width:700px){
   .matrix-cockpit-head{flex-direction:column}
+  .matrix-head-controls{align-items:flex-start;width:100%}
+  .matrix-compare-control{align-items:flex-start;flex-direction:column;width:100%}
+  .matrix-compare-control select{min-width:0;max-width:none;width:100%}
   .matrix-ring-tabs{align-self:flex-start}
   .matrix-plot-wrap{padding:4px}
   .matrix-label{font-size:9px}
