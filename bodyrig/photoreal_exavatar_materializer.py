@@ -22,6 +22,10 @@ class PhotorealExAvatarMaterializerError(ValueError):
     pass
 
 
+def _is_version(value: Any, expected: int) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == expected
+
+
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     try:
@@ -68,7 +72,7 @@ def _file_sha(path: Path) -> str:
 
 
 def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if plan.get("format") != PLAN_FORMAT or plan.get("version") != PLAN_VERSION:
+    if plan.get("format") != PLAN_FORMAT or not _is_version(plan.get("version"), PLAN_VERSION):
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan format/version mismatch")
     if plan.get("benchmark") != "exavatar" or plan.get("upstream_commit") != UPSTREAM_COMMIT:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan targets unsupported benchmark/upstream")
@@ -168,7 +172,7 @@ def _build_request(plan: Mapping[str, Any], selected: Mapping[str, Any], observa
 
 
 def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any], dataset_dir: Path) -> dict[str, Any]:
-    if receipt.get("format") != RECEIPT_FORMAT or receipt.get("version") != RECEIPT_VERSION:
+    if receipt.get("format") != RECEIPT_FORMAT or not _is_version(receipt.get("version"), RECEIPT_VERSION):
         raise PhotorealExAvatarMaterializerError("ExAvatar materialization receipt format/version mismatch")
     for field in ("benchmark_plan_sha256", "teacher_input_sha256", "performer_id", "selected_epoch_id", "upstream_commit"):
         if receipt.get(field) != request.get(field):
