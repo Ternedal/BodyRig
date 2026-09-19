@@ -307,6 +307,14 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         'data-ring="outer"',
         'id="personalityMatrixSvg"',
         'id="matrixCompareRevision"',
+        'id="matrixPreviewButton"',
+        'id="matrixSaveButton"',
+        "function syncSaveControls()",
+        '$("matrixPreviewButton")?.addEventListener("click", () => $("previewButton")?.click())',
+        '$("matrixSaveButton")?.addEventListener("click", () => $("saveButton")?.click())',
+        '"Ikke gemte ændringer"',
+        '"Preview klar"',
+        '"Gemt"',
         "function syncCompareOptions()",
         'option.textContent.includes("Matrix v2")',
         "Ingen tidligere Matrix v2-revisioner",
@@ -337,6 +345,9 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert "body.matrix-raw-hidden .trait-rings" in css
     assert ".matrix-stage" in css
     assert ".matrix-compare-control" in css
+    assert ".matrix-save-strip" in css
+    assert ".matrix-save-state[data-state=\"saved\"]" in css
+    assert ".matrix-save-actions" in css
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
     assert "touch-action:none" in css
@@ -359,3 +370,7 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     # It must not mint evidence or claim authority of its own.
     for forbidden in ("personality_authority", "production_activation", "style_report"):
         assert forbidden not in matrix
+
+    # Cockpit actions must proxy the existing preview/save controls rather than
+    # bypassing the established request-key and preview gate with their own POST.
+    assert 'method:"POST"' not in matrix
