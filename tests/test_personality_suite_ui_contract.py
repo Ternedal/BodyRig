@@ -66,7 +66,7 @@ def test_sealed_suite_handoff_preserves_exact_candidates_without_activation() ->
         '&personality_revision=${encodeURIComponent(sel.personality_revision)}',
         "&tab=assemble",
         "reviewLink.hidden=false",
-        "kør en ny canonical samlet audition",
+        "ny canonical samlet audition.",
     ):
         assert token in html
 
