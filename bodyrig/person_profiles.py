@@ -19,6 +19,8 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMPONENT_REVISION_RE = re.compile(r"^(body|voice|personality)-r[0-9]{4}$")
 PERSON_REVISION_RE = re.compile(r"^person-r[0-9]{4}$")
 LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
+PERSONALITY_DELETION_FORMAT = "bodyrig-personality-candidate-deletion"
+PERSONALITY_DELETION_VERSION = 1
 
 TOP_FIELDS = {
     "format",
@@ -431,20 +433,55 @@ def create_profile(root: str | os.PathLike[str], *, display_name: str, aliases: 
     return value
 
 
+def _revision_number(revision_id: Any, *, kind: str) -> int | None:
+    match = re.fullmatch(rf"{re.escape(kind)}-r([0-9]{{4}})", str(revision_id or ""))
+    return None if match is None else int(match.group(1))
+
+
 def _next_revision(profile: Mapping[str, Any], kind: str) -> str:
     collection = profile["person_revisions"] if kind == "person" else profile[f"{kind}_revisions"]
-    pattern = re.compile(rf"^{re.escape(kind)}-r([0-9]{{4}})$")
     numbers = [
-        int(match.group(1))
+        number
         for item in collection
         if isinstance(item, Mapping)
-        for match in [pattern.fullmatch(str(item.get("revision_id") or ""))]
-        if match is not None
+        for number in [_revision_number(item.get("revision_id"), kind=kind)]
+        if number is not None
     ]
     next_number = max(numbers, default=0) + 1
     if next_number > 9999:
         raise PersonProfileError(f"{kind} revision id space is exhausted")
     return f"{kind}-r{next_number:04d}"
+
+
+def _personality_deletion_directory(root: str | os.PathLike[str], person_id: str) -> Path:
+    return (
+        Path(root).expanduser().resolve()
+        / "personality-candidate-deletions"
+        / person_id
+    )
+
+
+def _next_personality_revision(
+    root: str | os.PathLike[str],
+    profile: Mapping[str, Any],
+) -> str:
+    numbers = [
+        number
+        for item in profile["personality_revisions"]
+        if isinstance(item, Mapping)
+        for number in [_revision_number(item.get("revision_id"), kind="personality")]
+        if number is not None
+    ]
+    deletion_dir = _personality_deletion_directory(root, str(profile["person_id"]))
+    if deletion_dir.is_dir():
+        for path in deletion_dir.glob("personality-r*.json"):
+            number = _revision_number(path.stem, kind="personality")
+            if number is not None:
+                numbers.append(number)
+    next_number = max(numbers, default=0) + 1
+    if next_number > 9999:
+        raise PersonProfileError("personality revision id space is exhausted")
+    return f"personality-r{next_number:04d}"
 
 
 def _save(root: str | os.PathLike[str], profile: Mapping[str, Any]) -> dict[str, Any]:
@@ -497,7 +534,7 @@ def add_personality_revision(root: str | os.PathLike[str], person_id: str, *, in
         raise PersonProfileError("personality revisions cannot be activated independently; create an approved person revision")
     profile = load_profile(root, person_id)
     revision = _validate_personality_revision({
-        "revision_id": _next_revision(profile, "personality"),
+        "revision_id": _next_personality_revision(root, profile),
         "created_utc": _utc_now(),
         "instructions": instructions,
         "default_language": default_language,
@@ -552,6 +589,18 @@ def delete_personality_revision(
         raise PersonProfileError(
             f"personality revision is a source baseline for stacked revision(s): {joined}"
         )
+
+    deletion = {
+        "format": PERSONALITY_DELETION_FORMAT,
+        "version": PERSONALITY_DELETION_VERSION,
+        "person_id": person_id,
+        "revision_id": revision_id,
+        "deleted_utc": _utc_now(),
+        "candidate_created_utc": selected["created_utc"],
+    }
+    deletion_path = _personality_deletion_directory(root, person_id) / f"{revision_id}.json"
+    deletion_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_create(deletion_path, deletion)
 
     profile["personality_revisions"] = [
         item
