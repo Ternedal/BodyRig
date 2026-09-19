@@ -353,7 +353,12 @@ def verify_binding(
         "human_review_required",
         "production_authority",
     }
-    if (\n        set(binding) != required\n        or binding.get("format") != FORMAT\n        or isinstance(binding.get("version"), bool)\n        or binding.get("version") != VERSION\n    ):
+    if (
+        set(binding) != required
+        or binding.get("format") != FORMAT
+        or isinstance(binding.get("version"), bool)
+        or binding.get("version") != VERSION
+    ):
         raise PersonalityEmbodimentBindingError("embodiment binding fields/version are invalid")
     if binding.get("person_id") != profile.get("person_id"):
         raise PersonalityEmbodimentBindingError("embodiment binding person identity mismatch")
