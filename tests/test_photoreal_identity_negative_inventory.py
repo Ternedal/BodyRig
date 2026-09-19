@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import copy
+from types import SimpleNamespace
 
 import pytest
+
+from bodyrig import photoreal_identity_negative_inventory as negative_inventory
 
 from bodyrig.photoreal_identity_negative_inventory import (
     PhotorealIdentityNegativeInventoryError,
@@ -167,3 +170,66 @@ def test_negative_inventory_fails_if_no_authoritative_negative_sources_exist() -
             negative_performer_inventories={"7": _inventory("7", include_safe=False)},
             max_negative_performers=1,
         )
+
+
+
+def test_negative_inventory_backfills_beyond_ineligible_top_ranked_performer() -> None:
+    scenes = [
+        _scene("s1", ["42", "7"]),
+        _scene("s2", ["42", "7"]),
+        _scene("s3", ["42", "7"]),
+        _scene("s4", ["42", "8"]),
+        _scene("s5", ["42", "8"]),
+        _scene("s6", ["42", "9"]),
+    ]
+
+    result = build_identity_negative_inventory(
+        target_performer_id="42",
+        target_scenes=scenes,
+        negative_performer_inventories={
+            "7": _inventory("7", include_safe=False),
+            "8": _inventory("8"),
+            "9": _inventory("9"),
+        },
+        max_negative_performers=2,
+        sources_per_performer=1,
+    )
+
+    assert result["negative_performer_count"] == 2
+    assert [item["performer_id"] for item in result["negative_performers"]] == ["8", "9"]
+    assert {item["subject_performer_id"] for item in result["sources"]} == {"8", "9"}
+
+
+def test_negative_inventory_fetch_continues_until_requested_eligible_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenes = [
+        _scene("s1", ["42", "7"]),
+        _scene("s2", ["42", "7"]),
+        _scene("s3", ["42", "8"]),
+        _scene("s4", ["42", "9"]),
+    ]
+    fetched: list[str] = []
+
+    monkeypatch.setattr(
+        negative_inventory,
+        "fetch_exhaustive_performer_scenes",
+        lambda *_args, **_kwargs: SimpleNamespace(scenes=scenes),
+    )
+
+    def fake_inventory(_client, performer_id: str, **_kwargs):
+        fetched.append(performer_id)
+        return _inventory(performer_id, include_safe=performer_id != "7")
+
+    monkeypatch.setattr(negative_inventory, "fetch_photoreal_source_inventory", fake_inventory)
+
+    result = negative_inventory.fetch_identity_negative_inventory(
+        object(),
+        "42",
+        max_negative_performers=2,
+        sources_per_performer=1,
+    )
+
+    assert fetched == ["7", "8", "9"]
+    assert result["negative_performer_count"] == 2
+    assert {item["subject_performer_id"] for item in result["sources"]} == {"8", "9"}
