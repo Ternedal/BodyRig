@@ -43,6 +43,7 @@ from .person_profiles import (
     add_personality_revision,
     add_voice_revision,
     create_profile,
+    delete_personality_revision,
     list_profiles,
     load_profile,
 )
@@ -406,6 +407,20 @@ def create_personality_revision(person_id: str, request: PersonalityRevisionRequ
         )
     except PersonProfileError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/people/{person_id}/personality/revisions/{revision_id}")
+def delete_personality_candidate(person_id: str, revision_id: str) -> dict:
+    try:
+        return delete_personality_revision(
+            person_library(),
+            person_id,
+            revision_id,
+        )
+    except PersonProfileError as exc:
+        detail = str(exc)
+        status = 404 if detail in {"person profile not found", "personality revision not found"} else 409
+        raise HTTPException(status_code=status, detail=detail) from exc
 
 
 @app.post("/api/v1/people/{person_id}/voice/revisions")
