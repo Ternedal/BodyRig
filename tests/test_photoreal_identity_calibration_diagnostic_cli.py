@@ -202,3 +202,18 @@ def test_cli_summary_exposes_stage13_separation_context(
             "observation_fraction": 1.0,
         }
     ]
+
+
+
+def test_console_json_is_ascii_safe_for_legacy_windows_codepages() -> None:
+    payload = {
+        "performer_name": "Łukasz – 測試 😀",
+        "path": r"C:\VR\scene.mp4",
+    }
+
+    rendered = cli._console_json(payload)
+
+    rendered.encode("cp1252")
+    decoded = json.loads(rendered)
+    assert decoded == payload
+    assert "\\u" in rendered
