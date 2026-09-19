@@ -10,7 +10,6 @@ from .photoreal_explicit_projection_authority import (
     apply_explicit_projection_authority,
 )
 from .photoreal_explicit_projection_authority_cli import (
-    PhotorealExplicitProjectionAuthorityCliError,
     _receipt_sha_index,
     _spatial_source_keys,
     _vr180_equi_authority,
