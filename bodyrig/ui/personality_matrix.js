@@ -204,19 +204,19 @@
             <button id="matrixNeutralButton" class="secondary" type="button">Sæt til neutral · 0.50</button>
             <button id="matrixJumpButton" class="secondary" type="button">Vis rå slider</button>
           </div>
+          <div class="matrix-save-panel">
+            <div class="matrix-save-copy">
+              <div id="matrixSaveState" class="matrix-save-state" data-state="dirty">Ikke gemt</div>
+              <div id="matrixSaveNote" class="matrix-save-note">Byg preview før du gemmer en ny immutable personality-revision.</div>
+            </div>
+            <div class="matrix-save-actions">
+              <button id="matrixPreviewButton" class="secondary" type="button">Byg preview</button>
+              <button id="matrixSaveButton" class="primary" type="button" disabled>Gem revision</button>
+            </div>
+          </div>
         </aside>
       </div>
       <div id="matrixStatus" class="matrix-status"></div>
-      <div class="matrix-save-strip">
-        <div class="matrix-save-copy">
-          <div id="matrixSaveState" class="matrix-save-state" data-state="dirty">Ikke gemt</div>
-          <div id="matrixSaveNote" class="matrix-save-note">Byg preview før du gemmer en ny immutable personality-revision.</div>
-        </div>
-        <div class="matrix-save-actions">
-          <button id="matrixPreviewButton" class="secondary" type="button">Byg preview</button>
-          <button id="matrixSaveButton" class="primary" type="button" disabled>Gem revision</button>
-        </div>
-      </div>
       <div class="matrix-footer">
         <div class="matrix-legend">
           <span class="matrix-legend-item"><i class="matrix-legend-swatch"></i>Current authored</span>
