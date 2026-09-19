@@ -91,6 +91,18 @@ def _resolve_paths(
     )
 
 
+def _console_json(payload: object) -> str:
+    # Windows operator shells may expose legacy encodings such as cp1252.
+    # Keep stdout transport ASCII-safe while the diagnostic artifact itself
+    # remains UTF-8 JSON written by the diagnostic builder.
+    return json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -118,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(
-        json.dumps(
+        _console_json(
             {
                 "format": result["format"],
                 "version": result["version"],
@@ -205,9 +217,6 @@ def main(argv: list[str] | None = None) -> int:
                 "output":
                     str(output_path.expanduser().resolve()),
             },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
         )
     )
     return 0
