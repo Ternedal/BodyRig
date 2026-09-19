@@ -9,6 +9,7 @@ from bodyrig.person_assembly import (
     PersonAssemblyError,
     build_assembly,
     read_receipt,
+    receipt_path,
     verify_receipt,
     write_receipt,
 )
@@ -190,7 +191,7 @@ def test_assembly_receipt_rejects_boolean_versions(
     tmp_path: Path,
     version: bool,
 ) -> None:
-    profile = profile_with_components(tmp_path)
+    profile = _profile(tmp_path)
     assembly = build_assembly(
         profile,
         body_revision="body-r0001",
