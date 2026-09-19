@@ -291,11 +291,28 @@ def make_wsl_path_converter(wsl_exe: str, distribution: str) -> Callable[[str], 
 
         escaped_path = _escape_windows_argv(resolved_path)
         completed = _run_wsl_capture(
-            [wsl_exe, "-d", distribution, "--", "wslpath", "-a", "-u", escaped_path]
+            [wsl_exe, "-d", distribution, "--", "/usr/bin/wslpath", "-a", "-u", escaped_path]
         )
         if completed.returncode != 0:
-            detail = completed.stderr.strip()[-1000:]
-            raise WslBridgeError(f"wslpath failed for BodyRig path: {detail}")
+            # WSL argv handling has varied across interop versions. The escaped
+            # form is required on installations that consume single backslashes,
+            # while some builds accept only the raw Windows path. Retry exactly
+            # once without weakening the path/authority boundary.
+            raw_completed = _run_wsl_capture(
+                [wsl_exe, "-d", distribution, "--", "/usr/bin/wslpath", "-a", "-u", resolved_path]
+            )
+            if raw_completed.returncode == 0:
+                completed = raw_completed
+            else:
+                escaped_detail = (completed.stderr or completed.stdout).strip()[-1000:]
+                raw_detail = (raw_completed.stderr or raw_completed.stdout).strip()[-1000:]
+                detail_parts = []
+                if escaped_detail:
+                    detail_parts.append(f"escaped={escaped_detail}")
+                if raw_detail:
+                    detail_parts.append(f"raw={raw_detail}")
+                detail = "; ".join(detail_parts) or "no diagnostic output"
+                raise WslBridgeError(f"wslpath failed for BodyRig path: {detail}")
         value = completed.stdout.strip()
         if not value or "\n" in value or "\r" in value:
             raise WslBridgeError("wslpath returned an invalid path")
