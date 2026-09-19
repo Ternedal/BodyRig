@@ -105,10 +105,10 @@ def test_calibration_plan_splits_rectilinear_stereo_negative_video() -> None:
     video = next(item for item in result["sources"] if item["kind"] == "video")
 
     assert video["decode_mode"] == "rectilinear-stereo-split"
-    assert result["video_timestamps_per_source"] == 320
-    assert video["sample_count"] == 640
+    assert result["video_timestamps_per_source"] == 640
+    assert video["sample_count"] == 1280
     assert {sample["eye"] for sample in video["samples"]} == {"left", "right"}
-    assert len({sample["timestamp_seconds"] for sample in video["samples"]}) == 320
+    assert len({sample["timestamp_seconds"] for sample in video["samples"]}) == 640
 
 
 def test_calibration_plan_rejects_spatial_video_before_identity_extraction() -> None:
@@ -200,10 +200,10 @@ def test_calibration_plan_distributes_video_budget_across_sources() -> None:
 
     result = build_identity_calibration_plan(_bank(), receipt)
 
-    assert result["video_timestamps_per_source"] == 80
-    assert result["planned_negative_observation_count"] == 320
-    assert all(source["sample_count"] == 80 for source in result["sources"])
+    assert result["video_timestamps_per_source"] == 160
+    assert result["planned_negative_observation_count"] == 640
+    assert all(source["sample_count"] == 160 for source in result["sources"])
     assert all(
-        len({sample["timestamp_seconds"] for sample in source["samples"]}) == 80
+        len({sample["timestamp_seconds"] for sample in source["samples"]}) == 160
         for source in result["sources"]
     )
