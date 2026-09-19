@@ -200,11 +200,15 @@ $scanMeshCustom = @($scanSources | Where-Object {
     [string]$_.projection -eq "mshp" -and [string]$_.stereo_layout -eq "mesh-custom"
 }).Count
 $spatialDecode = @($scanSources | Where-Object { [string]$_.decode_mode -eq "spatial-deprojection-required" }).Count
-$spatialBootstrap = @($scanSources | Where-Object {
+$spatialBootstrapSources = @($scanSources | Where-Object {
     [string]$_.decode_mode -eq "spatial-deprojection-required" -and [bool]$_.identity_bootstrap_eligible
+})
+$spatialBootstrap = $spatialBootstrapSources.Count
+$invalidSpatialBootstrap = @($spatialBootstrapSources | Where-Object {
+    [string]$_.projection -ne "equi" -or $null -eq $_.projection_authority
 }).Count
-if ($spatialBootstrap -ne 0) {
-    throw "Diagnostic scout replay unexpectedly granted spatial identity bootstrap authority."
+if ($invalidSpatialBootstrap -ne 0) {
+    throw "Diagnostic scout replay granted spatial identity bootstrap without exact equirectangular projection authority."
 }
 
 Write-Host ""
@@ -214,7 +218,7 @@ Write-Host "Exact mesh in scout:  $scanMesh"
 Write-Host "Exact cubemap scout:  $scanCubemap"
 Write-Host "Mesh-custom in scout: $scanMeshCustom"
 Write-Host "Spatial decode-bound: $spatialDecode"
-Write-Host "Spatial bootstrap:    FALSE"
+Write-Host "Spatial bootstrap:    $spatialBootstrap (exact equi authority only)"
 Write-Host "Teacher auth:         FALSE"
 Write-Host "Production:           FALSE"
 Write-Host "Diagnostic scout:     $DiagnosticScanPath"
