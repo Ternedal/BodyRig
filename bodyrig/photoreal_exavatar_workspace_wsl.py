@@ -16,6 +16,10 @@ class PhotorealExAvatarWorkspaceWslError(ValueError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == VERSION
+
+
 def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
     result = str(value or "").strip()
     if not result or len(result) > maximum or "\n" in result or "\r" in result:
@@ -110,7 +114,7 @@ def validate_exavatar_workspace_wsl(
         distribution=distribution,
         path=receipt_path,
     )
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    if receipt.get("format") != FORMAT or not _is_v1(receipt.get("version")):
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt format/version mismatch")
     if receipt.get("smplx_gender") != gender or receipt.get("smplx_gender_explicit") is not True:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt gender provenance mismatch")
@@ -269,7 +273,7 @@ def prepare_exavatar_workspace_wsl(
         distribution=distribution,
         path=workspace_root.rstrip("/") + "/workspace-receipt.json",
     )
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    if receipt.get("format") != FORMAT or not _is_v1(receipt.get("version")):
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt format/version mismatch")
     if receipt.get("smplx_gender") != gender or receipt.get("smplx_gender_explicit") is not True:
         raise PhotorealExAvatarWorkspaceWslError("ExAvatar workspace receipt gender provenance mismatch")
