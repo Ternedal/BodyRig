@@ -201,9 +201,9 @@ def test_reopened_matrix_remains_saved_until_operator_changes_it() -> None:
     assert "gemt revision." in apply_source
     assert "invalidate();" not in apply_source
 
-    # Real authoring changes still use the normal invalidation path.
-    assert 'entry.input.dispatchEvent(new Event("input", { bubbles: true }))' not in html
-    assert 'input.addEventListener("input",()=>{' in html or 'addEventListener("input",invalidate)' in html
+    # Real trait authoring changes still use the normal invalidation path.
+    assert '$(inputId).addEventListener("input",()=>{' in html
+    assert "updateTraitView(); invalidate();" in html
 
 
 def test_guided_matrix_can_explicitly_stack_verified_source_baseline() -> None:
@@ -346,6 +346,7 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         '"Ikke gemte ændringer"',
         '"Preview klar"',
         '"Gemt"',
+        "genindlæst fra verificeret blueprint",
         "function syncCompareOptions()",
         'option.textContent.includes("Matrix v2")',
         "Ingen tidligere Matrix v2-revisioner",
