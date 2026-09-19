@@ -64,6 +64,40 @@ function latestRevision(profile, kind) {
   return items.length ? items[items.length - 1] : null;
 }
 
+function requestedAssemblyHandoff() {
+  const params = new URLSearchParams(location.search);
+  return {
+    personId: params.get("person_id") || "",
+    bodyRevision: params.get("body_revision") || "",
+    voiceRevision: params.get("voice_revision") || "",
+    personalityRevision: params.get("personality_revision") || "",
+    tab: params.get("tab") || "",
+  };
+}
+
+function applyRequestedAssemblyHandoff(request) {
+  if (!request || request.tab !== "assemble") return false;
+  if (!state.selected || state.selected.person_id !== request.personId) {
+    toast("Suite-handoff matcher ikke en kendt Person. Eksisterende valg er ikke ændret.", true);
+    return false;
+  }
+  const exact = {
+    body: revisionById(state.selected, "body", request.bodyRevision),
+    voice: revisionById(state.selected, "voice", request.voiceRevision),
+    personality: revisionById(state.selected, "personality", request.personalityRevision),
+  };
+  if (!exact.body || !exact.voice || !exact.personality) {
+    toast("Suite-handoff indeholder en revision, som ikke tilhører den valgte Person.", true);
+    return false;
+  }
+  $("assembleBody").value = exact.body.revision_id;
+  $("assembleVoice").value = exact.voice.revision_id;
+  $("assemblePersonality").value = exact.personality.revision_id;
+  resetAssembly("Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition.");
+  switchTab("assemble");
+  return true;
+}
+
 function sourceAlignmentForRevision(profile, kind, revisionId) {
   return profile?._source_alignment?.components?.[kind]?.[revisionId] || null;
 }
@@ -697,5 +731,9 @@ function wire() {
   await health();
   loadVoiceLibrary();
   loadModelLibrary();
-  try { await loadPeople(); } catch (error) { toast(error.message, true); }
+  const handoff = requestedAssemblyHandoff();
+  try {
+    await loadPeople(handoff.personId || null);
+    applyRequestedAssemblyHandoff(handoff);
+  } catch (error) { toast(error.message, true); }
 })();
