@@ -265,7 +265,8 @@ def test_guided_matrix_compares_current_traits_with_verified_revision_baseline()
         "Δ ${sign}${entry.signedDelta.toFixed(2)}",
         "Delta gemmes ikke.",
         'new MutationObserver(scheduleRender).observe(baselineSelect',
-        'document.getElementById("matrixCompareRevision")?.value',
+        'const compareSelect = document.getElementById("matrixCompareRevision")',
+        '? compareSelect.value',
         'document.addEventListener("bodyrig:matrix-compare-change", scheduleRender)',
     ):
         assert token in signature
