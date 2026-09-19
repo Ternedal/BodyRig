@@ -23,6 +23,10 @@ class PhotorealMeshDeprojectionError(ValueError):
     pass
 
 
+def _is_numeric_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _positive_int(value: Any, *, label: str) -> int:
     if isinstance(value, bool):
         raise PhotorealMeshDeprojectionError(f"{label} is invalid")
@@ -45,13 +49,13 @@ def _sha(value: Any, *, label: str) -> str:
 def _authority(value: Any, geometry: Mapping[str, Any]) -> None:
     if not isinstance(value, Mapping):
         raise PhotorealMeshDeprojectionError("mesh projection authority is missing")
-    if value.get("format") != AUTHORITY_FORMAT or value.get("version") != AUTHORITY_VERSION:
+    if value.get("format") != AUTHORITY_FORMAT or not _is_numeric_v1(value.get("version")):
         raise PhotorealMeshDeprojectionError("mesh projection authority format/version mismatch")
     if value.get("projection_type") != "mshp":
         raise PhotorealMeshDeprojectionError("projection authority is not mesh")
     if value.get("deprojection_authority") is not False:
         raise PhotorealMeshDeprojectionError("upstream mesh authority crossed deprojection authority")
-    if geometry.get("format") != "bodyrig-spherical-v2-mesh-geometry" or geometry.get("version") != 1:
+    if geometry.get("format") != "bodyrig-spherical-v2-mesh-geometry" or not _is_numeric_v1(geometry.get("version")):
         raise PhotorealMeshDeprojectionError("mesh geometry format/version mismatch")
     if geometry.get("materialized") is not True:
         raise PhotorealMeshDeprojectionError("mesh geometry is not materialized")
