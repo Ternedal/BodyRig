@@ -284,6 +284,12 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         "matrix-current-shape",
         "matrix-baseline-shape",
         "matrixInspectorRange",
+        "pointerdown",
+        "pointermove",
+        "setPointerCapture",
+        "updateDraggedTrait(svg, event)",
+        "Math.round(clamped / 0.05) * 0.05",
+        '"data-trait-id": entry.traitId',
         'entry.input.dispatchEvent(new Event("input", { bubbles: true }))',
         "Vis rå 120 sliders",
         "Skjul rå 120 sliders",
@@ -300,6 +306,8 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert ".matrix-stage" in css
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
+    assert "touch-action:none" in css
+    assert ".matrix-svg.dragging{cursor:grabbing}" in css
     assert "maxScore <= EPSILON" in matrix
     assert "Math.floor((slot * entries.length) / LABEL_LIMIT)" in matrix
     assert 'state.selectedId = entries[0].traitId' in matrix
