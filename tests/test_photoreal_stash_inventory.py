@@ -190,7 +190,7 @@ def test_projection_metadata_recognizes_degree_symbol_vr180_hint() -> None:
     )
 
     assert projection == "vr180"
-    assert stereo == "mono"
+    assert stereo == "stereo-unknown"
 
 
 def test_projection_metadata_keeps_standard_flat_widescreen_flat() -> None:
