@@ -182,7 +182,7 @@ Editoren giver:
 - separat Inner/Outer Ring-visning med alle 60 akser tegnet;
 - en current-authored polygon, hvor radius er den eksakte 0..1-værdi;
 - neutral `0.50` som fast reference-ring;
-- op til 16 labels prioriteret efter authored afvigelse fra neutral og, når relevant, forskel fra valgt baseline;
+- op til 14 labels prioriteret efter authored afvigelse fra neutral og, når relevant, forskel fra valgt baseline;
 - klikbare datapunkter og labels med en trait-inspector;
 - redigering fra inspectorens slider, som skriver tilbage til den eksisterende trait-slider og sender det samme `input`-event som manuel slider-authoring;
 - read-only overlay af en verificeret Matrix v2-baseline;
