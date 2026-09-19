@@ -32,6 +32,10 @@ class SithBodyGeometryAuthorityError(ValueError):
     pass
 
 
+def _is_numeric_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -195,7 +199,7 @@ def _source_authority(
     if not reconstruction_path.is_file():
         raise SithBodyGeometryAuthorityError("SiTH reconstruction evidence is missing")
     reconstruction = _load_json(reconstruction_path, label="SiTH reconstruction evidence")
-    if reconstruction.get("format") != "bodyrig-sith-reconstruction" or reconstruction.get("version") != 1:
+    if reconstruction.get("format") != "bodyrig-sith-reconstruction" or not _is_numeric_v1(reconstruction.get("version")):
         raise SithBodyGeometryAuthorityError("SiTH reconstruction format/version mismatch")
     details = reconstruction.get("reconstruction")
     if not isinstance(details, dict) or details.get("grid_size") != 300 or details.get("save_uv") is not True:
