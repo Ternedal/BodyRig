@@ -229,6 +229,13 @@
     }
     const current = entries.find(entry => entry.traitId === state.selectedId);
     if (current) return current;
+
+    const maxScore = entries.reduce((max, entry) => Math.max(max, signatureScore(entry)), 0);
+    if (maxScore <= EPSILON) {
+      state.selectedId = entries[0].traitId;
+      return entries[0];
+    }
+
     const ranked = [...entries].sort(
       (a, b) => signatureScore(b) - signatureScore(a) || a.label.localeCompare(b.label, "da")
     );
@@ -259,10 +266,9 @@
     let selectedIndexes;
 
     if (maxScore <= EPSILON) {
-      const stride = Math.max(1, Math.floor(entries.length / LABEL_LIMIT));
       selectedIndexes = new Set();
-      for (let index = 0; index < entries.length && selectedIndexes.size < LABEL_LIMIT; index += stride) {
-        selectedIndexes.add(index);
+      for (let slot = 0; slot < LABEL_LIMIT; slot += 1) {
+        selectedIndexes.add(Math.floor((slot * entries.length) / LABEL_LIMIT) % entries.length);
       }
     } else {
       const ranked = [...scored].sort(
@@ -280,9 +286,9 @@
   }
 
   function relaxedLabels(items) {
-    const minY = 42;
-    const maxY = SIZE - 42;
-    const gap = 23;
+    const minY = 54;
+    const maxY = SIZE - 66;
+    const gap = 27;
     const sides = { left: [], right: [] };
 
     for (const item of items) {
@@ -307,7 +313,7 @@
         }
       }
       for (const item of list) {
-        item.x = side === "right" ? SIZE - 28 : 28;
+        item.x = side === "right" ? SIZE - 62 : 62;
         result.push(item);
       }
     }
