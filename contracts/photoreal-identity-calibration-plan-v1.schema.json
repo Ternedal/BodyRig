@@ -26,7 +26,7 @@
     "negative_performer_count": {"type": "integer", "minimum": 2},
     "source_count": {"type": "integer", "minimum": 2},
     "planned_negative_observation_count": {"type": "integer", "minimum": 2},
-    "video_timestamps_per_source": {"const": 6},
+    "video_timestamps_per_source": {"type": "integer", "minimum": 1, "maximum": 320},
     "sources": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/source"}},
     "negative_embedding_extraction_required": {"const": true},
     "calibration_only": {"const": true},

@@ -105,9 +105,10 @@ def test_calibration_plan_splits_rectilinear_stereo_negative_video() -> None:
     video = next(item for item in result["sources"] if item["kind"] == "video")
 
     assert video["decode_mode"] == "rectilinear-stereo-split"
-    assert video["sample_count"] == 12
+    assert result["video_timestamps_per_source"] == 320
+    assert video["sample_count"] == 640
     assert {sample["eye"] for sample in video["samples"]} == {"left", "right"}
-    assert len({sample["timestamp_seconds"] for sample in video["samples"]}) == 6
+    assert len({sample["timestamp_seconds"] for sample in video["samples"]}) == 320
 
 
 def test_calibration_plan_rejects_spatial_video_before_identity_extraction() -> None:
@@ -172,3 +173,37 @@ def test_calibration_plan_rejects_missing_inventory_digest() -> None:
 
     with pytest.raises(PhotorealIdentityCalibrationPlanError, match="inventory SHA-256"):
         build_identity_calibration_plan(_bank(), receipt)
+
+
+def test_calibration_plan_distributes_video_budget_across_sources() -> None:
+    receipt = copy.deepcopy(_receipt())
+    receipt["sources"] = []
+    for index, performer_id in enumerate(("7", "8", "9", "10"), start=1):
+        receipt["sources"].append(
+            {
+                "source_key": f"scene:s{index}:E:/p{performer_id}.mp4",
+                "source_sha256": f"{index}" * 64,
+                "sha256": f"{index}" * 64,
+                "resolved_path": rf"\\stash\VR_E\p{performer_id}.mp4",
+                "subject_performer_id": performer_id,
+                "subject_performer_name": f"P{performer_id}",
+                "target_performer_id": "42",
+                "target_performer_absent": True,
+                "label_authority": "stash-single-performer-other-id-v1",
+                "kind": "video",
+                "source_binding": "scene-single-performer",
+                "projection": "flat",
+                "stereo_layout": "mono",
+                "duration_seconds": 120.0,
+            }
+        )
+
+    result = build_identity_calibration_plan(_bank(), receipt)
+
+    assert result["video_timestamps_per_source"] == 80
+    assert result["planned_negative_observation_count"] == 320
+    assert all(source["sample_count"] == 80 for source in result["sources"])
+    assert all(
+        len({sample["timestamp_seconds"] for sample in source["samples"]}) == 80
+        for source in result["sources"]
+    )
