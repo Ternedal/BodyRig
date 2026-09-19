@@ -309,6 +309,7 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
         'id="matrixCompareRevision"',
         "function syncCompareOptions()",
         'option.textContent.includes("Matrix v2")',
+        "Ingen tidligere Matrix v2-revisioner",
         "option.value !== editingRevision",
         'new CustomEvent("bodyrig:matrix-compare-change")',
         "polygonPoints(entries",
