@@ -27,7 +27,7 @@
         "properties": {
           "performer_id": {"type": "string", "minLength": 1},
           "performer_name": {"type": "string"},
-          "cooccurrence_scene_count": {"type": "integer", "minimum": 1},
+          "cooccurrence_scene_count": {"type": "integer", "minimum": 0},
           "selected_source_count": {"type": "integer", "minimum": 1}
         }
       }

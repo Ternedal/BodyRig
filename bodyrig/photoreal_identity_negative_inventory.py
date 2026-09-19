@@ -26,6 +26,79 @@ class PhotorealIdentityNegativeInventoryError(StashSourceError):
     pass
 
 
+def _fetch_performer_roster(
+    client: StashClient,
+    *,
+    page_size: int,
+    maximum_items: int,
+) -> list[str]:
+    if isinstance(page_size, bool) or not 1 <= page_size <= 1000:
+        raise PhotorealIdentityNegativeInventoryError("page_size is outside supported bounds")
+    if isinstance(maximum_items, bool) or not 1 <= maximum_items <= 100_000:
+        raise PhotorealIdentityNegativeInventoryError("maximum_items is outside supported bounds")
+
+    query = """
+query BodyRigPhotorealNegativePerformerRoster($page: Int!, $limit: Int!) {
+  findPerformers(
+    filter: {page: $page, per_page: $limit, sort: "name", direction: ASC}
+  ) {
+    count
+    performers { id }
+  }
+}
+"""
+    page = 1
+    expected_total: int | None = None
+    performer_ids: list[str] = []
+    seen: set[str] = set()
+    while True:
+        data = client._graphql(query, {"page": page, "limit": page_size})  # noqa: SLF001
+        root = data.get("findPerformers")
+        if not isinstance(root, Mapping):
+            raise PhotorealIdentityNegativeInventoryError("Stash performer roster is missing")
+        total = root.get("count")
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise PhotorealIdentityNegativeInventoryError("Stash performer roster count is invalid")
+        if total > maximum_items:
+            raise PhotorealIdentityNegativeInventoryError(
+                f"Stash performer roster count {total} exceeds safety bound {maximum_items}"
+            )
+        if expected_total is None:
+            expected_total = total
+        elif total != expected_total:
+            raise PhotorealIdentityNegativeInventoryError(
+                f"Stash performer roster count changed during discovery: {expected_total} -> {total}"
+            )
+
+        raw_items = root.get("performers")
+        if not isinstance(raw_items, list):
+            raise PhotorealIdentityNegativeInventoryError("Stash performer roster payload is invalid")
+        for raw in raw_items:
+            if not isinstance(raw, Mapping):
+                raise PhotorealIdentityNegativeInventoryError("Stash performer roster contains a non-object")
+            performer_id = str(raw.get("id") or "").strip()
+            if not performer_id:
+                raise PhotorealIdentityNegativeInventoryError("Stash performer roster contains an item without id")
+            if performer_id in seen:
+                raise PhotorealIdentityNegativeInventoryError(
+                    f"Stash performer roster repeated performer id {performer_id}"
+                )
+            seen.add(performer_id)
+            performer_ids.append(performer_id)
+
+        if len(performer_ids) >= total:
+            break
+        if not raw_items:
+            raise PhotorealIdentityNegativeInventoryError("Stash performer roster pagination ended early")
+        page += 1
+
+    if expected_total is None or len(performer_ids) != expected_total:
+        raise PhotorealIdentityNegativeInventoryError(
+            f"Stash performer roster returned {len(performer_ids)}/{expected_total or 0} unique performers"
+        )
+    return performer_ids
+
+
 def _performer_ids(item: Mapping[str, Any]) -> set[str]:
     return {
         str(performer.get("id"))
@@ -165,9 +238,13 @@ def build_identity_negative_inventory(
         raise PhotorealIdentityNegativeInventoryError("sources_per_performer is outside supported bounds")
 
     counts = co_performer_counts(target, target_scenes)
-    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
-    if not ranked:
-        raise PhotorealIdentityNegativeInventoryError("target performer has no co-performer evidence for negative calibration")
+    co_ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
+    fallback_ranked = sorted(
+        performer_id
+        for performer_id in negative_performer_inventories
+        if performer_id != target and performer_id not in counts
+    )
+    ranked = [*co_ranked, *fallback_ranked]
 
     sources: list[dict[str, Any]] = []
     selected_subjects: list[dict[str, Any]] = []
@@ -200,7 +277,7 @@ def build_identity_negative_inventory(
             {
                 "performer_id": subject_id,
                 "performer_name": str(inventory.get("performer_name") or ""),
-                "cooccurrence_scene_count": int(counts[subject_id]),
+                "cooccurrence_scene_count": int(counts.get(subject_id, 0)),
                 "selected_source_count": len(chosen),
             }
         )
@@ -247,10 +324,14 @@ def fetch_identity_negative_inventory(
         maximum_scenes=maximum_items,
     )
     counts = co_performer_counts(target, target_scenes_result.scenes)
-    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
+    co_ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
     inventories: dict[str, Mapping[str, Any]] = {}
     eligible_inventory_count = 0
-    for performer_id in ranked:
+
+    def fetch_candidate(performer_id: str) -> None:
+        nonlocal eligible_inventory_count
+        if performer_id == target or performer_id in inventories:
+            return
         try:
             inventory = fetch_photoreal_source_inventory(
                 client,
@@ -259,10 +340,26 @@ def fetch_identity_negative_inventory(
                 maximum_items=maximum_items,
             )
         except PhotorealStashInventoryError:
-            continue
+            return
         inventories[performer_id] = inventory
         if _negative_candidates(inventory):
             eligible_inventory_count += 1
+
+    for performer_id in co_ranked:
+        fetch_candidate(performer_id)
+        if eligible_inventory_count >= max_negative_performers:
+            break
+
+    if eligible_inventory_count < max_negative_performers:
+        roster = _fetch_performer_roster(
+            client,
+            page_size=page_size,
+            maximum_items=maximum_items,
+        )
+        for performer_id in roster:
+            if performer_id in counts:
+                continue
+            fetch_candidate(performer_id)
             if eligible_inventory_count >= max_negative_performers:
                 break
     return build_identity_negative_inventory(
