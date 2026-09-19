@@ -17,6 +17,8 @@
     baselineBlueprint: null,
     rawVisible: false,
     scheduled: false,
+    dragTraitId: null,
+    dragPointerId: null,
   };
 
   const $ = id => document.getElementById(id);
@@ -137,7 +139,7 @@
         <div>
           <div class="eyebrow">PERSONALITY MATRIX V2 · RADIAL EDITOR</div>
           <h2 class="matrix-cockpit-title">Authored personality shape</h2>
-          <p class="matrix-cockpit-copy">Grafen er kun en deterministisk visualisering af de 120 authored Matrix-værdier. Klik et punkt for at inspicere og redigere den præcise trait.</p>
+          <p class="matrix-cockpit-copy">Grafen er en deterministisk editor af de 120 authored Matrix-værdier. Klik et punkt for at inspicere det, eller træk punktet radialt for at ændre den præcise trait.</p>
         </div>
         <div class="matrix-ring-tabs" role="tablist" aria-label="Personality Matrix ring">
           <button class="matrix-ring-tab active" type="button" data-ring="inner" role="tab" aria-selected="true">Inner · 60</button>
@@ -192,14 +194,42 @@
       });
     });
 
+    const svg = $("personalityMatrixSvg");
+    svg?.addEventListener("pointerdown", event => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      const node = event.target.closest?.(".matrix-node");
+      if (!node) return;
+      const traitId = node.getAttribute("data-trait-id");
+      if (!traitId) return;
+      state.selectedId = traitId;
+      state.dragTraitId = traitId;
+      state.dragPointerId = event.pointerId;
+      svg.setPointerCapture?.(event.pointerId);
+      svg.classList.add("dragging");
+      event.preventDefault();
+      updateDraggedTrait(svg, event);
+    });
+    svg?.addEventListener("pointermove", event => {
+      if (state.dragPointerId !== event.pointerId || !state.dragTraitId) return;
+      event.preventDefault();
+      updateDraggedTrait(svg, event);
+    });
+    const endDrag = event => {
+      if (state.dragPointerId !== event.pointerId) return;
+      state.dragTraitId = null;
+      state.dragPointerId = null;
+      svg?.classList.remove("dragging");
+      if (svg?.hasPointerCapture?.(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+    };
+    svg?.addEventListener("pointerup", endDrag);
+    svg?.addEventListener("pointercancel", endDrag);
+
     $("matrixInspectorRange")?.addEventListener("input", event => {
       const entry = selectedEntry();
       if (!entry) return;
       const value = Number(event.target.value);
       if (!Number.isFinite(value)) return;
-      entry.input.value = String(value);
-      entry.input.dispatchEvent(new Event("input", { bubbles: true }));
-      scheduleRender();
+      writeTraitValue(entry, value);
     });
 
     $("matrixNeutralButton")?.addEventListener("click", () => setSelectedValue(NEUTRAL));
@@ -212,6 +242,32 @@
   function selectedEntry() {
     const entries = traitEntries();
     return entries.find(entry => entry.traitId === state.selectedId) || null;
+  }
+
+  function writeTraitValue(entry, nextValue) {
+    if (!entry) return;
+    const clamped = Math.max(0, Math.min(1, Number(nextValue)));
+    if (!Number.isFinite(clamped)) return;
+    const snapped = Math.round(clamped / 0.05) * 0.05;
+    entry.input.value = snapped.toFixed(2);
+    entry.input.dispatchEvent(new Event("input", { bubbles: true }));
+    scheduleRender();
+  }
+
+  function updateDraggedTrait(svg, event) {
+    const entries = traitEntries();
+    const index = entries.findIndex(entry => entry.traitId === state.dragTraitId);
+    if (index < 0) return;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = (event.clientX - rect.left) * (SIZE / rect.width);
+    const y = (event.clientY - rect.top) * (SIZE / rect.height);
+    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / entries.length;
+    const axisX = Math.cos(angle);
+    const axisY = Math.sin(angle);
+    const projected = ((x - CENTER) * axisX + (y - CENTER) * axisY) / RADIUS;
+    state.selectedId = entries[index].traitId;
+    writeTraitValue(entries[index], projected);
   }
 
   function signatureScore(entry) {
@@ -392,6 +448,7 @@
         tabindex: "0",
         role: "button",
         "aria-label": `${entry.label}, ${entry.value.toFixed(2)}`,
+        "data-trait-id": entry.traitId,
       });
       const nodeTitle = svgEl("title");
       const base = baselineValue(entry);
@@ -527,12 +584,7 @@
   }
 
   function setSelectedValue(nextValue) {
-    const entry = selectedEntry();
-    if (!entry) return;
-    const value = Math.max(0, Math.min(1, Number(nextValue)));
-    entry.input.value = String(value);
-    entry.input.dispatchEvent(new Event("input", { bubbles: true }));
-    scheduleRender();
+    writeTraitValue(selectedEntry(), nextValue);
   }
 
   function toggleRawControls() {
