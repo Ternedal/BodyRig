@@ -126,7 +126,16 @@ print(path.as_posix())
 '@
 $cudnnRaw = Invoke-Wsl -Arguments @($LinuxPython, "-c", $cudnnPathCode) -Capture
 $cudnnLib = ($cudnnRaw | Select-Object -Last 1).ToString().Trim()
-if ($cudnnLib -notmatch '^/[A-Za-z0-9._/-]+Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
+if ($cudnnLib -notmatch '^/[A-Za-z0-9._/-]+$') {
+    throw "Resolved cuDNN library path is invalid: $cudnnLib"
+}
+$ldConfigCode = @"
+from pathlib import Path
+Path("/etc/ld.so.conf.d/bodyrig-photoreal-cudnn9.conf").write_text("$cudnnLib\n", encoding="utf-8")
+"@
+Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-c", $ldConfigCode)
+Invoke-Wsl -Root -Arguments @("/sbin/ldconfig")
+Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
     "git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"
@@ -210,109 +219,6 @@ $receipt = [ordered]@{
         insightface = $insightfaceVersion
         onnxruntime = $onnxruntimeVersion
         nvidia_cudnn = $cudnnVersion
-        openmim = $openmimVersion
-        xtcocotools = $xtcocotoolsVersion
-    }
-    observed = $probe
-    nvidia_smi = @($nvidia | ForEach-Object { [string]$_ })
-    cuda_required = $true
-    build_only = $true
-    production_activation = $false
-}
-$receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $environmentReceipt -Encoding UTF8
-
-Write-Host ""
-Write-Host "BodyRig Photoreal reference WSL environment: READY"
-Write-Host "Python:           $($probe.python)"
-Write-Host "Torch:            $($probe.torch)"
-Write-Host "CUDA:             $($probe.torch_cuda_version)"
-Write-Host "GPU:              $($probe.gpu_name)"
-Write-Host "MMCV:             $($probe.mmcv)"
-Write-Host "MMPose:           $($probe.mmpose)"
-Write-Host "MMDetection:      $($probe.mmdet)"
-Write-Host "Receipt:          $environmentReceipt"
-Write-Host "Production:       FALSE"
-) {
-    throw "Resolved cuDNN library path is invalid: $cudnnLib"
-}
-$ldConfigCode = @"
-from pathlib import Path
-Path("/etc/ld.so.conf.d/bodyrig-photoreal-cudnn9.conf").write_text("$cudnnLib\n", encoding="utf-8")
-"@
-Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-c", $ldConfigCode)
-Invoke-Wsl -Root -Arguments @("/sbin/ldconfig")
-Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmengine==$mmengineVersion", "mmcv==$mmcvVersion")
-Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
-    "git+https://github.com/open-mmlab/mmdetection.git@$mmdetRevision"
-)
-Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "--no-deps",
-    "git+https://github.com/open-mmlab/mmpose.git@$mmposeRevision"
-)
-
-$probeCode = @'
-import json
-import cv2
-import insightface
-import mmcv
-import mmengine
-import mmdet
-import mmpose
-import numpy
-import onnxruntime
-import torch
-import torchvision
-payload = {
-    "python": __import__("sys").version.split()[0],
-    "torch": torch.__version__,
-    "torchvision": torchvision.__version__,
-    "numpy": numpy.__version__,
-    "mmcv": mmcv.__version__,
-    "mmengine": mmengine.__version__,
-    "mmdet": mmdet.__version__,
-    "mmpose": mmpose.__version__,
-    "insightface": insightface.__version__,
-    "onnxruntime": onnxruntime.__version__,
-    "opencv": cv2.__version__,
-    "torch_cuda_available": bool(torch.cuda.is_available()),
-    "torch_cuda_version": torch.version.cuda,
-    "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
-    "onnxruntime_providers": onnxruntime.get_available_providers(),
-}
-print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
-'@
-$probeRaw = Invoke-Wsl -Arguments @($LinuxPython, "-c", $probeCode) -Capture
-$probeLine = ($probeRaw | Select-Object -Last 1).ToString().Trim()
-try { $probe = $probeLine | ConvertFrom-Json -Depth 20 }
-catch { throw "Reference environment probe did not return valid JSON: $probeLine" }
-if ($probe.torch_cuda_available -ne $true) { throw "PyTorch CUDA is not available in the reference WSL environment." }
-if (@($probe.onnxruntime_providers) -notcontains "CUDAExecutionProvider") {
-    throw "ONNX Runtime CUDAExecutionProvider is not available in the reference WSL environment."
-}
-if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
-if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
-if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
-if ([string]$probe.mmpose -ne $mmposeVersion) { throw "Unexpected MMPose version: $($probe.mmpose)" }
-
-$receipt = [ordered]@{
-    format = "bodyrig-photoreal-reference-runtime-environment"
-    version = 1
-    distribution = $Distribution
-    linux_python = $LinuxPython
-    mmpose_revision = $mmposeRevision
-    mmdetection_revision = $mmdetRevision
-    requested_versions = [ordered]@{
-        torch = $torchVersion
-        torchvision = $torchvisionVersion
-        numpy = $numpyVersion
-        opencv = $opencvVersion
-        mmcv = $mmcvVersion
-        mmengine = $mmengineVersion
-        mmdetection = $mmdetVersion
-        mmpose = $mmposeVersion
-        insightface = $insightfaceVersion
-        onnxruntime = $onnxruntimeVersion
         openmim = $openmimVersion
         xtcocotools = $xtcocotoolsVersion
     }
