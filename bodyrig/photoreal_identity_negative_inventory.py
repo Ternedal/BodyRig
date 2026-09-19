@@ -165,7 +165,7 @@ def build_identity_negative_inventory(
         raise PhotorealIdentityNegativeInventoryError("sources_per_performer is outside supported bounds")
 
     counts = co_performer_counts(target, target_scenes)
-    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))[:max_negative_performers]
+    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
     if not ranked:
         raise PhotorealIdentityNegativeInventoryError("target performer has no co-performer evidence for negative calibration")
 
@@ -173,6 +173,8 @@ def build_identity_negative_inventory(
     selected_subjects: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     for subject_id in ranked:
+        if len(selected_subjects) >= max_negative_performers:
+            break
         inventory = negative_performer_inventories.get(subject_id)
         if not isinstance(inventory, Mapping):
             continue
@@ -245,11 +247,12 @@ def fetch_identity_negative_inventory(
         maximum_scenes=maximum_items,
     )
     counts = co_performer_counts(target, target_scenes_result.scenes)
-    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))[:max_negative_performers]
+    ranked = sorted(counts, key=lambda performer_id: (-counts[performer_id], performer_id))
     inventories: dict[str, Mapping[str, Any]] = {}
+    eligible_inventory_count = 0
     for performer_id in ranked:
         try:
-            inventories[performer_id] = fetch_photoreal_source_inventory(
+            inventory = fetch_photoreal_source_inventory(
                 client,
                 performer_id,
                 page_size=page_size,
@@ -257,6 +260,11 @@ def fetch_identity_negative_inventory(
             )
         except PhotorealStashInventoryError:
             continue
+        inventories[performer_id] = inventory
+        if _negative_candidates(inventory):
+            eligible_inventory_count += 1
+            if eligible_inventory_count >= max_negative_performers:
+                break
     return build_identity_negative_inventory(
         target_performer_id=target,
         target_scenes=target_scenes_result.scenes,
