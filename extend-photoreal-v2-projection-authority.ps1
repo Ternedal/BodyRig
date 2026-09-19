@@ -31,6 +31,9 @@ $RunDirectory = Need-Directory $RunDirectory "Photoreal metadata run"
 $PriorAuthority = Need-File $PriorAuthority "Prior projection authority"
 $plan = Need-File (Join-Path $RunDirectory "dataset-plan.json") "Photoreal dataset plan"
 $receipt = Need-File (Join-Path $RunDirectory "source-receipt.json") "Photoreal source receipt"
+$planJson = Get-Content -LiteralPath $plan -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+$performerId = ([string]$planJson.performer_id).Trim()
+if ([string]::IsNullOrWhiteSpace($performerId)) { throw "Photoreal dataset plan performer id is missing." }
 
 if ([string]::IsNullOrWhiteSpace($BodyRigPython)) {
     $candidate = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -48,7 +51,7 @@ if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $root = Join-Path $env:LOCALAPPDATA "BodyRig\photoreal-v2\projection-authority"
     [IO.Directory]::CreateDirectory($root) | Out-Null
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $OutputPath = Join-Path $root ("performer-42-{0}-extended.json" -f $stamp)
+    $OutputPath = Join-Path $root ("performer-{0}-{1}-extended.json" -f $performerId, $stamp)
 } else {
     $OutputPath = [IO.Path]::GetFullPath($OutputPath)
     [IO.Directory]::CreateDirectory((Split-Path -Parent $OutputPath)) | Out-Null
