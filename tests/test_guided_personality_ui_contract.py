@@ -301,6 +301,10 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert ".matrix-current-shape" in css
     assert ".matrix-baseline-shape" in css
     assert "maxScore <= EPSILON" in matrix
+    assert "Math.floor((slot * entries.length) / LABEL_LIMIT)" in matrix
+    assert 'state.selectedId = entries[0].traitId' in matrix
+    assert 'item.x = side === "right" ? SIZE - 62 : 62' in matrix
+    assert "const gap = 27" in matrix
     assert 'event.target.closest?.("#traitSignature button, #traitRevisionDelta button")' in matrix
 
     # The radial editor reads/writes the already-authored slider controls only.
