@@ -233,3 +233,78 @@ def test_negative_inventory_fetch_continues_until_requested_eligible_count(
     assert fetched == ["7", "8", "9"]
     assert result["negative_performer_count"] == 2
     assert {item["subject_performer_id"] for item in result["sources"]} == {"8", "9"}
+
+
+
+def test_negative_inventory_accepts_authoritative_non_cooccurring_fallback() -> None:
+    scenes = [
+        _scene("s1", ["42", "7"]),
+        _scene("s2", ["42", "7"]),
+    ]
+
+    result = build_identity_negative_inventory(
+        target_performer_id="42",
+        target_scenes=scenes,
+        negative_performer_inventories={
+            "7": _inventory("7", include_safe=False),
+            "8": _inventory("8"),
+            "9": _inventory("9"),
+        },
+        max_negative_performers=2,
+        sources_per_performer=1,
+    )
+
+    assert result["negative_performer_count"] == 2
+    assert [item["performer_id"] for item in result["negative_performers"]] == ["8", "9"]
+    assert all(item["cooccurrence_scene_count"] == 0 for item in result["negative_performers"])
+    assert all(item["target_performer_absent"] is True for item in result["sources"])
+
+
+def test_negative_inventory_fetch_backfills_from_global_performer_roster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenes = [
+        _scene("s1", ["42", "7"]),
+        _scene("s2", ["42", "7"]),
+    ]
+    fetched: list[str] = []
+
+    monkeypatch.setattr(
+        negative_inventory,
+        "fetch_exhaustive_performer_scenes",
+        lambda *_args, **_kwargs: SimpleNamespace(scenes=scenes),
+    )
+
+    def fake_inventory(_client, performer_id: str, **_kwargs):
+        fetched.append(performer_id)
+        return _inventory(performer_id, include_safe=performer_id in {"8", "9"})
+
+    monkeypatch.setattr(negative_inventory, "fetch_photoreal_source_inventory", fake_inventory)
+
+    class FakeClient:
+        def _graphql(self, query: str, variables: dict) -> dict:
+            assert "BodyRigPhotorealNegativePerformerRoster" in query
+            assert variables == {"page": 1, "limit": 250}
+            return {
+                "findPerformers": {
+                    "count": 4,
+                    "performers": [
+                        {"id": "42"},
+                        {"id": "7"},
+                        {"id": "8"},
+                        {"id": "9"},
+                    ],
+                }
+            }
+
+    result = negative_inventory.fetch_identity_negative_inventory(
+        FakeClient(),
+        "42",
+        max_negative_performers=2,
+        sources_per_performer=1,
+    )
+
+    assert fetched == ["7", "8", "9"]
+    assert result["negative_performer_count"] == 2
+    assert [item["performer_id"] for item in result["negative_performers"]] == ["8", "9"]
+    assert all(item["cooccurrence_scene_count"] == 0 for item in result["negative_performers"])
