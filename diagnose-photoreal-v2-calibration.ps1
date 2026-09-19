@@ -78,6 +78,17 @@ $highest = $result.highest_negative_match
 $source = $result.highest_collision_negative_source
 $blockers = @($result.stage13_calibration_blockers) -join "; "
 
+$fullDiagnostic = $null
+$diagnosticOutput = [string]$result.output
+if (-not [string]::IsNullOrWhiteSpace($diagnosticOutput) -and
+    (Test-Path -LiteralPath $diagnosticOutput -PathType Leaf)) {
+    try {
+        $fullDiagnostic = Get-Content -LiteralPath $diagnosticOutput -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+    } catch {
+        throw "Full calibration diagnostic is unreadable JSON: $diagnosticOutput"
+    }
+}
+
 Write-Host ""
 Write-Host "Stage-13 diagnostic summary"
 Write-Host "Target performer: $($result.target_performer_id)"
@@ -105,6 +116,64 @@ Write-Host (
         $result.planned_negative_observation_count,
         $result.negative_extraction_yield_fraction
 )
+Write-Host (
+    "Positive floor: {0}; positive median: {1}" -f
+        $result.positive_floor,
+        $result.positive_cosine_median
+)
+Write-Host (
+    "Positive reference-to-target cosine min: {0}" -f
+        $result.positive_reference_to_target_cosine_min
+)
+Write-Host (
+    "Positive cross-group centroid cosine min: {0}" -f
+        $result.positive_cross_group_centroid_cosine_min
+)
+
+if ($null -ne $fullDiagnostic) {
+    $weakest = $fullDiagnostic.weakest_positive_group
+    Write-Host ""
+    Write-Host "Weakest positive group"
+    Write-Host "Group: $($weakest.group_id)"
+    Write-Host "References: $($weakest.reference_count)"
+    Write-Host "Sources: $($weakest.source_count)"
+    Write-Host "Centroid-to-target cosine: $($weakest.centroid_to_target_cosine)"
+    Write-Host (
+        "Leave-group-out cosine min/median/max: {0} / {1} / {2}" -f
+            $weakest.leave_group_out_cosine_min,
+            $weakest.leave_group_out_cosine_median,
+            $weakest.leave_group_out_cosine_max
+    )
+    Write-Host (
+        "Within-group pairwise cosine min/median/max: {0} / {1} / {2}" -f
+            $weakest.within_group_pairwise_cosine_min,
+            $weakest.within_group_pairwise_cosine_median,
+            $weakest.within_group_pairwise_cosine_max
+    )
+
+    $lowestPositive = $fullDiagnostic.lowest_positive_reference
+    Write-Host ""
+    Write-Host "Lowest positive reference"
+    Write-Host "Group: $($lowestPositive.group_id)"
+    Write-Host "Source: $($lowestPositive.source_key)"
+    if ($null -ne $lowestPositive.timestamp_seconds) {
+        Write-Host "Timestamp seconds: $($lowestPositive.timestamp_seconds)"
+    }
+    Write-Host "Eye: $($lowestPositive.eye)"
+    Write-Host "Cosine: $($lowestPositive.cosine)"
+    Write-Host "Frame SHA-256: $($lowestPositive.frame_sha256)"
+
+    Write-Host ""
+    Write-Host "Positive cross-group centroid pairs"
+    foreach ($pair in @($fullDiagnostic.positive_cross_group_pairs)) {
+        Write-Host (
+            "{0} <-> {1}: {2}" -f
+                $pair.left_group_id,
+                $pair.right_group_id,
+                $pair.centroid_cosine
+        )
+    }
+}
 $quality = $result.negative_observation_quality_metadata
 Write-Host (
     "Calibration quality metadata: {0}/{1} observations complete" -f
