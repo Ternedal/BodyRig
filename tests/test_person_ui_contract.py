@@ -98,6 +98,40 @@ def test_stash_search_is_health_gated_and_never_receives_the_api_key() -> None:
     assert "STASH_API_KEY" not in js
 
 
+def test_person_ui_accepts_exact_suite_handoff_but_requires_fresh_audition() -> None:
+    js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
+
+    for token in (
+        "function requestedAssemblyHandoff()",
+        'params.get("person_id")',
+        'params.get("body_revision")',
+        'params.get("voice_revision")',
+        'params.get("personality_revision")',
+        'params.get("tab")',
+        "function applyRequestedAssemblyHandoff(request)",
+        'request.tab !== "assemble"',
+        "state.selected.person_id !== request.personId",
+        'revisionById(state.selected, "body", request.bodyRevision)',
+        'revisionById(state.selected, "voice", request.voiceRevision)',
+        'revisionById(state.selected, "personality", request.personalityRevision)',
+        '$("assembleBody").value = exact.body.revision_id',
+        '$("assembleVoice").value = exact.voice.revision_id',
+        '$("assemblePersonality").value = exact.personality.revision_id',
+        'resetAssembly("Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition.")',
+        'switchTab("assemble")',
+        "await loadPeople(handoff.personId || null)",
+        "applyRequestedAssemblyHandoff(handoff)",
+    ):
+        assert token in js
+
+    start = js.index("function applyRequestedAssemblyHandoff(request)")
+    end = js.index("function sourceAlignmentForRevision", start)
+    handoff_source = js[start:end]
+    assert "prepareAssemblyButton" not in handoff_source
+    assert "approvePersonButton" not in handoff_source
+    assert 'method: "POST"' not in handoff_source
+
+
 def test_component_model_or_prompt_change_invalidates_previous_audition() -> None:
     js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
     assert 'for (const id of ["assembleBody", "assembleVoice", "assemblePersonality", "assemblyModel"])' in js
