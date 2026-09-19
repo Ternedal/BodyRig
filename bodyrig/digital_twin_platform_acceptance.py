@@ -90,6 +90,10 @@ class DigitalTwinPlatformAcceptanceError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -165,7 +169,7 @@ def _composition_bundle(directory: Path, *, package_path: Path) -> tuple[dict[st
     except OSError as exc:
         raise DigitalTwinPlatformAcceptanceError("M4 composition authority evidence is unreadable") from exc
     probe = _json(probe_path, "M4 embodiment probe")
-    if probe.get("format") != "bodyrig-digital-twin-embodiment-probe" or probe.get("version") != 1:
+    if probe.get("format") != "bodyrig-digital-twin-embodiment-probe" or not _is_v1(probe.get("version")):
         raise DigitalTwinPlatformAcceptanceError("M4 embodiment probe format/version is invalid")
     motor = probe.get("motor_state")
     if not isinstance(motor, dict) or motor.get("type") != "bodyrig-motor-state" or motor.get("version") != 2:
