@@ -20,6 +20,31 @@ def _load_adapter(path: Path):
     spec.loader.exec_module(module)
     return module
 
+def _active_face_execution_providers(face_app: object) -> list[str]:
+    models = getattr(face_app, "models", None)
+    if not isinstance(models, dict) or not models:
+        raise VisionProbeError("InsightFace runtime exposes no initialized model sessions")
+    providers: set[str] = set()
+    for model in models.values():
+        session = getattr(model, "session", None)
+        get_providers = getattr(session, "get_providers", None)
+        if not callable(get_providers):
+            raise VisionProbeError("InsightFace model session does not expose execution providers")
+        try:
+            active = get_providers()
+        except Exception as exc:  # noqa: BLE001
+            raise VisionProbeError(f"could not inspect InsightFace execution providers: {exc}") from exc
+        if not isinstance(active, (list, tuple)):
+            raise VisionProbeError("InsightFace execution provider readback is invalid")
+        for provider in active:
+            name = str(provider or "").strip()
+            if name:
+                providers.add(name)
+    if not providers:
+        raise VisionProbeError("InsightFace runtime reports no active execution providers")
+    return sorted(providers)
+
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Probe the pinned BodyRig Photoreal reference vision runtime without source media.")
@@ -62,6 +87,12 @@ def main(argv: list[str] | None = None) -> int:
         synthetic = runtime.np.zeros((512, 512, 3), dtype=runtime.np.uint8)
         faces = adapter._faces(runtime, synthetic)
         poses = adapter._pose_predictions(runtime, synthetic)
+        face_execution_providers = _active_face_execution_providers(runtime.face_app)
+        requested_device = str(args.device or "").strip().lower()
+        if requested_device != "cpu" and "CUDAExecutionProvider" not in face_execution_providers:
+            raise VisionProbeError(
+                "requested CUDA but InsightFace sessions did not activate CUDAExecutionProvider"
+            )
         frame_sha = adapter._frame_sha(synthetic)
         phash = adapter._perceptual_hash(runtime, synthetic)
         result = {
@@ -73,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             "identity_embedding_dimension": runtime.embedding_dimension,
             "face_inference_executed": True,
             "pose_inference_executed": True,
+            "face_execution_providers": face_execution_providers,
             "synthetic_face_count": len(faces),
             "synthetic_pose_count": len(poses),
             "synthetic_frame_sha256": frame_sha,

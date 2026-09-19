@@ -118,6 +118,19 @@ def run_reference_vision_preflight(
         raise PhotorealReferenceVisionPreflightError("reference vision WSL probe provenance mismatch")
     if result.get("face_inference_executed") is not True or result.get("pose_inference_executed") is not True:
         raise PhotorealReferenceVisionPreflightError("reference vision WSL probe did not execute both inference stacks")
+    face_providers = result.get("face_execution_providers")
+    if (
+        not isinstance(face_providers, list)
+        or not face_providers
+        or any(not isinstance(item, str) or not item.strip() for item in face_providers)
+    ):
+        raise PhotorealReferenceVisionPreflightError(
+            "reference vision WSL probe did not report active InsightFace execution providers"
+        )
+    if device != "cpu" and "CUDAExecutionProvider" not in face_providers:
+        raise PhotorealReferenceVisionPreflightError(
+            "reference vision WSL probe requested CUDA but InsightFace fell back from CUDAExecutionProvider"
+        )
     if result.get("source_media_accessed") is not False or result.get("identity_authority") is not False:
         raise PhotorealReferenceVisionPreflightError("reference vision WSL probe crossed source/identity authority")
     if result.get("photoreal_acceptance_authority") is not False or result.get("production_activation") is not False:
