@@ -9,6 +9,7 @@ from bodyrig.person_assembly import (
     PersonAssemblyError,
     build_assembly,
     read_receipt,
+    receipt_path,
     verify_receipt,
     write_receipt,
 )
@@ -182,4 +183,43 @@ def test_legacy_receipt_can_be_read_but_not_reactivated(tmp_path: Path) -> None:
             assembly=assembly,
             audition_id=AUDITION_ID,
             audition_receipt_sha256=AUDITION_SHA,
+        )
+
+
+@pytest.mark.parametrize("version", [True, False])
+def test_assembly_receipt_rejects_boolean_versions(
+    tmp_path: Path,
+    version: bool,
+) -> None:
+    profile = _profile(tmp_path)
+    assembly = build_assembly(
+        profile,
+        body_revision="body-r0001",
+        voice_revision="voice-r0001",
+        personality_revision="personality-r0001",
+    )
+    path = receipt_path(tmp_path, profile["person_id"], "person-r0001")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "format": "bodyrig-person-assembly-receipt",
+        "version": version,
+        "person_id": profile["person_id"],
+        "person_revision": "person-r0001",
+        "assembly_fingerprint": assembly["assembly_fingerprint"],
+        "body": assembly["body"],
+        "voice": assembly["voice"],
+        "personality": {
+            "revision_id": assembly["personality"]["revision_id"],
+            "instructions_sha256": assembly["personality"]["instructions_sha256"],
+            "default_language": assembly["personality"]["default_language"],
+            "style_notes_sha256": assembly["personality"]["style_notes_sha256"],
+        },
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(PersonAssemblyError, match="fields/version are invalid"):
+        read_receipt(
+            tmp_path,
+            person_id=profile["person_id"],
+            person_revision="person-r0001",
         )

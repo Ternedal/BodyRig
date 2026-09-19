@@ -225,6 +225,8 @@ def read_receipt(
     if not isinstance(value, dict) or value.get("format") != RECEIPT_FORMAT:
         raise PersonAssemblyError("assembly receipt fields/version are invalid")
     version = value.get("version")
+    if isinstance(version, bool):
+        raise PersonAssemblyError("assembly receipt fields/version are invalid")
     legacy_fields = {
         "format",
         "version",

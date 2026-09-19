@@ -36,6 +36,10 @@ class PersonReleaseStatusError(RuntimeError):
     pass
 
 
+def _is_v1(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 1
+
+
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise PersonReleaseStatusError(f"{label} is missing: {path}")
@@ -150,7 +154,7 @@ def _strict_platform_attestation(acceptance_dir: Path, *, prefix: str, platform:
     probe = _read_json(probe_path, f"{prefix} renderer machine probe")
     attestation = _read_json(attestation_path, f"{prefix} renderer attestation")
 
-    if probe.get("format") != "bodyrig-renderer-probe" or probe.get("version") != 1 or probe.get("platform") != platform:
+    if probe.get("format") != "bodyrig-renderer-probe" or not _is_v1(probe.get("version")) or probe.get("platform") != platform:
         raise PersonReleaseStatusError(f"{prefix} renderer machine probe format/platform mismatch")
     unity_platform = str(probe.get("unity_platform") or "")
     device_model = str(probe.get("device_model") or "")
@@ -162,7 +166,7 @@ def _strict_platform_attestation(acceptance_dir: Path, *, prefix: str, platform:
         if re.search(r"(?i)(quest|oculus)", device_model) is None:
             raise PersonReleaseStatusError("Quest physical acceptance does not identify Quest/Oculus hardware")
 
-    if attestation.get("format") != "bodyrig-renderer-acceptance" or attestation.get("version") != 1:
+    if attestation.get("format") != "bodyrig-renderer-acceptance" or not _is_v1(attestation.get("version")):
         raise PersonReleaseStatusError(f"{prefix} renderer attestation format/version mismatch")
     if attestation.get("platform") != platform or attestation.get("result") != "pass":
         raise PersonReleaseStatusError(f"{prefix} renderer attestation is not a PASS")
@@ -300,7 +304,7 @@ def inspect_candidate_release_status(
         dict(job)
         for job in jobs
         if job.get("format") == "bodyrig-ui-job"
-        and job.get("version") == 1
+        and _is_v1(job.get("version"))
         and job.get("kind") == "body-build"
         and job.get("person_id") == person_id
         and job.get("body_revision") == body_revision

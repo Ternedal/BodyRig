@@ -349,3 +349,29 @@ def test_persisted_blueprint_boolean_version_fails_closed(tmp_path: Path) -> Non
 
     with pytest.raises(PersonalityEmbodimentBindingError, match="blueprint evidence is invalid"):
         read_blueprint_evidence(tmp_path, person_id=person_id, digest=digest)
+
+
+def test_verify_binding_rejects_boolean_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bodyprint = _full_bodyprint()
+    _patch_body(monkeypatch, bodyprint)
+    blueprint = _blueprint(bodyprint)
+    profile = _profile(blueprint)
+    receipt = build_binding(
+        profile,
+        personality_revision="personality-r0001",
+        blueprint=blueprint,
+    )
+    receipt["version"] = True
+
+    with pytest.raises(
+        PersonalityEmbodimentBindingError,
+        match="fields/version are invalid",
+    ):
+        verify_binding(
+            profile,
+            receipt,
+            selected_body_revision="body-r0001",
+            blueprint=blueprint,
+        )
