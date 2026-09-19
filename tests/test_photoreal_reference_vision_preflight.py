@@ -139,3 +139,57 @@ def test_preflight_requires_both_inference_stacks(monkeypatch: pytest.MonkeyPatc
             linux_python="/opt/bodyrig-photoreal/bin/python",
             device="cuda:0",
         )
+
+
+def test_preflight_rejects_cuda_request_when_insightface_falls_back_to_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter, probe, model_root, revision = _fixture(tmp_path)
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    _patch_transport(
+        monkeypatch,
+        _probe_result(revision, face_execution_providers=["CPUExecutionProvider"]),
+        calls,
+    )
+
+    with pytest.raises(
+        preflight.PhotorealReferenceVisionPreflightError,
+        match="fell back from CUDAExecutionProvider",
+    ):
+        preflight.run_reference_vision_preflight(
+            adapter_path=adapter,
+            probe_path=probe,
+            model_root=model_root,
+            distribution="Ubuntu-22.04",
+            linux_python="/opt/bodyrig-photoreal/bin/python",
+            device="cuda:0",
+        )
+
+
+def test_preflight_allows_cpu_request_with_cpu_insightface_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    adapter, probe, model_root, revision = _fixture(tmp_path)
+    calls: list[tuple[list[str], dict[str, object]]] = []
+    _patch_transport(
+        monkeypatch,
+        _probe_result(
+            revision,
+            device="cpu",
+            face_execution_providers=["CPUExecutionProvider"],
+        ),
+        calls,
+    )
+
+    result = preflight.run_reference_vision_preflight(
+        adapter_path=adapter,
+        probe_path=probe,
+        model_root=model_root,
+        distribution="Ubuntu-22.04",
+        linux_python="/opt/bodyrig-photoreal/bin/python",
+        device="cpu",
+    )
+
+    assert result["face_execution_providers"] == ["CPUExecutionProvider"]
