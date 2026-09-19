@@ -264,3 +264,42 @@ def test_guided_matrix_trait_rows_do_not_force_two_columns() -> None:
     assert "grid-template-columns:minmax(150px,.9fr) minmax(180px,1.6fr) 52px" in html
     assert ".trait-slider-row input{width:100%;min-width:0}" in html
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in html
+
+
+def test_guided_matrix_radial_editor_is_ui_only() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    matrix = Path("bodyrig/ui/personality_matrix.js").read_text(encoding="utf-8")
+    css = Path("bodyrig/ui/personality_matrix.css").read_text(encoding="utf-8")
+
+    assert '<link rel="stylesheet" href="/ui/personality_matrix.css">' in html
+    assert '<script src="/ui/personality_matrix.js"></script>' in html
+
+    for token in (
+        'id = "personalityMatrixCockpit"',
+        "PERSONALITY MATRIX V2 · RADIAL EDITOR",
+        'data-ring="inner"',
+        'data-ring="outer"',
+        'id="personalityMatrixSvg"',
+        "polygonPoints(entries",
+        "matrix-current-shape",
+        "matrix-baseline-shape",
+        "matrixInspectorRange",
+        'entry.input.dispatchEvent(new Event("input", { bubbles: true }))',
+        "Vis rå 120 sliders",
+        "Skjul rå 120 sliders",
+        "Kun de mest markante labels vises; alle 60 akser er tegnet.",
+        "/personality/guided/revisions/",
+        "Object.keys(value.inner_ring).length === 60",
+        "Object.keys(value.outer_ring).length === 60",
+    ):
+        assert token in matrix
+
+    assert "body.matrix-raw-hidden .trait-rings" in css
+    assert ".matrix-stage" in css
+    assert ".matrix-current-shape" in css
+    assert ".matrix-baseline-shape" in css
+
+    # The radial editor reads/writes the already-authored slider controls only.
+    # It must not mint evidence or claim authority of its own.
+    for forbidden in ("personality_authority", "production_activation", "style_report"):
+        assert forbidden not in matrix
