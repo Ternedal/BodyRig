@@ -72,7 +72,9 @@
     target.replaceChildren();
     const empty = document.createElement("option");
     empty.value = "";
-    empty.textContent = "Ingen sammenligning";
+    empty.textContent = matrixOptions.some(option => option.value !== editingRevision)
+      ? "Ingen sammenligning"
+      : "Ingen tidligere Matrix v2-revisioner";
     target.appendChild(empty);
 
     for (const sourceOption of matrixOptions) {
