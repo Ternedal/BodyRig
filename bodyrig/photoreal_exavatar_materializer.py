@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -24,6 +25,19 @@ class PhotorealExAvatarMaterializerError(ValueError):
 
 def _is_version(value: Any, expected: int) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and value == expected
+
+
+def _is_exact_count(value: Any, expected: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
+
+
+def _timestamp(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise PhotorealExAvatarMaterializerError(f"{label} is invalid")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise PhotorealExAvatarMaterializerError(f"{label} is invalid")
+    return round(number, 6)
 
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
@@ -110,7 +124,7 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
     observations = plan.get("selected_observations")
     if not isinstance(observations, list) or not observations:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan has no selected observations")
-    if int(plan.get("selected_observation_count") or 0) != len(observations):
+    if not _is_exact_count(plan.get("selected_observation_count"), len(observations)):
         raise PhotorealExAvatarMaterializerError("selected benchmark observation count mismatch")
     normalized: list[dict[str, Any]] = []
     seen: set[tuple[str, float, str]] = set()
@@ -123,10 +137,10 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
         eye = _text(raw.get("eye"), label="benchmark observation eye", maximum=16)
         if eye != "mono":
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization requires mono observations")
-        timestamp_raw = raw.get("timestamp_seconds")
-        if isinstance(timestamp_raw, bool) or not isinstance(timestamp_raw, (int, float)) or float(timestamp_raw) < 0:
-            raise PhotorealExAvatarMaterializerError("benchmark observation timestamp is invalid")
-        timestamp = round(float(timestamp_raw), 6)
+        timestamp = _timestamp(
+            raw.get("timestamp_seconds"),
+            label="benchmark observation timestamp",
+        )
         frame_sha = _sha(raw.get("frame_sha256"), label="benchmark observation frame SHA-256")
         key = (frame_sha, timestamp, eye)
         if key in seen:
@@ -203,7 +217,11 @@ def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any],
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization frame source mismatch")
         if _sha(raw.get("source_frame_sha256"), label="materialized source frame SHA-256") != expected["frame_sha256"]:
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization source frame SHA mismatch")
-        if round(float(raw.get("timestamp_seconds")), 6) != expected["timestamp_seconds"] or raw.get("eye") != "mono":
+        timestamp = _timestamp(
+            raw.get("timestamp_seconds"),
+            label="materialized ExAvatar timestamp",
+        )
+        if timestamp != expected["timestamp_seconds"] or raw.get("eye") != "mono":
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization timestamp/eye mismatch")
         relative = f"frames/{index}.png"
         if raw.get("relative_path") != relative:
