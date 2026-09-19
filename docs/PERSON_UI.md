@@ -90,6 +90,12 @@ Dette er compatibility-gaten.
 
 Skiftes body, voice, personality eller ModelRig-model efter audition, nulstilles audition og review. Ændres testprompten, nulstilles de også. Et tidligere ModelRig-svar må altså ikke genbruges til en anden kombination eller prompt.
 
+### Deep-link fra Personality Audition Suite
+
+En successful forseglet Personality Audition Suite kan åbne **Saml person** med exact `person_id`, `body-rXXXX`, `voice-rXXXX` og `personality-rXXXX` forvalgt via query-parametre. Person Studio validerer, at de tre revisions-ID'er tilhører den valgte Person, før de sættes.
+
+Deep-linket genbruger **ikke** suite-audition som canonical Person audition. Ved handoff er assembly-state fortsat nulstillet, og **Kør samlet audition** skal køres igen. Review-felterne forbliver låst, indtil den normale body/ModelRig/VoiceRig execution- og afspilningsgate er opfyldt.
+
 ## Audition evidence
 
 En fuldført samlet audition materialiseres create-only som `bodyrig-person-audition` v1. Evidence binder mindst:
