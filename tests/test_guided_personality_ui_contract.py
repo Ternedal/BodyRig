@@ -315,6 +315,13 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     assert "const gap = 27" in matrix
     assert 'event.target.closest?.("#traitSignature button, #traitRevisionDelta button")' in matrix
 
+    render_start = matrix.index("function render()")
+    render_end = matrix.index("function scheduleRender()", render_start)
+    render_source = matrix[render_start:render_end]
+    assert render_source.index("void loadBaselineIfNeeded()") < render_source.index(
+        "renderSvg(entries, selected)"
+    )
+
     # The radial editor reads/writes the already-authored slider controls only.
     # It must not mint evidence or claim authority of its own.
     for forbidden in ("personality_authority", "production_activation", "style_report"):
