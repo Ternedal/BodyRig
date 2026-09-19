@@ -26,6 +26,17 @@ def test_operator_script_uses_run_root_diagnostic_cli() -> None:
     assert 'Calibration quality metadata:' in text
     assert 'Calibration quality audit: RE-EXTRACTION REQUIRED' in text
     assert 'Calibration quality audit: AVAILABLE FROM SAVED ARTIFACT' in text
+    assert 'Positive floor:' in text
+    assert 'Positive reference-to-target cosine min:' in text
+    assert 'Positive cross-group centroid cosine min:' in text
+    assert 'Weakest positive group' in text
+    assert 'Leave-group-out cosine min/median/max:' in text
+    assert 'Within-group pairwise cosine min/median/max:' in text
+    assert 'Lowest positive reference' in text
+    assert 'Positive cross-group centroid pairs' in text
+    assert '$fullDiagnostic.weakest_positive_group' in text
+    assert '$fullDiagnostic.lowest_positive_reference' in text
+    assert '$fullDiagnostic.positive_cross_group_pairs' in text
     assert '$quality.complete_observation_count' in text
     assert '$quality.reextraction_required_for_complete_quality_audit' in text
     assert '@($quality.missing_fields) -join ", "' in text
