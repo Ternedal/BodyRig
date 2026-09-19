@@ -4,7 +4,7 @@
   const CENTER = SIZE / 2;
   const RADIUS = 270;
   const LABEL_RADIUS = 318;
-  const LABEL_LIMIT = 16;
+  const LABEL_LIMIT = 14;
   const NEUTRAL = 0.5;
   const EPSILON = 0.000001;
 
@@ -316,6 +316,11 @@
     }).join(" ");
   }
 
+  function circularIndexDistance(left, right, total) {
+    const direct = Math.abs(left - right);
+    return Math.min(direct, total - direct);
+  }
+
   function labelledEntries(entries, selected) {
     const scored = entries.map((entry, index) => ({ entry, index, score: signatureScore(entry) }));
     const maxScore = scored.reduce((max, item) => Math.max(max, item.score), 0);
@@ -330,7 +335,15 @@
       const ranked = [...scored].sort(
         (a, b) => b.score - a.score || a.entry.label.localeCompare(b.entry.label, "da")
       );
-      selectedIndexes = new Set(ranked.slice(0, LABEL_LIMIT).map(item => item.index));
+      selectedIndexes = new Set();
+      const minimumAxisGap = Math.max(2, Math.floor(entries.length / LABEL_LIMIT) - 1);
+      for (const item of ranked) {
+        if (selectedIndexes.size >= LABEL_LIMIT) break;
+        const separated = [...selectedIndexes].every(
+          index => circularIndexDistance(index, item.index, entries.length) >= minimumAxisGap
+        );
+        if (separated) selectedIndexes.add(item.index);
+      }
     }
 
     if (selected) {
