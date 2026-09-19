@@ -155,6 +155,21 @@ def _validate_reference_set(
         raise RuntimeError("Stash reference set is not marked private-workspace-only")
     if manifest.get("semantics") != "visual-fidelity-not-identity-verification":
         raise RuntimeError("unexpected Stash reference-set semantics")
+    expected_manifest_sha = _sha(
+        manifest.get("reference_set_sha256"),
+        label="Stash reference-set SHA-256",
+    )
+    manifest_core = dict(manifest)
+    manifest_core.pop("reference_set_sha256", None)
+    canonical = json.dumps(
+        manifest_core,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if _sha256_bytes(canonical) != expected_manifest_sha:
+        raise RuntimeError("Stash reference-set manifest digest mismatch")
     references = manifest.get("references")
     if not isinstance(references, list) or not references:
         raise RuntimeError("Stash reference set contains no references")
