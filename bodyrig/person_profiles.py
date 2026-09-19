@@ -433,7 +433,18 @@ def create_profile(root: str | os.PathLike[str], *, display_name: str, aliases: 
 
 def _next_revision(profile: Mapping[str, Any], kind: str) -> str:
     collection = profile["person_revisions"] if kind == "person" else profile[f"{kind}_revisions"]
-    return f"{kind}-r{len(collection) + 1:04d}"
+    pattern = re.compile(rf"^{re.escape(kind)}-r([0-9]{{4}})$")
+    numbers = [
+        int(match.group(1))
+        for item in collection
+        if isinstance(item, Mapping)
+        for match in [pattern.fullmatch(str(item.get("revision_id") or ""))]
+        if match is not None
+    ]
+    next_number = max(numbers, default=0) + 1
+    if next_number > 9999:
+        raise PersonProfileError(f"{kind} revision id space is exhausted")
+    return f"{kind}-r{next_number:04d}"
 
 
 def _save(root: str | os.PathLike[str], profile: Mapping[str, Any]) -> dict[str, Any]:
@@ -494,6 +505,59 @@ def add_personality_revision(root: str | os.PathLike[str], person_id: str, *, in
         "feedback": feedback,
     })
     profile["personality_revisions"].append(revision)
+    saved = _save(root, profile)
+    return load_profile(root, person_id) if saved.get("source") is not None else saved
+
+
+def delete_personality_revision(
+    root: str | os.PathLike[str],
+    person_id: str,
+    revision_id: str,
+) -> dict[str, Any]:
+    revision_id = _component_revision_id(revision_id, kind="personality")
+    profile = load_profile(root, person_id)
+    selected = next(
+        (
+            item
+            for item in profile["personality_revisions"]
+            if item["revision_id"] == revision_id
+        ),
+        None,
+    )
+    if selected is None:
+        raise PersonProfileError("personality revision not found")
+
+    person_references = [
+        item["revision_id"]
+        for item in profile["person_revisions"]
+        if item["personality_revision"] == revision_id
+    ]
+    if person_references:
+        joined = ", ".join(person_references)
+        raise PersonProfileError(
+            f"personality revision is referenced by Person Revision(s): {joined}"
+        )
+
+    baseline_pattern = re.compile(
+        rf"(?:^| \| )baseline_revision={re.escape(revision_id)}(?: \||$)"
+    )
+    stack_references = [
+        item["revision_id"]
+        for item in profile["personality_revisions"]
+        if item["revision_id"] != revision_id
+        and baseline_pattern.search(str(item.get("style_notes") or ""))
+    ]
+    if stack_references:
+        joined = ", ".join(stack_references)
+        raise PersonProfileError(
+            f"personality revision is a source baseline for stacked revision(s): {joined}"
+        )
+
+    profile["personality_revisions"] = [
+        item
+        for item in profile["personality_revisions"]
+        if item["revision_id"] != revision_id
+    ]
     saved = _save(root, profile)
     return load_profile(root, person_id) if saved.get("source") is not None else saved
 
