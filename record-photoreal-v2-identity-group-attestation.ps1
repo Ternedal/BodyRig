@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$ReviewRoot,
     [Parameter(Mandatory = $true)][string[]]$AcceptGroup,
-    [Parameter(Mandatory = $true)][string[]]$RejectGroup,
+    [string[]]$RejectGroup = @(),
     [Parameter(Mandatory = $true)][string]$QualityNote,
     [Parameter(Mandatory = $true)][switch]$ConfirmIdentity,
     [string]$Distribution = "Ubuntu-22.04",
