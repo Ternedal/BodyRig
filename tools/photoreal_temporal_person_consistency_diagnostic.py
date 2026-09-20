@@ -447,6 +447,119 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+
+def _validate_comparison_observations(
+    document: Mapping[str, Any],
+    *,
+    performer_id: str,
+    bank: Mapping[str, Any],
+    adapter_revision: str,
+    sources: Mapping[str, Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    if (
+        document.get("format") != "bodyrig-photoreal-identity-negative-observations"
+        or document.get("version") != 1
+    ):
+        raise TemporalPersonConsistencyError(
+            "comparison observation format/version mismatch"
+        )
+    if str(document.get("target_performer_id") or "") != performer_id:
+        raise TemporalPersonConsistencyError(
+            "comparison observations target performer mismatch"
+        )
+    if str(document.get("identity_bank_sha256") or "").strip().lower() != str(
+        bank.get("identity_bank_sha256") or ""
+    ).strip().lower():
+        raise TemporalPersonConsistencyError(
+            "comparison observations target a different anchor bank"
+        )
+    if document.get("extractor") != bank.get("extractor"):
+        raise TemporalPersonConsistencyError(
+            "comparison observations extractor mismatch"
+        )
+    if document.get("extractor_revision") != adapter_revision:
+        raise TemporalPersonConsistencyError(
+            "comparison observations extractor revision mismatch"
+        )
+    if str(document.get("model_set_sha256") or "").strip().lower() != str(
+        bank.get("model_set_sha256") or ""
+    ).strip().lower():
+        raise TemporalPersonConsistencyError(
+            "comparison observations model set mismatch"
+        )
+    if (
+        document.get("calibration_only") is not True
+        or document.get("build_only") is not True
+        or document.get("identity_matching_authority", False) is not False
+        or document.get("teacher_training_authorized", False) is not False
+        or document.get("photoreal_acceptance_authority", False) is not False
+        or document.get("production_activation") is not False
+    ):
+        raise TemporalPersonConsistencyError(
+            "comparison observations authority boundary is invalid"
+        )
+
+    raw = document.get("observations")
+    if not isinstance(raw, list) or not raw:
+        raise TemporalPersonConsistencyError("comparison observations are empty")
+
+    seen_frames: set[str] = set()
+    validated: list[Mapping[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            raise TemporalPersonConsistencyError(
+                "comparison observation is invalid"
+            )
+        source_key = str(item.get("source_key") or "").strip()
+        source = sources.get(source_key)
+        if source is None:
+            raise TemporalPersonConsistencyError(
+                f"comparison observation uses unplanned source: {source_key}"
+            )
+        if str(item.get("source_sha256") or "").strip().lower() != str(
+            source.get("source_sha256") or ""
+        ).strip().lower():
+            raise TemporalPersonConsistencyError(
+                f"comparison source bytes changed: {source_key}"
+            )
+        subject = str(item.get("subject_performer_id") or "").strip()
+        if subject != str(source.get("subject_performer_id") or "").strip():
+            raise TemporalPersonConsistencyError(
+                "comparison observation subject label changed"
+            )
+        wanted = review._sample_key(
+            item.get("timestamp_seconds"),
+            item.get("eye"),
+        )
+        planned = {
+            review._sample_key(
+                sample.get("timestamp_seconds"),
+                sample.get("eye"),
+            )
+            for sample in source.get("samples") or []
+            if isinstance(sample, Mapping)
+        }
+        if wanted not in planned:
+            raise TemporalPersonConsistencyError(
+                f"comparison observation sample was not planned: {source_key}"
+            )
+        frame_sha = str(item.get("frame_sha256") or "").strip().lower()
+        if len(frame_sha) != 64 or any(
+            character not in "0123456789abcdef" for character in frame_sha
+        ):
+            raise TemporalPersonConsistencyError(
+                "comparison observation frame SHA-256 is invalid"
+            )
+        if frame_sha in seen_frames:
+            raise TemporalPersonConsistencyError(
+                "comparison observation frame is duplicated"
+            )
+        seen_frames.add(frame_sha)
+        validated.append(item)
+    return validated
+
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -542,9 +655,13 @@ def main(argv: list[str] | None = None) -> int:
         args.negative_observations.expanduser().resolve(),
         label="comparison observations",
     )
-    raw_negatives = negative_document.get("observations")
-    if not isinstance(raw_negatives, list):
-        raise TemporalPersonConsistencyError("comparison observations are invalid")
+    raw_negatives = _validate_comparison_observations(
+        negative_document,
+        performer_id=performer_id,
+        bank=bank,
+        adapter_revision=adapter_revision,
+        sources=calibration_sources,
+    )
 
     model_root = args.model_root.expanduser().resolve()
     model_set = adapter.build_model_set(model_root)
