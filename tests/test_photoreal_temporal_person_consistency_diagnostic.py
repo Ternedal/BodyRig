@@ -38,6 +38,8 @@ def test_temporal_window_is_fixed_a_priori() -> None:
     assert diagnostic.OFFSETS_SECONDS == (-0.20, -0.10, 0.0, 0.10, 0.20)
     assert diagnostic.MIN_VALID_FRAMES == 3
     assert diagnostic.KEYPOINT_SCORE_MIN == 0.30
+    assert diagnostic.DIRECT_PERSON_DETECTOR_SCORE_MIN == 0.30
+    assert diagnostic.DIRECT_PERSON_DETECTOR_NMS_IOU == 0.30
 
 
 def test_bbox_iou_and_center_shift() -> None:
@@ -60,20 +62,17 @@ def test_bbox_iou_and_center_shift() -> None:
     ) > 0.0
 
 
-def test_neighbor_selection_uses_keypoint_envelope_continuity() -> None:
+def test_neighbor_selection_uses_tracking_roi_continuity() -> None:
     anchor = {
-        "bbox": (0.0, 0.0, 100.0, 100.0),
-        "keypoint_bbox": (10.0, 10.0, 30.0, 40.0),
+        "tracking_bbox": (10.0, 10.0, 30.0, 40.0),
     }
     candidates = [
         {
-            "bbox": (0.0, 0.0, 100.0, 100.0),
-            "keypoint_bbox": (70.0, 70.0, 90.0, 95.0),
+            "tracking_bbox": (70.0, 70.0, 90.0, 95.0),
             "pose": {},
         },
         {
-            "bbox": (0.0, 0.0, 100.0, 100.0),
-            "keypoint_bbox": (12.0, 11.0, 31.0, 40.0),
+            "tracking_bbox": (12.0, 11.0, 31.0, 40.0),
             "pose": {},
         },
     ]
@@ -128,17 +127,23 @@ def test_summary_does_not_make_identity_decision() -> None:
     rows = [
         {
             "status": "available",
-            "median_keypoint_bbox_iou": 0.8,
-            "median_detector_bbox_iou": 1.0,
-            "median_keypoint_center_shift": 0.05,
+            "anchor_pose_bbox_is_full_frame": True,
+            "anchor_tracking_bbox_source": "direct-rtmdet",
+            "median_tracking_bbox_iou": 0.8,
+            "median_tracking_center_shift": 0.05,
+            "median_pose_bbox_iou": 1.0,
+            "median_keypoint_bbox_iou": 0.7,
             "median_appearance_cosine": 0.9,
             "median_pose_distance": 0.08,
         },
         {
             "status": "insufficient-valid-frames",
+            "anchor_pose_bbox_is_full_frame": True,
+            "anchor_tracking_bbox_source": "none",
+            "median_tracking_bbox_iou": None,
+            "median_tracking_center_shift": None,
+            "median_pose_bbox_iou": None,
             "median_keypoint_bbox_iou": None,
-            "median_detector_bbox_iou": None,
-            "median_keypoint_center_shift": None,
             "median_appearance_cosine": None,
             "median_pose_distance": None,
         },
@@ -166,10 +171,15 @@ def test_duplicate_decoded_frames_do_not_count_as_temporal_evidence(
         "_choose_anchor_candidate",
         lambda *_args, **_kwargs: {
             "bbox": (0.0, 0.0, 100.0, 100.0),
-            "detector_bbox": (0.0, 0.0, 100.0, 100.0),
-            "detector_bbox_is_full_frame": True,
-            "keypoint_bbox": (10.0, 10.0, 40.0, 80.0),
+            "pose_bbox": (0.0, 0.0, 100.0, 100.0),
+            "pose_bbox_is_full_frame": True,
+            "direct_detector_bbox": (10.0, 10.0, 40.0, 80.0),
+            "direct_detector_score": 0.9,
+            "direct_detector_count": 1,
+            "keypoint_bbox": (12.0, 12.0, 38.0, 78.0),
             "visible_keypoint_count": 8,
+            "tracking_bbox": (10.0, 10.0, 40.0, 80.0),
+            "tracking_bbox_source": "direct-rtmdet",
             "pose": {},
         },
     )
@@ -218,9 +228,12 @@ def test_summary_reports_duplicate_decode_evidence() -> None:
             "status": "insufficient-valid-frames",
             "distinct_decoded_frame_count": 1,
             "duplicate_decoded_frame_count": 4,
+            "anchor_pose_bbox_is_full_frame": True,
+            "anchor_tracking_bbox_source": "none",
+            "median_tracking_bbox_iou": None,
+            "median_tracking_center_shift": None,
+            "median_pose_bbox_iou": None,
             "median_keypoint_bbox_iou": None,
-            "median_detector_bbox_iou": None,
-            "median_keypoint_center_shift": None,
             "median_appearance_cosine": None,
             "median_pose_distance": None,
         },
@@ -228,9 +241,12 @@ def test_summary_reports_duplicate_decode_evidence() -> None:
             "status": "available",
             "distinct_decoded_frame_count": 5,
             "duplicate_decoded_frame_count": 0,
-            "median_keypoint_bbox_iou": 0.8,
-            "median_detector_bbox_iou": 1.0,
-            "median_keypoint_center_shift": 0.02,
+            "anchor_pose_bbox_is_full_frame": True,
+            "anchor_tracking_bbox_source": "direct-rtmdet",
+            "median_tracking_bbox_iou": 0.8,
+            "median_tracking_center_shift": 0.02,
+            "median_pose_bbox_iou": 1.0,
+            "median_keypoint_bbox_iou": 0.7,
             "median_appearance_cosine": 0.9,
             "median_pose_distance": 0.04,
         },
@@ -310,3 +326,89 @@ def test_keypoint_envelope_requires_five_visible_points() -> None:
 
     assert count == 4
     assert box is None
+
+
+def test_direct_person_detector_uses_fixed_score_and_nms() -> None:
+    np = pytest.importorskip("numpy")
+
+    class Instances:
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self
+
+        bboxes = np.asarray(
+            [
+                [10.0, 10.0, 50.0, 90.0],
+                [12.0, 12.0, 48.0, 88.0],
+                [60.0, 10.0, 90.0, 90.0],
+                [0.0, 0.0, 20.0, 20.0],
+            ],
+            dtype=np.float32,
+        )
+        scores = np.asarray([0.95, 0.90, 0.80, 0.29], dtype=np.float32)
+        labels = np.asarray([0, 0, 1, 0], dtype=np.int64)
+
+    class Sample:
+        pred_instances = Instances()
+
+    class Detector:
+        def __call__(self, _image, **kwargs):
+            assert kwargs.get("return_datasamples") is True
+            return {"predictions": [Sample()]}
+
+    class PoseInferencer:
+        detector = Detector()
+        det_cat_ids = [0]
+
+    class Runtime:
+        pose_inferencer = PoseInferencer()
+        np = np
+
+    detections = diagnostic._direct_person_detections(Runtime(), object())
+
+    assert len(detections) == 1
+    assert detections[0]["score"] == pytest.approx(0.95)
+    assert detections[0]["label"] == 0
+    assert detections[0]["bbox"] == pytest.approx((10.0, 10.0, 50.0, 90.0))
+
+
+def test_direct_detector_roi_survives_missing_keypoint_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        diagnostic,
+        "_direct_person_detections",
+        lambda _runtime, _image: [
+            {"bbox": (10.0, 10.0, 50.0, 90.0), "score": 0.91, "label": 0}
+        ],
+    )
+    monkeypatch.setattr(
+        diagnostic,
+        "_keypoint_envelope",
+        lambda *_args, **_kwargs: (None, 2),
+    )
+
+    class Base:
+        @staticmethod
+        def _pose_predictions(_runtime, _image):
+            return [{"bbox": [0.0, 0.0, 100.0, 100.0]}]
+
+        @staticmethod
+        def _pose_bbox(prediction):
+            return tuple(prediction["bbox"])
+
+    class Adapter:
+        base = Base()
+
+    class Image:
+        shape = (100, 100, 3)
+
+    rows = diagnostic._pose_candidates(Adapter(), object(), Image())
+
+    assert len(rows) == 1
+    assert rows[0]["tracking_bbox_source"] == "direct-rtmdet"
+    assert rows[0]["tracking_bbox"] == (10.0, 10.0, 50.0, 90.0)
+    assert rows[0]["visible_keypoint_count"] == 2
+    assert rows[0]["pose_bbox_is_full_frame"] is True
