@@ -455,11 +455,14 @@ try {
     )
     if ($calibrationExit -eq 2) {
         $calibration = Read-Json -Path $CalibrationPath -Label "Identity calibration"
-        $blockers = @($calibration.calibration_blockers | ForEach-Object { [string]$_ })
-        Write-Status -Status "identity-calibration-blocked" -TeacherTrainingAuthorized $false -Blockers $blockers
-        Write-Host "BodyRig Photoreal resume: IDENTITY CALIBRATION BLOCKED"
-        $finalExitCode = 2
-        exit $finalExitCode
+        $calibrationBlockers = @($calibration.calibration_blockers | ForEach-Object { [string]$_ })
+        Write-Host ""
+        Write-Host "Identity calibration is unavailable for ambiguous/multi-person sources."
+        Write-Host "Continuing because source-authoritative single-performer bindings are resolved independently."
+        foreach ($blocker in $calibrationBlockers) {
+            Write-Host "Calibration advisory: $blocker"
+        }
+        Write-Host "Ambiguous sources without calibrated matching will remain unresolved and cannot become teacher-eligible."
     }
 
     Invoke-PythonStage -Label "14/16 MEASURE ALL PLANNED FRAMES" -Arguments @(
