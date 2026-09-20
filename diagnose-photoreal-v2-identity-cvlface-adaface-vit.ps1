@@ -124,16 +124,31 @@ if ([string]::IsNullOrWhiteSpace($CvlFaceRoot)) {
 }
 $cvlModel = Join-Path $CvlFaceRoot "model\model.safetensors"
 $cvlProvenance = Join-Path $CvlFaceRoot "source-provenance.json"
+$cvlFvcore = Join-Path $CvlFaceRoot "python\fvcore\__init__.py"
+$cvlRuntimeReady = $false
 if (
-    -not (Test-Path -LiteralPath $cvlModel -PathType Leaf) -or
-    -not (Test-Path -LiteralPath $cvlProvenance -PathType Leaf)
+    (Test-Path -LiteralPath $cvlModel -PathType Leaf) -and
+    (Test-Path -LiteralPath $cvlProvenance -PathType Leaf) -and
+    (Test-Path -LiteralPath $cvlFvcore -PathType Leaf)
 ) {
+    try {
+        $cvlExisting = Get-Content -LiteralPath $cvlProvenance -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+        $cvlRuntimeReady = (
+            $cvlExisting.runtime_dependency_profile -eq "cvlface-vit-runtime-v2" -and
+            $cvlExisting.model_cuda_smoke_test -eq $true -and
+            $cvlExisting.parallel_torch_install -eq $false
+        )
+    } catch {
+        $cvlRuntimeReady = $false
+    }
+}
+if (-not $cvlRuntimeReady) {
     if (-not $AcceptTrainingDatasetTerms) {
-        throw "Pinned CVLFace diagnostic model is not installed. Re-run with -AcceptTrainingDatasetTerms after reviewing the model-card training-dataset license requirement."
+        throw "Pinned CVLFace diagnostic runtime is missing or stale. Re-run with -AcceptTrainingDatasetTerms after reviewing the model-card training-dataset license requirement."
     }
     & $setup -DiagnosticRoot $CvlFaceRoot -AcceptTrainingDatasetTerms -Distribution $Distribution -LinuxPython $LinuxPython
     if ($LASTEXITCODE -ne 0) {
-        throw "CVLFace diagnostic setup failed with exit code $LASTEXITCODE."
+        throw "CVLFace diagnostic setup/repair failed with exit code $LASTEXITCODE."
     }
 }
 $CvlFaceRoot = Need-Directory $CvlFaceRoot "Pinned CVLFace diagnostic root"
