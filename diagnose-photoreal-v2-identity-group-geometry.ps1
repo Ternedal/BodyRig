@@ -179,6 +179,7 @@ try {
     Write-Host "Ablation:       exhaustive counterfactual removal of 0-3 positive groups"
     Write-Host "Boundary:       exact floor/ceiling witnesses + single-reference sensitivity"
     Write-Host "Review:         exact frame/aligned-crop witness sibling comparison"
+    Write-Host "Fusion:         41-point w600k_r50 / glintr100 weighted embedding sweep"
     Write-Host "Source rehash:  NO"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -326,6 +327,40 @@ try {
         }
     }
 
+    Write-Host ""
+    Write-Host "Recognizer fusion sweep (all evidence retained):"
+    $fusion = $result.recognizer_fusion_sweep
+    $bestFusion = $fusion.best_weight
+    Write-Host (
+        "  best: w600k={0}% glintr100={1}% | min-margin={2} all-pass={3}" -f
+        $bestFusion.current_percent,
+        $bestFusion.alternate_percent,
+        $bestFusion.minimum_margin_across_models,
+        $bestFusion.all_models_meet_margin
+    )
+    foreach ($modelName in @("current-reference-weighted","group-balanced-centroid-lgo","nearest-group-prototype")) {
+        $score = $bestFusion.scoring_models.$modelName
+        Write-Host (
+            "    {0,-30} margin={1} meets={2}" -f
+            $modelName,
+            $score.observed_separation_margin,
+            $score.would_meet_margin
+        )
+    }
+    if ($null -ne $fusion.first_all_models_pass) {
+        $firstFusion = $fusion.first_all_models_pass
+        Write-Host (
+            "  all-model pass exists: w600k={0}% glintr100={1}% min-margin={2}" -f
+            $firstFusion.current_percent,
+            $firstFusion.alternate_percent,
+            $firstFusion.minimum_margin_across_models
+        )
+    } else {
+        Write-Host "  all-model pass exists: NO"
+    }
+    if ($fusion.negative_observation_count_below_production_minimum) {
+        Write-Host "  production calibration still blocked: only 7 negatives (<8)."
+    }
     $witnessReviewRoot = Join-Path ([IO.Path]::GetDirectoryName($output)) (([IO.Path]::GetFileNameWithoutExtension($output)) + "-witness-review")
     $witnessReviewHtml = Join-Path $witnessReviewRoot "review-index.html"
     $witnessReviewJson = Join-Path $witnessReviewRoot "boundary-witness-review.json"
