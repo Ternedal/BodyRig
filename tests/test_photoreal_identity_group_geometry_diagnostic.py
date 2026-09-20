@@ -160,3 +160,119 @@ def test_summary_handles_singletons_without_inventing_within_group_pairs() -> No
         "median": 0.5,
         "max": 0.5,
     }
+
+
+def test_ablation_search_is_counterfactual_and_ranks_best_worst_margin() -> None:
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 1, "group_id": "scene:2", "embedding": _normalize([0.98, 0.2])},
+        {"reference_index": 2, "group_id": "scene:3", "embedding": _normalize([0.90, 0.4])},
+        {"reference_index": 3, "group_id": "scene:4", "embedding": _normalize([0.0, 1.0])},
+        {"reference_index": 4, "group_id": "scene:5", "embedding": _normalize([0.95, 0.1])},
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": _normalize([-1.0, 0.0]),
+        }
+    ]
+
+    class Flip:
+        _cosine = staticmethod(_cosine)
+        _centroid = staticmethod(_centroid)
+
+        @staticmethod
+        def _score_models(
+            subset: list[dict[str, object]],
+            _negatives: list[dict[str, object]],
+        ) -> dict[str, dict[str, object]]:
+            removed_scene4 = all(
+                item["group_id"] != "scene:4"
+                for item in subset
+            )
+            margin = 0.20 if removed_scene4 else -0.20
+            return {
+                name: {
+                    "observed_separation_margin": margin,
+                    "would_meet_margin": margin >= 0.05,
+                }
+                for name in (
+                    "current-reference-weighted",
+                    "group-balanced-centroid-lgo",
+                    "nearest-group-prototype",
+                )
+            }
+
+    result = diagnostic._ablation_search(
+        flip=Flip(),
+        positives=positives,
+        negatives=negatives,
+        max_removed_groups=3,
+    )
+
+    assert result["counterfactual_only"] is True
+    assert result["valid_human_attested_groups_are_not_rejected"] is True
+    assert result["identity_bank_mutation_authority"] is False
+    assert result["combination_count"] == 26
+    assert result["by_removed_count"]["1"][0]["removed_group_ids"] == ["scene:4"]
+    assert result["first_all_models_pass"]["removed_group_ids"] == ["scene:4"]
+
+
+def test_ablation_search_records_named_three_group_candidate() -> None:
+    positives = [
+        {"reference_index": index, "group_id": group_id, "embedding": [1.0, 0.0]}
+        for index, group_id in enumerate(
+            [
+                "scene:805",
+                "scene:889",
+                "scene:978",
+                "scene:804",
+                "scene:909",
+            ]
+        )
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": [-1.0, 0.0],
+        }
+    ]
+
+    class Flip:
+        _cosine = staticmethod(_cosine)
+        _centroid = staticmethod(_centroid)
+
+        @staticmethod
+        def _score_models(
+            _subset: list[dict[str, object]],
+            _negatives: list[dict[str, object]],
+        ) -> dict[str, dict[str, object]]:
+            return {
+                name: {
+                    "observed_separation_margin": 0.1,
+                    "would_meet_margin": True,
+                }
+                for name in (
+                    "current-reference-weighted",
+                    "group-balanced-centroid-lgo",
+                    "nearest-group-prototype",
+                )
+            }
+
+    result = diagnostic._ablation_search(
+        flip=Flip(),
+        positives=positives,
+        negatives=negatives,
+        max_removed_groups=3,
+    )
+
+    candidate = result["candidate_scene_805_889_978"]
+    assert candidate is not None
+    assert candidate["removed_group_ids"] == [
+        "scene:805",
+        "scene:889",
+        "scene:978",
+    ]
+    assert candidate["removed_group_count"] == 3
