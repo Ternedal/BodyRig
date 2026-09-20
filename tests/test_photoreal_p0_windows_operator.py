@@ -65,3 +65,25 @@ def test_p0_operator_requires_pinned_model_and_adapter_inputs_for_full_mode() ->
     assert 'Photoreal identity extractor config' in SCRIPT
     assert 'Photoreal frame analyzer config' in SCRIPT
     assert 'PIN ANALYZER MODEL SET' in SCRIPT
+
+
+def test_calibration_block_does_not_preempt_source_bound_identity() -> None:
+    calibration = SCRIPT.index('if ($calibrationExit -eq 2)')
+    frame_analysis = SCRIPT.index('14/16 MEASURE ALL PLANNED FRAMES', calibration)
+    block = SCRIPT[calibration:frame_analysis]
+
+    assert 'BLOCKED FOR BIOMETRIC MATCHING' in block
+    assert 'Source-bound identity: CONTINUING' in block
+    assert 'single-performer Stash sources are independently authorized by source binding' in block
+    assert 'exit 2' not in block
+    assert 'Write-Status -Status "identity-calibration-blocked"' not in block
+
+
+def test_source_authority_still_runs_after_uncalibrated_matcher() -> None:
+    calibration = SCRIPT.index('13/16 DERIVE IDENTITY THRESHOLD')
+    frame_analysis = SCRIPT.index('14/16 MEASURE ALL PLANNED FRAMES')
+    identity_authority = SCRIPT.index('15/16 APPLY CORE IDENTITY AUTHORITY')
+    frame_index = SCRIPT.index('16/16 LEAKAGE + HELD-OUT COVERAGE GATE')
+
+    assert calibration < frame_analysis < identity_authority < frame_index
+    assert 'bodyrig.photoreal_frame_identity_authority_cli' in SCRIPT[identity_authority:frame_index]
