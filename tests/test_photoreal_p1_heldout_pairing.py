@@ -334,12 +334,26 @@ def test_pairing_handoff_rejects_tampered_held_out_png(tmp_path: Path) -> None:
         build_p1_pairing_handoff(teacher, semantic, manifest, root)
 
 
+def test_pairing_handoff_rejects_manifest_object_that_differs_from_review_root(tmp_path: Path) -> None:
+    teacher = _teacher_input()
+    semantic = _semantic_alignment(teacher)
+    manifest, root, _frame_id = _review_pack(tmp_path, teacher)
+    tampered = copy.deepcopy(manifest)
+    tampered["performer_id"] = "99"
+
+    with pytest.raises(PhotorealP1HeldoutPairingError, match="differs from canonical"):
+        build_p1_pairing_handoff(teacher, semantic, tampered, root)
+
+
 def test_pairing_handoff_rejects_held_out_frame_not_in_selected_teacher_epoch(tmp_path: Path) -> None:
     teacher = _teacher_input()
     semantic = _semantic_alignment(teacher)
     manifest, root, _frame_id = _review_pack(tmp_path, teacher)
-    manifest = copy.deepcopy(manifest)
     manifest["groups"][1]["frames"][0]["frame_sha256"] = "9" * 64
+    (root / "appearance-epoch-visual-review-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(PhotorealP1HeldoutPairingError, match="complete selected held-out teacher universe"):
         build_p1_pairing_handoff(teacher, semantic, manifest, root)
