@@ -536,32 +536,24 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
 
-    for index, raw in enumerate(negatives):
-        source_key = str(raw.get("source_key") or "").strip()
-        source = calibration_sources.get(source_key)
-        if source is None:
-            raise PhotorealIdentityCvlFaceDiagnosticError(
-                f"negative source absent from Stage-13 request: {source_key}"
-            )
+    for item in negatives:
+        source = item["source"]
         sample = flip._find_sample(
             source,
-            field="negative_samples",
-            timestamp=raw.get("timestamp_seconds"),
-            eye=raw.get("eye"),
+            field="samples",
+            timestamp=item["timestamp_seconds"],
+            eye=item["eye"],
         )
-        expected_sha = flip._sha(
-            raw.get("frame_sha256"),
-            label="negative frame SHA-256",
-        )
-        image, _viewport_id, _viewport, _eye_image, _spatial = (
-            representation._match_exact_viewport(
-                adapter=adapter,
-                runtime=runtime,
-                source=source,
-                sample=sample,
-                expected_frame_sha=expected_sha,
+        image, spatial = adapter._read_sample(runtime, source, sample)
+        if spatial:
+            raise PhotorealIdentityCvlFaceDiagnosticError(
+                "persisted negative unexpectedly requires spatial deprojection"
             )
-        )
+        if adapter._frame_sha(image) != item["frame_sha256"]:
+            raise PhotorealIdentityCvlFaceDiagnosticError(
+                "persisted negative frame SHA no longer reproduces"
+            )
+
         current, cvlface, replay = _measure(
             adapter=adapter,
             runtime=runtime,
@@ -572,16 +564,14 @@ def main(argv: list[str] | None = None) -> int:
             image=image,
             dimension=dimension,
         )
-        stored = _normalize(
-            raw.get("embedding"),
-            dimension=dimension,
-            label=f"negative embedding[{index}]",
-        )
+        stored = item["stored_embedding"]
         if _cosine(current, stored) < 0.999999:
             raise PhotorealIdentityCvlFaceDiagnosticError(
                 "current negative replay does not match persisted embedding"
             )
-        subject = str(raw.get("subject_performer_id") or "").strip()
+
+        index = int(item["index"])
+        subject = str(item["subject_performer_id"])
         negative_variants["bank-w600k-r50"].append(
             {
                 "negative_index": index,
@@ -600,7 +590,9 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "negative_index": index,
                 "subject_performer_id": subject,
-                "frame_sha256": expected_sha,
+                "frame_sha256": item["frame_sha256"],
+                "timestamp_seconds": item["timestamp_seconds"],
+                "eye": item["eye"],
                 "current_replay_cosine": replay["current_direct_replay_cosine"],
             }
         )
