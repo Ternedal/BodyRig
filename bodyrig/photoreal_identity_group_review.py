@@ -591,7 +591,7 @@ def prepare_review(
 def record_attestation(
     *,
     review_root: Path,
-    current_revision: str,
+    attestation_revision: str,
     accept_groups: list[str],
     reject_groups: list[str],
     quality_note: str,
@@ -606,13 +606,21 @@ def record_attestation(
         raise PhotorealIdentityGroupReviewError("identity group review format/version mismatch")
     if private.get("format") != PRIVATE_FORMAT or private.get("version") != PRIVATE_VERSION:
         raise PhotorealIdentityGroupReviewError("private identity group review format/version mismatch")
-    revision = str(public.get("bodyrig_revision") or "").strip()
-    if not revision or revision != str(current_revision or "").strip():
-        raise PhotorealIdentityGroupReviewError(
-            "identity group review belongs to a different BodyRig revision"
-        )
-    if str(private.get("bodyrig_revision") or "").strip() != revision:
+    review_revision = str(public.get("bodyrig_revision") or "").strip().lower()
+    if (
+        len(review_revision) != 40
+        or any(character not in "0123456789abcdef" for character in review_revision)
+    ):
+        raise PhotorealIdentityGroupReviewError("identity group review revision is invalid")
+    if str(private.get("bodyrig_revision") or "").strip().lower() != review_revision:
         raise PhotorealIdentityGroupReviewError("public/private review revision mismatch")
+
+    receipt_revision = str(attestation_revision or "").strip().lower()
+    if (
+        len(receipt_revision) != 40
+        or any(character not in "0123456789abcdef" for character in receipt_revision)
+    ):
+        raise PhotorealIdentityGroupReviewError("attestation BodyRig revision is invalid")
     if private.get("public_manifest_sha256") != _sha256_file(public_path):
         raise PhotorealIdentityGroupReviewError("private review index lost public manifest binding")
     if public.get("human_identity_review_required") is not True:
@@ -729,7 +737,9 @@ def record_attestation(
     result = {
         "format": ATTESTATION_FORMAT,
         "version": ATTESTATION_VERSION,
-        "bodyrig_revision": revision,
+        "bodyrig_revision": receipt_revision,
+        "review_bodyrig_revision": review_revision,
+        "attestation_bodyrig_revision": receipt_revision,
         "performer_id": str(public.get("performer_id") or ""),
         "identity_bank_sha256": str(public.get("identity_bank_sha256") or ""),
         "review_manifest_sha256": _sha256_file(public_path),
@@ -765,7 +775,12 @@ def _parser() -> argparse.ArgumentParser:
 
     attest = sub.add_parser("attest")
     attest.add_argument("--review-root", type=Path, required=True)
-    attest.add_argument("--current-revision", required=True)
+    attest.add_argument(
+        "--attestation-revision",
+        "--current-revision",
+        dest="attestation_revision",
+        required=True,
+    )
     attest.add_argument("--accept-group", action="append", default=[])
     attest.add_argument("--reject-group", action="append", default=[])
     attest.add_argument("--quality-note", required=True)
@@ -785,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         result = record_attestation(
             review_root=args.review_root,
-            current_revision=args.current_revision,
+            attestation_revision=args.attestation_revision,
             accept_groups=list(args.accept_group),
             reject_groups=list(args.reject_group),
             quality_note=args.quality_note,

@@ -72,6 +72,7 @@ $script:WindowsPython = Need-File (Join-Path $script:RepoRoot ".venv\Scripts\pyt
 $dirty = @(git -C $script:RepoRoot status --porcelain)
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect BodyRig Git status." }
 if ($dirty.Count -ne 0) { throw "Identity group attestation requires a clean BodyRig checkout." }
+
 $head = ([string](git -C $script:RepoRoot rev-parse HEAD)).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
     throw "Could not resolve exact BodyRig Git HEAD."
@@ -83,8 +84,9 @@ $privateIndex = Need-File (Join-Path $ReviewRoot "private-review-index.json") "P
 $reviewIndex = Need-File (Join-Path $ReviewRoot "review-index.html") "Identity group review HTML"
 
 $manifestObject = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-if ([string]$manifestObject.bodyrig_revision -ne $head) {
-    throw "Identity group review belongs to revision $([string]$manifestObject.bodyrig_revision), but checkout is $head."
+$reviewRevision = ([string]$manifestObject.bodyrig_revision).Trim().ToLowerInvariant()
+if ($reviewRevision -notmatch '^[0-9a-f]{40}$') {
+    throw "Identity group review has an invalid BodyRig revision: $reviewRevision"
 }
 
 $wslRepo = Convert-ToWslPath $script:RepoRoot
@@ -92,16 +94,17 @@ $wslReview = Convert-ToWslPath $ReviewRoot
 
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL V2 - HUMAN IDENTITY GROUP ATTESTATION"
-Write-Host "Revision:       $head"
-Write-Host "Performer:      $([string]$manifestObject.performer_id)"
-Write-Host "Review root:    $ReviewRoot"
-Write-Host "Review HTML:    $reviewIndex"
-Write-Host "Accept groups:  $($AcceptGroup -join ', ')"
-Write-Host "Reject groups:  $($RejectGroup -join ', ')"
-Write-Host "Human confirm:  TRUE"
-Write-Host "Matching auth:  FALSE"
-Write-Host "Training auth:  FALSE"
-Write-Host "Production:     FALSE"
+Write-Host "Review revision: $reviewRevision"
+Write-Host "Attest revision: $head"
+Write-Host "Performer:       $([string]$manifestObject.performer_id)"
+Write-Host "Review root:     $ReviewRoot"
+Write-Host "Review HTML:     $reviewIndex"
+Write-Host "Accept groups:   $($AcceptGroup -join ', ')"
+Write-Host "Reject groups:   $($RejectGroup -join ', ')"
+Write-Host "Human confirm:   TRUE"
+Write-Host "Matching auth:   FALSE"
+Write-Host "Training auth:   FALSE"
+Write-Host "Production:      FALSE"
 Write-Host "============================================================"
 Write-Host ""
 
@@ -110,10 +113,11 @@ $wslArgs = @(
     "PYTHONPATH=$wslRepo",
     $LinuxPython, "-m", "bodyrig.photoreal_identity_group_review", "attest",
     "--review-root", $wslReview,
-    "--current-revision", $head,
+    "--attestation-revision", $head,
     "--quality-note", $QualityNote,
     "--confirm-identity"
 )
+
 foreach ($group in $AcceptGroup) {
     $wslArgs += @("--accept-group", ([string]$group).Trim())
 }
@@ -133,6 +137,8 @@ Write-Host ""
 Write-Host "Human identity group attestation: RECORDED"
 Write-Host "Accepted:      $($result.accepted_group_count)"
 Write-Host "Rejected:      $($result.rejected_group_count)"
+Write-Host "Review rev:    $($result.review_bodyrig_revision)"
+Write-Host "Attest rev:    $($result.attestation_bodyrig_revision)"
 Write-Host "Receipt:       $receipt"
 Write-Host "Group selection authority: TRUE"
 Write-Host "Identity matching:          FALSE"

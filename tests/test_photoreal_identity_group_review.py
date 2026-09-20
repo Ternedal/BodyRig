@@ -141,7 +141,7 @@ def test_human_attestation_requires_complete_partition_and_revalidates_sheets(
 
     result = record_attestation(
         review_root=root,
-        current_revision=REVISION,
+        attestation_revision=REVISION,
         accept_groups=["scene:1"],
         reject_groups=["scene:2"],
         quality_note="Reviewed both groups against the profile seed.",
@@ -168,12 +168,34 @@ def test_human_attestation_fails_if_any_group_is_unclassified(tmp_path: Path) ->
     ):
         record_attestation(
             review_root=root,
-            current_revision=REVISION,
+            attestation_revision=REVISION,
             accept_groups=["scene:1"],
             reject_groups=[],
             quality_note="Reviewed only one group, which is intentionally incomplete.",
             confirm_identity=True,
         )
+
+
+def test_human_attestation_preserves_review_revision_from_older_checkout(
+    tmp_path: Path,
+) -> None:
+    root = _review_root(tmp_path)
+    attest_revision = "c" * 40
+
+    result = record_attestation(
+        review_root=root,
+        attestation_revision=attest_revision,
+        accept_groups=["scene:1", "scene:2"],
+        reject_groups=[],
+        quality_note="Reviewed both groups and confirmed both are the target performer.",
+        confirm_identity=True,
+    )
+
+    assert result["review_bodyrig_revision"] == REVISION
+    assert result["attestation_bodyrig_revision"] == attest_revision
+    assert result["bodyrig_revision"] == attest_revision
+    assert result["accepted_group_count"] == 2
+    assert result["rejected_group_count"] == 0
 
 
 def test_human_attestation_fails_if_review_sheet_bytes_change(tmp_path: Path) -> None:
@@ -188,7 +210,7 @@ def test_human_attestation_fails_if_review_sheet_bytes_change(tmp_path: Path) ->
     ):
         record_attestation(
             review_root=root,
-            current_revision=REVISION,
+            attestation_revision=REVISION,
             accept_groups=["scene:1"],
             reject_groups=["scene:2"],
             quality_note="Reviewed both groups against the profile seed.",
