@@ -175,6 +175,7 @@ try {
     Write-Host "Recognizers:    w600k_r50 + antelopev2/glintr100"
     Write-Host "Evidence:       exact 27 positive + persisted negative frames"
     Write-Host "Geometry:       per-group cohesion, LGO, positive neighbors, negative overlap"
+    Write-Host "Ablation:       exhaustive counterfactual removal of 0-3 positive groups"
     Write-Host "Source rehash:  NO"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -232,6 +233,48 @@ try {
     $alternatePair = @($result.variants."antelopev2-glintr100".pairwise_positive_group_cosines)[0]
     Write-Host ("Weakest w600k positive pair:   {0} <-> {1} cosine={2}" -f $currentPair.left_group_id, $currentPair.right_group_id, $currentPair.cosine)
     Write-Host ("Weakest glintr100 positive pair:{0} <-> {1} cosine={2}" -f $alternatePair.left_group_id, $alternatePair.right_group_id, $alternatePair.cosine)
+    Write-Host ""
+    Write-Host "Counterfactual group ablation (diagnostic only):"
+    foreach ($variantName in @("w600k-r50","antelopev2-glintr100")) {
+        $ablation = $result.counterfactual_group_ablation.$variantName
+        Write-Host ("  {0}" -f $variantName)
+        foreach ($count in @("1","2","3")) {
+            $best = @($ablation.by_removed_count.$count)[0]
+            $currentScore = $best.scoring_models."current-reference-weighted".observed_separation_margin
+            $balancedScore = $best.scoring_models."group-balanced-centroid-lgo".observed_separation_margin
+            $prototypeScore = $best.scoring_models."nearest-group-prototype".observed_separation_margin
+            Write-Host (
+                "    remove {0}: groups=[{1}] refs={2} | current={3} balanced={4} prototype={5} all-pass={6}" -f
+                $count,
+                ($best.removed_group_ids -join ","),
+                $best.removed_reference_count,
+                $currentScore,
+                $balancedScore,
+                $prototypeScore,
+                $best.all_models_meet_margin
+            )
+        }
+        $candidate = $ablation.candidate_scene_805_889_978
+        if ($null -ne $candidate) {
+            Write-Host (
+                "    candidate 805+889+978: current={0} balanced={1} prototype={2} all-pass={3}" -f
+                $candidate.scoring_models."current-reference-weighted".observed_separation_margin,
+                $candidate.scoring_models."group-balanced-centroid-lgo".observed_separation_margin,
+                $candidate.scoring_models."nearest-group-prototype".observed_separation_margin,
+                $candidate.all_models_meet_margin
+            )
+        }
+        if ($null -ne $ablation.first_all_models_pass) {
+            Write-Host (
+                "    first all-model pass: remove=[{0}] refs={1}" -f
+                ($ablation.first_all_models_pass.removed_group_ids -join ","),
+                $ablation.first_all_models_pass.removed_reference_count
+            )
+        } else {
+            Write-Host "    first all-model pass: NONE within 3 removed groups"
+        }
+    }
+
     Write-Host ""
     Write-Host "Diagnostic JSON: $output"
     Write-Host "Authority: diagnostic-only; no identity matching, training, photoreal or production authority."
