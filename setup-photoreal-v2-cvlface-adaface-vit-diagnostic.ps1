@@ -121,6 +121,11 @@ if ($runtime.cuda_available -ne $true) {
 
 $parent = Split-Path -Parent $DiagnosticRoot
 New-Item -ItemType Directory -Path $parent -Force | Out-Null
+$staleStages = @(Get-ChildItem -LiteralPath $parent -Directory -Filter "cvlface-stage-*" -ErrorAction SilentlyContinue)
+foreach ($stale in $staleStages) {
+    Write-Host "Removing stale CVLFace staging directory: $($stale.FullName)"
+    Remove-Item -LiteralPath $stale.FullName -Recurse -Force -ErrorAction Stop
+}
 $tempRoot = Join-Path $parent ("cvlface-stage-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 $wslTempRoot = Convert-ToWslPath $tempRoot
