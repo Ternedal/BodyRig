@@ -60,11 +60,22 @@ def test_bbox_iou_and_center_shift() -> None:
     ) > 0.0
 
 
-def test_neighbor_selection_uses_bbox_continuity_only() -> None:
-    anchor = {"bbox": (10.0, 10.0, 30.0, 40.0)}
+def test_neighbor_selection_uses_keypoint_envelope_continuity() -> None:
+    anchor = {
+        "bbox": (0.0, 0.0, 100.0, 100.0),
+        "keypoint_bbox": (10.0, 10.0, 30.0, 40.0),
+    }
     candidates = [
-        {"bbox": (70.0, 70.0, 90.0, 95.0), "pose": {}},
-        {"bbox": (12.0, 11.0, 31.0, 40.0), "pose": {}},
+        {
+            "bbox": (0.0, 0.0, 100.0, 100.0),
+            "keypoint_bbox": (70.0, 70.0, 90.0, 95.0),
+            "pose": {},
+        },
+        {
+            "bbox": (0.0, 0.0, 100.0, 100.0),
+            "keypoint_bbox": (12.0, 11.0, 31.0, 40.0),
+            "pose": {},
+        },
     ]
     selected, iou = diagnostic._choose_neighbor_candidate(
         anchor=anchor,
@@ -117,15 +128,17 @@ def test_summary_does_not_make_identity_decision() -> None:
     rows = [
         {
             "status": "available",
-            "median_bbox_iou": 0.8,
-            "median_center_shift": 0.05,
+            "median_keypoint_bbox_iou": 0.8,
+            "median_detector_bbox_iou": 1.0,
+            "median_keypoint_center_shift": 0.05,
             "median_appearance_cosine": 0.9,
             "median_pose_distance": 0.08,
         },
         {
             "status": "insufficient-valid-frames",
-            "median_bbox_iou": None,
-            "median_center_shift": None,
+            "median_keypoint_bbox_iou": None,
+            "median_detector_bbox_iou": None,
+            "median_keypoint_center_shift": None,
             "median_appearance_cosine": None,
             "median_pose_distance": None,
         },
@@ -151,7 +164,14 @@ def test_duplicate_decoded_frames_do_not_count_as_temporal_evidence(
     monkeypatch.setattr(
         diagnostic,
         "_choose_anchor_candidate",
-        lambda *_args, **_kwargs: {"bbox": (10.0, 10.0, 40.0, 80.0), "pose": {}},
+        lambda *_args, **_kwargs: {
+            "bbox": (0.0, 0.0, 100.0, 100.0),
+            "detector_bbox": (0.0, 0.0, 100.0, 100.0),
+            "detector_bbox_is_full_frame": True,
+            "keypoint_bbox": (10.0, 10.0, 40.0, 80.0),
+            "visible_keypoint_count": 8,
+            "pose": {},
+        },
     )
     monkeypatch.setattr(
         diagnostic,
@@ -198,8 +218,9 @@ def test_summary_reports_duplicate_decode_evidence() -> None:
             "status": "insufficient-valid-frames",
             "distinct_decoded_frame_count": 1,
             "duplicate_decoded_frame_count": 4,
-            "median_bbox_iou": None,
-            "median_center_shift": None,
+            "median_keypoint_bbox_iou": None,
+            "median_detector_bbox_iou": None,
+            "median_keypoint_center_shift": None,
             "median_appearance_cosine": None,
             "median_pose_distance": None,
         },
@@ -207,8 +228,9 @@ def test_summary_reports_duplicate_decode_evidence() -> None:
             "status": "available",
             "distinct_decoded_frame_count": 5,
             "duplicate_decoded_frame_count": 0,
-            "median_bbox_iou": 0.8,
-            "median_center_shift": 0.02,
+            "median_keypoint_bbox_iou": 0.8,
+            "median_detector_bbox_iou": 1.0,
+            "median_keypoint_center_shift": 0.02,
             "median_appearance_cosine": 0.9,
             "median_pose_distance": 0.04,
         },
@@ -218,3 +240,73 @@ def test_summary_reports_duplicate_decode_evidence() -> None:
 
     assert summary["anchors_with_duplicate_decodes"] == 1
     assert summary["minimum_distinct_decoded_frames"] == 1
+
+
+def test_keypoint_envelope_is_not_full_frame_detector_box() -> None:
+    class Base:
+        @staticmethod
+        def _listish(value):
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            return None
+
+    class Adapter:
+        base = Base()
+
+    prediction = {
+        "keypoints": [
+            [40.0, 20.0],
+            [45.0, 25.0],
+            [50.0, 30.0],
+            [55.0, 35.0],
+            [60.0, 40.0],
+            [65.0, 45.0],
+        ],
+        "keypoint_scores": [1.0] * 6,
+    }
+    box, count = diagnostic._keypoint_envelope(
+        Adapter(),
+        prediction,
+        width=100,
+        height=100,
+    )
+
+    assert count == 6
+    assert box is not None
+    assert box != (0.0, 0.0, 100.0, 100.0)
+    assert diagnostic._is_full_frame_box(
+        (0.0, 0.0, 100.0, 100.0),
+        width=100,
+        height=100,
+    ) is True
+    assert diagnostic._is_full_frame_box(
+        box,
+        width=100,
+        height=100,
+    ) is False
+
+
+def test_keypoint_envelope_requires_five_visible_points() -> None:
+    class Base:
+        @staticmethod
+        def _listish(value):
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            return None
+
+    class Adapter:
+        base = Base()
+
+    prediction = {
+        "keypoints": [[10.0, 10.0]] * 4,
+        "keypoint_scores": [1.0] * 4,
+    }
+    box, count = diagnostic._keypoint_envelope(
+        Adapter(),
+        prediction,
+        width=100,
+        height=100,
+    )
+
+    assert count == 4
+    assert box is None
