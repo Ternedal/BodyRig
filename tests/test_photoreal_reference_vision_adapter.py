@@ -366,3 +366,161 @@ def test_spatial_identity_bootstrap_remains_blocked(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(adapter, "_read_sample", lambda *_args: (object(), True))
     with pytest.raises(adapter.ReferenceVisionError, match="requires exact equirectangular projection authority"):
         adapter._single_identity(SimpleNamespace(), {}, {})
+
+
+
+def test_read_sample_falls_back_to_ffmpeg_when_opencv_read_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeCvError(Exception):
+        pass
+
+    class FakeCapture:
+        def __init__(self) -> None:
+            self.released = False
+
+        def isOpened(self) -> bool:
+            return True
+
+        def set(self, *_args) -> bool:
+            return True
+
+        def read(self):
+            raise FakeCvError("OpenCV matrix assertion")
+
+        def release(self) -> None:
+            self.released = True
+
+    class FakeImage:
+        shape = (1080, 1920, 3)
+        size = 1080 * 1920 * 3
+
+    capture = FakeCapture()
+    cv2 = SimpleNamespace(
+        error=FakeCvError,
+        CAP_PROP_POS_MSEC=0,
+        IMREAD_COLOR=1,
+        VideoCapture=lambda _path: capture,
+    )
+    np = SimpleNamespace(ascontiguousarray=lambda image: image)
+    runtime = SimpleNamespace(cv2=cv2, np=np)
+    fallback_image = FakeImage()
+    seen = {}
+
+    def fake_fallback(_runtime, path, timestamp):
+        seen["path"] = str(path)
+        seen["timestamp"] = timestamp
+        return fallback_image
+
+    monkeypatch.setattr(adapter, "_decode_video_frame_ffmpeg", fake_fallback)
+
+    image, spatial = adapter._read_sample(
+        runtime,
+        {
+            "source_key": "scene:s1:E:/VR/clip.mp4",
+            "resolved_path": "/mnt/bodyrig/remote/share/clip.mp4",
+            "kind": "video",
+            "stereo_layout": "mono",
+            "decode_mode": "",
+        },
+        {"timestamp_seconds": 12.5, "eye": "mono"},
+    )
+
+    assert image is fallback_image
+    assert spatial is False
+    assert capture.released is True
+    assert seen == {"path": "/mnt/bodyrig/remote/share/clip.mp4", "timestamp": 12.5}
+
+
+def test_read_sample_reports_source_and_timestamp_when_both_decoders_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCvError(Exception):
+        pass
+
+    class FakeCapture:
+        def isOpened(self) -> bool:
+            return True
+
+        def set(self, *_args) -> bool:
+            return True
+
+        def read(self):
+            raise FakeCvError("OpenCV matrix assertion")
+
+        def release(self) -> None:
+            pass
+
+    cv2 = SimpleNamespace(
+        error=FakeCvError,
+        CAP_PROP_POS_MSEC=0,
+        IMREAD_COLOR=1,
+        VideoCapture=lambda _path: FakeCapture(),
+    )
+    runtime = SimpleNamespace(cv2=cv2, np=SimpleNamespace())
+
+    monkeypatch.setattr(
+        adapter,
+        "_decode_video_frame_ffmpeg",
+        lambda *_args: (_ for _ in ()).throw(adapter.ReferenceVisionDecodeError("ffmpeg decode failed")),
+    )
+
+    with pytest.raises(
+        adapter.ReferenceVisionDecodeError,
+        match=r"source=scene:s1:E:/VR/clip\.mp4 timestamp=42\.250000s",
+    ):
+        adapter._read_sample(
+            runtime,
+            {
+                "source_key": "scene:s1:E:/VR/clip.mp4",
+                "resolved_path": "/mnt/bodyrig/remote/share/clip.mp4",
+                "kind": "video",
+                "stereo_layout": "mono",
+                "decode_mode": "",
+            },
+            {"timestamp_seconds": 42.25, "eye": "mono"},
+        )
+
+
+def test_ffmpeg_fallback_uses_direct_argv_and_decodes_png(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    class FakeCompleted:
+        returncode = 0
+        stdout = b"png-bytes"
+        stderr = b""
+
+    def fake_run(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return FakeCompleted()
+
+    class FakeNp:
+        uint8 = object()
+
+        @staticmethod
+        def frombuffer(value, dtype):
+            assert value == b"png-bytes"
+            assert dtype is FakeNp.uint8
+            return "encoded"
+
+    class FakeCv2:
+        IMREAD_COLOR = 1
+
+        @staticmethod
+        def imdecode(encoded, mode):
+            assert encoded == "encoded"
+            assert mode == 1
+            return "frame"
+
+    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    runtime = SimpleNamespace(np=FakeNp, cv2=FakeCv2)
+
+    result = adapter._decode_video_frame_ffmpeg(runtime, Path("/video/source.mp4"), 7.125)
+
+    assert result == "frame"
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command[:6] == ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-ss"]
+    assert "7.125000" in command
+    assert "/video/source.mp4" in command
+    assert kwargs["shell"] is False
+    assert kwargs["check"] is False
+    assert kwargs["timeout"] == 90
