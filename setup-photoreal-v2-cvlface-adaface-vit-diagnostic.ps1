@@ -67,6 +67,7 @@ if (Test-Path -LiteralPath $DiagnosticRoot -PathType Container) {
             $existing.repo_id -eq $repoId -and
             $existing.repo_revision -eq $repoRevision -and
             $existing.model_sha256 -eq $modelSha -and
+            $existing.reuses_bodyrig_photoreal_torch -eq $true -and
             $existing.diagnostic_only -eq $true -and
             $existing.production_activation -eq $false
         ) {
@@ -82,6 +83,42 @@ if (Test-Path -LiteralPath $DiagnosticRoot -PathType Container) {
     }
 }
 
+$runtimeProbe = @'
+import json
+import numpy
+import torch
+import torchvision
+payload = {
+    "torch": torch.__version__.split("+")[0],
+    "torchvision": torchvision.__version__.split("+")[0],
+    "numpy": numpy.__version__,
+    "cuda_available": bool(torch.cuda.is_available()),
+    "cuda_version": torch.version.cuda,
+}
+print(json.dumps(payload, sort_keys=True))
+'@
+$runtimeLines = @(& wsl.exe -d $Distribution -- $LinuxPython -c $runtimeProbe 2>&1)
+if ($LASTEXITCODE -ne 0 -or $runtimeLines.Count -lt 1) {
+    throw "Could not probe the existing BodyRig Photoreal Torch runtime: $($runtimeLines -join ' ')"
+}
+try {
+    $runtime = ($runtimeLines | Select-Object -Last 1) | ConvertFrom-Json -Depth 10
+} catch {
+    throw "BodyRig Photoreal Torch runtime probe returned invalid JSON: $($runtimeLines -join ' ')"
+}
+if ([string]$runtime.torch -ne "2.1.0") {
+    throw "CVLFace diagnostic requires BodyRig's pinned Torch 2.1.0 runtime; observed=$($runtime.torch)"
+}
+if ([string]$runtime.torchvision -ne "0.16.0") {
+    throw "CVLFace diagnostic requires BodyRig's pinned torchvision 0.16.0 runtime; observed=$($runtime.torchvision)"
+}
+if ([string]$runtime.numpy -ne "1.26.4") {
+    throw "CVLFace diagnostic requires BodyRig's pinned NumPy 1.26.4 runtime; observed=$($runtime.numpy)"
+}
+if ($runtime.cuda_available -ne $true) {
+    throw "CVLFace diagnostic requires the existing BodyRig Photoreal CUDA runtime."
+}
+
 $parent = Split-Path -Parent $DiagnosticRoot
 New-Item -ItemType Directory -Path $parent -Force | Out-Null
 $tempRoot = Join-Path $parent ("cvlface-stage-" + [Guid]::NewGuid().ToString("N"))
@@ -91,40 +128,81 @@ $wslDependencyRoot = "$wslTempRoot/python"
 $wslModelRoot = "$wslTempRoot/model"
 
 try {
-    Write-Host "Installing isolated CVLFace diagnostic dependencies..."
+    Write-Host "Installing lightweight CVLFace dependencies (reusing BodyRig Torch/CUDA)..."
     $pipArgs = @(
         "-d", $Distribution, "--",
         $LinuxPython, "-m", "pip", "install",
-        "--disable-pip-version-check", "--no-input",
+        "--disable-pip-version-check", "--no-input", "--no-deps",
         "--target", $wslDependencyRoot,
         "transformers==4.33.0",
         "huggingface-hub==0.17.3",
         "omegaconf==2.3.0",
         "timm==0.9.12",
         "safetensors==0.3.3",
+        "tokenizers==0.13.3",
+        "antlr4-python3-runtime==4.9.3",
+        "filelock==3.14.0",
+        "fsspec==2023.9.2",
+        "packaging==24.0",
+        "regex==2023.8.8",
+        "requests==2.28.2",
+        "tqdm==4.65.0",
         "PyYAML==6.0.1"
     )
     & wsl.exe @pipArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "CVLFace isolated dependency installation failed with exit code $LASTEXITCODE."
+        throw "CVLFace lightweight dependency installation failed with exit code $LASTEXITCODE."
+    }
+
+    $dependencyProbe = @'
+import sys
+root = sys.argv[1]
+sys.path.insert(0, root)
+import huggingface_hub
+import omegaconf
+import safetensors
+import timm
+import tokenizers
+import transformers
+import torch
+import torchvision
+assert torch.__version__.split("+")[0] == "2.1.0"
+assert torchvision.__version__.split("+")[0] == "0.16.0"
+print("ok")
+'@
+    $dependencyLines = @(& wsl.exe -d $Distribution -- $LinuxPython -c $dependencyProbe $wslDependencyRoot 2>&1)
+    if ($LASTEXITCODE -ne 0 -or ($dependencyLines | Select-Object -Last 1) -ne "ok") {
+        throw "CVLFace dependency probe failed: $($dependencyLines -join ' ')"
     }
 
     $downloadScript = @'
 import sys
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download
+
 target, repo_id, revision = sys.argv[1:4]
-snapshot_download(
+files_txt = hf_hub_download(
     repo_id=repo_id,
+    filename="files.txt",
     revision=revision,
     local_dir=target,
     local_dir_use_symlinks=False,
 )
+with open(files_txt, "r", encoding="utf-8") as handle:
+    files = [line.strip() for line in handle if line.strip()]
+for filename in files + ["config.json", "wrapper.py", "model.safetensors"]:
+    hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        revision=revision,
+        local_dir=target,
+        local_dir_use_symlinks=False,
+    )
 '@
     $downloadScriptPath = Join-Path $tempRoot "download-cvlface.py"
     $downloadScript | Set-Content -LiteralPath $downloadScriptPath -Encoding UTF8
     $wslDownloadScript = Convert-ToWslPath $downloadScriptPath
 
-    Write-Host "Downloading pinned CVLFace model snapshot..."
+    Write-Host "Downloading pinned CVLFace model files..."
     $downloadArgs = @(
         "-d", $Distribution, "--", "env",
         "PYTHONPATH=$wslDependencyRoot",
@@ -133,7 +211,7 @@ snapshot_download(
     )
     & wsl.exe @downloadArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Pinned CVLFace snapshot download failed with exit code $LASTEXITCODE."
+        throw "Pinned CVLFace model download failed with exit code $LASTEXITCODE."
     }
 
     $model = Join-Path $tempRoot $modelRelative
@@ -148,12 +226,11 @@ snapshot_download(
     $required = @(
         (Join-Path $tempRoot "model\config.json"),
         (Join-Path $tempRoot "model\wrapper.py"),
-        (Join-Path $tempRoot "model\pretrained_model\model.pt"),
-        (Join-Path $tempRoot "model\pretrained_model\model.yaml")
+        (Join-Path $tempRoot "model\files.txt")
     )
     foreach ($item in $required) {
         if (-not (Test-Path -LiteralPath $item -PathType Leaf)) {
-            throw "Pinned CVLFace snapshot is incomplete: $item"
+            throw "Pinned CVLFace model download is incomplete: $item"
         }
     }
 
@@ -173,8 +250,13 @@ snapshot_download(
         normalization = "ToTensor; mean=0.5,std=0.5 per RGB channel"
         software_license = "MIT"
         training_dataset_license_requires_operator_review = $true
-        unsafe_pickle_dependency_present = $true
         license_operator_accepted = $true
+        reuses_bodyrig_photoreal_torch = $true
+        bodyrig_torch = [string]$runtime.torch
+        bodyrig_torchvision = [string]$runtime.torchvision
+        bodyrig_numpy = [string]$runtime.numpy
+        bodyrig_cuda = [string]$runtime.cuda_version
+        parallel_torch_install = $false
         diagnostic_only = $true
         identity_matching_authorized = $false
         teacher_training_authorized = $false
@@ -196,6 +278,8 @@ snapshot_download(
     Write-Host "Model:       AdaFace ViT-Base@WebFace4M"
     Write-Host "Revision:    $repoRevision"
     Write-Host "Model SHA:   $modelSha"
+    Write-Host "Torch:       $($runtime.torch) (reused)"
+    Write-Host "CUDA:        $($runtime.cuda_version) (reused)"
     Write-Host "Authority:   DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:  FALSE"
 } finally {
