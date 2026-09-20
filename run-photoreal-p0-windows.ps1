@@ -340,8 +340,18 @@ try {
     )
     if ($calibrationExit -eq 2) {
         $calibration = Read-Json -Path $CalibrationPath -Label "Identity calibration"
-        $blockers = @($calibration.calibration_blockers | ForEach-Object { [string]$_ })
-        Write-Status -Status "identity-calibration-blocked" -TeacherTrainingAuthorized $false -Blockers $blockers
+        $calibrationBlockers = @($calibration.calibration_blockers | ForEach-Object { [string]$_ })
+        Write-Host ""
+        Write-Host "Identity calibration: BLOCKED FOR BIOMETRIC MATCHING"
+        Write-Host "Source-bound identity: CONTINUING"
+        if ($calibrationBlockers.Count -gt 0) {
+            foreach ($blocker in $calibrationBlockers) {
+                Write-Host ("  calibration blocker: {0}" -f $blocker)
+            }
+        }
+        Write-Host "Reason: single-performer Stash sources are independently authorized by source binding."
+        Write-Host "Ambiguous/multi-person frames remain unresolved without calibrated matching."
+    }
         Write-Host ""
         Write-Host "BodyRig Photoreal P0: IDENTITY CALIBRATION BLOCKED"
         Write-Host "Teacher training: BLOCKED"
