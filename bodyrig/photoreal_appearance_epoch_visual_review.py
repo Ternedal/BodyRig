@@ -17,6 +17,10 @@ from typing import Any, Callable, Mapping
 from .photoreal_teacher_input import (
     FRAME_INDEX_FORMAT,
     FRAME_INDEX_VERSION,
+    PLAN_FORMAT,
+    PLAN_VERSION,
+    RECEIPT_FORMAT,
+    RECEIPT_VERSION,
     PhotorealTeacherInputError,
     _plan_sources,
     _receipt_sources,
@@ -28,6 +32,8 @@ MANIFEST_FORMAT = "bodyrig-photoreal-appearance-epoch-visual-review-manifest"
 MANIFEST_VERSION = 1
 PRIVATE_FORMAT = "bodyrig-photoreal-private-appearance-epoch-visual-review-index"
 PRIVATE_VERSION = 1
+REQUEST_FORMAT = "bodyrig-photoreal-appearance-epoch-visual-review-request"
+REQUEST_VERSION = 1
 
 
 class PhotorealAppearanceEpochVisualReviewError(RuntimeError):
@@ -141,6 +147,16 @@ def _normalized_inputs(
     receipt: Mapping[str, Any],
     frame_index: Mapping[str, Any],
 ) -> tuple[str, dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    if plan.get("format") != PLAN_FORMAT:
+        raise PhotorealAppearanceEpochVisualReviewError("dataset plan format/version mismatch")
+    _strict_v1(plan.get("version"), label="dataset plan")
+    if PLAN_VERSION != 1:
+        raise PhotorealAppearanceEpochVisualReviewError("unsupported compiled dataset-plan version")
+    if receipt.get("format") != RECEIPT_FORMAT:
+        raise PhotorealAppearanceEpochVisualReviewError("source receipt format/version mismatch")
+    _strict_v1(receipt.get("version"), label="source receipt")
+    if RECEIPT_VERSION != 1:
+        raise PhotorealAppearanceEpochVisualReviewError("unsupported compiled source-receipt version")
     try:
         planned = _plan_sources(plan)
         bound = _receipt_sources(receipt)
@@ -189,6 +205,8 @@ def _normalized_inputs(
         receipt_source = bound.get(source_key)
         if source is None or receipt_source is None:
             raise PhotorealAppearanceEpochVisualReviewError("review observation references unknown source")
+        if _text(source.get("group_id"), label="planned source group id") != group_id:
+            raise PhotorealAppearanceEpochVisualReviewError("review observation group differs from dataset plan")
         split = _text(raw.get("split"), label="review split", maximum=32)
         if split not in split_counts or source.get("split") != split:
             raise PhotorealAppearanceEpochVisualReviewError("review observation split differs from dataset plan")
@@ -332,6 +350,9 @@ def build_review_request(
     raw_paths = runtime_path_map.get("source_paths")
     if not isinstance(raw_paths, list) or not raw_paths:
         raise PhotorealAppearanceEpochVisualReviewError("runtime path map contains no source paths")
+    source_count = runtime_path_map.get("source_count")
+    if isinstance(source_count, bool) or not isinstance(source_count, int) or source_count != len(raw_paths):
+        raise PhotorealAppearanceEpochVisualReviewError("runtime path map source count mismatch")
     path_map: dict[str, str] = {}
     for raw in raw_paths:
         if not isinstance(raw, Mapping):
@@ -372,8 +393,8 @@ def build_review_request(
         sources.append(record)
 
     return {
-        "format": "bodyrig-photoreal-appearance-epoch-visual-review-request",
-        "version": 1,
+        "format": REQUEST_FORMAT,
+        "version": REQUEST_VERSION,
         "bodyrig_revision": revision,
         "performer_id": performer_id,
         "dataset_plan_sha256": _sha(dataset_plan_sha256, label="dataset plan SHA-256"),
@@ -551,6 +572,9 @@ def prepare_review(
     reuse_existing: bool = False,
 ) -> dict[str, Any]:
     output = Path(output_dir).expanduser().resolve()
+    if request.get("format") != REQUEST_FORMAT:
+        raise PhotorealAppearanceEpochVisualReviewError("visual review request format/version mismatch")
+    _strict_v1(request.get("version"), label="visual review request")
     revision = _git_sha(request.get("bodyrig_revision"), label="review request BodyRig revision")
     if output.exists():
         if reuse_existing:
@@ -576,6 +600,12 @@ def prepare_review(
         source_key = _text(raw.get("source_key"), label="visual review source key")
         if source_key in sources:
             raise PhotorealAppearanceEpochVisualReviewError("visual review request repeats source")
+        resolved_path = _text(raw.get("resolved_path"), label="visual review resolved path")
+        if not resolved_path.startswith("/"):
+            raise PhotorealAppearanceEpochVisualReviewError("visual review source path is not absolute Linux path")
+        split = _text(raw.get("split"), label="visual review source split", maximum=32)
+        if split not in {"train", "evaluation"}:
+            raise PhotorealAppearanceEpochVisualReviewError("visual review source split is invalid")
         sources[source_key] = dict(raw)
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -590,6 +620,7 @@ def prepare_review(
         private_frames: list[dict[str, Any]] = []
         public_frames_by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
         mesh_caches: dict[str, dict[Any, Any]] = {}
+        seen_observations: set[tuple[str, str, float | None, str]] = set()
         for index, raw in enumerate(observations):
             if not isinstance(raw, Mapping):
                 raise PhotorealAppearanceEpochVisualReviewError("visual review observation is invalid")
@@ -597,7 +628,22 @@ def prepare_review(
             source = sources.get(source_key)
             if source is None:
                 raise PhotorealAppearanceEpochVisualReviewError("visual review observation references unknown source")
+            split = _text(raw.get("split"), label="visual review split", maximum=32)
+            group_id = _text(raw.get("group_id"), label="visual review group id")
+            if split != source.get("split") or group_id != source.get("group_id"):
+                raise PhotorealAppearanceEpochVisualReviewError(
+                    "visual review observation source/group/split binding mismatch"
+                )
             expected = _sha(raw.get("frame_sha256"), label="visual review frame SHA-256")
+            observation_key = (
+                source_key,
+                expected,
+                raw.get("timestamp_seconds"),
+                _text(raw.get("eye"), label="visual review eye", maximum=16),
+            )
+            if observation_key in seen_observations:
+                raise PhotorealAppearanceEpochVisualReviewError("visual review request repeats observation")
+            seen_observations.add(observation_key)
             image = _reproduce_observation(
                 adapter,
                 runtime,
@@ -613,8 +659,6 @@ def prepare_review(
                 raise PhotorealAppearanceEpochVisualReviewError(f"could not write review PNG: {frame_path}") from exc
             if not ok or not frame_path.is_file() or frame_path.stat().st_size < 1:
                 raise PhotorealAppearanceEpochVisualReviewError(f"review PNG is missing/empty: {frame_path}")
-            split = _text(raw.get("split"), label="visual review split", maximum=32)
-            group_id = _text(raw.get("group_id"), label="visual review group id")
             relative = f"frames/{frame_path.name}"
             public_frame = {
                 "frame_id": frame_id,
@@ -752,6 +796,12 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
     ):
         if manifest.get(field) is not expected:
             raise PhotorealAppearanceEpochVisualReviewError(f"appearance epoch review authority mismatch: {field}")
+    if _git_sha(private.get("bodyrig_revision"), label="private review BodyRig revision") != _git_sha(
+        manifest.get("bodyrig_revision"), label="manifest BodyRig revision"
+    ):
+        raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review revision mismatch")
+    if private.get("performer_id") != manifest.get("performer_id"):
+        raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review performer mismatch")
     if private.get("source_paths_private") is not True or private.get("source_media_rehash_performed") is not False:
         raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review boundary is invalid")
     if private.get("production_activation") is not False:
@@ -792,6 +842,9 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
         raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review lost train/evaluation groups")
     if manifest.get("eligible_observation_count") != frame_count:
         raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review observation count mismatch")
+    private_frames = private.get("frames")
+    if not isinstance(private_frames, list) or len(private_frames) != frame_count:
+        raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review frame count mismatch")
     return manifest
 
 
