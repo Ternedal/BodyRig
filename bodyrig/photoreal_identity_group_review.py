@@ -222,12 +222,9 @@ def _match_review_frame(
     adapter: Any,
     runtime: Any,
     source: Mapping[str, Any],
+    sample: Mapping[str, Any],
     reference: Mapping[str, Any],
 ) -> Any:
-    sample = {
-        "timestamp_seconds": reference.get("timestamp_seconds"),
-        "eye": reference.get("eye"),
-    }
     image, spatial = adapter.base._read_sample(runtime, source, sample)
     expected_sha = str(reference.get("frame_sha256") or "").strip().lower()
     matches: list[Any] = []
@@ -435,16 +432,23 @@ def prepare_review(
             raise PhotorealIdentityGroupReviewError(
                 f"Stage-7 source has no authorized samples: {source_key}"
             )
-        allowed = {
-            _sample_key(item.get("timestamp_seconds"), item.get("eye"))
+        target_key = _sample_key(raw.get("timestamp_seconds"), raw.get("eye"))
+        matching_samples = [
+            item
             for item in samples
             if isinstance(item, Mapping)
-        }
-        if _sample_key(raw.get("timestamp_seconds"), raw.get("eye")) not in allowed:
+            and _sample_key(item.get("timestamp_seconds"), item.get("eye")) == target_key
+        ]
+        if len(matching_samples) != 1:
             raise PhotorealIdentityGroupReviewError(
-                f"identity bank reference was not authorized by Stage-7 request: {source_key}"
+                f"identity bank reference did not resolve to exactly one authorized Stage-7 sample: {source_key}"
             )
-        grouped.setdefault(group_id, []).append(raw)
+        grouped.setdefault(group_id, []).append(
+            {
+                "reference": raw,
+                "request_sample": matching_samples[0],
+            }
+        )
 
     stage = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.stage-", dir=output_dir.parent))
     try:
@@ -457,13 +461,16 @@ def prepare_review(
             reproduced: list[tuple[Any, Mapping[str, Any]]] = []
             public_samples: list[dict[str, Any]] = []
             source_keys: list[str] = []
-            for ref in refs:
+            for bound in refs:
+                ref = bound["reference"]
+                request_sample = bound["request_sample"]
                 source_key = str(ref["source_key"])
                 source = sources[source_key]
                 frame = _match_review_frame(
                     adapter=adapter,
                     runtime=runtime,
                     source=source,
+                    sample=request_sample,
                     reference=ref,
                 )
                 reproduced.append((frame, ref))
@@ -473,6 +480,7 @@ def prepare_review(
                         "source_key_sha256": _sha256_bytes(source_key.encode("utf-8")),
                         "source_sha256": str(ref["source_sha256"]),
                         "timestamp_seconds": ref.get("timestamp_seconds"),
+                        "request_timestamp_seconds": request_sample.get("timestamp_seconds"),
                         "eye": str(ref.get("eye")),
                         "frame_sha256": str(ref["frame_sha256"]),
                     }
