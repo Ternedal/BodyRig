@@ -76,6 +76,8 @@ The teacher adapter must emit a manifest with exact provenance and a fixed revie
 
 Every review render is paired with held-out source evidence selected by BodyRig core, not by the teacher implementation.
 
+For the pinned ExAvatar `get_neutral_pose.py` path, BodyRig also emits `review/neutral-pose/cameras.json`. It binds render indices `0..49` to the exact upstream camera orbit (`azim = pi + 2*pi*i/50`, fixed elevation `-pi/6`) and the pinned upstream commit. The metadata deliberately leaves semantic labels such as front/profile unset; human review or a separately validated semantic alignment step must establish those labels before held-out likeness acceptance.
+
 Training success, PSNR, SSIM, LPIPS or identity embedding similarity are diagnostics. None of them grants photoreal acceptance.
 
 ## P1 hard failure conditions
