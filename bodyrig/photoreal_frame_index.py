@@ -434,6 +434,52 @@ def _cross_split_near_duplicates(observations: Iterable[Mapping[str, Any]]) -> l
     return result
 
 
+def _quarantine_cross_split_near_duplicates(
+    observations: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Remove train-side near-duplicate frames from teacher eligibility without weakening evaluation holdout."""
+
+    detected = _cross_split_near_duplicates(observations)
+    quarantine_frames = {
+        (str(item["train_source_key"]), str(item["train_frame_sha256"]))
+        for item in detected
+    }
+    quarantined: list[dict[str, Any]] = []
+    if quarantine_frames:
+        for item in observations:
+            key = (str(item["source_key"]), str(item["frame_sha256"]))
+            if (
+                item["split"] == "train"
+                and item["eligible_for_teacher"] is True
+                and key in quarantine_frames
+            ):
+                item["eligible_for_teacher"] = False
+                item["coverage"] = []
+                item["teacher_exclusion_reason"] = "cross-split-perceptual-near-duplicate"
+                quarantined.append(
+                    {
+                        "source_key": item["source_key"],
+                        "frame_sha256": item["frame_sha256"],
+                        "timestamp_seconds": item["timestamp_seconds"],
+                        "eye": item["eye"],
+                        "candidate_id": item["candidate_id"],
+                        "perceptual_hash": item["perceptual_hash"],
+                        "reason": "cross-split-perceptual-near-duplicate",
+                    }
+                )
+
+    quarantined.sort(
+        key=lambda item: (
+            str(item["source_key"]),
+            -1.0 if item["timestamp_seconds"] is None else float(item["timestamp_seconds"]),
+            str(item["eye"]),
+            str(item["candidate_id"]),
+        )
+    )
+    remaining = _cross_split_near_duplicates(observations)
+    return detected, quarantined, remaining
+
+
 def build_frame_index(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
@@ -568,7 +614,7 @@ def build_frame_index(
             item["candidate_id"],
         )
     )
-    duplicates = _cross_split_near_duplicates(normalized)
+    detected_duplicates, quarantined_train_observations, duplicates = _quarantine_cross_split_near_duplicates(normalized)
     train_eligible = [item for item in normalized if item["split"] == "train" and item["eligible_for_teacher"]]
     evaluation_eligible = [item for item in normalized if item["split"] == "evaluation" and item["eligible_for_teacher"]]
     observed_eval_coverage = sorted({label for item in evaluation_eligible for label in item["coverage"]})
@@ -616,6 +662,10 @@ def build_frame_index(
         "eligible_evaluation_observation_count": len(evaluation_eligible),
         "perceptual_hash_algorithm_contract": "64-bit-hamming-v1",
         "cross_split_max_hamming_distance": MAX_CROSS_SPLIT_HASH_DISTANCE,
+        "cross_split_detected_near_duplicate_count": len(detected_duplicates),
+        "cross_split_detected_near_duplicates": detected_duplicates,
+        "cross_split_quarantined_train_observation_count": len(quarantined_train_observations),
+        "cross_split_quarantined_train_observations": quarantined_train_observations,
         "cross_split_near_duplicate_count": len(duplicates),
         "cross_split_near_duplicates": duplicates,
         "held_out_view_coverage_required": effective_required,
