@@ -130,6 +130,8 @@ def _validate_provenance(root: Path) -> dict[str, Any]:
         "color_space": "RGB",
         "normalization": "ToTensor; mean=0.5,std=0.5 per RGB channel",
         "training_dataset_license_requires_operator_review": True,
+        "reuses_bodyrig_photoreal_torch": True,
+        "parallel_torch_install": False,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
