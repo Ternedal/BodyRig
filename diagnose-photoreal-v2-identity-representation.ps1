@@ -120,6 +120,7 @@ $wslRepo = Convert-ToWslPath $script:RepoRoot
 $wslTool = Convert-ToWslPath $tool
 $wslBank = Convert-ToWslPath $bank
 $wslRequest = Convert-ToWslPath $tempRequest
+$wslRequestOrigin = Convert-ToWslPath $request
 $wslPortrait = Convert-ToWslPath $PortraitRoot
 $wslReview = Convert-ToWslPath $ReviewRoot
 $wslModelRoot = Convert-ToWslPath $ModelRoot
@@ -146,6 +147,7 @@ $wslArgs = @(
     $LinuxPython, $wslTool,
     "--identity-bank", $wslBank,
     "--identity-request", $wslRequest,
+    "--identity-request-origin", $wslRequestOrigin,
     "--portrait-root", $wslPortrait,
     "--review-root", $wslReview,
     "--model-root", $wslModelRoot,
