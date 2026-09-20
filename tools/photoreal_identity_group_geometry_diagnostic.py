@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import importlib.util
 import json
 import math
@@ -799,6 +800,289 @@ def _reference_ablation_after_removed_groups(
     }
 
 
+
+def _write_boundary_witness_review(
+    *,
+    confusion: Any,
+    runtime: Any,
+    output_root: Path,
+    current_boundary: dict[str, Any],
+    alternate_boundary: dict[str, Any],
+    current_positives: list[dict[str, Any]],
+    alternate_positives: list[dict[str, Any]],
+    review_media: Mapping[int, dict[str, Any]],
+) -> dict[str, Any]:
+    current_floor = current_boundary["baseline_witnesses"][
+        "current-reference-weighted"
+    ]["positive_floor_witness"]
+    alternate_floor = alternate_boundary["baseline_witnesses"][
+        "current-reference-weighted"
+    ]["positive_floor_witness"]
+    witness_indices = {
+        "w600k-r50": int(current_floor["reference_index"]),
+        "antelopev2-glintr100": int(alternate_floor["reference_index"]),
+    }
+    witness_groups = sorted(
+        {
+            str(current_floor["group_id"]),
+            str(alternate_floor["group_id"]),
+        }
+    )
+
+    current_by_index = {
+        int(item["reference_index"]): item
+        for item in current_positives
+    }
+    alternate_by_index = {
+        int(item["reference_index"]): item
+        for item in alternate_positives
+    }
+
+    selected_indices = sorted(
+        int(item["reference_index"])
+        for item in current_positives
+        if str(item["group_id"]) in witness_groups
+    )
+    if not selected_indices:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "boundary witness review resolved no positive references"
+        )
+
+    output_root.mkdir(parents=True, exist_ok=False)
+    media_root = output_root / "media"
+    rows: list[dict[str, Any]] = []
+
+    for reference_index in selected_indices:
+        current = current_by_index[reference_index]
+        alternate = alternate_by_index[reference_index]
+        media = review_media.get(reference_index)
+        if media is None:
+            raise PhotorealIdentityGroupGeometryDiagnosticError(
+                f"boundary witness review media missing for reference {reference_index}"
+            )
+
+        group_id = str(current["group_id"])
+        sibling_indices = sorted(
+            int(item["reference_index"])
+            for item in current_positives
+            if str(item["group_id"]) == group_id
+            and int(item["reference_index"]) != reference_index
+        )
+        current_sibling = [
+            {
+                "reference_index": sibling_index,
+                "cosine": round(
+                    float(
+                        confusion._load_module  # type: ignore[attr-defined]
+                    ) if False else 0.0,
+                    9,
+                ),
+            }
+            for sibling_index in []
+        ]
+        current_sibling = [
+            {
+                "reference_index": sibling_index,
+                "cosine": round(
+                    float(
+                        sum(
+                            a * b
+                            for a, b in zip(
+                                current["embedding"],
+                                current_by_index[sibling_index]["embedding"],
+                                strict=True,
+                            )
+                        )
+                    ),
+                    9,
+                ),
+            }
+            for sibling_index in sibling_indices
+        ]
+        alternate_sibling = [
+            {
+                "reference_index": sibling_index,
+                "cosine": round(
+                    float(
+                        sum(
+                            a * b
+                            for a, b in zip(
+                                alternate["embedding"],
+                                alternate_by_index[sibling_index]["embedding"],
+                                strict=True,
+                            )
+                        )
+                    ),
+                    9,
+                ),
+            }
+            for sibling_index in sibling_indices
+        ]
+
+        frame_name = f"ref-{reference_index:02d}-frame.png"
+        crop_name = f"ref-{reference_index:02d}-aligned.png"
+        confusion._write_png(
+            runtime,
+            media_root / frame_name,
+            media["frame"],
+        )
+        confusion._write_png(
+            runtime,
+            media_root / crop_name,
+            media["aligned"],
+        )
+
+        witness_for = [
+            variant
+            for variant, index in witness_indices.items()
+            if index == reference_index
+        ]
+        rows.append(
+            {
+                "reference_index": reference_index,
+                "group_id": group_id,
+                "witness_for": witness_for,
+                "source_key": current["source_key"],
+                "timestamp_seconds": current["timestamp_seconds"],
+                "eye": current["eye"],
+                "frame_sha256": current["frame_sha256"],
+                "viewport_id": media.get("viewport_id"),
+                "quality": current["quality"],
+                "frame_image": f"media/{frame_name}",
+                "aligned_image": f"media/{crop_name}",
+                "sibling_reference_indices": sibling_indices,
+                "w600k_sibling_cosines": current_sibling,
+                "glintr100_sibling_cosines": alternate_sibling,
+            }
+        )
+
+    rows.sort(
+        key=lambda item: (
+            str(item["group_id"]),
+            int(item["reference_index"]),
+        )
+    )
+
+    def _fmt_quality(quality: Mapping[str, Any]) -> str:
+        pose = quality.get("pose")
+        pose_text = ""
+        if isinstance(pose, Mapping):
+            pose_text = (
+                f"yaw={html.escape(str(pose.get('yaw')))} "
+                f"pitch={html.escape(str(pose.get('pitch')))} "
+                f"roll={html.escape(str(pose.get('roll')))}"
+            )
+        return (
+            f"det={html.escape(str(quality.get('det_score')))}<br>"
+            f"view={html.escape(str(quality.get('view_bin')))}<br>"
+            f"{pose_text}<br>"
+            f"facepx={html.escape(str(quality.get('bbox_min_dimension_pixels')))}<br>"
+            f"offset={html.escape(str(quality.get('face_center_offset_fraction')))}<br>"
+            f"frame sharp={html.escape(str(quality.get('frame_sharpness')))}<br>"
+            f"crop sharp={html.escape(str(quality.get('face_crop_sharpness')))}"
+        )
+
+    html_rows: list[str] = []
+    for row in rows:
+        marker = (
+            ", ".join(row["witness_for"])
+            if row["witness_for"]
+            else "sibling/control"
+        )
+        current_siblings = ", ".join(
+            f"ref {item['reference_index']}: {item['cosine']:.6f}"
+            for item in row["w600k_sibling_cosines"]
+        ) or "none"
+        alternate_siblings = ", ".join(
+            f"ref {item['reference_index']}: {item['cosine']:.6f}"
+            for item in row["glintr100_sibling_cosines"]
+        ) or "none"
+        html_rows.append(
+            "<tr>"
+            f"<td><strong>ref {row['reference_index']}</strong><br>"
+            f"{html.escape(row['group_id'])}<br>"
+            f"<strong>{html.escape(marker)}</strong><br>"
+            f"t={html.escape(str(row['timestamp_seconds']))}s<br>"
+            f"eye={html.escape(str(row['eye']))}<br>"
+            f"viewport={html.escape(str(row['viewport_id']))}</td>"
+            f"<td><img class=\"frame\" src=\"{html.escape(row['frame_image'])}\"></td>"
+            f"<td><img class=\"crop\" src=\"{html.escape(row['aligned_image'])}\"></td>"
+            f"<td>{_fmt_quality(row['quality'])}</td>"
+            f"<td>w600k: {html.escape(current_siblings)}<br><br>"
+            f"glintr100: {html.escape(alternate_siblings)}</td>"
+            f"<td>{html.escape(str(row['source_key']))}<br><small>{html.escape(str(row['frame_sha256']))}</small></td>"
+            "</tr>"
+        )
+
+    document = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BodyRig identity boundary witness review</title>
+<style>
+body {{ font-family: Segoe UI, Arial, sans-serif; background:#111; color:#eee; margin:24px; }}
+.notice {{ border:1px solid #666; background:#1b1b1b; padding:12px; margin-bottom:16px; }}
+table {{ border-collapse:collapse; width:100%; }}
+th, td {{ border:1px solid #444; padding:9px; vertical-align:top; }}
+th {{ background:#222; position:sticky; top:0; }}
+img.frame {{ width:300px; max-height:300px; object-fit:contain; background:#000; }}
+img.crop {{ width:180px; height:180px; object-fit:contain; background:#000; }}
+small {{ color:#aaa; word-break:break-all; }}
+</style>
+</head>
+<body>
+<h1>BodyRig identity boundary witness review</h1>
+<div class="notice">
+<strong>Purpose:</strong> compare the exact boundary-setting positive references with every sibling reference in the same human-attested group.<br>
+<strong>w600k witness:</strong> ref {witness_indices['w600k-r50']} / {html.escape(str(current_floor['group_id']))}<br>
+<strong>glintr100 witness:</strong> ref {witness_indices['antelopev2-glintr100']} / {html.escape(str(alternate_floor['group_id']))}<br>
+<strong>Authority:</strong> diagnostic only. No reference is rejected and no identity bank is changed.
+</div>
+<table>
+<thead><tr>
+<th>Reference</th><th>Exact replay frame</th><th>Aligned 112x112 crop</th>
+<th>Quality / pose</th><th>Same-group cosine</th><th>Source / frame SHA</th>
+</tr></thead>
+<tbody>
+{''.join(html_rows)}
+</tbody>
+</table>
+</body>
+</html>
+"""
+    html_path = output_root / "review-index.html"
+    html_path.write_text(document, encoding="utf-8")
+    json_path = output_root / "boundary-witness-review.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "witness_indices": witness_indices,
+                "witness_groups": witness_groups,
+                "rows": rows,
+                "diagnostic_only": True,
+                "reference_rejection_authority": False,
+                "identity_bank_mutation_authority": False,
+                "production_activation": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "root": str(output_root),
+        "html": str(html_path),
+        "json": str(json_path),
+        "witness_indices": witness_indices,
+        "witness_groups": witness_groups,
+        "row_count": len(rows),
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -957,6 +1241,7 @@ def main(argv: list[str] | None = None) -> int:
 
     current_positives: list[dict[str, Any]] = []
     alternate_positives: list[dict[str, Any]] = []
+    review_media: dict[int, dict[str, Any]] = {}
     for index, raw in enumerate(references):
         if not isinstance(raw, Mapping):
             raise PhotorealIdentityGroupGeometryDiagnosticError(
@@ -987,7 +1272,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_frame_sha=expected_frame_sha,
             )
         )
-        _crop, current, alternate, quality = (
+        aligned_crop, current, alternate, quality = (
             confusion._face_crop_and_embeddings(
                 ab=ab,
                 adapter=adapter,
@@ -1012,6 +1297,11 @@ def main(argv: list[str] | None = None) -> int:
             raise PhotorealIdentityGroupGeometryDiagnosticError(
                 "identity bank reference lacks group id"
             )
+        review_media[index] = {
+            "frame": image.copy(),
+            "aligned": aligned_crop.copy(),
+            "viewport_id": _viewport_id,
+        }
         base = {
             "reference_index": index,
             "group_id": group_id,
@@ -1134,6 +1424,20 @@ def main(argv: list[str] | None = None) -> int:
         removed_group_ids=candidate_removed_groups,
     )
 
+    witness_review_root = output.parent / (
+        output.stem + "-witness-review"
+    )
+    witness_review = _write_boundary_witness_review(
+        confusion=confusion,
+        runtime=runtime,
+        output_root=witness_review_root,
+        current_boundary=current_boundary,
+        alternate_boundary=alternate_boundary,
+        current_positives=current_positives,
+        alternate_positives=alternate_positives,
+        review_media=review_media,
+    )
+
     bodyrig_revision = str(os.environ.get("BODYRIG_REVISION") or "").strip().lower()
     if (
         len(bodyrig_revision) != 40
@@ -1197,6 +1501,7 @@ def main(argv: list[str] | None = None) -> int:
             "w600k-r50": current_boundary,
             "antelopev2-glintr100": alternate_boundary,
         },
+        "boundary_witness_review": witness_review,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
@@ -1274,6 +1579,7 @@ def main(argv: list[str] | None = None) -> int:
                         ],
                     },
                 },
+                "boundary_witness_review": witness_review,
                 "diagnostic_only": True,
                 "production_activation": False,
                 "output": str(output),
