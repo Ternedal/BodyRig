@@ -176,6 +176,7 @@ try {
     Write-Host "Evidence:       exact 27 positive + persisted negative frames"
     Write-Host "Geometry:       per-group cohesion, LGO, positive neighbors, negative overlap"
     Write-Host "Ablation:       exhaustive counterfactual removal of 0-3 positive groups"
+    Write-Host "Boundary:       exact floor/ceiling witnesses + single-reference sensitivity"
     Write-Host "Source rehash:  NO"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -272,6 +273,54 @@ try {
             )
         } else {
             Write-Host "    first all-model pass: NONE within 3 removed groups"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Boundary witness after counterfactual removal [scene:805,scene:889,scene:978]:"
+    foreach ($variantName in @("w600k-r50","antelopev2-glintr100")) {
+        $boundary = $result.candidate_boundary_witness.$variantName
+        $currentWitness = $boundary.baseline_witnesses."current-reference-weighted"
+        $floor = $currentWitness.positive_floor_witness
+        $ceiling = $currentWitness.negative_ceiling_witness
+        Write-Host (
+            "  {0}: floor ref={1} group={2} score={3} | ceiling neg={4} subject={5} score={6} | margin={7}" -f
+            $variantName,
+            $floor.reference_index,
+            $floor.group_id,
+            $floor.score,
+            $ceiling.negative_index,
+            $ceiling.subject_performer_id,
+            $ceiling.score,
+            $currentWitness.observed_separation_margin
+        )
+        $bestRef = $boundary.best_single_reference_ablation
+        if ($null -ne $bestRef) {
+            Write-Host (
+                "    best single-ref counterfactual: ref={0} group={1} min-margin={2} all-pass={3}" -f
+                $bestRef.removed_reference_index,
+                $bestRef.removed_group_id,
+                $bestRef.minimum_margin_across_models,
+                $bestRef.all_models_meet_margin
+            )
+            foreach ($modelName in @("current-reference-weighted","group-balanced-centroid-lgo","nearest-group-prototype")) {
+                $score = $bestRef.scoring_models.$modelName
+                Write-Host (
+                    "      {0,-30} margin={1} meets={2}" -f
+                    $modelName,
+                    $score.observed_separation_margin,
+                    $score.would_meet_margin
+                )
+            }
+        }
+        if ($null -ne $boundary.first_all_models_pass) {
+            Write-Host (
+                "    first single-ref all-model pass: ref={0} group={1}" -f
+                $boundary.first_all_models_pass.removed_reference_index,
+                $boundary.first_all_models_pass.removed_group_id
+            )
+        } else {
+            Write-Host "    first single-ref all-model pass: NONE"
         }
     }
 
