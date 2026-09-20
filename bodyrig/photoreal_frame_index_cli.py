@@ -49,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
                 "observation_count": result["observation_count"],
                 "eligible_train_observation_count": result["eligible_train_observation_count"],
                 "eligible_evaluation_observation_count": result["eligible_evaluation_observation_count"],
+                "cross_split_detected_near_duplicate_count": result["cross_split_detected_near_duplicate_count"],
+                "cross_split_quarantined_train_observation_count": result["cross_split_quarantined_train_observation_count"],
                 "cross_split_near_duplicate_count": result["cross_split_near_duplicate_count"],
                 "held_out_view_coverage_missing": result["held_out_view_coverage_missing"],
                 "teacher_training_authorized": result["teacher_training_authorized"],
