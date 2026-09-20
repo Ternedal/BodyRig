@@ -116,6 +116,10 @@ def test_build_runtime_adds_all_secondary_geometry_without_component_authority(t
     assert bodyrig["fidelityComponents"]["components"]["face_secondary"] == "missing"
     assert bodyrig["faceSecondaryReviewRuntime"]["generativeIdentitySynthesis"] is False
     assert bodyrig["faceSecondaryReviewRuntime"]["faceSecondaryComponentAuthority"] is False
+    metadata = bodyrig["faceSecondaryReviewRuntime"]
+    assert metadata["mouthInteriorGeometry"] == "deterministic-rounded-oval-cavity-v2"
+    assert metadata["teethGeometry"] == "deterministic-individual-rounded-dental-row-v2"
+    assert metadata["eyelashGeometry"] == "deterministic-smplx-head-anchored-tapered-ribbon-v2"
 
 
 def test_runtime_requires_promoted_eyes(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,3 +152,60 @@ def test_runtime_is_create_only(tmp_path, monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(runtime.HighFidelityFaceSecondaryRuntimeError, match="create-only"):
         runtime.build_runtime(package, output, bodyrig_revision="a" * 40)
+
+
+def test_secondary_geometry_is_smooth_and_not_box_primitives() -> None:
+    mouth = runtime._oval_prism(
+        (0.0, 0.0, 0.0),
+        (0.06, 0.015, 0.006),
+        1,
+    )
+    upper = runtime._tooth_row(
+        (0.0, 0.004, 0.003),
+        (0.045, 0.006, 0.004),
+        0,
+        upper=True,
+    )
+    lower = runtime._tooth_row(
+        (0.0, -0.004, 0.003),
+        (0.043, 0.0055, 0.0038),
+        1,
+        upper=False,
+    )
+    lash = runtime._lash((0.03, 0.05, 0.02), 0.062, 0)
+
+    mouth_positions, mouth_normals, mouth_faces, mouth_joint = mouth
+    upper_positions, upper_normals, upper_faces, upper_joint = upper
+    lower_positions, lower_normals, lower_faces, lower_joint = lower
+    lash_positions, lash_normals, lash_faces, lash_joint = lash
+
+    assert mouth_joint == 1
+    assert len(mouth_positions) > 50
+    assert len(mouth_positions) == len(mouth_normals)
+    assert len(mouth_faces) > 50
+
+    assert upper_joint == 0
+    assert lower_joint == 1
+    assert len(upper_positions) > 300
+    assert len(lower_positions) > 300
+    assert len(upper_positions) == len(upper_normals)
+    assert len(lower_positions) == len(lower_normals)
+    assert len(upper_faces) > 500
+    assert len(lower_faces) > 500
+
+    assert lash_joint == 0
+    assert len(lash_positions) == 34
+    assert len(lash_positions) == len(lash_normals)
+    assert len(lash_faces) == 32
+
+
+def test_tooth_row_has_visible_depth_curve() -> None:
+    positions, _normals, _faces, _joint = runtime._tooth_row(
+        (0.0, 0.0, 0.0),
+        (0.05, 0.006, 0.004),
+        0,
+        upper=True,
+    )
+    z_values = [position[2] for position in positions]
+
+    assert max(z_values) - min(z_values) > 0.003
