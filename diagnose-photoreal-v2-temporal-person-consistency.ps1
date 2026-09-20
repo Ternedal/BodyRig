@@ -139,7 +139,7 @@ try {
     Write-Host "Attestation:    $attestation"
     Write-Host "Device:         $Device"
     Write-Host "Window:         -0.20/-0.10/0/+0.10/+0.20 sec"
-    Write-Host "Signals:        bbox / pose / crop appearance"
+    Write-Host "Signals:        keypoint ROI / pose / crop appearance (detector bbox audit only)"
     Write-Host "Face matching:  NO"
     Write-Host "Face embedding: NO"
     Write-Host "Source rehash:  NO"
