@@ -26,7 +26,7 @@ def _bank() -> dict[str, object]:
         "identity_bank_sha256": "b" * 64,
         "extractor": "bodyrig-reference-vision-v1",
         "extractor_revision": "r" * 64,
-        "model_set_sha256": "m" * 64,
+        "model_set_sha256": "a" * 64,
         "embedding_dimension": 2,
     }
 
@@ -34,7 +34,7 @@ def _bank() -> dict[str, object]:
 def _source() -> dict[str, object]:
     return {
         "source_key": "scene:9:E:/negative.mp4",
-        "source_sha256": "s" * 64,
+        "source_sha256": "c" * 64,
         "subject_performer_id": "99",
         "resolved_path": "E:/negative.mp4",
         "samples": [
@@ -54,7 +54,7 @@ def _calibration_request() -> dict[str, object]:
         "identity_bank_sha256": "b" * 64,
         "adapter": "bodyrig-reference-vision-v1",
         "revision": "r" * 64,
-        "model_set_sha256": "m" * 64,
+        "model_set_sha256": "a" * 64,
         "embedding_dimension": 2,
         "sources": [_source()],
         "measurement_only": True,
@@ -74,12 +74,12 @@ def _negative_observations() -> dict[str, object]:
         "identity_bank_sha256": "b" * 64,
         "extractor": "bodyrig-reference-vision-v1",
         "extractor_revision": "r" * 64,
-        "model_set_sha256": "m" * 64,
+        "model_set_sha256": "a" * 64,
         "embedding_dimension": 2,
         "observations": [
             {
                 "source_key": "scene:9:E:/negative.mp4",
-                "source_sha256": "s" * 64,
+                "source_sha256": "c" * 64,
                 "subject_performer_id": "99",
                 "timestamp_seconds": 1.25,
                 "eye": "mono",
@@ -197,7 +197,7 @@ def test_negative_observations_reject_model_set_substitution() -> None:
         adapter_revision="r" * 64,
     )
     observations = _negative_observations()
-    observations["model_set_sha256"] = "x" * 64
+    observations["model_set_sha256"] = "d" * 64
 
     with pytest.raises(
         diagnostic.PhotorealIdentityFlipTtaDiagnosticError,
