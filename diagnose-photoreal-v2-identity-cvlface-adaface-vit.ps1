@@ -276,6 +276,41 @@ try {
     }
 
     Write-Host ""
+    Write-Host "Fixed temporal identity bundle (-0.20/-0.10/0/+0.10/+0.20s):"
+    foreach ($name in @("bank-w600k-r50","cvlface-adaface-vit-base-webface4m")) {
+        $bundle = $result.temporal_bundle.$name
+        if ($null -eq $bundle) { continue }
+        Write-Host (
+            "  {0}: status={1} pos={2:P1} neg={3:P1} min-valid={4}" -f
+            $name,
+            $bundle.status,
+            [double]$bundle.positive_reference_coverage,
+            [double]$bundle.negative_observation_coverage,
+            $bundle.minimum_valid_frame_count
+        )
+        if ($bundle.status -eq "available") {
+            foreach ($model in @("current-reference-weighted","group-balanced-centroid-lgo","nearest-group-prototype")) {
+                $score = $bundle.scoring_models.$model
+                if ($null -eq $score) { continue }
+                Write-Host (
+                    "    {0,-30} floor={1} ceiling={2} margin={3} meets={4}" -f
+                    $model,
+                    $score.positive_floor,
+                    $score.negative_ceiling,
+                    $score.observed_separation_margin,
+                    $score.would_meet_margin
+                )
+            }
+        }
+        Write-Host (
+            "    selection: fixed-a-priori={0} negatives-used={1} source-rehash={2}" -f
+            $bundle.fixed_window_selected_a_priori,
+            $bundle.negative_evidence_used_for_window_selection,
+            $bundle.source_rehash_required
+        )
+    }
+
+    Write-Host ""
     Write-Host "Diagnostic JSON: $output"
     Write-Host "License: model-card training-dataset terms remain operator-reviewed; diagnostic only."
     Write-Host "Authority: diagnostic-only; no identity matching, training, photoreal or production authority."
