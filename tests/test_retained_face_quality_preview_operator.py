@@ -28,9 +28,9 @@ def test_operator_reuses_retained_reconstruction_and_produces_visible_face_views
     ):
         assert view in source
 
-    assert '"reconstruction_rerun = $false"' in source
-    assert '"rounded_face_secondary_geometry = $true"' in source
-    assert '"production_activation = $false"' in source
+    assert "reconstruction_rerun = $false" in source
+    assert "rounded_face_secondary_geometry = $true" in source
+    assert "production_activation = $false" in source
     assert "deterministic-rounded-oval-cavity-v2" in source
     assert "deterministic-individual-rounded-dental-row-v2" in source
     assert "deterministic-smplx-head-anchored-tapered-ribbon-v2" in source
