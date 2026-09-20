@@ -139,3 +139,72 @@ def test_persisted_negative_replay_uses_validated_stage13_samples() -> None:
     assert 'image, spatial = adapter._read_sample(runtime, source, sample)' in negative_loop
     assert 'stored = item["stored_embedding"]' in negative_loop
     assert 'adapter._frame_sha(image) != item["frame_sha256"]' in negative_loop
+
+
+def _unit(*values: float) -> list[float]:
+    vector = [0.0] * diagnostic.MODEL_DIMENSION
+    for index, value in enumerate(values):
+        vector[index] = value
+    norm = sum(value * value for value in vector) ** 0.5
+    return [value / norm for value in vector]
+
+
+def test_positive_subspace_selection_is_independent_of_negatives() -> None:
+    np = pytest.importorskip("numpy")
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": _unit(1.0, 0.00, 0.00)},
+        {"reference_index": 1, "group_id": "scene:2", "embedding": _unit(0.98, 0.20, 0.00)},
+        {"reference_index": 2, "group_id": "scene:3", "embedding": _unit(0.95, -0.25, 0.00)},
+        {"reference_index": 3, "group_id": "scene:4", "embedding": _unit(0.92, 0.35, 0.00)},
+        {"reference_index": 4, "group_id": "scene:5", "embedding": _unit(0.90, -0.40, 0.00)},
+    ]
+    negatives_a = [
+        {"negative_index": 0, "subject_performer_id": "99", "embedding": _unit(0.0, 0.0, 1.0)}
+    ]
+    negatives_b = [
+        {"negative_index": 0, "subject_performer_id": "99", "embedding": _unit(0.7, 0.7, 0.1)},
+        {"negative_index": 1, "subject_performer_id": "100", "embedding": _unit(-0.2, 0.1, 0.97)},
+    ]
+
+    first = diagnostic._positive_only_subspace_diagnostic(
+        np=np,
+        positives=positives,
+        negatives=negatives_a,
+        variance_target=0.95,
+    )
+    second = diagnostic._positive_only_subspace_diagnostic(
+        np=np,
+        positives=positives,
+        negatives=negatives_b,
+        variance_target=0.95,
+    )
+
+    assert first["final_rank"] == second["final_rank"]
+    assert first["fold_ranks"] == second["fold_ranks"]
+    assert first["final_explained_variance"] == second["final_explained_variance"]
+    assert first["positive_model_selection_only"] is True
+    assert first["negative_evidence_used_for_selection"] is False
+    assert first["positive_score_count"] == len(positives)
+    assert first["negative_score_count"] == len(negatives_a)
+    assert second["negative_score_count"] == len(negatives_b)
+    assert first["all_positive_references_retained"] is True
+    assert first["all_positive_groups_retained"] is True
+    assert first["all_negative_observations_retained"] is True
+
+
+def test_positive_subspace_fit_uses_smallest_rank_reaching_target() -> None:
+    np = pytest.importorskip("numpy")
+    centroids = [
+        _unit(1.0, 0.00, 0.0),
+        _unit(0.98, 0.20, 0.0),
+        _unit(0.96, -0.28, 0.0),
+        _unit(0.94, 0.34, 0.0),
+    ]
+    model = diagnostic._fit_positive_subspace(
+        np=np,
+        group_centroids=centroids,
+        variance_target=0.95,
+    )
+
+    assert 1 <= model["rank"] <= 3
+    assert model["explained_variance"] >= 0.95
