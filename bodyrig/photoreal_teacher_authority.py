@@ -454,9 +454,12 @@ def validate_external_teacher_files_strict(
     )
     validated = validate_teacher_input_document(teacher_input)
     request = build_teacher_request(config, validated)
-    output = Path(workspace).expanduser().resolve()
+    workspace_root = Path(workspace).expanduser().resolve()
+    if not workspace_root.is_dir():
+        raise PhotorealTeacherRunnerError(f"teacher workspace is missing: {workspace_root}")
+    output = workspace_root / "output"
     if not output.is_dir():
-        raise PhotorealTeacherRunnerError(f"teacher output workspace is missing: {output}")
+        raise PhotorealTeacherRunnerError(f"teacher output directory is missing: {output}")
     manifest = _read_json(
         output / "teacher-manifest.json",
         label="photoreal teacher manifest",
