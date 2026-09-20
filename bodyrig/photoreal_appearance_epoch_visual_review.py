@@ -734,6 +734,9 @@ def prepare_review(
             "photoreal_acceptance_authority": False,
             "production_activation": False,
         }
+        review_html_path = stage / "review-index.html"
+        _write_review_html(manifest, review_html_path)
+        manifest["review_index_sha256"] = _sha256_file(review_html_path)
         manifest_path = stage / "appearance-epoch-visual-review-manifest.json"
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
@@ -754,7 +757,6 @@ def prepare_review(
             json.dumps(private_index, indent=2, sort_keys=True, allow_nan=False) + "\n",
             encoding="utf-8",
         )
-        _write_review_html(manifest, stage / "review-index.html")
         os.replace(stage, output)
     except Exception:
         shutil.rmtree(stage, ignore_errors=True)
@@ -777,6 +779,8 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
     if private.get("format") != PRIVATE_FORMAT:
         raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review index format/version mismatch")
     _strict_v1(private.get("version"), label="private appearance epoch review index")
+    if _sha(manifest.get("review_index_sha256"), label="review HTML SHA-256") != _sha256_file(review_html):
+        raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review HTML bytes changed")
     if _git_sha(manifest.get("bodyrig_revision"), label="manifest BodyRig revision") != _git_sha(
         request.get("bodyrig_revision"), label="request BodyRig revision"
     ):
@@ -813,6 +817,7 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
     if not isinstance(groups, list) or not groups:
         raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review manifest has no groups")
     frame_count = 0
+    public_frame_ids: set[str] = set()
     split_groups = {"train": 0, "evaluation": 0}
     for group in groups:
         if not isinstance(group, Mapping):
@@ -827,6 +832,10 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
         for frame in frames:
             if not isinstance(frame, Mapping):
                 raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review frame is invalid")
+            frame_id = _text(frame.get("frame_id"), label="review frame id", maximum=128)
+            if frame_id in public_frame_ids:
+                raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review repeats public frame id")
+            public_frame_ids.add(frame_id)
             relative = Path(_text(frame.get("relative_path"), label="review frame relative path"))
             if relative.is_absolute() or ".." in relative.parts:
                 raise PhotorealAppearanceEpochVisualReviewError("review frame path escapes review root")
@@ -840,11 +849,35 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
             frame_count += 1
     if min(split_groups.values()) < 1:
         raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review lost train/evaluation groups")
-    if manifest.get("eligible_observation_count") != frame_count:
-        raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review observation count mismatch")
+    group_count = manifest.get("group_count")
+    train_group_count = manifest.get("train_group_count")
+    evaluation_group_count = manifest.get("evaluation_group_count")
+    for value, expected, label in (
+        (group_count, len(groups), "group count"),
+        (train_group_count, split_groups["train"], "train group count"),
+        (evaluation_group_count, split_groups["evaluation"], "evaluation group count"),
+        (manifest.get("eligible_observation_count"), frame_count, "observation count"),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            raise PhotorealAppearanceEpochVisualReviewError(f"appearance epoch review {label} mismatch")
     private_frames = private.get("frames")
     if not isinstance(private_frames, list) or len(private_frames) != frame_count:
         raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review frame count mismatch")
+    private_frame_ids: set[str] = set()
+    for raw in private_frames:
+        if not isinstance(raw, Mapping):
+            raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review frame is invalid")
+        frame_id = _text(raw.get("frame_id"), label="private review frame id", maximum=128)
+        if frame_id in private_frame_ids:
+            raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review repeats frame id")
+        private_frame_ids.add(frame_id)
+        _text(raw.get("source_key"), label="private review source key")
+        resolved_path = _text(raw.get("resolved_path"), label="private review resolved path")
+        if not resolved_path.startswith("/"):
+            raise PhotorealAppearanceEpochVisualReviewError("private appearance epoch review source path is not Linux absolute")
+        _sha(raw.get("source_sha256"), label="private review source SHA-256")
+    if private_frame_ids != public_frame_ids:
+        raise PhotorealAppearanceEpochVisualReviewError("private/public appearance epoch review frame universe mismatch")
     return manifest
 
 
