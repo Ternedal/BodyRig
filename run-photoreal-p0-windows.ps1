@@ -352,12 +352,6 @@ try {
         Write-Host "Reason: single-performer Stash sources are independently authorized by source binding."
         Write-Host "Ambiguous/multi-person frames remain unresolved without calibrated matching."
     }
-        Write-Host ""
-        Write-Host "BodyRig Photoreal P0: IDENTITY CALIBRATION BLOCKED"
-        Write-Host "Teacher training: BLOCKED"
-        Write-Host "Status:           $StatusPath"
-        exit 2
-    }
 
     Invoke-PythonStage -Label "14/16 MEASURE ALL PLANNED FRAMES" -Arguments @(
         "-m", "bodyrig.photoreal_frame_analyzer_cli",
