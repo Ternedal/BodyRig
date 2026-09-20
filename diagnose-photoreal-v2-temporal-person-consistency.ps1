@@ -191,6 +191,11 @@ try {
             $s.available_anchor_count,
             $s.anchor_count
         )
+        Write-Host (
+            "  distinct-frame guard: duplicates={0} minimum-distinct={1}" -f
+            $s.anchors_with_duplicate_decodes,
+            $s.minimum_distinct_decoded_frames
+        )
         if ($null -ne $s.median_bbox_iou) {
             Write-Host (
                 "  bbox IoU min/med/max:       {0} / {1} / {2}" -f
