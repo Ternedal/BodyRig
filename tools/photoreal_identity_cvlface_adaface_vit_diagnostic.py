@@ -24,6 +24,8 @@ MODEL_FILE = "model/model.safetensors"
 MODEL_SHA256 = "5fafd6b7d599a3ede5fac5bd1d01ad05e9e93e89b39b7687d4a3bc93ff2aebc0"
 MODEL_DIMENSION = 512
 MODEL_INPUT_SIZE = 112
+TEMPORAL_BUNDLE_OFFSETS_SECONDS = (-0.20, -0.10, 0.0, 0.10, 0.20)
+TEMPORAL_BUNDLE_MIN_VALID = 3
 
 
 class PhotorealIdentityCvlFaceDiagnosticError(RuntimeError):
@@ -525,6 +527,185 @@ def _positive_only_subspace_diagnostic(
         "threshold_selection_authority": False,
         "identity_bank_mutation_authority": False,
         "diagnostic_only": True,
+    }
+
+
+def _project_temporal_anchor_view(
+    *,
+    representation: Any,
+    adapter: Any,
+    runtime: Any,
+    source: Mapping[str, Any],
+    sample: Mapping[str, Any],
+    anchor_viewport: Mapping[str, Any] | None,
+) -> Any:
+    eye_image, spatial = adapter._read_sample(runtime, source, sample)
+    if not spatial:
+        return eye_image
+    if anchor_viewport is None:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "temporal spatial replay lacks anchor viewport"
+        )
+    if source.get("projection") != "equi":
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "temporal spatial replay currently requires equirectangular source"
+        )
+    authority = source.get("projection_authority")
+    if not isinstance(authority, Mapping):
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "temporal spatial replay lacks projection authority"
+        )
+    height, width = eye_image.shape[:2]
+    map_x, map_y = representation.build_equirectangular_remap(
+        runtime.np,
+        image_width=width,
+        image_height=height,
+        projection_authority=authority,
+        viewport=anchor_viewport,
+    )
+    image = runtime.cv2.remap(
+        eye_image,
+        map_x,
+        map_y,
+        interpolation=runtime.cv2.INTER_LINEAR,
+        borderMode=runtime.cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0),
+    )
+    if image is None or getattr(image, "size", 0) == 0:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "temporal anchor-view projection produced an empty image"
+        )
+    return runtime.np.ascontiguousarray(image)
+
+
+def _temporal_bundle_measurement(
+    *,
+    representation: Any,
+    adapter: Any,
+    runtime: Any,
+    model: Any,
+    torch: Any,
+    torch_device: Any,
+    source: Mapping[str, Any],
+    sample: Mapping[str, Any],
+    anchor_image: Any,
+    anchor_viewport: Mapping[str, Any] | None,
+    anchor_current: list[float],
+    anchor_cvlface: list[float],
+    dimension: int,
+) -> dict[str, Any]:
+    timestamp = sample.get("timestamp_seconds")
+    if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "temporal bundle anchor timestamp is invalid"
+        )
+    source_kind = str(source.get("kind") or "").strip()
+    current_vectors = [anchor_current]
+    cvlface_vectors = [anchor_cvlface]
+    attempts: list[dict[str, Any]] = [
+        {"offset_seconds": 0.0, "status": "anchor", "usable": True}
+    ]
+
+    if source_kind == "video":
+        for offset in TEMPORAL_BUNDLE_OFFSETS_SECONDS:
+            if abs(float(offset)) <= 1e-12:
+                continue
+            target = float(timestamp) + float(offset)
+            if target < 0.0:
+                attempts.append(
+                    {
+                        "offset_seconds": float(offset),
+                        "status": "before-source-start",
+                        "usable": False,
+                    }
+                )
+                continue
+            neighbor_sample = dict(sample)
+            neighbor_sample["timestamp_seconds"] = target
+            try:
+                image = _project_temporal_anchor_view(
+                    representation=representation,
+                    adapter=adapter,
+                    runtime=runtime,
+                    source=source,
+                    sample=neighbor_sample,
+                    anchor_viewport=anchor_viewport,
+                )
+                current, alternate, _quality = _measure(
+                    adapter=adapter,
+                    runtime=runtime,
+                    representation=representation,
+                    model=model,
+                    torch=torch,
+                    torch_device=torch_device,
+                    image=image,
+                    dimension=dimension,
+                )
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(
+                    {
+                        "offset_seconds": float(offset),
+                        "status": type(exc).__name__,
+                        "usable": False,
+                    }
+                )
+                continue
+            current_vectors.append(current)
+            cvlface_vectors.append(alternate)
+            attempts.append(
+                {
+                    "offset_seconds": float(offset),
+                    "status": "available",
+                    "usable": True,
+                }
+            )
+    elif source_kind == "image":
+        attempts.extend(
+            {
+                "offset_seconds": float(offset),
+                "status": "not-applicable-image-source",
+                "usable": False,
+            }
+            for offset in TEMPORAL_BUNDLE_OFFSETS_SECONDS
+            if abs(float(offset)) > 1e-12
+        )
+    else:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            f"temporal bundle source kind is unsupported: {source_kind}"
+        )
+
+    valid_count = len(current_vectors)
+    available = valid_count >= TEMPORAL_BUNDLE_MIN_VALID
+    result: dict[str, Any] = {
+        "status": "available" if available else "insufficient-valid-frames",
+        "source_kind": source_kind,
+        "attempted_frame_count": len(TEMPORAL_BUNDLE_OFFSETS_SECONDS),
+        "valid_frame_count": valid_count,
+        "minimum_valid_frame_count": TEMPORAL_BUNDLE_MIN_VALID,
+        "offsets_seconds": list(TEMPORAL_BUNDLE_OFFSETS_SECONDS),
+        "attempts": attempts,
+    }
+    if available:
+        current_mean = runtime.np.asarray(current_vectors, dtype=runtime.np.float64).mean(axis=0)
+        cvlface_mean = runtime.np.asarray(cvlface_vectors, dtype=runtime.np.float64).mean(axis=0)
+        result["_bank_w600k_r50"] = _normalize(
+            current_mean,
+            dimension=dimension,
+            label="temporal bundle w600k embedding",
+        )
+        result["_cvlface_adaface"] = _normalize(
+            cvlface_mean,
+            dimension=dimension,
+            label="temporal bundle CVLFace embedding",
+        )
+    return result
+
+
+def _public_temporal_bundle(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in bundle.items()
+        if not str(key).startswith("_")
     }
 
 
