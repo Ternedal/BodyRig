@@ -323,6 +323,211 @@ def _measure(
     }
 
 
+def _fit_positive_subspace(
+    *,
+    np: Any,
+    group_centroids: list[list[float]],
+    variance_target: float = 0.95,
+) -> dict[str, Any]:
+    if not 0.0 < variance_target < 1.0:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace variance target must be between zero and one"
+        )
+    if len(group_centroids) < 3:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace fit requires at least three positive groups"
+        )
+    matrix = np.asarray(group_centroids, dtype=np.float64)
+    if matrix.ndim != 2 or matrix.shape[1] != MODEL_DIMENSION:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace centroid matrix shape is invalid"
+        )
+    mean = matrix.mean(axis=0)
+    centered = matrix - mean
+    try:
+        _u, singular_values, vh = np.linalg.svd(centered, full_matrices=False)
+    except Exception as exc:  # noqa: BLE001
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            f"positive-subspace SVD failed: {exc}"
+        ) from exc
+    energy = np.asarray(singular_values, dtype=np.float64) ** 2
+    total = float(energy.sum())
+    if not math.isfinite(total) or total <= 1e-12:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace group variance is degenerate"
+        )
+    cumulative = np.cumsum(energy) / total
+    rank = int(np.searchsorted(cumulative, variance_target, side="left")) + 1
+    rank = max(1, min(rank, int(vh.shape[0]), len(group_centroids) - 1))
+    return {
+        "mean": mean,
+        "basis": np.asarray(vh[:rank], dtype=np.float64),
+        "rank": rank,
+        "explained_variance": float(cumulative[rank - 1]),
+        "variance_target": float(variance_target),
+    }
+
+
+def _subspace_reconstruction_cosine(
+    *,
+    np: Any,
+    vector: list[float],
+    model: Mapping[str, Any],
+) -> float:
+    query = np.asarray(vector, dtype=np.float64)
+    mean = np.asarray(model["mean"], dtype=np.float64)
+    basis = np.asarray(model["basis"], dtype=np.float64)
+    centered = query - mean
+    reconstruction = mean + basis.T @ (basis @ centered)
+    norm = float(np.linalg.norm(reconstruction))
+    if not math.isfinite(norm) or norm <= 1e-12:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace reconstruction has invalid norm"
+        )
+    reconstruction = reconstruction / norm
+    score = float(np.dot(query, reconstruction))
+    if not math.isfinite(score):
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace score is non-finite"
+        )
+    return max(-1.0, min(1.0, score))
+
+
+def _positive_only_subspace_diagnostic(
+    *,
+    np: Any,
+    positives: list[dict[str, Any]],
+    negatives: list[dict[str, Any]],
+    variance_target: float = 0.95,
+) -> dict[str, Any]:
+    if not positives or not negatives:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace diagnostic requires positive and negative evidence"
+        )
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in positives:
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            raise PhotorealIdentityCvlFaceDiagnosticError(
+                "positive-subspace positive lacks group id"
+            )
+        grouped[group_id].append(item)
+    ordered_groups = sorted(grouped)
+    if len(ordered_groups) < 3:
+        raise PhotorealIdentityCvlFaceDiagnosticError(
+            "positive-subspace diagnostic requires at least three groups"
+        )
+
+    def centroid(items: list[dict[str, Any]]) -> list[float]:
+        raw = np.asarray(
+            [item["embedding"] for item in items],
+            dtype=np.float64,
+        ).mean(axis=0)
+        return _normalize(
+            raw,
+            dimension=MODEL_DIMENSION,
+            label="positive-subspace group centroid",
+        )
+
+    full_centroids = [centroid(grouped[group_id]) for group_id in ordered_groups]
+    final_model = _fit_positive_subspace(
+        np=np,
+        group_centroids=full_centroids,
+        variance_target=variance_target,
+    )
+
+    positive_rows: list[dict[str, Any]] = []
+    fold_ranks: dict[str, int] = {}
+    fold_explained: dict[str, float] = {}
+    for held_out_group in ordered_groups:
+        training_centroids = [
+            centroid(grouped[group_id])
+            for group_id in ordered_groups
+            if group_id != held_out_group
+        ]
+        fold_model = _fit_positive_subspace(
+            np=np,
+            group_centroids=training_centroids,
+            variance_target=variance_target,
+        )
+        fold_ranks[held_out_group] = int(fold_model["rank"])
+        fold_explained[held_out_group] = round(
+            float(fold_model["explained_variance"]), 9
+        )
+        for item in grouped[held_out_group]:
+            positive_rows.append(
+                {
+                    "reference_index": int(item["reference_index"]),
+                    "group_id": held_out_group,
+                    "score": _subspace_reconstruction_cosine(
+                        np=np,
+                        vector=item["embedding"],
+                        model=fold_model,
+                    ),
+                }
+            )
+
+    negative_rows = [
+        {
+            "negative_index": int(item["negative_index"]),
+            "subject_performer_id": str(item["subject_performer_id"]),
+            "score": _subspace_reconstruction_cosine(
+                np=np,
+                vector=item["embedding"],
+                model=final_model,
+            ),
+        }
+        for item in negatives
+    ]
+    positive_floor = min(
+        positive_rows,
+        key=lambda item: (float(item["score"]), int(item["reference_index"])),
+    )
+    negative_ceiling = max(
+        negative_rows,
+        key=lambda item: (float(item["score"]), -int(item["negative_index"])),
+    )
+    margin = float(positive_floor["score"]) - float(negative_ceiling["score"])
+    return {
+        "method": (
+            "group-balanced affine PCA manifold; rank chosen solely from "
+            "human-attested positive group-centroid variance; positive scores "
+            "are leave-one-group-out reconstruction cosine; negatives are "
+            "evaluated only after the positive-only representation is frozen"
+        ),
+        "variance_target": variance_target,
+        "final_rank": int(final_model["rank"]),
+        "final_explained_variance": round(
+            float(final_model["explained_variance"]), 9
+        ),
+        "fold_ranks": fold_ranks,
+        "fold_explained_variance": fold_explained,
+        "positive_score_count": len(positive_rows),
+        "negative_score_count": len(negative_rows),
+        "positive_floor": round(float(positive_floor["score"]), 9),
+        "negative_ceiling": round(float(negative_ceiling["score"]), 9),
+        "observed_ordering_margin": round(margin, 9),
+        "strict_positive_over_negative": margin > 0.0,
+        "positive_floor_witness": {
+            **positive_floor,
+            "score": round(float(positive_floor["score"]), 9),
+        },
+        "negative_ceiling_witness": {
+            **negative_ceiling,
+            "score": round(float(negative_ceiling["score"]), 9),
+        },
+        "positive_model_selection_only": True,
+        "negative_evidence_used_for_selection": False,
+        "all_positive_references_retained": True,
+        "all_positive_groups_retained": True,
+        "all_negative_observations_retained": True,
+        "negative_observation_count_below_production_minimum": len(negatives) < 8,
+        "threshold_selection_authority": False,
+        "identity_bank_mutation_authority": False,
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
