@@ -111,7 +111,7 @@ $identityRequest = Need-File (Join-Path $RunDirectory "identity-extractor\reques
 $calibrationRequest = Need-File (Join-Path $RunDirectory "identity-calibration-extractor\request.json") "Stage-13 calibration request"
 $negativeObservations = Need-File (Join-Path $RunDirectory "identity-calibration-extractor\output\negative-observations.json") "Identity negative observations"
 $attestation = Need-File (Join-Path $ReviewRoot "identity-group-attestation.json") "Identity group attestation"
-$tool = Need-File (Join-Path $script:RepoRoot "tools\photoreal_identity_recognizer_ab_diagnostic.py") "CVLFace AdaFace ViT diagnostic"
+$tool = Need-File (Join-Path $script:RepoRoot "tools\photoreal_identity_cvlface_adaface_vit_diagnostic.py") "CVLFace AdaFace ViT diagnostic"
 $setup = Need-File (Join-Path $script:RepoRoot "setup-photoreal-v2-cvlface-adaface-vit-diagnostic.ps1") "CVLFace diagnostic setup"
 
 if ([string]::IsNullOrWhiteSpace($ModelRoot)) {
@@ -144,7 +144,7 @@ $tempIdentityRequest = $null
 $tempCalibrationRequest = $null
 try {
     $tempIdentityRequest = New-WslTransportRequest -SourceRequest $identityRequest -Prefix "identity-cvlface-adaface-vit"
-    $tempCalibrationRequest = New-WslTransportRequest -SourceRequest $calibrationRequest -Prefix "calibration-recognizer-ab"
+    $tempCalibrationRequest = New-WslTransportRequest -SourceRequest $calibrationRequest -Prefix "calibration-cvlface-adaface-vit"
 
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $output = Join-Path $RunDirectory ("identity-cvlface-adaface-vit-diagnostic-{0}.json" -f $stamp)
