@@ -39,6 +39,8 @@ def _provenance() -> dict[str, object]:
         "color_space": "RGB",
         "normalization": "ToTensor; mean=0.5,std=0.5 per RGB channel",
         "training_dataset_license_requires_operator_review": True,
+        "reuses_bodyrig_photoreal_torch": True,
+        "parallel_torch_install": False,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
@@ -68,6 +70,8 @@ def test_cvlface_provenance_is_pinned_and_authority_closed(
     provenance = diagnostic._validate_provenance(tmp_path)
 
     assert provenance["repo_revision"] == diagnostic.MODEL_REVISION
+    assert provenance["reuses_bodyrig_photoreal_torch"] is True
+    assert provenance["parallel_torch_install"] is False
     assert provenance["diagnostic_only"] is True
     assert provenance["production_activation"] is False
 
