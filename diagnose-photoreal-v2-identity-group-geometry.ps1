@@ -180,6 +180,7 @@ try {
     Write-Host "Boundary:       exact floor/ceiling witnesses + single-reference sensitivity"
     Write-Host "Review:         exact frame/aligned-crop witness sibling comparison"
     Write-Host "Fusion:         41-point w600k_r50 / glintr100 weighted embedding sweep"
+    Write-Host "Consensus:      source-group top-k support sweep with all evidence retained"
     Write-Host "Source rehash:  NO"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -327,6 +328,35 @@ try {
         }
     }
 
+    Write-Host ""
+    Write-Host "Source-group consensus sweep (all evidence retained):"
+    foreach ($variantName in @("w600k-r50","antelopev2-glintr100")) {
+        $consensus = $result.group_consensus_sweep.$variantName
+        $best = $consensus.best_support
+        Write-Host (
+            "  {0}: best k={1} margin={2} meets={3} | floor ref={4} group={5} score={6} | ceiling neg={7} subject={8} score={9}" -f
+            $variantName,
+            $best.support_k,
+            $best.observed_separation_margin,
+            $best.would_meet_margin,
+            $best.positive_floor_witness.reference_index,
+            $best.positive_floor_witness.group_id,
+            $best.positive_floor_witness.score,
+            $best.negative_ceiling_witness.negative_index,
+            $best.negative_ceiling_witness.subject_performer_id,
+            $best.negative_ceiling_witness.score
+        )
+        if ($null -ne $consensus.first_passing_support) {
+            $passing = $consensus.first_passing_support
+            Write-Host (
+                "    passing consensus exists: k={0} margin={1}" -f
+                $passing.support_k,
+                $passing.observed_separation_margin
+            )
+        } else {
+            Write-Host "    passing consensus exists: NO"
+        }
+    }
     Write-Host ""
     Write-Host "Recognizer fusion sweep (all evidence retained):"
     $fusion = $result.recognizer_fusion_sweep
