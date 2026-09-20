@@ -1089,6 +1089,206 @@ small {{ color:#aaa; word-break:break-all; }}
     }
 
 
+
+def _fused_embedding(
+    current: list[float],
+    alternate: list[float],
+    *,
+    current_weight: float,
+) -> list[float]:
+    if len(current) != len(alternate):
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion requires equal embedding dimensions"
+        )
+    if not 0.0 <= current_weight <= 1.0:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion weight must be between zero and one"
+        )
+    alternate_weight = 1.0 - current_weight
+    current_scale = math.sqrt(current_weight)
+    alternate_scale = math.sqrt(alternate_weight)
+    vector = [
+        *(current_scale * float(value) for value in current),
+        *(alternate_scale * float(value) for value in alternate),
+    ]
+    norm = math.sqrt(sum(value * value for value in vector))
+    if not math.isfinite(norm) or norm <= 0.0:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion produced invalid embedding norm"
+        )
+    return [value / norm for value in vector]
+
+
+def _recognizer_fusion_sweep(
+    *,
+    flip: Any,
+    current_positives: list[dict[str, Any]],
+    alternate_positives: list[dict[str, Any]],
+    current_negatives: list[dict[str, Any]],
+    alternate_negatives: list[dict[str, Any]],
+    weight_steps: int = 40,
+) -> dict[str, Any]:
+    if weight_steps < 2:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion requires at least two weight steps"
+        )
+
+    current_positive_by_index = {
+        int(item["reference_index"]): item
+        for item in current_positives
+    }
+    alternate_positive_by_index = {
+        int(item["reference_index"]): item
+        for item in alternate_positives
+    }
+    if set(current_positive_by_index) != set(alternate_positive_by_index):
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion positive evidence sets differ"
+        )
+
+    current_negative_by_index = {
+        int(item["negative_index"]): item
+        for item in current_negatives
+    }
+    alternate_negative_by_index = {
+        int(item["negative_index"]): item
+        for item in alternate_negatives
+    }
+    if set(current_negative_by_index) != set(alternate_negative_by_index):
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "recognizer fusion negative evidence sets differ"
+        )
+
+    records: list[dict[str, Any]] = []
+    for step in range(weight_steps + 1):
+        current_weight = step / weight_steps
+        alternate_weight = 1.0 - current_weight
+
+        positives: list[dict[str, Any]] = []
+        for reference_index in sorted(current_positive_by_index):
+            current = current_positive_by_index[reference_index]
+            alternate = alternate_positive_by_index[reference_index]
+            if (
+                str(current["group_id"]) != str(alternate["group_id"])
+                or str(current["frame_sha256"]) != str(alternate["frame_sha256"])
+            ):
+                raise PhotorealIdentityGroupGeometryDiagnosticError(
+                    "recognizer fusion positive provenance mismatch"
+                )
+            positives.append(
+                {
+                    **current,
+                    "embedding": _fused_embedding(
+                        current["embedding"],
+                        alternate["embedding"],
+                        current_weight=current_weight,
+                    ),
+                }
+            )
+
+        negatives: list[dict[str, Any]] = []
+        for negative_index in sorted(current_negative_by_index):
+            current = current_negative_by_index[negative_index]
+            alternate = alternate_negative_by_index[negative_index]
+            if (
+                str(current["subject_performer_id"])
+                != str(alternate["subject_performer_id"])
+                or str(current["frame_sha256"]) != str(alternate["frame_sha256"])
+            ):
+                raise PhotorealIdentityGroupGeometryDiagnosticError(
+                    "recognizer fusion negative provenance mismatch"
+                )
+            negatives.append(
+                {
+                    **current,
+                    "embedding": _fused_embedding(
+                        current["embedding"],
+                        alternate["embedding"],
+                        current_weight=current_weight,
+                    ),
+                }
+            )
+
+        models = flip._score_models(positives, negatives)
+        margins = {
+            name: float(model["observed_separation_margin"])
+            for name, model in models.items()
+        }
+        record = {
+            "current_weight": round(current_weight, 6),
+            "alternate_weight": round(alternate_weight, 6),
+            "current_percent": round(current_weight * 100.0, 3),
+            "alternate_percent": round(alternate_weight * 100.0, 3),
+            "positive_reference_count": len(positives),
+            "positive_group_count": len(
+                {str(item["group_id"]) for item in positives}
+            ),
+            "negative_observation_count": len(negatives),
+            "scoring_models": models,
+            "minimum_margin_across_models": round(min(margins.values()), 9),
+            "maximum_margin_across_models": round(max(margins.values()), 9),
+            "all_models_meet_margin": all(
+                bool(model["would_meet_margin"])
+                for model in models.values()
+            ),
+            "witnesses": _score_model_witnesses(
+                flip=flip,
+                positives=positives,
+                negatives=negatives,
+            ),
+            "evidence_pruned": False,
+            "diagnostic_only": True,
+        }
+        records.append(record)
+
+    records.sort(
+        key=lambda item: (
+            -float(item["minimum_margin_across_models"]),
+            -float(
+                item["scoring_models"]["current-reference-weighted"][
+                    "observed_separation_margin"
+                ]
+            ),
+            -float(
+                item["scoring_models"]["group-balanced-centroid-lgo"][
+                    "observed_separation_margin"
+                ]
+            ),
+            abs(float(item["current_weight"]) - 0.5),
+        )
+    )
+    all_pass = [item for item in records if item["all_models_meet_margin"]]
+    all_pass.sort(
+        key=lambda item: (
+            -float(item["minimum_margin_across_models"]),
+            abs(float(item["current_weight"]) - 0.5),
+        )
+    )
+
+    return {
+        "weight_steps": weight_steps,
+        "weight_count": weight_steps + 1,
+        "fusion": (
+            "L2-normalized concatenation of sqrt(weight)*w600k_r50 and "
+            "sqrt(1-weight)*glintr100 embeddings"
+        ),
+        "pairwise_cosine_interpretation": (
+            "cosine in fused space equals the weighted sum of recognizer "
+            "cosines when both source embeddings are unit normalized"
+        ),
+        "best_weight": records[0],
+        "first_all_models_pass": all_pass[0] if all_pass else None,
+        "ranked_weights": records,
+        "all_positive_evidence_retained": True,
+        "all_negative_evidence_retained": True,
+        "negative_observation_count_below_production_minimum": (
+            len(current_negatives) < 8
+        ),
+        "identity_bank_mutation_authority": False,
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -1430,6 +1630,15 @@ def main(argv: list[str] | None = None) -> int:
         removed_group_ids=candidate_removed_groups,
     )
 
+    fusion_sweep = _recognizer_fusion_sweep(
+        flip=flip,
+        current_positives=current_positives,
+        alternate_positives=alternate_positives,
+        current_negatives=current_negatives,
+        alternate_negatives=alternate_negatives,
+        weight_steps=40,
+    )
+
     witness_review_root = output.parent / (
         output.stem + "-witness-review"
     )
@@ -1507,6 +1716,7 @@ def main(argv: list[str] | None = None) -> int:
             "w600k-r50": current_boundary,
             "antelopev2-glintr100": alternate_boundary,
         },
+        "recognizer_fusion_sweep": fusion_sweep,
         "boundary_witness_review": witness_review,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
@@ -1584,6 +1794,18 @@ def main(argv: list[str] | None = None) -> int:
                             "first_all_models_pass"
                         ],
                     },
+                },
+                "recognizer_fusion_summary": {
+                    "best_weight": fusion_sweep["best_weight"],
+                    "first_all_models_pass": fusion_sweep[
+                        "first_all_models_pass"
+                    ],
+                    "weight_count": fusion_sweep["weight_count"],
+                    "negative_observation_count_below_production_minimum": (
+                        fusion_sweep[
+                            "negative_observation_count_below_production_minimum"
+                        ]
+                    ),
                 },
                 "boundary_witness_review": witness_review,
                 "diagnostic_only": True,
