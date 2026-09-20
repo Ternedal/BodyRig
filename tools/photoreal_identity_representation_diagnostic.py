@@ -58,6 +58,49 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _request_transport_equivalent(
+    origin: Mapping[str, Any],
+    execution: Mapping[str, Any],
+) -> None:
+    origin_copy = json.loads(json.dumps(origin, allow_nan=False))
+    execution_copy = json.loads(json.dumps(execution, allow_nan=False))
+    origin_sources = origin_copy.get("sources")
+    execution_sources = execution_copy.get("sources")
+    if not isinstance(origin_sources, list) or not isinstance(execution_sources, list):
+        raise PhotorealIdentityRepresentationDiagnosticError(
+            "identity request transport sources are invalid"
+        )
+    if len(origin_sources) != len(execution_sources):
+        raise PhotorealIdentityRepresentationDiagnosticError(
+            "identity request transport changed source count"
+        )
+    for origin_source, execution_source in zip(
+        origin_sources,
+        execution_sources,
+        strict=True,
+    ):
+        if not isinstance(origin_source, dict) or not isinstance(execution_source, dict):
+            raise PhotorealIdentityRepresentationDiagnosticError(
+                "identity request transport source is invalid"
+            )
+        if origin_source.get("source_key") != execution_source.get("source_key"):
+            raise PhotorealIdentityRepresentationDiagnosticError(
+                "identity request transport changed source order/identity"
+            )
+        origin_source.pop("resolved_path", None)
+        execution_source.pop("resolved_path", None)
+        if origin_source != execution_source:
+            raise PhotorealIdentityRepresentationDiagnosticError(
+                "identity request transport changed source authority beyond resolved_path"
+            )
+    origin_copy["sources"] = origin_sources
+    execution_copy["sources"] = execution_sources
+    if origin_copy != execution_copy:
+        raise PhotorealIdentityRepresentationDiagnosticError(
+            "identity request transport changed request authority beyond resolved_path"
+        )
+
+
 def _load_adapter(repo_root: Path):
     path = repo_root / "tools" / "photoreal_reference_vision_adapter_mesh.py"
     spec = importlib.util.spec_from_file_location(
@@ -623,6 +666,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--identity-bank", type=Path, required=True)
     parser.add_argument("--identity-request", type=Path, required=True)
+    parser.add_argument("--identity-request-origin", type=Path, required=True)
     parser.add_argument("--portrait-root", type=Path, required=True)
     parser.add_argument("--review-root", type=Path, required=True)
     parser.add_argument("--model-root", type=Path, required=True)
@@ -647,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
 
     bank_path = args.identity_bank.expanduser().resolve()
     request_path = args.identity_request.expanduser().resolve()
+    request_origin_path = args.identity_request_origin.expanduser().resolve()
     portrait_root = args.portrait_root.expanduser().resolve()
     review_root = args.review_root.expanduser().resolve()
     model_root = args.model_root.expanduser().resolve()
@@ -656,7 +701,12 @@ def main(argv: list[str] | None = None) -> int:
         bank,
         adapter_revision=adapter_revision,
     )
-    request = _read_json(request_path, label="Stage-7 identity request")
+    request = _read_json(request_path, label="Stage-7 identity execution request")
+    request_origin = _read_json(
+        request_origin_path,
+        label="Stage-7 identity original request",
+    )
+    _request_transport_equivalent(request_origin, request)
     sources = review._validate_request(
         request,
         performer_id=performer_id,
@@ -956,7 +1006,8 @@ def main(argv: list[str] | None = None) -> int:
         "model_set_sha256": str(bank.get("model_set_sha256") or ""),
         "identity_bank_sha256": bank_sha,
         "identity_bank_file_sha256": _sha256_file(bank_path),
-        "identity_request_sha256": _sha256_file(request_path),
+        "identity_request_sha256": _sha256_file(request_origin_path),
+        "identity_request_transport_sha256": _sha256_file(request_path),
         "identity_group_attestation_sha256": _sha256_file(
             review_root / "identity-group-attestation.json"
         ),
