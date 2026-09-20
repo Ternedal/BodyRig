@@ -31,6 +31,9 @@ def test_group_geometry_operator_preserves_diagnostic_boundary() -> None:
     assert "41-point w600k_r50 / glintr100 weighted embedding sweep" in source
     assert "Recognizer fusion sweep (all evidence retained)" in source
     assert "production calibration still blocked: only 7 negatives (<8)." in source
+    assert "source-group top-k support sweep with all evidence retained" in source
+    assert "Source-group consensus sweep (all evidence retained)" in source
+    assert "passing consensus exists" in source
     assert "first all-model pass" in source
     assert "per-group cohesion, LGO, positive neighbors, negative overlap" in source
     assert "identity-extractor\\request.json" in source
