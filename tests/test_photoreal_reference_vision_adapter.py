@@ -513,7 +513,7 @@ def test_ffmpeg_fallback_uses_direct_argv_and_decodes_png(monkeypatch: pytest.Mo
     monkeypatch.setattr(adapter.subprocess, "run", fake_run)
     runtime = SimpleNamespace(np=FakeNp, cv2=FakeCv2)
 
-    result = adapter._decode_video_frame_ffmpeg(runtime, Path("/video/source.mp4"), 7.125)
+    result = adapter._decode_video_frame_ffmpeg(runtime, "/video/source.mp4", 7.125)
 
     assert result == "frame"
     assert len(calls) == 1
