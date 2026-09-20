@@ -66,3 +66,10 @@ def test_comparison_output_remains_review_only_and_non_activating() -> None:
     assert "comparison_only = $true" in comparison
     assert "production_activation = $false" in comparison
     assert "no renderer/human/release acceptance was written" in comparison
+
+
+def test_renderer_failure_surfaces_unity_player_log_tail() -> None:
+    assert '$playerLogPath = Join-Path $attempt "unity-player.log"' in SCRIPT
+    assert '"-logFile", $playerLogPath' in SCRIPT
+    assert "Get-Content -LiteralPath $playerLogPath -Tail 80" in SCRIPT
+    assert "Unity player log tail" in SCRIPT
