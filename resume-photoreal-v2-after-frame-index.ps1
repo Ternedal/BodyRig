@@ -63,8 +63,9 @@ function Invoke-PythonStage {
     )
     Write-Host ""
     Write-Host "=== $Label ==="
-    & $script:Python @Arguments
+    $stageOutput = @(& $script:Python @Arguments 2>&1)
     $code = $LASTEXITCODE
+    foreach ($line in $stageOutput) { Write-Host ([string]$line) }
     if ($AllowedExitCodes -notcontains $code) { throw "$Label failed with exit code $code." }
     return $code
 }
