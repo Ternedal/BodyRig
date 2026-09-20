@@ -138,6 +138,9 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $OutputRoot = Join-Path $RunRoot ("performer-{0}-{1}-resume16" -f $PerformerId, $stamp)
 if (Test-Path -LiteralPath $OutputRoot) { throw "Stage-16 remediation output already exists: $OutputRoot" }
 New-Item -ItemType Directory -Path $OutputRoot | Out-Null
+$SummaryPath = Join-Path $RunRoot ("performer-{0}-{1}-resume16-summary.json" -f $PerformerId, $stamp)
+if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) { throw "Stage-16 remediation summary already exists: $SummaryPath" }
+$startedAt = (Get-Date).ToUniversalTime().ToString("o")
 
 $copyNames = @(
     "dataset-plan.json",
@@ -257,6 +260,32 @@ try {
     $receipt | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $RemediationReceiptPath -Encoding UTF8
     $status | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $StatusPath -Encoding UTF8
 
+    $summary = [ordered]@{
+        format = "bodyrig-photoreal-v2-overnight-summary"
+        version = 1
+        performer_id = $PerformerId
+        started_at = $startedAt
+        finished_at = (Get-Date).ToUniversalTime().ToString("o")
+        output_root = $OutputRoot
+        transcript = $null
+        status = $(if ($trainingAuthorized) { "completed" } else { "failed" })
+        exit_code = $(if ($trainingAuthorized) { 0 } else { 2 })
+        p0_status = $StatusPath
+        p0_status_sha256 = Sha256 $StatusPath
+        bodyrig_revision = $Head
+        teacher_training_authorized = $trainingAuthorized
+        human_visual_acceptance_required = $true
+        photoreal_acceptance_authority = $false
+        production_activation = $false
+        resumed_from_stage16_run = $SourceRun
+        source_rehash_skipped_explicitly = $true
+        frame_reanalysis = $false
+        identity_bank_rebuild = $false
+        identity_calibration_rebuild = $false
+        stage16_remediation_receipt = $RemediationReceiptPath
+    }
+    $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $SummaryPath -Encoding UTF8
+
     Write-Host ""
     Write-Host "============================================================"
     Write-Host "BODYRIG PHOTOREAL V2 - STAGE 16 REMEDIATION COMPLETE"
@@ -270,6 +299,7 @@ try {
     Write-Host "Photoreal accept:      FALSE"
     Write-Host "Production:            FALSE"
     Write-Host "Status:                $StatusPath"
+    Write-Host "Summary:               $SummaryPath"
     Write-Host "============================================================"
 
     exit $(if ($trainingAuthorized) { 0 } else { 2 })

@@ -56,3 +56,17 @@ def test_stage16_remediation_does_not_mix_cli_stdout_with_exit_code() -> None:
     assert '$stageOutput = @(& $script:Python @Arguments 2>&1)' in text
     assert 'foreach ($line in $stageOutput) { Write-Host ([string]$line) }' in text
     assert 'return $code' in text
+
+
+def test_stage16_remediation_emits_discoverable_canonical_summary() -> None:
+    text = _script()
+
+    assert 'format = "bodyrig-photoreal-v2-overnight-summary"' in text
+    assert 'output_root = $OutputRoot' in text
+    assert 'p0_status = $StatusPath' in text
+    assert 'p0_status_sha256 = Sha256 $StatusPath' in text
+    assert 'bodyrig_revision = $Head' in text
+    assert 'status = $(if ($trainingAuthorized) { "completed" } else { "failed" })' in text
+    assert 'exit_code = $(if ($trainingAuthorized) { 0 } else { 2 })' in text
+    assert 'teacher_training_authorized = $trainingAuthorized' in text
+    assert 'Write-Host "Summary:               $SummaryPath"' in text
