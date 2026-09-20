@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -222,8 +223,59 @@ def _sharpness(runtime: Runtime, image: Any) -> float:
     return round(max(0.0, min(1.0, 1.0 - math.exp(-variance / 400.0))), 6)
 
 
+def _decode_video_frame_ffmpeg(runtime: Runtime, path: str, timestamp: float) -> Any:
+    """Decode one video sample through the system ffmpeg as an OpenCV fallback."""
+
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{timestamp:.6f}",
+        "-i",
+        str(path),
+        "-frames:v",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "png",
+        "pipe:1",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=90,
+            shell=False,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReferenceVisionDecodeError(f"ffmpeg fallback could not run: {exc}") from exc
+    if completed.returncode != 0 or not completed.stdout:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()[-1000:]
+        raise ReferenceVisionDecodeError(
+            f"ffmpeg fallback failed with exit code {completed.returncode}: {detail or 'no diagnostic output'}"
+        )
+    encoded = runtime.np.frombuffer(completed.stdout, dtype=runtime.np.uint8)
+    try:
+        image = runtime.cv2.imdecode(encoded, runtime.cv2.IMREAD_COLOR)
+    except Exception as exc:  # noqa: BLE001
+        cv_error = getattr(runtime.cv2, "error", None)
+        if cv_error is None or not isinstance(exc, cv_error):
+            raise
+        raise ReferenceVisionDecodeError(f"ffmpeg fallback image decode raised {type(exc).__name__}: {exc}") from exc
+    if image is None:
+        raise ReferenceVisionDecodeError("ffmpeg fallback returned an undecodable image")
+    return image
+
+
 def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[str, Any]) -> tuple[Any, bool]:
-    path = Path(_text(source.get("resolved_path"), label="resolved source path", maximum=32768))
+    path = _text(source.get("resolved_path"), label="resolved source path", maximum=32768)
     kind = _text(source.get("kind"), label="source kind", maximum=16)
     if kind == "image":
         image = runtime.cv2.imread(str(path), runtime.cv2.IMREAD_COLOR)
@@ -233,16 +285,40 @@ def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[st
         timestamp = sample.get("timestamp_seconds")
         if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or float(timestamp) < 0:
             raise ReferenceVisionError("video sample timestamp is invalid")
-        capture = runtime.cv2.VideoCapture(str(path))
+        timestamp_value = float(timestamp)
+        image = None
+        opencv_failure = None
+        capture = None
         try:
+            capture = runtime.cv2.VideoCapture(str(path))
             if not capture.isOpened():
-                raise ReferenceVisionDecodeError(f"could not open video: {path}")
-            capture.set(runtime.cv2.CAP_PROP_POS_MSEC, float(timestamp) * 1000.0)
-            ok, image = capture.read()
-            if not ok or image is None:
-                raise ReferenceVisionDecodeError(f"could not decode video frame at {timestamp}s: {path}")
+                opencv_failure = "VideoCapture could not open the source"
+            else:
+                capture.set(runtime.cv2.CAP_PROP_POS_MSEC, timestamp_value * 1000.0)
+                try:
+                    ok, image = capture.read()
+                except Exception as exc:  # noqa: BLE001
+                    cv_error = getattr(runtime.cv2, "error", None)
+                    if cv_error is None or not isinstance(exc, cv_error):
+                        raise
+                    opencv_failure = f"VideoCapture.read raised {type(exc).__name__}: {exc}"
+                else:
+                    if not ok or image is None:
+                        opencv_failure = "VideoCapture.read returned no frame"
         finally:
-            capture.release()
+            if capture is not None:
+                capture.release()
+
+        if image is None:
+            try:
+                image = _decode_video_frame_ffmpeg(runtime, path, timestamp_value)
+            except ReferenceVisionDecodeError as exc:
+                source_key = str(source.get("source_key") or "").strip() or "<unknown>"
+                detail = opencv_failure or "OpenCV decoder produced no frame"
+                raise ReferenceVisionDecodeError(
+                    f"could not decode video sample source={source_key} timestamp={timestamp_value:.6f}s; "
+                    f"opencv={detail}; ffmpeg={exc}"
+                ) from exc
     else:
         raise ReferenceVisionError(f"unsupported source kind: {kind}")
 
