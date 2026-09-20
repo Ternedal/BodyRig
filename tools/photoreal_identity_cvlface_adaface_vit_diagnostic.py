@@ -727,10 +727,10 @@ def main(argv: list[str] | None = None) -> int:
                 "identity bank reference lacks group id"
             )
         positive_variants["bank-w600k-r50"].append(
-            {"group_id": group_id, "embedding": stored}
+            {"reference_index": index, "group_id": group_id, "embedding": stored}
         )
         positive_variants["cvlface-adaface-vit-base-webface4m"].append(
-            {"group_id": group_id, "embedding": cvlface}
+            {"reference_index": index, "group_id": group_id, "embedding": cvlface}
         )
         positive_rows.append(
             {
@@ -836,6 +836,19 @@ def main(argv: list[str] | None = None) -> int:
             "diagnostic_only": True,
         }
 
+    positive_only_subspace = {
+        name: _positive_only_subspace_diagnostic(
+            np=runtime.np,
+            positives=positive_variants[name],
+            negatives=negative_variants[name],
+            variance_target=0.95,
+        )
+        for name in (
+            "bank-w600k-r50",
+            "cvlface-adaface-vit-base-webface4m",
+        )
+    }
+
     bodyrig_revision = os.environ.get("BODYRIG_REVISION", "").strip()
     if len(bodyrig_revision) != 40:
         raise PhotorealIdentityCvlFaceDiagnosticError(
@@ -853,6 +866,7 @@ def main(argv: list[str] | None = None) -> int:
         "negative_observation_count": len(negatives),
         "cvlface_provenance": provenance,
         "variants": variants,
+        "positive_only_subspace": positive_only_subspace,
         "positive_replay": positive_rows,
         "negative_replay": negative_rows,
         "training_dataset_license_requires_operator_review": True,
