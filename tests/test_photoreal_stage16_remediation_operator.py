@@ -48,3 +48,11 @@ def test_stage16_remediation_status_tracks_new_authority_without_crossing_produc
     assert "photoreal_acceptance_authority = $false" in text
     assert "production_activation = $false" in text
     assert "resumed_from_stage16_run = $SourceRun" in text
+
+
+def test_stage16_remediation_does_not_mix_cli_stdout_with_exit_code() -> None:
+    text = _script()
+
+    assert '$stageOutput = @(& $script:Python @Arguments 2>&1)' in text
+    assert 'foreach ($line in $stageOutput) { Write-Host ([string]$line) }' in text
+    assert 'return $code' in text
