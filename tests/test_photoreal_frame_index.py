@@ -229,7 +229,7 @@ def test_frame_index_quarantines_train_side_cross_split_perceptual_near_duplicat
         _observation(
             train_key,
             train_sha,
-            timestamp=5.0,
+            timestamp=5.001,
             view="front",
             face=0.9,
             body=0.9,
