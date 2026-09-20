@@ -1289,6 +1289,178 @@ def _recognizer_fusion_sweep(
     }
 
 
+
+def _top_k_mean(values: list[float], support_k: int) -> float:
+    if support_k < 1 or support_k > len(values):
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "consensus support count is outside available group evidence"
+        )
+    ordered = sorted((float(value) for value in values), reverse=True)
+    selected = ordered[:support_k]
+    return sum(selected) / len(selected)
+
+
+def _group_consensus_sweep(
+    *,
+    flip: Any,
+    positives: list[dict[str, Any]],
+    negatives: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not positives or not negatives:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "group consensus requires positive and negative evidence"
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in positives:
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            raise PhotorealIdentityGroupGeometryDiagnosticError(
+                "group consensus positive lacks group id"
+            )
+        grouped[group_id].append(item)
+    ordered_groups = sorted(grouped)
+    if len(ordered_groups) < 3:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "group consensus requires at least three positive groups"
+        )
+
+    centroids = {
+        group_id: flip._centroid(
+            [item["embedding"] for item in grouped[group_id]]
+        )
+        for group_id in ordered_groups
+    }
+
+    records: list[dict[str, Any]] = []
+    max_support = len(ordered_groups) - 1
+    for support_k in range(1, max_support + 1):
+        positive_rows: list[dict[str, Any]] = []
+        for item in positives:
+            own_group = str(item["group_id"])
+            scores = [
+                flip._cosine(
+                    item["embedding"],
+                    centroids[group_id],
+                )
+                for group_id in ordered_groups
+                if group_id != own_group
+            ]
+            score = _top_k_mean(scores, support_k)
+            positive_rows.append(
+                {
+                    "reference_index": int(item["reference_index"]),
+                    "group_id": own_group,
+                    "score": score,
+                }
+            )
+
+        negative_rows: list[dict[str, Any]] = []
+        for item in negatives:
+            scores = [
+                flip._cosine(
+                    item["embedding"],
+                    centroids[group_id],
+                )
+                for group_id in ordered_groups
+            ]
+            score = _top_k_mean(scores, support_k)
+            negative_rows.append(
+                {
+                    "negative_index": int(item["negative_index"]),
+                    "subject_performer_id": str(
+                        item["subject_performer_id"]
+                    ),
+                    "score": score,
+                }
+            )
+
+        positive_floor = min(
+            positive_rows,
+            key=lambda item: (
+                float(item["score"]),
+                int(item["reference_index"]),
+            ),
+        )
+        negative_ceiling = max(
+            negative_rows,
+            key=lambda item: (
+                float(item["score"]),
+                -int(item["negative_index"]),
+            ),
+        )
+        margin = (
+            float(positive_floor["score"])
+            - float(negative_ceiling["score"])
+        )
+        records.append(
+            {
+                "support_k": support_k,
+                "positive_score_count": len(positive_rows),
+                "negative_score_count": len(negative_rows),
+                "positive_floor": round(
+                    float(positive_floor["score"]),
+                    9,
+                ),
+                "negative_ceiling": round(
+                    float(negative_ceiling["score"]),
+                    9,
+                ),
+                "observed_separation_margin": round(margin, 9),
+                "minimum_required_separation_margin": 0.05,
+                "would_meet_margin": margin >= 0.05,
+                "positive_floor_witness": {
+                    **positive_floor,
+                    "score": round(
+                        float(positive_floor["score"]),
+                        9,
+                    ),
+                },
+                "negative_ceiling_witness": {
+                    **negative_ceiling,
+                    "score": round(
+                        float(negative_ceiling["score"]),
+                        9,
+                    ),
+                },
+                "all_positive_references_retained": True,
+                "all_positive_groups_retained": True,
+                "all_negative_observations_retained": True,
+                "diagnostic_only": True,
+            }
+        )
+
+    ranked = sorted(
+        records,
+        key=lambda item: (
+            -float(item["observed_separation_margin"]),
+            int(item["support_k"]),
+        ),
+    )
+    passing = [
+        item for item in ranked if item["would_meet_margin"]
+    ]
+    return {
+        "method": (
+            "for each query, cosine to each independent source-group centroid; "
+            "score is the mean of the top-k group similarities; a positive "
+            "reference excludes its own source group"
+        ),
+        "support_k_min": 1,
+        "support_k_max": max_support,
+        "best_support": ranked[0],
+        "first_passing_support": passing[0] if passing else None,
+        "ranked_support": ranked,
+        "all_positive_references_retained": True,
+        "all_positive_groups_retained": True,
+        "all_negative_observations_retained": True,
+        "negative_observation_count_below_production_minimum": len(negatives) < 8,
+        "threshold_selection_authority": False,
+        "identity_bank_mutation_authority": False,
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -1639,6 +1811,17 @@ def main(argv: list[str] | None = None) -> int:
         weight_steps=40,
     )
 
+    current_consensus = _group_consensus_sweep(
+        flip=flip,
+        positives=current_positives,
+        negatives=current_negatives,
+    )
+    alternate_consensus = _group_consensus_sweep(
+        flip=flip,
+        positives=alternate_positives,
+        negatives=alternate_negatives,
+    )
+
     witness_review_root = output.parent / (
         output.stem + "-witness-review"
     )
@@ -1717,6 +1900,10 @@ def main(argv: list[str] | None = None) -> int:
             "antelopev2-glintr100": alternate_boundary,
         },
         "recognizer_fusion_sweep": fusion_sweep,
+        "group_consensus_sweep": {
+            "w600k-r50": current_consensus,
+            "antelopev2-glintr100": alternate_consensus,
+        },
         "boundary_witness_review": witness_review,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
@@ -1792,6 +1979,20 @@ def main(argv: list[str] | None = None) -> int:
                         ],
                         "first_all_models_pass": alternate_boundary[
                             "first_all_models_pass"
+                        ],
+                    },
+                },
+                "group_consensus_summary": {
+                    "w600k-r50": {
+                        "best_support": current_consensus["best_support"],
+                        "first_passing_support": current_consensus[
+                            "first_passing_support"
+                        ],
+                    },
+                    "antelopev2-glintr100": {
+                        "best_support": alternate_consensus["best_support"],
+                        "first_passing_support": alternate_consensus[
+                            "first_passing_support"
                         ],
                     },
                 },
