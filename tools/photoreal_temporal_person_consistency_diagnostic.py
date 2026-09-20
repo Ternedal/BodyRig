@@ -193,10 +193,11 @@ def _project_anchor_view(
     source: Mapping[str, Any],
     sample: Mapping[str, Any],
     anchor_viewport: Mapping[str, Any] | None,
-) -> Any:
+) -> tuple[Any, str]:
     eye_image, spatial = adapter._read_sample(runtime, source, sample)
+    raw_frame_sha = adapter._frame_sha(eye_image)
     if not spatial:
-        return eye_image
+        return eye_image, raw_frame_sha
     if anchor_viewport is None:
         raise TemporalPersonConsistencyError("spatial neighbor lacks anchor viewport")
     if source.get("projection") != "equi":
@@ -224,7 +225,7 @@ def _project_anchor_view(
     )
     if image is None or getattr(image, "size", 0) == 0:
         raise TemporalPersonConsistencyError("anchor-view projection produced empty image")
-    return runtime.np.ascontiguousarray(image)
+    return runtime.np.ascontiguousarray(image), raw_frame_sha
 
 
 def _choose_anchor_candidate(
@@ -262,6 +263,7 @@ def _track_anchor(
     source: Mapping[str, Any],
     sample: Mapping[str, Any],
     anchor_image: Any,
+    anchor_raw_frame_sha: str,
     anchor_viewport: Mapping[str, Any] | None,
     anchor_kind: str,
     anchor_index: int,
@@ -276,6 +278,8 @@ def _track_anchor(
         "comparison_subject_label": subject_label,
         "offsets_seconds": list(OFFSETS_SECONDS),
         "minimum_valid_frames": MIN_VALID_FRAMES,
+        "requires_distinct_decoded_frames": True,
+        "anchor_raw_frame_sha256": anchor_raw_frame_sha,
         "uses_face_recognition": False,
         "uses_face_embedding": False,
         "uses_biometric_identity_decision": False,
@@ -289,10 +293,12 @@ def _track_anchor(
 
     anchor_hist = _appearance_histogram(adapter, runtime, anchor_image, anchor["bbox"])
     height, width = anchor_image.shape[:2]
+    seen_raw_frame_shas = {anchor_raw_frame_sha}
     observations: list[dict[str, Any]] = [
         {
             "offset_seconds": 0.0,
             "status": "anchor",
+            "raw_frame_sha256": anchor_raw_frame_sha,
             "bbox_iou": 1.0,
             "center_shift": 0.0,
             "appearance_cosine": 1.0,
@@ -321,7 +327,7 @@ def _track_anchor(
         neighbor_sample = dict(sample)
         neighbor_sample["timestamp_seconds"] = target
         try:
-            image = _project_anchor_view(
+            image, raw_frame_sha = _project_anchor_view(
                 representation=representation,
                 adapter=adapter,
                 runtime=runtime,
@@ -329,6 +335,20 @@ def _track_anchor(
                 sample=neighbor_sample,
                 anchor_viewport=anchor_viewport,
             )
+            if raw_frame_sha in seen_raw_frame_shas:
+                observations.append(
+                    {
+                        "offset_seconds": offset,
+                        "status": (
+                            "duplicate-anchor-frame"
+                            if raw_frame_sha == anchor_raw_frame_sha
+                            else "duplicate-decoded-frame"
+                        ),
+                        "raw_frame_sha256": raw_frame_sha,
+                    }
+                )
+                continue
+            seen_raw_frame_shas.add(raw_frame_sha)
             candidates = _pose_candidates(adapter, runtime, image)
             candidate, iou = _choose_neighbor_candidate(
                 anchor=anchor,
@@ -358,6 +378,7 @@ def _track_anchor(
                 {
                     "offset_seconds": offset,
                     "status": "available",
+                    "raw_frame_sha256": raw_frame_sha,
                     "pose_candidate_count": len(candidates),
                     "bbox_iou": round(iou, 9),
                     "center_shift": round(
@@ -410,7 +431,13 @@ def _track_anchor(
         **base,
         "status": status,
         "valid_frame_count": len(available),
+        "distinct_decoded_frame_count": len(seen_raw_frame_shas),
         "neighbor_available_count": len(neighbor_rows),
+        "duplicate_decoded_frame_count": sum(
+            1
+            for row in observations
+            if row.get("status") in {"duplicate-anchor-frame", "duplicate-decoded-frame"}
+        ),
         "median_bbox_iou": median("bbox_iou"),
         "median_center_shift": median("center_shift"),
         "median_appearance_cosine": median("appearance_cosine"),
@@ -440,6 +467,14 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "anchor_count": len(rows),
         "available_anchor_count": len(available),
         "coverage": round(0.0 if not rows else len(available) / len(rows), 9),
+        "anchors_with_duplicate_decodes": sum(
+            1 for row in rows if int(row.get("duplicate_decoded_frame_count") or 0) > 0
+        ),
+        "minimum_distinct_decoded_frames": (
+            None
+            if not rows
+            else min(int(row.get("distinct_decoded_frame_count") or 0) for row in rows)
+        ),
         "median_bbox_iou": distribution("median_bbox_iou"),
         "median_center_shift": distribution("median_center_shift"),
         "median_appearance_cosine": distribution("median_appearance_cosine"),
@@ -704,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
                 "anchor reference did not resolve exactly once"
             )
         sample = matches[0]
-        image, _viewport_id, viewport, _eye_image, _spatial = (
+        image, _viewport_id, viewport, eye_image, _spatial = (
             representation._match_exact_viewport(
                 adapter=adapter,
                 runtime=runtime,
@@ -721,6 +756,7 @@ def main(argv: list[str] | None = None) -> int:
                 source=source,
                 sample=sample,
                 anchor_image=image,
+                anchor_raw_frame_sha=adapter._frame_sha(eye_image),
                 anchor_viewport=viewport,
                 anchor_kind="attested-target-anchor",
                 anchor_index=index,
@@ -776,6 +812,7 @@ def main(argv: list[str] | None = None) -> int:
                 source=source,
                 sample=sample,
                 anchor_image=image,
+                anchor_raw_frame_sha=expected_sha,
                 anchor_viewport=None,
                 anchor_kind="comparison-anchor",
                 anchor_index=index,
