@@ -176,7 +176,9 @@ After visual review, rerun the same operator with an explicit epoch decision, at
   -ApproveHumanReview
 ```
 
-`SelectedEpochId` is a reviewer-assigned audit label for the coherent appearance state being approved; it is not selected from a machine-ranked candidate list and does not itself grant authority. The actual evidence boundary is the explicit set of reviewed train and held-out evaluation source groups.\n\nExisting continuation artifacts are not trusted merely because they exist: the operator recomputes and requires exact canonical equality before reuse. The P0 root itself remains immutable; continuation artifacts are written to a sibling `<P0_ROOT>-teacher` workspace by default.
+`SelectedEpochId` is a reviewer-assigned audit label for the coherent appearance state being approved; it is not selected from a machine-ranked candidate list and does not itself grant authority. The actual evidence boundary is the explicit set of reviewed train and held-out evaluation source groups.
+
+Existing continuation artifacts are not trusted merely because they exist: the operator recomputes and requires exact canonical equality before reuse. The P0 root itself remains immutable; continuation artifacts are written to a sibling `<P0_ROOT>-teacher` workspace by default.
 
 The underlying create-only CLI stages remain available for audit/manual recovery:
 
