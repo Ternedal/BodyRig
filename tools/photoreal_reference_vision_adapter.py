@@ -223,7 +223,7 @@ def _sharpness(runtime: Runtime, image: Any) -> float:
     return round(max(0.0, min(1.0, 1.0 - math.exp(-variance / 400.0))), 6)
 
 
-def _decode_video_frame_ffmpeg(runtime: Runtime, path: Path, timestamp: float) -> Any:
+def _decode_video_frame_ffmpeg(runtime: Runtime, path: str, timestamp: float) -> Any:
     """Decode one video sample through the system ffmpeg as an OpenCV fallback."""
 
     command = [
@@ -275,7 +275,7 @@ def _decode_video_frame_ffmpeg(runtime: Runtime, path: Path, timestamp: float) -
 
 
 def _read_sample(runtime: Runtime, source: Mapping[str, Any], sample: Mapping[str, Any]) -> tuple[Any, bool]:
-    path = Path(_text(source.get("resolved_path"), label="resolved source path", maximum=32768))
+    path = _text(source.get("resolved_path"), label="resolved source path", maximum=32768)
     kind = _text(source.get("kind"), label="source kind", maximum=16)
     if kind == "image":
         image = runtime.cv2.imread(str(path), runtime.cv2.IMREAD_COLOR)
