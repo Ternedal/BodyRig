@@ -75,3 +75,14 @@ def test_identity_group_attestation_allows_zero_rejected_groups() -> None:
 
     assert '[string[]]$RejectGroup = @()' in source
     assert '[Parameter(Mandatory = $true)][string[]]$RejectGroup' not in source
+
+
+
+def test_identity_group_attestation_records_review_and_attestation_revisions_separately() -> None:
+    source = ATTEST.read_text(encoding="utf-8")
+
+    assert '$reviewRevision = ([string]$manifestObject.bodyrig_revision)' in source
+    assert '"--attestation-revision", $head' in source
+    assert "Review revision:" in source
+    assert "Attest revision:" in source
+    assert "belongs to revision" not in source
