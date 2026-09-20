@@ -22,6 +22,12 @@ def test_group_geometry_operator_preserves_diagnostic_boundary() -> None:
     assert "exact floor/ceiling witnesses + single-reference sensitivity" in source
     assert "best single-ref counterfactual" in source
     assert "first single-ref all-model pass" in source
+    assert "[switch]$OpenWitnessReview" in source
+    assert "exact frame/aligned-crop witness sibling comparison" in source
+    assert "boundary-witness-review.json" in source
+    assert "review-index.html" in source
+    assert "[IO.Path]::GetFileNameWithoutExtension($output)" in source
+    assert "Start-Process $witnessReviewHtml" in source
     assert "first all-model pass" in source
     assert "per-group cohesion, LGO, positive neighbors, negative overlap" in source
     assert "identity-extractor\\request.json" in source
