@@ -516,3 +516,154 @@ def test_boundary_witness_review_marks_witnesses_and_stereo_siblings(tmp_path: P
     ] == [17]
     assert payload["reference_rejection_authority"] is False
     assert payload["identity_bank_mutation_authority"] is False
+
+
+def test_fused_embedding_cosine_matches_weighted_recognizer_cosines() -> None:
+    left_current = _normalize([1.0, 0.2])
+    right_current = _normalize([0.8, 0.6])
+    left_alternate = _normalize([0.1, 1.0])
+    right_alternate = _normalize([0.7, 0.7])
+
+    fused_left = diagnostic._fused_embedding(
+        left_current,
+        left_alternate,
+        current_weight=0.5,
+    )
+    fused_right = diagnostic._fused_embedding(
+        right_current,
+        right_alternate,
+        current_weight=0.5,
+    )
+
+    expected = (
+        0.5 * _cosine(left_current, right_current)
+        + 0.5 * _cosine(left_alternate, right_alternate)
+    )
+    assert _cosine(fused_left, fused_right) == pytest.approx(
+        expected,
+        abs=1e-12,
+    )
+    assert sum(value * value for value in fused_left) == pytest.approx(
+        1.0,
+        abs=1e-12,
+    )
+
+
+def test_recognizer_fusion_sweep_retains_all_evidence_and_finds_best_weight() -> None:
+    current_positives = [
+        {
+            "reference_index": 0,
+            "group_id": "scene:1",
+            "frame_sha256": "a" * 64,
+            "embedding": [1.0, 0.0],
+        },
+        {
+            "reference_index": 1,
+            "group_id": "scene:2",
+            "frame_sha256": "b" * 64,
+            "embedding": _normalize([0.9, 0.3]),
+        },
+    ]
+    alternate_positives = [
+        {
+            **current_positives[0],
+            "embedding": [0.0, 1.0],
+        },
+        {
+            **current_positives[1],
+            "embedding": _normalize([0.3, 0.9]),
+        },
+    ]
+    current_negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "frame_sha256": "c" * 64,
+            "embedding": _normalize([-1.0, 0.0]),
+        }
+    ]
+    alternate_negatives = [
+        {
+            **current_negatives[0],
+            "embedding": _normalize([0.0, -1.0]),
+        }
+    ]
+
+    class Flip:
+        _cosine = staticmethod(_cosine)
+        _centroid = staticmethod(_centroid)
+
+        @staticmethod
+        def _score_models(
+            positives: list[dict[str, object]],
+            negatives: list[dict[str, object]],
+        ) -> dict[str, dict[str, object]]:
+            weight_signal = float(positives[0]["embedding"][0]) ** 2
+            margin = 0.2 - abs(weight_signal - 0.5)
+            return {
+                name: {
+                    "observed_separation_margin": margin,
+                    "would_meet_margin": margin >= 0.05,
+                }
+                for name in (
+                    "current-reference-weighted",
+                    "group-balanced-centroid-lgo",
+                    "nearest-group-prototype",
+                )
+            }
+
+    original_witness = diagnostic._score_model_witnesses
+    try:
+        diagnostic._score_model_witnesses = lambda **_kwargs: {
+            "diagnostic": True
+        }
+        result = diagnostic._recognizer_fusion_sweep(
+            flip=Flip(),
+            current_positives=current_positives,
+            alternate_positives=alternate_positives,
+            current_negatives=current_negatives,
+            alternate_negatives=alternate_negatives,
+            weight_steps=4,
+        )
+    finally:
+        diagnostic._score_model_witnesses = original_witness
+
+    assert result["weight_count"] == 5
+    assert result["all_positive_evidence_retained"] is True
+    assert result["all_negative_evidence_retained"] is True
+    assert result["best_weight"]["current_weight"] == pytest.approx(0.5)
+    assert result["best_weight"]["alternate_weight"] == pytest.approx(0.5)
+    assert result["best_weight"]["all_models_meet_margin"] is True
+    assert result["negative_observation_count_below_production_minimum"] is True
+
+
+def test_fusion_rejects_mismatched_evidence_provenance() -> None:
+    current_positive = {
+        "reference_index": 0,
+        "group_id": "scene:1",
+        "frame_sha256": "a" * 64,
+        "embedding": [1.0, 0.0],
+    }
+    alternate_positive = {
+        **current_positive,
+        "frame_sha256": "b" * 64,
+    }
+    negative = {
+        "negative_index": 0,
+        "subject_performer_id": "99",
+        "frame_sha256": "c" * 64,
+        "embedding": [-1.0, 0.0],
+    }
+
+    with pytest.raises(
+        diagnostic.PhotorealIdentityGroupGeometryDiagnosticError,
+        match="positive provenance mismatch",
+    ):
+        diagnostic._recognizer_fusion_sweep(
+            flip=types.SimpleNamespace(),
+            current_positives=[current_positive],
+            alternate_positives=[alternate_positive],
+            current_negatives=[negative],
+            alternate_negatives=[negative],
+            weight_steps=2,
+        )
