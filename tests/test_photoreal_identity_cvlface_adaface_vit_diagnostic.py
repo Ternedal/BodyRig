@@ -121,3 +121,21 @@ def test_normalize_rejects_wrong_dimension() -> None:
             dimension=512,
             label="test",
         )
+
+
+def test_persisted_negative_replay_uses_validated_stage13_samples() -> None:
+    source = TOOL.read_text(encoding="utf-8")
+    negative_loop = source.split(
+        "    for item in negatives:",
+        1,
+    )[1].split(
+        "    accepted = sorted",
+        1,
+    )[0]
+
+    assert 'field="samples"' in negative_loop
+    assert 'field="negative_samples"' not in negative_loop
+    assert 'source = item["source"]' in negative_loop
+    assert 'image, spatial = adapter._read_sample(runtime, source, sample)' in negative_loop
+    assert 'stored = item["stored_embedding"]' in negative_loop
+    assert 'adapter._frame_sha(image) != item["frame_sha256"]' in negative_loop
