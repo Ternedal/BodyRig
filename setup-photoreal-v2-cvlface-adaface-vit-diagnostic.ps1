@@ -129,7 +129,6 @@ $lightweightDependencies = @(
     "iopath==0.1.10",
     "portalocker==2.8.2",
     "aiofiles==23.2.1",
-    "typing-extensions==4.7.1",
     "charset-normalizer==3.2.0",
     "idna==3.4",
     "urllib3==1.26.18",
