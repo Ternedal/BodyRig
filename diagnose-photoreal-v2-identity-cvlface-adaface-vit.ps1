@@ -240,6 +240,42 @@ try {
     }
 
     Write-Host ""
+    Write-Host "Positive-only multi-view subspace (95% positive variance):"
+    foreach ($name in @("bank-w600k-r50","cvlface-adaface-vit-base-webface4m")) {
+        $subspace = $result.positive_only_subspace.$name
+        if ($null -eq $subspace) { continue }
+        Write-Host (
+            "  {0}: rank={1} explained={2:P1} floor={3} ceiling={4} margin={5} ordered={6}" -f
+            $name,
+            $subspace.final_rank,
+            [double]$subspace.final_explained_variance,
+            $subspace.positive_floor,
+            $subspace.negative_ceiling,
+            $subspace.observed_ordering_margin,
+            $subspace.strict_positive_over_negative
+        )
+        Write-Host (
+            "    floor witness: ref={0} group={1} score={2}" -f
+            $subspace.positive_floor_witness.reference_index,
+            $subspace.positive_floor_witness.group_id,
+            $subspace.positive_floor_witness.score
+        )
+        Write-Host (
+            "    ceiling witness: neg={0} subject={1} score={2}" -f
+            $subspace.negative_ceiling_witness.negative_index,
+            $subspace.negative_ceiling_witness.subject_performer_id,
+            $subspace.negative_ceiling_witness.score
+        )
+        Write-Host (
+            "    selection: positives-only={0} negatives-used={1} retained={2}/{3}" -f
+            $subspace.positive_model_selection_only,
+            $subspace.negative_evidence_used_for_selection,
+            $subspace.positive_score_count,
+            $subspace.negative_score_count
+        )
+    }
+
+    Write-Host ""
     Write-Host "Diagnostic JSON: $output"
     Write-Host "License: model-card training-dataset terms remain operator-reviewed; diagnostic only."
     Write-Host "Authority: diagnostic-only; no identity matching, training, photoreal or production authority."
