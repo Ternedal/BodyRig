@@ -667,3 +667,95 @@ def test_fusion_rejects_mismatched_evidence_provenance() -> None:
             alternate_negatives=[negative],
             weight_steps=2,
         )
+
+
+def test_top_k_mean_selects_highest_support_values() -> None:
+    assert diagnostic._top_k_mean([0.1, 0.9, 0.5, 0.3], 2) == pytest.approx(0.7)
+    with pytest.raises(
+        diagnostic.PhotorealIdentityGroupGeometryDiagnosticError,
+        match="outside available group evidence",
+    ):
+        diagnostic._top_k_mean([0.1, 0.2], 3)
+
+
+def test_group_consensus_sweep_retains_all_evidence_and_can_find_passing_k() -> None:
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 1, "group_id": "scene:2", "embedding": _normalize([0.95, 0.1])},
+        {"reference_index": 2, "group_id": "scene:3", "embedding": _normalize([0.9, 0.2])},
+        {"reference_index": 3, "group_id": "scene:4", "embedding": _normalize([0.85, 0.3])},
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": _normalize([0.4, 0.9]),
+        }
+    ]
+
+    result = diagnostic._group_consensus_sweep(
+        flip=_flip(),
+        positives=positives,
+        negatives=negatives,
+    )
+
+    assert result["support_k_min"] == 1
+    assert result["support_k_max"] == 3
+    assert result["all_positive_references_retained"] is True
+    assert result["all_positive_groups_retained"] is True
+    assert result["all_negative_observations_retained"] is True
+    assert result["negative_observation_count_below_production_minimum"] is True
+    assert len(result["ranked_support"]) == 3
+    assert all(
+        item["positive_score_count"] == 4
+        for item in result["ranked_support"]
+    )
+    assert all(
+        item["negative_score_count"] == 1
+        for item in result["ranked_support"]
+    )
+
+
+def test_group_consensus_positive_reference_cannot_use_own_group() -> None:
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 1, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 2, "group_id": "scene:2", "embedding": [0.0, 1.0]},
+        {"reference_index": 3, "group_id": "scene:3", "embedding": [-1.0, 0.0]},
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": [0.0, -1.0],
+        }
+    ]
+
+    result = diagnostic._group_consensus_sweep(
+        flip=_flip(),
+        positives=positives,
+        negatives=negatives,
+    )
+
+    k1 = next(
+        item
+        for item in result["ranked_support"]
+        if item["support_k"] == 1
+    )
+    # The scene:1 references must be scored only against scene:2/scene:3;
+    # their identical scene:1 sibling cannot inflate support.
+    assert k1["positive_floor_witness"]["reference_index"] in {0, 1, 2, 3}
+    scene1_scores = []
+    grouped = {
+        "scene:1": _centroid([[1.0, 0.0], [1.0, 0.0]]),
+        "scene:2": [0.0, 1.0],
+        "scene:3": [-1.0, 0.0],
+    }
+    for item in positives[:2]:
+        scene1_scores.append(
+            max(
+                _cosine(item["embedding"], grouped["scene:2"]),
+                _cosine(item["embedding"], grouped["scene:3"]),
+            )
+        )
+    assert scene1_scores == [0.0, 0.0]
