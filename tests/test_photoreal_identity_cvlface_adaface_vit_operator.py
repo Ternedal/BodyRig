@@ -23,6 +23,9 @@ def test_cvlface_operator_is_fail_closed_and_avoids_source_rehash() -> None:
     assert "--cvlface-root" in source
     assert "photoreal_identity_cvlface_adaface_vit_diagnostic.py" in source
     assert "AcceptTrainingDatasetTerms" in source
+    assert "cvlface-vit-runtime-v2" in source
+    assert "python\\fvcore\\__init__.py" in source
+    assert "model_cuda_smoke_test" in source
     assert "identity-extractor\\request.json" in source
     assert "identity-calibration-extractor\\request.json" in source
     assert (
@@ -57,6 +60,12 @@ def test_cvlface_setup_pins_revision_model_sha_and_authority() -> None:
     assert "\"cuda-toolkit\"" not in source
     assert "\"nvidia-cudnn\"" not in source
     assert "\"cvlface-stage-*\"" in source
+    assert "\"fvcore==0.1.5.post20221221\"" in source
+    assert "\"timm==0.9.7\"" in source
+    assert "\"iopath==0.1.10\"" in source
+    assert "Smoke-testing pinned CVLFace model on CUDA" in source
+    assert "unexpected CVLFace output shape" in source
+    assert "runtime_dependency_profile = $runtimeDependencyProfile" in source
 
 
 @pytest.mark.parametrize("script", [OPERATOR, SETUP])
