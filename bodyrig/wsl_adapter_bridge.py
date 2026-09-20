@@ -238,19 +238,28 @@ def ensure_wsl_unc_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
 
     The mount is transport-only and contains no BodyRig evidence. Existing
     mounts are preferred so operator-provisioned locations remain authoritative.
+
+    WSL interop has differed across releases in how direct argv preserves UNC
+    backslashes. Probe both the raw UNC spelling and the doubled-backslash
+    spelling used by older WSL builds instead of assuming one transport form.
     """
 
     escaped_unc = _escape_windows_argv(unc_root)
-    lookup = _run_wsl_capture(
-        [wsl_exe, "-d", distribution, "--", "/usr/bin/findmnt", "-rn", "-S", escaped_unc, "-o", "TARGET"]
-    )
-    if lookup.returncode == 0:
-        targets = [line.strip() for line in lookup.stdout.splitlines() if line.strip()]
-        if targets:
-            target = targets[0]
-            if not target.startswith("/") or "\n" in target or "\r" in target:
-                raise WslBridgeError("existing WSL UNC mount returned an invalid target")
-            return target.rstrip("/") or "/"
+    unc_candidates = [unc_root]
+    if escaped_unc != unc_root:
+        unc_candidates.append(escaped_unc)
+
+    for candidate in unc_candidates:
+        lookup = _run_wsl_capture(
+            [wsl_exe, "-d", distribution, "--", "/usr/bin/findmnt", "-rn", "-S", candidate, "-o", "TARGET"]
+        )
+        if lookup.returncode == 0:
+            targets = [line.strip() for line in lookup.stdout.splitlines() if line.strip()]
+            if targets:
+                target = targets[0]
+                if not target.startswith("/") or "\n" in target or "\r" in target:
+                    raise WslBridgeError("existing WSL UNC mount returned an invalid target")
+                return target.rstrip("/") or "/"
 
     digest = hashlib.sha256(unc_root.casefold().encode("utf-8")).hexdigest()[:16]
     mountpoint = f"/mnt/bodyrig/remote/{digest}"
@@ -258,7 +267,7 @@ def ensure_wsl_unc_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
         [wsl_exe, "-d", distribution, "-u", "root", "--", "/bin/mkdir", "-p", mountpoint]
     )
     if mkdir_result.returncode != 0:
-        detail = mkdir_result.stderr.strip()[-1000:]
+        detail = (mkdir_result.stderr or mkdir_result.stdout).strip()[-1000:]
         raise WslBridgeError(f"could not create WSL UNC mountpoint: {detail}")
 
     mounted = _run_wsl_capture(
@@ -267,13 +276,24 @@ def ensure_wsl_unc_mount(wsl_exe: str, distribution: str, unc_root: str) -> str:
     if mounted.returncode == 0 and mounted.stdout.strip() == mountpoint:
         return mountpoint
 
-    mount_result = _run_wsl_capture(
-        [wsl_exe, "-d", distribution, "-u", "root", "--", "/bin/mount", "-t", "drvfs", escaped_unc, mountpoint]
+    failures: list[str] = []
+    for label, candidate in zip(("raw", "escaped"), unc_candidates):
+        mount_result = _run_wsl_capture(
+            [wsl_exe, "-d", distribution, "-u", "root", "--", "/bin/mount", "-t", "drvfs", candidate, mountpoint]
+        )
+        if mount_result.returncode == 0:
+            return mountpoint
+        detail = (mount_result.stderr or mount_result.stdout).strip()[-1000:]
+        failures.append(f"{label}={detail or 'no diagnostic output'}")
+
+    # When raw and escaped spellings are identical, zip() above emits only the
+    # raw attempt. Preserve an accurate diagnostic rather than inventing a
+    # second transport attempt.
+    detail = "; ".join(failures) or "no diagnostic output"
+    raise WslBridgeError(
+        "could not mount Windows UNC share in WSL via DrvFS "
+        f"({unc_root}); attempted transport forms: {detail}"
     )
-    if mount_result.returncode != 0:
-        detail = mount_result.stderr.strip()[-1000:]
-        raise WslBridgeError(f"could not mount Windows UNC share in WSL: {detail}")
-    return mountpoint
 
 
 def make_wsl_path_converter(wsl_exe: str, distribution: str) -> Callable[[str], str]:
