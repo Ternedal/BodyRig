@@ -139,7 +139,7 @@ try {
     Write-Host "Attestation:    $attestation"
     Write-Host "Device:         $Device"
     Write-Host "Window:         -0.20/-0.10/0/+0.10/+0.20 sec"
-    Write-Host "Signals:        keypoint ROI / pose / crop appearance (detector bbox audit only)"
+    Write-Host "Signals:        direct RTMDet ROI / keypoint fallback / pose / crop appearance"
     Write-Host "Face matching:  NO"
     Write-Host "Face embedding: NO"
     Write-Host "Source rehash:  NO"
@@ -197,21 +197,35 @@ try {
             $s.minimum_distinct_decoded_frames
         )
         Write-Host (
-            "  full-frame detector boxes:    {0}/{1}" -f
-            $s.anchors_with_full_frame_detector_bbox,
+            "  full-frame pose boxes:        {0}/{1}" -f
+            $s.anchors_with_full_frame_pose_bbox,
             $s.anchor_count
         )
-        if ($null -ne $s.median_detector_bbox_iou) {
+        Write-Host (
+            "  ROI source direct/keypoint/none: {0}/{1}/{2}" -f
+            $s.anchors_with_direct_rtmdet_roi,
+            $s.anchors_with_keypoint_fallback_roi,
+            $s.anchors_without_person_roi
+        )
+        if ($null -ne $s.median_tracking_bbox_iou) {
             Write-Host (
-                "  detector bbox IoU (audit):   {0} / {1} / {2}" -f
-                $s.median_detector_bbox_iou.min,
-                $s.median_detector_bbox_iou.median,
-                $s.median_detector_bbox_iou.max
+                "  tracking ROI IoU min/med/max:{0} / {1} / {2}" -f
+                $s.median_tracking_bbox_iou.min,
+                $s.median_tracking_bbox_iou.median,
+                $s.median_tracking_bbox_iou.max
+            )
+        }
+        if ($null -ne $s.median_pose_bbox_iou) {
+            Write-Host (
+                "  pose bbox IoU (audit):        {0} / {1} / {2}" -f
+                $s.median_pose_bbox_iou.min,
+                $s.median_pose_bbox_iou.median,
+                $s.median_pose_bbox_iou.max
             )
         }
         if ($null -ne $s.median_keypoint_bbox_iou) {
             Write-Host (
-                "  keypoint ROI IoU min/med/max:{0} / {1} / {2}" -f
+                "  keypoint ROI IoU (audit):     {0} / {1} / {2}" -f
                 $s.median_keypoint_bbox_iou.min,
                 $s.median_keypoint_bbox_iou.median,
                 $s.median_keypoint_bbox_iou.max
@@ -233,12 +247,12 @@ try {
                 $s.median_pose_distance.max
             )
         }
-        if ($null -ne $s.median_keypoint_center_shift) {
+        if ($null -ne $s.median_tracking_center_shift) {
             Write-Host (
-                "  keypoint center min/med/max: {0} / {1} / {2}" -f
-                $s.median_keypoint_center_shift.min,
-                $s.median_keypoint_center_shift.median,
-                $s.median_keypoint_center_shift.max
+                "  tracking center min/med/max: {0} / {1} / {2}" -f
+                $s.median_tracking_center_shift.min,
+                $s.median_tracking_center_shift.median,
+                $s.median_tracking_center_shift.max
             )
         }
     }
