@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,95 @@ def test_tta_mean_l2_normalizes_inputs_and_output() -> None:
         [1.0 / math.sqrt(2.0), 1.0 / math.sqrt(2.0)]
     )
     assert math.sqrt(sum(value * value for value in result)) == pytest.approx(1.0)
+
+
+def test_aligned_crop_flip_uses_original_face_alignment_without_redetection_of_flipped_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeArray:
+        size = 4
+
+    class FakeVector:
+        def __init__(self, values: list[float]) -> None:
+            self.values = values
+
+        def reshape(self, *_shape: int) -> "FakeVector":
+            return self
+
+        def tolist(self) -> list[float]:
+            return list(self.values)
+
+    class FakeNumpy:
+        @staticmethod
+        def ascontiguousarray(value: object) -> object:
+            return value
+
+        @staticmethod
+        def asarray(value: list[float]) -> FakeVector:
+            return FakeVector(value)
+
+    class FakeCv2:
+        @staticmethod
+        def flip(_image: object, axis: int) -> FakeArray:
+            assert axis == 1
+            return FakeArray()
+
+    class FakeRecognizer:
+        input_size = (112, 112)
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get_feat(self, _image: object) -> list[float]:
+            self.calls += 1
+            return [1.0, 0.0] if self.calls == 1 else [0.8, 0.6]
+
+    face = types.SimpleNamespace(kps=[[0.0, 0.0]] * 5)
+    recognizer = FakeRecognizer()
+    runtime = types.SimpleNamespace(
+        cv2=FakeCv2(),
+        np=FakeNumpy(),
+        face_app=types.SimpleNamespace(models={"recognition": recognizer}),
+    )
+
+    class FakeAdapter:
+        @staticmethod
+        def _candidates(_runtime: object, _image: object) -> list[dict[str, object]]:
+            return [{"face": face}]
+
+        @staticmethod
+        def _embedding(_face: object, dimension: int) -> list[float]:
+            assert dimension == 2
+            return [1.0, 0.0]
+
+    face_align = types.SimpleNamespace(
+        norm_crop=lambda _image, *, landmark, image_size: (
+            FakeArray()
+            if landmark is face.kps and image_size == 112
+            else (_ for _ in ()).throw(AssertionError("unexpected alignment"))
+        )
+    )
+    insightface = types.ModuleType("insightface")
+    insightface_utils = types.ModuleType("insightface.utils")
+    insightface_utils.face_align = face_align
+    insightface.utils = insightface_utils
+    monkeypatch.setitem(sys.modules, "insightface", insightface)
+    monkeypatch.setitem(sys.modules, "insightface.utils", insightface_utils)
+
+    flipped, quality = diagnostic._aligned_crop_flip_measurement(
+        adapter=FakeAdapter(),
+        runtime=runtime,
+        image=FakeArray(),
+        original_embedding=[1.0, 0.0],
+        dimension=2,
+    )
+
+    assert flipped == pytest.approx([0.8, 0.6])
+    assert quality["status"] == "available"
+    assert quality["recognition_input_size"] == 112
+    assert quality["original_face_replay_cosine"] == pytest.approx(1.0)
+    assert quality["aligned_original_replay_cosine"] == pytest.approx(1.0)
+    assert recognizer.calls == 2
 
 
 def test_score_models_reports_all_three_diagnostic_models() -> None:
