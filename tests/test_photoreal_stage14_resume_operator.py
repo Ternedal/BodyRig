@@ -59,3 +59,24 @@ def test_stage14_resume_requires_canonical_clean_main() -> None:
     assert 'Trim() -ne "main"' in SCRIPT
     assert "status --porcelain" in SCRIPT
     assert "requires an exact clean BodyRig checkout" in SCRIPT
+
+
+def test_stage14_resume_writes_discoverable_canonical_summary() -> None:
+    assert 'format = "bodyrig-photoreal-v2-overnight-summary"' in SCRIPT
+    assert 'output_root = $OutputRoot' in SCRIPT
+    assert 'p0_status = (Join-Path $OutputRoot "p0-status.json")' in SCRIPT
+    assert 'bodyrig_revision = $Head' in SCRIPT
+    assert 'teacher_training_authorized = $false' in SCRIPT
+    assert 'human_visual_acceptance_required = $true' in SCRIPT
+    assert 'photoreal_acceptance_authority = $false' in SCRIPT
+    assert 'production_activation = $false' in SCRIPT
+    assert 'resume14-summary.json' in SCRIPT
+
+
+def test_stage14_resume_summary_binds_final_p0_status_bytes() -> None:
+    assert '$summary.p0_status_sha256 = Sha256 $StatusPath' in SCRIPT
+    assert '$summary.teacher_training_authorized = $trainingAuthorized' in SCRIPT
+    assert '$summary.status = $(if ($trainingAuthorized) { "completed" } else { "failed" })' in SCRIPT
+    assert '$summary.finished_at = (Get-Date).ToUniversalTime().ToString("o")' in SCRIPT
+    assert '$summary.exit_code = $finalExitCode' in SCRIPT
+    assert '$summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $SummaryPath' in SCRIPT

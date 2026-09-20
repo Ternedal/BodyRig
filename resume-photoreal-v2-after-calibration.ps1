@@ -193,6 +193,30 @@ $OutputRoot = Join-Path $RunRoot ("performer-{0}-{1}-resume14" -f $PerformerId, 
 if (Test-Path -LiteralPath $OutputRoot) { throw "Stage-14 resume output already exists: $OutputRoot" }
 New-Item -ItemType Directory -Path $OutputRoot | Out-Null
 
+$SummaryPath = Join-Path $RunRoot ("performer-{0}-{1}-resume14-summary.json" -f $PerformerId, $stamp)
+if (Test-Path -LiteralPath $SummaryPath -PathType Leaf) { throw "Stage-14 resume summary already exists: $SummaryPath" }
+$summary = [ordered]@{
+    format = "bodyrig-photoreal-v2-overnight-summary"
+    version = 1
+    performer_id = $PerformerId
+    started_at = (Get-Date).ToUniversalTime().ToString("o")
+    finished_at = $null
+    output_root = $OutputRoot
+    transcript = $null
+    status = "running"
+    exit_code = $null
+    p0_status = (Join-Path $OutputRoot "p0-status.json")
+    p0_status_sha256 = $null
+    bodyrig_revision = $Head
+    teacher_training_authorized = $false
+    human_visual_acceptance_required = $true
+    photoreal_acceptance_authority = $false
+    production_activation = $false
+    resumed_from_stage13_run = $SourceRun
+    source_rehash_skipped_explicitly = $true
+}
+$summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $SummaryPath -Encoding UTF8
+
 $CopiedArtifactHashes = [ordered]@{}
 $PlanPath = Copy-Stage13Artifact -RelativePath "dataset-plan.json" -Label "Stage-13 dataset plan"
 $ReceiptPath = Copy-Stage13Artifact -RelativePath "source-receipt.json" -Label "Stage-13 source receipt"
@@ -290,6 +314,13 @@ try {
 
     Write-Status -Status $(if ($trainingAuthorized) { "teacher-training-authorized" } else { "frame-index-blocked" }) -TeacherTrainingAuthorized $trainingAuthorized -Blockers $blockers -SourceBoundVerified $sourceBoundVerified -CalibratedVerified $calibratedVerified -Unresolved $unresolved
 
+    $summary.p0_status_sha256 = Sha256 $StatusPath
+    $summary.teacher_training_authorized = $trainingAuthorized
+    $summary.status = $(if ($trainingAuthorized) { "completed" } else { "failed" })
+    if (-not $trainingAuthorized) {
+        $summary.error = $(if ($blockers.Count -gt 0) { $blockers -join "; " } else { "Frame index did not authorize teacher training." })
+    }
+
     Write-Host ""
     Write-Host "============================================================"
     Write-Host "BODYRIG PHOTOREAL V2 - STAGE 14 RESUME COMPLETE"
@@ -301,12 +332,19 @@ try {
     Write-Host "Photoreal accept:      FALSE"
     Write-Host "Production:            FALSE"
     Write-Host "Status:                $StatusPath"
+    Write-Host "Summary:               $SummaryPath"
     Write-Host "============================================================"
     $finalExitCode = $(if ($trainingAuthorized) { 0 } else { 2 })
 }
 catch {
     $message = $_.Exception.Message
     if (-not (Test-Path -LiteralPath $StatusPath -PathType Leaf)) { Write-Status -Status "stage14-resume-unexpected-failure" -TeacherTrainingAuthorized $false -Blockers @("Stage-14 resume failed unexpectedly: $message") }
+    $summary.status = "failed"
+    $summary.teacher_training_authorized = $false
+    $summary.error = $message
+    if (Test-Path -LiteralPath $StatusPath -PathType Leaf) {
+        $summary.p0_status_sha256 = Sha256 $StatusPath
+    }
     Write-Host ""
     Write-Host "BodyRig Photoreal Stage-14 resume: FAILED"
     Write-Host "Error:  $message"
@@ -315,6 +353,9 @@ catch {
     $finalExitCode = 1
 }
 finally {
+    $summary.finished_at = (Get-Date).ToUniversalTime().ToString("o")
+    $summary.exit_code = $finalExitCode
+    $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $SummaryPath -Encoding UTF8
     $env:PYTHONPATH = $priorPythonPath
     [Environment]::SetEnvironmentVariable("BODYRIG_PHOTOREAL_PROJECTION_AUTHORITY", $priorProjectionAuthority, "Process")
     if (Test-Path -LiteralPath $tempRoot -PathType Container) { Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue }
