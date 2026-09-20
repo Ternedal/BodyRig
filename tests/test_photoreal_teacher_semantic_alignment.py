@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import bodyrig.photoreal_teacher_semantic_alignment as semantic_alignment
 from bodyrig.photoreal_teacher_semantic_alignment import (
     PhotorealTeacherSemanticAlignmentError,
     REQUIRED_SEMANTIC_LABELS,
@@ -233,3 +234,43 @@ def test_handoff_rejects_tampered_render_bytes(tmp_path: Path) -> None:
 
     with pytest.raises(PhotorealTeacherSemanticAlignmentError, match="neutral render file SHA mismatch"):
         build_semantic_alignment_handoff(teacher, output)
+
+
+def test_file_handoff_uses_runner_workspace_for_strict_readback_and_output_subdir_for_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / "teacher-workspace"
+    (workspace / "output").mkdir(parents=True)
+    config = tmp_path / "config.json"
+    teacher_input = tmp_path / "teacher-input.json"
+    config.write_text("{}\n", encoding="utf-8")
+    teacher_input.write_text("{}\n", encoding="utf-8")
+    target = tmp_path / "semantic-handoff.json"
+    captured: dict[str, object] = {}
+
+    def fake_strict(config_path, teacher_input_path, workspace_path):
+        captured["strict_workspace"] = Path(workspace_path).resolve()
+        return {"sentinel": "validated"}
+
+    def fake_build(validated, result_root):
+        captured["validated"] = validated
+        captured["result_root"] = Path(result_root).resolve()
+        return {
+            "format": "test-semantic-handoff",
+            "semantic_alignment_handoff_sha256": "a" * 64,
+        }
+
+    monkeypatch.setattr(semantic_alignment, "validate_external_teacher_files_strict", fake_strict)
+    monkeypatch.setattr(semantic_alignment, "build_semantic_alignment_handoff", fake_build)
+
+    result = semantic_alignment.build_semantic_alignment_handoff_files(
+        config,
+        teacher_input,
+        workspace,
+        target,
+    )
+
+    assert result["format"] == "test-semantic-handoff"
+    assert captured["strict_workspace"] == workspace.resolve()
+    assert captured["result_root"] == (workspace / "output").resolve()
