@@ -90,6 +90,7 @@ $probePath = Join-Path $attempt "machine-probe.json"
 $deformationPath = Join-Path $attempt "deformation-probe.json"
 $hairDeformationPath = Join-Path $attempt "hair-deformation-probe.json"
 $snapshotDir = Join-Path $attempt "snapshots"
+$playerLogPath = Join-Path $attempt "unity-player.log"
 $runtimeManifest = ""
 $acceptedRevision = $currentHead
 $expectedRuntimeSha = ""
@@ -264,13 +265,24 @@ try {
         "--bodyrig-fidelity-snapshot-dir", $snapshotDir,
         "--bodyrig-renderer-name", $rendererName,
         "--bodyrig-renderer-version", $rendererVersion,
-        "--bodyrig-quit-after-probe"
+        "--bodyrig-quit-after-probe",
+        "-logFile", $playerLogPath
     )
     if ($usingReviewRuntime) {
         $args += @("--bodyrig-hair-deformation-output", $hairDeformationPath)
     }
     $exitCode = Invoke-NativeProcessWait -FilePath $playerExe -ArgumentList $args
-    if ($exitCode -ne 0) { throw "Fidelity reference player exited with code $exitCode" }
+    if ($exitCode -ne 0) {
+        $tail = ""
+        if (Test-Path -LiteralPath $playerLogPath -PathType Leaf) {
+            $logLines = @(Get-Content -LiteralPath $playerLogPath -Tail 80 -ErrorAction SilentlyContinue)
+            $tail = ($logLines -join [Environment]::NewLine).Trim()
+        }
+        if ([string]::IsNullOrWhiteSpace($tail)) {
+            throw "Fidelity reference player exited with code $exitCode (Unity player log was empty or missing: $playerLogPath)"
+        }
+        throw ("Fidelity reference player exited with code {0}. Unity player log tail:{1}{2}" -f $exitCode, [Environment]::NewLine, $tail)
+    }
 
     $probe = Read-Json $probePath "Fidelity renderer machine probe"
     $deformation = Read-Json $deformationPath "Fidelity renderer deformation probe"
