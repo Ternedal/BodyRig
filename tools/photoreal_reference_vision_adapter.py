@@ -262,7 +262,13 @@ def _decode_video_frame_ffmpeg(runtime: Runtime, path: Path, timestamp: float) -
             f"ffmpeg fallback failed with exit code {completed.returncode}: {detail or 'no diagnostic output'}"
         )
     encoded = runtime.np.frombuffer(completed.stdout, dtype=runtime.np.uint8)
-    image = runtime.cv2.imdecode(encoded, runtime.cv2.IMREAD_COLOR)
+    try:
+        image = runtime.cv2.imdecode(encoded, runtime.cv2.IMREAD_COLOR)
+    except Exception as exc:  # noqa: BLE001
+        cv_error = getattr(runtime.cv2, "error", None)
+        if cv_error is None or not isinstance(exc, cv_error):
+            raise
+        raise ReferenceVisionDecodeError(f"ffmpeg fallback image decode raised {type(exc).__name__}: {exc}") from exc
     if image is None:
         raise ReferenceVisionDecodeError("ffmpeg fallback returned an undecodable image")
     return image
