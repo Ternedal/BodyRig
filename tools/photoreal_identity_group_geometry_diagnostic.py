@@ -873,18 +873,6 @@ def _write_boundary_witness_review(
                 "reference_index": sibling_index,
                 "cosine": round(
                     float(
-                        confusion._load_module  # type: ignore[attr-defined]
-                    ) if False else 0.0,
-                    9,
-                ),
-            }
-            for sibling_index in []
-        ]
-        current_sibling = [
-            {
-                "reference_index": sibling_index,
-                "cosine": round(
-                    float(
                         sum(
                             a * b
                             for a, b in zip(
@@ -932,6 +920,18 @@ def _write_boundary_witness_review(
             media["aligned"],
         )
 
+        same_timestamp_siblings = [
+            sibling_index
+            for sibling_index in sibling_indices
+            if current_by_index[sibling_index]["timestamp_seconds"]
+            == current["timestamp_seconds"]
+        ]
+        opposite_eye_same_timestamp_siblings = [
+            sibling_index
+            for sibling_index in same_timestamp_siblings
+            if str(current_by_index[sibling_index]["eye"])
+            != str(current["eye"])
+        ]
         witness_for = [
             variant
             for variant, index in witness_indices.items()
@@ -951,6 +951,10 @@ def _write_boundary_witness_review(
                 "frame_image": f"media/{frame_name}",
                 "aligned_image": f"media/{crop_name}",
                 "sibling_reference_indices": sibling_indices,
+                "same_timestamp_sibling_reference_indices": same_timestamp_siblings,
+                "opposite_eye_same_timestamp_sibling_reference_indices": (
+                    opposite_eye_same_timestamp_siblings
+                ),
                 "w600k_sibling_cosines": current_sibling,
                 "glintr100_sibling_cosines": alternate_sibling,
             }
@@ -968,9 +972,9 @@ def _write_boundary_witness_review(
         pose_text = ""
         if isinstance(pose, Mapping):
             pose_text = (
-                f"yaw={html.escape(str(pose.get('yaw')))} "
-                f"pitch={html.escape(str(pose.get('pitch')))} "
-                f"roll={html.escape(str(pose.get('roll')))}"
+                f"yaw={html.escape(str(pose.get('yaw_degrees')))} "
+                f"pitch={html.escape(str(pose.get('pitch_degrees')))} "
+                f"roll={html.escape(str(pose.get('roll_degrees')))}"
             )
         return (
             f"det={html.escape(str(quality.get('det_score')))}<br>"
@@ -1004,7 +1008,9 @@ def _write_boundary_witness_review(
             f"<strong>{html.escape(marker)}</strong><br>"
             f"t={html.escape(str(row['timestamp_seconds']))}s<br>"
             f"eye={html.escape(str(row['eye']))}<br>"
-            f"viewport={html.escape(str(row['viewport_id']))}</td>"
+            f"viewport={html.escape(str(row['viewport_id']))}<br>"
+            f"same-t sibling={html.escape(str(row['same_timestamp_sibling_reference_indices']))}<br>"
+            f"stereo sibling={html.escape(str(row['opposite_eye_same_timestamp_sibling_reference_indices']))}</td>"
             f"<td><img class=\"frame\" src=\"{html.escape(row['frame_image'])}\"></td>"
             f"<td><img class=\"crop\" src=\"{html.escape(row['aligned_image'])}\"></td>"
             f"<td>{_fmt_quality(row['quality'])}</td>"
