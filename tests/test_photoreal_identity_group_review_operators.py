@@ -57,3 +57,13 @@ def test_identity_group_review_operator_powershell_parses_when_pwsh_available(
         env=env,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_identity_group_review_wsl_path_bridge_is_codepage_independent() -> None:
+    for script in (PREPARE, ATTEST):
+        source = script.read_text(encoding="utf-8")
+        assert "import base64" in source
+        assert 'base64.b64encode(value.encode("utf-8")).decode("ascii")' in source
+        assert "[Convert]::FromBase64String($encoded)" in source
+        assert "[Text.Encoding]::UTF8.GetString" in source
+        assert "print(make_wsl_path_converter" not in source

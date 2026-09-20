@@ -24,16 +24,26 @@ $py = if (Test-Path (Join-Path $repo ".venv\Scripts\python.exe")) {
 }
 
 $code = @'
+import base64
 import sys
 from pathlib import Path
 repo = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(repo))
 from bodyrig.wsl_adapter_bridge import make_wsl_path_converter
-print(make_wsl_path_converter(sys.argv[2], sys.argv[3])(str(repo)))
+value = make_wsl_path_converter(sys.argv[2], sys.argv[3])(str(repo))
+print(base64.b64encode(value.encode("utf-8")).decode("ascii"))
 '@
-$linuxRepo = (& $py -c $code $repo $WslExe $Distribution).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($linuxRepo)) {
+$encodedRepo = (& $py -c $code $repo $WslExe $Distribution).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($encodedRepo)) {
     throw "Could not translate BodyRig repository path into WSL."
+}
+try {
+    $linuxRepo = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encodedRepo))
+} catch {
+    throw "BodyRig WSL bridge returned invalid encoded repository path data."
+}
+if ([string]::IsNullOrWhiteSpace($linuxRepo) -or -not $linuxRepo.StartsWith('/')) {
+    throw "BodyRig WSL bridge returned an invalid repository path."
 }
 
 Write-Host ""

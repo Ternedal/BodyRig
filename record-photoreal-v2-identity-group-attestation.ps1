@@ -32,16 +32,23 @@ function Convert-ToWslPath {
     if ($WindowsPath.StartsWith('/')) { return $WindowsPath }
 
     $pythonCode = @'
+import base64
 import sys
 sys.path.insert(0, sys.argv[1])
 from bodyrig.wsl_adapter_bridge import make_wsl_path_converter
-print(make_wsl_path_converter(sys.argv[2], sys.argv[3])(sys.argv[4]))
+value = make_wsl_path_converter(sys.argv[2], sys.argv[3])(sys.argv[4])
+print(base64.b64encode(value.encode("utf-8")).decode("ascii"))
 '@
     $lines = @(& $script:WindowsPython -c $pythonCode $script:RepoRoot "wsl.exe" $Distribution $WindowsPath 2>&1)
     if ($LASTEXITCODE -ne 0 -or $lines.Count -ne 1) {
         throw "Could not convert path with BodyRig WSL bridge: $WindowsPath | $($lines -join ' ')"
     }
-    $value = ([string]$lines[0]).Trim()
+    $encoded = ([string]$lines[0]).Trim()
+    try {
+        $value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($encoded))
+    } catch {
+        throw "BodyRig WSL bridge returned invalid encoded path data: $WindowsPath"
+    }
     if ([string]::IsNullOrWhiteSpace($value) -or -not $value.StartsWith('/')) {
         throw "BodyRig WSL bridge returned invalid path: $WindowsPath"
     }

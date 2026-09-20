@@ -9,6 +9,10 @@ import pytest
 from bodyrig import photoreal_exavatar_hand4whole_stage as stage
 
 
+ROOT = Path(__file__).resolve().parents[1]
+STAGE_OPERATOR = ROOT / "stage-photoreal-exavatar-hand4whole-assets.ps1"
+
+
 def _digest(value: dict[str, object], omit: str) -> str:
     payload = {key: item for key, item in value.items() if key != omit}
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -81,3 +85,14 @@ def test_hand4whole_stage_refuses_existing_destination(tmp_path: Path) -> None:
 
     with pytest.raises(stage.PhotorealExAvatarHand4WholeStageError, match="destination already exists"):
         stage.stage_hand4whole_assets(workspace_root=root)
+
+
+
+def test_hand4whole_stage_operator_wsl_path_stdout_is_codepage_independent() -> None:
+    text = STAGE_OPERATOR.read_text(encoding="utf-8")
+
+    assert "import base64" in text
+    assert 'base64.b64encode(value.encode("utf-8")).decode("ascii")' in text
+    assert "[Convert]::FromBase64String($encodedRepo)" in text
+    assert "[Text.Encoding]::UTF8.GetString" in text
+    assert "print(make_wsl_path_converter" not in text

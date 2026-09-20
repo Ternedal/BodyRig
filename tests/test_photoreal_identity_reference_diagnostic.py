@@ -43,3 +43,14 @@ def test_runner_reproduces_wsl_transport_without_source_rehash() -> None:
     assert 'photoreal-stash-inventory.ps1' not in text
     assert 'Read-Host' not in text
     assert 'Pause' not in text
+
+
+
+def test_runner_wsl_path_stdout_is_codepage_independent() -> None:
+    text = POWERSHELL_RUNNER.read_text(encoding="utf-8")
+
+    assert "import base64" in text
+    assert 'base64.b64encode(value.encode("utf-8")).decode("ascii")' in text
+    assert "[Convert]::FromBase64String($encoded)" in text
+    assert "[Text.Encoding]::UTF8.GetString" in text
+    assert "print(make_wsl_path_converter" not in text
