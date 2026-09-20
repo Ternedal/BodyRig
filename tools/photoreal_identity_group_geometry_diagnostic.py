@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sys
+from itertools import combinations
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping
@@ -366,6 +367,147 @@ def _compare_variants(
     return result
 
 
+
+def _ablation_search(
+    *,
+    flip: Any,
+    positives: list[dict[str, Any]],
+    negatives: list[dict[str, Any]],
+    max_removed_groups: int = 3,
+) -> dict[str, Any]:
+    group_ids = sorted({str(item["group_id"]) for item in positives})
+    if len(group_ids) < 4:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "group ablation requires at least four positive groups"
+        )
+    if max_removed_groups < 1 or max_removed_groups >= len(group_ids) - 1:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "group ablation maximum removal count is invalid"
+        )
+
+    records: list[dict[str, Any]] = []
+    for remove_count in range(0, max_removed_groups + 1):
+        for removed in combinations(group_ids, remove_count):
+            removed_set = set(removed)
+            remaining = [
+                item
+                for item in positives
+                if str(item["group_id"]) not in removed_set
+            ]
+            remaining_groups = sorted(
+                {str(item["group_id"]) for item in remaining}
+            )
+            if len(remaining_groups) < 2:
+                continue
+
+            models = flip._score_models(remaining, negatives)
+            margins = {
+                name: float(model["observed_separation_margin"])
+                for name, model in models.items()
+            }
+            passes = {
+                name: bool(model["would_meet_margin"])
+                for name, model in models.items()
+            }
+            records.append(
+                {
+                    "removed_group_ids": list(removed),
+                    "removed_group_count": remove_count,
+                    "removed_reference_count": len(positives) - len(remaining),
+                    "remaining_group_count": len(remaining_groups),
+                    "remaining_reference_count": len(remaining),
+                    "scoring_models": models,
+                    "minimum_margin_across_models": round(
+                        min(margins.values()),
+                        9,
+                    ),
+                    "maximum_margin_across_models": round(
+                        max(margins.values()),
+                        9,
+                    ),
+                    "all_models_meet_margin": all(passes.values()),
+                    "any_model_meets_margin": any(passes.values()),
+                    "diagnostic_only": True,
+                }
+            )
+
+    def rank_key(item: dict[str, Any]) -> tuple[float, float, float, int, tuple[str, ...]]:
+        models = item["scoring_models"]
+        return (
+            -float(item["minimum_margin_across_models"]),
+            -float(
+                models["current-reference-weighted"][
+                    "observed_separation_margin"
+                ]
+            ),
+            -float(
+                models["group-balanced-centroid-lgo"][
+                    "observed_separation_margin"
+                ]
+            ),
+            int(item["removed_reference_count"]),
+            tuple(str(value) for value in item["removed_group_ids"]),
+        )
+
+    by_removed_count: dict[str, list[dict[str, Any]]] = {}
+    for remove_count in range(0, max_removed_groups + 1):
+        subset = [
+            item
+            for item in records
+            if item["removed_group_count"] == remove_count
+        ]
+        subset.sort(key=rank_key)
+        by_removed_count[str(remove_count)] = subset
+
+    all_models_pass = [
+        item for item in records if item["all_models_meet_margin"]
+    ]
+    all_models_pass.sort(
+        key=lambda item: (
+            int(item["removed_group_count"]),
+            *rank_key(item),
+        )
+    )
+    any_model_pass = [
+        item for item in records if item["any_model_meets_margin"]
+    ]
+    any_model_pass.sort(
+        key=lambda item: (
+            int(item["removed_group_count"]),
+            *rank_key(item),
+        )
+    )
+
+    candidate = None
+    candidate_set = {"scene:805", "scene:889", "scene:978"}
+    for item in records:
+        if set(item["removed_group_ids"]) == candidate_set:
+            candidate = item
+            break
+
+    return {
+        "max_removed_groups": max_removed_groups,
+        "combination_count": len(records),
+        "ranking_objective": (
+            "maximize the minimum observed separation margin across all three "
+            "diagnostic scoring models; ties favor current-reference-weighted "
+            "then group-balanced margin, then fewer removed references"
+        ),
+        "by_removed_count": by_removed_count,
+        "first_all_models_pass": (
+            all_models_pass[0] if all_models_pass else None
+        ),
+        "first_any_model_pass": (
+            any_model_pass[0] if any_model_pass else None
+        ),
+        "candidate_scene_805_889_978": candidate,
+        "counterfactual_only": True,
+        "valid_human_attested_groups_are_not_rejected": True,
+        "identity_bank_mutation_authority": False,
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -670,6 +812,19 @@ def main(argv: list[str] | None = None) -> int:
         alternate=alternate_geometry,
     )
 
+    current_ablation = _ablation_search(
+        flip=flip,
+        positives=current_positives,
+        negatives=current_negatives,
+        max_removed_groups=3,
+    )
+    alternate_ablation = _ablation_search(
+        flip=flip,
+        positives=alternate_positives,
+        negatives=alternate_negatives,
+        max_removed_groups=3,
+    )
+
     bodyrig_revision = str(os.environ.get("BODYRIG_REVISION") or "").strip().lower()
     if (
         len(bodyrig_revision) != 40
@@ -724,6 +879,10 @@ def main(argv: list[str] | None = None) -> int:
             "antelopev2-glintr100": alternate_geometry,
         },
         "group_comparison": comparison,
+        "counterfactual_group_ablation": {
+            "w600k-r50": current_ablation,
+            "antelopev2-glintr100": alternate_ablation,
+        },
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
@@ -758,6 +917,28 @@ def main(argv: list[str] | None = None) -> int:
                 "weakest_alternate_pair": (
                     alternate_geometry["pairwise_positive_group_cosines"][0]
                 ),
+                "ablation_summary": {
+                    "w600k-r50": {
+                        "combination_count": current_ablation["combination_count"],
+                        "best_remove_1": current_ablation["by_removed_count"]["1"][0],
+                        "best_remove_2": current_ablation["by_removed_count"]["2"][0],
+                        "best_remove_3": current_ablation["by_removed_count"]["3"][0],
+                        "first_all_models_pass": current_ablation["first_all_models_pass"],
+                        "candidate_scene_805_889_978": current_ablation[
+                            "candidate_scene_805_889_978"
+                        ],
+                    },
+                    "antelopev2-glintr100": {
+                        "combination_count": alternate_ablation["combination_count"],
+                        "best_remove_1": alternate_ablation["by_removed_count"]["1"][0],
+                        "best_remove_2": alternate_ablation["by_removed_count"]["2"][0],
+                        "best_remove_3": alternate_ablation["by_removed_count"]["3"][0],
+                        "first_all_models_pass": alternate_ablation["first_all_models_pass"],
+                        "candidate_scene_805_889_978": alternate_ablation[
+                            "candidate_scene_805_889_978"
+                        ],
+                    },
+                },
                 "diagnostic_only": True,
                 "production_activation": False,
                 "output": str(output),
