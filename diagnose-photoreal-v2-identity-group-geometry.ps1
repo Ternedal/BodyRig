@@ -326,8 +326,9 @@ try {
         }
     }
 
-    $witnessReviewHtml = [string]$result.boundary_witness_review.html
-    $witnessReviewJson = [string]$result.boundary_witness_review.json
+    $witnessReviewRoot = Join-Path ([IO.Path]::GetDirectoryName($output)) (([IO.Path]::GetFileNameWithoutExtension($output)) + "-witness-review")
+    $witnessReviewHtml = Join-Path $witnessReviewRoot "review-index.html"
+    $witnessReviewJson = Join-Path $witnessReviewRoot "boundary-witness-review.json"
     Write-Host ""
     Write-Host "Boundary witness visual review:"
     Write-Host "  HTML: $witnessReviewHtml"
