@@ -363,10 +363,13 @@ def test_direct_person_detector_uses_fixed_score_and_nms() -> None:
         det_cat_ids = [0]
 
     class Runtime:
-        pose_inferencer = PoseInferencer()
-        np = np
+        pass
 
-    detections = diagnostic._direct_person_detections(Runtime(), object())
+    runtime = Runtime()
+    runtime.pose_inferencer = PoseInferencer()
+    runtime.np = np
+
+    detections = diagnostic._direct_person_detections(runtime, object())
 
     assert len(detections) == 1
     assert detections[0]["score"] == pytest.approx(0.95)
