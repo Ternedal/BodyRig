@@ -86,3 +86,13 @@ def test_identity_group_attestation_records_review_and_attestation_revisions_sep
     assert "Review revision:" in source
     assert "Attest revision:" in source
     assert "belongs to revision" not in source
+
+
+
+def test_identity_group_attestation_revision_block_is_complete() -> None:
+    source = ATTEST.read_text(encoding="utf-8")
+
+    assert "$reviewRevision -notmatch '^[0-9a-f]{40}$'" in source
+    assert "Identity group review has an invalid BodyRig revision" in source
+    assert "$wslRepo = Convert-ToWslPath $script:RepoRoot" in source
+    assert "$wslReview = Convert-ToWslPath $ReviewRoot" in source
