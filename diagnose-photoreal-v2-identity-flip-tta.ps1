@@ -147,7 +147,7 @@ try {
     Write-Host "Review:         $ReviewRoot"
     Write-Host "Attestation:    $attestation"
     Write-Host "Device:         $Device"
-    Write-Host "Variants:       bank-original, replay-original, horizontal-flip, flip-tta-mean"
+    Write-Host "Variants:       bank-original, replay-original, frame flip/TTA, aligned-crop flip/TTA"
     Write-Host "Scoring:        current, group-balanced, nearest-group prototype"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -185,7 +185,7 @@ try {
     Write-Host "Persisted negatives: $($result.negative_observation_count)"
     Write-Host ""
     Write-Host "Variant scoring:"
-    foreach ($name in @("bank-original","replay-original","horizontal-flip","flip-tta-mean")) {
+    foreach ($name in @("bank-original","replay-original","horizontal-flip","flip-tta-mean","aligned-crop-flip","aligned-crop-flip-tta-mean")) {
         $variant = $result.variants.$name
         if ($null -eq $variant) { continue }
         Write-Host ("{0,-20} pos={1,6:P1} neg={2,6:P1} status={3}" -f $name, [double]$variant.positive_reference_coverage, [double]$variant.negative_observation_coverage, $variant.scoring_status)
