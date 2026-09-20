@@ -614,18 +614,23 @@ def build_frame_index(
             item["candidate_id"],
         )
     )
+    source_observable_coverage = {
+        label
+        for item in normalized
+        if item["eligible_for_teacher"]
+        for label in item["coverage"]
+    }
     detected_duplicates, quarantined_train_observations, duplicates = _quarantine_cross_split_near_duplicates(normalized)
     train_eligible = [item for item in normalized if item["split"] == "train" and item["eligible_for_teacher"]]
     evaluation_eligible = [item for item in normalized if item["split"] == "evaluation" and item["eligible_for_teacher"]]
     observed_eval_coverage = sorted({label for item in evaluation_eligible for label in item["coverage"]})
-    all_coverage = {label for item in normalized if item["eligible_for_teacher"] for label in item["coverage"]}
 
     required = list(plan.get("held_out_view_coverage_required") or [])
     if not required or not all(isinstance(item, str) and item for item in required):
         raise PhotorealFrameIndexError("dataset plan held-out view coverage requirements are invalid")
     if plan.get("rear_view_required_when_source_observable") is not True:
         raise PhotorealFrameIndexError("dataset plan rear-view policy is invalid")
-    rear_observable = "full-body-rear" in all_coverage
+    rear_observable = "full-body-rear" in source_observable_coverage
     effective_required = list(dict.fromkeys(required + (["full-body-rear"] if rear_observable else [])))
     missing_eval_coverage = sorted(set(effective_required) - set(observed_eval_coverage))
 
