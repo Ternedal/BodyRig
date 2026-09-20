@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +12,7 @@ from bodyrig.photoreal_appearance_epoch_visual_review import (
     _reproduce_observation,
     build_review_request,
     build_runtime_path_map,
+    validate_review_output,
 )
 
 
@@ -288,3 +292,138 @@ def test_reproduce_observation_fails_closed_when_frame_sha_does_not_reappear() -
             {"source_key": "scene:t", "projection": "flat"},
             {"frame_sha256": "1" * 64, "timestamp_seconds": 1.0, "eye": "mono"},
         )
+
+
+def _file_sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _valid_review_output(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    root = tmp_path / "review"
+    frames = root / "frames"
+    frames.mkdir(parents=True)
+    train_png = frames / "train.png"
+    eval_png = frames / "eval.png"
+    train_png.write_bytes(b"train-png")
+    eval_png.write_bytes(b"eval-png")
+    html_path = root / "review-index.html"
+    html_path.write_text("<html>review</html>\n", encoding="utf-8")
+
+    manifest = {
+        "format": "bodyrig-photoreal-appearance-epoch-visual-review-manifest",
+        "version": 1,
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "dataset_plan_sha256": "3" * 64,
+        "source_receipt_sha256": "4" * 64,
+        "frame_index_sha256": "5" * 64,
+        "group_count": 2,
+        "train_group_count": 1,
+        "evaluation_group_count": 1,
+        "eligible_observation_count": 2,
+        "groups": [
+            {
+                "group_id": "group:t",
+                "split": "train",
+                "observation_count": 1,
+                "view_bins": ["front"],
+                "frames": [
+                    {
+                        "frame_id": "review-frame-train",
+                        "source_ref": "a" * 20,
+                        "frame_sha256": "1" * 64,
+                        "timestamp_seconds": 1.0,
+                        "eye": "mono",
+                        "view_bin": "front",
+                        "coverage": ["face-front"],
+                        "relative_path": "frames/train.png",
+                        "staged_png_sha256": _file_sha(train_png),
+                        "width": 1,
+                        "height": 1,
+                    }
+                ],
+            },
+            {
+                "group_id": "group:e",
+                "split": "evaluation",
+                "observation_count": 1,
+                "view_bins": ["front"],
+                "frames": [
+                    {
+                        "frame_id": "review-frame-eval",
+                        "source_ref": "b" * 20,
+                        "frame_sha256": "2" * 64,
+                        "timestamp_seconds": None,
+                        "eye": "mono",
+                        "view_bin": "front",
+                        "coverage": ["face-front"],
+                        "relative_path": "frames/eval.png",
+                        "staged_png_sha256": _file_sha(eval_png),
+                        "width": 1,
+                        "height": 1,
+                    }
+                ],
+            },
+        ],
+        "source_paths_disclosed": False,
+        "source_media_rehash_performed": False,
+        "exact_p0_frame_hashes_reproduced": True,
+        "review_only": True,
+        "human_appearance_epoch_review_required": True,
+        "teacher_input_authorized": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+        "review_index_sha256": _file_sha(html_path),
+    }
+    manifest_path = root / "appearance-epoch-visual-review-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    private = {
+        "format": "bodyrig-photoreal-private-appearance-epoch-visual-review-index",
+        "version": 1,
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "public_manifest_sha256": _file_sha(manifest_path),
+        "frames": [
+            {
+                "frame_id": "review-frame-train",
+                "source_key": "scene:t",
+                "resolved_path": "/mnt/e/train.mp4",
+                "source_sha256": "a" * 64,
+            },
+            {
+                "frame_id": "review-frame-eval",
+                "source_key": "scene:e",
+                "resolved_path": "/mnt/e/eval.jpg",
+                "source_sha256": "b" * 64,
+            },
+        ],
+        "source_paths_private": True,
+        "source_media_rehash_performed": False,
+        "production_activation": False,
+    }
+    (root / "private-review-index.json").write_text(json.dumps(private, sort_keys=True) + "\n", encoding="utf-8")
+    request = {
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "dataset_plan_sha256": "3" * 64,
+        "source_receipt_sha256": "4" * 64,
+        "frame_index_sha256": "5" * 64,
+    }
+    return root, request
+
+
+def test_review_output_revalidation_binds_html_and_private_public_frame_universe(tmp_path: Path) -> None:
+    root, request = _valid_review_output(tmp_path)
+
+    result = validate_review_output(root, request=request)
+
+    assert result["eligible_observation_count"] == 2
+    assert result["review_index_sha256"] == _file_sha(root / "review-index.html")
+
+
+def test_review_output_revalidation_rejects_tampered_html(tmp_path: Path) -> None:
+    root, request = _valid_review_output(tmp_path)
+    (root / "review-index.html").write_text("<html>tampered</html>\n", encoding="utf-8")
+
+    with pytest.raises(PhotorealAppearanceEpochVisualReviewError, match="HTML bytes changed"):
+        validate_review_output(root, request=request)
