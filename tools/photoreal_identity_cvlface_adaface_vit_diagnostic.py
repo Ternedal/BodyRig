@@ -852,6 +852,8 @@ def main(argv: list[str] | None = None) -> int:
     negative_variants: dict[str, list[dict[str, Any]]] = defaultdict(list)
     positive_rows: list[dict[str, Any]] = []
     negative_rows: list[dict[str, Any]] = []
+    temporal_positive_variants: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    temporal_negative_variants: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for index, raw in enumerate(references):
         if not isinstance(raw, Mapping):
@@ -913,12 +915,45 @@ def main(argv: list[str] | None = None) -> int:
         positive_variants["cvlface-adaface-vit-base-webface4m"].append(
             {"reference_index": index, "group_id": group_id, "embedding": cvlface}
         )
+        temporal_bundle = _temporal_bundle_measurement(
+            representation=representation,
+            adapter=adapter,
+            runtime=runtime,
+            model=cvlface_model,
+            torch=torch,
+            torch_device=torch_device,
+            source=source,
+            sample=sample,
+            anchor_image=image,
+            anchor_viewport=_viewport,
+            anchor_current=current,
+            anchor_cvlface=cvlface,
+            dimension=dimension,
+        )
+        if temporal_bundle["status"] == "available":
+            temporal_positive_variants["bank-w600k-r50"].append(
+                {
+                    "reference_index": index,
+                    "group_id": group_id,
+                    "embedding": temporal_bundle["_bank_w600k_r50"],
+                }
+            )
+            temporal_positive_variants[
+                "cvlface-adaface-vit-base-webface4m"
+            ].append(
+                {
+                    "reference_index": index,
+                    "group_id": group_id,
+                    "embedding": temporal_bundle["_cvlface_adaface"],
+                }
+            )
         positive_rows.append(
             {
                 "reference_index": index,
                 "group_id": group_id,
                 "frame_sha256": expected_sha,
                 "current_replay_cosine": replay["current_direct_replay_cosine"],
+                "temporal_bundle": _public_temporal_bundle(temporal_bundle),
             }
         )
 
@@ -972,6 +1007,38 @@ def main(argv: list[str] | None = None) -> int:
                 "embedding": cvlface,
             }
         )
+        temporal_bundle = _temporal_bundle_measurement(
+            representation=representation,
+            adapter=adapter,
+            runtime=runtime,
+            model=cvlface_model,
+            torch=torch,
+            torch_device=torch_device,
+            source=source,
+            sample=sample,
+            anchor_image=image,
+            anchor_viewport=None,
+            anchor_current=current,
+            anchor_cvlface=cvlface,
+            dimension=dimension,
+        )
+        if temporal_bundle["status"] == "available":
+            temporal_negative_variants["bank-w600k-r50"].append(
+                {
+                    "negative_index": index,
+                    "subject_performer_id": subject,
+                    "embedding": temporal_bundle["_bank_w600k_r50"],
+                }
+            )
+            temporal_negative_variants[
+                "cvlface-adaface-vit-base-webface4m"
+            ].append(
+                {
+                    "negative_index": index,
+                    "subject_performer_id": subject,
+                    "embedding": temporal_bundle["_cvlface_adaface"],
+                }
+            )
         negative_rows.append(
             {
                 "negative_index": index,
@@ -980,6 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
                 "timestamp_seconds": item["timestamp_seconds"],
                 "eye": item["eye"],
                 "current_replay_cosine": replay["current_direct_replay_cosine"],
+                "temporal_bundle": _public_temporal_bundle(temporal_bundle),
             }
         )
 
@@ -1030,6 +1098,48 @@ def main(argv: list[str] | None = None) -> int:
         )
     }
 
+    temporal_bundle_results: dict[str, Any] = {}
+    for name in (
+        "bank-w600k-r50",
+        "cvlface-adaface-vit-base-webface4m",
+    ):
+        bundled_positives = temporal_positive_variants[name]
+        bundled_negatives = temporal_negative_variants[name]
+        positive_complete = len(bundled_positives) == len(references)
+        negative_complete = len(bundled_negatives) == len(negatives)
+        complete = positive_complete and negative_complete
+        temporal_bundle_results[name] = {
+            "status": "available" if complete else "incomplete-coverage",
+            "offsets_seconds": list(TEMPORAL_BUNDLE_OFFSETS_SECONDS),
+            "minimum_valid_frame_count": TEMPORAL_BUNDLE_MIN_VALID,
+            "positive_available_count": len(bundled_positives),
+            "positive_reference_count": len(references),
+            "positive_reference_coverage": round(
+                len(bundled_positives) / len(references),
+                9,
+            ),
+            "negative_available_count": len(bundled_negatives),
+            "negative_observation_count": len(negatives),
+            "negative_observation_coverage": round(
+                len(bundled_negatives) / len(negatives),
+                9,
+            ),
+            "scoring_models": (
+                flip._score_models(
+                    bundled_positives,
+                    bundled_negatives,
+                )
+                if complete
+                else None
+            ),
+            "fixed_window_selected_a_priori": True,
+            "negative_evidence_used_for_window_selection": False,
+            "source_rehash_required": False,
+            "identity_bank_mutation_authority": False,
+            "threshold_selection_authority": False,
+            "diagnostic_only": True,
+        }
+
     bodyrig_revision = os.environ.get("BODYRIG_REVISION", "").strip()
     if len(bodyrig_revision) != 40:
         raise PhotorealIdentityCvlFaceDiagnosticError(
@@ -1048,6 +1158,7 @@ def main(argv: list[str] | None = None) -> int:
         "cvlface_provenance": provenance,
         "variants": variants,
         "positive_only_subspace": positive_only_subspace,
+        "temporal_bundle": temporal_bundle_results,
         "positive_replay": positive_rows,
         "negative_replay": negative_rows,
         "training_dataset_license_requires_operator_review": True,
