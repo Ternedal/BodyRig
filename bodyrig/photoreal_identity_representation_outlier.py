@@ -228,6 +228,26 @@ def _validate(
         raise PhotorealIdentityRepresentationOutlierError(
             "identity bank/diagnostic reference count mismatch"
         )
+    if diagnostic.get("reference_count") != len(references):
+        raise PhotorealIdentityRepresentationOutlierError(
+            "representation diagnostic declared reference count mismatch"
+        )
+    bank_groups = {
+        str(item.get("group_id") or "").strip()
+        for item in references
+        if isinstance(item, Mapping)
+    }
+    if (
+        not bank_groups
+        or diagnostic.get("human_attested_group_count") != len(bank_groups)
+    ):
+        raise PhotorealIdentityRepresentationOutlierError(
+            "representation diagnostic human-attested group count mismatch"
+        )
+    if diagnostic.get("identity_group_selection_authority") is not False:
+        raise PhotorealIdentityRepresentationOutlierError(
+            "representation diagnostic crossed group-selection authority"
+        )
     return dimension_raw, references, diagnostic_rows
 
 
