@@ -138,3 +138,83 @@ def test_summary_does_not_make_identity_decision() -> None:
     assert summary["coverage"] == pytest.approx(0.5)
     assert "match" not in summary
     assert "identity" not in summary
+
+
+def test_duplicate_decoded_frames_do_not_count_as_temporal_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Image:
+        shape = (100, 100, 3)
+
+    anchor_image = Image()
+
+    monkeypatch.setattr(
+        diagnostic,
+        "_choose_anchor_candidate",
+        lambda *_args, **_kwargs: {"bbox": (10.0, 10.0, 40.0, 80.0), "pose": {}},
+    )
+    monkeypatch.setattr(
+        diagnostic,
+        "_appearance_histogram",
+        lambda *_args, **_kwargs: [1.0],
+    )
+    monkeypatch.setattr(
+        diagnostic,
+        "_keypoints",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        diagnostic,
+        "_project_anchor_view",
+        lambda **_kwargs: (Image(), "anchor-sha"),
+    )
+
+    row = diagnostic._track_anchor(
+        representation=object(),
+        adapter=object(),
+        runtime=object(),
+        source={"kind": "video"},
+        sample={"timestamp_seconds": 10.0},
+        anchor_image=anchor_image,
+        anchor_raw_frame_sha="anchor-sha",
+        anchor_viewport=None,
+        anchor_kind="test-anchor",
+        anchor_index=0,
+        group_id=None,
+        subject_label=None,
+    )
+
+    assert row["status"] == "insufficient-valid-frames"
+    assert row["valid_frame_count"] == 1
+    assert row["distinct_decoded_frame_count"] == 1
+    assert row["duplicate_decoded_frame_count"] == 4
+    statuses = [item["status"] for item in row["observations"]]
+    assert statuses.count("duplicate-anchor-frame") == 4
+
+
+def test_summary_reports_duplicate_decode_evidence() -> None:
+    rows = [
+        {
+            "status": "insufficient-valid-frames",
+            "distinct_decoded_frame_count": 1,
+            "duplicate_decoded_frame_count": 4,
+            "median_bbox_iou": None,
+            "median_center_shift": None,
+            "median_appearance_cosine": None,
+            "median_pose_distance": None,
+        },
+        {
+            "status": "available",
+            "distinct_decoded_frame_count": 5,
+            "duplicate_decoded_frame_count": 0,
+            "median_bbox_iou": 0.8,
+            "median_center_shift": 0.02,
+            "median_appearance_cosine": 0.9,
+            "median_pose_distance": 0.04,
+        },
+    ]
+
+    summary = diagnostic._summary(rows)
+
+    assert summary["anchors_with_duplicate_decodes"] == 1
+    assert summary["minimum_distinct_decoded_frames"] == 1
