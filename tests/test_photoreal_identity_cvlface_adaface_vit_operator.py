@@ -34,6 +34,11 @@ def test_cvlface_operator_is_fail_closed_and_avoids_source_rehash() -> None:
     )
     assert "BODYRIG_REVISION=$head" in source
     assert "no identity matching, training, photoreal or production authority" in source
+    assert "Positive-only multi-view subspace (95% positive variance)" in source
+    assert "floor witness" in source
+    assert "ceiling witness" in source
+    assert "positives-only" in source
+    assert "negatives-used" in source
 
 
 def test_cvlface_setup_pins_revision_model_sha_and_authority() -> None:
