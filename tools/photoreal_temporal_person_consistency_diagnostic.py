@@ -19,6 +19,8 @@ VERSION = 1
 OFFSETS_SECONDS = (-0.20, -0.10, 0.0, 0.10, 0.20)
 MIN_VALID_FRAMES = 3
 KEYPOINT_SCORE_MIN = 0.30
+DIRECT_PERSON_DETECTOR_SCORE_MIN = 0.30
+DIRECT_PERSON_DETECTOR_NMS_IOU = 0.30
 
 
 class TemporalPersonConsistencyError(RuntimeError):
@@ -81,14 +83,115 @@ def _center_shift(
     return math.hypot(lx - rx, ly - ry) / diagonal
 
 
+def _direct_person_detections(runtime: Any, image: Any) -> list[dict[str, Any]]:
+    inferencer = getattr(runtime, "pose_inferencer", None)
+    detector = getattr(inferencer, "detector", None)
+    if detector is None:
+        return []
+    try:
+        result = detector(image, return_datasamples=True)
+    except ValueError:
+        result = detector(image, return_datasample=True)
+    except Exception as exc:  # noqa: BLE001
+        raise TemporalPersonConsistencyError(
+            f"direct RTMDet person inference failed: {exc}"
+        ) from exc
+    if not isinstance(result, Mapping):
+        return []
+    predictions = result.get("predictions")
+    if not isinstance(predictions, list) or not predictions:
+        return []
+    sample = predictions[0]
+    instances = getattr(sample, "pred_instances", None)
+    if instances is None and isinstance(sample, Mapping):
+        instances = sample.get("pred_instances")
+    if instances is None:
+        return []
+    if hasattr(instances, "cpu"):
+        instances = instances.cpu()
+    if hasattr(instances, "numpy"):
+        instances = instances.numpy()
+
+    def field(name: str) -> Any:
+        if isinstance(instances, Mapping):
+            return instances.get(name)
+        return getattr(instances, name, None)
+
+    raw_boxes = field("bboxes")
+    raw_scores = field("scores")
+    raw_labels = field("labels")
+    if raw_boxes is None or raw_scores is None:
+        return []
+    boxes = runtime.np.asarray(raw_boxes)
+    scores = runtime.np.asarray(raw_scores).reshape(-1)
+    labels = (
+        runtime.np.zeros(len(scores), dtype=runtime.np.int64)
+        if raw_labels is None
+        else runtime.np.asarray(raw_labels).reshape(-1)
+    )
+    if boxes.ndim != 2 or boxes.shape[1] < 4:
+        return []
+
+    configured_ids = getattr(inferencer, "det_cat_ids", None)
+    person_ids = (
+        {int(value) for value in configured_ids}
+        if configured_ids is not None
+        else {0}
+    )
+    candidates: list[dict[str, Any]] = []
+    for index in range(min(len(boxes), len(scores), len(labels))):
+        try:
+            score = float(scores[index])
+            label = int(labels[index])
+            box = tuple(float(boxes[index][axis]) for axis in range(4))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if (
+            label not in person_ids
+            or not math.isfinite(score)
+            or score <= DIRECT_PERSON_DETECTOR_SCORE_MIN
+            or not all(math.isfinite(value) for value in box)
+            or box[2] <= box[0]
+            or box[3] <= box[1]
+        ):
+            continue
+        candidates.append(
+            {
+                "bbox": box,
+                "score": score,
+                "label": label,
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            -float(item["score"]),
+            float(item["bbox"][0]),
+            float(item["bbox"][1]),
+        )
+    )
+    kept: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if any(
+            _bbox_iou(candidate["bbox"], prior["bbox"])
+            > DIRECT_PERSON_DETECTOR_NMS_IOU
+            for prior in kept
+        ):
+            continue
+        kept.append(candidate)
+    return kept
+
+
 def _pose_candidates(adapter: Any, runtime: Any, image: Any) -> list[dict[str, Any]]:
     base = getattr(adapter, "base", adapter)
     predictions = base._pose_predictions(runtime, image)
     height, width = image.shape[:2]
+    direct = _direct_person_detections(runtime, image)
     result: list[dict[str, Any]] = []
+
     for prediction in predictions:
-        detector_box = base._pose_bbox(prediction)
-        if detector_box is None:
+        pose_box = base._pose_bbox(prediction)
+        if pose_box is None:
             continue
         keypoint_box, visible_keypoints = _keypoint_envelope(
             adapter,
@@ -96,20 +199,74 @@ def _pose_candidates(adapter: Any, runtime: Any, image: Any) -> list[dict[str, A
             width=width,
             height=height,
         )
+        direct_match = None
+        if len(direct) == 1:
+            direct_match = direct[0]
+        elif keypoint_box is not None and direct:
+            ranked = sorted(
+                (
+                    (item, _bbox_iou(keypoint_box, item["bbox"]))
+                    for item in direct
+                ),
+                key=lambda pair: pair[1],
+                reverse=True,
+            )
+            if ranked and ranked[0][1] > 0.0:
+                direct_match = ranked[0][0]
+        tracking_box = (
+            direct_match["bbox"]
+            if direct_match is not None
+            else keypoint_box
+        )
         result.append(
             {
-                "bbox": tuple(float(value) for value in detector_box),
-                "detector_bbox": tuple(float(value) for value in detector_box),
-                "detector_bbox_is_full_frame": _is_full_frame_box(
-                    tuple(float(value) for value in detector_box),
+                "bbox": tuple(float(value) for value in pose_box),
+                "pose_bbox": tuple(float(value) for value in pose_box),
+                "pose_bbox_is_full_frame": _is_full_frame_box(
+                    tuple(float(value) for value in pose_box),
                     width=width,
                     height=height,
                 ),
+                "direct_detector_bbox": (
+                    None
+                    if direct_match is None
+                    else tuple(float(value) for value in direct_match["bbox"])
+                ),
+                "direct_detector_score": (
+                    None
+                    if direct_match is None
+                    else float(direct_match["score"])
+                ),
+                "direct_detector_count": len(direct),
                 "keypoint_bbox": keypoint_box,
                 "visible_keypoint_count": visible_keypoints,
+                "tracking_bbox": tracking_box,
+                "tracking_bbox_source": (
+                    "direct-rtmdet"
+                    if direct_match is not None
+                    else ("keypoint-envelope" if keypoint_box is not None else "none")
+                ),
                 "pose": prediction,
             }
         )
+
+    if not result:
+        for item in direct:
+            result.append(
+                {
+                    "bbox": item["bbox"],
+                    "pose_bbox": None,
+                    "pose_bbox_is_full_frame": False,
+                    "direct_detector_bbox": item["bbox"],
+                    "direct_detector_score": float(item["score"]),
+                    "direct_detector_count": len(direct),
+                    "keypoint_bbox": None,
+                    "visible_keypoint_count": 0,
+                    "tracking_bbox": item["bbox"],
+                    "tracking_bbox_source": "direct-rtmdet",
+                    "pose": None,
+                }
+            )
     return result
 
 
@@ -197,12 +354,14 @@ def _normalized_pose_distance(
     anchor: Mapping[str, Any],
     candidate: Mapping[str, Any],
 ) -> tuple[float | None, int]:
+    if anchor.get("pose") is None or candidate.get("pose") is None:
+        return None, 0
     left = _keypoints(adapter, anchor["pose"])
     right = _keypoints(adapter, candidate["pose"])
     common = sorted(set(left) & set(right))
     if len(common) < 5:
         return None, len(common)
-    box = anchor.get("keypoint_bbox") or anchor["bbox"]
+    box = anchor.get("keypoint_bbox") or anchor.get("tracking_bbox") or anchor["bbox"]
     scale = max(1.0, math.hypot(box[2] - box[0], box[3] - box[1]))
     distances = [
         math.hypot(left[index][0] - right[index][0], left[index][1] - right[index][1])
@@ -308,13 +467,13 @@ def _choose_neighbor_candidate(
     anchor: Mapping[str, Any],
     candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, float]:
-    anchor_box = anchor.get("keypoint_bbox")
+    anchor_box = anchor.get("tracking_bbox")
     if anchor_box is None:
         return None, 0.0
     eligible = [
         candidate
         for candidate in candidates
-        if candidate.get("keypoint_bbox") is not None
+        if candidate.get("tracking_bbox") is not None
     ]
     if not eligible:
         return None, 0.0
@@ -322,7 +481,7 @@ def _choose_neighbor_candidate(
         (
             (
                 candidate,
-                _bbox_iou(anchor_box, candidate["keypoint_bbox"]),
+                _bbox_iou(anchor_box, candidate["tracking_bbox"]),
             )
             for candidate in eligible
         ),
@@ -369,8 +528,25 @@ def _track_anchor(
 
     base = {
         **base,
-        "anchor_detector_bbox": [round(float(value), 6) for value in anchor["detector_bbox"]],
-        "anchor_detector_bbox_is_full_frame": bool(anchor["detector_bbox_is_full_frame"]),
+        "anchor_pose_bbox": (
+            None
+            if anchor["pose_bbox"] is None
+            else [round(float(value), 6) for value in anchor["pose_bbox"]]
+        ),
+        "anchor_pose_bbox_is_full_frame": bool(anchor["pose_bbox_is_full_frame"]),
+        "anchor_direct_detector_bbox": (
+            None
+            if anchor["direct_detector_bbox"] is None
+            else [round(float(value), 6) for value in anchor["direct_detector_bbox"]]
+        ),
+        "anchor_direct_detector_score": anchor["direct_detector_score"],
+        "anchor_direct_detector_count": int(anchor["direct_detector_count"]),
+        "anchor_tracking_bbox_source": anchor["tracking_bbox_source"],
+        "anchor_tracking_bbox": (
+            None
+            if anchor["tracking_bbox"] is None
+            else [round(float(value), 6) for value in anchor["tracking_bbox"]]
+        ),
         "anchor_visible_keypoint_count": int(anchor["visible_keypoint_count"]),
         "anchor_keypoint_bbox": (
             None
@@ -378,10 +554,10 @@ def _track_anchor(
             else [round(float(value), 6) for value in anchor["keypoint_bbox"]]
         ),
     }
-    if anchor["keypoint_bbox"] is None:
+    if anchor["tracking_bbox"] is None:
         return {
             **base,
-            "status": "anchor-insufficient-keypoints",
+            "status": "anchor-no-person-roi",
             "valid_frame_count": 0,
             "distinct_decoded_frame_count": 1,
             "duplicate_decoded_frame_count": 0,
@@ -395,7 +571,7 @@ def _track_anchor(
         adapter,
         runtime,
         anchor_image,
-        anchor["keypoint_bbox"],
+        anchor["tracking_bbox"],
     )
     height, width = anchor_image.shape[:2]
     seen_raw_frame_shas = {anchor_raw_frame_sha}
@@ -404,13 +580,19 @@ def _track_anchor(
             "offset_seconds": 0.0,
             "status": "anchor",
             "raw_frame_sha256": anchor_raw_frame_sha,
-            "keypoint_bbox_iou": 1.0,
-            "keypoint_center_shift": 0.0,
-            "detector_bbox_iou": 1.0,
-            "detector_bbox_is_full_frame": bool(anchor["detector_bbox_is_full_frame"]),
+            "tracking_bbox_iou": 1.0,
+            "tracking_center_shift": 0.0,
+            "tracking_bbox_source": anchor["tracking_bbox_source"],
+            "pose_bbox_iou": 1.0 if anchor["pose_bbox"] is not None else None,
+            "pose_bbox_is_full_frame": bool(anchor["pose_bbox_is_full_frame"]),
+            "keypoint_bbox_iou": 1.0 if anchor["keypoint_bbox"] is not None else None,
             "appearance_cosine": 1.0,
             "pose_distance": 0.0,
-            "common_keypoint_count": len(_keypoints(adapter, anchor["pose"])),
+            "common_keypoint_count": (
+                0
+                if anchor["pose"] is None
+                else len(_keypoints(adapter, anchor["pose"]))
+            ),
         }
     ]
 
@@ -465,7 +647,7 @@ def _track_anchor(
                 observations.append(
                     {
                         "offset_seconds": offset,
-                        "status": "no-overlapping-keypoint-candidate",
+                        "status": "no-overlapping-person-roi",
                         "pose_candidate_count": len(candidates),
                     }
                 )
@@ -474,7 +656,7 @@ def _track_anchor(
                 adapter,
                 runtime,
                 image,
-                candidate["keypoint_bbox"],
+                candidate["tracking_bbox"],
             )
             pose_distance, common = _normalized_pose_distance(
                 adapter,
@@ -487,26 +669,45 @@ def _track_anchor(
                     "status": "available",
                     "raw_frame_sha256": raw_frame_sha,
                     "pose_candidate_count": len(candidates),
-                    "keypoint_bbox_iou": round(iou, 9),
-                    "keypoint_center_shift": round(
+                    "tracking_bbox_iou": round(iou, 9),
+                    "tracking_center_shift": round(
                         _center_shift(
-                            anchor["keypoint_bbox"],
-                            candidate["keypoint_bbox"],
+                            anchor["tracking_bbox"],
+                            candidate["tracking_bbox"],
                             width=width,
                             height=height,
                         ),
                         9,
                     ),
-                    "detector_bbox_iou": round(
-                        _bbox_iou(
-                            anchor["detector_bbox"],
-                            candidate["detector_bbox"],
-                        ),
-                        9,
+                    "tracking_bbox_source": candidate["tracking_bbox_source"],
+                    "pose_bbox_iou": (
+                        None
+                        if anchor["pose_bbox"] is None or candidate["pose_bbox"] is None
+                        else round(
+                            _bbox_iou(
+                                anchor["pose_bbox"],
+                                candidate["pose_bbox"],
+                            ),
+                            9,
+                        )
                     ),
-                    "detector_bbox_is_full_frame": bool(
-                        candidate["detector_bbox_is_full_frame"]
+                    "pose_bbox_is_full_frame": bool(
+                        candidate["pose_bbox_is_full_frame"]
                     ),
+                    "keypoint_bbox_iou": (
+                        None
+                        if anchor["keypoint_bbox"] is None
+                        or candidate["keypoint_bbox"] is None
+                        else round(
+                            _bbox_iou(
+                                anchor["keypoint_bbox"],
+                                candidate["keypoint_bbox"],
+                            ),
+                            9,
+                        )
+                    ),
+                    "direct_detector_score": candidate["direct_detector_score"],
+                    "direct_detector_count": int(candidate["direct_detector_count"]),
                     "visible_keypoint_count": int(candidate["visible_keypoint_count"]),
                     "appearance_cosine": round(
                         _histogram_cosine(runtime.np, anchor_hist, histogram),
@@ -556,9 +757,10 @@ def _track_anchor(
             for row in observations
             if row.get("status") in {"duplicate-anchor-frame", "duplicate-decoded-frame"}
         ),
+        "median_tracking_bbox_iou": median("tracking_bbox_iou"),
+        "median_tracking_center_shift": median("tracking_center_shift"),
+        "median_pose_bbox_iou": median("pose_bbox_iou"),
         "median_keypoint_bbox_iou": median("keypoint_bbox_iou"),
-        "median_keypoint_center_shift": median("keypoint_center_shift"),
-        "median_detector_bbox_iou": median("detector_bbox_iou"),
         "median_appearance_cosine": median("appearance_cosine"),
         "median_pose_distance": median("pose_distance"),
         "observations": observations,
@@ -594,12 +796,23 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if not rows
             else min(int(row.get("distinct_decoded_frame_count") or 0) for row in rows)
         ),
-        "anchors_with_full_frame_detector_bbox": sum(
-            1 for row in rows if row.get("anchor_detector_bbox_is_full_frame") is True
+        "anchors_with_full_frame_pose_bbox": sum(
+            1 for row in rows if row.get("anchor_pose_bbox_is_full_frame") is True
         ),
+        "anchors_with_direct_rtmdet_roi": sum(
+            1 for row in rows if row.get("anchor_tracking_bbox_source") == "direct-rtmdet"
+        ),
+        "anchors_with_keypoint_fallback_roi": sum(
+            1 for row in rows
+            if row.get("anchor_tracking_bbox_source") == "keypoint-envelope"
+        ),
+        "anchors_without_person_roi": sum(
+            1 for row in rows if row.get("anchor_tracking_bbox_source") == "none"
+        ),
+        "median_tracking_bbox_iou": distribution("median_tracking_bbox_iou"),
+        "median_tracking_center_shift": distribution("median_tracking_center_shift"),
+        "median_pose_bbox_iou": distribution("median_pose_bbox_iou"),
         "median_keypoint_bbox_iou": distribution("median_keypoint_bbox_iou"),
-        "median_keypoint_center_shift": distribution("median_keypoint_center_shift"),
-        "median_detector_bbox_iou": distribution("median_detector_bbox_iou"),
         "median_appearance_cosine": distribution("median_appearance_cosine"),
         "median_pose_distance": distribution("median_pose_distance"),
     }
