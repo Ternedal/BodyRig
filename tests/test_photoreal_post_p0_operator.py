@@ -28,7 +28,8 @@ def test_post_p0_operator_never_auto_approves_human_review() -> None:
     assert '[switch]$ApproveHumanReview' in source
     assert 'if ($ApproveHumanReview)' in source
     assert '"--approve-human-review"' in source
-    assert '-SelectedEpochId (a human-assigned audit label for the coherent appearance state) is required with -ApproveHumanReview' in source\n    assert 'SelectedEpochId is a human-assigned audit label for the coherent appearance state; it is not a machine-ranked candidate.' in source
+    assert '-SelectedEpochId (a human-assigned audit label for the coherent appearance state) is required with -ApproveHumanReview' in source
+    assert 'SelectedEpochId is a human-assigned audit label for the coherent appearance state; it is not a machine-ranked candidate.' in source
     assert 'At least one -SourceGroup is required with -ApproveHumanReview' in source
     assert '-ReviewedBy is required with -ApproveHumanReview' in source
     assert '-ReviewNotes is required with -ApproveHumanReview' in source
