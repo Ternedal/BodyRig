@@ -57,8 +57,8 @@ if ([string]::IsNullOrWhiteSpace($Distribution)) { throw "Distribution is requir
 if ([string]::IsNullOrWhiteSpace($LinuxDependencyRoot) -or -not $LinuxDependencyRoot.StartsWith('/')) {
     throw "LinuxDependencyRoot must be an absolute Linux path."
 }
-if ([string]::IsNullOrWhiteSpace($LinuxRuntimePython) -or -not $LinuxRuntimePython.StartsWith('/')) {
-    throw "LinuxRuntimePython must be an absolute Linux path."
+if ([string]::IsNullOrWhiteSpace($LinuxRuntimePython) -or -not $LinuxRuntimePython.StartsWith('/') -or -not $LinuxRuntimePython.EndsWith('/bin/python')) {
+    throw "LinuxRuntimePython must be an absolute venv path ending in /bin/python."
 }
 if ([string]::IsNullOrWhiteSpace($LinuxMaterializerPython) -or -not $LinuxMaterializerPython.StartsWith('/')) {
     throw "LinuxMaterializerPython must be an absolute Linux path."
