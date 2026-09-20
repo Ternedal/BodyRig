@@ -358,8 +358,9 @@ $runArgs = @(
 )
 Invoke-Checked -FilePath $Python -Arguments $runArgs -Label "ExAvatar static teacher run" | Out-Null
 
-$manifest = Need-File -Path (Join-Path $teacherOutput "teacher-manifest.json") -Label "Teacher manifest"
-$reviewRoot = Need-Directory -Path (Join-Path $teacherOutput "review\neutral-pose") -Label "Neutral-pose teacher review set"
+$teacherResultRoot = Need-Directory -Path (Join-Path $teacherOutput "output") -Label "Teacher result directory"
+$manifest = Need-File -Path (Join-Path $teacherResultRoot "teacher-manifest.json") -Label "Teacher manifest"
+$reviewRoot = Need-Directory -Path (Join-Path $teacherResultRoot "review\neutral-pose") -Label "Neutral-pose teacher review set"
 
 Write-Host ""
 Write-Host "BODYRIG EXAVATAR STATIC TEACHER: TRAINING COMPLETE / HUMAN REVIEW REQUIRED"
