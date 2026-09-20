@@ -380,3 +380,138 @@ def test_reference_ablation_only_removes_refs_from_multi_reference_groups() -> N
     assert result["first_all_models_pass"]["removed_reference_index"] == 1
     assert result["human_attested_valid_reference_is_not_rejected"] is True
     assert result["identity_bank_mutation_authority"] is False
+
+
+def test_boundary_witness_review_marks_witnesses_and_stereo_siblings(tmp_path: Path) -> None:
+    current_boundary = {
+        "baseline_witnesses": {
+            "current-reference-weighted": {
+                "positive_floor_witness": {
+                    "reference_index": 18,
+                    "group_id": "scene:909",
+                }
+            }
+        }
+    }
+    alternate_boundary = {
+        "baseline_witnesses": {
+            "current-reference-weighted": {
+                "positive_floor_witness": {
+                    "reference_index": 9,
+                    "group_id": "scene:709",
+                }
+            }
+        }
+    }
+    quality = {
+        "det_score": 0.9,
+        "view_bin": "front",
+        "pose": {
+            "pitch_degrees": 1.0,
+            "yaw_degrees": 2.0,
+            "roll_degrees": 3.0,
+        },
+        "bbox_min_dimension_pixels": 64.0,
+        "face_center_offset_fraction": 0.1,
+        "frame_sharpness": 10.0,
+        "face_crop_sharpness": 20.0,
+    }
+    current = [
+        {
+            "reference_index": 8,
+            "group_id": "scene:709",
+            "source_key": "scene:709",
+            "timestamp_seconds": 12.0,
+            "eye": "left",
+            "frame_sha256": "a" * 64,
+            "quality": quality,
+            "embedding": [1.0, 0.0],
+        },
+        {
+            "reference_index": 9,
+            "group_id": "scene:709",
+            "source_key": "scene:709",
+            "timestamp_seconds": 12.0,
+            "eye": "right",
+            "frame_sha256": "b" * 64,
+            "quality": quality,
+            "embedding": _normalize([0.9, 0.1]),
+        },
+        {
+            "reference_index": 17,
+            "group_id": "scene:909",
+            "source_key": "scene:909",
+            "timestamp_seconds": 34.0,
+            "eye": "left",
+            "frame_sha256": "c" * 64,
+            "quality": quality,
+            "embedding": [1.0, 0.0],
+        },
+        {
+            "reference_index": 18,
+            "group_id": "scene:909",
+            "source_key": "scene:909",
+            "timestamp_seconds": 34.0,
+            "eye": "right",
+            "frame_sha256": "d" * 64,
+            "quality": quality,
+            "embedding": _normalize([0.8, 0.2]),
+        },
+    ]
+    alternate = [
+        {**item, "embedding": _normalize([item["embedding"][0], item["embedding"][1] + 0.01])}
+        for item in current
+    ]
+
+    class Confusion:
+        @staticmethod
+        def _write_png(_runtime: object, path: Path, _image: object) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"png")
+
+    media = {
+        index: {
+            "frame": object(),
+            "aligned": object(),
+            "viewport_id": f"viewport-{index}",
+        }
+        for index in (8, 9, 17, 18)
+    }
+
+    result = diagnostic._write_boundary_witness_review(
+        confusion=Confusion(),
+        runtime=object(),
+        output_root=tmp_path / "review",
+        current_boundary=current_boundary,
+        alternate_boundary=alternate_boundary,
+        current_positives=current,
+        alternate_positives=alternate,
+        review_media=media,
+    )
+
+    assert result["witness_indices"] == {
+        "w600k-r50": 18,
+        "antelopev2-glintr100": 9,
+    }
+    document = (tmp_path / "review" / "review-index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "ref 18" in document
+    assert "ref 9" in document
+    assert "stereo sibling=[17]" in document
+    assert "stereo sibling=[8]" in document
+
+    payload = json.loads(
+        (tmp_path / "review" / "boundary-witness-review.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    ref18 = next(
+        item for item in payload["rows"] if item["reference_index"] == 18
+    )
+    assert ref18["witness_for"] == ["w600k-r50"]
+    assert ref18[
+        "opposite_eye_same_timestamp_sibling_reference_indices"
+    ] == [17]
+    assert payload["reference_rejection_authority"] is False
+    assert payload["identity_bank_mutation_authority"] is False
