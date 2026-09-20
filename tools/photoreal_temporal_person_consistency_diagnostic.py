@@ -84,12 +84,32 @@ def _center_shift(
 def _pose_candidates(adapter: Any, runtime: Any, image: Any) -> list[dict[str, Any]]:
     base = getattr(adapter, "base", adapter)
     predictions = base._pose_predictions(runtime, image)
+    height, width = image.shape[:2]
     result: list[dict[str, Any]] = []
     for prediction in predictions:
-        box = base._pose_bbox(prediction)
-        if box is None:
+        detector_box = base._pose_bbox(prediction)
+        if detector_box is None:
             continue
-        result.append({"bbox": tuple(float(value) for value in box), "pose": prediction})
+        keypoint_box, visible_keypoints = _keypoint_envelope(
+            adapter,
+            prediction,
+            width=width,
+            height=height,
+        )
+        result.append(
+            {
+                "bbox": tuple(float(value) for value in detector_box),
+                "detector_bbox": tuple(float(value) for value in detector_box),
+                "detector_bbox_is_full_frame": _is_full_frame_box(
+                    tuple(float(value) for value in detector_box),
+                    width=width,
+                    height=height,
+                ),
+                "keypoint_bbox": keypoint_box,
+                "visible_keypoint_count": visible_keypoints,
+                "pose": prediction,
+            }
+        )
     return result
 
 
@@ -126,6 +146,52 @@ def _keypoints(
     return result
 
 
+def _keypoint_envelope(
+    adapter: Any,
+    prediction: Mapping[str, Any],
+    *,
+    width: int,
+    height: int,
+    minimum_points: int = 5,
+    padding_ratio: float = 0.18,
+) -> tuple[tuple[float, float, float, float] | None, int]:
+    points = _keypoints(adapter, prediction)
+    if len(points) < minimum_points:
+        return None, len(points)
+    xs = [point[0] for point in points.values()]
+    ys = [point[1] for point in points.values()]
+    x1, x2 = min(xs), max(xs)
+    y1, y2 = min(ys), max(ys)
+    span_x = max(1.0, x2 - x1)
+    span_y = max(1.0, y2 - y1)
+    pad_x = span_x * padding_ratio
+    pad_y = span_y * padding_ratio
+    box = (
+        max(0.0, x1 - pad_x),
+        max(0.0, y1 - pad_y),
+        min(float(width), x2 + pad_x),
+        min(float(height), y2 + pad_y),
+    )
+    if box[2] <= box[0] or box[3] <= box[1]:
+        return None, len(points)
+    return box, len(points)
+
+
+def _is_full_frame_box(
+    box: tuple[float, float, float, float],
+    *,
+    width: int,
+    height: int,
+    tolerance: float = 1.5,
+) -> bool:
+    return (
+        abs(box[0]) <= tolerance
+        and abs(box[1]) <= tolerance
+        and abs(box[2] - float(width)) <= tolerance
+        and abs(box[3] - float(height)) <= tolerance
+    )
+
+
 def _normalized_pose_distance(
     adapter: Any,
     anchor: Mapping[str, Any],
@@ -136,7 +202,7 @@ def _normalized_pose_distance(
     common = sorted(set(left) & set(right))
     if len(common) < 5:
         return None, len(common)
-    box = anchor["bbox"]
+    box = anchor.get("keypoint_bbox") or anchor["bbox"]
     scale = max(1.0, math.hypot(box[2] - box[0], box[3] - box[1]))
     distances = [
         math.hypot(left[index][0] - right[index][0], left[index][1] - right[index][1])
@@ -242,10 +308,24 @@ def _choose_neighbor_candidate(
     anchor: Mapping[str, Any],
     candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, float]:
-    if not candidates:
+    anchor_box = anchor.get("keypoint_bbox")
+    if anchor_box is None:
+        return None, 0.0
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate.get("keypoint_bbox") is not None
+    ]
+    if not eligible:
         return None, 0.0
     ranked = sorted(
-        ((candidate, _bbox_iou(anchor["bbox"], candidate["bbox"])) for candidate in candidates),
+        (
+            (
+                candidate,
+                _bbox_iou(anchor_box, candidate["keypoint_bbox"]),
+            )
+            for candidate in eligible
+        ),
         key=lambda pair: pair[1],
         reverse=True,
     )
@@ -287,11 +367,36 @@ def _track_anchor(
     if anchor is None:
         return {**base, "status": "anchor-not-single-pose-person", "valid_frame_count": 0}
 
+    base = {
+        **base,
+        "anchor_detector_bbox": [round(float(value), 6) for value in anchor["detector_bbox"]],
+        "anchor_detector_bbox_is_full_frame": bool(anchor["detector_bbox_is_full_frame"]),
+        "anchor_visible_keypoint_count": int(anchor["visible_keypoint_count"]),
+        "anchor_keypoint_bbox": (
+            None
+            if anchor["keypoint_bbox"] is None
+            else [round(float(value), 6) for value in anchor["keypoint_bbox"]]
+        ),
+    }
+    if anchor["keypoint_bbox"] is None:
+        return {
+            **base,
+            "status": "anchor-insufficient-keypoints",
+            "valid_frame_count": 0,
+            "distinct_decoded_frame_count": 1,
+            "duplicate_decoded_frame_count": 0,
+        }
+
     timestamp = sample.get("timestamp_seconds")
     if isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)):
         return {**base, "status": "anchor-timestamp-invalid", "valid_frame_count": 0}
 
-    anchor_hist = _appearance_histogram(adapter, runtime, anchor_image, anchor["bbox"])
+    anchor_hist = _appearance_histogram(
+        adapter,
+        runtime,
+        anchor_image,
+        anchor["keypoint_bbox"],
+    )
     height, width = anchor_image.shape[:2]
     seen_raw_frame_shas = {anchor_raw_frame_sha}
     observations: list[dict[str, Any]] = [
@@ -299,8 +404,10 @@ def _track_anchor(
             "offset_seconds": 0.0,
             "status": "anchor",
             "raw_frame_sha256": anchor_raw_frame_sha,
-            "bbox_iou": 1.0,
-            "center_shift": 0.0,
+            "keypoint_bbox_iou": 1.0,
+            "keypoint_center_shift": 0.0,
+            "detector_bbox_iou": 1.0,
+            "detector_bbox_is_full_frame": bool(anchor["detector_bbox_is_full_frame"]),
             "appearance_cosine": 1.0,
             "pose_distance": 0.0,
             "common_keypoint_count": len(_keypoints(adapter, anchor["pose"])),
@@ -358,7 +465,7 @@ def _track_anchor(
                 observations.append(
                     {
                         "offset_seconds": offset,
-                        "status": "no-overlapping-pose-candidate",
+                        "status": "no-overlapping-keypoint-candidate",
                         "pose_candidate_count": len(candidates),
                     }
                 )
@@ -367,7 +474,7 @@ def _track_anchor(
                 adapter,
                 runtime,
                 image,
-                candidate["bbox"],
+                candidate["keypoint_bbox"],
             )
             pose_distance, common = _normalized_pose_distance(
                 adapter,
@@ -380,16 +487,27 @@ def _track_anchor(
                     "status": "available",
                     "raw_frame_sha256": raw_frame_sha,
                     "pose_candidate_count": len(candidates),
-                    "bbox_iou": round(iou, 9),
-                    "center_shift": round(
+                    "keypoint_bbox_iou": round(iou, 9),
+                    "keypoint_center_shift": round(
                         _center_shift(
-                            anchor["bbox"],
-                            candidate["bbox"],
+                            anchor["keypoint_bbox"],
+                            candidate["keypoint_bbox"],
                             width=width,
                             height=height,
                         ),
                         9,
                     ),
+                    "detector_bbox_iou": round(
+                        _bbox_iou(
+                            anchor["detector_bbox"],
+                            candidate["detector_bbox"],
+                        ),
+                        9,
+                    ),
+                    "detector_bbox_is_full_frame": bool(
+                        candidate["detector_bbox_is_full_frame"]
+                    ),
+                    "visible_keypoint_count": int(candidate["visible_keypoint_count"]),
                     "appearance_cosine": round(
                         _histogram_cosine(runtime.np, anchor_hist, histogram),
                         9,
@@ -438,8 +556,9 @@ def _track_anchor(
             for row in observations
             if row.get("status") in {"duplicate-anchor-frame", "duplicate-decoded-frame"}
         ),
-        "median_bbox_iou": median("bbox_iou"),
-        "median_center_shift": median("center_shift"),
+        "median_keypoint_bbox_iou": median("keypoint_bbox_iou"),
+        "median_keypoint_center_shift": median("keypoint_center_shift"),
+        "median_detector_bbox_iou": median("detector_bbox_iou"),
         "median_appearance_cosine": median("appearance_cosine"),
         "median_pose_distance": median("pose_distance"),
         "observations": observations,
@@ -475,8 +594,12 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if not rows
             else min(int(row.get("distinct_decoded_frame_count") or 0) for row in rows)
         ),
-        "median_bbox_iou": distribution("median_bbox_iou"),
-        "median_center_shift": distribution("median_center_shift"),
+        "anchors_with_full_frame_detector_bbox": sum(
+            1 for row in rows if row.get("anchor_detector_bbox_is_full_frame") is True
+        ),
+        "median_keypoint_bbox_iou": distribution("median_keypoint_bbox_iou"),
+        "median_keypoint_center_shift": distribution("median_keypoint_center_shift"),
+        "median_detector_bbox_iou": distribution("median_detector_bbox_iou"),
         "median_appearance_cosine": distribution("median_appearance_cosine"),
         "median_pose_distance": distribution("median_pose_distance"),
     }
