@@ -215,7 +215,8 @@ if ($code -eq 2) {
     }
     Write-Host ""
     Write-Host "Rerun this script only after visually reviewing the source groups."
-    Write-Host "SelectedEpochId is a human-assigned audit label for the coherent appearance state; it is not a machine-ranked candidate."\n    Write-Host "Supply -SelectedEpochId, repeated -SourceGroup values covering train + evaluation,"
+    Write-Host "SelectedEpochId is a human-assigned audit label for the coherent appearance state; it is not a machine-ranked candidate."
+    Write-Host "Supply -SelectedEpochId, repeated -SourceGroup values covering train + evaluation,"
     Write-Host "-ReviewedBy, -ReviewNotes and -ApproveHumanReview."
     Write-Host "Photoreal acceptance: FALSE"
     Write-Host "Production activation: FALSE"
