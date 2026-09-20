@@ -35,7 +35,7 @@ def test_stage16_remediation_preserves_old_evidence_and_creates_new_root() -> No
     assert '"pre-remediation-frame-index.json"' in text
     assert '"pre-remediation-p0-status.json"' in text
     assert '"stage16-remediation-receipt.json"' in text
-    assert '"resume16"' in text
+    assert '"performer-{0}-{1}-resume16"' in text
     assert "Copy-Evidence" in text
 
 
