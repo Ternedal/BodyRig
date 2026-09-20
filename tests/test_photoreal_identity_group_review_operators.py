@@ -67,3 +67,11 @@ def test_identity_group_review_wsl_path_bridge_is_codepage_independent() -> None
         assert "[Convert]::FromBase64String($encoded)" in source
         assert "[Text.Encoding]::UTF8.GetString" in source
         assert "print(make_wsl_path_converter" not in source
+
+
+
+def test_identity_group_attestation_allows_zero_rejected_groups() -> None:
+    source = ATTEST.read_text(encoding="utf-8")
+
+    assert '[string[]]$RejectGroup = @()' in source
+    assert '[Parameter(Mandatory = $true)][string[]]$RejectGroup' not in source
