@@ -508,6 +508,297 @@ def _ablation_search(
     }
 
 
+
+def _score_model_witnesses(
+    *,
+    flip: Any,
+    positives: list[dict[str, Any]],
+    negatives: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not positives or not negatives:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "boundary witness scoring requires positive and negative embeddings"
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in positives:
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            raise PhotorealIdentityGroupGeometryDiagnosticError(
+                "boundary witness positive lacks group id"
+            )
+        grouped[group_id].append(item)
+    if len(grouped) < 2:
+        raise PhotorealIdentityGroupGeometryDiagnosticError(
+            "boundary witness scoring requires at least two positive groups"
+        )
+
+    ordered_groups = sorted(grouped)
+    group_centroids = {
+        group_id: flip._centroid(
+            [item["embedding"] for item in grouped[group_id]]
+        )
+        for group_id in ordered_groups
+    }
+
+    current_positive: list[dict[str, Any]] = []
+    for item in positives:
+        others = [
+            other["embedding"]
+            for other in positives
+            if str(other["group_id"]) != str(item["group_id"])
+        ]
+        if not others:
+            raise PhotorealIdentityGroupGeometryDiagnosticError(
+                "boundary witness positive group has no leave-group-out peers"
+            )
+        current_positive.append(
+            {
+                "reference_index": int(item["reference_index"]),
+                "group_id": str(item["group_id"]),
+                "score": flip._cosine(
+                    item["embedding"],
+                    flip._centroid(others),
+                ),
+            }
+        )
+    current_target = flip._centroid(
+        [item["embedding"] for item in positives]
+    )
+    current_negative = [
+        {
+            "negative_index": int(item["negative_index"]),
+            "subject_performer_id": str(item["subject_performer_id"]),
+            "score": flip._cosine(item["embedding"], current_target),
+        }
+        for item in negatives
+    ]
+
+    balanced_positive: list[dict[str, Any]] = []
+    prototype_positive: list[dict[str, Any]] = []
+    for group_id in ordered_groups:
+        own = group_centroids[group_id]
+        other_group_ids = [
+            other for other in ordered_groups if other != group_id
+        ]
+        other_centroids = [
+            group_centroids[other] for other in other_group_ids
+        ]
+        balanced_positive.append(
+            {
+                "group_id": group_id,
+                "score": flip._cosine(
+                    own,
+                    flip._centroid(other_centroids),
+                ),
+            }
+        )
+        nearest = max(
+            (
+                {
+                    "neighbor_group_id": other,
+                    "score": flip._cosine(
+                        own,
+                        group_centroids[other],
+                    ),
+                }
+                for other in other_group_ids
+            ),
+            key=lambda item: float(item["score"]),
+        )
+        prototype_positive.append(
+            {
+                "group_id": group_id,
+                "neighbor_group_id": nearest["neighbor_group_id"],
+                "score": nearest["score"],
+            }
+        )
+
+    balanced_target = flip._centroid(
+        [group_centroids[group_id] for group_id in ordered_groups]
+    )
+    balanced_negative = [
+        {
+            "negative_index": int(item["negative_index"]),
+            "subject_performer_id": str(item["subject_performer_id"]),
+            "score": flip._cosine(item["embedding"], balanced_target),
+        }
+        for item in negatives
+    ]
+    prototype_negative: list[dict[str, Any]] = []
+    for item in negatives:
+        nearest = max(
+            (
+                {
+                    "group_id": group_id,
+                    "score": flip._cosine(
+                        item["embedding"],
+                        group_centroids[group_id],
+                    ),
+                }
+                for group_id in ordered_groups
+            ),
+            key=lambda value: float(value["score"]),
+        )
+        prototype_negative.append(
+            {
+                "negative_index": int(item["negative_index"]),
+                "subject_performer_id": str(item["subject_performer_id"]),
+                "nearest_group_id": nearest["group_id"],
+                "score": nearest["score"],
+            }
+        )
+
+    raw = {
+        "current-reference-weighted": (
+            current_positive,
+            current_negative,
+        ),
+        "group-balanced-centroid-lgo": (
+            balanced_positive,
+            balanced_negative,
+        ),
+        "nearest-group-prototype": (
+            prototype_positive,
+            prototype_negative,
+        ),
+    }
+
+    result: dict[str, Any] = {}
+    for name, (positive_rows, negative_rows) in raw.items():
+        floor = min(
+            positive_rows,
+            key=lambda item: (
+                float(item["score"]),
+                int(item.get("reference_index", -1)),
+                str(item.get("group_id", "")),
+            ),
+        )
+        ceiling = max(
+            negative_rows,
+            key=lambda item: (
+                float(item["score"]),
+                -int(item["negative_index"]),
+            ),
+        )
+        result[name] = {
+            "positive_floor_witness": {
+                **floor,
+                "score": round(float(floor["score"]), 9),
+            },
+            "negative_ceiling_witness": {
+                **ceiling,
+                "score": round(float(ceiling["score"]), 9),
+            },
+            "observed_separation_margin": round(
+                float(floor["score"]) - float(ceiling["score"]),
+                9,
+            ),
+            "diagnostic_only": True,
+        }
+    return result
+
+
+def _reference_ablation_after_removed_groups(
+    *,
+    flip: Any,
+    positives: list[dict[str, Any]],
+    negatives: list[dict[str, Any]],
+    removed_group_ids: list[str],
+) -> dict[str, Any]:
+    removed_set = set(removed_group_ids)
+    remaining = [
+        item
+        for item in positives
+        if str(item["group_id"]) not in removed_set
+    ]
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in remaining:
+        grouped[str(item["group_id"])].append(item)
+
+    baseline_models = flip._score_models(remaining, negatives)
+    baseline_witnesses = _score_model_witnesses(
+        flip=flip,
+        positives=remaining,
+        negatives=negatives,
+    )
+
+    removable = [
+        item
+        for item in remaining
+        if len(grouped[str(item["group_id"])]) >= 2
+    ]
+    records: list[dict[str, Any]] = []
+    for item in removable:
+        reference_index = int(item["reference_index"])
+        subset = [
+            other
+            for other in remaining
+            if int(other["reference_index"]) != reference_index
+        ]
+        models = flip._score_models(subset, negatives)
+        margins = [
+            float(model["observed_separation_margin"])
+            for model in models.values()
+        ]
+        records.append(
+            {
+                "removed_reference_index": reference_index,
+                "removed_group_id": str(item["group_id"]),
+                "remaining_reference_count": len(subset),
+                "remaining_group_count": len(
+                    {str(other["group_id"]) for other in subset}
+                ),
+                "scoring_models": models,
+                "minimum_margin_across_models": round(min(margins), 9),
+                "all_models_meet_margin": all(
+                    bool(model["would_meet_margin"])
+                    for model in models.values()
+                ),
+                "witnesses": _score_model_witnesses(
+                    flip=flip,
+                    positives=subset,
+                    negatives=negatives,
+                ),
+                "counterfactual_only": True,
+                "diagnostic_only": True,
+            }
+        )
+
+    records.sort(
+        key=lambda item: (
+            -float(item["minimum_margin_across_models"]),
+            int(item["removed_reference_index"]),
+        )
+    )
+    first_all_pass = next(
+        (
+            item
+            for item in records
+            if item["all_models_meet_margin"]
+        ),
+        None,
+    )
+
+    return {
+        "removed_group_ids": list(removed_group_ids),
+        "baseline_remaining_reference_count": len(remaining),
+        "baseline_remaining_group_count": len(grouped),
+        "baseline_scoring_models": baseline_models,
+        "baseline_witnesses": baseline_witnesses,
+        "removable_reference_count": len(removable),
+        "ranked_single_reference_ablation": records,
+        "best_single_reference_ablation": (
+            records[0] if records else None
+        ),
+        "first_all_models_pass": first_all_pass,
+        "counterfactual_only": True,
+        "human_attested_valid_reference_is_not_rejected": True,
+        "identity_bank_mutation_authority": False,
+        "diagnostic_only": True,
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -825,6 +1116,24 @@ def main(argv: list[str] | None = None) -> int:
         max_removed_groups=3,
     )
 
+    candidate_removed_groups = [
+        "scene:805",
+        "scene:889",
+        "scene:978",
+    ]
+    current_boundary = _reference_ablation_after_removed_groups(
+        flip=flip,
+        positives=current_positives,
+        negatives=current_negatives,
+        removed_group_ids=candidate_removed_groups,
+    )
+    alternate_boundary = _reference_ablation_after_removed_groups(
+        flip=flip,
+        positives=alternate_positives,
+        negatives=alternate_negatives,
+        removed_group_ids=candidate_removed_groups,
+    )
+
     bodyrig_revision = str(os.environ.get("BODYRIG_REVISION") or "").strip().lower()
     if (
         len(bodyrig_revision) != 40
@@ -883,6 +1192,11 @@ def main(argv: list[str] | None = None) -> int:
             "w600k-r50": current_ablation,
             "antelopev2-glintr100": alternate_ablation,
         },
+        "candidate_boundary_witness": {
+            "removed_group_ids": candidate_removed_groups,
+            "w600k-r50": current_boundary,
+            "antelopev2-glintr100": alternate_boundary,
+        },
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
@@ -936,6 +1250,27 @@ def main(argv: list[str] | None = None) -> int:
                         "first_all_models_pass": alternate_ablation["first_all_models_pass"],
                         "candidate_scene_805_889_978": alternate_ablation[
                             "candidate_scene_805_889_978"
+                        ],
+                    },
+                },
+                "candidate_boundary_witness": {
+                    "removed_group_ids": candidate_removed_groups,
+                    "w600k-r50": {
+                        "baseline_witnesses": current_boundary["baseline_witnesses"],
+                        "best_single_reference_ablation": current_boundary[
+                            "best_single_reference_ablation"
+                        ],
+                        "first_all_models_pass": current_boundary[
+                            "first_all_models_pass"
+                        ],
+                    },
+                    "antelopev2-glintr100": {
+                        "baseline_witnesses": alternate_boundary["baseline_witnesses"],
+                        "best_single_reference_ablation": alternate_boundary[
+                            "best_single_reference_ablation"
+                        ],
+                        "first_all_models_pass": alternate_boundary[
+                            "first_all_models_pass"
                         ],
                     },
                 },
