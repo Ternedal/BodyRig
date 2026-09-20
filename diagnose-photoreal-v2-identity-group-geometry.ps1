@@ -4,6 +4,7 @@ param(
     [string]$ModelRoot = "",
     [string]$DiagnosticRecognizerRoot = "",
     [switch]$AcceptInsightFaceResearchLicense,
+    [switch]$OpenWitnessReview,
     [string]$Distribution = "Ubuntu-22.04",
     [string]$LinuxPython = "/opt/bodyrig-photoreal/bin/python",
     [ValidateSet("cpu", "cuda", "cuda:0")][string]$Device = "cuda:0"
@@ -177,6 +178,7 @@ try {
     Write-Host "Geometry:       per-group cohesion, LGO, positive neighbors, negative overlap"
     Write-Host "Ablation:       exhaustive counterfactual removal of 0-3 positive groups"
     Write-Host "Boundary:       exact floor/ceiling witnesses + single-reference sensitivity"
+    Write-Host "Review:         exact frame/aligned-crop witness sibling comparison"
     Write-Host "Source rehash:  NO"
     Write-Host "Authority:      DIAGNOSTIC ONLY / FALSE"
     Write-Host "Production:     FALSE"
@@ -324,6 +326,21 @@ try {
         }
     }
 
+    $witnessReviewHtml = [string]$result.boundary_witness_review.html
+    $witnessReviewJson = [string]$result.boundary_witness_review.json
+    Write-Host ""
+    Write-Host "Boundary witness visual review:"
+    Write-Host "  HTML: $witnessReviewHtml"
+    Write-Host "  JSON: $witnessReviewJson"
+    if ($OpenWitnessReview) {
+        if (-not (Test-Path -LiteralPath $witnessReviewHtml -PathType Leaf)) {
+            throw "Boundary witness review HTML was not created: $witnessReviewHtml"
+        }
+        Start-Process $witnessReviewHtml
+    } else {
+        Write-Host "  Open with:"
+        Write-Host $witnessReviewHtml
+    }
     Write-Host ""
     Write-Host "Diagnostic JSON: $output"
     Write-Host "Authority: diagnostic-only; no identity matching, training, photoreal or production authority."
