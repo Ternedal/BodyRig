@@ -219,15 +219,43 @@ def test_frame_index_validates_ambiguous_sample_count() -> None:
         build_frame_index(plan, receipt, observations)
 
 
-def test_frame_index_blocks_cross_split_perceptual_near_duplicate() -> None:
+def test_frame_index_quarantines_train_side_cross_split_perceptual_near_duplicate() -> None:
     plan = _plan()
     receipt = _receipt(plan)
     observations = _observations(plan, receipt)
+    train_key = str(plan["train"][0]["source_id"])
+    train_sha = next(item["sha256"] for item in receipt["sources"] if item["source_key"] == train_key)
+    observations["observations"].append(
+        _observation(
+            train_key,
+            train_sha,
+            timestamp=5.0,
+            view="front",
+            face=0.9,
+            body=0.9,
+            phash="aaaaaaaaaaaaaaaa",
+        )
+    )
     observations["observations"][1]["perceptual_hash"] = "0000000000000001"
+
     result = build_frame_index(plan, receipt, observations)
-    assert result["teacher_training_authorized"] is False
-    assert result["cross_split_near_duplicate_count"] >= 1
-    assert "cross-split perceptual near-duplicates detected" in result["training_blockers"]
+
+    assert result["teacher_training_authorized"] is True
+    assert result["cross_split_detected_near_duplicate_count"] == 1
+    assert result["cross_split_quarantined_train_observation_count"] == 1
+    assert result["cross_split_near_duplicate_count"] == 0
+    assert result["cross_split_near_duplicates"] == []
+    assert "cross-split perceptual near-duplicates detected" not in result["training_blockers"]
+    quarantined = result["cross_split_quarantined_train_observations"][0]
+    assert quarantined["source_key"] == train_key
+    excluded = [
+        row
+        for row in result["observations"]
+        if row["source_key"] == train_key and row["teacher_exclusion_reason"] == "cross-split-perceptual-near-duplicate"
+    ]
+    assert len(excluded) == 1
+    assert excluded[0]["eligible_for_teacher"] is False
+    assert excluded[0]["coverage"] == []
 
 
 def test_frame_index_requires_rear_in_eval_when_rear_is_source_observable() -> None:
