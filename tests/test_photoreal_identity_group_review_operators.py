@@ -96,3 +96,12 @@ def test_identity_group_attestation_revision_block_is_complete() -> None:
     assert "Identity group review has an invalid BodyRig revision" in source
     assert "$wslRepo = Convert-ToWslPath $script:RepoRoot" in source
     assert "$wslReview = Convert-ToWslPath $ReviewRoot" in source
+
+
+
+def test_identity_group_attestation_operator_is_single_flow() -> None:
+    source = ATTEST.read_text(encoding="utf-8")
+
+    assert source.count("BODYRIG PHOTOREAL V2 - HUMAN IDENTITY GROUP ATTESTATION") == 1
+    assert source.count("$wslArgs = @(") == 1
+    assert source.count("Human identity group attestation: RECORDED") == 1
