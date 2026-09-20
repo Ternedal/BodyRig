@@ -41,6 +41,10 @@ def _provenance() -> dict[str, object]:
         "training_dataset_license_requires_operator_review": True,
         "reuses_bodyrig_photoreal_torch": True,
         "parallel_torch_install": False,
+        "runtime_dependency_profile": "cvlface-vit-runtime-v2",
+        "fvcore": "0.1.5.post20221221",
+        "timm": "0.9.7",
+        "model_cuda_smoke_test": True,
         "diagnostic_only": True,
         "identity_matching_authorized": False,
         "teacher_training_authorized": False,
@@ -72,6 +76,10 @@ def test_cvlface_provenance_is_pinned_and_authority_closed(
     assert provenance["repo_revision"] == diagnostic.MODEL_REVISION
     assert provenance["reuses_bodyrig_photoreal_torch"] is True
     assert provenance["parallel_torch_install"] is False
+    assert provenance["runtime_dependency_profile"] == "cvlface-vit-runtime-v2"
+    assert provenance["fvcore"] == "0.1.5.post20221221"
+    assert provenance["timm"] == "0.9.7"
+    assert provenance["model_cuda_smoke_test"] is True
     assert provenance["diagnostic_only"] is True
     assert provenance["production_activation"] is False
 
