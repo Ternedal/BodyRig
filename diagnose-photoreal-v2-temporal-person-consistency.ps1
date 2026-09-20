@@ -196,12 +196,25 @@ try {
             $s.anchors_with_duplicate_decodes,
             $s.minimum_distinct_decoded_frames
         )
-        if ($null -ne $s.median_bbox_iou) {
+        Write-Host (
+            "  full-frame detector boxes:    {0}/{1}" -f
+            $s.anchors_with_full_frame_detector_bbox,
+            $s.anchor_count
+        )
+        if ($null -ne $s.median_detector_bbox_iou) {
             Write-Host (
-                "  bbox IoU min/med/max:       {0} / {1} / {2}" -f
-                $s.median_bbox_iou.min,
-                $s.median_bbox_iou.median,
-                $s.median_bbox_iou.max
+                "  detector bbox IoU (audit):   {0} / {1} / {2}" -f
+                $s.median_detector_bbox_iou.min,
+                $s.median_detector_bbox_iou.median,
+                $s.median_detector_bbox_iou.max
+            )
+        }
+        if ($null -ne $s.median_keypoint_bbox_iou) {
+            Write-Host (
+                "  keypoint ROI IoU min/med/max:{0} / {1} / {2}" -f
+                $s.median_keypoint_bbox_iou.min,
+                $s.median_keypoint_bbox_iou.median,
+                $s.median_keypoint_bbox_iou.max
             )
         }
         if ($null -ne $s.median_appearance_cosine) {
@@ -220,12 +233,12 @@ try {
                 $s.median_pose_distance.max
             )
         }
-        if ($null -ne $s.median_center_shift) {
+        if ($null -ne $s.median_keypoint_center_shift) {
             Write-Host (
-                "  center-shift min/med/max:   {0} / {1} / {2}" -f
-                $s.median_center_shift.min,
-                $s.median_center_shift.median,
-                $s.median_center_shift.max
+                "  keypoint center min/med/max: {0} / {1} / {2}" -f
+                $s.median_keypoint_center_shift.min,
+                $s.median_keypoint_center_shift.median,
+                $s.median_keypoint_center_shift.max
             )
         }
     }
