@@ -450,6 +450,14 @@ def prepare_review(
             }
         )
 
+    bodyrig_revision = str(os.environ.get("BODYRIG_REVISION") or "").strip().lower()
+    if len(bodyrig_revision) != 40 or any(
+        character not in "0123456789abcdef" for character in bodyrig_revision
+    ):
+        raise PhotorealIdentityGroupReviewError(
+            "BODYRIG_REVISION must bind review preparation to one exact Git revision"
+        )
+
     stage = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.stage-", dir=output_dir.parent))
     try:
         sheets_root = stage / "private-review-sheets"
@@ -520,7 +528,7 @@ def prepare_review(
         public_manifest = {
             "format": REVIEW_FORMAT,
             "version": REVIEW_VERSION,
-            "bodyrig_revision": os.environ.get("BODYRIG_REVISION", ""),
+            "bodyrig_revision": bodyrig_revision,
             "performer_id": performer_id,
             "identity_bank_sha256": bank_sha,
             "identity_bank_file_sha256": _sha256_file(identity_bank_path),
@@ -635,6 +643,16 @@ def record_attestation(
     private_rows = private.get("groups")
     if not isinstance(rows, list) or not isinstance(private_rows, list):
         raise PhotorealIdentityGroupReviewError("identity group review lists are invalid")
+    group_count = public.get("group_count")
+    if (
+        isinstance(group_count, bool)
+        or not isinstance(group_count, int)
+        or group_count != len(rows)
+        or group_count != len(private_rows)
+    ):
+        raise PhotorealIdentityGroupReviewError("identity group review count binding is invalid")
+    if str(private.get("performer_id") or "").strip() != str(public.get("performer_id") or "").strip():
+        raise PhotorealIdentityGroupReviewError("public/private identity review performer mismatch")
     known = {
         str(item.get("group_id") or "").strip()
         for item in rows
@@ -649,6 +667,30 @@ def record_attestation(
     }
     if private_known != known:
         raise PhotorealIdentityGroupReviewError("public/private identity review group sets differ")
+
+    bank_sha = str(public.get("identity_bank_sha256") or "").strip().lower()
+    if len(bank_sha) != 64 or any(character not in "0123456789abcdef" for character in bank_sha):
+        raise PhotorealIdentityGroupReviewError("identity group review bank SHA-256 is invalid")
+    public_by_group = {
+        str(item["group_id"]): item
+        for item in rows
+        if isinstance(item, Mapping)
+    }
+    private_by_group = {
+        str(item["group_id"]): item
+        for item in private_rows
+        if isinstance(item, Mapping)
+    }
+    for group_id in sorted(known):
+        expected_candidate = _candidate_id(bank_sha, group_id)
+        if str(public_by_group[group_id].get("group_candidate_id") or "") != expected_candidate:
+            raise PhotorealIdentityGroupReviewError(
+                f"public identity review candidate id is not bank/group bound: {group_id}"
+            )
+        if str(private_by_group[group_id].get("group_candidate_id") or "") != expected_candidate:
+            raise PhotorealIdentityGroupReviewError(
+                f"private identity review candidate id is not bank/group bound: {group_id}"
+            )
 
     accepted = [str(value or "").strip() for value in accept_groups]
     rejected = [str(value or "").strip() for value in reject_groups]
@@ -667,18 +709,15 @@ def record_attestation(
         )
 
     review_sheet_hashes: dict[str, str] = {}
-    private_by_group = {
-        str(item["group_id"]): item
-        for item in private_rows
-        if isinstance(item, Mapping)
-    }
-    public_by_group = {
-        str(item["group_id"]): item
-        for item in rows
-        if isinstance(item, Mapping)
-    }
+    review_sheet_root = (review_root / "private-review-sheets").resolve()
     for group_id in sorted(known):
         path = Path(str(private_by_group[group_id].get("review_sheet") or "")).expanduser().resolve()
+        try:
+            path.relative_to(review_sheet_root)
+        except ValueError as exc:
+            raise PhotorealIdentityGroupReviewError(
+                f"review sheet path escapes private review root for group {group_id}"
+            ) from exc
         observed = _sha256_file(path)
         expected = str(public_by_group[group_id].get("review_sheet_sha256") or "").strip().lower()
         if observed != expected:
