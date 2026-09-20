@@ -167,42 +167,187 @@ def _joint_world(document: Mapping[str, Any], name: str) -> tuple[int, tuple[flo
     return skin_joint, (x, y, z)
 
 
-def _box(center: tuple[float, float, float], size: tuple[float, float, float], joint: int) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
+def _oval_prism(
+    center: tuple[float, float, float],
+    size: tuple[float, float, float],
+    joint: int,
+    *,
+    segments: int = 24,
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
+    if segments < 8:
+        raise HighFidelityFaceSecondaryRuntimeError("oval prism requires at least eight segments")
     cx, cy, cz = center
-    sx, sy, sz = (value * 0.5 for value in size)
-    corners = [
-        (cx - sx, cy - sy, cz - sz), (cx + sx, cy - sy, cz - sz),
-        (cx + sx, cy + sy, cz - sz), (cx - sx, cy + sy, cz - sz),
-        (cx - sx, cy - sy, cz + sz), (cx + sx, cy - sy, cz + sz),
-        (cx + sx, cy + sy, cz + sz), (cx - sx, cy + sy, cz + sz),
-    ]
-    faces = [
-        (0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7),
-        (0, 1, 5), (0, 5, 4), (3, 7, 6), (3, 6, 2),
-        (0, 4, 7), (0, 7, 3), (1, 2, 6), (1, 6, 5),
-    ]
+    width, height, depth = size
+    rx = width * 0.5
+    ry = height * 0.5
+    rz = depth * 0.5
+    vertices: list[tuple[float, float, float]] = []
     normals: list[tuple[float, float, float]] = []
-    for x, y, z in corners:
-        dx, dy, dz = x - cx, y - cy, z - cz
-        length = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
-        normals.append((dx / length, dy / length, dz / length))
-    return corners, normals, faces, joint
+    faces: list[tuple[int, int, int]] = []
+
+    # Smooth side wall.
+    for z_sign in (1.0, -1.0):
+        for index in range(segments):
+            angle = math.tau * index / segments
+            ca = math.cos(angle)
+            sa = math.sin(angle)
+            x = cx + rx * ca
+            y = cy + ry * sa
+            z = cz + rz * z_sign
+            nx = ca / max(rx, 1e-9)
+            ny = sa / max(ry, 1e-9)
+            length = math.hypot(nx, ny) or 1.0
+            vertices.append((x, y, z))
+            normals.append((nx / length, ny / length, 0.0))
+    for index in range(segments):
+        nxt = (index + 1) % segments
+        front = index
+        front_next = nxt
+        back = segments + index
+        back_next = segments + nxt
+        faces.extend(((front, back, front_next), (front_next, back, back_next)))
+
+    # Separate cap rings keep cap normals flat rather than reusing side normals.
+    front_ring = len(vertices)
+    for index in range(segments):
+        angle = math.tau * index / segments
+        vertices.append((cx + rx * math.cos(angle), cy + ry * math.sin(angle), cz + rz))
+        normals.append((0.0, 0.0, 1.0))
+    front_center = len(vertices)
+    vertices.append((cx, cy, cz + rz))
+    normals.append((0.0, 0.0, 1.0))
+    back_ring = len(vertices)
+    for index in range(segments):
+        angle = math.tau * index / segments
+        vertices.append((cx + rx * math.cos(angle), cy + ry * math.sin(angle), cz - rz))
+        normals.append((0.0, 0.0, -1.0))
+    back_center = len(vertices)
+    vertices.append((cx, cy, cz - rz))
+    normals.append((0.0, 0.0, -1.0))
+    for index in range(segments):
+        nxt = (index + 1) % segments
+        faces.append((front_center, front_ring + index, front_ring + nxt))
+        faces.append((back_center, back_ring + nxt, back_ring + index))
+    return vertices, normals, faces, joint
+
+
+def _ellipsoid(
+    center: tuple[float, float, float],
+    radii: tuple[float, float, float],
+    joint: int,
+    *,
+    latitude_segments: int = 5,
+    longitude_segments: int = 10,
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
+    if latitude_segments < 3 or longitude_segments < 8:
+        raise HighFidelityFaceSecondaryRuntimeError("ellipsoid tessellation is too low")
+    cx, cy, cz = center
+    rx, ry, rz = radii
+    vertices: list[tuple[float, float, float]] = []
+    normals: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+
+    vertices.append((cx, cy + ry, cz))
+    normals.append((0.0, 1.0, 0.0))
+    for lat in range(1, latitude_segments):
+        phi = math.pi * lat / latitude_segments
+        sin_phi = math.sin(phi)
+        cos_phi = math.cos(phi)
+        for lon in range(longitude_segments):
+            theta = math.tau * lon / longitude_segments
+            cos_theta = math.cos(theta)
+            sin_theta = math.sin(theta)
+            x = cx + rx * sin_phi * cos_theta
+            y = cy + ry * cos_phi
+            z = cz + rz * sin_phi * sin_theta
+            nx = (x - cx) / max(rx * rx, 1e-12)
+            ny = (y - cy) / max(ry * ry, 1e-12)
+            nz = (z - cz) / max(rz * rz, 1e-12)
+            length = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+            vertices.append((x, y, z))
+            normals.append((nx / length, ny / length, nz / length))
+    south = len(vertices)
+    vertices.append((cx, cy - ry, cz))
+    normals.append((0.0, -1.0, 0.0))
+
+    first_ring = 1
+    for lon in range(longitude_segments):
+        nxt = (lon + 1) % longitude_segments
+        faces.append((0, first_ring + lon, first_ring + nxt))
+    for lat in range(latitude_segments - 2):
+        ring = 1 + lat * longitude_segments
+        next_ring = ring + longitude_segments
+        for lon in range(longitude_segments):
+            nxt = (lon + 1) % longitude_segments
+            faces.extend(
+                (
+                    (ring + lon, next_ring + lon, ring + nxt),
+                    (ring + nxt, next_ring + lon, next_ring + nxt),
+                )
+            )
+    last_ring = 1 + (latitude_segments - 2) * longitude_segments
+    for lon in range(longitude_segments):
+        nxt = (lon + 1) % longitude_segments
+        faces.append((south, last_ring + nxt, last_ring + lon))
+    return vertices, normals, faces, joint
+
+
+def _tooth_row(
+    center: tuple[float, float, float],
+    size: tuple[float, float, float],
+    joint: int,
+    *,
+    upper: bool,
+    tooth_count: int = 10,
+) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
+    cx, cy, cz = center
+    width, height, depth = size
+    if tooth_count < 6:
+        raise HighFidelityFaceSecondaryRuntimeError("tooth row requires at least six teeth")
+    vertices: list[tuple[float, float, float]] = []
+    normals: list[tuple[float, float, float]] = []
+    faces: list[tuple[int, int, int]] = []
+    spacing = width / tooth_count
+    for index in range(tooth_count):
+        t = (index + 0.5) / tooth_count * 2.0 - 1.0
+        x = cx + t * width * 0.5
+        arch = 1.0 - t * t
+        y = cy + (height * 0.08 * arch * (1.0 if upper else -1.0))
+        # Side teeth sit slightly farther back, avoiding the flat white-box look.
+        z = cz - depth * 0.42 * abs(t) ** 1.6
+        tooth_width = spacing * (0.78 + 0.08 * arch)
+        tooth_height = height * (0.88 + 0.12 * arch)
+        tooth = _ellipsoid(
+            (x, y, z),
+            (tooth_width * 0.5, tooth_height * 0.5, depth * 0.5),
+            joint,
+        )
+        offset = len(vertices)
+        tooth_positions, tooth_normals, tooth_faces, _ = tooth
+        vertices.extend(tooth_positions)
+        normals.extend(tooth_normals)
+        faces.extend(
+            (a + offset, b + offset, c + offset)
+            for a, b, c in tooth_faces
+        )
+    return vertices, normals, faces, joint
 
 
 def _lash(center: tuple[float, float, float], interocular: float, joint: int) -> tuple[list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]:
     cx, cy, cz = center
     half = interocular * 0.19
-    rise = interocular * 0.035
-    thickness = interocular * 0.012
+    rise = interocular * 0.038
+    thickness = interocular * 0.014
     vertices: list[tuple[float, float, float]] = []
-    segments = 8
+    segments = 16
     for row in (0, 1):
         for index in range(segments + 1):
             t = index / segments
             x = cx - half + 2.0 * half * t
-            curve = 1.0 - ((t - 0.5) / 0.5) ** 2
-            y = cy + interocular * 0.105 + rise * curve + (thickness if row else 0.0)
-            z = cz + interocular * 0.105
+            curve = max(0.0, 1.0 - ((t - 0.5) / 0.5) ** 2)
+            taper = math.sin(math.pi * t) ** 0.7
+            y = cy + interocular * 0.102 + rise * curve + (thickness * taper if row else 0.0)
+            z = cz + interocular * (0.088 + 0.018 * curve) + (interocular * 0.004 * taper if row else 0.0)
             vertices.append((x, y, z))
     faces: list[tuple[int, int, int]] = []
     stride = segments + 1
@@ -307,9 +452,9 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
 
     primitives: list[tuple[str, list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]] = []
     for role, geometry in (
-        ("mouth_interior", _box(mouth, (interocular * 0.92, interocular * 0.23, interocular * 0.11), jaw_joint)),
-        ("upper_teeth", _box((mouth[0], mouth[1] + interocular * 0.045, mouth[2] + interocular * 0.025), (interocular * 0.72, interocular * 0.075, interocular * 0.055), head_joint)),
-        ("lower_teeth", _box((mouth[0], mouth[1] - interocular * 0.045, mouth[2] + interocular * 0.02), (interocular * 0.68, interocular * 0.065, interocular * 0.05), jaw_joint)),
+        ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
+        ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
+        ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
         ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
         ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
     ):
@@ -333,9 +478,9 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
         "interocularDistanceMeters": round(interocular, 8),
         "eyebrowAppearanceSource": "existing-source-derived-face-basecolor",
         "lipBoundarySource": "existing-source-derived-face-basecolor",
-        "mouthInteriorGeometry": "deterministic-generic-secondary-anatomy-v1",
-        "teethGeometry": "deterministic-generic-secondary-anatomy-v1",
-        "eyelashGeometry": "deterministic-smplx-head-anchored-ribbon-v1",
+        "mouthInteriorGeometry": "deterministic-rounded-oval-cavity-v2",
+        "teethGeometry": "deterministic-individual-rounded-dental-row-v2",
+        "eyelashGeometry": "deterministic-smplx-head-anchored-tapered-ribbon-v2",
         "semanticAnchorAuthority": "licensed-smplx-joint-topology-v1",
         "sourceDerivedIdentitySynthesis": False,
         "generativeIdentitySynthesis": False,

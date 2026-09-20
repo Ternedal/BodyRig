@@ -14,9 +14,10 @@ from .high_fidelity_face_secondary_runtime import (
     REVIEW_METADATA_FORMAT,
     _append_geometry,
     _bodyrig,
-    _box,
     _joint_world,
     _lash,
+    _oval_prism,
+    _tooth_row,
 )
 from .package import MRBodyError, validate_package
 
@@ -162,9 +163,9 @@ def _primitives(document: Mapping[str, Any]) -> tuple[list[tuple[str, list[tuple
     mouth = (mouth[0], mouth[1], mouth[2] - interocular * 0.055)
     result: list[tuple[str, list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]] = []
     for role, geometry in (
-        ("mouth_interior", _box(mouth, (interocular * 0.92, interocular * 0.23, interocular * 0.11), jaw_joint)),
-        ("upper_teeth", _box((mouth[0], mouth[1] + interocular * 0.045, mouth[2] + interocular * 0.025), (interocular * 0.72, interocular * 0.075, interocular * 0.055), head_joint)),
-        ("lower_teeth", _box((mouth[0], mouth[1] - interocular * 0.045, mouth[2] + interocular * 0.02), (interocular * 0.68, interocular * 0.065, interocular * 0.05), jaw_joint)),
+        ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
+        ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
+        ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
         ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
         ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
     ):
@@ -253,9 +254,9 @@ def build(package_path: str | Path, hair_eye_runtime_dir: str | Path, output_dir
         "interocularDistanceMeters": round(interocular, 8),
         "eyebrowAppearanceSource": "existing-source-derived-face-basecolor",
         "lipBoundarySource": "existing-source-derived-face-basecolor",
-        "mouthInteriorGeometry": "deterministic-generic-secondary-anatomy-v1",
-        "teethGeometry": "deterministic-generic-secondary-anatomy-v1",
-        "eyelashGeometry": "deterministic-smplx-head-anchored-ribbon-v1",
+        "mouthInteriorGeometry": "deterministic-rounded-oval-cavity-v2",
+        "teethGeometry": "deterministic-individual-rounded-dental-row-v2",
+        "eyelashGeometry": "deterministic-smplx-head-anchored-tapered-ribbon-v2",
         "semanticAnchorAuthority": "licensed-smplx-joint-topology-v1",
         "sourceHairPreserved": True,
         "sourceEyeSurfacePreserved": True,

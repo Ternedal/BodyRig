@@ -151,6 +151,9 @@ def test_build_adds_face_secondary_without_promoting_hair_eyes_or_package(tmp_pa
     assert embedded["faceSecondaryComponentAuthority"] is False
     assert embedded["packageMutationPerformed"] is False
     assert embedded["generativeIdentitySynthesis"] is False
+    assert embedded["mouthInteriorGeometry"] == "deterministic-rounded-oval-cavity-v2"
+    assert embedded["teethGeometry"] == "deterministic-individual-rounded-dental-row-v2"
+    assert embedded["eyelashGeometry"] == "deterministic-smplx-head-anchored-tapered-ribbon-v2"
     names = {item.get("name") for item in document["nodes"] if isinstance(item, dict)}
     assert "BodyRigSourceHairReview" in names
     assert "BodyRigSourceEyeReview" in names
