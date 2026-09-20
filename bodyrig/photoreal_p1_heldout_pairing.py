@@ -199,7 +199,7 @@ def _validate_semantic_alignment(
     return alignments
 
 
-def _teacher_eval_universe(teacher_input: Mapping[str, Any]) -> tuple[list[str], dict[tuple[str, str], dict[str, Any]]]:
+def _teacher_eval_universe(teacher_input: Mapping[str, Any]) -> tuple[list[str], dict[tuple[str, str, str], dict[str, Any]]]:
     try:
         validated = validate_teacher_input_document(teacher_input)
     except PhotorealTeacherRunnerError as exc:
@@ -226,7 +226,7 @@ def _teacher_eval_universe(teacher_input: Mapping[str, Any]) -> tuple[list[str],
     observations_raw = validated.get("held_out_evaluation_observations")
     if not isinstance(observations_raw, list) or not observations_raw:
         raise PhotorealP1HeldoutPairingError("teacher input has no held-out evaluation observations")
-    observations: dict[tuple[str, str], dict[str, Any]] = {}
+    observations: dict[tuple[str, str, str], dict[str, Any]] = {}
     for raw in observations_raw:
         if not isinstance(raw, Mapping):
             raise PhotorealP1HeldoutPairingError("teacher input held-out observation is invalid")
@@ -235,16 +235,17 @@ def _teacher_eval_universe(teacher_input: Mapping[str, Any]) -> tuple[list[str],
         group_id = _text(raw.get("group_id"), label="held-out group id")
         source_key = _text(raw.get("source_key"), label="held-out source key")
         frame_sha = _sha(raw.get("frame_sha256"), label="held-out frame SHA-256")
-        key = (group_id, frame_sha)
+        source_ref = _source_ref(source_key)
+        key = (group_id, source_ref, frame_sha)
         if key in observations:
-            raise PhotorealP1HeldoutPairingError("teacher input repeats held-out frame within group")
+            raise PhotorealP1HeldoutPairingError("teacher input repeats held-out frame within source/group")
         coverage_raw = raw.get("coverage")
         if not isinstance(coverage_raw, list) or not coverage_raw:
             raise PhotorealP1HeldoutPairingError("teacher input held-out observation coverage is invalid")
         observations[key] = {
             "group_id": group_id,
             "source_key": source_key,
-            "source_ref": _source_ref(source_key),
+            "source_ref": source_ref,
             "frame_sha256": frame_sha,
             "view_bin": _text(raw.get("view_bin"), label="held-out view bin", maximum=64),
             "coverage": sorted({_text(item, label="held-out coverage", maximum=64) for item in coverage_raw}),
@@ -258,7 +259,7 @@ def _review_eval_candidates(
     manifest: Mapping[str, Any],
     review_root: Path,
     *,
-    teacher_observations: Mapping[tuple[str, str], Mapping[str, Any]],
+    teacher_observations: Mapping[tuple[str, str, str], Mapping[str, Any]],
     performer_id: str,
 ) -> list[dict[str, Any]]:
     if manifest.get("format") != REVIEW_MANIFEST_FORMAT:
@@ -307,11 +308,12 @@ def _review_eval_candidates(
                 raise PhotorealP1HeldoutPairingError("appearance review repeats frame id")
             seen_frame_ids.add(frame_id)
             frame_sha = _sha(raw.get("frame_sha256"), label="appearance review frame SHA-256")
-            key = (group_id, frame_sha)
+            source_ref = _text(raw.get("source_ref"), label="appearance review source ref", maximum=20)
+            key = (group_id, source_ref, frame_sha)
             teacher = teacher_observations.get(key)
             if teacher is None:
                 continue
-            if _text(raw.get("source_ref"), label="appearance review source ref", maximum=20) != teacher["source_ref"]:
+            if source_ref != teacher["source_ref"]:
                 raise PhotorealP1HeldoutPairingError("appearance review source reference differs from teacher input")
             if _text(raw.get("view_bin"), label="appearance review view bin", maximum=64) != teacher["view_bin"]:
                 raise PhotorealP1HeldoutPairingError("appearance review view bin differs from teacher input")
@@ -363,8 +365,14 @@ def build_p1_pairing_handoff(
     required, observations = _teacher_eval_universe(teacher_input)
     semantic = _validate_semantic_alignment(semantic_alignment, teacher_input=teacher_input)
     root = Path(review_root).expanduser().resolve()
+    canonical_manifest_path = root / "appearance-epoch-visual-review-manifest.json"
+    canonical_manifest = _read_json(canonical_manifest_path, label="canonical appearance review manifest")
+    if dict(review_manifest) != canonical_manifest:
+        raise PhotorealP1HeldoutPairingError(
+            "supplied appearance review manifest differs from canonical review-root manifest"
+        )
     candidates = _review_eval_candidates(
-        review_manifest,
+        canonical_manifest,
         root,
         teacher_observations=observations,
         performer_id=performer_id,
@@ -394,7 +402,7 @@ def build_p1_pairing_handoff(
             semantic_alignment.get("semantic_alignment_sha256"),
             label="semantic alignment SHA-256",
         ),
-        "appearance_review_manifest_file_sha256": _sha256_file(root / "appearance-epoch-visual-review-manifest.json"),
+        "appearance_review_manifest_file_sha256": _sha256_file(canonical_manifest_path),
         "required_p1_criteria": required,
         "criterion_allowed_teacher_semantic_labels": {
             criterion: list(CRITERION_ALLOWED_SEMANTIC_LABELS[criterion])
