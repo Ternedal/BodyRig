@@ -48,11 +48,15 @@ if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
     throw "Retained face-quality preview requires an exact clean BodyRig checkout."
 }
 
+if ($SkipBuild) {
+    throw "Retained face-quality preview does not allow -SkipBuild. The Windows renderer must be rebuilt from the current BodyRig HEAD for visible quality evidence."
+}
+
 $PackagePath = Need-File -Path $PackagePath -Label "Retained candidate package"
 $IdentityWorkspace = Need-Directory -Path $IdentityWorkspace -Label "Retained identity workspace"
 $packageSha = Sha256 $PackagePath
 
-$hairEyeScript = Need-File -Path (Join-Path $repoRoot "run-retained-hair-eye-preview.ps1") -Label "Retained hair+eye preview operator"
+$hairEyeScript = Need-File -Path (Join-Path $repoRoot "build-retained-hair-eye-review-runtime.ps1") -Label "Retained hair+eye runtime builder"
 $faceScript = Need-File -Path (Join-Path $repoRoot "run-face-secondary-hair-eye-windows-preview.ps1") -Label "Face-secondary hair+eye preview operator"
 
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
@@ -76,6 +80,8 @@ try {
     Write-Host "Revision:          $head"
     Write-Host "Package SHA:       $packageSha"
     Write-Host "Reconstruction:    REUSED / NO SITH RERUN"
+    Write-Host "Intermediate render: SKIPPED"
+    Write-Host "Renderer build:    FORCED CURRENT HEAD"
     Write-Host "Hair+eyes:         SOURCE-DERIVED REVIEW RUNTIME"
     Write-Host "Face secondary:    ROUNDED GEOMETRY REVIEW"
     Write-Host "Production:        FALSE"
@@ -84,19 +90,16 @@ try {
     $hairEyeArgs = @{
         PackagePath = $PackagePath
         IdentityWorkspace = $IdentityWorkspace
-        OutputRoot = $hairEyeRoot
+        OutputDir = $hairEyeRoot
         Distribution = $Distribution
         InstallRoot = $InstallRoot
         WslExe = $WslExe
     }
-    if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $hairEyeArgs.BodyRigPython = $BodyRigPython }
-    if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $hairEyeArgs.UnityExe = $UnityExe }
-    if ($SkipBuild) { $hairEyeArgs.SkipBuild = $true }
 
     Write-Host ""
-    Write-Host "=== 1/2 REBUILD REVIEW-ONLY HAIR + EYES FROM RETAINED RECONSTRUCTION ==="
+    Write-Host "=== 1/2 BUILD REVIEW-ONLY HAIR + EYES (NO INTERMEDIATE RENDER) ==="
     & $hairEyeScript @hairEyeArgs
-    if ($LASTEXITCODE -ne 0) { throw "Retained hair+eye preview failed with exit code $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "Retained hair+eye runtime build failed with exit code $LASTEXITCODE" }
 
     $hairEyeRuntime = Need-Directory -Path (Join-Path $hairEyeRoot "runtime") -Label "Retained hair+eye runtime"
 
@@ -107,7 +110,6 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($BodyRigPython)) { $faceArgs.BodyRigPython = $BodyRigPython }
     if (-not [string]::IsNullOrWhiteSpace($UnityExe)) { $faceArgs.UnityExe = $UnityExe }
-    if ($SkipBuild) { $faceArgs.SkipBuild = $true }
 
     Write-Host ""
     Write-Host "=== 2/2 COMPOSE ROUNDED FACE SECONDARY + WINDOWS PREVIEW ==="
@@ -136,6 +138,8 @@ try {
         package_sha256 = $packageSha
         reconstruction_rerun = $false
         source_hair_eye_runtime_rebuilt = $true
+        intermediate_hair_eye_render_skipped = $true
+        current_head_renderer_rebuilt = $true
         rounded_face_secondary_geometry = $true
         mouth_geometry_revision = "deterministic-rounded-oval-cavity-v2"
         teeth_geometry_revision = "deterministic-individual-rounded-dental-row-v2"
