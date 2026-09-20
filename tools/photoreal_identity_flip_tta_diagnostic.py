@@ -444,6 +444,101 @@ def _flip_measurement(
     )
 
 
+def _aligned_crop_flip_measurement(
+    *,
+    adapter: Any,
+    runtime: Any,
+    image: Any,
+    original_embedding: list[float],
+    dimension: int,
+) -> tuple[list[float], dict[str, Any]]:
+    candidates = adapter._candidates(runtime, image)
+    face_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("face") is not None
+    ]
+    if len(candidates) != 1 or len(face_candidates) != 1:
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "accepted original frame did not reproduce exactly one aligned face candidate"
+        )
+    face = face_candidates[0]["face"]
+    replay_embedding = adapter._embedding(face, dimension)
+    if replay_embedding is None:
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "accepted original face has no embedding for aligned-crop flip"
+        )
+    replay_cosine = _cosine(replay_embedding, original_embedding)
+    if replay_cosine < 0.999999:
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "aligned-crop source face does not match the original replay embedding"
+        )
+
+    models = getattr(runtime.face_app, "models", None)
+    recognizer = models.get("recognition") if isinstance(models, Mapping) else None
+    if recognizer is None or not callable(getattr(recognizer, "get_feat", None)):
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "InsightFace recognition model does not expose get_feat"
+        )
+    input_size = getattr(recognizer, "input_size", None)
+    if (
+        not isinstance(input_size, (list, tuple))
+        or len(input_size) != 2
+        or int(input_size[0]) != int(input_size[1])
+        or int(input_size[0]) <= 0
+    ):
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "InsightFace recognition input size is invalid"
+        )
+    landmarks = getattr(face, "kps", None)
+    if landmarks is None:
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "accepted original face has no five-point landmarks"
+        )
+
+    try:
+        from insightface.utils import face_align
+
+        aligned = face_align.norm_crop(
+            image,
+            landmark=landmarks,
+            image_size=int(input_size[0]),
+        )
+        aligned = runtime.np.ascontiguousarray(aligned)
+        aligned_original_raw = recognizer.get_feat(aligned)
+        flipped_crop = runtime.cv2.flip(aligned, 1)
+        if flipped_crop is None or getattr(flipped_crop, "size", 0) == 0:
+            raise ValueError("aligned horizontal flip produced an empty crop")
+        flipped_crop = runtime.np.ascontiguousarray(flipped_crop)
+        aligned_flip_raw = recognizer.get_feat(flipped_crop)
+    except Exception as exc:  # noqa: BLE001
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            f"aligned-crop recognition inference failed: {exc}"
+        ) from exc
+
+    aligned_original = _normalize(
+        runtime.np.asarray(aligned_original_raw).reshape(-1).tolist(),
+        dimension=dimension,
+        label="aligned original recognition embedding",
+    )
+    aligned_flip = _normalize(
+        runtime.np.asarray(aligned_flip_raw).reshape(-1).tolist(),
+        dimension=dimension,
+        label="aligned flipped recognition embedding",
+    )
+    aligned_replay_cosine = _cosine(aligned_original, original_embedding)
+    if aligned_replay_cosine < 0.999999:
+        raise PhotorealIdentityFlipTtaDiagnosticError(
+            "direct recognition replay does not match FaceAnalysis embedding"
+        )
+    return aligned_flip, {
+        "status": "available",
+        "recognition_input_size": int(input_size[0]),
+        "original_face_replay_cosine": round(replay_cosine, 9),
+        "aligned_original_replay_cosine": round(aligned_replay_cosine, 9),
+    }
+
+
 def _score_models(
     positives: list[dict[str, Any]],
     negatives: list[dict[str, Any]],
@@ -558,7 +653,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Replay the exact human-attested Photoreal identity evidence and "
-            "compare original, horizontal-flip and normalized flip-TTA "
+            "compare original, frame-level flip and aligned-crop flip-TTA "
             "embeddings without changing the identity bank or granting authority."
         )
     )
@@ -741,6 +836,13 @@ def main(argv: list[str] | None = None) -> int:
             runtime=runtime,
             image=image,
         )
+        aligned_flipped, aligned_flip_quality = _aligned_crop_flip_measurement(
+            adapter=adapter,
+            runtime=runtime,
+            image=image,
+            original_embedding=original,
+            dimension=dimension,
+        )
 
         group_id = str(raw.get("group_id") or "").strip()
         if not group_id:
@@ -786,6 +888,34 @@ def main(argv: list[str] | None = None) -> int:
                     "tta_to_replay_cosine": round(_cosine(tta, original), 9),
                 }
             )
+        aligned_tta = _tta_mean(
+            original,
+            aligned_flipped,
+            dimension=dimension,
+        )
+        positive_variants["aligned-crop-flip"].append(
+            {"group_id": group_id, "embedding": aligned_flipped}
+        )
+        positive_variants["aligned-crop-flip-tta-mean"].append(
+            {"group_id": group_id, "embedding": aligned_tta}
+        )
+        row.update(
+            {
+                "aligned_flip_quality": aligned_flip_quality,
+                "replay_to_aligned_flip_cosine": round(
+                    _cosine(original, aligned_flipped),
+                    9,
+                ),
+                "aligned_tta_to_bank_cosine": round(
+                    _cosine(aligned_tta, stored),
+                    9,
+                ),
+                "aligned_tta_to_replay_cosine": round(
+                    _cosine(aligned_tta, original),
+                    9,
+                ),
+            }
+        )
         reference_diagnostics.append(row)
 
     negative_diagnostics: list[dict[str, Any]] = []
@@ -821,6 +951,13 @@ def main(argv: list[str] | None = None) -> int:
             adapter=adapter,
             runtime=runtime,
             image=image,
+        )
+        aligned_flipped, aligned_flip_quality = _aligned_crop_flip_measurement(
+            adapter=adapter,
+            runtime=runtime,
+            image=image,
+            original_embedding=original,
+            dimension=dimension,
         )
         stored = item["stored_embedding"]
         negative_variants["bank-original"].append(
@@ -868,6 +1005,40 @@ def main(argv: list[str] | None = None) -> int:
                     "tta_to_replay_cosine": round(_cosine(tta, original), 9),
                 }
             )
+        aligned_tta = _tta_mean(
+            original,
+            aligned_flipped,
+            dimension=dimension,
+        )
+        negative_variants["aligned-crop-flip"].append(
+            {
+                "subject_performer_id": item["subject_performer_id"],
+                "embedding": aligned_flipped,
+            }
+        )
+        negative_variants["aligned-crop-flip-tta-mean"].append(
+            {
+                "subject_performer_id": item["subject_performer_id"],
+                "embedding": aligned_tta,
+            }
+        )
+        row.update(
+            {
+                "aligned_flip_quality": aligned_flip_quality,
+                "replay_to_aligned_flip_cosine": round(
+                    _cosine(original, aligned_flipped),
+                    9,
+                ),
+                "aligned_tta_to_stored_cosine": round(
+                    _cosine(aligned_tta, stored),
+                    9,
+                ),
+                "aligned_tta_to_replay_cosine": round(
+                    _cosine(aligned_tta, original),
+                    9,
+                ),
+            }
+        )
         negative_diagnostics.append(row)
 
     variant_results: dict[str, Any] = {}
@@ -876,6 +1047,8 @@ def main(argv: list[str] | None = None) -> int:
         "replay-original",
         "horizontal-flip",
         "flip-tta-mean",
+        "aligned-crop-flip",
+        "aligned-crop-flip-tta-mean",
     ):
         positives = positive_variants.get(name, [])
         variant_negatives = negative_variants.get(name, [])
@@ -972,9 +1145,13 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "normalization": {
             "source_embedding_normalization": "l2",
-            "flip_tta_formula": (
-                "l2-normalize(l2(original)+l2(horizontal-flip))"
+            "frame_flip_tta_formula": (
+                "l2-normalize(l2(original)+l2(horizontal-flip-frame))"
             ),
+            "aligned_crop_flip_tta_formula": (
+                "l2-normalize(l2(original)+l2(horizontal-flip-aligned-face-crop))"
+            ),
+            "aligned_crop_detection_reused": True,
             "production_adapter_changed": False,
         },
         "variants": variant_results,
