@@ -1,5 +1,12 @@
 # BodyRig Photoreal V2
 
+
+## Identity authority precedence
+
+Photoreal V2 must not require biometric matching to rediscover identity that is already authoritative in the source catalog. For a planned source bound to exactly one performer through `scene-performer` or `direct-performer`, and where frame analysis observes exactly one person, core frame authority is `stash-single-performer-target-binding-v1`. A calibrated face-embedding threshold is only required for ambiguous or multi-person sources.
+
+Identity calibration failure therefore does **not** globally block frame authorization. It leaves ambiguous/multi-person samples unresolved, while known single-performer source bindings continue to the frame-index teacher gate. This precedence does not itself grant photoreal acceptance or production authority.
+
 ## Decision
 
 The SiTH -> reconstructed shell -> SMPL-X/VRM path is no longer the visual-authority path for BodyRig.
