@@ -26,6 +26,8 @@ def test_flip_tta_operator_preserves_diagnostic_authority_boundary() -> None:
     assert "--calibration-request-origin" in source
     assert "--negative-observations" in source
     assert "DIAGNOSTIC ONLY / FALSE" in source
+    assert "aligned-crop-flip" in source
+    assert "aligned-crop-flip-tta-mean" in source
     assert (
         "no identity matching, training, photoreal or production authority"
         in source
