@@ -19,6 +19,9 @@ def test_group_geometry_operator_preserves_diagnostic_boundary() -> None:
     assert "Source rehash:  NO" in source
     assert "exhaustive counterfactual removal of 0-3 positive groups" in source
     assert "candidate 805+889+978" in source
+    assert "exact floor/ceiling witnesses + single-reference sensitivity" in source
+    assert "best single-ref counterfactual" in source
+    assert "first single-ref all-model pass" in source
     assert "first all-model pass" in source
     assert "per-group cohesion, LGO, positive neighbors, negative overlap" in source
     assert "identity-extractor\\request.json" in source
