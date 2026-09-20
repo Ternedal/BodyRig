@@ -43,13 +43,20 @@ def test_cvlface_setup_pins_revision_model_sha_and_authority() -> None:
         "e9e93e89b39b7687d4a3bc93ff2aebc0"
     ) in source
     assert "AcceptTrainingDatasetTerms" in source
-    assert "unsafe_pickle_dependency_present = $true" in source
+    assert "reuses_bodyrig_photoreal_torch = $true" in source
+    assert "parallel_torch_install = $false" in source
     assert "diagnostic_only = $true" in source
     assert "identity_matching_authorized = $false" in source
     assert "teacher_training_authorized = $false" in source
     assert "photoreal_acceptance_authority = $false" in source
     assert "production_activation = $false" in source
-    assert "snapshot_download" in source
+    assert "hf_hub_download" in source
+    assert "\"--no-deps\"" in source
+    assert "\"torch==\"" not in source
+    assert "\"torchvision==\"" not in source
+    assert "\"cuda-toolkit\"" not in source
+    assert "\"nvidia-cudnn\"" not in source
+    assert "\"cvlface-stage-*\"" in source
 
 
 @pytest.mark.parametrize("script", [OPERATOR, SETUP])
