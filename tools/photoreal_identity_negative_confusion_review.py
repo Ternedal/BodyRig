@@ -36,7 +36,7 @@ def _load_module(path: Path, name: str):
 
 
 def _safe_slug(value: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip()).strip("-")
     return slug[:96] or "group"
 
 
@@ -622,6 +622,10 @@ def main(argv: list[str] | None = None) -> int:
         "adapter_revision": adapter_revision,
         "identity_bank_sha256": bank_sha,
         "identity_bank_file_sha256": ab._sha256_file(bank_path),
+        "identity_request_sha256": ab._sha256_file(identity_request_origin_path),
+        "identity_request_transport_sha256": ab._sha256_file(identity_request_path),
+        "calibration_request_sha256": ab._sha256_file(calibration_request_origin_path),
+        "calibration_request_transport_sha256": ab._sha256_file(calibration_request_path),
         "negative_observations_sha256": ab._sha256_file(
             negative_observations_path
         ),
