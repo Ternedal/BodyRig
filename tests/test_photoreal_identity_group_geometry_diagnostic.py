@@ -276,3 +276,107 @@ def test_ablation_search_records_named_three_group_candidate() -> None:
         "scene:978",
     ]
     assert candidate["removed_group_count"] == 3
+
+
+def test_score_model_witnesses_identifies_reference_floor_and_negative_ceiling() -> None:
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 1, "group_id": "scene:1", "embedding": _normalize([0.95, 0.1])},
+        {"reference_index": 2, "group_id": "scene:2", "embedding": _normalize([0.8, 0.6])},
+        {"reference_index": 3, "group_id": "scene:3", "embedding": _normalize([0.7, 0.7])},
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": _normalize([-1.0, 0.0]),
+        },
+        {
+            "negative_index": 1,
+            "subject_performer_id": "100",
+            "embedding": _normalize([0.4, 0.9]),
+        },
+    ]
+    result = diagnostic._score_model_witnesses(
+        flip=_flip(),
+        positives=positives,
+        negatives=negatives,
+    )
+
+    current = result["current-reference-weighted"]
+    assert current["positive_floor_witness"]["reference_index"] in {0, 1, 2, 3}
+    assert current["negative_ceiling_witness"]["negative_index"] in {0, 1}
+    assert current["observed_separation_margin"] == pytest.approx(
+        current["positive_floor_witness"]["score"]
+        - current["negative_ceiling_witness"]["score"],
+        abs=1e-9,
+    )
+    prototype = result["nearest-group-prototype"]
+    assert "neighbor_group_id" in prototype["positive_floor_witness"]
+    assert "nearest_group_id" in prototype["negative_ceiling_witness"]
+
+
+def test_reference_ablation_only_removes_refs_from_multi_reference_groups() -> None:
+    positives = [
+        {"reference_index": 0, "group_id": "scene:1", "embedding": [1.0, 0.0]},
+        {"reference_index": 1, "group_id": "scene:1", "embedding": _normalize([0.95, 0.1])},
+        {"reference_index": 2, "group_id": "scene:2", "embedding": _normalize([0.9, 0.3])},
+        {"reference_index": 3, "group_id": "scene:3", "embedding": _normalize([0.8, 0.6])},
+        {"reference_index": 4, "group_id": "scene:805", "embedding": [0.0, 1.0]},
+        {"reference_index": 5, "group_id": "scene:889", "embedding": [0.0, 1.0]},
+        {"reference_index": 6, "group_id": "scene:978", "embedding": [0.0, 1.0]},
+    ]
+    negatives = [
+        {
+            "negative_index": 0,
+            "subject_performer_id": "99",
+            "embedding": _normalize([-1.0, 0.0]),
+        }
+    ]
+
+    class Flip:
+        _cosine = staticmethod(_cosine)
+        _centroid = staticmethod(_centroid)
+
+        @staticmethod
+        def _score_models(
+            subset: list[dict[str, object]],
+            _negatives: list[dict[str, object]],
+        ) -> dict[str, dict[str, object]]:
+            removed_ref_1 = all(
+                int(item["reference_index"]) != 1
+                for item in subset
+            )
+            margin = 0.10 if removed_ref_1 else 0.01
+            return {
+                name: {
+                    "observed_separation_margin": margin,
+                    "would_meet_margin": margin >= 0.05,
+                }
+                for name in (
+                    "current-reference-weighted",
+                    "group-balanced-centroid-lgo",
+                    "nearest-group-prototype",
+                )
+            }
+
+    result = diagnostic._reference_ablation_after_removed_groups(
+        flip=Flip(),
+        positives=positives,
+        negatives=negatives,
+        removed_group_ids=["scene:805", "scene:889", "scene:978"],
+    )
+
+    assert result["baseline_remaining_group_count"] == 3
+    assert result["baseline_remaining_reference_count"] == 4
+    assert result["removable_reference_count"] == 2
+    assert {
+        item["removed_reference_index"]
+        for item in result["ranked_single_reference_ablation"]
+    } == {0, 1}
+    assert result["best_single_reference_ablation"][
+        "removed_reference_index"
+    ] == 1
+    assert result["first_all_models_pass"]["removed_reference_index"] == 1
+    assert result["human_attested_valid_reference_is_not_rejected"] is True
+    assert result["identity_bank_mutation_authority"] is False
