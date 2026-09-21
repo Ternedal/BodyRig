@@ -150,7 +150,20 @@ if ([string]$questXr.xr_management_package -ne "com.unity.xr.management") { thro
 if ([string]$questXr.openxr_package -ne "com.unity.xr.openxr") { throw "Quest XR contract has an unsupported OpenXR package." }
 $expectedXrManagementVersion = ([string]$questXr.xr_management_version).Trim()
 $expectedOpenXrVersion = ([string]$questXr.openxr_version).Trim()
-if ($expectedXrManagementVersion -notmatch '^\d+\.\d+\.\d+ = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
+if ($expectedXrManagementVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract XR Management version is invalid." }
+if ($expectedOpenXrVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract OpenXR version is invalid." }
+if (
+    [string]$questXr.target_platform -ne "android" -or
+    [string]$questXr.target_device_family -ne "meta-quest" -or
+    [string]$questXr.target_device_model -ne "quest-2" -or
+    [string]$questXr.loader_type -ne "UnityEngine.XR.OpenXR.OpenXRLoader" -or
+    [string]$questXr.render_mode -ne "single-pass-instanced" -or
+    [string]$questXr.runtime_initialization -ne "xr-management" -or
+    $questXr.production_activation -isnot [bool] -or
+    $questXr.production_activation -ne $false
+) { throw "Quest XR contract semantics are non-canonical." }
+
+$projectVersionPath = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
 if (-not (Test-Path -LiteralPath $projectVersionPath -PathType Leaf)) { throw "Reference renderer ProjectVersion.txt not found: $projectVersionPath" }
 $projectVersionText = Get-Content -LiteralPath $projectVersionPath -Raw -Encoding UTF8
 if ($projectVersionText -notmatch [regex]::Escape("m_EditorVersion: $expectedUnityVersion")) {
@@ -248,200 +261,5 @@ try {
 
 if ([string]::IsNullOrWhiteSpace($packageLockHash)) { throw "Unity package resolution was not validated." }
 Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision | OpenXR $expectedOpenXrVersion | packages-lock $packageLockHash"
-Write-Host $Output
-exit 0
-) { throw "Quest XR contract XR Management version is invalid." }
-if ($expectedOpenXrVersion -notmatch '^\d+\.\d+\.\d+ = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
-if (-not (Test-Path -LiteralPath $projectVersionPath -PathType Leaf)) { throw "Reference renderer ProjectVersion.txt not found: $projectVersionPath" }
-$projectVersionText = Get-Content -LiteralPath $projectVersionPath -Raw -Encoding UTF8
-if ($projectVersionText -notmatch [regex]::Escape("m_EditorVersion: $expectedUnityVersion")) {
-    throw "Reference renderer project version does not match renderer-contract Unity version $expectedUnityVersion."
-}
-
-$manifestPath = Join-Path $projectRoot "Packages\manifest.json"
-$manifest = Read-JsonFile -Path $manifestPath -Label "Unity package manifest"
-$expectedGltf = "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#$expectedUniVrmRevision"
-$expectedVrm = "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#$expectedUniVrmRevision"
-$gltfDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.vrmc.gltf" -Label "Unity package manifest dependencies")
-$vrmDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.vrmc.vrm" -Label "Unity package manifest dependencies")
-if ($gltfDependency -ne $expectedGltf -or $vrmDependency -ne $expectedVrm) {
-    throw "Unity package manifest does not pin both UniVRM packages to renderer-contract revision $expectedUniVrmRevision."
-}
-
-$headLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) { throw "Could not resolve exact BodyRig Git HEAD before renderer build." }
-$bodyRigRevision = ([string]$headLines[0]).Trim().ToLowerInvariant()
-if ($bodyRigRevision -notmatch '^[0-9a-f]{40}$') { throw "BodyRig Git HEAD is not a canonical 40-character SHA." }
-$dirty = @(& git -C $repoRoot status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0) { throw "Could not verify BodyRig checkout cleanliness before renderer build." }
-if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; physical reference renderer must be built from an exact clean revision." }
-
-$UnityExe = Resolve-UnityEditor -Requested $UnityExe -ExpectedVersion $expectedUnityVersion
-$method = if ($Platform -eq "Windows") { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildWindowsBatch" } else { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildQuestBatch" }
-$unityBuildTarget = if ($Platform -eq "Windows") { "StandaloneWindows64" } else { "Android" }
-if ([string]::IsNullOrWhiteSpace($Output)) {
-    $Output = if ($Platform -eq "Windows") {
-        Join-Path $projectRoot "Builds\Windows\BodyRigReferenceProbe.exe"
-    } else {
-        Join-Path $projectRoot "Builds\Quest\BodyRigReferenceProbe.apk"
-    }
-}
-$Output = [System.IO.Path]::GetFullPath($Output)
-
-$tempBase = if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
-$tempRoot = Join-Path $tempBase ("BodyRig-reference-build-" + [Guid]::NewGuid().ToString("N"))
-$tempProject = Join-Path $tempRoot "reference-renderer"
-$packageLockHash = ""
-
-Write-Host "BodyRig reference renderer build"
-Write-Host "Unity:     $UnityExe"
-Write-Host "Unity pin: $expectedUnityVersion"
-Write-Host "UniVRM:    $expectedUniVrmVersion | $expectedUniVrmRevision"
-Write-Host "Source:    $projectRoot"
-Write-Host "Revision:  $bodyRigRevision"
-Write-Host "Platform:  $Platform"
-Write-Host "Unity target: $unityBuildTarget"
-Write-Host "Output:    $Output"
-Write-Host "Build workspace: ephemeral"
-
-try {
-    Copy-ReferenceProject -Source $projectRoot -Destination $tempProject
-
-    $unityArguments = @(
-        "-batchmode",
-        "-quit",
-        "-buildTarget", $unityBuildTarget,
-        "-projectPath", $tempProject,
-        "-executeMethod", $method,
-        "-bodyrigOutput", $Output,
-        "-bodyrigRevision", $bodyRigRevision,
-        "-bodyrigUnityVersion", $expectedUnityVersion,
-        "-logFile", "-"
-    )
-    $exitCode = Invoke-UnityBatch -UnityExe $UnityExe -Arguments $unityArguments
-    if ($exitCode -ne 0) { throw "Unity BodyRig reference renderer build failed with exit code $exitCode" }
-    if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
-
-    $resolvedLock = Join-Path $tempProject "Packages\packages-lock.json"
-    $packageLockHash = Assert-ResolvedPackageLock -LockPath $resolvedLock -ExpectedUniVrmRevision $expectedUniVrmRevision
-
-    $dirtyAfter = @(& git -C $repoRoot status --porcelain 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "Could not re-check BodyRig checkout after renderer build." }
-    if ($dirtyAfter.Count -gt 0) { throw "Renderer build changed tracked/unignored BodyRig checkout state; refusing physical build evidence." }
-    $currentHeadLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $currentHeadLines.Count -ne 1) { throw "Could not re-resolve BodyRig Git HEAD after renderer build." }
-    $currentHead = ([string]$currentHeadLines[0]).Trim().ToLowerInvariant()
-    if ($currentHead -ne $bodyRigRevision) { throw "BodyRig Git HEAD changed during renderer build." }
-} finally {
-    if (Test-Path -LiteralPath $tempRoot -PathType Container) {
-        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-if ([string]::IsNullOrWhiteSpace($packageLockHash)) { throw "Unity package resolution was not validated." }
-Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision | packages-lock $packageLockHash"
-Write-Host $Output
-exit 0
-) { throw "Quest XR contract OpenXR version is invalid." }
-if (
-    [string]$questXr.target_platform -ne "android" -or
-    [string]$questXr.target_device_family -ne "meta-quest" -or
-    [string]$questXr.target_device_model -ne "quest-2" -or
-    [string]$questXr.loader_type -ne "UnityEngine.XR.OpenXR.OpenXRLoader" -or
-    [string]$questXr.render_mode -ne "single-pass-instanced" -or
-    [string]$questXr.runtime_initialization -ne "xr-management" -or
-    $questXr.production_activation -isnot [bool] -or
-    $questXr.production_activation -ne $false
-) { throw "Quest XR contract semantics are non-canonical." }
-
-$projectVersionPath = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
-if (-not (Test-Path -LiteralPath $projectVersionPath -PathType Leaf)) { throw "Reference renderer ProjectVersion.txt not found: $projectVersionPath" }
-$projectVersionText = Get-Content -LiteralPath $projectVersionPath -Raw -Encoding UTF8
-if ($projectVersionText -notmatch [regex]::Escape("m_EditorVersion: $expectedUnityVersion")) {
-    throw "Reference renderer project version does not match renderer-contract Unity version $expectedUnityVersion."
-}
-
-$manifestPath = Join-Path $projectRoot "Packages\manifest.json"
-$manifest = Read-JsonFile -Path $manifestPath -Label "Unity package manifest"
-$expectedGltf = "https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#$expectedUniVrmRevision"
-$expectedVrm = "https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#$expectedUniVrmRevision"
-$gltfDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.vrmc.gltf" -Label "Unity package manifest dependencies")
-$vrmDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.vrmc.vrm" -Label "Unity package manifest dependencies")
-if ($gltfDependency -ne $expectedGltf -or $vrmDependency -ne $expectedVrm) {
-    throw "Unity package manifest does not pin both UniVRM packages to renderer-contract revision $expectedUniVrmRevision."
-}
-
-$headLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-if ($LASTEXITCODE -ne 0 -or $headLines.Count -ne 1) { throw "Could not resolve exact BodyRig Git HEAD before renderer build." }
-$bodyRigRevision = ([string]$headLines[0]).Trim().ToLowerInvariant()
-if ($bodyRigRevision -notmatch '^[0-9a-f]{40}$') { throw "BodyRig Git HEAD is not a canonical 40-character SHA." }
-$dirty = @(& git -C $repoRoot status --porcelain 2>&1)
-if ($LASTEXITCODE -ne 0) { throw "Could not verify BodyRig checkout cleanliness before renderer build." }
-if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; physical reference renderer must be built from an exact clean revision." }
-
-$UnityExe = Resolve-UnityEditor -Requested $UnityExe -ExpectedVersion $expectedUnityVersion
-$method = if ($Platform -eq "Windows") { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildWindowsBatch" } else { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildQuestBatch" }
-$unityBuildTarget = if ($Platform -eq "Windows") { "StandaloneWindows64" } else { "Android" }
-if ([string]::IsNullOrWhiteSpace($Output)) {
-    $Output = if ($Platform -eq "Windows") {
-        Join-Path $projectRoot "Builds\Windows\BodyRigReferenceProbe.exe"
-    } else {
-        Join-Path $projectRoot "Builds\Quest\BodyRigReferenceProbe.apk"
-    }
-}
-$Output = [System.IO.Path]::GetFullPath($Output)
-
-$tempBase = if (-not [string]::IsNullOrWhiteSpace($env:TEMP)) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
-$tempRoot = Join-Path $tempBase ("BodyRig-reference-build-" + [Guid]::NewGuid().ToString("N"))
-$tempProject = Join-Path $tempRoot "reference-renderer"
-$packageLockHash = ""
-
-Write-Host "BodyRig reference renderer build"
-Write-Host "Unity:     $UnityExe"
-Write-Host "Unity pin: $expectedUnityVersion"
-Write-Host "UniVRM:    $expectedUniVrmVersion | $expectedUniVrmRevision"
-Write-Host "Source:    $projectRoot"
-Write-Host "Revision:  $bodyRigRevision"
-Write-Host "Platform:  $Platform"
-Write-Host "Unity target: $unityBuildTarget"
-Write-Host "Output:    $Output"
-Write-Host "Build workspace: ephemeral"
-
-try {
-    Copy-ReferenceProject -Source $projectRoot -Destination $tempProject
-
-    $unityArguments = @(
-        "-batchmode",
-        "-quit",
-        "-buildTarget", $unityBuildTarget,
-        "-projectPath", $tempProject,
-        "-executeMethod", $method,
-        "-bodyrigOutput", $Output,
-        "-bodyrigRevision", $bodyRigRevision,
-        "-bodyrigUnityVersion", $expectedUnityVersion,
-        "-logFile", "-"
-    )
-    $exitCode = Invoke-UnityBatch -UnityExe $UnityExe -Arguments $unityArguments
-    if ($exitCode -ne 0) { throw "Unity BodyRig reference renderer build failed with exit code $exitCode" }
-    if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
-
-    $resolvedLock = Join-Path $tempProject "Packages\packages-lock.json"
-    $packageLockHash = Assert-ResolvedPackageLock -LockPath $resolvedLock -ExpectedUniVrmRevision $expectedUniVrmRevision
-
-    $dirtyAfter = @(& git -C $repoRoot status --porcelain 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "Could not re-check BodyRig checkout after renderer build." }
-    if ($dirtyAfter.Count -gt 0) { throw "Renderer build changed tracked/unignored BodyRig checkout state; refusing physical build evidence." }
-    $currentHeadLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $currentHeadLines.Count -ne 1) { throw "Could not re-resolve BodyRig Git HEAD after renderer build." }
-    $currentHead = ([string]$currentHeadLines[0]).Trim().ToLowerInvariant()
-    if ($currentHead -ne $bodyRigRevision) { throw "BodyRig Git HEAD changed during renderer build." }
-} finally {
-    if (Test-Path -LiteralPath $tempRoot -PathType Container) {
-        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-if ([string]::IsNullOrWhiteSpace($packageLockHash)) { throw "Unity package resolution was not validated." }
-Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision | packages-lock $packageLockHash"
 Write-Host $Output
 exit 0
