@@ -686,6 +686,8 @@ def _invoke_teacher_adapter(
 def _next_resume_log(root: Path) -> Path:
     for index in range(1, 1000):
         candidate = root / f"adapter-resume-{index:03d}.log"
+        if candidate.is_symlink():
+            raise PhotorealTeacherRunnerError(f"teacher resume log path is a symlink: {candidate}")
         if not candidate.exists():
             return candidate
     raise PhotorealTeacherRunnerError("teacher workspace exhausted resume log slots")
@@ -729,14 +731,14 @@ def resume_external_teacher(
     config = _validate_config(config)
     request = build_teacher_request(config, teacher_input)
     root = Path(workspace).expanduser().resolve()
-    if not root.is_dir():
-        raise PhotorealTeacherRunnerError(f"teacher resume workspace is missing: {root}")
+    if not root.is_dir() or root.is_symlink():
+        raise PhotorealTeacherRunnerError(f"teacher resume workspace is missing/not regular: {root}")
     request_path = root / "request.json"
     output_dir = root / "output"
-    if not request_path.is_file():
-        raise PhotorealTeacherRunnerError("teacher resume workspace has no request.json")
-    if not output_dir.is_dir():
-        raise PhotorealTeacherRunnerError("teacher resume workspace has no output directory")
+    if not request_path.is_file() or request_path.is_symlink():
+        raise PhotorealTeacherRunnerError("teacher resume workspace has no regular request.json")
+    if not output_dir.is_dir() or output_dir.is_symlink():
+        raise PhotorealTeacherRunnerError("teacher resume workspace has no regular output directory")
     existing_request = _read_json(request_path, label="existing teacher request")
     if existing_request != request:
         raise PhotorealTeacherRunnerError("teacher resume request differs from existing workspace request")
