@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("Windows", "Quest")]
+    [ValidateSet("Windows", "Quest", "P3QuestReview")]
     [string]$Platform = "Windows",
     [string]$UnityExe = "",
     [string]$Output = ""
@@ -157,13 +157,36 @@ if ($LASTEXITCODE -ne 0) { throw "Could not verify BodyRig checkout cleanliness 
 if ($dirty.Count -gt 0) { throw "BodyRig checkout is dirty; physical reference renderer must be built from an exact clean revision." }
 
 $UnityExe = Resolve-UnityEditor -Requested $UnityExe -ExpectedVersion $expectedUnityVersion
-$method = if ($Platform -eq "Windows") { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildWindowsBatch" } else { "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildQuestBatch" }
-$unityBuildTarget = if ($Platform -eq "Windows") { "StandaloneWindows64" } else { "Android" }
+$method = switch ($Platform) {
+    "Windows" {
+        "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildWindowsBatch"
+    }
+    "Quest" {
+        "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildQuestBatch"
+    }
+    "P3QuestReview" {
+        "BodyRig.ReferenceRenderer.Editor.BodyRigReferenceBuild.BuildP3QuestReviewBatch"
+    }
+    default {
+        throw "Unsupported BodyRig reference renderer platform: $Platform"
+    }
+}
+$unityBuildTarget = if ($Platform -eq "Windows") {
+    "StandaloneWindows64"
+} else {
+    "Android"
+}
 if ([string]::IsNullOrWhiteSpace($Output)) {
-    $Output = if ($Platform -eq "Windows") {
-        Join-Path $projectRoot "Builds\Windows\BodyRigReferenceProbe.exe"
-    } else {
-        Join-Path $projectRoot "Builds\Quest\BodyRigReferenceProbe.apk"
+    $Output = switch ($Platform) {
+        "Windows" {
+            Join-Path $projectRoot "Builds\Windows\BodyRigReferenceProbe.exe"
+        }
+        "Quest" {
+            Join-Path $projectRoot "Builds\Quest\BodyRigReferenceProbe.apk"
+        }
+        "P3QuestReview" {
+            Join-Path $projectRoot "Builds\Quest\BodyRigP3QuestReview.apk"
+        }
     }
 }
 $Output = [System.IO.Path]::GetFullPath($Output)
