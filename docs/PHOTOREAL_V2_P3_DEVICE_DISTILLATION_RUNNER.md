@@ -14,7 +14,7 @@ Only the staged copies are passed to the adapter. After execution BodyRig re-has
 
 ## Adapter config
 
-The adapter is explicit and revision-bound. `revision` is the lowercase SHA-256 of the pinned adapter entrypoint, matching the convention used by BodyRig's existing photoreal adapters. Example:
+The adapter is explicit and revision-bound. `revision` is the lowercase SHA-256 of the pinned `entrypoint`, matching the convention used by BodyRig's existing photoreal adapters. Before any teacher bytes are staged, BodyRig resolves the entrypoint relative to the config file, hashes the actual file and requires the configured command to invoke that exact path. Example:
 
 ```json
 {
@@ -22,6 +22,7 @@ The adapter is explicit and revision-bound. `revision` is the lowercase SHA-256 
   "version": 1,
   "adapter": "bodyrig-quest-student-v1",
   "revision": "<ADAPTER_FILE_SHA256>",
+  "entrypoint": "distill_adapter.py",
   "student_representation": "skinned-mesh-neural-texture",
   "student_components": [
     "specialized-eye-component",
