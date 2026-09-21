@@ -279,7 +279,95 @@ def build_p2_animation_plan(
         "production_activation": False,
     }
     plan["p2_animation_plan_sha256"] = _digest(plan, omit="p2_animation_plan_sha256")
-    return plan
+    return validate_p2_animation_plan(plan)
+
+
+def validate_p2_animation_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    if plan.get("format") != FORMAT:
+        raise PhotorealP2AnimationPlanError("P2 animation plan format/version mismatch")
+    _strict_v1(plan.get("version"), label="P2 animation plan")
+    claimed = _sha(plan.get("p2_animation_plan_sha256"), label="P2 animation plan SHA-256")
+    if _digest(plan, omit="p2_animation_plan_sha256") != claimed:
+        raise PhotorealP2AnimationPlanError("P2 animation plan digest mismatch")
+
+    for field in (
+        "performer_id",
+        "selected_epoch_id",
+        "teacher_adapter_revision",
+    ):
+        _text(plan.get(field), label=f"P2 animation plan {field}", maximum=256)
+    for field in (
+        "teacher_input_sha256",
+        "teacher_manifest_file_sha256",
+        "p1_likeness_review_manifest_sha256",
+        "p1_likeness_review_sha256",
+    ):
+        _sha(plan.get(field), label=f"P2 animation plan {field}")
+
+    if plan.get("teacher_adapter") != STATIC_TEACHER_ADAPTER:
+        raise PhotorealP2AnimationPlanError("P2 animation plan teacher adapter mismatch")
+    if plan.get("teacher_upstream_repository") != PINNED_UPSTREAM_REPOSITORY:
+        raise PhotorealP2AnimationPlanError("P2 animation plan upstream repository mismatch")
+    if plan.get("teacher_upstream_commit") != PINNED_UPSTREAM_COMMIT:
+        raise PhotorealP2AnimationPlanError("P2 animation plan upstream commit mismatch")
+    if plan.get("animation_adapter") != ADAPTER:
+        raise PhotorealP2AnimationPlanError("P2 animation plan adapter mismatch")
+
+    checkpoint = plan.get("teacher_checkpoint")
+    if not isinstance(checkpoint, Mapping):
+        raise PhotorealP2AnimationPlanError("P2 animation plan checkpoint binding is invalid")
+    if checkpoint.get("relative_path") != EXPECTED_CHECKPOINT:
+        raise PhotorealP2AnimationPlanError("P2 animation plan checkpoint path mismatch")
+    _sha(checkpoint.get("sha256"), label="P2 animation plan checkpoint SHA-256")
+    size = checkpoint.get("size_bytes")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 1:
+        raise PhotorealP2AnimationPlanError("P2 animation plan checkpoint size is invalid")
+
+    contract = plan.get("animation_contract")
+    if not isinstance(contract, Mapping):
+        raise PhotorealP2AnimationPlanError("P2 animation contract is invalid")
+    if contract.get("upstream_repository") != PINNED_UPSTREAM_REPOSITORY:
+        raise PhotorealP2AnimationPlanError("P2 animation contract upstream repository mismatch")
+    if contract.get("upstream_commit") != PINNED_UPSTREAM_COMMIT:
+        raise PhotorealP2AnimationPlanError("P2 animation contract upstream commit mismatch")
+    if contract.get("upstream_script") != UPSTREAM_ANIMATION_SCRIPT:
+        raise PhotorealP2AnimationPlanError("P2 animation contract script mismatch")
+    if contract.get("test_epoch") != EXPECTED_TEST_EPOCH:
+        raise PhotorealP2AnimationPlanError("P2 animation contract epoch mismatch")
+    if contract.get("required_smplx_fields") != list(REQUIRED_SMPLX_FIELDS):
+        raise PhotorealP2AnimationPlanError("P2 animation contract SMPL-X field mismatch")
+    if contract.get("required_camera_fields") != list(REQUIRED_CAMERA_FIELDS):
+        raise PhotorealP2AnimationPlanError("P2 animation contract camera field mismatch")
+    expected_layout = {
+        "reference_frames": "frames/<frame>.png",
+        "camera_parameters": "cam_params/<frame>.json",
+        "smplx_parameters": "smplx_optimized/smplx_params_smoothed/<frame>.json",
+    }
+    if contract.get("motion_path_layout") != expected_layout:
+        raise PhotorealP2AnimationPlanError("P2 animation contract motion layout mismatch")
+    if contract.get("identity_shape_source") != "accepted-static-teacher":
+        raise PhotorealP2AnimationPlanError("P2 animation contract identity source mismatch")
+    if contract.get("visual_identity_authority") != "accepted-static-teacher":
+        raise PhotorealP2AnimationPlanError("P2 animation contract visual authority mismatch")
+    if contract.get("rig_role") != "motion-and-correspondence-only":
+        raise PhotorealP2AnimationPlanError("P2 animation contract rig role mismatch")
+
+    if plan.get("required_motion_validation_criteria") != list(REQUIRED_MOTION_VALIDATION_CRITERIA):
+        raise PhotorealP2AnimationPlanError("P2 motion validation criteria mismatch")
+    for field, expected in (
+        ("source_motion_evidence_required", True),
+        ("held_out_motion_validation_required", True),
+        ("human_motion_acceptance_required", True),
+        ("p1_static_teacher_acceptance_authority", True),
+        ("p2_animation_build_authorized", True),
+        ("p2_animated_teacher_acceptance_authority", False),
+        ("quest_distillation_authorized", False),
+        ("photoreal_acceptance_authority", False),
+        ("production_activation", False),
+    ):
+        if plan.get(field) is not expected:
+            raise PhotorealP2AnimationPlanError(f"P2 animation plan authority mismatch: {field}")
+    return dict(plan)
 
 
 def build_p2_animation_plan_files(
