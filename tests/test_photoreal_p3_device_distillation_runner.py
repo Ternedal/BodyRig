@@ -174,6 +174,7 @@ def _result(
             "p3_device_distillation_request_sha256"
         ],
         "target_profile_sha256": request["target_profile_sha256"],
+        "target_model": request["target_model"],
         "adapter": request["adapter"],
         "adapter_revision": request["adapter_revision"],
         "student_representation": request["student_representation"],
@@ -419,6 +420,7 @@ def test_valid_result_becomes_core_receipt_without_runtime_acceptance(
     receipt = build_execution_receipt(validated)
     assert validate_execution_receipt(receipt) == receipt
     assert receipt["distillation_complete"] is True
+    assert receipt["target_model"] == "quest-2"
     assert receipt["artifact_bytes_verified_by_core"] is True
     assert receipt["staged_teacher_only"] is True
     assert receipt["student_fidelity_claim_exceeds_teacher"] is False
@@ -636,6 +638,84 @@ def test_execution_receipt_rejects_resealed_runtime_tamper(
     with pytest.raises(
         PhotorealP3DeviceDistillationRunnerError,
         match="runtime_acceptance_authority",
+    ):
+        validate_execution_receipt(receipt)
+
+
+def test_execution_receipt_rejects_resealed_quest2_gaussian_claim(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    teacher, identity, plan = _roots(tmp_path)
+    _trust_plan(monkeypatch, plan)
+    staged = stage_teacher_sources(
+        plan,
+        teacher_output_root=teacher,
+        identity_root=identity,
+        staged_root=tmp_path / "staged",
+    )
+    request = build_distillation_request(
+        _config(),
+        plan,
+        staged_teacher_sources=staged,
+    )
+    output = tmp_path / "output"
+    output.mkdir()
+    receipt = build_execution_receipt(
+        validate_distillation_result(
+            _result(output, request),
+            request=request,
+            output_dir=output,
+        )
+    )
+    receipt["student_representation"] = "gaussian-splat-optional"
+    receipt["p3_device_distillation_execution_receipt_sha256"] = runner._digest(
+        receipt,
+        omit="p3_device_distillation_execution_receipt_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="Quest 2.*native Gaussian student",
+    ):
+        validate_execution_receipt(receipt)
+
+
+def test_execution_receipt_rejects_resealed_teacher_source_kind_universe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    teacher, identity, plan = _roots(tmp_path)
+    _trust_plan(monkeypatch, plan)
+    staged = stage_teacher_sources(
+        plan,
+        teacher_output_root=teacher,
+        identity_root=identity,
+        staged_root=tmp_path / "staged",
+    )
+    request = build_distillation_request(
+        _config(),
+        plan,
+        staged_teacher_sources=staged,
+    )
+    output = tmp_path / "output"
+    output.mkdir()
+    receipt = build_execution_receipt(
+        validate_distillation_result(
+            _result(output, request),
+            request=request,
+            output_dir=output,
+        )
+    )
+    receipt["consumed_teacher_sources"][0]["kind"] = "invented-teacher-source"
+    receipt["p3_device_distillation_execution_receipt_sha256"] = runner._digest(
+        receipt,
+        omit="p3_device_distillation_execution_receipt_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="teacher source kind/root universe mismatch",
     ):
         validate_execution_receipt(receipt)
 
