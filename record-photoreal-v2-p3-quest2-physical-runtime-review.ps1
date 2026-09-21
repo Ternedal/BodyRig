@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimeReviewWorkspace,
     [Parameter(Mandatory = $true)][string]$Evidence,
-    [string]$WindowsPython = ""
+    [string]$WindowsPython = "",
+    [switch]$ReuseExisting
 )
 
 $ErrorActionPreference = "Stop"
