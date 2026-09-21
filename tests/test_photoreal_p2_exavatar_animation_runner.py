@@ -178,6 +178,16 @@ def test_animation_request_reverifies_exact_train_motion_and_identity_bytes(
     assert runtime["linux_python"] == "/opt/bodyrig-exavatar/bin/python"
 
 
+def test_teacher_runtime_config_rejects_boolean_v1() -> None:
+    config = _teacher_config()
+    config["version"] = True
+    with pytest.raises(
+        PhotorealP2ExAvatarAnimationRunnerError,
+        match="format/version mismatch",
+    ):
+        runner._runtime_from_teacher_config(config)
+
+
 def test_animation_request_rejects_motion_byte_drift(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
