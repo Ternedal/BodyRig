@@ -234,6 +234,26 @@ def _verify_workspace(
         raise Quest2StudentCandidateError(
             "ExAvatar workspace lacks explicit SMPL-X gender authority"
         )
+    for field, expected in (
+        ("upstream_default_gender_accepted", False),
+        ("held_out_evaluation_disclosed", False),
+        ("original_video_copied", False),
+        ("dependency_root_modified", False),
+        ("photoreal_acceptance_authority", False),
+        ("production_activation", False),
+    ):
+        if receipt.get(field) is not expected:
+            raise Quest2StudentCandidateError(
+                f"ExAvatar workspace authority mismatch: {field}"
+            )
+    repositories = receipt.get("repository_commits")
+    if (
+        not isinstance(repositories, Mapping)
+        or repositories.get("exavatar") != PINNED_UPSTREAM_COMMIT
+    ):
+        raise Quest2StudentCandidateError(
+            "ExAvatar workspace repository provenance mismatch"
+        )
     patch = receipt.get("avatar_config_patch")
     if not isinstance(patch, Mapping):
         raise Quest2StudentCandidateError(
@@ -252,6 +272,45 @@ def _verify_workspace(
     )
     if _sha_file(config) != expected_config:
         raise Quest2StudentCandidateError("ExAvatar patched config bytes drifted")
+
+    linked_assets = receipt.get("linked_assets")
+    if not isinstance(linked_assets, list) or not linked_assets:
+        raise Quest2StudentCandidateError(
+            "ExAvatar workspace linked-asset provenance is missing"
+        )
+    asset_prefix = "repos/ExAvatar_RELEASE/avatar/common/utils/human_model_files/"
+    verified_asset_count = 0
+    for raw in linked_assets:
+        if not isinstance(raw, Mapping):
+            raise Quest2StudentCandidateError(
+                "ExAvatar workspace linked-asset entry is invalid"
+            )
+        destination = _relative(
+            raw.get("destination"),
+            label="ExAvatar linked-asset destination",
+        )
+        if not destination.startswith(asset_prefix):
+            continue
+        asset = (root / destination).resolve()
+        try:
+            asset.relative_to(root.resolve())
+        except ValueError as exc:
+            raise Quest2StudentCandidateError(
+                "ExAvatar linked model asset escapes workspace"
+            ) from exc
+        expected_asset_sha = _sha(
+            raw.get("sha256"),
+            label="ExAvatar linked model asset SHA-256",
+        )
+        if _sha_file(asset) != expected_asset_sha:
+            raise Quest2StudentCandidateError(
+                f"ExAvatar linked model asset bytes drifted: {destination}"
+            )
+        verified_asset_count += 1
+    if verified_asset_count < 1:
+        raise Quest2StudentCandidateError(
+            "ExAvatar workspace contains no verified human-model assets"
+        )
 
     protected = (
         "avatar/main/model.py",
