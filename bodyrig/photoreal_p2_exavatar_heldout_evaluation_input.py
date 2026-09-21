@@ -347,6 +347,35 @@ def build_heldout_evaluation_input(
         raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
             "TRAIN animation execution used different checkpoint bytes"
         )
+    accepted_identity = {
+        item["kind"]: item["sha256"]
+        for item in accepted_input.get("identity_artifacts", [])
+        if isinstance(item, Mapping)
+    }
+    train_identity_raw = train_receipt.get("consumed_identity_artifacts")
+    if not isinstance(train_identity_raw, list):
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "TRAIN animation execution identity provenance is missing"
+        )
+    train_identity: dict[str, str] = {}
+    for raw in train_identity_raw:
+        if not isinstance(raw, Mapping):
+            raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+                "TRAIN animation execution identity provenance is invalid"
+            )
+        kind = _text(raw.get("kind"), label="TRAIN consumed identity kind", maximum=64)
+        if kind in train_identity:
+            raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+                "TRAIN animation execution repeats consumed identity kind"
+            )
+        train_identity[kind] = _sha(
+            raw.get("sha256"),
+            label="TRAIN consumed identity SHA-256",
+        )
+    if train_identity != accepted_identity:
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "TRAIN animation execution used different identity bytes"
+        )
     for field, expected in (
         ("animation_complete", True),
         ("inference_only", True),
@@ -625,6 +654,57 @@ def validate_heldout_evaluation_input(value: Mapping[str, Any]) -> dict[str, Any
     if motion.get("split") != "evaluation" or motion.get("role") != "held-out-motion-validation":
         raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
             "P2 held-out evaluation motion crossed EVALUATION-only authority"
+        )
+    if motion.get("normalization_action") not in {
+        "preserve-flat-mono-video",
+        "exact-authorized-deprojection",
+    }:
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "P2 held-out evaluation normalization action is invalid"
+        )
+    if motion.get("selected_eye") not in {"mono", "left", "right"}:
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "P2 held-out evaluation selected eye is invalid"
+        )
+    viewport = motion.get("selected_viewport_id")
+    if viewport is not None:
+        _text(viewport, label="P2 held-out evaluation viewport id", maximum=64)
+    anchor_ref = _text(
+        motion.get("anchor_observation_ref"),
+        label="P2 held-out evaluation anchor observation ref",
+        maximum=64,
+    )
+    if not anchor_ref.startswith("obs-"):
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "P2 held-out evaluation anchor observation ref is not canonical"
+        )
+    _sha(
+        motion.get("anchor_frame_sha256"),
+        label="P2 held-out evaluation anchor frame SHA-256",
+    )
+    start = motion.get("window_start_seconds")
+    end = motion.get("window_end_seconds")
+    duration = motion.get("window_duration_seconds")
+    for raw, label in (
+        (start, "window start"),
+        (end, "window end"),
+        (duration, "window duration"),
+    ):
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, (int, float))
+            or not math.isfinite(float(raw))
+        ):
+            raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+                f"P2 held-out evaluation {label} is invalid"
+            )
+    if (
+        float(start) < 0
+        or float(end) <= float(start)
+        or round(float(end) - float(start), 6) != round(float(duration), 6)
+    ):
+        raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
+            "P2 held-out evaluation window timing is inconsistent"
         )
     if motion.get("motion_path_relative") != f"tasks/{source_ref}/motion":
         raise PhotorealP2ExAvatarHeldoutEvaluationInputError(
