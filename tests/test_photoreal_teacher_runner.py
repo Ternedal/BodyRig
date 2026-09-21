@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+import bodyrig.photoreal_teacher_runner as teacher_runner
 from bodyrig.photoreal_teacher_runner import (
     PhotorealTeacherRunnerError,
     build_teacher_request,
+    resume_external_teacher,
     run_external_teacher,
 )
 
@@ -342,3 +344,148 @@ def test_teacher_config_requires_exact_upstream_commit() -> None:
     config["upstream_commit"] = "main"
     with pytest.raises(PhotorealTeacherRunnerError, match="exact 40-hex commit"):
         build_teacher_request(config, _teacher_input())
+
+
+def _prepare_incomplete_teacher_workspace(
+    tmp_path: Path,
+    *,
+    config: dict[str, object],
+    teacher_input: dict[str, object],
+) -> tuple[Path, dict[str, object]]:
+    workspace = tmp_path / "resume-workspace"
+    output = workspace / "output"
+    output.mkdir(parents=True)
+    request = build_teacher_request(config, teacher_input)
+    (workspace / "request.json").write_text(
+        json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return workspace, request
+
+
+def test_teacher_runner_resumes_exact_incomplete_workspace(tmp_path: Path, monkeypatch) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_invoke(config_value, request_value, *, request_path, output_dir, log_path):
+        captured["config"] = config_value
+        captured["request"] = request_value
+        captured["request_path"] = Path(request_path)
+        captured["output_dir"] = Path(output_dir)
+        captured["log_path"] = Path(log_path)
+        return {"status": "resumed"}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    result = resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert result == {"status": "resumed"}
+    assert captured["request"] == request
+    assert captured["request_path"] == workspace / "request.json"
+    assert captured["output_dir"] == workspace / "output"
+    assert captured["log_path"] == workspace / "adapter-resume-001.log"
+
+
+def test_teacher_runner_resume_rejects_request_drift(tmp_path: Path, monkeypatch) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, _request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    existing = json.loads((workspace / "request.json").read_text(encoding="utf-8"))
+    existing["selected_epoch_id"] = "different-epoch"
+    (workspace / "request.json").write_text(
+        json.dumps(existing, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    invoked = False
+
+    def fake_invoke(*_args, **_kwargs):
+        nonlocal invoked
+        invoked = True
+        return {}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="resume request differs"):
+        resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert invoked is False
+
+
+def test_teacher_runner_resume_rejects_nonempty_partial_output(tmp_path: Path, monkeypatch) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, _request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    (workspace / "output" / "partial.bin").write_bytes(b"partial")
+    invoked = False
+
+    def fake_invoke(*_args, **_kwargs):
+        nonlocal invoked
+        invoked = True
+        return {}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="incomplete output directory is not empty"):
+        resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert invoked is False
+
+
+def test_teacher_runner_resume_rejects_completed_workspace(tmp_path: Path, monkeypatch) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, _request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    (workspace / "output" / "teacher-manifest.json").write_text("{}\n", encoding="utf-8")
+    invoked = False
+
+    def fake_invoke(*_args, **_kwargs):
+        nonlocal invoked
+        invoked = True
+        return {}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="already complete"):
+        resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert invoked is False
+
+
+def test_teacher_runner_resume_uses_monotonic_resume_log_slots(tmp_path: Path, monkeypatch) -> None:
+    config = _config([sys.executable, "adapter.py"])
+    teacher_input = _teacher_input()
+    workspace, _request = _prepare_incomplete_teacher_workspace(
+        tmp_path,
+        config=config,
+        teacher_input=teacher_input,
+    )
+    (workspace / "adapter-resume-001.log").write_text("old attempt\n", encoding="utf-8")
+    captured: dict[str, Path] = {}
+
+    def fake_invoke(_config, _request, *, request_path, output_dir, log_path):
+        captured["log_path"] = Path(log_path)
+        return {"status": "resumed"}
+
+    monkeypatch.setattr(teacher_runner, "_invoke_teacher_adapter", fake_invoke)
+
+    resume_external_teacher(config, teacher_input, workspace=workspace)
+
+    assert captured["log_path"] == workspace / "adapter-resume-002.log"
