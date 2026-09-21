@@ -467,6 +467,13 @@ def build_distillation_request(
         raise PhotorealP3DeviceDistillationRunnerError(
             "P3 adapter does not support planned target model"
         )
+    if (
+        target_model == "quest-2"
+        and config["student_representation"] == "gaussian-splat-optional"
+    ):
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "Quest 2 P3 distillation cannot depend on native Gaussian splats"
+        )
     if config["student_representation"] not in authority[
         "candidate_student_representations"
     ]:
