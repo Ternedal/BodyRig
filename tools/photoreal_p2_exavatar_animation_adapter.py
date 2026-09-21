@@ -176,7 +176,7 @@ def _validate_workspace(root: Path, request: Mapping[str, Any]) -> dict[str, Any
     repositories = receipt.get("repository_commits")
     if (
         not isinstance(repositories, Mapping)
-        or repositories.get("ExAvatar_RELEASE") != PINNED_UPSTREAM_COMMIT
+        or repositories.get("exavatar") != PINNED_UPSTREAM_COMMIT
     ):
         raise ExAvatarP2AnimationAdapterError(
             "ExAvatar workspace repository provenance mismatch"
