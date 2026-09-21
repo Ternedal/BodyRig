@@ -94,7 +94,7 @@ function Invoke-Adb {
 
     & $script:AdbExe @all
     if ($LASTEXITCODE -ne 0) {
-        throw "adb failed with exit code $LASTEXITCODE: $($Arguments -join ' ')"
+        throw "adb failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')"
     }
 }
 
@@ -207,10 +207,13 @@ if (($actualPaths -join "`n") -ne ($expectedSorted -join "`n")) {
 
 $contractPath = Need-File -Path (Join-Path $repoRoot "reference-renderer\renderer-contract.json") -Label "Reference renderer contract"
 $contract = Get-Content -LiteralPath $contractPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$contractVersion = $contract.version
 if (
     [string]$contract.format -ne "bodyrig-reference-renderer-contract" -or
-    $contract.version -is [bool] -or
-    [double]$contract.version -ne 1.0
+    $null -eq $contractVersion -or
+    $contractVersion -is [bool] -or
+    $contractVersion -isnot [ValueType] -or
+    [decimal]$contractVersion -ne [decimal]1
 ) {
     throw "Reference renderer contract format/version mismatch."
 }
