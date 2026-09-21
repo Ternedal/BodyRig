@@ -10,6 +10,7 @@ import bodyrig.photoreal_person_binding as binding
 from bodyrig.photoreal_person_binding import (
     PhotorealPersonBindingError,
     build_photoreal_person_binding,
+    revalidate_photoreal_person_binding,
     validate_photoreal_person_binding_structure,
     write_photoreal_person_binding,
 )
@@ -305,6 +306,7 @@ def test_binding_output_is_create_only(
             bodyrig_revision=REVISION,
         )
 
+
 def test_resealed_binding_cannot_override_current_source_evidence(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -336,4 +338,25 @@ def test_resealed_binding_cannot_override_current_source_evidence(
             p3_physical_runtime_review_path=p3_path,
             bodyrig_revision=REVISION,
         )
+
+def test_binding_targets_assembly_revision_not_mutable_active_pointer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    library, assembly, release, p3_path = _arrange(monkeypatch, tmp_path)
+    profile = _profile()
+    profile["active_person_revision"] = None
+    monkeypatch.setattr(binding, "load_profile", lambda root, person_id: profile)
+
+    authority = build_photoreal_person_binding(
+        library,
+        person_id=PERSON_ID,
+        assembly_receipt_path=assembly,
+        body_release_status_path=release,
+        p3_physical_runtime_review_path=p3_path,
+        bodyrig_revision=REVISION,
+    )
+
+    assert authority["person_revision"] == PERSON_REVISION
+    assert authority["body_revision"] == BODY_REVISION
 
