@@ -52,6 +52,7 @@ PRIVATE_ENTRY_FIELDS = {
     "domain",
     "scene_id",
     "region",
+    "source_ordinal",
     "source_media_path",
     "source_media_sha256",
     "review_image_path",
@@ -87,6 +88,7 @@ PUBLIC_ENTRY_FIELDS = {
     "domain",
     "scene_id",
     "region",
+    "source_ordinal",
     "source_media_sha256",
     "review_image_sha256",
     "source_quality",
@@ -183,12 +185,15 @@ def _canonical_private_manifest(path: Path) -> dict[str, Any]:
         domain = str(raw.get("domain") or "").strip()
         scene_id = str(raw.get("scene_id") or "").strip()
         region = str(raw.get("region") or "").strip()
+        source_ordinal = raw.get("source_ordinal")
         if not reference or reference in seen_refs:
             raise PhotoIdentityFineIdentityAttestationError("fine-identity evidence reference is empty or duplicated")
         if domain not in REQUIRED_DOMAINS:
             raise PhotoIdentityFineIdentityAttestationError(f"unsupported fine-identity domain: {domain or 'empty'}")
         if not scene_id or not region:
             raise PhotoIdentityFineIdentityAttestationError("fine-identity evidence scene/region is missing")
+        if isinstance(source_ordinal, bool) or not isinstance(source_ordinal, int) or source_ordinal < 1:
+            raise PhotoIdentityFineIdentityAttestationError("fine-identity evidence source ordinal is invalid")
 
         source_path = Path(str(raw.get("source_media_path") or "")).expanduser().resolve()
         review_path = Path(str(raw.get("review_image_path") or "")).expanduser().resolve()
@@ -210,6 +215,7 @@ def _canonical_private_manifest(path: Path) -> dict[str, Any]:
                 "domain": domain,
                 "scene_id": scene_id,
                 "region": region,
+                "source_ordinal": source_ordinal,
                 "source_media_sha256": expected_source_sha,
                 "review_image_sha256": expected_review_sha,
                 "source_quality": quality,
@@ -289,6 +295,7 @@ def validate_attestation(
         domain = str(item.get("domain") or "").strip()
         scene = str(item.get("scene_id") or "").strip()
         region = str(item.get("region") or "").strip()
+        source_ordinal = item.get("source_ordinal")
         if not reference or reference in refs or domain not in REQUIRED_DOMAINS or not scene or not region:
             raise PhotoIdentityFineIdentityAttestationError("fine-identity selected evidence identity is invalid")
         _sha(item.get("source_media_sha256"), label="fine-identity source media SHA-256")
