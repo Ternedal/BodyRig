@@ -137,6 +137,7 @@ namespace BodyRig.ReferenceRenderer
             var basecolorPath = ResolveDirectChild(root, manifest.basecolor);
             var provenancePath = ResolveDirectChild(root, manifest.provenance);
 
+            var manifestSha256 = Sha256File(fullManifestPath);
             RequireSha256(avatarPath, manifest.avatar_sha256, "avatar.vrm");
             RequireSha256(basecolorPath, manifest.basecolor_sha256, "basecolor.png");
             RequireSha256(
@@ -144,31 +145,46 @@ namespace BodyRig.ReferenceRenderer
                 manifest.provenance_sha256,
                 "quest2-modular-provenance.json");
 
-            var candidate = await LoadAvatarAsync(
-                avatarPath,
-                manifest.avatar_sha256,
-                cancellationToken);
-
-            // Close the manifest/payload race after UniVRM has parsed the avatar
-            // but before review identity becomes active.
-            RequireSha256(fullManifestPath, Sha256File(fullManifestPath), "review manifest");
-            RequireSha256(avatarPath, manifest.avatar_sha256, "avatar.vrm");
-            RequireSha256(basecolorPath, manifest.basecolor_sha256, "basecolor.png");
-            RequireSha256(
-                provenancePath,
-                manifest.provenance_sha256,
-                "quest2-modular-provenance.json");
-
-            var previous = _active;
-            _active = candidate;
-            _animator = candidate.GetComponent<Animator>();
-            if (previous != null)
+            Vrm10Instance candidate = null;
+            try
             {
-                Destroy(previous.gameObject);
+                candidate = await LoadAvatarAsync(
+                    avatarPath,
+                    manifest.avatar_sha256,
+                    cancellationToken);
+
+                // Close the manifest/payload race after UniVRM has parsed the
+                // avatar but before review identity becomes active.
+                RequireSha256(
+                    fullManifestPath,
+                    manifestSha256,
+                    "p3-quest2-review-manifest.json");
+                RequireSha256(avatarPath, manifest.avatar_sha256, "avatar.vrm");
+                RequireSha256(basecolorPath, manifest.basecolor_sha256, "basecolor.png");
+                RequireSha256(
+                    provenancePath,
+                    manifest.provenance_sha256,
+                    "quest2-modular-provenance.json");
+
+                var previous = _active;
+                _active = candidate;
+                _animator = candidate.GetComponent<Animator>();
+                candidate = null;
+                if (previous != null)
+                {
+                    Destroy(previous.gameObject);
+                }
+            }
+            finally
+            {
+                if (candidate != null)
+                {
+                    Destroy(candidate.gameObject);
+                }
             }
 
             ActiveManifestPath = fullManifestPath;
-            ActiveManifestSha256 = Sha256File(fullManifestPath);
+            ActiveManifestSha256 = manifestSha256;
             ActiveBodyRigRevision = manifest.bodyrig_revision;
             ActivePerformerId = manifest.performer_id;
             ActiveRuntimeReviewPlanSha256 =
