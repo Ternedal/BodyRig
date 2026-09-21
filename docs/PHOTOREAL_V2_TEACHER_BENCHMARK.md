@@ -98,6 +98,8 @@ Before held-out likeness review, run the semantic camera-alignment handoff again
 
 The next P1 handoff binds that semantic teacher receipt to the exact held-out evaluation observations from `teacher-input.json` and the exact-frame appearance review pack. It exposes only selected-epoch evaluation frames whose P0 frame SHA and staged review-PNG SHA are still valid. A human pairs each required P1 coverage criterion with one semantic teacher view and one held-out reference frame. Pairing authority is still not likeness authority: `human_visual_likeness_acceptance=false` remains mandatory until the later comparison review is explicitly completed.
 
+The final P1 review surface copies only those hash-bound teacher/reference bytes into a private side-by-side review pack. The reviewer must record `pass` or `fail` for every required criterion. Any failed criterion records a completed P1 failure and keeps downstream animation blocked. Only an all-PASS receipt sets `p1_static_teacher_acceptance_authority=true`, `human_visual_likeness_acceptance=true` and `p2_animation_authorized=true`. It still keeps the broader `photoreal_acceptance_authority=false` and `production_activation=false`; a static P1 teacher is not a completed animated/runtime digital twin.
+
 Training success, PSNR, SSIM, LPIPS or identity embedding similarity are diagnostics. None of them grants photoreal acceptance.
 
 ## P1 hard failure conditions
