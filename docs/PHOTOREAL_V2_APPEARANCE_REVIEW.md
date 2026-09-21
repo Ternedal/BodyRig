@@ -16,11 +16,11 @@ From an exact clean current `main` checkout:
 
 The operator:
 
-1. reads the existing `dataset-plan.json`, `source-receipt.json`, `frame-index.json`, and authorized `p0-status.json`;
+1. reads the existing `dataset-plan.json`, `source-receipt.json`, `scan-plan.json`, `frame-index.json`, and authorized `p0-status.json`;
 2. converts only the paths of sources that already contain P0-authorized teacher-eligible observations into private WSL runtime paths;
 3. does **not** recompute source-media SHA-256;
-4. replays only the exact authorized timestamps/eyes from the frame index;
-5. requires every replayed image to reproduce the existing P0 `frame_sha256` exactly;
+4. reuses the exact P0 scan-plan decoder authority (`projection`, `stereo_layout`, `decode_mode`, and projection authority) and replays only the exact authorized timestamps/eyes from the frame index;
+5. SHA-binds the scan plan into the private path map, review request, and review manifest, then requires every replayed image to reproduce the existing P0 `frame_sha256` exactly;
 6. supports flat/mono plus the existing equirectangular, mesh-projection and cubemap deprojection paths through the pinned reference adapter;
 7. writes lossless PNG review frames, a public-path-free manifest, a private source-path index, and `review-index.html`.
 
