@@ -82,8 +82,9 @@ def _inputs(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], Path]
         "p3_device_distillation_request_sha256": "6" * 64,
         "p3_device_distillation_execution_receipt_sha256": "7" * 64,
         "target_profile_sha256": plan["target_profile_sha256"],
+        "target_model": "quest-2",
         "adapter": "test-distiller",
-        "adapter_revision": "rev-1",
+        "adapter_revision": "a" * 64,
         "student_representation": "skinned-mesh-neural-texture",
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "distillation_complete": True,
@@ -138,6 +139,8 @@ def test_runtime_review_plan_reverifies_student_and_stays_pre_physical(
     )
 
     assert result["target_device_model"] == "quest-2"
+    assert result["executed_adapter"] == "test-distiller"
+    assert result["executed_adapter_revision"] == "a" * 64
     assert result["student_artifact_bytes_reverified"] is True
     assert result["student_components"] == list(REQUIRED_STUDENT_COMPONENTS)
     assert result["fidelity_delta_dimension_count"] == len(
@@ -318,3 +321,41 @@ def test_readback_rejects_boolean_v1(
         match="format/version mismatch",
     ):
         validate_device_runtime_review_plan(result)
+
+def test_runtime_review_plan_rejects_executed_target_substitution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, execution, output = _inputs(tmp_path)
+    execution["target_model"] = "quest-3"
+    _trust(monkeypatch, plan, execution)
+
+    with pytest.raises(
+        PhotorealP3DeviceRuntimeReviewPlanError,
+        match="executed target model differs",
+    ):
+        build_device_runtime_review_plan(
+            plan,
+            execution,
+            student_output_root=output,
+        )
+
+
+def test_runtime_review_plan_rejects_non_sha_adapter_revision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, execution, output = _inputs(tmp_path)
+    execution["adapter_revision"] = "rev-1"
+    _trust(monkeypatch, plan, execution)
+
+    with pytest.raises(
+        PhotorealP3DeviceRuntimeReviewPlanError,
+        match="executed adapter revision",
+    ):
+        build_device_runtime_review_plan(
+            plan,
+            execution,
+            student_output_root=output,
+        )
+
