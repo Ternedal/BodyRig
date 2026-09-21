@@ -244,6 +244,7 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     fine_attestation_sha = str(job.get("fine_identity_attestation_sha256") or "").strip().lower()
     if target_family not in TARGET_FAMILIES or not SHA_RE.fullmatch(expected_revision):
         raise HighFidelityPreviewError("persisted high-fidelity target/revision authority is invalid")
+    _require_current_fidelity_floor(expected_revision, label="persisted high-fidelity preview")
     if (
         len(fine_authority_sha) != 64
         or any(ch not in "0123456789abcdef" for ch in fine_authority_sha)
@@ -263,8 +264,6 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
         or str(fine_authority.get("fine_identity_attestation_sha256") or "") != fine_attestation_sha
     ):
         raise HighFidelityPreviewError("photoidentical fine-identity authority changed after preview start")
-    _require_current_fidelity_floor(expected_revision, label="persisted high-fidelity preview")
-
     anatomy_dir = _need_dir(root, str(job.get("anatomy_run_root") or ""), label="Anatomy run root")
     summary_path = _need_file(root, anatomy_dir / "subject-anatomy-physical-gate.json", label="Anatomy gate summary")
     summary = _read_json(summary_path, label="Anatomy gate summary")
