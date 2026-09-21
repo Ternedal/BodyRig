@@ -282,7 +282,183 @@ def build_motion_evidence_handoff(
         private_index,
         omit="p2_motion_private_index_sha256",
     )
-    return handoff, private_index
+    return (
+        validate_motion_evidence_handoff(handoff),
+        validate_private_motion_index(private_index, handoff=handoff),
+    )
+
+
+def _candidate_map(
+    values: Any,
+    *,
+    expected_split: str,
+    label: str,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(values, list) or not values:
+        raise PhotorealP2MotionEvidenceError(f"{label} is invalid")
+    result: dict[str, dict[str, Any]] = {}
+    group_refs: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, Mapping):
+            raise PhotorealP2MotionEvidenceError(f"{label} entry is invalid")
+        if "source_key" in raw or "resolved_path" in raw or "group_id" in raw:
+            raise PhotorealP2MotionEvidenceError(f"{label} leaks private source identity")
+        source_ref = _text(raw.get("source_ref"), label=f"{label} source ref", maximum=64)
+        group_ref = _text(raw.get("group_ref"), label=f"{label} group ref", maximum=64)
+        if not source_ref.startswith("src-") or not group_ref.startswith("grp-"):
+            raise PhotorealP2MotionEvidenceError(f"{label} opaque reference is invalid")
+        if source_ref in result:
+            raise PhotorealP2MotionEvidenceError(f"{label} repeats source ref")
+        if raw.get("split") != expected_split or raw.get("kind") != "video":
+            raise PhotorealP2MotionEvidenceError(f"{label} split/kind mismatch")
+        _sha(raw.get("source_sha256"), label=f"{label} source SHA-256")
+        for field in ("size_bytes", "width", "height", "authorized_observation_count", "timestamped_observation_count"):
+            value = raw.get(field)
+            minimum = 1 if field in {"size_bytes", "authorized_observation_count"} else 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise PhotorealP2MotionEvidenceError(f"{label} {field} is invalid")
+        score = raw.get("information_score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(float(score)) or float(score) < 0:
+            raise PhotorealP2MotionEvidenceError(f"{label} information score is invalid")
+        for field in ("projection", "stereo_layout"):
+            _text(raw.get(field), label=f"{label} {field}", maximum=128)
+        if raw.get("preparation_mode") not in {
+            "direct-exavatar-video",
+            "exact-authorized-deprojection-required",
+        }:
+            raise PhotorealP2MotionEvidenceError(f"{label} preparation mode is invalid")
+        for field in ("view_bins", "coverage"):
+            values_field = raw.get(field)
+            if not isinstance(values_field, list) or values_field != sorted(set(values_field)):
+                raise PhotorealP2MotionEvidenceError(f"{label} {field} is invalid")
+            for item in values_field:
+                _text(item, label=f"{label} {field}", maximum=64)
+        result[source_ref] = dict(raw)
+        group_refs.add(group_ref)
+    return result
+
+
+def validate_motion_evidence_handoff(handoff: Mapping[str, Any]) -> dict[str, Any]:
+    if handoff.get("format") != HANDOFF_FORMAT or handoff.get("version") != HANDOFF_VERSION:
+        raise PhotorealP2MotionEvidenceError("P2 motion evidence handoff format/version mismatch")
+    claimed = _sha(
+        handoff.get("p2_motion_evidence_handoff_sha256"),
+        label="P2 motion evidence handoff SHA-256",
+    )
+    if _digest(handoff, omit="p2_motion_evidence_handoff_sha256") != claimed:
+        raise PhotorealP2MotionEvidenceError("P2 motion evidence handoff digest mismatch")
+    _text(handoff.get("performer_id"), label="P2 motion performer", maximum=256)
+    _text(handoff.get("selected_epoch_id"), label="P2 motion epoch", maximum=256)
+    _sha(handoff.get("teacher_input_sha256"), label="P2 motion teacher input SHA-256")
+    _sha(handoff.get("p2_animation_plan_sha256"), label="P2 motion animation plan SHA-256")
+
+    drivers = _candidate_map(
+        handoff.get("motion_driver_candidates"),
+        expected_split="train",
+        label="P2 motion driver candidates",
+    )
+    heldout = _candidate_map(
+        handoff.get("held_out_motion_validation_candidates"),
+        expected_split="evaluation",
+        label="P2 held-out motion candidates",
+    )
+    if set(drivers) & set(heldout):
+        raise PhotorealP2MotionEvidenceError("P2 motion handoff source refs overlap train/evaluation")
+    driver_groups = {item["group_ref"] for item in drivers.values()}
+    eval_groups = {item["group_ref"] for item in heldout.values()}
+    if driver_groups & eval_groups:
+        raise PhotorealP2MotionEvidenceError("P2 motion handoff group refs overlap train/evaluation")
+    if handoff.get("motion_driver_candidate_count") != len(drivers):
+        raise PhotorealP2MotionEvidenceError("P2 motion driver candidate count mismatch")
+    if handoff.get("held_out_motion_validation_candidate_count") != len(heldout):
+        raise PhotorealP2MotionEvidenceError("P2 held-out motion candidate count mismatch")
+
+    expected_requirements = {
+        "select_at_least_one_training_split_motion_driver": True,
+        "select_at_least_one_evaluation_split_validation_source": True,
+        "preserve_train_evaluation_group_disjointness": True,
+        "never_use_evaluation_bytes_for_appearance_training": True,
+        "require_exact_deprojection_before_fit_when_flagged": True,
+        "record_human_selection": True,
+    }
+    if handoff.get("operator_requirements") != expected_requirements:
+        raise PhotorealP2MotionEvidenceError("P2 motion handoff operator requirements mismatch")
+    for field, expected in (
+        ("source_media_rehash_performed", False),
+        ("human_motion_source_selection_required", True),
+        ("human_motion_source_selection_complete", False),
+        ("p2_motion_input_authorized", False),
+        ("p2_animation_execution_authorized", False),
+        ("p2_animated_teacher_acceptance_authority", False),
+        ("quest_distillation_authorized", False),
+        ("photoreal_acceptance_authority", False),
+        ("production_activation", False),
+    ):
+        if handoff.get(field) is not expected:
+            raise PhotorealP2MotionEvidenceError(f"P2 motion handoff authority mismatch: {field}")
+    return dict(handoff)
+
+
+def validate_private_motion_index(
+    private_index: Mapping[str, Any],
+    *,
+    handoff: Mapping[str, Any],
+) -> dict[str, Any]:
+    validated_handoff = validate_motion_evidence_handoff(handoff)
+    if private_index.get("format") != PRIVATE_INDEX_FORMAT or private_index.get("version") != PRIVATE_INDEX_VERSION:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index format/version mismatch")
+    claimed = _sha(
+        private_index.get("p2_motion_private_index_sha256"),
+        label="private P2 motion index SHA-256",
+    )
+    if _digest(private_index, omit="p2_motion_private_index_sha256") != claimed:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index digest mismatch")
+    for field in (
+        "performer_id",
+        "selected_epoch_id",
+        "teacher_input_sha256",
+        "p2_animation_plan_sha256",
+        "p2_motion_evidence_handoff_sha256",
+    ):
+        if private_index.get(field) != validated_handoff.get(field):
+            raise PhotorealP2MotionEvidenceError(f"private P2 motion index provenance mismatch: {field}")
+    if private_index.get("build_private") is not True:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index lost build-private marking")
+    if private_index.get("source_media_rehash_performed") is not False:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index unexpectedly claims source rehash")
+    if private_index.get("production_activation") is not False:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index crossed production authority")
+
+    expected_public: dict[str, dict[str, Any]] = {}
+    for raw in (
+        list(validated_handoff["motion_driver_candidates"])
+        + list(validated_handoff["held_out_motion_validation_candidates"])
+    ):
+        expected_public[raw["source_ref"]] = raw
+
+    entries = private_index.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise PhotorealP2MotionEvidenceError("private P2 motion index entries are invalid")
+    if private_index.get("entry_count") != len(entries) or len(entries) != len(expected_public):
+        raise PhotorealP2MotionEvidenceError("private P2 motion index count mismatch")
+    seen: set[str] = set()
+    for raw in entries:
+        if not isinstance(raw, Mapping):
+            raise PhotorealP2MotionEvidenceError("private P2 motion index entry is invalid")
+        source_ref = _text(raw.get("source_ref"), label="private P2 motion source ref", maximum=64)
+        if source_ref in seen or source_ref not in expected_public:
+            raise PhotorealP2MotionEvidenceError("private P2 motion index source universe mismatch")
+        seen.add(source_ref)
+        public = expected_public[source_ref]
+        for field in ("group_ref", "split", "source_sha256", "size_bytes"):
+            if raw.get(field) != public.get(field):
+                raise PhotorealP2MotionEvidenceError(f"private/public P2 motion binding mismatch: {field}")
+        _text(raw.get("source_key"), label="private P2 motion source key", maximum=32768)
+        _text(raw.get("group_id"), label="private P2 motion group id", maximum=32768)
+        _text(raw.get("resolved_path"), label="private P2 motion resolved path", maximum=32768)
+    if seen != set(expected_public):
+        raise PhotorealP2MotionEvidenceError("private P2 motion index source universe mismatch")
+    return dict(private_index)
 
 
 def _write_or_revalidate(path: Path, value: Mapping[str, Any], *, label: str, reuse_existing: bool) -> None:
