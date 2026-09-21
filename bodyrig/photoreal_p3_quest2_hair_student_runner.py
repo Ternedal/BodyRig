@@ -24,6 +24,7 @@ from .photoreal_p3_quest2_eye_student_runner import (
     VERSION as EYE_RECEIPT_VERSION,
     _eye_metadata,
 )
+from . import photoreal_p3_quest2_hair_component as hair_component_module
 from .photoreal_p3_quest2_hair_component import (
     FORMAT as HAIR_COMPONENT_FORMAT,
     PhotorealP3Quest2HairComponentError,
@@ -531,6 +532,10 @@ def build_hair_student(
             "p3_quest2_eye_student_receipt_sha256"
         ],
         "hair_envelope_sha256": envelope["hair_envelope_sha256"],
+        "hair_runner_revision_sha256": _file_sha(Path(__file__).resolve()),
+        "hair_component_revision_sha256": _file_sha(
+            Path(hair_component_module.__file__).resolve()
+        ),
         "target_model": "quest-2",
         "student_representation": "skinned-mesh-pbr",
         "required_student_components": list(REQUIRED_STUDENT_COMPONENTS),
