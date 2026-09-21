@@ -11,6 +11,88 @@ from tools.photoreal_p3_exavatar_quest2_student_candidate import (
 )
 
 
+def test_exavatar_joint_names_normalize_to_bodyrig_order() -> None:
+    exavatar = (
+        "Pelvis",
+        "L_Hip",
+        "R_Hip",
+        "Spine_1",
+        "L_Knee",
+        "R_Knee",
+        "Spine_2",
+        "L_Ankle",
+        "R_Ankle",
+        "Spine_3",
+        "L_Foot",
+        "R_Foot",
+        "Neck",
+        "L_Collar",
+        "R_Collar",
+        "Head",
+        "L_Shoulder",
+        "R_Shoulder",
+        "L_Elbow",
+        "R_Elbow",
+        "L_Wrist",
+        "R_Wrist",
+        "Jaw",
+        "L_Eye",
+        "R_Eye",
+        "L_Index_1",
+        "L_Index_2",
+        "L_Index_3",
+        "L_Middle_1",
+        "L_Middle_2",
+        "L_Middle_3",
+        "L_Pinky_1",
+        "L_Pinky_2",
+        "L_Pinky_3",
+        "L_Ring_1",
+        "L_Ring_2",
+        "L_Ring_3",
+        "L_Thumb_1",
+        "L_Thumb_2",
+        "L_Thumb_3",
+        "R_Index_1",
+        "R_Index_2",
+        "R_Index_3",
+        "R_Middle_1",
+        "R_Middle_2",
+        "R_Middle_3",
+        "R_Pinky_1",
+        "R_Pinky_2",
+        "R_Pinky_3",
+        "R_Ring_1",
+        "R_Ring_2",
+        "R_Ring_3",
+        "R_Thumb_1",
+        "R_Thumb_2",
+        "R_Thumb_3",
+    )
+    from bodyrig.bridges.sith_smplx_vrm_fitter import SMPLX_JOINT_NAMES
+
+    candidate._validate_joint_semantics(
+        exavatar,
+        tuple(SMPLX_JOINT_NAMES),
+    )
+
+
+def test_exavatar_joint_semantic_drift_is_rejected() -> None:
+    from bodyrig.bridges.sith_smplx_vrm_fitter import SMPLX_JOINT_NAMES
+
+    exavatar = tuple(SMPLX_JOINT_NAMES)
+    drifted = ("pelvis", "right_hip", *exavatar[2:])
+
+    with pytest.raises(
+        Quest2StudentCandidateError,
+        match="joint semantic universe differs",
+    ):
+        candidate._validate_joint_semantics(
+            drifted,
+            tuple(SMPLX_JOINT_NAMES),
+        )
+
+
 def _request() -> dict[str, object]:
     value: dict[str, object] = {
         "format": candidate.REQUEST_FORMAT,
