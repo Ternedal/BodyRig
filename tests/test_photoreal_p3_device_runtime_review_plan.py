@@ -190,6 +190,26 @@ def test_runtime_review_plan_rejects_undeclared_output(
         )
 
 
+def test_runtime_review_plan_rejects_nested_manifest_named_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, execution, output = _inputs(tmp_path)
+    _trust(monkeypatch, plan, execution)
+    nested = output / "student" / "distillation-manifest.json"
+    nested.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(
+        PhotorealP3DeviceRuntimeReviewPlanError,
+        match="artifact universe drifted",
+    ):
+        build_device_runtime_review_plan(
+            plan,
+            execution,
+            student_output_root=output,
+        )
+
+
 def test_runtime_review_plan_rejects_lineage_substitution(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
