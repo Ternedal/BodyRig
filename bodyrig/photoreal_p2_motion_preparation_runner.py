@@ -26,6 +26,10 @@ from .photoreal_p2_motion_selection import (
     PhotorealP2MotionSelectionError,
     validate_motion_source_selection,
 )
+from .photoreal_p2_motion_window_selection import (
+    PhotorealP2MotionWindowSelectionError,
+    validate_motion_window_selection,
+)
 from .photoreal_scan_plan import FORMAT as SCAN_PLAN_FORMAT, VERSION as SCAN_PLAN_VERSION
 
 
@@ -227,6 +231,7 @@ def _task_request(
     task: Mapping[str, Any],
     scan_source: Mapping[str, Any],
     normalization: Mapping[str, Any],
+    window: Mapping[str, Any],
 ) -> dict[str, Any]:
     for field in ("source_key", "group_id", "split", "source_sha256"):
         expected = task.get(field)
@@ -263,6 +268,16 @@ def _task_request(
     selected_eye = normalization.get("selected_eye")
     selected_viewport = normalization.get("selected_viewport_id")
     strategy = normalization.get("normalization_strategy")
+
+    if window.get("source_ref") != selected_ref:
+        raise PhotorealP2MotionPreparationRunnerError("P2 motion window/source task ref mismatch")
+    for field in ("source_key", "split", "role", "source_sha256"):
+        if window.get(field) != task.get(field):
+            raise PhotorealP2MotionPreparationRunnerError(
+                f"P2 motion window/source task mismatch: {field}"
+            )
+    if window.get("selected_eye") != selected_eye or window.get("selected_viewport_id") != selected_viewport:
+        raise PhotorealP2MotionPreparationRunnerError("P2 motion window normalization binding mismatch")
 
     if action == "preserve-flat-mono-video":
         if projection != "flat" or stereo != "mono":
@@ -333,6 +348,19 @@ def _task_request(
         "normalization_strategy": strategy,
         "selected_eye": selected_eye,
         "selected_viewport_id": selected_viewport,
+        "anchor_observation_ref": _text(
+            window.get("observation_ref"),
+            label="P2 motion window observation ref",
+            maximum=64,
+        ),
+        "anchor_timestamp_seconds": window.get("anchor_timestamp_seconds"),
+        "anchor_frame_sha256": _sha(
+            window.get("anchor_frame_sha256"),
+            label="P2 motion window anchor frame SHA-256",
+        ),
+        "window_start_seconds": window.get("window_start_seconds"),
+        "window_end_seconds": window.get("window_end_seconds"),
+        "window_duration_seconds": window.get("window_duration_seconds"),
         "motion_fitting_backend": PINNED_FITTING_BACKEND,
         "motion_fitting_camera_mode": PINNED_CAMERA_MODE,
         "source_media_rehash_required": False,
@@ -346,6 +374,7 @@ def build_motion_preparation_request(
     selection: Mapping[str, Any],
     input_plan: Mapping[str, Any],
     normalization_selection: Mapping[str, Any],
+    window_selection: Mapping[str, Any],
     scan_plan: Mapping[str, Any],
     *,
     scan_plan_file_sha256: str,
@@ -365,11 +394,17 @@ def build_motion_preparation_request(
             normalization_selection,
             input_plan=plan,
         )
+        windows = validate_motion_window_selection(
+            window_selection,
+            input_plan=plan,
+            normalization_selection=normalization,
+        )
     except (
         PhotorealP2MotionEvidenceError,
         PhotorealP2MotionSelectionError,
         PhotorealP2MotionInputPlanError,
         PhotorealP2MotionNormalizationSelectionError,
+        PhotorealP2MotionWindowSelectionError,
     ) as exc:
         raise PhotorealP2MotionPreparationRunnerError(
             f"P2 motion preparation authority readback failed: {exc}"
@@ -381,6 +416,11 @@ def build_motion_preparation_request(
     normalization_by_ref = {
         str(item["source_ref"]): item
         for item in normalization["selections"]
+        if isinstance(item, Mapping)
+    }
+    window_by_ref = {
+        str(item["source_ref"]): item
+        for item in windows["selections"]
         if isinstance(item, Mapping)
     }
     tasks: list[dict[str, Any]] = []
@@ -395,7 +435,10 @@ def build_motion_preparation_request(
         normalization_record = normalization_by_ref.get(source_ref)
         if normalization_record is None:
             raise PhotorealP2MotionPreparationRunnerError("P2 motion normalization selection omitted source")
-        tasks.append(_task_request(raw, scan_source, normalization_record))
+        window_record = window_by_ref.get(source_ref)
+        if window_record is None:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion window selection omitted source")
+        tasks.append(_task_request(raw, scan_source, normalization_record, window_record))
     tasks.sort(key=lambda item: (item["split"], item["source_ref"]))
 
     return {
@@ -411,6 +454,9 @@ def build_motion_preparation_request(
         "p2_motion_input_plan_sha256": plan["p2_motion_input_plan_sha256"],
         "p2_motion_normalization_selection_sha256": normalization[
             "p2_motion_normalization_selection_sha256"
+        ],
+        "p2_motion_window_selection_sha256": windows[
+            "p2_motion_window_selection_sha256"
         ],
         "p0_scan_plan_file_sha256": _sha(
             scan_plan_file_sha256,
@@ -540,6 +586,7 @@ def validate_motion_preparation_manifest(
         "p2_animation_plan_sha256",
         "p2_motion_input_plan_sha256",
         "p2_motion_normalization_selection_sha256",
+        "p2_motion_window_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
@@ -568,6 +615,7 @@ def validate_motion_preparation_manifest(
         "p2_animation_plan_sha256",
         "p2_motion_input_plan_sha256",
         "p2_motion_normalization_selection_sha256",
+        "p2_motion_window_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
@@ -611,6 +659,13 @@ def validate_motion_preparation_manifest(
             "split",
             "role",
             "normalization_action",
+            "selected_eye",
+            "selected_viewport_id",
+            "anchor_observation_ref",
+            "anchor_frame_sha256",
+            "window_start_seconds",
+            "window_end_seconds",
+            "window_duration_seconds",
             "motion_path_relative",
             "frame_count",
             "source_media_rehash_performed",
@@ -623,9 +678,22 @@ def validate_motion_preparation_manifest(
             raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation task result source universe mismatch")
         seen.add(source_ref)
         task = request_by_ref[source_ref]
-        for field in ("split", "role", "normalization_action"):
+        for field in (
+            "split",
+            "role",
+            "normalization_action",
+            "selected_eye",
+            "selected_viewport_id",
+            "anchor_observation_ref",
+            "anchor_frame_sha256",
+            "window_start_seconds",
+            "window_end_seconds",
+            "window_duration_seconds",
+        ):
             if raw.get(field) != task.get(field):
-                raise PhotorealP2MotionPreparationRunnerError(f"P2 motion preparation task provenance mismatch: {field}")
+                raise PhotorealP2MotionPreparationRunnerError(
+                    f"P2 motion preparation task provenance mismatch: {field}"
+                )
         if raw.get("source_media_rehash_performed") is not False:
             raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation unexpectedly rehashed source media")
         motion_path = _relative_path(raw.get("motion_path_relative"), label="prepared P2 motion path")
@@ -649,6 +717,13 @@ def validate_motion_preparation_manifest(
                 "split": task["split"],
                 "role": task["role"],
                 "normalization_action": task["normalization_action"],
+                "selected_eye": task["selected_eye"],
+                "selected_viewport_id": task["selected_viewport_id"],
+                "anchor_observation_ref": task["anchor_observation_ref"],
+                "anchor_frame_sha256": task["anchor_frame_sha256"],
+                "window_start_seconds": task["window_start_seconds"],
+                "window_end_seconds": task["window_end_seconds"],
+                "window_duration_seconds": task["window_duration_seconds"],
                 "motion_path_relative": motion_path,
                 "frame_count": frame_count,
                 "source_media_rehash_performed": False,
@@ -690,6 +765,9 @@ def build_motion_preparation_receipt(
         "p2_motion_normalization_selection_sha256": manifest[
             "p2_motion_normalization_selection_sha256"
         ],
+        "p2_motion_window_selection_sha256": manifest[
+            "p2_motion_window_selection_sha256"
+        ],
         "p0_scan_plan_file_sha256": manifest["p0_scan_plan_file_sha256"],
         "adapter": manifest["adapter"],
         "adapter_revision": manifest["adapter_revision"],
@@ -727,6 +805,7 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
         "p2_motion_source_selection_sha256",
         "p2_motion_input_plan_sha256",
         "p2_motion_normalization_selection_sha256",
+        "p2_motion_window_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
@@ -758,6 +837,7 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
         "p2_motion_source_selection_sha256",
         "p2_motion_input_plan_sha256",
         "p2_motion_normalization_selection_sha256",
+        "p2_motion_window_selection_sha256",
         "p0_scan_plan_file_sha256",
     ):
         _sha(value.get(field), label=f"P2 motion preparation receipt {field}")
@@ -784,6 +864,13 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
             "split",
             "role",
             "normalization_action",
+            "selected_eye",
+            "selected_viewport_id",
+            "anchor_observation_ref",
+            "anchor_frame_sha256",
+            "window_start_seconds",
+            "window_end_seconds",
+            "window_duration_seconds",
             "motion_path_relative",
             "frame_count",
             "source_media_rehash_performed",
@@ -801,6 +888,31 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
             raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt role is invalid")
         if raw.get("normalization_action") not in SUPPORTED_NORMALIZATION_ACTIONS:
             raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt normalization action is invalid")
+        if raw.get("selected_eye") not in {"mono", "left", "right"}:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt selected eye is invalid")
+        viewport = raw.get("selected_viewport_id")
+        if viewport is not None:
+            _text(viewport, label="P2 motion preparation receipt selected viewport", maximum=64)
+        _text(raw.get("anchor_observation_ref"), label="P2 motion preparation receipt observation ref", maximum=64)
+        _sha(raw.get("anchor_frame_sha256"), label="P2 motion preparation receipt anchor frame SHA-256")
+        start = raw.get("window_start_seconds")
+        end = raw.get("window_end_seconds")
+        duration = raw.get("window_duration_seconds")
+        for numeric_value, label in (
+            (start, "window start"),
+            (end, "window end"),
+            (duration, "window duration"),
+        ):
+            if (
+                isinstance(numeric_value, bool)
+                or not isinstance(numeric_value, (int, float))
+                or not math.isfinite(float(numeric_value))
+            ):
+                raise PhotorealP2MotionPreparationRunnerError(
+                    f"P2 motion preparation receipt {label} is invalid"
+                )
+        if float(start) < 0 or float(end) <= float(start) or round(float(end) - float(start), 6) != round(float(duration), 6):
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt window timing is inconsistent")
         if raw.get("motion_path_relative") != f"tasks/{source_ref}/motion":
             raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt motion path is not canonical")
         frame_count = raw.get("frame_count")
@@ -852,6 +964,7 @@ def run_motion_preparation(
     selection: Mapping[str, Any],
     input_plan: Mapping[str, Any],
     normalization_selection: Mapping[str, Any],
+    window_selection: Mapping[str, Any],
     scan_plan: Mapping[str, Any],
     *,
     scan_plan_file_sha256: str,
@@ -865,6 +978,7 @@ def run_motion_preparation(
         selection,
         input_plan,
         normalization_selection,
+        window_selection,
         scan_plan,
         scan_plan_file_sha256=scan_plan_file_sha256,
     )
@@ -935,6 +1049,7 @@ def run_motion_preparation_files(
     selection_path: str | Path,
     input_plan_path: str | Path,
     normalization_selection_path: str | Path,
+    window_selection_path: str | Path,
     scan_plan_path: str | Path,
     workspace: str | Path,
 ) -> dict[str, Any]:
@@ -946,6 +1061,7 @@ def run_motion_preparation_files(
         _read_json(selection_path, label="P2 motion source selection"),
         _read_json(input_plan_path, label="P2 motion input plan"),
         _read_json(normalization_selection_path, label="P2 motion normalization selection"),
+        _read_json(window_selection_path, label="P2 motion window selection"),
         _read_json(scan_path, label="P0 scan plan"),
         scan_plan_file_sha256=_file_sha(scan_path),
         workspace=workspace,
