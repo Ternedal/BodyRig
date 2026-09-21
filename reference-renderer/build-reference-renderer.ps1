@@ -48,7 +48,9 @@ function Need-Property {
 function Assert-ResolvedPackageLock {
     param(
         [Parameter(Mandatory = $true)][string]$LockPath,
-        [Parameter(Mandatory = $true)][string]$ExpectedUniVrmRevision
+        [Parameter(Mandatory = $true)][string]$ExpectedUniVrmRevision,
+        [Parameter(Mandatory = $true)][string]$ExpectedXrManagementVersion,
+        [Parameter(Mandatory = $true)][string]$ExpectedOpenXrVersion
     )
     $lock = Read-JsonFile -Path $LockPath -Label "Resolved Unity packages lock"
     $dependencies = Need-Property -Object $lock -Name "dependencies" -Label "Resolved Unity packages lock"
@@ -63,6 +65,8 @@ function Assert-ResolvedPackageLock {
         "com.unity.test-framework" = "1.6.0"
         "com.unity.mathematics" = "1.2.6"
         "com.unity.timeline" = "1.7.6"
+        "com.unity.xr.management" = $ExpectedXrManagementVersion
+        "com.unity.xr.openxr" = $ExpectedOpenXrVersion
     }
     foreach ($pair in $expectedRegistry.GetEnumerator()) {
         $entry = Need-Property -Object $dependencies -Name ([string]$pair.Key) -Label "Resolved Unity packages lock dependencies"
@@ -131,6 +135,34 @@ if ([string]$contract.renderer_version -notmatch [regex]::Escape("univrm-$expect
 if ([string]$contract.application_id -ne "dk.ternedal.bodyrig.reference") { throw "Reference renderer contract contains an unsupported application id." }
 if ([string]$contract.deformation_sequence_revision -ne "humanoid-muscle-sweep-v1") { throw "Reference renderer contract contains an unsupported deformation sequence revision." }
 
+$questXrContractPath = Join-Path $projectRoot "quest-xr-contract.json"
+$questXr = Read-JsonFile -Path $questXrContractPath -Label "Quest XR contract"
+$questXrVersion = $questXr.version
+if (
+    [string]$questXr.format -ne "bodyrig-reference-renderer-quest-xr-contract" -or
+    $null -eq $questXrVersion -or
+    $questXrVersion -is [bool] -or
+    $questXrVersion -isnot [ValueType] -or
+    [decimal]$questXrVersion -ne [decimal]1
+) { throw "Unsupported Quest XR contract format/version." }
+if ([string]$questXr.provider -ne "openxr") { throw "Quest XR contract must use OpenXR." }
+if ([string]$questXr.xr_management_package -ne "com.unity.xr.management") { throw "Quest XR contract has an unsupported XR Management package." }
+if ([string]$questXr.openxr_package -ne "com.unity.xr.openxr") { throw "Quest XR contract has an unsupported OpenXR package." }
+$expectedXrManagementVersion = ([string]$questXr.xr_management_version).Trim()
+$expectedOpenXrVersion = ([string]$questXr.openxr_version).Trim()
+if ($expectedXrManagementVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract XR Management version is invalid." }
+if ($expectedOpenXrVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Quest XR contract OpenXR version is invalid." }
+if (
+    [string]$questXr.target_platform -ne "android" -or
+    [string]$questXr.target_device_family -ne "meta-quest" -or
+    [string]$questXr.target_device_model -ne "quest-2" -or
+    [string]$questXr.loader_type -ne "UnityEngine.XR.OpenXR.OpenXRLoader" -or
+    [string]$questXr.render_mode -ne "single-pass-instanced" -or
+    [string]$questXr.runtime_initialization -ne "xr-management" -or
+    $questXr.production_activation -isnot [bool] -or
+    $questXr.production_activation -ne $false
+) { throw "Quest XR contract semantics are non-canonical." }
+
 $projectVersionPath = Join-Path $projectRoot "ProjectSettings\ProjectVersion.txt"
 if (-not (Test-Path -LiteralPath $projectVersionPath -PathType Leaf)) { throw "Reference renderer ProjectVersion.txt not found: $projectVersionPath" }
 $projectVersionText = Get-Content -LiteralPath $projectVersionPath -Raw -Encoding UTF8
@@ -146,6 +178,14 @@ $gltfDependency = [string](Need-Property -Object $manifest.dependencies -Name "c
 $vrmDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.vrmc.vrm" -Label "Unity package manifest dependencies")
 if ($gltfDependency -ne $expectedGltf -or $vrmDependency -ne $expectedVrm) {
     throw "Unity package manifest does not pin both UniVRM packages to renderer-contract revision $expectedUniVrmRevision."
+}
+$xrManagementDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.unity.xr.management" -Label "Unity package manifest dependencies")
+$openXrDependency = [string](Need-Property -Object $manifest.dependencies -Name "com.unity.xr.openxr" -Label "Unity package manifest dependencies")
+if ($xrManagementDependency -ne $expectedXrManagementVersion) {
+    throw "Unity package manifest does not pin XR Management to Quest XR contract version $expectedXrManagementVersion."
+}
+if ($openXrDependency -ne $expectedOpenXrVersion) {
+    throw "Unity package manifest does not pin OpenXR to Quest XR contract version $expectedOpenXrVersion."
 }
 
 $headLines = @(& git -C $repoRoot rev-parse HEAD 2>&1)
@@ -177,6 +217,7 @@ Write-Host "BodyRig reference renderer build"
 Write-Host "Unity:     $UnityExe"
 Write-Host "Unity pin: $expectedUnityVersion"
 Write-Host "UniVRM:    $expectedUniVrmVersion | $expectedUniVrmRevision"
+Write-Host "XR:        management $expectedXrManagementVersion | OpenXR $expectedOpenXrVersion"
 Write-Host "Source:    $projectRoot"
 Write-Host "Revision:  $bodyRigRevision"
 Write-Host "Platform:  $Platform"
@@ -203,7 +244,7 @@ try {
     if (-not (Test-Path -LiteralPath $Output -PathType Leaf)) { throw "Unity returned success but expected build output is missing: $Output" }
 
     $resolvedLock = Join-Path $tempProject "Packages\packages-lock.json"
-    $packageLockHash = Assert-ResolvedPackageLock -LockPath $resolvedLock -ExpectedUniVrmRevision $expectedUniVrmRevision
+    $packageLockHash = Assert-ResolvedPackageLock -LockPath $resolvedLock -ExpectedUniVrmRevision $expectedUniVrmRevision -ExpectedXrManagementVersion $expectedXrManagementVersion -ExpectedOpenXrVersion $expectedOpenXrVersion
 
     $dirtyAfter = @(& git -C $repoRoot status --porcelain 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "Could not re-check BodyRig checkout after renderer build." }
@@ -219,6 +260,6 @@ try {
 }
 
 if ([string]::IsNullOrWhiteSpace($packageLockHash)) { throw "Unity package resolution was not validated." }
-Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision | packages-lock $packageLockHash"
+Write-Host "BodyRig reference renderer build: PASS | revision $bodyRigRevision | Unity $expectedUnityVersion | UniVRM $expectedUniVrmRevision | OpenXR $expectedOpenXrVersion | packages-lock $packageLockHash"
 Write-Host $Output
 exit 0

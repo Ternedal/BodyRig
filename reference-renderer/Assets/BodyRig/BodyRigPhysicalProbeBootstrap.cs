@@ -59,6 +59,25 @@ namespace BodyRig.ReferenceRenderer
             CreateVisualRig();
 
             var defaultRoot = Path.Combine(Application.persistentDataPath, "BodyRig");
+            var p3Root = Path.Combine(defaultRoot, "P3", "current");
+            var p3Request = Path.Combine(p3Root, "run-p3-probe.request");
+            var p3Manifest = Path.Combine(p3Root, "p3-runtime-manifest.json");
+            if (File.Exists(p3Request))
+            {
+                if (!File.Exists(p3Manifest))
+                    throw new InvalidDataException("P3 Quest2 probe request exists without its runtime manifest");
+
+                var p3Output = Path.Combine(p3Root, "p3-quest2-machine-probe.json");
+                _status = "Loading exact P3 Quest2 student...\n" + p3Manifest;
+                var p3Probe = gameObject.AddComponent<BodyRigP3Quest2Probe>();
+                await p3Probe.RunProbeAsync(p3Manifest, p3Output);
+                _status = "P3 Quest2 machine probe: PASS\n" +
+                          p3Output +
+                          "\nExact student hashes + UniVRM load + frame timing verified." +
+                          "\nStereo/VR-safe pacing: BLOCKED until canonical XR runtime is pinned." +
+                          "\nNo runtime/photoreal acceptance granted.";
+                return;
+            }
             var manifestPath = GetArgument(RuntimeManifestArg) ?? Path.Combine(defaultRoot, "runtime", "runtime-manifest.json");
             var probePath = GetArgument(ProbeOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-renderer-probe.json");
             var deformationPath = GetArgument(DeformationOutputArg) ?? Path.Combine(defaultRoot, "bodyrig-deformation-probe.json");

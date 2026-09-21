@@ -5,8 +5,12 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
+using UnityEditor.XR.Management;
+using UnityEditor.XR.Management.Metadata;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.XR.Management;
+using UnityEngine.XR.OpenXR;
 
 namespace BodyRig.ReferenceRenderer.Editor
 {
@@ -152,7 +156,77 @@ namespace BodyRig.ReferenceRenderer.Editor
                 PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel29;
                 PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevelAuto;
                 EditorUserBuildSettings.androidBuildSystem = AndroidBuildSystem.Gradle;
+                ConfigureQuestOpenXR();
             }
+        }
+
+        private static void ConfigureQuestOpenXR()
+        {
+            var generalSettings = XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTarget.Android);
+            if (generalSettings == null)
+                throw new InvalidOperationException("Quest reference build has no Android XR General Settings.");
+
+            var managerSettings = generalSettings.AssignedSettings;
+            if (managerSettings == null)
+                throw new InvalidOperationException("Quest reference build has no Android XR Manager Settings.");
+
+            var loaderTypeName = typeof(OpenXRLoader).FullName;
+            if (string.IsNullOrWhiteSpace(loaderTypeName))
+                throw new InvalidOperationException("OpenXR loader type name could not be resolved.");
+
+            var hasOpenXrLoader = false;
+            foreach (var loader in managerSettings.activeLoaders)
+            {
+                if (loader is OpenXRLoader)
+                {
+                    hasOpenXrLoader = true;
+                    continue;
+                }
+
+                var otherLoaderName = loader != null ? loader.GetType().FullName : "<null>";
+                throw new InvalidOperationException(
+                    "Quest reference build refuses non-OpenXR XR loader: " + otherLoaderName);
+            }
+
+            if (!hasOpenXrLoader &&
+                !XRPackageMetadataStore.AssignLoader(
+                    managerSettings,
+                    loaderTypeName,
+                    BuildTargetGroup.Android))
+            {
+                throw new InvalidOperationException(
+                    "Quest reference build could not assign the canonical OpenXR loader.");
+            }
+
+            generalSettings.InitManagerOnStart = true;
+
+            var openXrSettings = OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android);
+            if (openXrSettings == null)
+                throw new InvalidOperationException("Quest reference build has no Android OpenXR settings.");
+            openXrSettings.renderMode = OpenXRSettings.RenderMode.SinglePassInstanced;
+
+            EditorUtility.SetDirty(generalSettings);
+            EditorUtility.SetDirty(managerSettings);
+            EditorUtility.SetDirty(openXrSettings);
+            AssetDatabase.SaveAssets();
+
+            var verifiedOpenXr = false;
+            foreach (var loader in managerSettings.activeLoaders)
+            {
+                if (loader is OpenXRLoader)
+                {
+                    verifiedOpenXr = true;
+                    continue;
+                }
+                throw new InvalidOperationException(
+                    "Quest reference build retained a non-OpenXR XR loader after canonicalization.");
+            }
+            if (!verifiedOpenXr)
+                throw new InvalidOperationException("Quest reference build has no active OpenXR loader after assignment.");
+            if (!generalSettings.InitManagerOnStart)
+                throw new InvalidOperationException("Quest reference build must initialize XR Manager on start.");
+            if (openXrSettings.renderMode != OpenXRSettings.RenderMode.SinglePassInstanced)
+                throw new InvalidOperationException("Quest reference build did not persist single-pass-instanced OpenXR rendering.");
         }
 
         private static string DefaultWindowsOutput() => Path.Combine("Builds", "Windows", "BodyRigReferenceProbe.exe");
