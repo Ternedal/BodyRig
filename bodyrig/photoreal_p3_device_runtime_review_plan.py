@@ -413,6 +413,8 @@ def build_device_runtime_review_plan(
         "p3_device_distillation_execution_receipt_sha256": execution[
             "p3_device_distillation_execution_receipt_sha256"
         ],
+        "distillation_plan": dict(plan),
+        "distillation_execution_receipt": dict(execution),
         "target_profile": normalized_profile,
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": normalized_profile["target_family"],
@@ -459,6 +461,8 @@ def validate_device_runtime_review_plan(
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_request_sha256",
         "p3_device_distillation_execution_receipt_sha256",
+        "distillation_plan",
+        "distillation_execution_receipt",
         "target_profile",
         "target_profile_sha256",
         "target_device_family",
@@ -503,6 +507,61 @@ def validate_device_runtime_review_plan(
     ):
         _sha(value.get(field), label=f"P3 runtime review plan {field}")
 
+    raw_plan = value.get("distillation_plan")
+    raw_execution = value.get("distillation_execution_receipt")
+    if not isinstance(raw_plan, Mapping) or not isinstance(raw_execution, Mapping):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review source snapshots are invalid"
+        )
+    try:
+        source_plan = validate_p3_device_distillation_plan(raw_plan)
+    except PhotorealP3DeviceDistillationPlanError as exc:
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            f"P3 runtime review distillation-plan snapshot strict readback failed: {exc}"
+        ) from exc
+    try:
+        source_execution = validate_execution_receipt(raw_execution)
+    except PhotorealP3DeviceDistillationRunnerError as exc:
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            f"P3 runtime review execution-receipt snapshot strict readback failed: {exc}"
+        ) from exc
+    if source_plan.get("p3_device_distillation_plan_sha256") != value.get(
+        "p3_device_distillation_plan_sha256"
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review plan snapshot SHA binding mismatch"
+        )
+    if source_execution.get("p3_device_distillation_execution_receipt_sha256") != value.get(
+        "p3_device_distillation_execution_receipt_sha256"
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review execution snapshot SHA binding mismatch"
+        )
+    if source_execution.get("p3_device_distillation_plan_sha256") != source_plan.get(
+        "p3_device_distillation_plan_sha256"
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review source snapshots target different distillation plans"
+        )
+    for field in (
+        "performer_id",
+        "selected_epoch_id",
+        "teacher_input_sha256",
+        "p2_animation_plan_sha256",
+        "p2_exavatar_animation_execution_input_sha256",
+        "p2_animated_human_review_sha256",
+    ):
+        if value.get(field) != source_plan.get(field) or value.get(field) != source_execution.get(field):
+            raise PhotorealP3DeviceRuntimeReviewPlanError(
+                f"P3 runtime review source snapshot lineage mismatch: {field}"
+            )
+    if value.get("p3_device_distillation_request_sha256") != source_execution.get(
+        "p3_device_distillation_request_sha256"
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review request SHA differs from execution snapshot"
+        )
+
     profile = value.get("target_profile")
     if not isinstance(profile, Mapping):
         raise PhotorealP3DeviceRuntimeReviewPlanError(
@@ -515,6 +574,17 @@ def validate_device_runtime_review_plan(
     if _digest(normalized_profile) != value.get("target_profile_sha256"):
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review target profile digest mismatch"
+        )
+    if (
+        source_plan.get("target_profile") != normalized_profile
+        or source_plan.get("target_profile_sha256") != value.get("target_profile_sha256")
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review target profile differs from distillation-plan snapshot"
+        )
+    if source_execution.get("target_model") != normalized_profile["target_model"]:
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review executed target differs from target profile"
         )
     if (
         value.get("target_device_family") != normalized_profile["target_family"]
@@ -533,13 +603,38 @@ def validate_device_runtime_review_plan(
         label="P3 runtime review executed adapter revision",
     )
 
+    if value.get("executed_adapter") != source_execution.get("adapter"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review adapter differs from execution snapshot"
+        )
+    if value.get("executed_adapter_revision") != source_execution.get("adapter_revision"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review adapter revision differs from execution snapshot"
+        )
+
     if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review student representation is not canonical"
         )
+    if value.get("student_representation") != source_execution.get("student_representation"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review student representation differs from execution snapshot"
+        )
+    if (
+        normalized_profile["target_model"] == "quest-2"
+        and value.get("student_representation") == "gaussian-splat-optional"
+    ):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "Quest 2 runtime review cannot accept a native Gaussian student"
+        )
     if value.get("student_components") != list(REQUIRED_STUDENT_COMPONENTS):
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review required student components mismatch"
+        )
+
+    if value.get("student_components") != source_execution.get("student_components"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review student components differ from execution snapshot"
         )
 
     artifacts = value.get("student_artifacts")
@@ -597,6 +692,10 @@ def validate_device_runtime_review_plan(
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review student artifact universe is not canonical"
         )
+    if artifacts != source_execution.get("student_artifacts"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review student artifact universe differs from execution snapshot"
+        )
     if value.get("student_artifact_bytes_reverified") is not True:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review student artifact bytes were not reverified"
@@ -605,6 +704,10 @@ def validate_device_runtime_review_plan(
     measurements = _normalize_measurements(
         value.get("fidelity_delta_measurements")
     )
+    if measurements != source_execution.get("fidelity_delta_measurements"):
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review fidelity deltas differ from execution snapshot"
+        )
     delta_count = value.get("fidelity_delta_dimension_count")
     if (
         isinstance(delta_count, bool)
