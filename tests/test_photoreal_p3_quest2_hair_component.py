@@ -19,7 +19,7 @@ from bodyrig.photoreal_p3_quest2_hair_component import (
 )
 
 
-def _donor() -> tuple[list[list[float]], list[list[int]], list[float]]:
+def _donor() -> tuple[list[list[float]], list[list[float]], list[list[int]], list[float]]:
     positions = [
         [-0.20, 0.00, -0.10],
         [0.20, 0.00, -0.10],
@@ -47,8 +47,9 @@ def _donor() -> tuple[list[list[float]], list[list[int]], list[float]]:
         [13, 15, 14],
     ]
     faces = [head_faces[index % len(head_faces)] for index in range(40)]
+    normals = [[0.0, 1.0, 0.0] for _ in positions]
     offsets = [0.0] * 8 + [0.024] * 8
-    return positions, faces, offsets
+    return positions, normals, faces, offsets
 
 
 def _base_avatar() -> tuple[bytes, bytes, int]:
@@ -115,10 +116,11 @@ def _envelope(face_count: int) -> dict[str, object]:
 
 
 def test_teacher_hair_selector_keeps_one_connected_head_shell() -> None:
-    positions, faces, offsets = _donor()
+    positions, normals, faces, offsets = _donor()
 
     result = select_teacher_hair_faces(
         donor_positions=positions,
+        donor_normals=normals,
         donor_faces=faces,
         outward_offsets=offsets,
     )
@@ -131,7 +133,7 @@ def test_teacher_hair_selector_keeps_one_connected_head_shell() -> None:
 
 
 def test_teacher_hair_selector_fails_closed_without_teacher_shell() -> None:
-    positions, faces, _offsets = _donor()
+    positions, normals, faces, _offsets = _donor()
 
     with pytest.raises(
         PhotorealP3Quest2HairComponentError,
@@ -139,6 +141,7 @@ def test_teacher_hair_selector_fails_closed_without_teacher_shell() -> None:
     ):
         select_teacher_hair_faces(
             donor_positions=positions,
+            donor_normals=normals,
             donor_faces=faces,
             outward_offsets=[0.0] * len(positions),
         )
