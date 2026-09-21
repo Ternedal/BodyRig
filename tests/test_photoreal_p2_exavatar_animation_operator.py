@@ -37,6 +37,9 @@ def test_animation_operator_keeps_downstream_authority_closed() -> None:
     for field in (
         "artifact_bytes_verified_by_core",
         "animation_complete",
+        "inference_only",
+        "teacher_training_performed",
+        "checkpoint_mutation_performed",
         "human_animated_visual_acceptance_required",
         "held_out_evaluation_disclosed",
         "p2_animated_teacher_acceptance_authority",
