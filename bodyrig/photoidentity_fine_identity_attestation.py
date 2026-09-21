@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .photoidentity_detail_enrich import _private_source_bindings
+
 FORMAT = "bodyrig-photoidentity-fine-identity-attestation"
 VERSION = 1
 POLICY_REVISION = "photoidentity-fine-identity-photoidentical-v1"
@@ -69,6 +71,7 @@ PRIVATE_TOP_FIELDS = {
     "bodyrig_revision",
     "anatomy_observation_evidence_sha256",
     "anatomy_sufficiency_report_sha256",
+    "private_source_manifest_set_sha256",
     "marker_inventory_path",
     "marker_inventory_sha256",
     "entries",
@@ -225,7 +228,12 @@ def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:
         temp.unlink(missing_ok=True)
 
 
-def _canonical_private_manifest(path: Path) -> dict[str, Any]:
+def _canonical_private_manifest(
+    path: Path,
+    *,
+    sources_by_ordinal: Mapping[int, Mapping[str, Any]],
+    expected_manifest_set_sha256: str,
+) -> dict[str, Any]:
     manifest = _read_json(path, label="Private fine-identity review manifest")
     if set(manifest) != PRIVATE_TOP_FIELDS:
         raise PhotoIdentityFineIdentityAttestationError("private fine-identity review manifest fields must match v1 exactly")
@@ -237,6 +245,12 @@ def _canonical_private_manifest(path: Path) -> dict[str, Any]:
         raise PhotoIdentityFineIdentityAttestationError("private fine-identity performer/revision identity is invalid")
     _sha(manifest.get("anatomy_observation_evidence_sha256"), label="anatomy observation evidence SHA-256")
     _sha(manifest.get("anatomy_sufficiency_report_sha256"), label="anatomy sufficiency report SHA-256")
+    manifest_set_sha = _sha(
+        manifest.get("private_source_manifest_set_sha256"),
+        label="private source manifest set SHA-256",
+    )
+    if manifest_set_sha != expected_manifest_set_sha256:
+        raise PhotoIdentityFineIdentityAttestationError("private fine-identity review lost exact sweep manifest-set binding")
 
     marker_path = Path(str(manifest.get("marker_inventory_path") or "")).expanduser().resolve()
     expected_marker_sha = _sha(manifest.get("marker_inventory_sha256"), label="marker inventory SHA-256")
@@ -267,7 +281,15 @@ def _canonical_private_manifest(path: Path) -> dict[str, Any]:
         if isinstance(source_ordinal, bool) or not isinstance(source_ordinal, int) or source_ordinal < 1:
             raise PhotoIdentityFineIdentityAttestationError("fine-identity evidence source ordinal is invalid")
 
+        source_binding = sources_by_ordinal.get(source_ordinal)
+        if not isinstance(source_binding, Mapping):
+            raise PhotoIdentityFineIdentityAttestationError("fine-identity source ordinal is outside the exact sweep")
+        if str(source_binding.get("scene_id") or "") != scene_id:
+            raise PhotoIdentityFineIdentityAttestationError("fine-identity scene id no longer matches exact sweep source")
         source_path = Path(str(raw.get("source_media_path") or "")).expanduser().resolve()
+        expected_bound_path = Path(str(source_binding.get("path") or "")).expanduser().resolve()
+        if source_path != expected_bound_path:
+            raise PhotoIdentityFineIdentityAttestationError("fine-identity source path does not match exact sweep source ordinal")
         review_path = Path(str(raw.get("review_image_path") or "")).expanduser().resolve()
         expected_source_sha = _sha(raw.get("source_media_sha256"), label="source media SHA-256")
         expected_review_sha = _sha(raw.get("review_image_sha256"), label="review image SHA-256")
@@ -389,6 +411,7 @@ def read_attestation(path: Path, **kwargs: Any) -> dict[str, Any]:
 
 def record_attestation(
     *,
+    sweep_root: Path,
     private_manifest: Path,
     anatomy_observations: Path,
     anatomy_report: Path,
@@ -401,9 +424,27 @@ def record_attestation(
     confirm_distinctive_markers_photoidentity: bool,
     output: Path,
 ) -> dict[str, Any]:
-    manifest = _canonical_private_manifest(private_manifest.expanduser().resolve())
+    sweep_root = sweep_root.expanduser().resolve()
     anatomy_observations = anatomy_observations.expanduser().resolve()
     anatomy_report = anatomy_report.expanduser().resolve()
+    anatomy_report_value = _read_json(anatomy_report, label="Anatomy sufficiency report")
+    source_count = anatomy_report_value.get("source_files_scanned")
+    if isinstance(source_count, bool) or not isinstance(source_count, int) or source_count < 1:
+        raise PhotoIdentityFineIdentityAttestationError("anatomy sufficiency report lacks exact source-file count")
+    try:
+        sources_by_ordinal, manifest_set_sha = _private_source_bindings(
+            sweep_root,
+            expected_count=source_count,
+        )
+    except Exception as exc:
+        raise PhotoIdentityFineIdentityAttestationError(
+            f"could not re-resolve exact sweep source bindings: {exc}"
+        ) from exc
+    manifest = _canonical_private_manifest(
+        private_manifest.expanduser().resolve(),
+        sources_by_ordinal=sources_by_ordinal,
+        expected_manifest_set_sha256=manifest_set_sha,
+    )
     anatomy_obs_sha = _sha256_file(anatomy_observations)
     anatomy_report_sha = _sha256_file(anatomy_report)
     if manifest["anatomy_observation_evidence_sha256"] != anatomy_obs_sha:
@@ -466,6 +507,7 @@ def record_attestation(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Record source-grounded photoidentical fine-identity anatomy attestation.")
+    parser.add_argument("--sweep-root", required=True)
     parser.add_argument("--private-manifest", required=True)
     parser.add_argument("--anatomy-observations", required=True)
     parser.add_argument("--anatomy-report", required=True)
@@ -480,6 +522,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = record_attestation(
+            sweep_root=Path(args.sweep_root),
             private_manifest=Path(args.private_manifest),
             anatomy_observations=Path(args.anatomy_observations),
             anatomy_report=Path(args.anatomy_report),
