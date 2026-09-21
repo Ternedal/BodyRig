@@ -367,6 +367,8 @@ def build_exavatar_animation_execution_input(
         "p2_motion_preparation_receipt_sha256": motion[
             "p2_motion_preparation_receipt_sha256"
         ],
+        "exavatar_workspace_sha256": identity["exavatar_workspace_sha256"],
+        "exavatar_preprocess_state_sha256": identity["exavatar_preprocess_state_sha256"],
         "exavatar_upstream_commit": PINNED_UPSTREAM_COMMIT,
         "exavatar_animation_adapter": P2_ANIMATION_ADAPTER,
         "exavatar_animation_script": UPSTREAM_ANIMATION_SCRIPT,
@@ -405,6 +407,10 @@ def validate_exavatar_animation_execution_input(
         "p2_animation_plan_sha256",
         "p2_exavatar_animation_identity_sha256",
         "p2_motion_preparation_receipt_sha256",
+        "exavatar_workspace_sha256",
+        "exavatar_preprocess_state_sha256",
+        "exavatar_workspace_sha256",
+        "exavatar_preprocess_state_sha256",
         "exavatar_upstream_commit",
         "exavatar_animation_adapter",
         "exavatar_animation_script",
