@@ -240,6 +240,7 @@ def build_hair_envelope(
     try:
         selection = select_teacher_hair_faces(
             donor_positions=donor_positions.tolist(),
+            donor_normals=normals.tolist(),
             donor_faces=donor_faces.tolist(),
             outward_offsets=offsets.tolist(),
         )
