@@ -79,3 +79,8 @@ A successful run produces `p3-device-distillation-execution-receipt.json` with:
 ```
 
 The next boundary is not another automatic metric gate. It is physical runtime materialization and human review on the target Quest class, using the generated student package and the recorded teacher-to-student deltas as evidence.
+
+
+## Adapter trust boundary
+
+This is a protocol isolation boundary, not an operating-system sandbox. The adapter runs as a trusted host process. BodyRig passes only the staged teacher root in the adapter protocol and re-verifies those staged bytes before and after execution, but it does not provide process-level filesystem confinement. A malicious adapter with ordinary host permissions could inspect unrelated host files.
