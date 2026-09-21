@@ -886,7 +886,7 @@ def main(argv: list[str] | None = None) -> int:
             "required_student_components": list(request["student_components"]),
             "implemented_student_components": [],
             "geometry_source": "accepted-exavatar-zero-pose-smplx",
-            "appearance_source": "accepted-exavatar-zero-pose-gaussian-rgb",
+            "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
             "teacher_checkpoint_sha256": _sha_file(
                 sources["teacher-checkpoint"]
             ),
