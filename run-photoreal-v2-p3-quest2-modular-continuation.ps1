@@ -96,9 +96,36 @@ $TeacherWorkRoot = Need-Directory -Path $TeacherWorkRoot -Label "Teacher work ro
 $CandidateWorkspace = Need-Directory -Path $CandidateWorkspace -Label "Quest2 candidate workspace"
 $DistillationPlan = Need-File -Path $DistillationPlan -Label "P3 distillation plan"
 $candidateReceipt = Need-File -Path (Join-Path $CandidateWorkspace "p3-quest2-student-candidate-receipt.json") -Label "Quest2 candidate receipt"
+$candidateRequest = Need-File -Path (Join-Path $CandidateWorkspace "request.json") -Label "Quest2 candidate request"
 $candidateOutput = Need-Directory -Path (Join-Path $CandidateWorkspace "output") -Label "Quest2 candidate output"
+$candidateManifest = Need-File -Path (Join-Path $candidateOutput "quest2-student-candidate.json") -Label "Quest2 candidate manifest"
+$candidateAdapter = Need-File -Path (Join-Path $repoRoot "tools\photoreal_p3_exavatar_quest2_student_candidate.py") -Label "Current Quest2 candidate adapter"
 $python = Resolve-WindowsPython -Requested $WindowsPython -RepoRoot $repoRoot
 $powerShellHost = Resolve-PowerShellHost
+
+$requestJson = Get-Content -LiteralPath $candidateRequest -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+$manifestJson = Get-Content -LiteralPath $candidateManifest -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+$receiptJson = Get-Content -LiteralPath $candidateReceipt -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+$currentCandidateAdapterSha = Sha256 $candidateAdapter
+if (
+    [string]$requestJson.format -ne "bodyrig-photoreal-p3-device-distillation-request" -or
+    [string]$manifestJson.format -ne "bodyrig-photoreal-p3-quest2-student-candidate"
+) {
+    throw "Quest2 candidate request/manifest format mismatch."
+}
+if (
+    ([string]$requestJson.adapter_revision).ToLowerInvariant() -ne $currentCandidateAdapterSha -or
+    ([string]$manifestJson.adapter_revision).ToLowerInvariant() -ne $currentCandidateAdapterSha
+) {
+    throw "Quest2 candidate was built with a stale adapter revision; regenerate the candidate with current BodyRig before continuation."
+}
+if (
+    [string]$manifestJson.p3_device_distillation_request_sha256 -ne [string]$requestJson.p3_device_distillation_request_sha256 -or
+    [string]$receiptJson.p3_device_distillation_request_sha256 -ne [string]$requestJson.p3_device_distillation_request_sha256 -or
+    [string]$receiptJson.p3_quest2_student_candidate_sha256 -ne [string]$manifestJson.p3_quest2_student_candidate_sha256
+) {
+    throw "Quest2 candidate request/manifest/receipt lineage mismatch."
+}
 
 if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
     $WorkRoot = Join-Path (Split-Path -Parent $CandidateWorkspace) "p3-quest2-modular-continuation"
@@ -132,6 +159,7 @@ Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL V2 - QUEST2 MODULAR SOFTWARE CONTINUATION"
 Write-Host "Revision:              $head"
 Write-Host "Candidate workspace:   $CandidateWorkspace"
+Write-Host "Candidate adapter SHA: $currentCandidateAdapterSha"
 Write-Host "Distillation plan:     $DistillationPlan"
 Write-Host "Teacher work root:     $TeacherWorkRoot"
 Write-Host "Work root:             $WorkRoot"
@@ -216,6 +244,9 @@ $summary = [ordered]@{
     version = 1
     bodyrig_revision = $head
     candidate_workspace = $CandidateWorkspace
+    candidate_adapter_sha256 = $currentCandidateAdapterSha
+    candidate_request_sha256 = Sha256 $candidateRequest
+    candidate_manifest_sha256 = Sha256 $candidateManifest
     candidate_receipt_sha256 = Sha256 $candidateReceipt
     eye_output_root = $eyeRoot
     eye_receipt_sha256 = Sha256 $eyeReceipt
