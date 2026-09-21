@@ -8,8 +8,13 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .photoreal_p3_device_distillation_plan import FIDELITY_DELTA_DIMENSIONS
+from .photoreal_p3_device_distillation_plan import (
+    FIDELITY_DELTA_DIMENSIONS,
+    PhotorealP3DeviceDistillationPlanError,
+    validate_device_target_profile,
+)
 from .photoreal_p3_device_distillation_runner import (
+    ARTIFACT_FIELDS,
     BASE_STUDENT_REPRESENTATIONS,
     REQUIRED_STUDENT_COMPONENTS,
 )
@@ -436,6 +441,7 @@ def record_physical_runtime_review(
         "p3_device_runtime_review_plan_sha256": plan[
             "p3_device_runtime_review_plan_sha256"
         ],
+        "target_profile": dict(plan["target_profile"]),
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": plan["target_device_family"],
         "target_device_model": plan["target_device_model"],
@@ -445,6 +451,7 @@ def record_physical_runtime_review(
         "max_frame_time_ms": target_frame_time,
         "student_representation": plan["student_representation"],
         "student_components": list(plan["student_components"]),
+        "student_artifacts": list(plan["student_artifacts"]),
         "installed_student_artifacts": list(
             normalized["installed_student_artifacts"]
         ),
@@ -490,6 +497,7 @@ def validate_physical_runtime_review_receipt(
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_execution_receipt_sha256",
         "p3_device_runtime_review_plan_sha256",
+        "target_profile",
         "target_profile_sha256",
         "target_device_family",
         "target_device_model",
@@ -499,6 +507,7 @@ def validate_physical_runtime_review_receipt(
         "max_frame_time_ms",
         "student_representation",
         "student_components",
+        "student_artifacts",
         "installed_student_artifacts",
         "observed_refresh_hz",
         "p95_frame_time_ms",
@@ -536,6 +545,29 @@ def validate_physical_runtime_review_receipt(
     ):
         _sha(value.get(field), label=f"P3 physical review {field}")
 
+    raw_profile = value.get("target_profile")
+    if not isinstance(raw_profile, Mapping):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target profile is invalid"
+        )
+    try:
+        profile = validate_device_target_profile(raw_profile)
+    except PhotorealP3DeviceDistillationPlanError as exc:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            f"P3 physical review target profile strict readback failed: {exc}"
+        ) from exc
+    if _digest(profile) != value.get("target_profile_sha256"):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target profile digest mismatch"
+        )
+    if value.get("target_device_family") != profile.get("target_family"):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target family differs from target profile"
+        )
+    if value.get("target_device_model") != profile.get("target_model"):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target model differs from target profile"
+        )
     if value.get("target_device_family") != "meta-quest":
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review target family is not canonical"
@@ -557,16 +589,74 @@ def validate_physical_runtime_review_receipt(
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review student representation is not canonical"
         )
+    if (
+        value.get("target_device_model") == "quest-2"
+        and value.get("student_representation") == "gaussian-splat-optional"
+    ):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "Quest 2 physical review cannot accept a native Gaussian student"
+        )
     components = value.get("student_components")
     if components != list(REQUIRED_STUDENT_COMPONENTS):
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review required student components mismatch"
         )
 
-    artifacts = value.get("installed_student_artifacts")
-    if not isinstance(artifacts, list) or not artifacts:
+    planned_artifacts = value.get("student_artifacts")
+    if not isinstance(planned_artifacts, list) or not planned_artifacts:
         raise PhotorealP3PhysicalRuntimeReviewError(
-            "P3 physical review installed student artifact evidence is missing"
+            "P3 physical review planned student artifact universe is missing"
+        )
+    planned_map: dict[str, str] = {}
+    normalized_planned: list[dict[str, Any]] = []
+    for item in planned_artifacts:
+        if not isinstance(item, Mapping) or set(item) != ARTIFACT_FIELDS:
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                "P3 physical review planned artifact fields must match v1 exactly"
+            )
+        relative = _text(
+            item.get("relative_path"),
+            label="P3 physical review planned artifact path",
+        ).replace("\\", "/")
+        if relative in planned_map:
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                "P3 physical review repeats planned student artifact"
+            )
+        size = item.get("size_bytes")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 1:
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                "P3 physical review planned artifact size is invalid"
+            )
+        sha = _sha(
+            item.get("sha256"),
+            label="P3 physical review planned artifact SHA-256",
+        )
+        kind = _text(
+            item.get("kind"),
+            label="P3 physical review planned artifact kind",
+            maximum=64,
+        )
+        planned_map[relative] = sha
+        normalized_planned.append(
+            {
+                "kind": kind,
+                "relative_path": relative,
+                "size_bytes": size,
+                "sha256": sha,
+            }
+        )
+    if planned_artifacts != sorted(
+        normalized_planned,
+        key=lambda item: item["relative_path"],
+    ):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review planned artifact universe is not canonical"
+        )
+
+    artifacts = value.get("installed_student_artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != len(planned_map):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review installed student artifact evidence is incomplete"
         )
     seen: set[str] = set()
     for item in artifacts:
@@ -583,9 +673,17 @@ def validate_physical_runtime_review_receipt(
                 "P3 physical review repeats installed artifact"
             )
         seen.add(relative)
-        _sha(
+        installed_sha = _sha(
             item.get("sha256"),
             label="P3 physical review installed artifact SHA-256",
+        )
+        if planned_map.get(relative) != installed_sha:
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                "P3 physical review installed student bytes differ from planned student universe"
+            )
+    if seen != set(planned_map):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review installed artifact universe differs from planned student universe"
         )
 
     target_refresh = _finite(
@@ -607,6 +705,13 @@ def validate_physical_runtime_review_receipt(
     if min(target_refresh, target_frame_time, refresh, p95) <= 0:
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review performance values must be positive"
+        )
+    if (
+        target_refresh != float(profile["target_refresh_hz"])
+        or target_frame_time != float(profile["max_frame_time_ms"])
+    ):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review performance budget differs from target profile"
         )
     for field in (
         "stereo_rendering_observed",
