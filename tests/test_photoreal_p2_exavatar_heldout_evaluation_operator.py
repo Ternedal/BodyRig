@@ -56,3 +56,10 @@ def test_heldout_operator_powershell_parses_when_pwsh_is_available() -> None:
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+def test_heldout_input_operator_uses_source_specific_output_and_safe_ref() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "HeldOutSourceRef -notmatch" in source
+    assert "unsafe for the canonical output path" in source
+    assert '$outputRoot = Join-Path $heldOutInputRoot $HeldOutSourceRef' in source
+\n
