@@ -826,10 +826,11 @@ def validate_distillation_result(
                 "sha256": observed_sha,
             }
         )
+    root_manifest = (output_dir / "distillation-manifest.json").resolve()
     actual = {
         path.relative_to(output_dir).as_posix()
         for path in output_dir.rglob("*")
-        if path.is_file() and path.name != "distillation-manifest.json"
+        if path.is_file() and path.resolve() != root_manifest
     }
     if actual != listed:
         raise PhotorealP3DeviceDistillationRunnerError(
