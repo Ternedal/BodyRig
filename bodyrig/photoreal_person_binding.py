@@ -5,7 +5,6 @@ import json
 import math
 import os
 import re
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -30,6 +29,10 @@ FORMAT = "bodyrig-photoreal-person-binding-authority"
 VERSION = 1
 POLICY_REVISION = "bodyrig-photoreal-person-binding-authority-v1"
 BINDING_ID_RE = re.compile(r"^photoperson-[0-9a-f]{32}$")
+PERSON_ID_RE = re.compile(r"^person-[0-9a-f]{32}$")
+PERSON_REVISION_RE = re.compile(r"^person-r[0-9]{4}$")
+BODY_REVISION_RE = re.compile(r"^body-r[0-9]{4}$")
+BODY_ID_RE = re.compile(r"^body-[0-9a-f]{32}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -312,6 +315,7 @@ def validate_photoreal_person_binding_structure(value: Mapping[str, Any]) -> dic
     _strict_v1(value.get("version"))
 
     for field in (
+        "assembly_fingerprint",
         "body_package_sha256",
         "source_binding_file_sha256",
         "source_binding_evidence_sha256",
