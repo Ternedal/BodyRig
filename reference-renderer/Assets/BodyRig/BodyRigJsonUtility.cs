@@ -53,6 +53,35 @@ namespace BodyRig.ReferenceRenderer
             "motions/gesture_03.vrma",
         };
 
+        private static readonly string[] P3QuestReviewManifestFields =
+        {
+            "format",
+            "version",
+            "bodyrig_revision",
+            "performer_id",
+            "selected_epoch_id",
+            "teacher_input_sha256",
+            "p3_device_distillation_plan_sha256",
+            "p3_device_distillation_execution_receipt_sha256",
+            "p3_device_runtime_review_plan_sha256",
+            "target_device_family",
+            "target_device_model",
+            "student_representation",
+            "student_components",
+            "avatar",
+            "avatar_sha256",
+            "basecolor",
+            "basecolor_sha256",
+            "provenance",
+            "provenance_sha256",
+            "physical_review_only",
+            "comparison_only",
+            "physical_device_evidence_present",
+            "runtime_acceptance_authority",
+            "photoreal_acceptance_authority",
+            "production_activation",
+        };
+
         private static readonly string[] RootV1Fields =
         {
             "type",
@@ -267,6 +296,105 @@ namespace BodyRig.ReferenceRenderer
             }
 
             ValidateRuntimeManifestPayloads(root);
+            return 1;
+        }
+
+
+        internal static int ValidateP3QuestReviewManifestJson(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+            {
+                throw new ArgumentException("P3 Quest review manifest JSON is required");
+            }
+
+            var root = ParseObjectMembers(json, "P3 Quest review manifest");
+            RequireExactFields(root, P3QuestReviewManifestFields, "P3 Quest review manifest");
+
+            if (RequireStringMember(root, "format", "P3 Quest review manifest") !=
+                "bodyrig-photoreal-p3-quest2-review-runtime-manifest")
+            {
+                throw new ArgumentException("P3 Quest review manifest format mismatch");
+            }
+
+            if (!root.TryGetValue("version", out var rawVersion))
+            {
+                throw new ArgumentException("P3 Quest review manifest requires version 1");
+            }
+            RequireNumericToken(rawVersion, "P3 Quest review manifest.version");
+            if (CompareJsonNumberToInteger(rawVersion, 1L) != 0)
+            {
+                throw new ArgumentException("P3 Quest review manifest requires numeric version 1");
+            }
+
+            var revision = RequireStringMember(root, "bodyrig_revision", "P3 Quest review manifest");
+            if (!Regex.IsMatch(revision, @"\A[0-9a-f]{40}\z", RegexOptions.CultureInvariant))
+            {
+                throw new ArgumentException("P3 Quest review manifest BodyRig revision is invalid");
+            }
+
+            RequireConstrainedStringMember(root, "performer_id", "P3 Quest review manifest", 1, 256, null);
+            RequireConstrainedStringMember(root, "selected_epoch_id", "P3 Quest review manifest", 1, 256, null);
+            foreach (var field in new[]
+            {
+                "teacher_input_sha256",
+                "p3_device_distillation_plan_sha256",
+                "p3_device_distillation_execution_receipt_sha256",
+                "p3_device_runtime_review_plan_sha256",
+                "avatar_sha256",
+                "basecolor_sha256",
+                "provenance_sha256",
+            })
+            {
+                RequireConstrainedStringMember(root, field, "P3 Quest review manifest", 64, 64, Sha256Pattern);
+            }
+
+            if (RequireStringMember(root, "target_device_family", "P3 Quest review manifest") != "meta-quest" ||
+                RequireStringMember(root, "target_device_model", "P3 Quest review manifest") != "quest-2" ||
+                RequireStringMember(root, "student_representation", "P3 Quest review manifest") != "skinned-mesh-pbr")
+            {
+                throw new ArgumentException("P3 Quest review target/student contract mismatch");
+            }
+
+            if (RequireStringMember(root, "avatar", "P3 Quest review manifest") != "avatar.vrm" ||
+                RequireStringMember(root, "basecolor", "P3 Quest review manifest") != "basecolor.png" ||
+                RequireStringMember(root, "provenance", "P3 Quest review manifest") != "quest2-modular-provenance.json")
+            {
+                throw new ArgumentException("P3 Quest review payload names are invalid");
+            }
+
+            if (!root.TryGetValue("student_components", out var rawComponents))
+            {
+                throw new ArgumentException("P3 Quest review manifest requires student_components");
+            }
+            var components = ParseStringArray(rawComponents, "P3 Quest review manifest.student_components");
+            if (components.Count != 2 ||
+                components[0] != "specialized-eye-component" ||
+                components[1] != "teacher-derived-hair-component")
+            {
+                throw new ArgumentException("P3 Quest review component universe mismatch");
+            }
+
+            foreach (var field in new[] { "physical_review_only", "comparison_only" })
+            {
+                if (!root.TryGetValue(field, out var raw) || raw != "true")
+                {
+                    throw new ArgumentException($"P3 Quest review manifest requires {field}=true");
+                }
+            }
+            foreach (var field in new[]
+            {
+                "physical_device_evidence_present",
+                "runtime_acceptance_authority",
+                "photoreal_acceptance_authority",
+                "production_activation",
+            })
+            {
+                if (!root.TryGetValue(field, out var raw) || raw != "false")
+                {
+                    throw new ArgumentException($"P3 Quest review manifest requires {field}=false");
+                }
+            }
+
             return 1;
         }
 
