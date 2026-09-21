@@ -13,6 +13,7 @@ from bodyrig.photoreal_p2_animation_plan import (
     PhotorealP2AnimationPlanError,
     build_p2_animation_plan,
     build_p2_animation_plan_files,
+    validate_p2_animation_plan,
 )
 
 
@@ -140,6 +141,40 @@ def test_p2_plan_binds_p1_pass_static_checkpoint_and_exact_upstream_animation_co
         plan,
         omit="p2_animation_plan_sha256",
     )
+
+
+def test_p2_plan_strict_validator_rejects_resealed_contract_drift(tmp_path: Path) -> None:
+    teacher, output = _teacher(tmp_path)
+    manifest, receipt = _p1_artifacts()
+    plan = build_p2_animation_plan(teacher, output, manifest, receipt)
+    plan["animation_contract"]["rig_role"] = "visual-authority"
+    plan["p2_animation_plan_sha256"] = p2._digest(
+        plan,
+        omit="p2_animation_plan_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2AnimationPlanError,
+        match="rig role mismatch",
+    ):
+        validate_p2_animation_plan(plan)
+
+
+def test_p2_plan_strict_validator_rejects_resealed_authority_escalation(tmp_path: Path) -> None:
+    teacher, output = _teacher(tmp_path)
+    manifest, receipt = _p1_artifacts()
+    plan = build_p2_animation_plan(teacher, output, manifest, receipt)
+    plan["quest_distillation_authorized"] = True
+    plan["p2_animation_plan_sha256"] = p2._digest(
+        plan,
+        omit="p2_animation_plan_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2AnimationPlanError,
+        match="authority mismatch: quest_distillation_authorized",
+    ):
+        validate_p2_animation_plan(plan)
 
 
 def test_p2_plan_rejects_completed_p1_failure(tmp_path: Path) -> None:
