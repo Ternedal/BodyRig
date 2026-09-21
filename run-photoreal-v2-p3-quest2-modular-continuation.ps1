@@ -52,6 +52,19 @@ function Sha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Resolve-PowerShellHost {
+    $name = if ($PSVersionTable.PSEdition -eq "Core") { "pwsh.exe" } else { "powershell.exe" }
+    $candidate = Join-Path $PSHOME $name
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        return (Resolve-Path -LiteralPath $candidate).Path
+    }
+    $command = Get-Command $name -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Could not resolve an isolated PowerShell host for stage operators."
+    }
+    return $command.Source
+}
+
 function Run-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
@@ -85,6 +98,7 @@ $DistillationPlan = Need-File -Path $DistillationPlan -Label "P3 distillation pl
 $candidateReceipt = Need-File -Path (Join-Path $CandidateWorkspace "p3-quest2-student-candidate-receipt.json") -Label "Quest2 candidate receipt"
 $candidateOutput = Need-Directory -Path (Join-Path $CandidateWorkspace "output") -Label "Quest2 candidate output"
 $python = Resolve-WindowsPython -Requested $WindowsPython -RepoRoot $repoRoot
+$powerShellHost = Resolve-PowerShellHost
 
 if ([string]::IsNullOrWhiteSpace($WorkRoot)) {
     $WorkRoot = Join-Path (Split-Path -Parent $CandidateWorkspace) "p3-quest2-modular-continuation"
@@ -147,7 +161,7 @@ Run-Checked -Label "Teacher-derived hair" -Action {
         "-OutputRoot", $hairRoot,
         "-WindowsPython", $python
     )
-    & $hairScript @hairArgs
+    & $powerShellHost -NoProfile -File $hairScript @hairArgs
 }
 $hairEnvelope = Need-File -Path $hairEnvelope -Label "Quest2 hair envelope"
 $hairReceipt = Need-File -Path (Join-Path $hairRoot "p3-quest2-hair-student-receipt.json") -Label "Quest2 hair receipt"
@@ -160,7 +174,7 @@ Run-Checked -Label "Teacher-to-student fidelity delta" -Action {
         "-Output", $fidelityEvidence,
         "-WindowsPython", $python
     )
-    & $fidelityScript @fidelityArgs
+    & $powerShellHost -NoProfile -File $fidelityScript @fidelityArgs
 }
 $fidelityEvidence = Need-File -Path $fidelityEvidence -Label "Quest2 fidelity evidence"
 
@@ -172,7 +186,7 @@ Run-Checked -Label "Final P3 distillation manifest" -Action {
         "-Workspace", $finalRoot,
         "-WindowsPython", $python
     )
-    & $finalScript @finalArgs
+    & $powerShellHost -NoProfile -File $finalScript @finalArgs
 }
 $finalReceipt = Need-File -Path (Join-Path $finalRoot "p3-device-distillation-execution-receipt.json") -Label "Final P3 execution receipt"
 $finalWorkspaceReceipt = Need-File -Path (Join-Path $finalRoot "p3-quest2-final-workspace-receipt.json") -Label "Final Quest2 workspace receipt"
@@ -184,7 +198,7 @@ Run-Checked -Label "Physical runtime review plan" -Action {
         "-ReviewWorkspace", $reviewRoot,
         "-WindowsPython", $python
     )
-    & $reviewScript @reviewArgs
+    & $powerShellHost -NoProfile -File $reviewScript @reviewArgs
 }
 $runtimeReviewPlan = Need-File -Path (Join-Path $reviewRoot "p3-device-runtime-review-plan.json") -Label "Quest2 runtime review plan"
 
@@ -193,7 +207,7 @@ Run-Checked -Label "Non-authoritative physical evidence template" -Action {
         "-RuntimeReviewWorkspace", $reviewRoot,
         "-Output", $templatePath
     )
-    & $templateScript @templateArgs
+    & $powerShellHost -NoProfile -File $templateScript @templateArgs
 }
 $templatePath = Need-File -Path $templatePath -Label "Quest2 physical evidence template"
 
