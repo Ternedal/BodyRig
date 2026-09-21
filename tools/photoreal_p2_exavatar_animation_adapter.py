@@ -199,6 +199,42 @@ def _validate_workspace(root: Path, request: Mapping[str, Any]) -> dict[str, Any
         raise ExAvatarP2AnimationAdapterError(
             "ExAvatar patched avatar config bytes drifted"
         )
+    linked_assets = receipt.get("linked_assets")
+    if not isinstance(linked_assets, list) or not linked_assets:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar workspace linked-asset provenance is missing"
+        )
+    avatar_asset_count = 0
+    asset_prefix = "repos/ExAvatar_RELEASE/avatar/common/utils/human_model_files/"
+    for raw in linked_assets:
+        if not isinstance(raw, Mapping):
+            raise ExAvatarP2AnimationAdapterError(
+                "ExAvatar workspace linked-asset entry is invalid"
+            )
+        destination = _relative(
+            raw.get("destination"),
+            label="ExAvatar linked-asset destination",
+        )
+        if not destination.startswith(asset_prefix):
+            continue
+        target = (root / destination).resolve()
+        if not target.is_file():
+            raise ExAvatarP2AnimationAdapterError(
+                f"ExAvatar avatar model asset is missing: {destination}"
+            )
+        expected_asset_sha = _sha(
+            raw.get("sha256"),
+            label="ExAvatar avatar model asset SHA-256",
+        )
+        if _file_sha(target) != expected_asset_sha:
+            raise ExAvatarP2AnimationAdapterError(
+                f"ExAvatar avatar model asset bytes drifted: {destination}"
+            )
+        avatar_asset_count += 1
+    if avatar_asset_count < 1:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar workspace contains no verified avatar human-model assets"
+        )
     for field, expected in (
         ("smplx_gender_explicit", True),
         ("upstream_default_gender_accepted", False),
