@@ -45,6 +45,7 @@ CONFIG_FIELDS = {
     "version",
     "adapter",
     "revision",
+    "entrypoint",
     "student_representation",
     "student_components",
     "command",
@@ -204,6 +205,11 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         value.get("revision"),
         label="P3 distillation adapter revision",
     )
+    entrypoint = _text(
+        value.get("entrypoint"),
+        label="P3 distillation adapter entrypoint",
+        maximum=4096,
+    )
     representation = value.get("student_representation")
     if representation not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceDistillationRunnerError(
@@ -285,6 +291,7 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         "version": CONFIG_VERSION,
         "adapter": adapter,
         "revision": revision,
+        "entrypoint": entrypoint,
         "student_representation": str(representation),
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "command": list(command),
@@ -297,6 +304,42 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         "gaussian_splat_target_support": gaussian_support,
         "consumes_staged_teacher_only": True,
     }
+
+
+def _verify_adapter_entrypoint(
+    config: Mapping[str, Any],
+    *,
+    config_root: str | Path,
+) -> Path:
+    root = Path(config_root).expanduser().resolve()
+    raw = Path(str(config["entrypoint"])).expanduser()
+    entrypoint = raw.resolve() if raw.is_absolute() else (root / raw).resolve()
+    if not entrypoint.is_file() or entrypoint.is_symlink():
+        raise PhotorealP3DeviceDistillationRunnerError(
+            f"P3 distillation adapter entrypoint is missing/not regular: {entrypoint}"
+        )
+    observed = _file_sha(entrypoint)
+    if observed != config["revision"]:
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 distillation adapter entrypoint SHA-256 does not match revision"
+        )
+
+    invoked = False
+    for token in config["command"]:
+        candidate_raw = Path(token).expanduser()
+        candidate = (
+            candidate_raw.resolve()
+            if candidate_raw.is_absolute()
+            else (root / candidate_raw).resolve()
+        )
+        if candidate == entrypoint:
+            invoked = True
+            break
+    if not invoked:
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 distillation command does not invoke the pinned adapter entrypoint"
+        )
+    return entrypoint
 
 
 def _source_root(
@@ -1108,8 +1151,13 @@ def run_external_distillation(
     teacher_output_root: str | Path,
     identity_root: str | Path,
     workspace: str | Path,
+    config_root: str | Path | None = None,
 ) -> dict[str, Any]:
     config = validate_distillation_config(config)
+    _verify_adapter_entrypoint(
+        config,
+        config_root=Path.cwd() if config_root is None else config_root,
+    )
     try:
         authority = require_p3_distillation_execution_authority(plan)
     except PhotorealP3DeviceDistillationPlanError as exc:
@@ -1259,12 +1307,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        config_path = args.config.expanduser().resolve()
         receipt = run_external_distillation(
-            _read_json(args.config, label="P3 distillation config"),
+            _read_json(config_path, label="P3 distillation config"),
             _read_json(args.plan, label="P3 distillation plan"),
             teacher_output_root=args.teacher_output_root,
             identity_root=args.identity_root,
             workspace=args.workspace,
+            config_root=config_path.parent,
         )
     except PhotorealP3DeviceDistillationRunnerError as exc:
         print(f"BodyRig P3 device distillation runner: FAIL: {exc}", file=sys.stderr)
