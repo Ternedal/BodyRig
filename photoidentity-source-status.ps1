@@ -207,6 +207,19 @@ switch ([string]$status.stage) {
         Write-Host "Confirm rear orientation and actual observable torso/chest + waist/hips anatomy only when the source supports it."
         Write-Host "No hidden anatomy may be inferred through clothing or occlusion."
     }
+    "fine-identity-human-review" {
+        Write-Host "Photoidentical fine-identity source review is required before registration."
+        Write-Host "Required domains: oral/teeth, chest/breast shape, nipple/areola, intimate anatomy, distinctive markers."
+        Write-Host "Each domain requires >=2 distinct real source scenes. Generic guessing remains forbidden."
+        Write-Host "Next command template:"
+        Write-Host ("& " + (Quote-PS (Join-Path $repoRoot "record-photoidentity-fine-identity-attestation.ps1")) + " -SweepRoot " + (Quote-PS $SweepRoot) + " -PrivateReviewManifest '<private-review-manifest.json>' -ReviewedBy '<reviewer>' -QualityNote '<what was visibly verified>' -ConfirmOralTeethPhotoidentity -ConfirmChestBreastShapePhotoidentity -ConfirmNippleAreolaPhotoidentity -ConfirmIntimateAnatomyPhotoidentity -ConfirmDistinctiveMarkersPhotoidentity")
+    }
+    "fine-identity-registration" {
+        if ([string]::IsNullOrWhiteSpace($BodyJobId)) { throw "Fine-identity registration stage requires BodyJobId." }
+        Write-Host "Base photoidentity authority is registered. Bind the photoidentical fine-identity sidecar to the same body-job."
+        Write-Host "Next command:"
+        Write-Host ("& " + (Quote-PS (Join-Path $repoRoot "register-photoidentity-fine-identity-authority.ps1")) + " -BodyJobId " + (Quote-PS $BodyJobId) + " -SweepRoot " + (Quote-PS $SweepRoot))
+    }
     "ready-for-registration" {
         if ([string]::IsNullOrWhiteSpace($BodyJobId)) {
             Write-Host "Source chain is complete, but avatar render remains blocked until it is registered to the exact body-build."
