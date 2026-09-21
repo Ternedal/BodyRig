@@ -20,7 +20,6 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     anatomy_obs.write_text('{"ok":true}\n', encoding="utf-8")
     anatomy_report.write_text('{"ok":true}\n', encoding="utf-8")
     marker = tmp_path / "markers.private.json"
-    marker.write_text('{"markers":[{"kind":"mole","region":"left-shoulder"}]}\n', encoding="utf-8")
 
     entries = []
     for domain in subject.REQUIRED_DOMAINS:
@@ -43,6 +42,30 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                     "source_quality": 0.91,
                 }
             )
+    marker_refs = [
+        entry["reference"] for entry in entries if entry["domain"] == "distinctive_markers_detail"
+    ]
+    marker.write_text(
+        json.dumps(
+            {
+                "format": subject.MARKER_INVENTORY_FORMAT,
+                "version": subject.MARKER_INVENTORY_VERSION,
+                "reviewed_regions": sorted(subject.REQUIRED_MARKER_REVIEW_REGIONS),
+                "markers": [
+                    {
+                        "marker_id": "marker-1",
+                        "kind": "mole",
+                        "region": "left_arm",
+                        "laterality": "left",
+                        "source_references": marker_refs,
+                    }
+                ],
+                "complete_body_marker_review": True,
+                "generic_guessing_permitted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
     manifest = {
         "format": subject.PRIVATE_FORMAT,
         "version": subject.PRIVATE_VERSION,
