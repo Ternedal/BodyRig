@@ -139,9 +139,9 @@ namespace BodyRig.ReferenceRenderer
             var manifestDirectory = Path.GetDirectoryName(manifestFile);
             if (string.IsNullOrEmpty(manifestDirectory))
                 throw new InvalidDataException("P3 runtime manifest has no parent directory");
-            var studentRoot = Path.GetFullPath(Path.Combine(manifestDirectory, "student"));
-            if (!Directory.Exists(studentRoot))
-                throw new DirectoryNotFoundException("P3 student root is missing: " + studentRoot);
+            var artifactRoot = Path.GetFullPath(Path.Combine(manifestDirectory, "output"));
+            if (!Directory.Exists(artifactRoot))
+                throw new DirectoryNotFoundException("P3 artifact root is missing: " + artifactRoot);
 
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var installed = new List<InstalledArtifact>();
@@ -155,8 +155,8 @@ namespace BodyRig.ReferenceRenderer
                 if (!IsLowerHexSha256(artifact.sha256) || artifact.size_bytes < 1)
                     throw new InvalidDataException("P3 runtime manifest artifact metadata is invalid: " + relative);
 
-                var fullPath = Path.GetFullPath(Path.Combine(studentRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
-                RequireChild(studentRoot, fullPath, relative);
+                var fullPath = Path.GetFullPath(Path.Combine(artifactRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
+                RequireChild(artifactRoot, fullPath, relative);
                 if (!File.Exists(fullPath))
                     throw new FileNotFoundException("P3 student artifact is missing", fullPath);
                 var info = new FileInfo(fullPath);
@@ -185,15 +185,15 @@ namespace BodyRig.ReferenceRenderer
                 throw new InvalidDataException("P3 runtime manifest does not resolve its avatar artifact");
 
             var actual = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var path in Directory.GetFiles(studentRoot, "*", SearchOption.AllDirectories))
+            foreach (var path in Directory.GetFiles(artifactRoot, "*", SearchOption.AllDirectories))
             {
-                var relative = path.Substring(studentRoot.Length)
+                var relative = path.Substring(artifactRoot.Length)
                     .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                     .Replace(Path.DirectorySeparatorChar, '/');
                 actual.Add(relative);
             }
             if (!actual.SetEquals(seen))
-                throw new InvalidDataException("P3 student artifact universe drifted on device");
+                throw new InvalidDataException("P3 artifact universe drifted on device");
 
             Vrm10Instance candidate = null;
             try
