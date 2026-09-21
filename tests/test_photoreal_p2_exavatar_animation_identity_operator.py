@@ -18,6 +18,7 @@ def test_operator_uses_exact_teacher_config_workspace_authority() -> None:
     assert 'Get-ConfigArg -Command $command -Name "--linux-python"' in source
     assert 'Get-ConfigArg -Command $command -Name "--wsl-exe"' in source
     assert "d45268730c779fae4118f1a361cf9ff639bc4d1e" in source
+    assert '$config.version -is [bool]' in source
 
 
 def test_operator_uses_wsl_module_and_accepted_teacher_output() -> None:
