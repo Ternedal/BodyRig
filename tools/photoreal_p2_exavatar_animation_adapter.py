@@ -173,6 +173,32 @@ def _validate_workspace(root: Path, request: Mapping[str, Any]) -> dict[str, Any
         raise ExAvatarP2AnimationAdapterError("ExAvatar workspace teacher-input mismatch")
     if receipt.get("dataset") != "Custom":
         raise ExAvatarP2AnimationAdapterError("ExAvatar workspace dataset is not Custom")
+    repositories = receipt.get("repository_commits")
+    if (
+        not isinstance(repositories, Mapping)
+        or repositories.get("ExAvatar_RELEASE") != PINNED_UPSTREAM_COMMIT
+    ):
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar workspace repository provenance mismatch"
+        )
+    patch = receipt.get("avatar_config_patch")
+    if not isinstance(patch, Mapping) or patch.get("relative_path") != "avatar/main/config.py":
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar workspace avatar config provenance is invalid"
+        )
+    if patch.get("dataset") != "Custom" or patch.get("smplx_gender") != receipt.get("smplx_gender"):
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar workspace avatar config policy mismatch"
+        )
+    expected_config_sha = _sha(
+        patch.get("after_sha256"),
+        label="ExAvatar patched avatar config SHA-256",
+    )
+    config_path = root / "repos" / "ExAvatar_RELEASE" / "avatar" / "main" / "config.py"
+    if _file_sha(config_path) != expected_config_sha:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar patched avatar config bytes drifted"
+        )
     for field, expected in (
         ("smplx_gender_explicit", True),
         ("upstream_default_gender_accepted", False),
