@@ -338,6 +338,28 @@ def test_adapter_entrypoint_sha_is_verified_before_execution(
     ) == adapter.resolve()
 
 
+def test_verified_command_uses_absolute_adapter_entrypoint(
+    tmp_path: Path,
+) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_bytes(b"print('adapter')\n")
+    config = _config()
+    config["revision"] = _sha(adapter.read_bytes())
+    validated = validate_distillation_config(config)
+    entrypoint = runner._verify_adapter_entrypoint(
+        validated,
+        config_root=tmp_path,
+    )
+
+    command = runner._materialize_verified_adapter_command(
+        validated,
+        config_root=tmp_path,
+        entrypoint=entrypoint,
+    )
+
+    assert command == ["python", str(adapter.resolve())]
+
+
 def test_adapter_entrypoint_sha_drift_is_rejected(tmp_path: Path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_bytes(b"changed adapter\n")
