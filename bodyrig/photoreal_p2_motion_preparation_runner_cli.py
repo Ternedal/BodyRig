@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--private-index", type=Path, required=True)
     parser.add_argument("--selection", type=Path, required=True)
     parser.add_argument("--input-plan", type=Path, required=True)
+    parser.add_argument("--normalization-selection", type=Path, required=True)
     parser.add_argument("--scan-plan", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -31,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
             args.private_index,
             args.selection,
             args.input_plan,
+            args.normalization_selection,
             args.scan_plan,
             args.workspace,
         )
