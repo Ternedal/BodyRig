@@ -201,4 +201,9 @@ def require_body_job_photoidentical_fine_identity(person_id: str, body_job_id: s
         raise PhotoIdentityFineIdentityRegistryError(str(exc)) from exc
     if list(attestation["attested_domains"]) != list(receipt["attested_domains"]):
         raise PhotoIdentityFineIdentityRegistryError("fine-identity registered domain set changed")
-    return {**receipt, "attestation": attestation}
+    return {
+        **receipt,
+        "attestation": attestation,
+        "receipt_path": str(receipt_path),
+        "receipt_sha256": _sha256(receipt_path),
+    }
