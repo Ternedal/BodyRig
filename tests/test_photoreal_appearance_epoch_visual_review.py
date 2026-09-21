@@ -80,6 +80,47 @@ def _receipt() -> dict[str, object]:
     }
 
 
+def _scan_plan() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-scan-plan",
+        "version": 1,
+        "performer_id": "42",
+        "sources": [
+            {
+                "source_key": "scene:t",
+                "source_sha256": "a" * 64,
+                "resolved_path": r"E:\train.mp4",
+                "kind": "video",
+                "split": "train",
+                "group_id": "group:t",
+                "projection": "flat",
+                "projection_authority": None,
+                "stereo_layout": "mono",
+                "decode_mode": "rectilinear-mono",
+            },
+            {
+                "source_key": "scene:e",
+                "source_sha256": "b" * 64,
+                "resolved_path": r"E:\eval.jpg",
+                "kind": "image",
+                "split": "evaluation",
+                "group_id": "group:e",
+                "projection": "flat",
+                "projection_authority": None,
+                "stereo_layout": "mono",
+                "decode_mode": "image-direct",
+            },
+        ],
+        "all_sources_sha256_bound": True,
+        "train_evaluation_assignment_inherited": True,
+        "frame_analyzer_required": True,
+        "teacher_training_authorized": False,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
 def _observation(
     *,
     source: str,
@@ -128,10 +169,12 @@ def _path_map() -> dict[str, object]:
     return build_runtime_path_map(
         _plan(),
         _receipt(),
+        _scan_plan(),
         _frame_index(),
         converter=lambda path: "/mnt/e/" + path.rsplit("\\", 1)[-1],
         dataset_plan_sha256="3" * 64,
         source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
         frame_index_sha256="5" * 64,
     )
 
@@ -151,11 +194,13 @@ def test_review_request_keeps_train_and_eval_for_human_review_without_granting_a
     result = build_review_request(
         _plan(),
         _receipt(),
+        _scan_plan(),
         _frame_index(),
         _path_map(),
         bodyrig_revision="f" * 40,
         dataset_plan_sha256="3" * 64,
         source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
         frame_index_sha256="5" * 64,
     )
 
@@ -167,6 +212,58 @@ def test_review_request_keeps_train_and_eval_for_human_review_without_granting_a
     assert result["teacher_input_authorized"] is False
     assert result["photoreal_acceptance_authority"] is False
     assert result["production_activation"] is False
+
+
+def test_review_request_uses_exact_scan_decoder_authority_for_spatial_source() -> None:
+    scan = _scan_plan()
+    authority = {
+        "format": "bodyrig-explicit-projection-authority",
+        "version": 1,
+        "projection_type": "equi",
+        "deprojection_authority": False,
+        "yaw_degrees": 0.0,
+        "pitch_degrees": 0.0,
+        "horizontal_fov_degrees": 90.0,
+        "vertical_fov_degrees": 90.0,
+    }
+    scan["sources"][0]["projection"] = "equi"
+    scan["sources"][0]["projection_authority"] = authority
+    scan["sources"][0]["stereo_layout"] = "side-by-side"
+    scan["sources"][0]["decode_mode"] = "spatial-deprojection-required"
+
+    frame_index = _frame_index()
+    frame_index["observations"][0]["eye"] = "left"
+
+    path_map = build_runtime_path_map(
+        _plan(),
+        _receipt(),
+        scan,
+        frame_index,
+        converter=lambda path: "/mnt/e/" + path.rsplit("\\", 1)[-1],
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+    result = build_review_request(
+        _plan(),
+        _receipt(),
+        scan,
+        frame_index,
+        path_map,
+        bodyrig_revision="f" * 40,
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+
+    source = next(item for item in result["sources"] if item["source_key"] == "scene:t")
+    assert source["projection"] == "equi"
+    assert source["stereo_layout"] == "side-by-side"
+    assert source["decode_mode"] == "spatial-deprojection-required"
+    assert source["projection_authority"] == authority
+    assert result["scan_plan_sha256"] == "6" * 64
 
 
 def test_review_request_rejects_runtime_path_map_that_drops_held_out_source() -> None:
@@ -181,6 +278,7 @@ def test_review_request_rejects_runtime_path_map_that_drops_held_out_source() ->
         build_review_request(
             _plan(),
             _receipt(),
+            _scan_plan(),
             _frame_index(),
             path_map,
             bodyrig_revision="f" * 40,
@@ -198,6 +296,7 @@ def test_review_rejects_boolean_frame_index_version() -> None:
         build_runtime_path_map(
             _plan(),
             _receipt(),
+            _scan_plan(),
             frame_index,
             converter=lambda _path: "/mnt/e/source",
             dataset_plan_sha256="3" * 64,
@@ -316,6 +415,7 @@ def _valid_review_output(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         "performer_id": "42",
         "dataset_plan_sha256": "3" * 64,
         "source_receipt_sha256": "4" * 64,
+        "scan_plan_sha256": "6" * 64,
         "frame_index_sha256": "5" * 64,
         "group_count": 2,
         "train_group_count": 1,
@@ -407,6 +507,7 @@ def _valid_review_output(tmp_path: Path) -> tuple[Path, dict[str, object]]:
         "performer_id": "42",
         "dataset_plan_sha256": "3" * 64,
         "source_receipt_sha256": "4" * 64,
+        "scan_plan_sha256": "6" * 64,
         "frame_index_sha256": "5" * 64,
     }
     return root, request
