@@ -17,7 +17,7 @@ def test_p3_runner_operator_requires_clean_main() -> None:
 
 def test_p3_runner_operator_never_passes_original_teacher_roots_to_adapter() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "Teacher originals:        READ-ONLY / NOT PASSED TO ADAPTER" in source
+    assert "Teacher originals:        NOT PASSED IN ADAPTER PROTOCOL" in source
     assert "consumes_staged_teacher_only" in source
     assert "Teacher staging:          EXACT COPY + PRE/POST SHA VERIFY" in source
 
