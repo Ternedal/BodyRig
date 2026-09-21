@@ -18,6 +18,10 @@ from .photoreal_p2_motion_input_plan import (
     PhotorealP2MotionInputPlanError,
     validate_motion_input_plan,
 )
+from .photoreal_p2_motion_normalization_selection import (
+    PhotorealP2MotionNormalizationSelectionError,
+    validate_normalization_selection,
+)
 from .photoreal_p2_motion_selection import (
     PhotorealP2MotionSelectionError,
     validate_motion_source_selection,
@@ -219,7 +223,11 @@ def _scan_sources(scan_plan: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _task_request(task: Mapping[str, Any], scan_source: Mapping[str, Any]) -> dict[str, Any]:
+def _task_request(
+    task: Mapping[str, Any],
+    scan_source: Mapping[str, Any],
+    normalization: Mapping[str, Any],
+) -> dict[str, Any]:
     for field in ("source_key", "group_id", "split", "source_sha256"):
         expected = task.get(field)
         observed = scan_source.get(
@@ -236,24 +244,60 @@ def _task_request(task: Mapping[str, Any], scan_source: Mapping[str, Any]) -> di
     action = task.get("normalization_action")
     authority = scan_source.get("projection_authority")
 
+    selected_ref = _text(task.get("source_ref"), label="P2 motion source ref", maximum=64)
+    if normalization.get("source_ref") != selected_ref:
+        raise PhotorealP2MotionPreparationRunnerError("P2 motion normalization/source task ref mismatch")
+    for field in ("source_key", "split", "role"):
+        if normalization.get(field) != task.get(field):
+            raise PhotorealP2MotionPreparationRunnerError(
+                f"P2 motion normalization/source task mismatch: {field}"
+            )
+    if normalization.get("projection") != projection or normalization.get("stereo_layout") != stereo:
+        raise PhotorealP2MotionPreparationRunnerError("P2 motion normalization projection/stereo drift")
+    selected_eye = normalization.get("selected_eye")
+    selected_viewport = normalization.get("selected_viewport_id")
+    strategy = normalization.get("normalization_strategy")
+
     if action == "preserve-flat-mono-video":
         if projection != "flat" or stereo != "mono":
             raise PhotorealP2MotionPreparationRunnerError("direct P2 motion source is not flat mono in P0 authority")
         if authority is not None:
             raise PhotorealP2MotionPreparationRunnerError("flat mono P2 source unexpectedly carries projection authority")
+        if strategy != "direct-flat-mono" or selected_eye != "mono" or selected_viewport is not None:
+            raise PhotorealP2MotionPreparationRunnerError("flat mono P2 normalization selection mismatch")
     elif action == "exact-authorized-deprojection":
-        if not isinstance(authority, Mapping):
-            raise PhotorealP2MotionPreparationRunnerError("spatial P2 motion source lacks P0 projection authority")
-        version = authority.get("version")
-        if (
-            authority.get("format") not in PROJECTION_AUTHORITY_FORMATS
-            or isinstance(version, bool)
-            or version != 1
-            or authority.get("deprojection_authority") is not False
-        ):
-            raise PhotorealP2MotionPreparationRunnerError("spatial P2 motion projection authority is invalid")
-        if authority.get("projection_type") != projection:
-            raise PhotorealP2MotionPreparationRunnerError("spatial P2 motion projection authority type mismatch")
+        if projection == "flat" and stereo in {"side-by-side", "over-under"}:
+            if authority is not None:
+                raise PhotorealP2MotionPreparationRunnerError("rectilinear stereo P2 source unexpectedly carries projection authority")
+            if strategy != "rectilinear-stereo-split" or selected_eye not in {"left", "right"} or selected_viewport is not None:
+                raise PhotorealP2MotionPreparationRunnerError("rectilinear stereo P2 normalization selection mismatch")
+        else:
+            if projection != "equi" or not isinstance(authority, Mapping):
+                raise PhotorealP2MotionPreparationRunnerError(
+                    "spatial P2 motion source is not execution-authoritative equi geometry"
+                )
+            version = authority.get("version")
+            if (
+                authority.get("format") not in PROJECTION_AUTHORITY_FORMATS
+                or isinstance(version, bool)
+                or version != 1
+                or authority.get("deprojection_authority") is not False
+            ):
+                raise PhotorealP2MotionPreparationRunnerError("spatial P2 motion projection authority is invalid")
+            if authority.get("projection_type") != projection:
+                raise PhotorealP2MotionPreparationRunnerError("spatial P2 motion projection authority type mismatch")
+            if strategy != "equirectangular-deprojection":
+                raise PhotorealP2MotionPreparationRunnerError("spatial P2 normalization strategy mismatch")
+            allowed_eye = {"mono"} if stereo == "mono" else {"left", "right"}
+            if selected_eye not in allowed_eye:
+                raise PhotorealP2MotionPreparationRunnerError("spatial P2 normalization eye mismatch")
+            from .photoreal_equirectangular_deprojection import build_equirectangular_viewports
+            allowed_viewports = {
+                str(item["viewport_id"])
+                for item in build_equirectangular_viewports(authority)
+            }
+            if selected_viewport not in allowed_viewports:
+                raise PhotorealP2MotionPreparationRunnerError("spatial P2 normalization viewport is outside authority")
     else:
         raise PhotorealP2MotionPreparationRunnerError("P2 motion normalization action is unsupported")
 
@@ -267,7 +311,7 @@ def _task_request(task: Mapping[str, Any], scan_source: Mapping[str, Any]) -> di
         raise PhotorealP2MotionPreparationRunnerError("P2 motion source size drifted before preparation")
 
     return {
-        "source_ref": _text(task.get("source_ref"), label="P2 motion source ref", maximum=64),
+        "source_ref": selected_ref,
         "group_ref": _text(task.get("group_ref"), label="P2 motion group ref", maximum=64),
         "split": _text(task.get("split"), label="P2 motion split", maximum=32),
         "role": _text(task.get("role"), label="P2 motion role", maximum=64),
@@ -280,6 +324,9 @@ def _task_request(task: Mapping[str, Any], scan_source: Mapping[str, Any]) -> di
         "stereo_layout": stereo,
         "projection_authority": dict(authority) if isinstance(authority, Mapping) else None,
         "normalization_action": action,
+        "normalization_strategy": strategy,
+        "selected_eye": selected_eye,
+        "selected_viewport_id": selected_viewport,
         "motion_fitting_backend": PINNED_FITTING_BACKEND,
         "motion_fitting_camera_mode": PINNED_CAMERA_MODE,
         "source_media_rehash_required": False,
@@ -292,6 +339,7 @@ def build_motion_preparation_request(
     private_index: Mapping[str, Any],
     selection: Mapping[str, Any],
     input_plan: Mapping[str, Any],
+    normalization_selection: Mapping[str, Any],
     scan_plan: Mapping[str, Any],
     *,
     scan_plan_file_sha256: str,
@@ -307,10 +355,15 @@ def build_motion_preparation_request(
             private_index=p,
             selection=s,
         )
+        normalization = validate_normalization_selection(
+            normalization_selection,
+            input_plan=plan,
+        )
     except (
         PhotorealP2MotionEvidenceError,
         PhotorealP2MotionSelectionError,
         PhotorealP2MotionInputPlanError,
+        PhotorealP2MotionNormalizationSelectionError,
     ) as exc:
         raise PhotorealP2MotionPreparationRunnerError(
             f"P2 motion preparation authority readback failed: {exc}"
@@ -319,6 +372,11 @@ def build_motion_preparation_request(
     if _text(scan_plan.get("performer_id"), label="P0 scan-plan performer", maximum=256) != plan["performer_id"]:
         raise PhotorealP2MotionPreparationRunnerError("P0 scan plan performer differs from P2 motion plan")
     scan_sources = _scan_sources(scan_plan)
+    normalization_by_ref = {
+        str(item["source_ref"]): item
+        for item in normalization["selections"]
+        if isinstance(item, Mapping)
+    }
     tasks: list[dict[str, Any]] = []
     for raw in list(plan["motion_driver_tasks"]) + list(plan["held_out_motion_validation_tasks"]):
         if not isinstance(raw, Mapping):
@@ -327,7 +385,11 @@ def build_motion_preparation_request(
         scan_source = scan_sources.get(source_key)
         if scan_source is None:
             raise PhotorealP2MotionPreparationRunnerError("P2 selected motion source is absent from P0 scan plan")
-        tasks.append(_task_request(raw, scan_source))
+        source_ref = _text(raw.get("source_ref"), label="P2 motion source ref", maximum=64)
+        normalization_record = normalization_by_ref.get(source_ref)
+        if normalization_record is None:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion normalization selection omitted source")
+        tasks.append(_task_request(raw, scan_source, normalization_record))
     tasks.sort(key=lambda item: (item["split"], item["source_ref"]))
 
     return {
@@ -341,6 +403,9 @@ def build_motion_preparation_request(
         "p2_motion_private_index_sha256": plan["p2_motion_private_index_sha256"],
         "p2_motion_source_selection_sha256": plan["p2_motion_source_selection_sha256"],
         "p2_motion_input_plan_sha256": plan["p2_motion_input_plan_sha256"],
+        "p2_motion_normalization_selection_sha256": normalization[
+            "p2_motion_normalization_selection_sha256"
+        ],
         "p0_scan_plan_file_sha256": _sha(
             scan_plan_file_sha256,
             label="P0 scan-plan file SHA-256",
@@ -468,6 +533,7 @@ def validate_motion_preparation_manifest(
         "teacher_input_sha256",
         "p2_animation_plan_sha256",
         "p2_motion_input_plan_sha256",
+        "p2_motion_normalization_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
@@ -495,6 +561,7 @@ def validate_motion_preparation_manifest(
         "teacher_input_sha256",
         "p2_animation_plan_sha256",
         "p2_motion_input_plan_sha256",
+        "p2_motion_normalization_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
@@ -614,6 +681,9 @@ def build_motion_preparation_receipt(
         "p2_motion_private_index_sha256": request["p2_motion_private_index_sha256"],
         "p2_motion_source_selection_sha256": request["p2_motion_source_selection_sha256"],
         "p2_motion_input_plan_sha256": manifest["p2_motion_input_plan_sha256"],
+        "p2_motion_normalization_selection_sha256": manifest[
+            "p2_motion_normalization_selection_sha256"
+        ],
         "p0_scan_plan_file_sha256": manifest["p0_scan_plan_file_sha256"],
         "adapter": manifest["adapter"],
         "adapter_revision": manifest["adapter_revision"],
@@ -680,6 +750,7 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
         "p2_motion_private_index_sha256",
         "p2_motion_source_selection_sha256",
         "p2_motion_input_plan_sha256",
+        "p2_motion_normalization_selection_sha256",
         "p0_scan_plan_file_sha256",
     ):
         _sha(value.get(field), label=f"P2 motion preparation receipt {field}")
@@ -773,6 +844,7 @@ def run_motion_preparation(
     private_index: Mapping[str, Any],
     selection: Mapping[str, Any],
     input_plan: Mapping[str, Any],
+    normalization_selection: Mapping[str, Any],
     scan_plan: Mapping[str, Any],
     *,
     scan_plan_file_sha256: str,
@@ -785,6 +857,7 @@ def run_motion_preparation(
         private_index,
         selection,
         input_plan,
+        normalization_selection,
         scan_plan,
         scan_plan_file_sha256=scan_plan_file_sha256,
     )
@@ -854,6 +927,7 @@ def run_motion_preparation_files(
     private_index_path: str | Path,
     selection_path: str | Path,
     input_plan_path: str | Path,
+    normalization_selection_path: str | Path,
     scan_plan_path: str | Path,
     workspace: str | Path,
 ) -> dict[str, Any]:
@@ -864,6 +938,7 @@ def run_motion_preparation_files(
         _read_json(private_index_path, label="private P2 motion source index"),
         _read_json(selection_path, label="P2 motion source selection"),
         _read_json(input_plan_path, label="P2 motion input plan"),
+        _read_json(normalization_selection_path, label="P2 motion normalization selection"),
         _read_json(scan_path, label="P0 scan plan"),
         scan_plan_file_sha256=_file_sha(scan_path),
         workspace=workspace,
