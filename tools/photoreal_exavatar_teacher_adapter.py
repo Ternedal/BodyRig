@@ -216,6 +216,77 @@ def _materialization(dataset: Path, request: Mapping[str, Any]) -> tuple[str, li
     return source_key, consumed
 
 
+def _snapshot_epochs(model_dir: Path) -> list[int]:
+    if not model_dir.exists():
+        if model_dir.is_symlink():
+            raise ExAvatarTeacherAdapterError(f"ExAvatar model path is a broken symlink: {model_dir}")
+        return []
+    if not model_dir.is_dir() or model_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(f"ExAvatar model path is not a regular directory: {model_dir}")
+    epochs: list[int] = []
+    for path in model_dir.iterdir():
+        if not path.is_file() or path.is_symlink():
+            raise ExAvatarTeacherAdapterError(
+                f"unexpected non-regular file entry in ExAvatar model directory: {path.name}"
+            )
+        name = path.name
+        if not name.startswith("snapshot_") or not name.endswith(".pth"):
+            raise ExAvatarTeacherAdapterError(
+                f"unexpected file in ExAvatar model directory: {name}"
+            )
+        raw_epoch = name[len("snapshot_") : -len(".pth")]
+        if not raw_epoch.isdigit():
+            raise ExAvatarTeacherAdapterError(f"invalid ExAvatar snapshot name: {name}")
+        epoch = int(raw_epoch)
+        if epoch < 0 or epoch > FINAL_EPOCH:
+            raise ExAvatarTeacherAdapterError(f"unexpected ExAvatar snapshot epoch: {epoch}")
+        if epoch in epochs:
+            raise ExAvatarTeacherAdapterError(f"duplicate ExAvatar snapshot epoch: {epoch}")
+        if path.stat().st_size < 1:
+            raise ExAvatarTeacherAdapterError(f"empty ExAvatar snapshot: {name}")
+        epochs.append(epoch)
+    return sorted(epochs)
+
+
+def _training_resume_plan(
+    model_dir: Path,
+    neutral_dir: Path,
+    *,
+    subject: str,
+) -> tuple[str, list[str] | None, str | None]:
+    snapshot_epochs = _snapshot_epochs(model_dir)
+    if neutral_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path may not be a symlink: {neutral_dir}"
+        )
+    if neutral_dir.exists() and not neutral_dir.is_dir():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path is not a directory: {neutral_dir}"
+        )
+    final_checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
+    if final_checkpoint.is_file():
+        return "reuse-final-checkpoint", None, None
+    if neutral_dir.exists():
+        if snapshot_epochs:
+            raise ExAvatarTeacherAdapterError(
+                "neutral-pose output exists before final checkpoint; refusing ambiguous resume"
+            )
+        raise ExAvatarTeacherAdapterError(
+            "neutral-pose output exists without any training checkpoint"
+        )
+    if snapshot_epochs:
+        return (
+            "resume-from-checkpoint",
+            [sys.executable, "train.py", "--subject_id", subject, "--continue"],
+            "train-resume.log",
+        )
+    return (
+        "fresh",
+        [sys.executable, "train.py", "--subject_id", subject],
+        "train.log",
+    )
+
+
 def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict[str, Any]:
     if not source.is_file() or source.stat().st_size < 1:
         raise ExAvatarTeacherAdapterError(f"teacher artifact source missing: {source}")
@@ -260,13 +331,26 @@ def main(argv: list[str] | None = None) -> int:
         subject = str(workspace["subject_id"])
         model_dir = root / "repos" / "ExAvatar_RELEASE" / "avatar" / "output" / "model_dump" / subject
         neutral_dir = exavatar_main / "neutral_pose"
-        if model_dir.exists() or neutral_dir.exists():
-            raise ExAvatarTeacherAdapterError("stale ExAvatar teacher outputs exist before benchmark run")
-
         logs = root / "logs" / "teacher"
-        _run([sys.executable, "train.py", "--subject_id", subject], cwd=exavatar_main, log_path=logs / "train.log", label="ExAvatar teacher training")
         checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
-        if not checkpoint.is_file():
+        training_mode, train_argv, train_log_name = _training_resume_plan(
+            model_dir,
+            neutral_dir,
+            subject=subject,
+        )
+        if train_argv is not None:
+            _run(
+                train_argv,
+                cwd=exavatar_main,
+                log_path=logs / str(train_log_name),
+                label=(
+                    "ExAvatar teacher training resume"
+                    if training_mode == "resume-from-checkpoint"
+                    else "ExAvatar teacher training"
+                ),
+            )
+
+        if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
             raise ExAvatarTeacherAdapterError(f"ExAvatar final checkpoint missing: {checkpoint}")
 
         _run(
@@ -324,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
                     "artifact_count": len(artifacts),
                     "smplx_gender": workspace["smplx_gender"],
                     "runtime_preflight_sha256": runtime_preflight["runtime_preflight_sha256"],
+                    "training_mode": training_mode,
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
                 },
