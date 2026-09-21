@@ -226,6 +226,36 @@ def test_motion_handoff_preserves_train_eval_roles_and_hides_paths() -> None:
     assert private_index["source_media_rehash_performed"] is False
 
 
+def test_motion_handoff_validator_rejects_boolean_version_and_unknown_fields() -> None:
+    teacher = _teacher_input()
+    plan = _p2_plan(teacher["teacher_input_sha256"])
+    handoff, _private = build_motion_evidence_handoff(teacher, plan)
+
+    boolean_version = copy.deepcopy(handoff)
+    boolean_version["version"] = True
+    boolean_version["p2_motion_evidence_handoff_sha256"] = motion._digest(
+        boolean_version,
+        omit="p2_motion_evidence_handoff_sha256",
+    )
+    with pytest.raises(
+        PhotorealP2MotionEvidenceError,
+        match="format/version mismatch",
+    ):
+        validate_motion_evidence_handoff(boolean_version)
+
+    extended = copy.deepcopy(handoff)
+    extended["motion_driver_candidates"][0]["unexpected"] = "field"
+    extended["p2_motion_evidence_handoff_sha256"] = motion._digest(
+        extended,
+        omit="p2_motion_evidence_handoff_sha256",
+    )
+    with pytest.raises(
+        PhotorealP2MotionEvidenceError,
+        match="fields must match v1 exactly",
+    ):
+        validate_motion_evidence_handoff(extended)
+
+
 def test_motion_handoff_validator_rejects_resealed_private_path_leak() -> None:
     teacher = _teacher_input()
     plan = _p2_plan(teacher["teacher_input_sha256"])
