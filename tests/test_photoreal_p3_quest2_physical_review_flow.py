@@ -37,6 +37,15 @@ def test_machine_prefill_reuse_requires_exact_current_plan_and_probe() -> None:
     assert "if (-not $ReuseExisting)" in source
 
 
+
+
+
+def test_final_receipt_resume_uses_strict_python_revalidation() -> None:
+    source = RECORDER_SCRIPT.read_text(encoding="utf-8")
+    assert "[switch]$ReuseExisting" in source
+    assert '"--reuse-existing"' in source
+    assert "(Test-Path -LiteralPath $outputPath) -and -not $ReuseExisting" in source
+
 def test_physical_review_flow_never_grants_production_authority() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "Production activation:    FALSE" in source
