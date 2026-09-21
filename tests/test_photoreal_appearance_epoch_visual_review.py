@@ -1,0 +1,530 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from bodyrig.photoreal_appearance_epoch_visual_review import (
+    PhotorealAppearanceEpochVisualReviewError,
+    _reproduce_observation,
+    build_review_request,
+    build_runtime_path_map,
+    validate_review_output,
+)
+
+
+def _source(key: str, group: str, *, kind: str = "video") -> dict[str, object]:
+    return {
+        "kind": kind,
+        "source_id": key,
+        "group_id": group,
+        "path": key,
+        "information_score": 100.0,
+        "projection": "flat",
+        "stereo_layout": "mono",
+        "width": 1920,
+        "height": 1080,
+        "duration_seconds": 60.0,
+        "frame_rate": 30.0,
+        "performer_count": 1,
+        "source_binding": "scene-performer",
+    }
+
+
+def _plan() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-dataset-plan",
+        "version": 1,
+        "performer_id": "42",
+        "performer_name": "Performer 42",
+        "train": [_source("scene:t", "group:t")],
+        "evaluation": [_source("scene:e", "group:e", kind="image")],
+        "teacher_training_authorized": False,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _receipt() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-source-receipt",
+        "version": 1,
+        "performer_id": "42",
+        "performer_name": "Performer 42",
+        "sources": [
+            {
+                "kind": "video",
+                "source_key": "scene:t",
+                "resolved_path": r"E:\train.mp4",
+                "size_bytes": 100,
+                "sha256": "a" * 64,
+            },
+            {
+                "kind": "image",
+                "source_key": "scene:e",
+                "resolved_path": r"E:\eval.jpg",
+                "size_bytes": 200,
+                "sha256": "b" * 64,
+            },
+        ],
+        "all_sources_readable": True,
+        "all_sources_sha256_bound": True,
+        "source_keys_path_specific": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _scan_plan() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-scan-plan",
+        "version": 1,
+        "performer_id": "42",
+        "sources": [
+            {
+                "source_key": "scene:t",
+                "source_sha256": "a" * 64,
+                "resolved_path": r"E:\train.mp4",
+                "kind": "video",
+                "split": "train",
+                "group_id": "group:t",
+                "projection": "flat",
+                "projection_authority": None,
+                "stereo_layout": "mono",
+                "decode_mode": "rectilinear-mono",
+            },
+            {
+                "source_key": "scene:e",
+                "source_sha256": "b" * 64,
+                "resolved_path": r"E:\eval.jpg",
+                "kind": "image",
+                "split": "evaluation",
+                "group_id": "group:e",
+                "projection": "flat",
+                "projection_authority": None,
+                "stereo_layout": "mono",
+                "decode_mode": "image-direct",
+            },
+        ],
+        "all_sources_sha256_bound": True,
+        "train_evaluation_assignment_inherited": True,
+        "frame_analyzer_required": True,
+        "teacher_training_authorized": False,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _observation(
+    *,
+    source: str,
+    group: str,
+    split: str,
+    frame: str,
+    timestamp: float | None,
+) -> dict[str, object]:
+    return {
+        "source_key": source,
+        "group_id": group,
+        "split": split,
+        "frame_sha256": frame * 64,
+        "timestamp_seconds": timestamp,
+        "eye": "mono",
+        "view_bin": "front",
+        "coverage": ["face-front", "full-body-front"],
+        "target_identity_verified": True,
+        "eligible_for_teacher": True,
+    }
+
+
+def _frame_index() -> dict[str, object]:
+    return {
+        "format": "bodyrig-photoreal-frame-index",
+        "version": 1,
+        "performer_id": "42",
+        "identity_bank_sha256": "c" * 64,
+        "identity_calibration_sha256": "d" * 64,
+        "analyzer_model_set_sha256": "e" * 64,
+        "held_out_view_coverage_required": ["face-front", "full-body-front"],
+        "observations": [
+            _observation(source="scene:t", group="group:t", split="train", frame="1", timestamp=1.0),
+            _observation(source="scene:e", group="group:e", split="evaluation", frame="2", timestamp=None),
+        ],
+        "teacher_training_authorized": True,
+        "photoreal_acceptance_authority": False,
+        "human_visual_acceptance_required": True,
+        "build_only": True,
+        "runtime_dependency": False,
+        "production_activation": False,
+    }
+
+
+def _path_map() -> dict[str, object]:
+    return build_runtime_path_map(
+        _plan(),
+        _receipt(),
+        _scan_plan(),
+        _frame_index(),
+        converter=lambda path: "/mnt/e/" + path.rsplit("\\", 1)[-1],
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+
+
+def test_runtime_path_map_converts_only_eligible_sources_without_source_rehash() -> None:
+    result = _path_map()
+
+    assert result["source_count"] == 2
+    assert [item["source_key"] for item in result["source_paths"]] == ["scene:e", "scene:t"]
+    assert all(item["resolved_path"].startswith("/mnt/e/") for item in result["source_paths"])
+    assert result["source_media_rehash_performed"] is False
+    assert result["build_only"] is True
+    assert result["production_activation"] is False
+
+
+def test_review_request_keeps_train_and_eval_for_human_review_without_granting_authority() -> None:
+    result = build_review_request(
+        _plan(),
+        _receipt(),
+        _scan_plan(),
+        _frame_index(),
+        _path_map(),
+        bodyrig_revision="f" * 40,
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+
+    assert {item["split"] for item in result["observations"]} == {"train", "evaluation"}
+    assert {item["source_key"] for item in result["sources"]} == {"scene:t", "scene:e"}
+    assert result["source_media_rehash_performed"] is False
+    assert result["review_only"] is True
+    assert result["human_appearance_epoch_review_required"] is True
+    assert result["teacher_input_authorized"] is False
+    assert result["photoreal_acceptance_authority"] is False
+    assert result["production_activation"] is False
+
+
+def test_review_request_uses_exact_scan_decoder_authority_for_spatial_source() -> None:
+    scan = _scan_plan()
+    authority = {
+        "format": "bodyrig-explicit-projection-authority",
+        "version": 1,
+        "projection_type": "equi",
+        "deprojection_authority": False,
+        "yaw_degrees": 0.0,
+        "pitch_degrees": 0.0,
+        "horizontal_fov_degrees": 90.0,
+        "vertical_fov_degrees": 90.0,
+    }
+    scan["sources"][0]["projection"] = "equi"
+    scan["sources"][0]["projection_authority"] = authority
+    scan["sources"][0]["stereo_layout"] = "side-by-side"
+    scan["sources"][0]["decode_mode"] = "spatial-deprojection-required"
+
+    frame_index = _frame_index()
+    frame_index["observations"][0]["eye"] = "left"
+
+    path_map = build_runtime_path_map(
+        _plan(),
+        _receipt(),
+        scan,
+        frame_index,
+        converter=lambda path: "/mnt/e/" + path.rsplit("\\", 1)[-1],
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+    result = build_review_request(
+        _plan(),
+        _receipt(),
+        scan,
+        frame_index,
+        path_map,
+        bodyrig_revision="f" * 40,
+        dataset_plan_sha256="3" * 64,
+        source_receipt_sha256="4" * 64,
+        scan_plan_sha256="6" * 64,
+        frame_index_sha256="5" * 64,
+    )
+
+    source = next(item for item in result["sources"] if item["source_key"] == "scene:t")
+    assert source["projection"] == "equi"
+    assert source["stereo_layout"] == "side-by-side"
+    assert source["decode_mode"] == "spatial-deprojection-required"
+    assert source["projection_authority"] == authority
+    assert result["scan_plan_sha256"] == "6" * 64
+
+
+def test_review_request_rejects_runtime_path_map_that_drops_held_out_source() -> None:
+    path_map = _path_map()
+    path_map["source_paths"] = [item for item in path_map["source_paths"] if item["source_key"] == "scene:t"]
+    path_map["source_count"] = 1
+
+    with pytest.raises(
+        PhotorealAppearanceEpochVisualReviewError,
+        match="exactly the eligible review source universe",
+    ):
+        build_review_request(
+            _plan(),
+            _receipt(),
+            _scan_plan(),
+            _frame_index(),
+            path_map,
+            bodyrig_revision="f" * 40,
+            dataset_plan_sha256="3" * 64,
+            source_receipt_sha256="4" * 64,
+            frame_index_sha256="5" * 64,
+        )
+
+
+def test_review_rejects_boolean_frame_index_version() -> None:
+    frame_index = _frame_index()
+    frame_index["version"] = True
+
+    with pytest.raises(PhotorealAppearanceEpochVisualReviewError, match="frame index format/version mismatch"):
+        build_runtime_path_map(
+            _plan(),
+            _receipt(),
+            _scan_plan(),
+            frame_index,
+            converter=lambda _path: "/mnt/e/source",
+            dataset_plan_sha256="3" * 64,
+            source_receipt_sha256="4" * 64,
+            frame_index_sha256="5" * 64,
+        )
+
+
+def test_reproduce_flat_observation_requires_exact_p0_frame_sha() -> None:
+    image = object()
+
+    class Base:
+        @staticmethod
+        def _frame_sha(value):
+            assert value is image
+            return "1" * 64
+
+    class Adapter:
+        base = Base()
+
+        @staticmethod
+        def _read_frame_sample(_runtime, _source, _sample):
+            return image, False
+
+    runtime = SimpleNamespace(np=SimpleNamespace(ascontiguousarray=lambda value: value))
+    result = _reproduce_observation(
+        Adapter(),
+        runtime,
+        {"source_key": "scene:t", "projection": "flat"},
+        {"frame_sha256": "1" * 64, "timestamp_seconds": 1.0, "eye": "mono"},
+    )
+
+    assert result is image
+
+
+def test_reproduce_spatial_observation_matches_exact_deprojected_viewport() -> None:
+    raw = object()
+    wrong = object()
+    target = object()
+
+    class Base:
+        @staticmethod
+        def _frame_sha(value):
+            return {
+                wrong: "8" * 64,
+                target: "9" * 64,
+            }[value]
+
+        @staticmethod
+        def deproject_equirectangular_views(_runtime, value, _authority):
+            assert value is raw
+            return [("front", wrong), ("right", target)]
+
+    class Adapter:
+        base = Base()
+
+        @staticmethod
+        def _read_frame_sample(_runtime, _source, _sample):
+            return raw, True
+
+    runtime = SimpleNamespace(np=SimpleNamespace(ascontiguousarray=lambda value: value))
+    result = _reproduce_observation(
+        Adapter(),
+        runtime,
+        {"source_key": "scene:vr", "projection": "equi", "projection_authority": {"version": 1}},
+        {"frame_sha256": "9" * 64, "timestamp_seconds": 2.0, "eye": "mono"},
+    )
+
+    assert result is target
+
+
+def test_reproduce_observation_fails_closed_when_frame_sha_does_not_reappear() -> None:
+    image = object()
+
+    class Base:
+        @staticmethod
+        def _frame_sha(_value):
+            return "0" * 64
+
+    class Adapter:
+        base = Base()
+
+        @staticmethod
+        def _read_frame_sample(_runtime, _source, _sample):
+            return image, False
+
+    runtime = SimpleNamespace(np=SimpleNamespace(ascontiguousarray=lambda value: value))
+    with pytest.raises(PhotorealAppearanceEpochVisualReviewError, match="did not reproduce exactly once"):
+        _reproduce_observation(
+            Adapter(),
+            runtime,
+            {"source_key": "scene:t", "projection": "flat"},
+            {"frame_sha256": "1" * 64, "timestamp_seconds": 1.0, "eye": "mono"},
+        )
+
+
+def _file_sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _valid_review_output(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+    root = tmp_path / "review"
+    frames = root / "frames"
+    frames.mkdir(parents=True)
+    train_png = frames / "train.png"
+    eval_png = frames / "eval.png"
+    train_png.write_bytes(b"train-png")
+    eval_png.write_bytes(b"eval-png")
+    html_path = root / "review-index.html"
+    html_path.write_text("<html>review</html>\n", encoding="utf-8")
+
+    manifest = {
+        "format": "bodyrig-photoreal-appearance-epoch-visual-review-manifest",
+        "version": 1,
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "dataset_plan_sha256": "3" * 64,
+        "source_receipt_sha256": "4" * 64,
+        "scan_plan_sha256": "6" * 64,
+        "frame_index_sha256": "5" * 64,
+        "group_count": 2,
+        "train_group_count": 1,
+        "evaluation_group_count": 1,
+        "eligible_observation_count": 2,
+        "groups": [
+            {
+                "group_id": "group:t",
+                "split": "train",
+                "observation_count": 1,
+                "view_bins": ["front"],
+                "frames": [
+                    {
+                        "frame_id": "review-frame-train",
+                        "source_ref": "a" * 20,
+                        "frame_sha256": "1" * 64,
+                        "timestamp_seconds": 1.0,
+                        "eye": "mono",
+                        "view_bin": "front",
+                        "coverage": ["face-front"],
+                        "relative_path": "frames/train.png",
+                        "staged_png_sha256": _file_sha(train_png),
+                        "width": 1,
+                        "height": 1,
+                    }
+                ],
+            },
+            {
+                "group_id": "group:e",
+                "split": "evaluation",
+                "observation_count": 1,
+                "view_bins": ["front"],
+                "frames": [
+                    {
+                        "frame_id": "review-frame-eval",
+                        "source_ref": "b" * 20,
+                        "frame_sha256": "2" * 64,
+                        "timestamp_seconds": None,
+                        "eye": "mono",
+                        "view_bin": "front",
+                        "coverage": ["face-front"],
+                        "relative_path": "frames/eval.png",
+                        "staged_png_sha256": _file_sha(eval_png),
+                        "width": 1,
+                        "height": 1,
+                    }
+                ],
+            },
+        ],
+        "source_paths_disclosed": False,
+        "source_media_rehash_performed": False,
+        "exact_p0_frame_hashes_reproduced": True,
+        "review_only": True,
+        "human_appearance_epoch_review_required": True,
+        "teacher_input_authorized": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+        "review_index_sha256": _file_sha(html_path),
+    }
+    manifest_path = root / "appearance-epoch-visual-review-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    private = {
+        "format": "bodyrig-photoreal-private-appearance-epoch-visual-review-index",
+        "version": 1,
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "public_manifest_sha256": _file_sha(manifest_path),
+        "frames": [
+            {
+                "frame_id": "review-frame-train",
+                "source_key": "scene:t",
+                "resolved_path": "/mnt/e/train.mp4",
+                "source_sha256": "a" * 64,
+            },
+            {
+                "frame_id": "review-frame-eval",
+                "source_key": "scene:e",
+                "resolved_path": "/mnt/e/eval.jpg",
+                "source_sha256": "b" * 64,
+            },
+        ],
+        "source_paths_private": True,
+        "source_media_rehash_performed": False,
+        "production_activation": False,
+    }
+    (root / "private-review-index.json").write_text(json.dumps(private, sort_keys=True) + "\n", encoding="utf-8")
+    request = {
+        "bodyrig_revision": "f" * 40,
+        "performer_id": "42",
+        "dataset_plan_sha256": "3" * 64,
+        "source_receipt_sha256": "4" * 64,
+        "scan_plan_sha256": "6" * 64,
+        "frame_index_sha256": "5" * 64,
+    }
+    return root, request
+
+
+def test_review_output_revalidation_binds_html_and_private_public_frame_universe(tmp_path: Path) -> None:
+    root, request = _valid_review_output(tmp_path)
+
+    result = validate_review_output(root, request=request)
+
+    assert result["eligible_observation_count"] == 2
+    assert result["review_index_sha256"] == _file_sha(root / "review-index.html")
+
+
+def test_review_output_revalidation_rejects_tampered_html(tmp_path: Path) -> None:
+    root, request = _valid_review_output(tmp_path)
+    (root / "review-index.html").write_text("<html>tampered</html>\n", encoding="utf-8")
+
+    with pytest.raises(PhotorealAppearanceEpochVisualReviewError, match="HTML bytes changed"):
+        validate_review_output(root, request=request)
