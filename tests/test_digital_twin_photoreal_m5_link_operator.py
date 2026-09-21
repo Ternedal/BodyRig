@@ -20,6 +20,7 @@ def test_photoreal_m5_link_operator_requires_existing_m4_and_acceptance() -> Non
     assert '"--composition-authority-dir", $CompositionAuthorityDir' in source
     assert '"--acceptance-dir", $AcceptanceDir' in source
     assert '"--m4-photoreal-link-dir", $M4PhotorealLinkDir' in source
+    assert '$arguments += @("--library-root", $LibraryRoot)' in source
 
 
 def test_photoreal_m5_link_operator_stays_non_activating() -> None:
