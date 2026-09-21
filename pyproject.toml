@@ -74,6 +74,7 @@ bodyrig-photoreal-p2-motion-normalization-select = "bodyrig.photoreal_p2_motion_
 bodyrig-photoreal-p2-motion-window-select = "bodyrig.photoreal_p2_motion_window_selection_cli:main"
 bodyrig-photoreal-p2-exavatar-animation-execution-input = "bodyrig.photoreal_p2_exavatar_animation_execution_input:main"
 bodyrig-photoreal-p2-exavatar-animation-run = "bodyrig.photoreal_p2_exavatar_animation_runner:main"
+bodyrig-photoreal-p2-exavatar-heldout-evaluation-input = "bodyrig.photoreal_p2_exavatar_heldout_evaluation_input:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
