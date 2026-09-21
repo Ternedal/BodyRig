@@ -149,6 +149,20 @@ Only after P2 passes:
 
 A runtime build cannot claim fidelity greater than its measured teacher delta.
 
+After a real physical P3 review reaches strict all-PASS runtime + photoreal acceptance, that evidence still belongs to a Stash-performer lineage. It is not automatically a BodyRig Person/M4 authority. Create the explicit identity bridge before any M4 integration work:
+
+```powershell
+.\bind-photoreal-v2-person.ps1 `
+  -PersonLibrary <PERSON_LIBRARY> `
+  -PersonId <PERSON_ID> `
+  -AssemblyReceipt <ASSEMBLY_RECEIPT> `
+  -BodyReleaseStatus <BODY_RELEASE_STATUS> `
+  -P3PhysicalReview <P3_PHYSICAL_RUNTIME_REVIEW> `
+  -Output <PHOTOREAL_PERSON_BINDING_JSON>
+```
+
+The binding requires the Person's exact Stash performer source, body source-alignment receipt, assembly/body-release lineage and the P3 performer id to agree. It grants only `photoreal_binding_authority=true` and `m4_photoreal_integration_eligible=true`; it keeps `production_activation=false`. M4 must still explicitly consume and revalidate this authority before Photoreal V2 can become part of the canonical Person Revision release chain.
+
 ## Source analysis and identity authority
 
 Photoreal V2 separates measurement from authority.
