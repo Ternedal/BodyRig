@@ -217,7 +217,7 @@ def validate_candidate_manifest(
             "Quest2 student geometry source is not canonical"
         )
     if value.get("appearance_source") != (
-        "accepted-exavatar-zero-pose-gaussian-rgb"
+        "accepted-exavatar-refined-zero-pose-gaussian-rgb"
     ):
         raise PhotorealP3Quest2StudentCandidateRunnerError(
             "Quest2 student appearance source is not canonical"
