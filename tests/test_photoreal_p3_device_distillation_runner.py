@@ -110,6 +110,7 @@ def _config(
         "version": 1,
         "adapter": "test-distiller",
         "revision": "a" * 64,
+        "entrypoint": "adapter.py",
         "student_representation": representation,
         "student_components": list(runner.REQUIRED_STUDENT_COMPONENTS),
         "command": ["python", "adapter.py"],
@@ -318,6 +319,54 @@ def test_quest2_rejects_gaussian_representation_even_with_adapter_support(
             ),
             plan,
             staged_teacher_sources=staged,
+        )
+
+
+def test_adapter_entrypoint_sha_is_verified_before_execution(
+    tmp_path: Path,
+) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_bytes(b"print('adapter')\n")
+    config = _config()
+    config["revision"] = _sha(adapter.read_bytes())
+    validated = validate_distillation_config(config)
+
+    assert runner._verify_adapter_entrypoint(
+        validated,
+        config_root=tmp_path,
+    ) == adapter.resolve()
+
+
+def test_adapter_entrypoint_sha_drift_is_rejected(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_bytes(b"changed adapter\n")
+    config = validate_distillation_config(_config())
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="entrypoint SHA-256 does not match revision",
+    ):
+        runner._verify_adapter_entrypoint(
+            config,
+            config_root=tmp_path,
+        )
+
+
+def test_command_must_invoke_pinned_adapter_entrypoint(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter.py"
+    adapter.write_bytes(b"print('adapter')\n")
+    config = _config()
+    config["revision"] = _sha(adapter.read_bytes())
+    config["command"] = ["python", "other.py"]
+    validated = validate_distillation_config(config)
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="does not invoke the pinned adapter entrypoint",
+    ):
+        runner._verify_adapter_entrypoint(
+            validated,
+            config_root=tmp_path,
         )
 
 
