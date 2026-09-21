@@ -44,6 +44,8 @@ def test_guided_human_review_operator_requires_all_eight_explicit_decisions() ->
 def test_guided_human_review_operator_requires_explicit_confirmation() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "[Parameter(Mandatory = $true)][switch]$ConfirmPhysicalDeviceReviewComplete" in source
+    assert "$ConfirmPhysicalDeviceReviewComplete.IsPresent" in source
+    assert "Explicit physical-device review completion confirmation is required." in source
     assert '"--confirm-physical-device-review-complete"' in source
 
 
