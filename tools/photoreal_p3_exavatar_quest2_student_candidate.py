@@ -569,7 +569,7 @@ def _load_zero_pose_teacher(
         }
 
         with torch.no_grad():
-            teacher, _refined, _offsets, _neutral = human(
+            _base_teacher, refined_teacher, _offsets, _neutral = human(
                 smplx_param,
                 cam,
                 is_world_coord=True,
@@ -605,8 +605,8 @@ def _load_zero_pose_teacher(
             "np": np,
             "torch": torch,
             "device": torch.device("cuda"),
-            "teacher_xyz": teacher["mean_3d"].detach().cpu().numpy(),
-            "teacher_rgb": teacher["rgb"].detach().cpu().numpy(),
+            "teacher_xyz": refined_teacher["mean_3d"].detach().cpu().numpy(),
+            "teacher_rgb": refined_teacher["rgb"].detach().cpu().numpy(),
             "zero_mesh": zero_mesh.detach().cpu().numpy(),
             "zero_joints": zero_joints[: smpl_x.joint_num].detach().cpu().numpy(),
             "joints4": top_joint.detach().cpu().numpy(),
