@@ -273,6 +273,23 @@ def test_motion_handoff_validator_rejects_resealed_private_path_leak() -> None:
         validate_motion_evidence_handoff(handoff)
 
 
+def test_private_motion_index_validator_rejects_resealed_path_substitution() -> None:
+    teacher = _teacher_input()
+    plan = _p2_plan(teacher["teacher_input_sha256"])
+    handoff, private_index = build_motion_evidence_handoff(teacher, plan)
+    private_index["entries"][0]["resolved_path"] = r"\\stash\substituted.mp4"
+    private_index["p2_motion_private_index_sha256"] = motion._digest(
+        private_index,
+        omit="p2_motion_private_index_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionEvidenceError,
+        match="digest differs from handoff binding",
+    ):
+        validate_private_motion_index(private_index, handoff=handoff)
+
+
 def test_private_motion_index_validator_rejects_resealed_public_binding_drift() -> None:
     teacher = _teacher_input()
     plan = _p2_plan(teacher["teacher_input_sha256"])
