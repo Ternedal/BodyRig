@@ -29,12 +29,15 @@ def test_operator_explicitly_avoids_source_media_rehash() -> None:
     assert "source_media_rehash_performed" in source
     assert "Get-FileHash -LiteralPath $frameIndex" in source
     assert "Get-FileHash -LiteralPath $sourceReceipt" not in source
+    assert "Get-FileHash -LiteralPath $scanPlan" not in source
     assert "Get-FileHash -LiteralPath $datasetPlan" not in source
 
 
 def test_operator_builds_private_path_map_then_exact_frame_review_pack() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
+    assert 'Join-Path $P0Root "scan-plan.json"' in source
+    assert '"--scan-plan", $wslScanPlan' in source
     assert "photoreal_appearance_epoch_visual_review path-map" in source
     assert "photoreal_appearance_epoch_visual_review" in source
     assert '"prepare"' in source
