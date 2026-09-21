@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .photoreal_teacher_authority import (
+    resume_external_teacher_files_strict,
     run_external_teacher_files_strict,
     validate_external_teacher_files_strict,
 )
@@ -26,17 +27,26 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.reuse_existing and args.workspace.expanduser().resolve().is_dir():
-            result = validate_external_teacher_files_strict(
-                args.config,
-                args.teacher_input,
-                args.workspace,
-            )
+        workspace = args.workspace.expanduser().resolve()
+        if args.reuse_existing and workspace.is_dir():
+            manifest = workspace / "output" / "teacher-manifest.json"
+            if manifest.is_file():
+                result = validate_external_teacher_files_strict(
+                    args.config,
+                    args.teacher_input,
+                    workspace,
+                )
+            else:
+                result = resume_external_teacher_files_strict(
+                    args.config,
+                    args.teacher_input,
+                    workspace,
+                )
         else:
             result = run_external_teacher_files_strict(
                 args.config,
                 args.teacher_input,
-                args.workspace,
+                workspace,
             )
     except PhotorealTeacherRunnerError as exc:
         print(f"BodyRig photoreal teacher: FAIL: {exc}", file=sys.stderr)
