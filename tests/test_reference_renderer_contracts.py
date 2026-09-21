@@ -18,12 +18,38 @@ def test_reference_renderer_pins_current_univrm_vrm1_packages() -> None:
         "com.unity.mathematics": "1.2.6",
         "com.unity.test-framework": "1.6.0",
         "com.unity.timeline": "1.7.6",
+        "com.unity.xr.management": "4.5.3",
+        "com.unity.xr.openxr": "1.16.1",
         "com.vrmc.gltf": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/UniGLTF#{UNIVRM_REVISION}",
         "com.vrmc.vrm": f"https://github.com/vrm-c/UniVRM.git?path=/Packages/VRM10#{UNIVRM_REVISION}",
     }
     assert snippet["dependencies"] == expected
     assert project["dependencies"] == expected
     assert "#v0.131.2" not in json.dumps(project)
+
+
+def test_reference_renderer_pins_canonical_quest_openxr_contract() -> None:
+    contract = json.loads((REFERENCE / "quest-xr-contract.json").read_text(encoding="utf-8"))
+    assert contract == {
+        "format": "bodyrig-reference-renderer-quest-xr-contract",
+        "version": 1,
+        "provider": "openxr",
+        "xr_management_package": "com.unity.xr.management",
+        "xr_management_version": "4.5.3",
+        "openxr_package": "com.unity.xr.openxr",
+        "openxr_version": "1.16.1",
+        "target_platform": "android",
+        "target_device_family": "meta-quest",
+        "target_device_model": "quest-2",
+        "loader_type": "UnityEngine.XR.OpenXR.OpenXRLoader",
+        "render_mode": "single-pass-instanced",
+        "runtime_initialization": "xr-management",
+        "production_activation": False,
+    }
+
+    manifest = json.loads((REFERENCE / "Packages" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["dependencies"][contract["xr_management_package"]] == contract["xr_management_version"]
+    assert manifest["dependencies"][contract["openxr_package"]] == contract["openxr_version"]
 
 
 def test_reference_renderer_is_directly_openable_unity_project() -> None:
@@ -102,6 +128,11 @@ def test_build_script_embeds_exact_clean_git_revision_exact_unity_and_univrm_pin
     assert "BodyRig Git HEAD changed during renderer build" in wrapper
     assert "univrm_revision" in wrapper
     assert "Packages\\manifest.json" in wrapper
+    assert "quest-xr-contract.json" in wrapper
+    assert "com.unity.xr.management" in wrapper
+    assert "com.unity.xr.openxr" in wrapper
+    assert "ExpectedXrManagementVersion" in wrapper
+    assert "ExpectedOpenXrVersion" in wrapper
     assert "does not pin both UniVRM packages" in wrapper
     assert UNIVRM_REVISION in (REFERENCE / "renderer-contract.json").read_text(encoding="utf-8")
     assert 'GetArgument("-bodyrigRevision")' in source
@@ -120,6 +151,12 @@ def test_build_script_has_physical_windows_and_quest_targets() -> None:
     assert "BuildTarget.Android" in source
     assert "AndroidArchitecture.ARM64" in source
     assert 'ApplicationId = "dk.ternedal.bodyrig.reference"' in source
+    assert "ConfigureQuestOpenXR()" in source
+    assert "XRGeneralSettingsPerBuildTarget.SettingsForBuildTarget(BuildTarget.Android)" in source
+    assert "XRPackageMetadataStore.AssignLoader" in source
+    assert "typeof(OpenXRLoader).FullName" in source
+    assert "OpenXRSettings.GetSettingsForBuildTargetGroup(BuildTargetGroup.Android)" in source
+    assert "OpenXRSettings.RenderMode.SinglePassInstanced" in source
     assert "BuildOptions.Development" in source
 
 
