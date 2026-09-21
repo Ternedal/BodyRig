@@ -189,10 +189,13 @@ def test_motion_input_plan_contains_only_selected_private_sources() -> None:
     assert plan["p2_animation_execution_authorized"] is False
     assert plan["production_activation"] is False
 
+    assert plan["motion_driver_tasks"][0]["resolved_path"] == r"\\stash\train.mp4"
+    assert (
+        plan["held_out_motion_validation_tasks"][0]["resolved_path"]
+        == r"\\stash\eval.mp4"
+    )
     serialized = json.dumps(plan, sort_keys=True)
-    assert r"\\stash\train.mp4" in serialized
-    assert r"\\stash\eval.mp4" in serialized
-    assert r"\\stash\extra.mp4" not in serialized
+    assert "extra.mp4" not in serialized
     assert "scene:extra:E:/extra.mp4" not in serialized
 
 
