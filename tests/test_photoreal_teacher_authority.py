@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+import bodyrig.photoreal_teacher_authority as teacher_authority
 from bodyrig.photoreal_teacher_authority import (
     validate_teacher_input_document,
     validate_teacher_input_upstream_versions,
@@ -201,3 +202,68 @@ def test_teacher_input_upstream_versions_accept_numeric_1_0() -> None:
         {"format": "bodyrig-photoreal-frame-index", "version": 1.0},
         {"format": "bodyrig-photoreal-appearance-epoch-selection", "version": 1.0},
     )
+
+
+def test_strict_teacher_reuse_reads_runner_output_subdirectory(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "config.json"
+    input_path = tmp_path / "teacher-input.json"
+    workspace = tmp_path / "teacher-workspace"
+    output = workspace / "output"
+    output.mkdir(parents=True)
+    config_path.write_text("{}\n", encoding="utf-8")
+    input_path.write_text("{}\n", encoding="utf-8")
+    (output / "teacher-manifest.json").write_text(
+        json.dumps({"sentinel": "manifest"}) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(teacher_authority, "load_teacher_config", lambda _path: {"sentinel": "config"})
+    monkeypatch.setattr(
+        teacher_authority,
+        "validate_teacher_input_document",
+        lambda value: {"validated": value},
+    )
+    monkeypatch.setattr(
+        teacher_authority,
+        "build_teacher_request",
+        lambda config, validated: {"config": config, "validated": validated},
+    )
+    captured: dict[str, object] = {}
+
+    def fake_validate(manifest, *, request, output_dir):
+        captured["manifest"] = manifest
+        captured["request"] = request
+        captured["output_dir"] = output_dir
+        return {"status": "validated"}
+
+    monkeypatch.setattr(teacher_authority, "validate_teacher_result", fake_validate)
+
+    result = teacher_authority.validate_external_teacher_files_strict(
+        config_path,
+        input_path,
+        workspace,
+    )
+
+    assert result == {"status": "validated"}
+    assert captured["manifest"] == {"sentinel": "manifest"}
+    assert captured["output_dir"] == output.resolve()
+
+
+def test_strict_teacher_reuse_rejects_workspace_without_runner_output(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "config.json"
+    input_path = tmp_path / "teacher-input.json"
+    workspace = tmp_path / "teacher-workspace"
+    workspace.mkdir()
+    config_path.write_text("{}\n", encoding="utf-8")
+    input_path.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(teacher_authority, "load_teacher_config", lambda _path: {})
+    monkeypatch.setattr(teacher_authority, "validate_teacher_input_document", lambda value: value)
+    monkeypatch.setattr(teacher_authority, "build_teacher_request", lambda _config, _input: {})
+
+    with pytest.raises(PhotorealTeacherRunnerError, match="teacher output directory is missing"):
+        teacher_authority.validate_external_teacher_files_strict(
+            config_path,
+            input_path,
+            workspace,
+        )
