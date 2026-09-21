@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$CompositionAuthorityDir,
     [Parameter(Mandatory = $true)][string]$AcceptanceDir,
     [Parameter(Mandatory = $true)][string]$M4PhotorealLinkDir,
+    [string]$LibraryRoot = "",
     [string]$WindowsPython = ""
 )
 
@@ -74,6 +75,11 @@ $arguments = @(
     "--m4-photoreal-link-dir", $M4PhotorealLinkDir,
     "--bodyrig-revision", $head
 )
+if (-not [string]::IsNullOrWhiteSpace($LibraryRoot)) {
+    $LibraryRoot = [IO.Path]::GetFullPath($LibraryRoot)
+    $arguments += @("--library-root", $LibraryRoot)
+}
+
 $output = @(& $python @arguments 2>&1)
 $code = $LASTEXITCODE
 foreach ($line in $output) {

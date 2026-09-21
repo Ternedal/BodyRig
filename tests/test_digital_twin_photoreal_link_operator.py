@@ -20,6 +20,7 @@ def test_m4_photoreal_link_operator_requires_exact_inputs() -> None:
     assert '"--composition-authority-dir", $CompositionAuthorityDir' in source
     assert '"--photoreal-person-binding", $PhotorealPersonBinding' in source
     assert '"--p3-physical-review", $P3PhysicalReview' in source
+    assert '$arguments += @("--library-root", $LibraryRoot)' in source
 
 
 def test_m4_photoreal_link_operator_stays_non_activating() -> None:
