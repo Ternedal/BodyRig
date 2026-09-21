@@ -140,6 +140,13 @@ namespace BodyRig.ReferenceRenderer
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
         {
+            if (string.Equals(
+                    Application.identifier,
+                    BodyRigP3QuestReviewBootstrap.ReviewApplicationId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
             if (FindObjectOfType<BodyRigAutomaticDeformationQuality>() != null) return;
             var host = new GameObject("BodyRig Automatic Deformation Quality");
             DontDestroyOnLoad(host);
