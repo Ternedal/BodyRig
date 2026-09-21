@@ -432,6 +432,7 @@ def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) ->
             private,
             selection,
             input_plan,
+            normalization,
             scan_plan,
             scan_plan_file_sha256="e" * 64,
         )
@@ -451,6 +452,7 @@ def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> 
             private,
             selection,
             input_plan,
+            normalization,
             scan_plan,
             scan_plan_file_sha256="e" * 64,
         )
