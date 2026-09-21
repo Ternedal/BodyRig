@@ -33,6 +33,13 @@ namespace BodyRig.ReferenceRenderer
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Install()
         {
+            if (string.Equals(
+                    Application.identifier,
+                    BodyRigP3QuestReviewBootstrap.ReviewApplicationId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
             if (FindObjectOfType<BodyRigPhysicalProbeBootstrap>() != null) return;
             var host = new GameObject("BodyRig Physical Probe");
             DontDestroyOnLoad(host);
