@@ -47,7 +47,7 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
         "selected_epoch_id": "epoch-a",
         "teacher_input_sha256": "1" * 64,
         "upstream_commit": adapter.PINNED_UPSTREAM_COMMIT,
-        "repository_commits": {"ExAvatar_RELEASE": adapter.PINNED_UPSTREAM_COMMIT},
+        "repository_commits": {"exavatar": adapter.PINNED_UPSTREAM_COMMIT},
         "dataset": "Custom",
         "smplx_gender": "female",
         "avatar_config_patch": {
