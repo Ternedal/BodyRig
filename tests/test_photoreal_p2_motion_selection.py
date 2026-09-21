@@ -38,43 +38,6 @@ def _candidate(*, ref: str, group: str, split: str, sha: str) -> dict[str, objec
 
 
 def _artifacts() -> tuple[dict[str, object], dict[str, object]]:
-    handoff: dict[str, object] = {
-        "format": evidence.HANDOFF_FORMAT,
-        "version": 1,
-        "performer_id": "42",
-        "selected_epoch_id": "epoch-a",
-        "teacher_input_sha256": "a" * 64,
-        "p2_animation_plan_sha256": "b" * 64,
-        "motion_driver_candidates": [
-            _candidate(ref="src-driver", group="grp-train", split="train", sha="c"),
-        ],
-        "held_out_motion_validation_candidates": [
-            _candidate(ref="src-heldout", group="grp-eval", split="evaluation", sha="d"),
-        ],
-        "motion_driver_candidate_count": 1,
-        "held_out_motion_validation_candidate_count": 1,
-        "operator_requirements": {
-            "select_at_least_one_training_split_motion_driver": True,
-            "select_at_least_one_evaluation_split_validation_source": True,
-            "preserve_train_evaluation_group_disjointness": True,
-            "never_use_evaluation_bytes_for_appearance_training": True,
-            "require_exact_deprojection_before_fit_when_flagged": True,
-            "record_human_selection": True,
-        },
-        "source_media_rehash_performed": False,
-        "human_motion_source_selection_required": True,
-        "human_motion_source_selection_complete": False,
-        "p2_motion_input_authorized": False,
-        "p2_animation_execution_authorized": False,
-        "p2_animated_teacher_acceptance_authority": False,
-        "quest_distillation_authorized": False,
-        "photoreal_acceptance_authority": False,
-        "production_activation": False,
-    }
-    handoff["p2_motion_evidence_handoff_sha256"] = evidence._digest(
-        handoff,
-        omit="p2_motion_evidence_handoff_sha256",
-    )
     private: dict[str, object] = {
         "format": evidence.PRIVATE_INDEX_FORMAT,
         "version": 1,
@@ -82,9 +45,6 @@ def _artifacts() -> tuple[dict[str, object], dict[str, object]]:
         "selected_epoch_id": "epoch-a",
         "teacher_input_sha256": "a" * 64,
         "p2_animation_plan_sha256": "b" * 64,
-        "p2_motion_evidence_handoff_sha256": handoff[
-            "p2_motion_evidence_handoff_sha256"
-        ],
         "entries": [
             {
                 "source_ref": "src-driver",
@@ -115,6 +75,46 @@ def _artifacts() -> tuple[dict[str, object], dict[str, object]]:
     private["p2_motion_private_index_sha256"] = evidence._digest(
         private,
         omit="p2_motion_private_index_sha256",
+    )
+    handoff: dict[str, object] = {
+        "format": evidence.HANDOFF_FORMAT,
+        "version": 1,
+        "performer_id": "42",
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "a" * 64,
+        "p2_animation_plan_sha256": "b" * 64,
+        "p2_motion_private_index_sha256": private[
+            "p2_motion_private_index_sha256"
+        ],
+        "motion_driver_candidates": [
+            _candidate(ref="src-driver", group="grp-train", split="train", sha="c"),
+        ],
+        "held_out_motion_validation_candidates": [
+            _candidate(ref="src-heldout", group="grp-eval", split="evaluation", sha="d"),
+        ],
+        "motion_driver_candidate_count": 1,
+        "held_out_motion_validation_candidate_count": 1,
+        "operator_requirements": {
+            "select_at_least_one_training_split_motion_driver": True,
+            "select_at_least_one_evaluation_split_validation_source": True,
+            "preserve_train_evaluation_group_disjointness": True,
+            "never_use_evaluation_bytes_for_appearance_training": True,
+            "require_exact_deprojection_before_fit_when_flagged": True,
+            "record_human_selection": True,
+        },
+        "source_media_rehash_performed": False,
+        "human_motion_source_selection_required": True,
+        "human_motion_source_selection_complete": False,
+        "p2_motion_input_authorized": False,
+        "p2_animation_execution_authorized": False,
+        "p2_animated_teacher_acceptance_authority": False,
+        "quest_distillation_authorized": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    handoff["p2_motion_evidence_handoff_sha256"] = evidence._digest(
+        handoff,
+        omit="p2_motion_evidence_handoff_sha256",
     )
     evidence.validate_motion_evidence_handoff(handoff)
     evidence.validate_private_motion_index(private, handoff=handoff)
