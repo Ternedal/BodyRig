@@ -35,6 +35,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                     "domain": domain,
                     "scene_id": f"{domain}-scene-{index}",
                     "region": f"{domain}-region",
+                    "source_ordinal": index,
                     "source_media_path": str(media),
                     "source_media_sha256": _sha(media),
                     "review_image_path": str(image),
