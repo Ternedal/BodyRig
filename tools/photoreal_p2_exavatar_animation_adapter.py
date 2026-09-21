@@ -236,6 +236,14 @@ def _validate_preprocess(root: Path, request: Mapping[str, Any]) -> dict[str, An
         )
     if state.get("preprocessing_complete") is not True:
         raise ExAvatarP2AnimationAdapterError("ExAvatar preprocessing is incomplete")
+    if state.get("teacher_training_authorized_by_preprocessing") is not False:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar preprocessing improperly granted teacher-training authority"
+        )
+    if state.get("human_visual_acceptance_required") is not True:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar preprocess state removed human visual acceptance"
+        )
     if state.get("photoreal_acceptance_authority") is not False or state.get("production_activation") is not False:
         raise ExAvatarP2AnimationAdapterError(
             "ExAvatar preprocess state crossed downstream authority"
@@ -254,6 +262,10 @@ def _validate_runtime_preflight(path: Path, workspace_sha: str) -> dict[str, Any
         )
     if value.get("runtime_environment_ready") is not True or value.get("blockers") != []:
         raise ExAvatarP2AnimationAdapterError("ExAvatar runtime environment is not ready")
+    if value.get("human_visual_acceptance_required") is not True:
+        raise ExAvatarP2AnimationAdapterError(
+            "ExAvatar runtime preflight removed human visual acceptance"
+        )
     claimed = _sha(
         value.get("runtime_preflight_sha256"),
         label="ExAvatar runtime preflight SHA-256",
