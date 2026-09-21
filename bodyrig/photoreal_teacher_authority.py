@@ -24,6 +24,7 @@ from .photoreal_teacher_runner import (
     PhotorealTeacherRunnerError,
     build_teacher_request,
     load_teacher_config,
+    resume_external_teacher,
     run_external_teacher,
     validate_teacher_result,
 )
@@ -481,3 +482,18 @@ def run_external_teacher_files_strict(
     )
     validated = validate_teacher_input_document(teacher_input)
     return run_external_teacher(config, validated, workspace=workspace)
+
+
+def resume_external_teacher_files_strict(
+    config_path: str | Path,
+    teacher_input_path: str | Path,
+    workspace: str | Path,
+) -> dict[str, Any]:
+    config = load_teacher_config(config_path)
+    teacher_input = _read_json(
+        teacher_input_path,
+        label="photoreal teacher input",
+        error_type=PhotorealTeacherRunnerError,
+    )
+    validated = validate_teacher_input_document(teacher_input)
+    return resume_external_teacher(config, validated, workspace=workspace)
