@@ -18,6 +18,33 @@ PRIVATE_FORMAT = "bodyrig-photoidentity-private-fine-identity-review"
 PRIVATE_VERSION = 1
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 DETAIL_QUALITY_THRESHOLD = 0.80
+MARKER_INVENTORY_FORMAT = "bodyrig-photoidentity-distinctive-marker-inventory"
+MARKER_INVENTORY_VERSION = 1
+REQUIRED_MARKER_REVIEW_REGIONS = {
+    "face_head",
+    "chest_breast",
+    "abdomen_waist",
+    "back",
+    "left_arm",
+    "right_arm",
+    "left_hand",
+    "right_hand",
+    "left_leg",
+    "right_leg",
+    "left_foot",
+    "right_foot",
+    "intimate_region",
+}
+DISTINCTIVE_MARKER_TYPES = {
+    "scar",
+    "mole",
+    "birthmark",
+    "tattoo",
+    "freckle_cluster",
+    "pigmentation",
+    "piercing_mark",
+    "other_visible_marker",
+}
 
 REQUIRED_DOMAINS = {
     "oral_teeth_detail": 2,
@@ -137,6 +164,51 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def _validate_marker_inventory(path: Path, *, allowed_source_refs: set[str]) -> dict[str, Any]:
+    value = _read_json(path, label="Private distinctive-marker inventory")
+    required = {
+        "format",
+        "version",
+        "reviewed_regions",
+        "markers",
+        "complete_body_marker_review",
+        "generic_guessing_permitted",
+    }
+    if set(value) != required:
+        raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory fields must match v1 exactly")
+    if (
+        value.get("format") != MARKER_INVENTORY_FORMAT
+        or value.get("version") != MARKER_INVENTORY_VERSION
+        or value.get("complete_body_marker_review") is not True
+        or value.get("generic_guessing_permitted") is not False
+    ):
+        raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory authority boundary is invalid")
+    reviewed_regions = value.get("reviewed_regions")
+    if not isinstance(reviewed_regions, list) or set(str(item) for item in reviewed_regions) != REQUIRED_MARKER_REVIEW_REGIONS:
+        raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory lacks complete body-region review")
+    markers = value.get("markers")
+    if not isinstance(markers, list):
+        raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory markers must be a list")
+    seen: set[str] = set()
+    for marker in markers:
+        if not isinstance(marker, Mapping) or set(marker) != {"marker_id", "kind", "region", "laterality", "source_references"}:
+            raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory marker fields are invalid")
+        marker_id = str(marker.get("marker_id") or "").strip()
+        kind = str(marker.get("kind") or "").strip()
+        region = str(marker.get("region") or "").strip()
+        laterality = str(marker.get("laterality") or "").strip()
+        refs = marker.get("source_references")
+        if not marker_id or marker_id in seen or kind not in DISTINCTIVE_MARKER_TYPES or not region or not laterality:
+            raise PhotoIdentityFineIdentityAttestationError("distinctive-marker inventory marker identity is invalid")
+        if not isinstance(refs, list) or not refs:
+            raise PhotoIdentityFineIdentityAttestationError("distinctive marker lacks source references")
+        normalized_refs = [str(item or "").strip() for item in refs]
+        if any(not ref or ref not in allowed_source_refs for ref in normalized_refs):
+            raise PhotoIdentityFineIdentityAttestationError("distinctive marker references evidence outside reviewed marker sources")
+        seen.add(marker_id)
+    return value
+
+
 def _write_create_only(path: Path, value: Mapping[str, Any]) -> None:
     if path.exists():
         raise PhotoIdentityFineIdentityAttestationError(f"fine-identity attestation already exists: {path}")
@@ -228,6 +300,8 @@ def _canonical_private_manifest(path: Path) -> dict[str, Any]:
             raise PhotoIdentityFineIdentityAttestationError(
                 f"{domain} requires at least {minimum} distinct source scenes; found {count}"
             )
+    marker_refs = {item["reference"] for item in canonical if item["domain"] == "distinctive_markers_detail"}
+    _validate_marker_inventory(marker_path, allowed_source_refs=marker_refs)
     canonical.sort(key=lambda item: (item["domain"], item["scene_id"], item["reference"]))
     return {**manifest, "_public_entries": canonical, "_marker_inventory_path": str(marker_path)}
 
