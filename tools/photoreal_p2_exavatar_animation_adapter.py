@@ -415,13 +415,18 @@ def _validate_request(
     )
 
 
-def _copy_code(source: Path, destination: Path) -> None:
+def _copy_code(
+    source: Path,
+    destination: Path,
+    *,
+    preserve_symlinks: bool = True,
+) -> None:
     if not source.is_dir() or source.is_symlink():
         raise ExAvatarP2AnimationAdapterError(f"required ExAvatar code tree missing: {source}")
     shutil.copytree(
         source,
         destination,
-        symlinks=True,
+        symlinks=preserve_symlinks,
         ignore=shutil.ignore_patterns(
             "__pycache__",
             "*.pyc",
@@ -455,7 +460,11 @@ def _prepare_stage(
 
     avatar = stage / "avatar"
     _copy_code(source_repo / "avatar" / "main", avatar / "main")
-    _copy_code(source_repo / "avatar" / "common", avatar / "common")
+    _copy_code(
+        source_repo / "avatar" / "common",
+        avatar / "common",
+        preserve_symlinks=False,
+    )
     custom_source = source_repo / "avatar" / "data" / "Custom"
     if not custom_source.is_dir():
         raise ExAvatarP2AnimationAdapterError("ExAvatar Custom dataset code is missing")
