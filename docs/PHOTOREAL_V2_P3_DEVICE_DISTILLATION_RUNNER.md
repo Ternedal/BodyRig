@@ -23,6 +23,10 @@ The adapter is explicit and revision-bound. Example:
   "adapter": "bodyrig-quest-student-v1",
   "revision": "<PINNED_REVISION>",
   "student_representation": "skinned-mesh-neural-texture",
+  "student_components": [
+    "specialized-eye-component",
+    "teacher-derived-hair-component"
+  ],
   "command": ["python", "distill_adapter.py"],
   "timeout_seconds": 86400,
   "supported_target_models": ["quest-2", "quest-3", "quest-3s"],
