@@ -50,7 +50,9 @@ def _plan() -> dict[str, object]:
         "target_profile": profile,
         "target_device_family": "meta-quest",
         "target_device_model": "quest-2",
-        "student_representation": "skinned-mesh-neural-texture",
+        "executed_adapter": "test-distiller",
+        "executed_adapter_revision": "a" * 64,
+        "student_representation": "skinned-mesh-pbr",
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "student_artifacts": [
             {
