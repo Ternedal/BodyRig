@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)][string]$CompositionAuthorityDir,
     [Parameter(Mandatory = $true)][string]$PhotorealPersonBinding,
     [Parameter(Mandatory = $true)][string]$P3PhysicalReview,
+    [string]$LibraryRoot = "",
     [string]$WindowsPython = ""
 )
 
@@ -82,6 +83,11 @@ $arguments = @(
     "--p3-physical-review", $P3PhysicalReview,
     "--bodyrig-revision", $head
 )
+if (-not [string]::IsNullOrWhiteSpace($LibraryRoot)) {
+    $LibraryRoot = [IO.Path]::GetFullPath($LibraryRoot)
+    $arguments += @("--library-root", $LibraryRoot)
+}
+
 $output = @(& $python @arguments 2>&1)
 $code = $LASTEXITCODE
 foreach ($line in $output) {
