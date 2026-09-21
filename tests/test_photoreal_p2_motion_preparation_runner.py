@@ -11,7 +11,11 @@ import pytest
 import bodyrig.photoreal_p2_motion_evidence as evidence
 import bodyrig.photoreal_p2_motion_preparation_runner as runner
 from bodyrig.photoreal_p2_motion_input_plan import build_motion_input_plan
-from bodyrig.photoreal_p2_motion_normalization_selection import build_normalization_selection
+from bodyrig.photoreal_p2_motion_normalization_selection import (
+    PhotorealP2MotionNormalizationSelectionError,
+    build_normalization_selection,
+    validate_normalization_selection,
+)
 from bodyrig.photoreal_p2_motion_preparation_runner import (
     PhotorealP2MotionPreparationRunnerError,
     build_motion_preparation_request,
@@ -424,7 +428,7 @@ def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) ->
 
     with pytest.raises(
         PhotorealP2MotionPreparationRunnerError,
-        match="lacks P0 projection authority",
+        match="not execution-authoritative equi geometry",
     ):
         build_motion_preparation_request(
             _config(["python"]),
@@ -551,3 +555,91 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
         match="authority mismatch: quest_distillation_authorized",
     ):
         validate_motion_preparation_receipt(tampered)
+
+
+def test_normalization_selection_requires_human_approval_for_spatial_choice(
+    tmp_path: Path,
+) -> None:
+    handoff, private, selection, input_plan, _normalization, scan_plan = _artifacts(
+        tmp_path,
+        spatial_driver=True,
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionNormalizationSelectionError,
+        match="requires explicit human eye/viewport approval",
+    ):
+        build_normalization_selection(
+            handoff,
+            private,
+            selection,
+            input_plan,
+            scan_plan,
+            choices={"src-driver": {"eye": "left", "viewport_id": "v00"}},
+            reviewed_by="operator",
+            review_notes="Review attempted without approval.",
+            approve_human_selection=False,
+        )
+
+
+def test_normalization_selection_rejects_viewport_outside_authority(
+    tmp_path: Path,
+) -> None:
+    handoff, private, selection, input_plan, _normalization, scan_plan = _artifacts(
+        tmp_path,
+        spatial_driver=True,
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionNormalizationSelectionError,
+        match="viewport is outside authorized universe",
+    ):
+        build_normalization_selection(
+            handoff,
+            private,
+            selection,
+            input_plan,
+            scan_plan,
+            choices={"src-driver": {"eye": "left", "viewport_id": "v99"}},
+            reviewed_by="operator",
+            review_notes="Invalid viewport should fail closed.",
+            approve_human_selection=True,
+        )
+
+
+def test_normalization_selection_auto_resolves_flat_mono_without_human_choice(
+    tmp_path: Path,
+) -> None:
+    handoff, private, selection, input_plan, normalization, _scan_plan = _artifacts(
+        tmp_path,
+    )
+
+    assert normalization["human_normalization_selection_required"] is False
+    assert normalization["human_normalization_selection_complete"] is True
+    by_ref = {item["source_ref"]: item for item in normalization["selections"]}
+    assert by_ref["src-driver"]["normalization_strategy"] == "direct-flat-mono"
+    assert by_ref["src-driver"]["selected_eye"] == "mono"
+    assert by_ref["src-driver"]["selected_viewport_id"] is None
+    assert by_ref["src-driver"]["human_selected"] is False
+
+
+def test_normalization_selection_rejects_resealed_animation_authority(
+    tmp_path: Path,
+) -> None:
+    handoff, private, selection, input_plan, normalization, _scan_plan = _artifacts(
+        tmp_path,
+    )
+    tampered = copy.deepcopy(normalization)
+    tampered["p2_animation_execution_authorized"] = True
+    from bodyrig import photoreal_p2_motion_normalization_selection as norm_module
+
+    tampered["p2_motion_normalization_selection_sha256"] = norm_module._digest(
+        tampered,
+        omit="p2_motion_normalization_selection_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionNormalizationSelectionError,
+        match="authority mismatch: p2_animation_execution_authorized",
+    ):
+        validate_normalization_selection(tampered, input_plan=input_plan)
