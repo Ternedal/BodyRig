@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
@@ -15,6 +16,7 @@ from bodyrig.photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     PERFORMANCE_CHECKS,
     record_physical_runtime_review,
+    reuse_physical_runtime_review_files,
     validate_physical_runtime_evidence,
     validate_physical_runtime_review_receipt,
 )
