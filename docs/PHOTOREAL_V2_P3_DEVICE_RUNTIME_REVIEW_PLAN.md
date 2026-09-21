@@ -42,3 +42,10 @@ No software-only path can fabricate a Quest PASS.
 ```
 
 The next gate must collect real device evidence on the exact target Quest class and record explicit human PASS/FAIL against the installed student package. Any physical runtime failure or visual fidelity regression must keep photoreal/production authority closed.
+
+
+## Source snapshot binding
+
+The runtime-review plan persists the exact strict-readback P3 distillation plan and core-owned distillation execution receipt used to build it. Standalone readback revalidates both snapshots and requires the top-level target profile, executed adapter revision, student representation/components, student artifact universe and fidelity-delta measurements to match those sources exactly.
+
+For Quest 2, `gaussian-splat-optional` is rejected at this boundary as well, even if a resealed input attempts to reintroduce it. Quest 2 remains on the mesh/neural-residual family; the optional Gaussian path is reserved for Quest 3/3S-class targets.
