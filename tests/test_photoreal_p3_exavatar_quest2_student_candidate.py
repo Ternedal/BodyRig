@@ -198,6 +198,129 @@ def test_validate_request_rejects_digest_tamper() -> None:
         )
 
 
+def _workspace_request() -> dict[str, object]:
+    return {
+        "performer_id": "42",
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+    }
+
+
+def _workspace(
+    tmp_path: Path,
+    *,
+    asset_payload: bytes = b"model-asset",
+) -> Path:
+    root = tmp_path / "workspace"
+    repo = root / "repos" / "ExAvatar_RELEASE"
+    config = repo / "avatar" / "main" / "config.py"
+    config.parent.mkdir(parents=True)
+    config.write_bytes(b"config")
+    asset = (
+        repo
+        / "avatar"
+        / "common"
+        / "utils"
+        / "human_model_files"
+        / "smplx"
+        / "model.npz"
+    )
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(asset_payload)
+    receipt = {
+        "format": "bodyrig-photoreal-exavatar-workspace",
+        "upstream_commit": candidate.PINNED_UPSTREAM_COMMIT,
+        "performer_id": "42",
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "dataset": "Custom",
+        "smplx_gender_explicit": True,
+        "upstream_default_gender_accepted": False,
+        "held_out_evaluation_disclosed": False,
+        "original_video_copied": False,
+        "dependency_root_modified": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+        "repository_commits": {
+            "exavatar": candidate.PINNED_UPSTREAM_COMMIT,
+        },
+        "avatar_config_patch": {
+            "after_sha256": hashlib.sha256(b"config").hexdigest(),
+        },
+        "linked_assets": [
+            {
+                "destination": (
+                    "repos/ExAvatar_RELEASE/avatar/common/utils/"
+                    "human_model_files/smplx/model.npz"
+                ),
+                "sha256": hashlib.sha256(asset_payload).hexdigest(),
+            }
+        ],
+    }
+    import json
+
+    (root / "workspace-receipt.json").write_text(
+        json.dumps(receipt),
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_workspace_verifies_linked_human_model_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+
+    def fake_git(repo: Path, *args: str) -> str:
+        if args == ("rev-parse", "HEAD"):
+            return candidate.PINNED_UPSTREAM_COMMIT
+        if args[:2] == ("status", "--porcelain"):
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(candidate, "_git", fake_git)
+
+    repo = candidate._verify_workspace(root, _workspace_request())
+
+    assert repo == root / "repos" / "ExAvatar_RELEASE"
+
+
+def test_workspace_rejects_linked_model_asset_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    asset = (
+        root
+        / "repos"
+        / "ExAvatar_RELEASE"
+        / "avatar"
+        / "common"
+        / "utils"
+        / "human_model_files"
+        / "smplx"
+        / "model.npz"
+    )
+    asset.write_bytes(b"drift")
+
+    monkeypatch.setattr(
+        candidate,
+        "_git",
+        lambda repo, *args: (
+            candidate.PINNED_UPSTREAM_COMMIT
+            if args == ("rev-parse", "HEAD")
+            else ""
+        ),
+    )
+
+    with pytest.raises(
+        Quest2StudentCandidateError,
+        match="linked model asset bytes drifted",
+    ):
+        candidate._verify_workspace(root, _workspace_request())
+
+
 def _write(root: Path, relative: str, payload: bytes) -> dict[str, object]:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
