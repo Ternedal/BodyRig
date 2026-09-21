@@ -69,7 +69,11 @@ $P2Root = Need-Directory -Path $P2Root -Label "P2 work root"
 $animationPlan = Need-File -Path (Join-Path $P2Root "p2-animation-plan.json") -Label "P2 animation plan"
 
 $config = Get-Content -LiteralPath $teacherConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-if ([string]$config.format -ne "bodyrig-photoreal-teacher-config" -or [double]$config.version -ne 1.0) {
+if (
+    [string]$config.format -ne "bodyrig-photoreal-teacher-config" -or
+    $config.version -is [bool] -or
+    [double]$config.version -ne 1.0
+) {
     throw "ExAvatar teacher config format/version mismatch."
 }
 if ([string]$config.adapter -ne "exavatar-benchmark") {
