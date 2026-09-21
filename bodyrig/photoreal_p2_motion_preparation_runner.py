@@ -448,10 +448,10 @@ def _validate_parameter_jsons(
         )
         camera = _read_json(camera_path, label="prepared P2 camera parameters")
         smplx = _read_json(smplx_path, label="prepared P2 SMPL-X parameters")
-        if set(camera) != set(REQUIRED_CAMERA_FIELDS):
-            raise PhotorealP2MotionPreparationRunnerError("prepared P2 camera parameter field universe mismatch")
-        if set(smplx) != set(REQUIRED_SMPLX_FIELDS):
-            raise PhotorealP2MotionPreparationRunnerError("prepared P2 SMPL-X parameter field universe mismatch")
+        if not set(REQUIRED_CAMERA_FIELDS).issubset(camera):
+            raise PhotorealP2MotionPreparationRunnerError("prepared P2 camera parameters omit required fields")
+        if not set(REQUIRED_SMPLX_FIELDS).issubset(smplx):
+            raise PhotorealP2MotionPreparationRunnerError("prepared P2 SMPL-X parameters omit required fields")
 
 
 def validate_motion_preparation_manifest(
@@ -518,7 +518,14 @@ def validate_motion_preparation_manifest(
 
     request_by_ref = {item["source_ref"]: item for item in request["tasks"]}
     results = value.get("task_results")
-    if not isinstance(results, list) or len(results) != len(request_by_ref):
+    task_count = value.get("task_count")
+    if (
+        not isinstance(results, list)
+        or isinstance(task_count, bool)
+        or not isinstance(task_count, int)
+        or task_count != len(results)
+        or len(results) != len(request_by_ref)
+    ):
         raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation task result count mismatch")
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -690,6 +697,54 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
         or count != len(tasks)
     ):
         raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt task count mismatch")
+    seen_refs: set[str] = set()
+    for raw in tasks:
+        if not isinstance(raw, Mapping):
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt task result is invalid")
+        expected_task_fields = {
+            "source_ref",
+            "split",
+            "role",
+            "normalization_action",
+            "motion_path_relative",
+            "frame_count",
+            "source_media_rehash_performed",
+            "artifacts",
+        }
+        if set(raw) != expected_task_fields:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt task fields must match v1 exactly")
+        source_ref = _text(raw.get("source_ref"), label="P2 motion preparation receipt source ref", maximum=64)
+        if source_ref in seen_refs:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt repeats source ref")
+        seen_refs.add(source_ref)
+        if raw.get("split") not in {"train", "evaluation"}:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt split is invalid")
+        if raw.get("role") not in {"motion-driver", "held-out-motion-validation"}:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt role is invalid")
+        if raw.get("normalization_action") not in SUPPORTED_NORMALIZATION_ACTIONS:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt normalization action is invalid")
+        if raw.get("motion_path_relative") != f"tasks/{source_ref}/motion":
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt motion path is not canonical")
+        frame_count = raw.get("frame_count")
+        if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count < 1:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt frame count is invalid")
+        if raw.get("source_media_rehash_performed") is not False:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt unexpectedly claims source rehash")
+        artifacts = raw.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt has no task artifacts")
+        seen_paths: set[str] = set()
+        for artifact in artifacts:
+            if not isinstance(artifact, Mapping) or set(artifact) != {"relative_path", "size_bytes", "sha256"}:
+                raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt artifact fields must match v1 exactly")
+            relative = _relative_path(artifact.get("relative_path"), label="P2 motion preparation receipt artifact path")
+            if relative in seen_paths or not relative.startswith(f"tasks/{source_ref}/"):
+                raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt artifact universe mismatch")
+            seen_paths.add(relative)
+            size = artifact.get("size_bytes")
+            if isinstance(size, bool) or not isinstance(size, int) or size < 1:
+                raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation receipt artifact size is invalid")
+            _sha(artifact.get("sha256"), label="P2 motion preparation receipt artifact SHA-256")
     for field, expected_value in (
         ("generated_artifact_bytes_verified_by_core", True),
         ("source_media_rehash_performed", False),
