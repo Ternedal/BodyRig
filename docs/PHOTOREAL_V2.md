@@ -104,6 +104,17 @@ Only after P1 passes:
 
 The rig drives the teacher. The rig does not replace the teacher surface/appearance.
 
+
+The executable P1 -> P2 boundary is now explicit. After the canonical P1 operator records an all-PASS likeness receipt, run:
+
+```powershell
+.\prepare-photoreal-v2-p2-animation.ps1 -TeacherWorkRoot <TEACHER_WORK_ROOT>
+```
+
+This planner performs strict static-teacher readback, revalidates the P1 receipt against the exact P1 review manifest, binds the accepted `checkpoint/snapshot_4.pth` bytes, and emits a canonical P2 animation plan. The contract follows the pinned ExAvatar `avatar/main/animate.py` interface: a motion path with common integer frame IDs across `frames/<frame>.png`, `cam_params/<frame>.json`, and `smplx_optimized/smplx_params_smoothed/<frame>.json`; SMPL-X motion fields `root_pose`, `body_pose`, jaw/eye/hand poses, `expr`, and `trans`; and camera fields `R`, `t`, `focal`, and `princpt`.
+
+Planning grants only `p2_animation_build_authorized=true`. It does **not** run animation, accept animated output, authorize Quest distillation, grant broader photoreal acceptance, or activate production. P2 still requires hash-bound source motion evidence plus held-out human validation of head turns, eye motion, mouth motion, hands, and full-body pose.
+
 ### Gate P3 - Quest distillation
 
 Only after P2 passes:
