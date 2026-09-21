@@ -52,6 +52,14 @@ def test_static_teacher_operator_does_not_train_without_explicit_flag() -> None:
     assert source.index("if (-not $RunTeacher)") < source.index("bodyrig.photoreal_teacher_cli")
 
 
+def test_static_teacher_operator_reads_generic_runner_output_subdirectory() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert '$teacherResultRoot = Need-Directory -Path (Join-Path $teacherOutput "output")' in source
+    assert '(Join-Path $teacherResultRoot "teacher-manifest.json")' in source
+    assert '(Join-Path $teacherResultRoot "review\\neutral-pose")' in source
+    assert '(Join-Path $teacherOutput "teacher-manifest.json")' not in source
+
+
 def test_static_teacher_operator_setup_is_opt_in() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "[switch]$SetupPublicCode" in source
