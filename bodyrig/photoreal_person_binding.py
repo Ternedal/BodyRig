@@ -15,7 +15,7 @@ from .hands_feet_nails_authority import (
     _assembly_identity,
     _release_identity,
 )
-from .person_profiles import PersonProfileError, active_bundle, load_profile
+from .person_profiles import PersonProfileError, load_profile
 from .person_source_alignment import (
     PersonSourceAlignmentError,
     binding_path,
@@ -159,11 +159,18 @@ def _binding_id(value: Mapping[str, Any]) -> str:
     return "photoperson-" + hashlib.sha256(_canonical_json_bytes(evidence)).hexdigest()[:32]
 
 
+def _profile_person_revision(profile: Mapping[str, Any], revision_id: str) -> Mapping[str, Any]:
+    for item in profile.get("person_revisions", []):
+        if isinstance(item, Mapping) and item.get("revision_id") == revision_id:
+            return item
+    raise PhotorealPersonBindingError("assembly Person revision is missing from the Person profile")
+
+
 def _profile_body_revision(profile: Mapping[str, Any], revision_id: str) -> Mapping[str, Any]:
     for item in profile.get("body_revisions", []):
         if isinstance(item, Mapping) and item.get("revision_id") == revision_id:
             return item
-    raise PhotorealPersonBindingError("active Person revision references a missing body revision")
+    raise PhotorealPersonBindingError("assembly body revision is missing from the Person profile")
 
 
 def build_photoreal_person_binding(
@@ -186,11 +193,8 @@ def build_photoreal_person_binding(
 
     try:
         profile = load_profile(library, person_id)
-        active = active_bundle(profile)
     except PersonProfileError as exc:
         raise PhotorealPersonBindingError(f"Person profile is invalid: {exc}") from exc
-    if active is None:
-        raise PhotorealPersonBindingError("Person has no active approved revision")
 
     assembly_receipt = _read_json(assembly_path, "Person assembly receipt")
     body_release_status = _read_json(release_path, "body release status")
@@ -208,10 +212,9 @@ def build_photoreal_person_binding(
 
     if profile.get("person_id") != assembly["person_id"]:
         raise PhotorealPersonBindingError("Person profile and assembly identify different Persons")
-    if active.get("revision_id") != assembly["person_revision"]:
-        raise PhotorealPersonBindingError("active Person revision differs from the assembly revision")
-    if active.get("body_revision") != assembly["body_revision"]:
-        raise PhotorealPersonBindingError("active Person revision uses a different body revision")
+    person_revision = _profile_person_revision(profile, assembly["person_revision"])
+    if person_revision.get("body_revision") != assembly["body_revision"]:
+        raise PhotorealPersonBindingError("assembly Person revision uses a different body revision")
 
     body_revision = _profile_body_revision(profile, assembly["body_revision"])
     if str(body_revision.get("body_id") or "").lower() != assembly["body_id"]:
