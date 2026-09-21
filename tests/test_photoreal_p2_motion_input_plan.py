@@ -181,6 +181,8 @@ def test_motion_input_plan_contains_only_selected_private_sources() -> None:
     assert plan["held_out_motion_validation_task_count"] == 1
     assert plan["direct_flat_mono_task_count"] == 2
     assert plan["exact_deprojection_task_count"] == 0
+    assert plan["motion_fitting_backend"] == "pinned-exavatar-fitting-v1"
+    assert plan["motion_fitting_camera_mode"] == "virtual"
     assert plan["motion_input_plan_ready"] is True
     assert plan["p2_motion_input_authorized"] is True
     assert plan["motion_input_preparation_execution_authorized"] is False
