@@ -484,6 +484,88 @@ def record_likeness_review(
     return receipt
 
 
+def validate_likeness_review_receipt(
+    receipt: Mapping[str, Any],
+    *,
+    review_manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if receipt.get("format") != RECEIPT_FORMAT:
+        raise PhotorealP1LikenessReviewError("P1 likeness review receipt format/version mismatch")
+    _strict_v1(receipt.get("version"), label="P1 likeness review receipt")
+    claimed = _sha(
+        receipt.get("p1_likeness_review_sha256"),
+        label="P1 likeness review receipt SHA-256",
+    )
+    if _digest(receipt, omit="p1_likeness_review_sha256") != claimed:
+        raise PhotorealP1LikenessReviewError("P1 likeness review receipt digest mismatch")
+
+    status = _text(receipt.get("p1_static_teacher_status"), label="P1 static teacher status", maximum=16).lower()
+    if status not in {"pass", "fail"}:
+        raise PhotorealP1LikenessReviewError("P1 static teacher status is invalid")
+    expected = status == "pass"
+    for field, wanted in (
+        ("human_visual_review_required", True),
+        ("human_visual_review_complete", True),
+        ("p1_static_teacher_acceptance_authority", expected),
+        ("human_visual_likeness_acceptance", expected),
+        ("p2_animation_authorized", expected),
+        ("photoreal_acceptance_authority", False),
+        ("production_activation", False),
+    ):
+        if receipt.get(field) is not wanted:
+            raise PhotorealP1LikenessReviewError(f"P1 likeness receipt authority mismatch: {field}")
+
+    raw_results = receipt.get("criterion_results")
+    if not isinstance(raw_results, list) or not raw_results:
+        raise PhotorealP1LikenessReviewError("P1 likeness review receipt has no criterion results")
+    decisions: dict[str, str] = {}
+    for raw in raw_results:
+        if not isinstance(raw, Mapping):
+            raise PhotorealP1LikenessReviewError("P1 likeness review criterion result is invalid")
+        criterion = _safe_criterion(raw.get("criterion"))
+        if criterion in decisions:
+            raise PhotorealP1LikenessReviewError("P1 likeness review receipt repeats criterion")
+        decision = _text(raw.get("decision"), label=f"P1 decision {criterion}", maximum=16).lower()
+        if decision not in {"pass", "fail"}:
+            raise PhotorealP1LikenessReviewError(f"P1 decision must be pass/fail: {criterion}")
+        decisions[criterion] = decision
+    if all(value == "pass" for value in decisions.values()) is not expected:
+        raise PhotorealP1LikenessReviewError("P1 likeness status does not match criterion decisions")
+
+    if review_manifest is not None:
+        if review_manifest.get("format") != MANIFEST_FORMAT:
+            raise PhotorealP1LikenessReviewError("P1 review manifest format/version mismatch")
+        _strict_v1(review_manifest.get("version"), label="P1 review manifest")
+        manifest_sha = _sha(
+            review_manifest.get("p1_likeness_review_manifest_sha256"),
+            label="P1 likeness review manifest SHA-256",
+        )
+        if _digest(review_manifest, omit="p1_likeness_review_manifest_sha256") != manifest_sha:
+            raise PhotorealP1LikenessReviewError("P1 likeness review manifest digest mismatch")
+        if _sha(
+            receipt.get("p1_likeness_review_manifest_sha256"),
+            label="receipt review-manifest SHA-256",
+        ) != manifest_sha:
+            raise PhotorealP1LikenessReviewError("P1 likeness receipt targets different review manifest")
+        manifest_pairs = review_manifest.get("pairs")
+        if not isinstance(manifest_pairs, list) or not manifest_pairs:
+            raise PhotorealP1LikenessReviewError("P1 review manifest contains no criterion pairs")
+        expected_criteria = {
+            _safe_criterion(item.get("criterion"))
+            for item in manifest_pairs
+            if isinstance(item, Mapping)
+        }
+        if len(expected_criteria) != len(manifest_pairs) or set(decisions) != expected_criteria:
+            raise PhotorealP1LikenessReviewError(
+                "P1 likeness receipt criterion universe differs from review manifest"
+            )
+        for field in ("performer_id", "selected_epoch_id", "teacher_input_sha256", "semantic_alignment_sha256", "p1_pairing_sha256"):
+            if receipt.get(field) != review_manifest.get(field):
+                raise PhotorealP1LikenessReviewError(f"P1 likeness receipt provenance mismatch: {field}")
+
+    return dict(receipt)
+
+
 def _parse_decisions(values: Sequence[str]) -> dict[str, str]:
     result: dict[str, str] = {}
     for value in values:
