@@ -160,11 +160,12 @@ The wrapper:
 1. requires an exact clean BodyRig checkout;
 2. reads the existing pinned ExAvatar teacher config;
 3. reuses its WSL distribution, Linux Python and accepted ExAvatar workspace;
-4. runs the CUDA measurement generator in WSL;
-5. strict-reads the generated evidence again through BodyRig core on Windows;
-6. prints the eight measured deltas.
+4. creates an isolated sibling `p3-quest2-fidelity-delta` workspace rather than modifying the immutable hair-stage output;
+5. runs the CUDA measurement generator in WSL;
+6. strict-reads the generated evidence again through BodyRig core on Windows;
+7. prints the eight measured deltas.
 
-It does not rerun training and does not rehash the original P0/P2 media corpus.
+The generator fails closed if its evidence path is placed inside the hair output root. It does not rerun training and does not rehash the original P0/P2 media corpus.
 
 ## Next boundary
 
