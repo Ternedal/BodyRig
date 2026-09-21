@@ -103,6 +103,42 @@ BodyRig derives them fail-closed from raw evidence:
 
 A reviewer cannot reseal the JSON to convert a raw performance failure into PASS; strict readback recomputes these decisions.
 
+## Guided human review without hand-editing JSON
+
+When the machine probe has already been converted to the safe machine prefill:
+
+```text
+p3-physical-runtime-evidence.machine-prefill.json
+```
+
+use the guided operator instead of editing that JSON directly:
+
+```powershell
+.\complete-photoreal-v2-p3-quest2-human-review.ps1 `
+  -RuntimeReviewWorkspace <P3_QUEST2_RUNTIME_REVIEW_WORKSPACE> `
+  -ReviewedBy "<REVIEWER>" `
+  -ReviewNotes "<NOTES>" `
+  -IdentityLikeness pass|fail `
+  -FaceDetail pass|fail `
+  -Eyes pass|fail `
+  -HairSilhouetteAndAppearance pass|fail `
+  -SkinMaterialResponse pass|fail `
+  -HandsAndExtremities pass|fail `
+  -MotionIdentityPreservation pass|fail `
+  -TemporalStability pass|fail `
+  -ConfirmPhysicalDeviceReviewComplete
+```
+
+The operator accepts no default PASS values. Every canonical visual criterion is mandatory, and the confirmation switch must be explicitly present. It preserves the machine-proven artifact hashes, refresh/p95 measurements, stereo evidence, frame-pacing evidence and runtime-review-plan binding unchanged.
+
+The result is create-only:
+
+```text
+p3-physical-runtime-evidence.reviewed.json
+```
+
+The guided operator does **not** grant runtime or photoreal authority. It only creates operator-supplied evidence that the existing final recorder can strict-validate.
+
 ## Recording PASS/FAIL
 
 Run:
