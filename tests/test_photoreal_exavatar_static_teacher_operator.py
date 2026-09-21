@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "run-photoreal-v2-exavatar-teacher.ps1"
+TEACHER_CLI = ROOT / "bodyrig" / "photoreal_teacher_cli.py"
 
 
 def test_static_teacher_operator_requires_explicit_identity_geometry_authority() -> None:
@@ -58,6 +59,17 @@ def test_static_teacher_operator_reads_generic_runner_output_subdirectory() -> N
     assert '(Join-Path $teacherResultRoot "teacher-manifest.json")' in source
     assert '(Join-Path $teacherResultRoot "review\\neutral-pose")' in source
     assert '(Join-Path $teacherOutput "teacher-manifest.json")' not in source
+
+
+def test_static_teacher_operator_routes_interrupted_training_through_strict_resume() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    teacher_cli = TEACHER_CLI.read_text(encoding="utf-8")
+
+    assert '"--workspace", $teacherOutput' in source
+    assert '"--reuse-existing"' in source
+    assert "resume_external_teacher_files_strict" in teacher_cli
+    assert 'workspace / "output" / "teacher-manifest.json"' in teacher_cli
+    assert "validate_external_teacher_files_strict" in teacher_cli
 
 
 def test_static_teacher_operator_setup_is_opt_in() -> None:
