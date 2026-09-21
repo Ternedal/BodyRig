@@ -325,12 +325,18 @@ def validate_photoreal_person_binding_structure(value: Mapping[str, Any]) -> dic
     if not REVISION_RE.fullmatch(revision):
         raise PhotorealPersonBindingError("photoreal Person binding BodyRig revision is invalid")
 
+    canonical_identity = (
+        ("person_id", PERSON_ID_RE),
+        ("person_revision", PERSON_REVISION_RE),
+        ("body_revision", BODY_REVISION_RE),
+        ("body_id", BODY_ID_RE),
+    )
+    for field, pattern in canonical_identity:
+        text = str(value.get(field) or "").strip().lower()
+        if not pattern.fullmatch(text):
+            raise PhotorealPersonBindingError(f"photoreal Person binding {field} is invalid")
+
     for field in (
-        "person_id",
-        "person_revision",
-        "assembly_fingerprint",
-        "body_revision",
-        "body_id",
         "stash_performer_id",
         "selected_epoch_id",
         "target_device_family",
@@ -352,6 +358,34 @@ def validate_photoreal_person_binding_structure(value: Mapping[str, Any]) -> dic
     if value.get("production_activation") is not False:
         raise PhotorealPersonBindingError("photoreal Person binding cannot activate production")
     return dict(value)
+
+
+def revalidate_photoreal_person_binding(
+    value: Mapping[str, Any],
+    *,
+    person_library: str | os.PathLike[str],
+    person_id: str,
+    assembly_receipt_path: str | os.PathLike[str],
+    body_release_status_path: str | os.PathLike[str],
+    p3_physical_runtime_review_path: str | os.PathLike[str],
+    bodyrig_revision: str,
+) -> dict[str, Any]:
+    existing = validate_photoreal_person_binding_structure(value)
+    expected = build_photoreal_person_binding(
+        person_library,
+        person_id=person_id,
+        assembly_receipt_path=assembly_receipt_path,
+        body_release_status_path=body_release_status_path,
+        p3_physical_runtime_review_path=p3_physical_runtime_review_path,
+        bodyrig_revision=bodyrig_revision,
+    )
+    expected["finalized_utc"] = existing["finalized_utc"]
+    if expected != existing:
+        raise PhotorealPersonBindingError(
+            "photoreal Person binding no longer matches the exact current "
+            "Person/source/body/P3 evidence"
+        )
+    return existing
 
 
 def write_photoreal_person_binding(
