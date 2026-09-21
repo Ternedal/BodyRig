@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Mapping
 
+from .photoreal_scan_plan import FORMAT as SCAN_PLAN_FORMAT, VERSION as SCAN_PLAN_VERSION
 from .photoreal_teacher_input import (
     FRAME_INDEX_FORMAT,
     FRAME_INDEX_VERSION,
@@ -145,8 +146,15 @@ def _write_or_require_exact(path: Path, value: Mapping[str, Any], *, label: str)
 def _normalized_inputs(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
+    scan_plan: Mapping[str, Any],
     frame_index: Mapping[str, Any],
-) -> tuple[str, dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    str,
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+    list[dict[str, Any]],
+]:
     if plan.get("format") != PLAN_FORMAT:
         raise PhotorealAppearanceEpochVisualReviewError("dataset plan format/version mismatch")
     _strict_v1(plan.get("version"), label="dataset plan")
@@ -168,6 +176,74 @@ def _normalized_inputs(
     performer_id = _text(plan.get("performer_id"), label="dataset performer id", maximum=256)
     if _text(receipt.get("performer_id"), label="receipt performer id", maximum=256) != performer_id:
         raise PhotorealAppearanceEpochVisualReviewError("dataset plan/source receipt performer mismatch")
+
+    if scan_plan.get("format") != SCAN_PLAN_FORMAT:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan format/version mismatch")
+    _strict_v1(scan_plan.get("version"), label="scan plan")
+    if SCAN_PLAN_VERSION != 1:
+        raise PhotorealAppearanceEpochVisualReviewError("unsupported compiled scan-plan version")
+    if _text(scan_plan.get("performer_id"), label="scan-plan performer id", maximum=256) != performer_id:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan performer mismatch")
+    if scan_plan.get("all_sources_sha256_bound") is not True:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan is not source-SHA bound")
+    if scan_plan.get("train_evaluation_assignment_inherited") is not True:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan did not inherit train/evaluation assignment")
+    if scan_plan.get("frame_analyzer_required") is not True or scan_plan.get("teacher_training_authorized") is not False:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan authority boundary is invalid")
+    if scan_plan.get("build_only") is not True or scan_plan.get("runtime_dependency") is not False:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan build/runtime authority boundary is invalid")
+    if scan_plan.get("production_activation") is not False:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan crossed production authority")
+    raw_scan_sources = scan_plan.get("sources")
+    if not isinstance(raw_scan_sources, list) or not raw_scan_sources:
+        raise PhotorealAppearanceEpochVisualReviewError("scan plan contains no sources")
+    scanned: dict[str, dict[str, Any]] = {}
+    for raw in raw_scan_sources:
+        if not isinstance(raw, Mapping):
+            raise PhotorealAppearanceEpochVisualReviewError("scan plan source is invalid")
+        source_key = _text(raw.get("source_key"), label="scan-plan source key")
+        if source_key in scanned:
+            raise PhotorealAppearanceEpochVisualReviewError("scan plan repeats source key")
+        planned_source = planned.get(source_key)
+        receipt_source = bound.get(source_key)
+        if planned_source is None or receipt_source is None:
+            raise PhotorealAppearanceEpochVisualReviewError("scan plan references source outside P0 source universe")
+        kind = _text(raw.get("kind"), label="scan-plan source kind", maximum=16)
+        split = _text(raw.get("split"), label="scan-plan source split", maximum=32)
+        group_id = _text(raw.get("group_id"), label="scan-plan source group id")
+        if kind != planned_source.get("kind") or kind != receipt_source.get("kind"):
+            raise PhotorealAppearanceEpochVisualReviewError("scan-plan source kind binding mismatch")
+        if split != planned_source.get("split") or group_id != planned_source.get("group_id"):
+            raise PhotorealAppearanceEpochVisualReviewError("scan-plan source group/split binding mismatch")
+        if _sha(raw.get("source_sha256"), label="scan-plan source SHA-256") != _sha(
+            receipt_source.get("sha256"),
+            label="receipt source SHA-256",
+        ):
+            raise PhotorealAppearanceEpochVisualReviewError("scan-plan source SHA binding mismatch")
+        if _text(raw.get("resolved_path"), label="scan-plan resolved path") != _text(
+            receipt_source.get("resolved_path"),
+            label="receipt resolved path",
+        ):
+            raise PhotorealAppearanceEpochVisualReviewError("scan-plan resolved-path binding mismatch")
+        projection = _text(raw.get("projection"), label="scan-plan projection", maximum=128)
+        stereo_layout = _text(raw.get("stereo_layout"), label="scan-plan stereo layout", maximum=128)
+        decode_mode = _text(raw.get("decode_mode"), label="scan-plan decode mode", maximum=128)
+        authority = raw.get("projection_authority")
+        if authority is not None and not isinstance(authority, Mapping):
+            raise PhotorealAppearanceEpochVisualReviewError("scan-plan projection authority is invalid")
+        scanned[source_key] = {
+            "source_key": source_key,
+            "kind": kind,
+            "split": split,
+            "group_id": group_id,
+            "source_sha256": _sha(raw.get("source_sha256"), label="scan-plan source SHA-256"),
+            "projection": projection,
+            "stereo_layout": stereo_layout,
+            "decode_mode": decode_mode,
+            "projection_authority": None if authority is None else dict(authority),
+        }
+    if set(scanned) != set(planned):
+        raise PhotorealAppearanceEpochVisualReviewError("scan-plan source universe mismatch")
 
     if frame_index.get("format") != FRAME_INDEX_FORMAT:
         raise PhotorealAppearanceEpochVisualReviewError("frame index format/version mismatch")
@@ -203,16 +279,17 @@ def _normalized_inputs(
         group_id = _text(raw.get("group_id"), label="review group id")
         source = planned.get(source_key)
         receipt_source = bound.get(source_key)
-        if source is None or receipt_source is None:
+        scan_source = scanned.get(source_key)
+        if source is None or receipt_source is None or scan_source is None:
             raise PhotorealAppearanceEpochVisualReviewError("review observation references unknown source")
         if _text(source.get("group_id"), label="planned source group id") != group_id:
             raise PhotorealAppearanceEpochVisualReviewError("review observation group differs from dataset plan")
         split = _text(raw.get("split"), label="review split", maximum=32)
-        if split not in split_counts or source.get("split") != split:
-            raise PhotorealAppearanceEpochVisualReviewError("review observation split differs from dataset plan")
+        if split not in split_counts or source.get("split") != split or scan_source.get("split") != split:
+            raise PhotorealAppearanceEpochVisualReviewError("review observation split differs from P0 source authority")
         kind = _text(source.get("kind"), label="planned source kind", maximum=16)
-        if receipt_source.get("kind") != kind:
-            raise PhotorealAppearanceEpochVisualReviewError("planned/receipt source kind mismatch")
+        if receipt_source.get("kind") != kind or scan_source.get("kind") != kind:
+            raise PhotorealAppearanceEpochVisualReviewError("review source kind differs across P0 authority")
         frame_sha = _sha(raw.get("frame_sha256"), label="review frame SHA-256")
         timestamp = _timestamp(raw.get("timestamp_seconds"), kind=kind)
         eye = _text(raw.get("eye"), label="review eye", maximum=16)
@@ -252,20 +329,21 @@ def _normalized_inputs(
             item["frame_sha256"],
         )
     )
-    return performer_id, planned, bound, observations
-
+    return performer_id, planned, bound, scanned, observations
 
 def build_runtime_path_map(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
+    scan_plan: Mapping[str, Any],
     frame_index: Mapping[str, Any],
     *,
     converter: Callable[[str], str],
     dataset_plan_sha256: str,
     source_receipt_sha256: str,
+    scan_plan_sha256: str,
     frame_index_sha256: str,
 ) -> dict[str, Any]:
-    performer_id, _planned, bound, observations = _normalized_inputs(plan, receipt, frame_index)
+    performer_id, _planned, bound, _scanned, observations = _normalized_inputs(plan, receipt, scan_plan, frame_index)
     source_keys = sorted({item["source_key"] for item in observations})
     paths: list[dict[str, str]] = []
     for source_key in source_keys:
@@ -281,6 +359,7 @@ def build_runtime_path_map(
         "performer_id": performer_id,
         "dataset_plan_sha256": _sha(dataset_plan_sha256, label="dataset plan file SHA-256"),
         "source_receipt_sha256": _sha(source_receipt_sha256, label="source receipt file SHA-256"),
+        "scan_plan_sha256": _sha(scan_plan_sha256, label="scan plan file SHA-256"),
         "frame_index_sha256": _sha(frame_index_sha256, label="frame index file SHA-256"),
         "source_count": len(paths),
         "source_paths": paths,
@@ -294,6 +373,7 @@ def build_runtime_path_map(
 def build_runtime_path_map_files(
     dataset_plan_path: str | Path,
     source_receipt_path: str | Path,
+    scan_plan_path: str | Path,
     frame_index_path: str | Path,
     output_path: str | Path,
     *,
@@ -301,14 +381,17 @@ def build_runtime_path_map_files(
 ) -> dict[str, Any]:
     plan_path = Path(dataset_plan_path).expanduser().resolve()
     receipt_path = Path(source_receipt_path).expanduser().resolve()
+    scan_path = Path(scan_plan_path).expanduser().resolve()
     index_path = Path(frame_index_path).expanduser().resolve()
     result = build_runtime_path_map(
         _read_json(plan_path, label="dataset plan"),
         _read_json(receipt_path, label="source receipt"),
+        _read_json(scan_path, label="scan plan"),
         _read_json(index_path, label="frame index"),
         converter=converter,
         dataset_plan_sha256=_sha256_file(plan_path),
         source_receipt_sha256=_sha256_file(receipt_path),
+        scan_plan_sha256=_sha256_file(scan_path),
         frame_index_sha256=_sha256_file(index_path),
     )
     _write_or_require_exact(Path(output_path), result, label="appearance epoch runtime path map")
@@ -318,15 +401,17 @@ def build_runtime_path_map_files(
 def build_review_request(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
+    scan_plan: Mapping[str, Any],
     frame_index: Mapping[str, Any],
     runtime_path_map: Mapping[str, Any],
     *,
     bodyrig_revision: str,
     dataset_plan_sha256: str,
     source_receipt_sha256: str,
+    scan_plan_sha256: str,
     frame_index_sha256: str,
 ) -> dict[str, Any]:
-    performer_id, planned, bound, observations = _normalized_inputs(plan, receipt, frame_index)
+    performer_id, planned, bound, scanned, observations = _normalized_inputs(plan, receipt, scan_plan, frame_index)
     revision = _git_sha(bodyrig_revision, label="BodyRig revision")
     if runtime_path_map.get("format") != PATH_MAP_FORMAT:
         raise PhotorealAppearanceEpochVisualReviewError("runtime path map format/version mismatch")
@@ -336,6 +421,7 @@ def build_review_request(
     for field, expected in (
         ("dataset_plan_sha256", dataset_plan_sha256),
         ("source_receipt_sha256", source_receipt_sha256),
+        ("scan_plan_sha256", scan_plan_sha256),
         ("frame_index_sha256", frame_index_sha256),
     ):
         if _sha(runtime_path_map.get(field), label=f"runtime path map {field}") != _sha(expected, label=field):
@@ -372,8 +458,9 @@ def build_review_request(
     for source_key in required_sources:
         source = planned[source_key]
         receipt_source = bound[source_key]
-        projection = str(source.get("projection") or "flat")
-        stereo_layout = str(source.get("stereo_layout") or "mono")
+        scan_source = scanned[source_key]
+        projection = _text(scan_source.get("projection"), label="scan source projection", maximum=128)
+        stereo_layout = _text(scan_source.get("stereo_layout"), label="scan source stereo layout", maximum=128)
         record: dict[str, Any] = {
             "source_key": source_key,
             "source_sha256": _sha(receipt_source.get("sha256"), label="source SHA-256"),
@@ -383,9 +470,9 @@ def build_review_request(
             "resolved_path": path_map[source_key],
             "projection": projection,
             "stereo_layout": stereo_layout,
-            "decode_mode": str(source.get("decode_mode") or ""),
+            "decode_mode": _text(scan_source.get("decode_mode"), label="scan source decode mode", maximum=128),
         }
-        authority = source.get("projection_authority")
+        authority = scan_source.get("projection_authority")
         if authority is not None:
             if not isinstance(authority, Mapping):
                 raise PhotorealAppearanceEpochVisualReviewError("source projection authority is invalid")
@@ -399,6 +486,7 @@ def build_review_request(
         "performer_id": performer_id,
         "dataset_plan_sha256": _sha(dataset_plan_sha256, label="dataset plan SHA-256"),
         "source_receipt_sha256": _sha(source_receipt_sha256, label="source receipt SHA-256"),
+        "scan_plan_sha256": _sha(scan_plan_sha256, label="scan plan SHA-256"),
         "frame_index_sha256": _sha(frame_index_sha256, label="frame index SHA-256"),
         "sources": sources,
         "observations": observations,
@@ -719,6 +807,7 @@ def prepare_review(
             "performer_id": _text(request.get("performer_id"), label="review request performer", maximum=256),
             "dataset_plan_sha256": _sha(request.get("dataset_plan_sha256"), label="dataset plan SHA-256"),
             "source_receipt_sha256": _sha(request.get("source_receipt_sha256"), label="source receipt SHA-256"),
+            "scan_plan_sha256": _sha(request.get("scan_plan_sha256"), label="scan plan SHA-256"),
             "frame_index_sha256": _sha(request.get("frame_index_sha256"), label="frame index SHA-256"),
             "group_count": len(groups),
             "train_group_count": train_groups,
@@ -785,7 +874,7 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
         request.get("bodyrig_revision"), label="request BodyRig revision"
     ):
         raise PhotorealAppearanceEpochVisualReviewError("appearance epoch review BodyRig revision mismatch")
-    for field in ("performer_id", "dataset_plan_sha256", "source_receipt_sha256", "frame_index_sha256"):
+    for field in ("performer_id", "dataset_plan_sha256", "source_receipt_sha256", "scan_plan_sha256", "frame_index_sha256"):
         if manifest.get(field) != request.get(field):
             raise PhotorealAppearanceEpochVisualReviewError(f"appearance epoch review provenance mismatch: {field}")
     for field, expected in (
@@ -884,6 +973,7 @@ def validate_review_output(output_dir: str | Path, *, request: Mapping[str, Any]
 def _build_request_from_files(
     dataset_plan_path: Path,
     source_receipt_path: Path,
+    scan_plan_path: Path,
     frame_index_path: Path,
     runtime_path_map_path: Path,
     *,
@@ -892,11 +982,13 @@ def _build_request_from_files(
     return build_review_request(
         _read_json(dataset_plan_path, label="dataset plan"),
         _read_json(source_receipt_path, label="source receipt"),
+        _read_json(scan_plan_path, label="scan plan"),
         _read_json(frame_index_path, label="frame index"),
         _read_json(runtime_path_map_path, label="appearance epoch runtime path map"),
         bodyrig_revision=bodyrig_revision,
         dataset_plan_sha256=_sha256_file(dataset_plan_path),
         source_receipt_sha256=_sha256_file(source_receipt_path),
+        scan_plan_sha256=_sha256_file(scan_plan_path),
         frame_index_sha256=_sha256_file(frame_index_path),
     )
 
@@ -908,6 +1000,7 @@ def main(argv: list[str] | None = None) -> int:
     path_map = sub.add_parser("path-map", help="Build/revalidate a private WSL runtime path map without hashing source media.")
     path_map.add_argument("--dataset-plan", type=Path, required=True)
     path_map.add_argument("--source-receipt", type=Path, required=True)
+    path_map.add_argument("--scan-plan", type=Path, required=True)
     path_map.add_argument("--frame-index", type=Path, required=True)
     path_map.add_argument("--wsl-exe", default="wsl.exe")
     path_map.add_argument("--distribution", default="Ubuntu-22.04")
@@ -916,6 +1009,7 @@ def main(argv: list[str] | None = None) -> int:
     prepare = sub.add_parser("prepare", help="Decode only exact P0-authorized observations and build the human visual review pack.")
     prepare.add_argument("--dataset-plan", type=Path, required=True)
     prepare.add_argument("--source-receipt", type=Path, required=True)
+    prepare.add_argument("--scan-plan", type=Path, required=True)
     prepare.add_argument("--frame-index", type=Path, required=True)
     prepare.add_argument("--runtime-path-map", type=Path, required=True)
     prepare.add_argument("--bodyrig-revision", required=True)
@@ -931,6 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
             result = build_runtime_path_map_files(
                 args.dataset_plan,
                 args.source_receipt,
+                args.scan_plan,
                 args.frame_index,
                 args.out,
                 converter=converter,
@@ -952,6 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
         request = _build_request_from_files(
             args.dataset_plan.expanduser().resolve(),
             args.source_receipt.expanduser().resolve(),
+            args.scan_plan.expanduser().resolve(),
             args.frame_index.expanduser().resolve(),
             args.runtime_path_map.expanduser().resolve(),
             bodyrig_revision=args.bodyrig_revision,
