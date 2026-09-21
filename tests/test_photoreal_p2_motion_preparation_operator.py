@@ -15,7 +15,10 @@ def test_operator_requires_clean_main_and_original_p0_scan_authority() -> None:
     assert "requires the main branch" in source
     assert "requires an exact clean BodyRig checkout" in source
     assert 'Join-Path $P0Root "scan-plan.json"' in source
-    assert 'Join-Path $P2Root "motion-input\\p2-motion-input-plan.json"' in source
+    assert 'Join-Path $P2Root "motion-input"' in source
+    assert 'Join-Path $motionInputRoot "p2-motion-input-plan.json"' in source
+    assert 'Join-Path $motionInputRoot "p2-motion-normalization-selection.json"' in source
+    assert '"--normalization-selection", $normalizationSelection' in source
 
 
 def test_operator_marks_first_physical_motion_stage_without_source_library_rehash() -> None:
