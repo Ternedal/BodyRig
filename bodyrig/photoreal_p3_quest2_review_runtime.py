@@ -237,7 +237,10 @@ def validate_review_manifest(
         "basecolor.png",
         "quest2-modular-provenance.json",
     }
-    if actual != expected_actual:
+    complete_actual = expected_actual | {
+        "p3-quest2-review-runtime-receipt.json"
+    }
+    if actual not in (expected_actual, complete_actual):
         raise PhotorealP3Quest2ReviewRuntimeError(
             "P3 Quest2 review workspace file universe differs"
         )
