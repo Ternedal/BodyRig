@@ -111,6 +111,7 @@ def _config(
         "adapter": "test-distiller",
         "revision": "rev-1",
         "student_representation": representation,
+        "student_components": list(runner.REQUIRED_STUDENT_COMPONENTS),
         "command": ["python", "adapter.py"],
         "timeout_seconds": 3600,
         "supported_target_models": ["quest-2"],
