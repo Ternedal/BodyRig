@@ -204,6 +204,7 @@ def test_missing_m4_photoreal_link_points_to_exact_checkout_bound_command(
     assert str((repo / "link-photoreal-v2-m4.ps1").resolve()) in result["next_command"]
     assert str(binding.resolve()) in result["next_command"]
     assert str(p3.resolve()) in result["next_command"]
+    assert str(library.resolve()) in result["next_command"]
     assert result["production_activation"] is False
 
 
@@ -279,6 +280,7 @@ def test_complete_canonical_m5_points_to_photoreal_m5_link(
     assert result["photoreal_m5_ready"] is False
     assert result["next_gate"] == "photoreal_m5_link"
     assert str((repo / "link-photoreal-v2-m5.ps1").resolve()) in result["next_command"]
+    assert str(library.resolve()) in result["next_command"]
 
 
 def test_complete_photoreal_m5_defers_to_missing_canonical_m6(
