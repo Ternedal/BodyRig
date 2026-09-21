@@ -218,14 +218,16 @@ def _materialization(dataset: Path, request: Mapping[str, Any]) -> tuple[str, li
 
 def _snapshot_epochs(model_dir: Path) -> list[int]:
     if not model_dir.exists():
+        if model_dir.is_symlink():
+            raise ExAvatarTeacherAdapterError(f"ExAvatar model path is a broken symlink: {model_dir}")
         return []
-    if not model_dir.is_dir():
-        raise ExAvatarTeacherAdapterError(f"ExAvatar model path is not a directory: {model_dir}")
+    if not model_dir.is_dir() or model_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(f"ExAvatar model path is not a regular directory: {model_dir}")
     epochs: list[int] = []
     for path in model_dir.iterdir():
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             raise ExAvatarTeacherAdapterError(
-                f"unexpected non-file entry in ExAvatar model directory: {path.name}"
+                f"unexpected non-regular file entry in ExAvatar model directory: {path.name}"
             )
         name = path.name
         if not name.startswith("snapshot_") or not name.endswith(".pth"):
@@ -253,6 +255,14 @@ def _training_resume_plan(
     subject: str,
 ) -> tuple[str, list[str] | None, str | None]:
     snapshot_epochs = _snapshot_epochs(model_dir)
+    if neutral_dir.is_symlink():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path may not be a symlink: {neutral_dir}"
+        )
+    if neutral_dir.exists() and not neutral_dir.is_dir():
+        raise ExAvatarTeacherAdapterError(
+            f"ExAvatar neutral-pose path is not a directory: {neutral_dir}"
+        )
     final_checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
     if final_checkpoint.is_file():
         return "reuse-final-checkpoint", None, None
