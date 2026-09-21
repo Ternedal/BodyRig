@@ -560,6 +560,39 @@ def _load_zero_pose_teacher(
         os.chdir(old_cwd)
 
 
+def _canonical_exavatar_joint_name(value: str) -> str:
+    clean = value.strip()
+    if not clean:
+        raise Quest2StudentCandidateError("ExAvatar joint name is empty")
+    prefixes = {
+        "L_": "left_",
+        "R_": "right_",
+    }
+    for prefix, replacement in prefixes.items():
+        if clean.startswith(prefix):
+            clean = replacement + clean[len(prefix):]
+            break
+    clean = clean.lower()
+    parts = clean.split("_")
+    if len(parts) >= 2 and parts[-1].isdigit():
+        clean = "_".join(parts[:-1]) + parts[-1]
+    return clean
+
+
+def _validate_joint_semantics(
+    exavatar_names: tuple[str, ...],
+    bodyrig_names: tuple[str, ...],
+) -> None:
+    normalized = tuple(
+        _canonical_exavatar_joint_name(name)
+        for name in exavatar_names
+    )
+    if normalized != bodyrig_names:
+        raise Quest2StudentCandidateError(
+            "ExAvatar/BodyRig SMPL-X joint semantic universe differs"
+        )
+
+
 def _patch_student_vrm(
     avatar: bytes,
     *,
@@ -640,10 +673,10 @@ def _materialize_candidate(
         )
     )
 
-    if tuple(state["joint_names"]) != tuple(SMPLX_JOINT_NAMES):
-        raise Quest2StudentCandidateError(
-            "ExAvatar/BodyRig SMPL-X joint-name universe differs"
-        )
+    _validate_joint_semantics(
+        tuple(state["joint_names"]),
+        tuple(SMPLX_JOINT_NAMES),
+    )
 
     avatar, _thumbnail = _build_vrm(
         np=np,
