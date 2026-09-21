@@ -57,10 +57,22 @@ def _plan() -> dict[str, object]:
         "student_artifacts": [
             {
                 "kind": "student-runtime-package",
-                "relative_path": "student/avatar.bin",
+                "relative_path": "student/avatar.vrm",
                 "size_bytes": 123,
                 "sha256": "9" * 64,
-            }
+            },
+            {
+                "kind": "teacher-derived-basecolor",
+                "relative_path": "student/basecolor.png",
+                "size_bytes": 456,
+                "sha256": "8" * 64,
+            },
+            {
+                "kind": "quest2-modular-provenance",
+                "relative_path": "student/quest2-modular-provenance.json",
+                "size_bytes": 789,
+                "sha256": "7" * 64,
+            },
         ],
     }
 
@@ -76,9 +88,17 @@ def _evidence(*, visual: str = "pass") -> dict[str, object]:
         "physical_device_observed": True,
         "installed_student_artifacts": [
             {
-                "relative_path": "student/avatar.bin",
+                "relative_path": "student/avatar.vrm",
                 "sha256": "9" * 64,
-            }
+            },
+            {
+                "relative_path": "student/basecolor.png",
+                "sha256": "8" * 64,
+            },
+            {
+                "relative_path": "student/quest2-modular-provenance.json",
+                "sha256": "7" * 64,
+            },
         ],
         "observed_refresh_hz": 72.0,
         "p95_frame_time_ms": 12.5,
