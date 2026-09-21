@@ -216,6 +216,36 @@ def _materialization(dataset: Path, request: Mapping[str, Any]) -> tuple[str, li
     return source_key, consumed
 
 
+def _snapshot_epochs(model_dir: Path) -> list[int]:
+    if not model_dir.exists():
+        return []
+    if not model_dir.is_dir():
+        raise ExAvatarTeacherAdapterError(f"ExAvatar model path is not a directory: {model_dir}")
+    epochs: list[int] = []
+    for path in model_dir.iterdir():
+        if not path.is_file():
+            raise ExAvatarTeacherAdapterError(
+                f"unexpected non-file entry in ExAvatar model directory: {path.name}"
+            )
+        name = path.name
+        if not name.startswith("snapshot_") or not name.endswith(".pth"):
+            raise ExAvatarTeacherAdapterError(
+                f"unexpected file in ExAvatar model directory: {name}"
+            )
+        raw_epoch = name[len("snapshot_") : -len(".pth")]
+        if not raw_epoch.isdigit():
+            raise ExAvatarTeacherAdapterError(f"invalid ExAvatar snapshot name: {name}")
+        epoch = int(raw_epoch)
+        if epoch < 0 or epoch > FINAL_EPOCH:
+            raise ExAvatarTeacherAdapterError(f"unexpected ExAvatar snapshot epoch: {epoch}")
+        if epoch in epochs:
+            raise ExAvatarTeacherAdapterError(f"duplicate ExAvatar snapshot epoch: {epoch}")
+        if path.stat().st_size < 1:
+            raise ExAvatarTeacherAdapterError(f"empty ExAvatar snapshot: {name}")
+        epochs.append(epoch)
+    return sorted(epochs)
+
+
 def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict[str, Any]:
     if not source.is_file() or source.stat().st_size < 1:
         raise ExAvatarTeacherAdapterError(f"teacher artifact source missing: {source}")
@@ -260,13 +290,38 @@ def main(argv: list[str] | None = None) -> int:
         subject = str(workspace["subject_id"])
         model_dir = root / "repos" / "ExAvatar_RELEASE" / "avatar" / "output" / "model_dump" / subject
         neutral_dir = exavatar_main / "neutral_pose"
-        if model_dir.exists() or neutral_dir.exists():
-            raise ExAvatarTeacherAdapterError("stale ExAvatar teacher outputs exist before benchmark run")
-
         logs = root / "logs" / "teacher"
-        _run([sys.executable, "train.py", "--subject_id", subject], cwd=exavatar_main, log_path=logs / "train.log", label="ExAvatar teacher training")
         checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
-        if not checkpoint.is_file():
+        snapshot_epochs = _snapshot_epochs(model_dir)
+
+        if checkpoint.is_file():
+            training_mode = "reuse-final-checkpoint"
+        elif snapshot_epochs:
+            if neutral_dir.exists():
+                raise ExAvatarTeacherAdapterError(
+                    "neutral-pose output exists before final checkpoint; refusing ambiguous resume"
+                )
+            _run(
+                [sys.executable, "train.py", "--subject_id", subject, "--continue"],
+                cwd=exavatar_main,
+                log_path=logs / "train-resume.log",
+                label="ExAvatar teacher training resume",
+            )
+            training_mode = "resume-from-checkpoint"
+        else:
+            if neutral_dir.exists():
+                raise ExAvatarTeacherAdapterError(
+                    "neutral-pose output exists without any training checkpoint"
+                )
+            _run(
+                [sys.executable, "train.py", "--subject_id", subject],
+                cwd=exavatar_main,
+                log_path=logs / "train.log",
+                label="ExAvatar teacher training",
+            )
+            training_mode = "fresh"
+
+        if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
             raise ExAvatarTeacherAdapterError(f"ExAvatar final checkpoint missing: {checkpoint}")
 
         _run(
@@ -324,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
                     "artifact_count": len(artifacts),
                     "smplx_gender": workspace["smplx_gender"],
                     "runtime_preflight_sha256": runtime_preflight["runtime_preflight_sha256"],
+                    "training_mode": training_mode,
                     "photoreal_acceptance_authority": False,
                     "production_activation": False,
                 },
