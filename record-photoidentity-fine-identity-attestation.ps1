@@ -79,6 +79,7 @@ Write-Host "Production activation: FALSE"
 Write-Host ""
 
 & $BodyRigPython -m bodyrig.photoidentity_fine_identity_attestation `
+    --sweep-root $SweepRoot `
     --private-manifest $PrivateReviewManifest `
     --anatomy-observations $anatomyObservations `
     --anatomy-report $anatomyReport `
