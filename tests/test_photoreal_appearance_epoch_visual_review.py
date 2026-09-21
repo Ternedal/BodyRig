@@ -284,6 +284,7 @@ def test_review_request_rejects_runtime_path_map_that_drops_held_out_source() ->
             bodyrig_revision="f" * 40,
             dataset_plan_sha256="3" * 64,
             source_receipt_sha256="4" * 64,
+            scan_plan_sha256="6" * 64,
             frame_index_sha256="5" * 64,
         )
 
@@ -301,6 +302,7 @@ def test_review_rejects_boolean_frame_index_version() -> None:
             converter=lambda _path: "/mnt/e/source",
             dataset_plan_sha256="3" * 64,
             source_receipt_sha256="4" * 64,
+            scan_plan_sha256="6" * 64,
             frame_index_sha256="5" * 64,
         )
 
