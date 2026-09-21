@@ -88,6 +88,10 @@ if ([string]::IsNullOrWhiteSpace($Output)) {
 
 $python = Resolve-WindowsPython -Requested $WindowsPython -RepoRoot $repoRoot
 
+if (-not $ConfirmPhysicalDeviceReviewComplete.IsPresent) {
+    throw "Explicit physical-device review completion confirmation is required."
+}
+
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL V2 - QUEST2 GUIDED HUMAN REVIEW"
 Write-Host "Revision:             $head"
