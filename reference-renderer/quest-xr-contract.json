@@ -1,0 +1,16 @@
+{
+  "format": "bodyrig-reference-renderer-quest-xr-contract",
+  "version": 1,
+  "provider": "openxr",
+  "xr_management_package": "com.unity.xr.management",
+  "xr_management_version": "4.5.3",
+  "openxr_package": "com.unity.xr.openxr",
+  "openxr_version": "1.16.1",
+  "target_platform": "android",
+  "target_device_family": "meta-quest",
+  "target_device_model": "quest-2",
+  "loader_type": "UnityEngine.XR.OpenXR.OpenXRLoader",
+  "render_mode": "single-pass-instanced",
+  "runtime_initialization": "xr-management",
+  "production_activation": false
+}
