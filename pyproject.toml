@@ -78,7 +78,7 @@ bodyrig-photoreal-p2-exavatar-heldout-evaluation-input = "bodyrig.photoreal_p2_e
 bodyrig-photoreal-p2-exavatar-heldout-evaluation-run = "bodyrig.photoreal_p2_exavatar_heldout_evaluation_runner:main"
 bodyrig-photoreal-p2-heldout-animated-review-plan = "bodyrig.photoreal_p2_heldout_animated_review_plan:main"
 bodyrig-photoreal-p2-heldout-animated-human-review = "bodyrig.photoreal_p2_heldout_animated_human_review:main"
-bodyrig-photoreal-p3-device-distillation-plan = "bodyrig.photoreal_p3_device_distillation_plan:main"
+bodyrig-photoreal-p3-device-distillation-plan = "bodyrig.photoreal_p3_device_distillation_plan:main"\nbodyrig-photoreal-p3-student-representation-select = "bodyrig.photoreal_p3_student_representation_selection:main"
 bodyrig-observation-preflight = "bodyrig.observation_preflight:main"
 bodyrig-select-observations = "bodyrig.observation_cli:main"
 bodyrig-observation-evidence = "bodyrig.observation_evidence:main"
