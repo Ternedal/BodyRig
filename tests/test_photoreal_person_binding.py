@@ -304,3 +304,36 @@ def test_binding_output_is_create_only(
             p3_physical_runtime_review_path=p3_path,
             bodyrig_revision=REVISION,
         )
+
+def test_resealed_binding_cannot_override_current_source_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    library, assembly, release, p3_path = _arrange(monkeypatch, tmp_path)
+    authority = build_photoreal_person_binding(
+        library,
+        person_id=PERSON_ID,
+        assembly_receipt_path=assembly,
+        body_release_status_path=release,
+        p3_physical_runtime_review_path=p3_path,
+        bodyrig_revision=REVISION,
+    )
+    resealed = copy.deepcopy(authority)
+    resealed["selected_epoch_id"] = "epoch-resealed"
+    resealed["binding_id"] = binding._binding_id(resealed)
+    validate_photoreal_person_binding_structure(resealed)
+
+    with pytest.raises(
+        PhotorealPersonBindingError,
+        match="no longer matches the exact current Person/source/body/P3 evidence",
+    ):
+        revalidate_photoreal_person_binding(
+            resealed,
+            person_library=library,
+            person_id=PERSON_ID,
+            assembly_receipt_path=assembly,
+            body_release_status_path=release,
+            p3_physical_runtime_review_path=p3_path,
+            bodyrig_revision=REVISION,
+        )
+
