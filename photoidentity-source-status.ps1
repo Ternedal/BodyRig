@@ -211,7 +211,9 @@ switch ([string]$status.stage) {
         Write-Host "Photoidentical fine-identity source review is required before registration."
         Write-Host "Required domains: oral/teeth, chest/breast shape, nipple/areola, intimate anatomy, distinctive markers."
         Write-Host "Each domain requires >=2 distinct real source scenes. Generic guessing remains forbidden."
-        Write-Host "Next command template:"
+        Write-Host "First build the private hash-bound review manifest:"
+        Write-Host ("& " + (Quote-PS (Join-Path $repoRoot "prepare-photoidentity-fine-identity-review-manifest.ps1")) + " -SweepRoot " + (Quote-PS $SweepRoot) + " -EvidenceCsv '<private-evidence.csv>' -MarkerInventory '<private-marker-inventory.json>'")
+        Write-Host "Then record the explicit human attestation:"
         Write-Host ("& " + (Quote-PS (Join-Path $repoRoot "record-photoidentity-fine-identity-attestation.ps1")) + " -SweepRoot " + (Quote-PS $SweepRoot) + " -PrivateReviewManifest '<private-review-manifest.json>' -ReviewedBy '<reviewer>' -QualityNote '<what was visibly verified>' -ConfirmOralTeethPhotoidentity -ConfirmChestBreastShapePhotoidentity -ConfirmNippleAreolaPhotoidentity -ConfirmIntimateAnatomyPhotoidentity -ConfirmDistinctiveMarkersPhotoidentity")
     }
     "fine-identity-registration" {
