@@ -512,6 +512,10 @@ def validate_exavatar_animation_execution_input(
                 "P2 animation identity artifact size is invalid"
             )
         _sha(raw.get("sha256"), label="P2 animation identity artifact SHA-256")
+    if seen_kinds != {"shape-param", "face-offset", "joint-offset", "locator-offset"}:
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation identity artifact universe mismatch"
+        )
 
     driver = value.get("motion_driver")
     if not isinstance(driver, Mapping):
@@ -543,6 +547,68 @@ def validate_exavatar_animation_execution_input(
     if driver.get("split") != "train" or driver.get("role") != "motion-driver":
         raise PhotorealP2ExAvatarAnimationExecutionInputError(
             "P2 animation motion driver crossed TRAIN-only authority"
+        )
+    normalization_action = _text(
+        driver.get("normalization_action"),
+        label="P2 animation motion normalization action",
+        maximum=128,
+    )
+    if normalization_action not in {
+        "preserve-flat-mono-video",
+        "exact-authorized-deprojection",
+    }:
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation motion normalization action is invalid"
+        )
+    selected_eye = _text(
+        driver.get("selected_eye"),
+        label="P2 animation motion selected eye",
+        maximum=16,
+    )
+    if selected_eye not in {"mono", "left", "right"}:
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation motion selected eye is invalid"
+        )
+    viewport = driver.get("selected_viewport_id")
+    if viewport is not None:
+        _text(viewport, label="P2 animation motion selected viewport", maximum=64)
+    anchor_ref = _text(
+        driver.get("anchor_observation_ref"),
+        label="P2 animation motion anchor observation ref",
+        maximum=64,
+    )
+    if not anchor_ref.startswith("obs-"):
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation motion anchor observation ref is not canonical"
+        )
+    _sha(
+        driver.get("anchor_frame_sha256"),
+        label="P2 animation motion anchor frame SHA-256",
+    )
+    start_seconds = driver.get("window_start_seconds")
+    end_seconds = driver.get("window_end_seconds")
+    duration_seconds = driver.get("window_duration_seconds")
+    for raw, label in (
+        (start_seconds, "window start"),
+        (end_seconds, "window end"),
+        (duration_seconds, "window duration"),
+    ):
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, (int, float))
+            or not math.isfinite(float(raw))
+        ):
+            raise PhotorealP2ExAvatarAnimationExecutionInputError(
+                f"P2 animation motion {label} is invalid"
+            )
+    if (
+        float(start_seconds) < 0
+        or float(end_seconds) <= float(start_seconds)
+        or round(float(end_seconds) - float(start_seconds), 6)
+        != round(float(duration_seconds), 6)
+    ):
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation motion window timing is inconsistent"
         )
     if driver.get("motion_path_relative") != f"tasks/{source_ref}/motion":
         raise PhotorealP2ExAvatarAnimationExecutionInputError(
@@ -589,6 +655,19 @@ def validate_exavatar_animation_execution_input(
                 "P2 animation motion artifact size is invalid"
             )
         _sha(raw.get("sha256"), label="P2 animation motion artifact SHA-256")
+    required_paths: set[str] = set()
+    for frame_id in frame_ids:
+        required_paths.update(
+            {
+                f"tasks/{source_ref}/motion/frames/{frame_id}.png",
+                f"tasks/{source_ref}/motion/cam_params/{frame_id}.json",
+                f"tasks/{source_ref}/motion/smplx_optimized/smplx_params_smoothed/{frame_id}.json",
+            }
+        )
+    if not required_paths.issubset(seen_paths):
+        raise PhotorealP2ExAvatarAnimationExecutionInputError(
+            "P2 animation motion artifact universe omits frame/camera/SMPL-X bytes"
+        )
 
     for field, expected in (
         ("identity_artifact_bytes_reverified", True),
