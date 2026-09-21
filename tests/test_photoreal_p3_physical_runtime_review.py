@@ -15,7 +15,7 @@ from bodyrig.photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     PERFORMANCE_CHECKS,
     record_physical_runtime_review,
-    validate_physical_runtime_review_evidence,
+    validate_physical_runtime_evidence,
     validate_physical_runtime_review_receipt,
 )
 
@@ -268,3 +268,46 @@ def test_boolean_v1_is_rejected(
         match="format/version mismatch",
     ):
         validate_physical_runtime_review_receipt(receipt)
+
+def test_resealed_performance_pass_cannot_override_raw_refresh_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    _trust(monkeypatch, plan)
+    evidence = _evidence()
+    evidence["observed_refresh_hz"] = 71.0
+    receipt = record_physical_runtime_review(plan, evidence)
+    receipt["performance_results"][0]["decision"] = "pass"
+    receipt["runtime_review_status"] = "pass"
+    receipt["runtime_acceptance_authority"] = True
+    receipt["photoreal_acceptance_authority"] = True
+    receipt["p3_physical_runtime_review_sha256"] = physical._digest(
+        receipt,
+        omit="p3_physical_runtime_review_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3PhysicalRuntimeReviewError,
+        match="performance results do not match raw device evidence",
+    ):
+        validate_physical_runtime_review_receipt(receipt)
+
+
+def test_resealed_student_components_are_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    _trust(monkeypatch, plan)
+    receipt = record_physical_runtime_review(plan, _evidence())
+    receipt["student_components"] = ["specialized-eye-component"]
+    receipt["p3_physical_runtime_review_sha256"] = physical._digest(
+        receipt,
+        omit="p3_physical_runtime_review_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3PhysicalRuntimeReviewError,
+        match="required student components mismatch",
+    ):
+        validate_physical_runtime_review_receipt(receipt)
+
