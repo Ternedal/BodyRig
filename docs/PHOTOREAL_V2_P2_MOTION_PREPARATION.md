@@ -8,6 +8,7 @@ It consumes:
 - the bound build-private source index;
 - the explicit human motion-source selection receipt;
 - the private P2 motion-input plan;
+- the explicit P2 eye/viewport normalization-selection receipt;
 - the original P0 `scan-plan.json`;
 - an explicit pinned motion-preparation adapter config.
 
@@ -24,6 +25,29 @@ The runner rebinds every selected P2 source to the original P0 scan source by:
 - the exact original projection-authority payload.
 
 No spatial geometry is reconstructed or guessed.
+
+## Eye and viewport authority
+
+Before physical preparation, BodyRig records a separate digest-bound normalization selection.
+
+- flat mono sources are deterministic: `mono`, no viewport;
+- flat side-by-side/over-under sources require an explicit left/right eye;
+- authoritative `equi` sources require an allowed eye plus one viewport ID from the exact P0 projection-authority viewport universe;
+- unsupported spatial projections remain fail-closed.
+
+Use:
+
+```powershell
+.\record-photoreal-v2-p2-motion-normalization-selection.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -P0Root <P0_RUN_ROOT> `
+  -ReviewedBy <OPERATOR> `
+  -ReviewNotes "<NOTES>"
+```
+
+The first invocation prints the legal choice universe. If human selection is required it exits with code 2 without touching media. Rerun with choices such as `-Choice "src-...=left@v00" -ApproveHumanSelection`.
+
+The physical preparation runner requires this exact receipt and binds it back to the original P0 scan authority.
 
 ## Source hashing boundary
 
