@@ -13,6 +13,8 @@ from bodyrig.photoreal_p2_motion_evidence import (
     PhotorealP2MotionEvidenceError,
     build_motion_evidence_handoff,
     build_motion_evidence_handoff_files,
+    validate_motion_evidence_handoff,
+    validate_private_motion_index,
 )
 
 
@@ -222,6 +224,40 @@ def test_motion_handoff_preserves_train_eval_roles_and_hides_paths() -> None:
     assert "resolved_path" in private_bytes
     assert private_index["build_private"] is True
     assert private_index["source_media_rehash_performed"] is False
+
+
+def test_motion_handoff_validator_rejects_resealed_private_path_leak() -> None:
+    teacher = _teacher_input()
+    plan = _p2_plan(teacher["teacher_input_sha256"])
+    handoff, _private = build_motion_evidence_handoff(teacher, plan)
+    handoff["motion_driver_candidates"][0]["resolved_path"] = r"\\stash\leak.mp4"
+    handoff["p2_motion_evidence_handoff_sha256"] = motion._digest(
+        handoff,
+        omit="p2_motion_evidence_handoff_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionEvidenceError,
+        match="leaks private source identity",
+    ):
+        validate_motion_evidence_handoff(handoff)
+
+
+def test_private_motion_index_validator_rejects_resealed_public_binding_drift() -> None:
+    teacher = _teacher_input()
+    plan = _p2_plan(teacher["teacher_input_sha256"])
+    handoff, private_index = build_motion_evidence_handoff(teacher, plan)
+    private_index["entries"][0]["source_sha256"] = "9" * 64
+    private_index["p2_motion_private_index_sha256"] = motion._digest(
+        private_index,
+        omit="p2_motion_private_index_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP2MotionEvidenceError,
+        match="private/public P2 motion binding mismatch: source_sha256",
+    ):
+        validate_private_motion_index(private_index, handoff=handoff)
 
 
 def test_motion_handoff_marks_spatial_video_for_exact_deprojection() -> None:
