@@ -87,6 +87,7 @@ bodyrig-photoreal-p3-quest2-fidelity-delta = "bodyrig.photoreal_p3_quest2_fideli
 bodyrig-photoreal-p3-quest2-final-manifest = "bodyrig.photoreal_p3_quest2_final_manifest:main"
 bodyrig-photoreal-p3-device-runtime-review-plan = "bodyrig.photoreal_p3_device_runtime_review_plan:main"
 bodyrig-photoreal-p3-physical-runtime-review = "bodyrig.photoreal_p3_physical_runtime_review:main"
+bodyrig-photoreal-p3-guided-human-review = "bodyrig.photoreal_p3_guided_human_review:main"
 bodyrig-photoreal-person-bind = "bodyrig.photoreal_person_binding_cli:main"
 bodyrig-digital-twin-photoreal-link = "bodyrig.digital_twin_photoreal_link_cli:main"
 bodyrig-digital-twin-photoreal-m5-link = "bodyrig.digital_twin_photoreal_m5_link_cli:main"
