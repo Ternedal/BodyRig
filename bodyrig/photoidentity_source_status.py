@@ -36,6 +36,11 @@ from .photoidentity_registry import (
     _job_authority,
     require_body_job_photoidentity_evidence,
 )
+from .photoidentity_fine_identity_registry import (
+    DIRNAME as FINE_IDENTITY_REGISTRY_DIRNAME,
+    PhotoIdentityFineIdentityRegistryError,
+    require_body_job_photoidentical_fine_identity,
+)
 from .photoidentity_source_chain import PhotoIdentitySourceChainError, validate_registration_source_chain
 from .photoidentity_target_crop_quality_attestation import (
     ADAPTER as TARGET_DETAIL_ADAPTER,
@@ -705,6 +710,22 @@ def inspect_source_status(
         require_body_job_photoidentity_evidence(str(job["person_id"]), normalized_job_id)
     except PhotoIdentityRegistryError as exc:
         raise PhotoIdentitySourceStatusError(f"registered photoidentity authority is invalid: {exc}") from exc
+
+    fine_registry_root = job_root / FINE_IDENTITY_REGISTRY_DIRNAME
+    if not fine_registry_root.exists():
+        return _stage(
+            sweep_root=root,
+            base_report=base_report,
+            final_report=final_report,
+            body_job_id=normalized_job_id,
+            name="fine-identity-registration",
+            next_action="register_photoidentical_fine_identity_authority",
+            human_review_required=False,
+        )
+    try:
+        require_body_job_photoidentical_fine_identity(str(job["person_id"]), normalized_job_id)
+    except PhotoIdentityFineIdentityRegistryError as exc:
+        raise PhotoIdentitySourceStatusError(f"registered fine-identity authority is invalid: {exc}") from exc
     return _stage(
         sweep_root=root,
         base_report=base_report,
