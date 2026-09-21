@@ -932,13 +932,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-review-plan", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     args = parser.parse_args(argv)
     try:
-        receipt = record_physical_runtime_review_files(
-            args.runtime_review_plan,
-            args.evidence,
-            output_path=args.out,
-        )
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            receipt = reuse_physical_runtime_review_files(
+                args.runtime_review_plan,
+                args.evidence,
+                output_path=args.out,
+            )
+        else:
+            receipt = record_physical_runtime_review_files(
+                args.runtime_review_plan,
+                args.evidence,
+                output_path=args.out,
+            )
     except PhotorealP3PhysicalRuntimeReviewError as exc:
         print(f"BodyRig P3 physical runtime review: FAIL: {exc}", file=sys.stderr)
         return 1
