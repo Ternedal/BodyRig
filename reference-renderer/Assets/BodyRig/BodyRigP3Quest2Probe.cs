@@ -7,14 +7,17 @@ using System.Threading.Tasks;
 using UniGLTF;
 using UniVRM10;
 using UnityEngine;
+using UnityEngine.XR;
+using UnityEngine.XR.Management;
+using UnityEngine.XR.OpenXR;
 
 namespace BodyRig.ReferenceRenderer
 {
     /// <summary>
     /// Machine-only Quest 2 probe for the Photoreal V2 P3 student.
-    /// It proves exact artifact bytes, real UniVRM loading and measured frame timing.
-    /// It deliberately does not claim stereo/VR-safe pacing until the canonical
-    /// reference project has a pinned XR runtime.
+    /// It proves exact artifact bytes, real UniVRM loading, an active OpenXR
+    /// display/stereo path and measured physical frame timing. Human visual
+    /// acceptance remains a separate authority boundary.
     /// </summary>
     public sealed class BodyRigP3Quest2Probe : MonoBehaviour
     {
@@ -37,6 +40,8 @@ namespace BodyRig.ReferenceRenderer
             public string performer_id;
             public string target_device_family;
             public string target_device_model;
+            public float target_refresh_hz;
+            public float max_frame_time_ms;
             public string avatar_relative_path;
             public Artifact[] student_artifacts;
         }
@@ -69,6 +74,15 @@ namespace BodyRig.ReferenceRenderer
             public bool vrm10_loaded;
             public bool humanoid_valid;
             public bool required_bones_valid;
+            public float target_refresh_hz;
+            public float max_frame_time_ms;
+            public bool openxr_loader_active;
+            public bool xr_device_active;
+            public bool xr_display_running;
+            public bool stereo_camera_active;
+            public int eye_texture_width;
+            public int eye_texture_height;
+            public string stereo_rendering_mode;
             public float observed_refresh_hz;
             public float p95_frame_time_ms;
             public int frame_time_sample_count;
@@ -135,6 +149,8 @@ namespace BodyRig.ReferenceRenderer
             if (deviceModel.IndexOf("Quest 2", StringComparison.OrdinalIgnoreCase) < 0 &&
                 deviceModel.IndexOf("Oculus Quest 2", StringComparison.OrdinalIgnoreCase) < 0)
                 throw new PlatformNotSupportedException("P3 machine probe requires an exact Quest 2 device, got '" + deviceModel + "'");
+
+            var xrDisplay = await RequireOpenXrRuntimeAsync();
 
             var manifestDirectory = Path.GetDirectoryName(manifestFile);
             if (string.IsNullOrEmpty(manifestDirectory))
@@ -248,9 +264,39 @@ namespace BodyRig.ReferenceRenderer
             var p95Index = Mathf.Clamp(Mathf.CeilToInt(samples.Count * 0.95f) - 1, 0, samples.Count - 1);
             var p95 = samples[p95Index];
 
-            var refresh = (float)Screen.currentResolution.refreshRateRatio.value;
-            if (!(refresh > 0f) || float.IsNaN(refresh) || float.IsInfinity(refresh))
-                throw new InvalidDataException("P3 Quest2 machine probe could not resolve physical refresh rate");
+            float refresh;
+            if (!xrDisplay.TryGetDisplayRefreshRate(out refresh) ||
+                !IsFinitePositive(refresh))
+                throw new InvalidDataException("P3 Quest2 machine probe could not resolve XR display refresh rate");
+
+            var camera = Camera.main;
+            if (camera == null)
+                throw new InvalidDataException("P3 Quest2 machine probe has no MainCamera after XR startup");
+            var eyeWidth = XRSettings.eyeTextureWidth;
+            var eyeHeight = XRSettings.eyeTextureHeight;
+            var stereoMode = XRSettings.stereoRenderingMode;
+            var stereoModeObserved =
+                stereoMode == XRSettings.StereoRenderingMode.SinglePassInstanced ||
+                stereoMode == XRSettings.StereoRenderingMode.SinglePassMultiview;
+            var stereoObserved =
+                XRSettings.enabled &&
+                XRSettings.isDeviceActive &&
+                xrDisplay.running &&
+                camera.stereoTargetEye == StereoTargetEyeMask.Both &&
+                camera.stereoEnabled &&
+                eyeWidth > 0 &&
+                eyeHeight > 0 &&
+                stereoModeObserved;
+            if (!stereoObserved)
+                throw new InvalidDataException(
+                    "P3 Quest2 machine probe did not observe the canonical active stereo OpenXR path");
+
+            var vrSafeFramePacing =
+                refresh >= manifest.target_refresh_hz &&
+                p95 <= manifest.max_frame_time_ms;
+            if (!vrSafeFramePacing)
+                throw new InvalidDataException(
+                    "P3 Quest2 machine probe exceeded the target refresh/frame-time budget");
 
             var buildGuid = Application.buildGUID;
             if (string.IsNullOrWhiteSpace(buildGuid))
@@ -274,16 +320,22 @@ namespace BodyRig.ReferenceRenderer
                 vrm10_loaded = true,
                 humanoid_valid = true,
                 required_bones_valid = true,
+                target_refresh_hz = manifest.target_refresh_hz,
+                max_frame_time_ms = manifest.max_frame_time_ms,
+                openxr_loader_active = true,
+                xr_device_active = XRSettings.isDeviceActive,
+                xr_display_running = xrDisplay.running,
+                stereo_camera_active = camera.stereoEnabled,
+                eye_texture_width = eyeWidth,
+                eye_texture_height = eyeHeight,
+                stereo_rendering_mode = stereoMode.ToString(),
                 observed_refresh_hz = refresh,
                 p95_frame_time_ms = p95,
                 frame_time_sample_count = samples.Count,
                 runtime_loaded = true,
-
-                // The current canonical reference project is Android/UniVRM-only.
-                // Do not infer VR stereo authority from "running on Quest hardware".
-                stereo_rendering_observed = false,
-                vr_safe_frame_pacing_observed = false,
-                stereo_authority = "blocked-until-canonical-xr-runtime-is-pinned",
+                stereo_rendering_observed = true,
+                vr_safe_frame_pacing_observed = true,
+                stereo_authority = "unity-openxr-active-display-and-stereo-camera",
                 human_runtime_visual_acceptance_required = true,
                 runtime_acceptance_authority = false,
                 photoreal_acceptance_authority = false,
@@ -312,9 +364,69 @@ namespace BodyRig.ReferenceRenderer
                 throw new InvalidDataException("P3 runtime manifest performer id is missing");
             if (manifest.target_device_family != "meta-quest" || manifest.target_device_model != "quest-2")
                 throw new InvalidDataException("P3 reference runtime manifest does not target Quest 2");
+            if (!IsFinitePositive(manifest.target_refresh_hz) ||
+                !IsFinitePositive(manifest.max_frame_time_ms))
+                throw new InvalidDataException("P3 reference runtime manifest has invalid performance targets");
             manifest.avatar_relative_path = RequireRelativePath(manifest.avatar_relative_path);
             if (manifest.student_artifacts == null || manifest.student_artifacts.Length < 1)
                 throw new InvalidDataException("P3 runtime manifest contains no student artifacts");
+        }
+
+        private static async Task<XRDisplaySubsystem> RequireOpenXrRuntimeAsync()
+        {
+            var general = XRGeneralSettings.Instance;
+            if (general == null || general.Manager == null)
+                throw new InvalidDataException("P3 Quest2 machine probe has no XR Manager runtime settings");
+
+            var manager = general.Manager;
+            if (!manager.isInitializationComplete)
+                manager.InitializeLoaderSync();
+            if (!(manager.activeLoader is OpenXRLoader))
+                throw new InvalidDataException("P3 Quest2 machine probe did not initialize the canonical OpenXR loader");
+
+            var displays = new List<XRDisplaySubsystem>();
+            SubsystemManager.GetSubsystems(displays);
+            var runningDisplayCount = 0;
+            XRDisplaySubsystem runningDisplay = null;
+            foreach (var display in displays)
+            {
+                if (display == null || !display.running)
+                    continue;
+                runningDisplayCount++;
+                runningDisplay = display;
+            }
+
+            if (runningDisplayCount == 0)
+            {
+                manager.StartSubsystems();
+                for (var index = 0; index < 60; index++)
+                    await Task.Yield();
+
+                displays.Clear();
+                SubsystemManager.GetSubsystems(displays);
+                foreach (var display in displays)
+                {
+                    if (display == null || !display.running)
+                        continue;
+                    runningDisplayCount++;
+                    runningDisplay = display;
+                }
+            }
+
+            if (runningDisplayCount != 1 || runningDisplay == null)
+                throw new InvalidDataException(
+                    "P3 Quest2 machine probe requires exactly one running XR display subsystem");
+            if (!XRSettings.enabled || !XRSettings.isDeviceActive)
+                throw new InvalidDataException("P3 Quest2 machine probe has no active XR device after OpenXR startup");
+
+            for (var index = 0; index < 30; index++)
+                await Task.Yield();
+            return runningDisplay;
+        }
+
+        private static bool IsFinitePositive(float value)
+        {
+            return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
         }
 
         private static string RequireRelativePath(string value)
