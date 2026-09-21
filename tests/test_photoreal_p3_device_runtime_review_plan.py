@@ -141,6 +141,8 @@ def test_runtime_review_plan_reverifies_student_and_stays_pre_physical(
     assert result["target_device_model"] == "quest-2"
     assert result["executed_adapter"] == "test-distiller"
     assert result["executed_adapter_revision"] == "a" * 64
+    assert result["distillation_plan"] == plan
+    assert result["distillation_execution_receipt"] == execution
     assert result["student_artifact_bytes_reverified"] is True
     assert result["student_components"] == list(REQUIRED_STUDENT_COMPONENTS)
     assert result["fidelity_delta_dimension_count"] == len(
@@ -295,6 +297,62 @@ def test_readback_rejects_resealed_runtime_acceptance(
     with pytest.raises(
         PhotorealP3DeviceRuntimeReviewPlanError,
         match="runtime_acceptance_authority",
+    ):
+        validate_device_runtime_review_plan(result)
+
+
+def test_readback_rejects_resealed_adapter_revision_against_execution_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, execution, output = _inputs(tmp_path)
+    _trust(monkeypatch, plan, execution)
+    result = build_device_runtime_review_plan(
+        plan,
+        execution,
+        student_output_root=output,
+    )
+    result["executed_adapter_revision"] = "b" * 64
+    result["p3_device_runtime_review_plan_sha256"] = runtime._digest(
+        result,
+        omit="p3_device_runtime_review_plan_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceRuntimeReviewPlanError,
+        match="adapter revision differs from execution snapshot",
+    ):
+        validate_device_runtime_review_plan(result)
+
+
+def test_readback_rejects_quest2_gaussian_even_if_snapshot_is_resealed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    plan, execution, output = _inputs(tmp_path)
+    _trust(monkeypatch, plan, execution)
+    result = build_device_runtime_review_plan(
+        plan,
+        execution,
+        student_output_root=output,
+    )
+    result["student_representation"] = "gaussian-splat-optional"
+    result["distillation_execution_receipt"]["student_representation"] = (
+        "gaussian-splat-optional"
+    )
+    monkeypatch.setattr(
+        runtime,
+        "validate_execution_receipt",
+        lambda value: dict(value),
+    )
+    result["p3_device_runtime_review_plan_sha256"] = runtime._digest(
+        result,
+        omit="p3_device_runtime_review_plan_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceRuntimeReviewPlanError,
+        match="Quest 2.*native Gaussian student",
     ):
         validate_device_runtime_review_plan(result)
 
