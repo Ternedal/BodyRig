@@ -109,7 +109,7 @@ def _config(
         "format": CONFIG_FORMAT,
         "version": 1,
         "adapter": "test-distiller",
-        "revision": "rev-1",
+        "revision": "a" * 64,
         "student_representation": representation,
         "student_components": list(runner.REQUIRED_STUDENT_COMPONENTS),
         "command": ["python", "adapter.py"],
@@ -292,6 +292,16 @@ def test_gaussian_representation_requires_explicit_support() -> None:
                 gaussian_support=False,
             )
         )
+
+
+def test_adapter_revision_must_be_sha256() -> None:
+    config = _config()
+    config["revision"] = "rev-1"
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="adapter revision is invalid",
+    ):
+        validate_distillation_config(config)
 
 
 def test_adapter_must_consume_staged_teacher_only() -> None:
