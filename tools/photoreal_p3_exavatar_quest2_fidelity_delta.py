@@ -1104,6 +1104,15 @@ def main(argv: list[str] | None = None) -> int:
             raise ExAvatarQuest2FidelityDeltaError(
                 f"Quest2 fidelity evidence output already exists: {output}"
             )
+        hair_root = args.hair_output_root.expanduser().resolve()
+        try:
+            output.relative_to(hair_root)
+        except ValueError:
+            pass
+        else:
+            raise ExAvatarQuest2FidelityDeltaError(
+                "Quest2 fidelity evidence must be written outside the immutable hair output root"
+            )
         result = build_fidelity_evidence(
             candidate_workspace=args.candidate_workspace,
             exavatar_workspace_root=args.exavatar_workspace_root,
