@@ -22,7 +22,6 @@ def test_builder_requires_complete_domain_coverage(tmp_path: Path, monkeypatch: 
         json.dumps({"performer_id": "42", "bodyrig_revision": revision, "source_files_scanned": len(REQUIRED_DOMAINS) * 2}), encoding="utf-8"
     )
     marker = tmp_path / "markers.json"
-    marker.write_text('{"markers":[]}\n', encoding="utf-8")
     csv_path = tmp_path / "evidence.csv"
     fields = ["reference","domain","scene_id","region","source_ordinal","review_image_path","source_quality"]
     rows = []
@@ -45,6 +44,25 @@ def test_builder_requires_complete_domain_coverage(tmp_path: Path, monkeypatch: 
                 "review_image_path": str(image),
                 "source_quality": "0.91",
             })
+    marker_refs = [row["reference"] for row in rows if row["domain"] == "distinctive_markers_detail"]
+    marker.write_text(
+        json.dumps(
+            {
+                "format": "bodyrig-photoidentity-distinctive-marker-inventory",
+                "version": 1,
+                "reviewed_regions": sorted(
+                    {
+                        "face_head","chest_breast","abdomen_waist","back","left_arm","right_arm",
+                        "left_hand","right_hand","left_leg","right_leg","left_foot","right_foot","intimate_region"
+                    }
+                ),
+                "markers": [],
+                "complete_body_marker_review": True,
+                "generic_guessing_permitted": False,
+            }
+        ),
+        encoding="utf-8",
+    )
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
