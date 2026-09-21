@@ -213,10 +213,11 @@ def _verify_student_artifacts(
             }
         )
 
+    root_manifest = (root / "distillation-manifest.json").resolve()
     actual = {
         path.relative_to(root).as_posix()
         for path in root.rglob("*")
-        if path.is_file() and path.name != "distillation-manifest.json"
+        if path.is_file() and path.resolve() != root_manifest
     }
     if actual != seen:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
