@@ -357,3 +357,31 @@ def test_pairing_handoff_rejects_held_out_frame_not_in_selected_teacher_epoch(tm
 
     with pytest.raises(PhotorealP1HeldoutPairingError, match="complete selected held-out teacher universe"):
         build_p1_pairing_handoff(teacher, semantic, manifest, root)
+
+
+def test_pairing_handoff_rejects_held_out_timestamp_drift(tmp_path: Path) -> None:
+    teacher = _teacher_input()
+    semantic = _semantic_alignment(teacher)
+    manifest, root, _frame_id = _review_pack(tmp_path, teacher)
+    manifest["groups"][1]["frames"][0]["timestamp_seconds"] = 2.25
+    (root / "appearance-epoch-visual-review-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PhotorealP1HeldoutPairingError, match="timestamp differs"):
+        build_p1_pairing_handoff(teacher, semantic, manifest, root)
+
+
+def test_pairing_handoff_rejects_held_out_eye_drift(tmp_path: Path) -> None:
+    teacher = _teacher_input()
+    semantic = _semantic_alignment(teacher)
+    manifest, root, _frame_id = _review_pack(tmp_path, teacher)
+    manifest["groups"][1]["frames"][0]["eye"] = "left"
+    (root / "appearance-epoch-visual-review-manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PhotorealP1HeldoutPairingError, match="eye differs"):
+        build_p1_pairing_handoff(teacher, semantic, manifest, root)
