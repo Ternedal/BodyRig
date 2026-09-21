@@ -27,14 +27,20 @@ def test_p3_reference_probe_uses_canonical_renderer_and_pinned_adb() -> None:
     assert "refuses non-pinned adb" in source
 
 
-def test_p3_reference_probe_is_explicitly_blocked_on_missing_xr_authority() -> None:
+def test_p3_reference_probe_requires_canonical_openxr_authority() -> None:
     runner = RUNNER.read_text(encoding="utf-8")
     probe = PROBE.read_text(encoding="utf-8")
-    assert 'PSObject.Properties["com.unity.xr.openxr"]' in runner
-    assert "canonical-openxr-runtime-not-pinned" in runner
-    assert "stereo_rendering_observed = false" in probe
-    assert "vr_safe_frame_pacing_observed = false" in probe
-    assert 'stereo_authority = "blocked-until-canonical-xr-runtime-is-pinned"' in probe
+    assert "quest-xr-contract.json" in runner
+    assert '"com.unity.xr.management"' in runner
+    assert '"com.unity.xr.openxr"' in runner
+    assert "XRGeneralSettings.Instance" in probe
+    assert "manager.InitializeLoaderSync()" in probe
+    assert "manager.activeLoader is OpenXRLoader" in probe
+    assert "XRDisplaySubsystem" in probe
+    assert "TryGetDisplayRefreshRate" in probe
+    assert "stereo_rendering_observed = true" in probe
+    assert "vr_safe_frame_pacing_observed = true" in probe
+    assert 'stereo_authority = "unity-openxr-active-display-and-stereo-camera"' in probe
 
 
 def test_p3_unity_probe_rehashes_all_artifacts_and_loads_real_vrm() -> None:
@@ -46,7 +52,10 @@ def test_p3_unity_probe_rehashes_all_artifacts_and_loads_real_vrm() -> None:
     assert "installed_student_hashes_verified_on_device = true" in source
     assert "runtime_loaded = true" in source
     assert "frame_time_sample_count" in source
-    assert "refreshRateRatio.value" in source
+    assert "TryGetDisplayRefreshRate" in source
+    assert "XRSettings.eyeTextureWidth" in source
+    assert "XRSettings.eyeTextureHeight" in source
+    assert "camera.stereoEnabled" in source
 
 
 def test_p3_bootstrap_requires_explicit_request_marker() -> None:
