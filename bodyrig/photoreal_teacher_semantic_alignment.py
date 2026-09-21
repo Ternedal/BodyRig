@@ -284,14 +284,16 @@ def build_semantic_alignment_handoff(
 def build_semantic_alignment_handoff_files(
     config_path: str | Path,
     teacher_input_path: str | Path,
-    teacher_output: str | Path,
+    teacher_workspace: str | Path,
     output_path: str | Path,
 ) -> dict[str, Any]:
+    workspace = Path(teacher_workspace).expanduser().resolve()
+    result_root = workspace / "output"
     try:
-        validated = validate_external_teacher_files_strict(config_path, teacher_input_path, teacher_output)
+        validated = validate_external_teacher_files_strict(config_path, teacher_input_path, workspace)
     except PhotorealTeacherRunnerError as exc:
         raise PhotorealTeacherSemanticAlignmentError(f"teacher strict readback failed: {exc}") from exc
-    handoff = build_semantic_alignment_handoff(validated, teacher_output)
+    handoff = build_semantic_alignment_handoff(validated, result_root)
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         existing = _read_json(output, label="semantic camera alignment handoff")
@@ -372,7 +374,7 @@ def record_semantic_alignment(
 def record_semantic_alignment_files(
     config_path: str | Path,
     teacher_input_path: str | Path,
-    teacher_output: str | Path,
+    teacher_workspace: str | Path,
     handoff_path: str | Path,
     output_path: str | Path,
     *,
@@ -381,14 +383,16 @@ def record_semantic_alignment_files(
     review_notes: str,
     approve_human_review: bool,
 ) -> dict[str, Any]:
+    workspace = Path(teacher_workspace).expanduser().resolve()
+    result_root = workspace / "output"
     try:
-        validated = validate_external_teacher_files_strict(config_path, teacher_input_path, teacher_output)
+        validated = validate_external_teacher_files_strict(config_path, teacher_input_path, workspace)
     except PhotorealTeacherRunnerError as exc:
         raise PhotorealTeacherSemanticAlignmentError(f"teacher strict readback failed: {exc}") from exc
     handoff = _read_json(handoff_path, label="semantic camera alignment handoff")
     receipt = record_semantic_alignment(
         validated,
-        teacher_output,
+        result_root,
         handoff,
         semantic_view_indices=semantic_view_indices,
         reviewed_by=reviewed_by,
@@ -429,13 +433,13 @@ def main(argv: list[str] | None = None) -> int:
     handoff = sub.add_parser("handoff")
     handoff.add_argument("--config", type=Path, required=True)
     handoff.add_argument("--teacher-input", type=Path, required=True)
-    handoff.add_argument("--teacher-output", type=Path, required=True)
+    handoff.add_argument("--teacher-workspace", type=Path, required=True)
     handoff.add_argument("--out", type=Path, required=True)
 
     record = sub.add_parser("record")
     record.add_argument("--config", type=Path, required=True)
     record.add_argument("--teacher-input", type=Path, required=True)
-    record.add_argument("--teacher-output", type=Path, required=True)
+    record.add_argument("--teacher-workspace", type=Path, required=True)
     record.add_argument("--handoff", type=Path, required=True)
     record.add_argument("--map", action="append", default=[])
     record.add_argument("--reviewed-by", required=True)
@@ -449,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
             result = build_semantic_alignment_handoff_files(
                 args.config,
                 args.teacher_input,
-                args.teacher_output,
+                args.teacher_workspace,
                 args.out,
             )
             print(
@@ -472,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
         result = record_semantic_alignment_files(
             args.config,
             args.teacher_input,
-            args.teacher_output,
+            args.teacher_workspace,
             args.handoff,
             args.out,
             semantic_view_indices=mapping,

@@ -168,13 +168,15 @@ After visual review, rerun the same operator with an explicit epoch decision, at
 ```powershell
 .\continue-photoreal-v2-teacher.ps1 `
   -P0Root <P0_ROOT> `
-  -SelectedEpochId <EPOCH_ID> `
+  -SelectedEpochId <HUMAN_ASSIGNED_EPOCH_LABEL> `
   -SourceGroup <TRAIN_GROUP> `
   -SourceGroup <EVAL_GROUP> `
   -ReviewedBy <OPERATOR> `
   -ReviewNotes <NOTES> `
   -ApproveHumanReview
 ```
+
+`SelectedEpochId` is a reviewer-assigned audit label for the coherent appearance state being approved; it is not selected from a machine-ranked candidate list and does not itself grant authority. The actual evidence boundary is the explicit set of reviewed train and held-out evaluation source groups.
 
 Existing continuation artifacts are not trusted merely because they exist: the operator recomputes and requires exact canonical equality before reuse. The P0 root itself remains immutable; continuation artifacts are written to a sibling `<P0_ROOT>-teacher` workspace by default.
 
