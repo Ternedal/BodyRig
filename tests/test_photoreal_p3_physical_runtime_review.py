@@ -389,6 +389,7 @@ def test_resealed_student_components_are_rejected(
     ):
         validate_physical_runtime_review_receipt(receipt)
 
+
 def test_resealed_adapter_revision_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -406,6 +407,7 @@ def test_resealed_adapter_revision_is_rejected(
         match="executed adapter revision",
     ):
         validate_physical_runtime_review_receipt(receipt)
+
 
 def test_existing_receipt_reuse_requires_exact_plan_and_human_evidence(
     monkeypatch: pytest.MonkeyPatch,
@@ -441,4 +443,4 @@ def test_existing_receipt_reuse_requires_exact_plan_and_human_evidence(
             evidence_path,
             output_path=receipt_path,
         )
-\n
+
