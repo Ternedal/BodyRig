@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping
 
+from .photoidentity_detail_enrich import _private_source_bindings
 from .photoidentity_fine_identity_attestation import (
     DETAIL_QUALITY_THRESHOLD,
     PRIVATE_FORMAT,
@@ -100,10 +101,18 @@ def build_private_review_manifest(
         "domain",
         "scene_id",
         "region",
-        "source_media_path",
+        "source_ordinal",
         "review_image_path",
         "source_quality",
     }
+    source_count = int(report.get("source_files_scanned", 0))
+    if source_count < 1:
+        raise PhotoIdentityFineIdentityReviewManifestError("anatomy report lacks source-file count")
+    try:
+        sources_by_ordinal, _ = _private_source_bindings(sweep_root, expected_count=source_count)
+    except Exception as exc:
+        raise PhotoIdentityFineIdentityReviewManifestError(f"could not resolve exact sweep source bindings: {exc}") from exc
+
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
     scenes: dict[str, set[str]] = {domain: set() for domain in REQUIRED_DOMAINS}
@@ -124,7 +133,18 @@ def build_private_review_manifest(
                 raise PhotoIdentityFineIdentityReviewManifestError(f"unsupported fine-identity domain: {domain or 'empty'}")
             if not scene_id or not region:
                 raise PhotoIdentityFineIdentityReviewManifestError("fine-identity scene/region is missing")
-            source = Path(str(raw.get("source_media_path") or "")).expanduser().resolve()
+            try:
+                source_ordinal = int(str(raw.get("source_ordinal") or ""))
+            except ValueError as exc:
+                raise PhotoIdentityFineIdentityReviewManifestError("fine-identity source ordinal is invalid") from exc
+            source_meta = sources_by_ordinal.get(source_ordinal)
+            if source_ordinal < 1 or not isinstance(source_meta, Mapping):
+                raise PhotoIdentityFineIdentityReviewManifestError("fine-identity source ordinal is outside the exact sweep")
+            if str(source_meta.get("scene_id") or "") != scene_id:
+                raise PhotoIdentityFineIdentityReviewManifestError(
+                    "fine-identity scene id does not match exact sweep source binding"
+                )
+            source = Path(str(source_meta.get("path") or "")).expanduser().resolve()
             review = Path(str(raw.get("review_image_path") or "")).expanduser().resolve()
             source_sha = _sha256(source)
             review_sha = _sha256(review)
@@ -136,6 +156,7 @@ def build_private_review_manifest(
                     "domain": domain,
                     "scene_id": scene_id,
                     "region": region,
+                    "source_ordinal": source_ordinal,
                     "source_media_path": str(source),
                     "source_media_sha256": source_sha,
                     "review_image_path": str(review),
