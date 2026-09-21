@@ -68,3 +68,12 @@ def test_modular_continuation_parses_when_pwsh_is_available() -> None:
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+
+def test_modular_continuation_rejects_stale_candidate_adapter() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "photoreal_p3_exavatar_quest2_student_candidate.py" in source
+    assert "currentCandidateAdapterSha" in source
+    assert "candidate was built with a stale adapter revision" in source
+    assert "p3_device_distillation_request_sha256" in source
+    assert "p3_quest2_student_candidate_sha256" in source
