@@ -82,7 +82,18 @@ The hair component is therefore an implementation milestone, not visual acceptan
 
 ## Operator flow
 
-First generate the envelope in the same pinned ExAvatar Linux/CUDA environment used by the accepted teacher:
+On Windows, the preferred path is the one-command wrapper. It reads the already pinned `exavatar-teacher-config.json`, reuses its WSL distribution/Python/workspace and performs both the Linux envelope step and the Windows core graft:
+
+```powershell
+.\\run-photoreal-v2-p3-quest2-teacher-hair.ps1 \
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> \
+  -CandidateWorkspace <P3_CANDIDATE_WORKSPACE> \
+  -EyeOutputRoot <P3_EYE_OUTPUT_ROOT>
+```
+
+The wrapper requires a clean checkout, never reruns teacher training, never rehashes the P0/P2 source corpus and keeps every output create-only.
+
+For manual/debug execution, first generate the envelope in the same pinned ExAvatar Linux/CUDA environment used by the accepted teacher:
 
 ```powershell
 wsl.exe -d <DISTRO> -- /usr/bin/env PYTHONNOUSERSITE=1 <LINUX_PYTHON> \
