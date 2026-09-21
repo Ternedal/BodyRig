@@ -255,24 +255,14 @@ $statusCode = @'
 import json
 import sys
 from pathlib import Path
-value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
-required = {
-    "human_visual_review_complete": True,
-    "photoreal_acceptance_authority": False,
-    "production_activation": False,
-}
-for key, expected in required.items():
-    if value.get(key) is not expected:
-        raise SystemExit(f"final P1 receipt authority mismatch: {key}")
-status = value.get("p1_static_teacher_status")
-if status not in {"pass", "fail"}:
-    raise SystemExit("final P1 receipt status is invalid")
-expected = status == "pass"
-for key in ("p1_static_teacher_acceptance_authority", "human_visual_likeness_acceptance", "p2_animation_authorized"):
-    if value.get(key) is not expected:
-        raise SystemExit(f"final P1 receipt status/authority mismatch: {key}")
+repo = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo))
+from bodyrig.photoreal_p1_likeness_review import validate_likeness_review_receipt
+receipt = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8-sig"))
+manifest = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8-sig"))
+value = validate_likeness_review_receipt(receipt, review_manifest=manifest)
 print(json.dumps({
-    "status": status,
+    "status": value["p1_static_teacher_status"],
     "p1_static_teacher_acceptance_authority": value["p1_static_teacher_acceptance_authority"],
     "human_visual_likeness_acceptance": value["human_visual_likeness_acceptance"],
     "p2_animation_authorized": value["p2_animation_authorized"],
@@ -280,7 +270,8 @@ print(json.dumps({
     "production_activation": value["production_activation"],
 }, sort_keys=True, separators=(",", ":")))
 '@
-$final = @(& $Python -c $statusCode $likenessReceipt 2>&1)
+$likenessManifest = Need-File -Path (Join-Path $likenessRoot "p1-likeness-review-manifest.json") -Label "P1 likeness review manifest"
+$final = @(& $Python -c $statusCode $repoRoot $likenessReceipt $likenessManifest 2>&1)
 if ($LASTEXITCODE -ne 0 -or $final.Count -ne 1) {
     throw "Final P1 likeness receipt validation failed: $($final -join ' ')"
 }
