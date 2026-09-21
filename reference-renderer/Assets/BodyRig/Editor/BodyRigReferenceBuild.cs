@@ -16,6 +16,8 @@ namespace BodyRig.ReferenceRenderer.Editor
         private const string GeneratedResourcesPath = "Assets/BodyRigGenerated/Resources";
         private const string GeneratedProvenancePath = "Assets/BodyRigGenerated/Resources/bodyrig-build-provenance.json";
         private const string ApplicationId = "dk.ternedal.bodyrig.reference";
+        private const string P3ReviewApplicationId =
+            "dk.ternedal.bodyrig.p3review";
 
         // UniVRM resolves these shaders at runtime with Shader.Find(). If no serialized
         // asset references them, Unity player stripping may remove them even though the
@@ -29,23 +31,43 @@ namespace BodyRig.ReferenceRenderer.Editor
         };
 
         [MenuItem("BodyRig/Build/Windows Physical Probe")]
-        public static void BuildWindows() => Build(BuildTarget.StandaloneWindows64, DefaultWindowsOutput());
+        public static void BuildWindows() => Build(
+            BuildTarget.StandaloneWindows64,
+            DefaultWindowsOutput(),
+            ApplicationId,
+            "BodyRig Reference Probe");
 
         [MenuItem("BodyRig/Build/Quest-class Android Physical Probe")]
-        public static void BuildQuest() => Build(BuildTarget.Android, DefaultQuestOutput());
+        public static void BuildQuest() => Build(
+            BuildTarget.Android,
+            DefaultQuestOutput(),
+            ApplicationId,
+            "BodyRig Reference Probe");
+
+        [MenuItem("BodyRig/Build/P3 Quest Review Probe")]
+        public static void BuildP3QuestReview() => Build(
+            BuildTarget.Android,
+            DefaultP3QuestReviewOutput(),
+            P3ReviewApplicationId,
+            "BodyRig P3 Quest Review");
 
         // Stable entry points for Unity -batchmode -executeMethod.
         public static void BuildWindowsBatch() => BuildWindows();
         public static void BuildQuestBatch() => BuildQuest();
+        public static void BuildP3QuestReviewBatch() => BuildP3QuestReview();
 
-        private static void Build(BuildTarget target, string defaultOutput)
+        private static void Build(
+            BuildTarget target,
+            string defaultOutput,
+            string applicationId,
+            string productName)
         {
             var unityVersion = RequireUnityVersionArgument();
             var revision = RequireRevisionArgument();
             EnsureProbeScene();
             EnsureBuildProvenance(revision);
             EnsureRuntimeShaderAnchors();
-            ConfigurePlayer(target);
+            ConfigurePlayer(target, applicationId, productName);
 
             var output = GetArgument("-bodyrigOutput") ?? defaultOutput;
             output = Path.GetFullPath(output);
@@ -137,12 +159,24 @@ namespace BodyRig.ReferenceRenderer.Editor
             AssetDatabase.Refresh();
         }
 
-        private static void ConfigurePlayer(BuildTarget target)
+        private static void ConfigurePlayer(
+            BuildTarget target,
+            string applicationId,
+            string productName)
         {
+            if (string.IsNullOrWhiteSpace(applicationId))
+                throw new InvalidOperationException("BodyRig build application id is required");
+            if (string.IsNullOrWhiteSpace(productName))
+                throw new InvalidOperationException("BodyRig build product name is required");
+
             PlayerSettings.companyName = "Ternedal";
-            PlayerSettings.productName = "BodyRig Reference Probe";
-            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, ApplicationId);
-            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, ApplicationId);
+            PlayerSettings.productName = productName;
+            PlayerSettings.SetApplicationIdentifier(
+                BuildTargetGroup.Standalone,
+                applicationId);
+            PlayerSettings.SetApplicationIdentifier(
+                BuildTargetGroup.Android,
+                applicationId);
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
 
             if (target == BuildTarget.Android)
@@ -155,8 +189,12 @@ namespace BodyRig.ReferenceRenderer.Editor
             }
         }
 
-        private static string DefaultWindowsOutput() => Path.Combine("Builds", "Windows", "BodyRigReferenceProbe.exe");
-        private static string DefaultQuestOutput() => Path.Combine("Builds", "Quest", "BodyRigReferenceProbe.apk");
+        private static string DefaultWindowsOutput() =>
+            Path.Combine("Builds", "Windows", "BodyRigReferenceProbe.exe");
+        private static string DefaultQuestOutput() =>
+            Path.Combine("Builds", "Quest", "BodyRigReferenceProbe.apk");
+        private static string DefaultP3QuestReviewOutput() =>
+            Path.Combine("Builds", "Quest", "BodyRigP3QuestReview.apk");
 
         private static string GetArgument(string name)
         {
