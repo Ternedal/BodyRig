@@ -730,6 +730,12 @@ def build_fidelity_evidence(
         ],
         label="Quest2 eye surface component",
     )
+    eye_surface_uvs = [
+        uv
+        for primitive in eye_primitives
+        if primitive["role"].endswith("_surface")
+        for uv in primitive["uvs"]
+    ]
     hair_positions = _finite_array(
         np,
         [
@@ -739,6 +745,11 @@ def build_fidelity_evidence(
         ],
         label="Quest2 hair component",
     )
+    hair_uvs = [
+        uv
+        for primitive in hair_primitives
+        for uv in primitive["uvs"]
+    ]
 
     eye_mask = _joint_group_mask(
         np,
@@ -855,16 +866,47 @@ def build_fidelity_evidence(
         teacher_rgb_at_body[face_mask],
         student_rgb_at_body[face_mask],
     )
+
+    _eye_teacher_distance, eye_teacher_index = _nearest(
+        torch,
+        query=eye_surface_positions,
+        reference=teacher_xyz,
+        device=device,
+    )
+    eye_teacher_rgb = teacher_rgb[
+        np.asarray(eye_teacher_index, dtype=np.int64)
+    ]
+    eye_student_rgb = _texture_samples(
+        np,
+        basecolor_path.read_bytes(),
+        eye_surface_uvs,
+    )
     eye_rgb = _rmse(
         np,
-        teacher_rgb_at_body[eye_mask],
-        student_rgb_at_body[eye_mask],
+        eye_teacher_rgb,
+        eye_student_rgb,
+    )
+
+    _hair_teacher_distance, hair_teacher_index = _nearest(
+        torch,
+        query=hair_positions,
+        reference=teacher_xyz,
+        device=device,
+    )
+    hair_teacher_rgb = teacher_rgb[
+        np.asarray(hair_teacher_index, dtype=np.int64)
+    ]
+    hair_student_rgb = _texture_samples(
+        np,
+        basecolor_path.read_bytes(),
+        hair_uvs,
     )
     hair_rgb = _rmse(
         np,
-        teacher_rgb_at_body[hair_base_mask],
-        student_rgb_at_body[hair_base_mask],
+        hair_teacher_rgb,
+        hair_student_rgb,
     )
+
     skin_rgb = _rmse(
         np,
         teacher_rgb_at_body[skin_mask],
