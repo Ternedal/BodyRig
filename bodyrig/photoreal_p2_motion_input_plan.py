@@ -256,6 +256,8 @@ def build_motion_input_plan(
         "source_media_rehash_required": False,
         "source_media_rehash_performed": False,
         "motion_parameter_extraction_required": True,
+        "motion_fitting_backend": "pinned-exavatar-fitting-v1",
+        "motion_fitting_camera_mode": "virtual",
         "motion_input_plan_ready": True,
         "p2_motion_input_authorized": True,
         "motion_input_preparation_execution_authorized": False,
@@ -383,6 +385,8 @@ def validate_motion_input_plan(
         "source_media_rehash_required",
         "source_media_rehash_performed",
         "motion_parameter_extraction_required",
+        "motion_fitting_backend",
+        "motion_fitting_camera_mode",
         "motion_input_plan_ready",
         "p2_motion_input_authorized",
         "motion_input_preparation_execution_authorized",
@@ -469,6 +473,11 @@ def validate_motion_input_plan(
         raise PhotorealP2MotionInputPlanError("P2 motion input deprojection task count mismatch")
     if plan.get("direct_flat_mono_task_count") != expected_direct:
         raise PhotorealP2MotionInputPlanError("P2 motion input direct task count mismatch")
+
+    if plan.get("motion_fitting_backend") != "pinned-exavatar-fitting-v1":
+        raise PhotorealP2MotionInputPlanError("P2 motion fitting backend mismatch")
+    if plan.get("motion_fitting_camera_mode") != "virtual":
+        raise PhotorealP2MotionInputPlanError("P2 motion fitting camera mode mismatch")
 
     for field, expected in (
         ("build_private", True),
