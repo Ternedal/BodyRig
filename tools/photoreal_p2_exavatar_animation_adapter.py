@@ -61,6 +61,11 @@ def _sha(value: Any, *, label: str) -> str:
     return result
 
 
+def _strict_v1(value: Any, *, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or float(value) != 1.0:
+        raise ExAvatarP2AnimationAdapterError(f"{label} format/version mismatch")
+
+
 def _file_sha(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise ExAvatarP2AnimationAdapterError(f"required file is missing/not regular: {path}")
@@ -148,8 +153,9 @@ def _git(repo: Path, *args: str) -> str:
 
 def _validate_workspace(root: Path, request: Mapping[str, Any]) -> dict[str, Any]:
     receipt = _read_json(root / "workspace-receipt.json", label="ExAvatar workspace receipt")
-    if receipt.get("format") != WORKSPACE_FORMAT or receipt.get("version") != VERSION:
+    if receipt.get("format") != WORKSPACE_FORMAT:
         raise ExAvatarP2AnimationAdapterError("ExAvatar workspace format/version mismatch")
+    _strict_v1(receipt.get("version"), label="ExAvatar workspace")
     claimed = _sha(receipt.get("workspace_sha256"), label="ExAvatar workspace SHA-256")
     if claimed != request.get("exavatar_workspace_sha256"):
         raise ExAvatarP2AnimationAdapterError("ExAvatar workspace differs from accepted animation input")
@@ -185,8 +191,9 @@ def _validate_workspace(root: Path, request: Mapping[str, Any]) -> dict[str, Any
 
 def _validate_preprocess(root: Path, request: Mapping[str, Any]) -> dict[str, Any]:
     state = _read_json(root / "preprocess-state.json", label="ExAvatar preprocess state")
-    if state.get("format") != PREPROCESS_FORMAT or state.get("version") != VERSION:
+    if state.get("format") != PREPROCESS_FORMAT:
         raise ExAvatarP2AnimationAdapterError("ExAvatar preprocess format/version mismatch")
+    _strict_v1(state.get("version"), label="ExAvatar preprocess state")
     claimed = _sha(
         state.get("preprocess_state_sha256"),
         label="ExAvatar preprocess state SHA-256",
@@ -212,8 +219,9 @@ def _validate_preprocess(root: Path, request: Mapping[str, Any]) -> dict[str, An
 
 def _validate_runtime_preflight(path: Path, workspace_sha: str) -> dict[str, Any]:
     value = _read_json(path, label="ExAvatar runtime preflight")
-    if value.get("format") != RUNTIME_PREFLIGHT_FORMAT or value.get("version") != VERSION:
+    if value.get("format") != RUNTIME_PREFLIGHT_FORMAT:
         raise ExAvatarP2AnimationAdapterError("ExAvatar runtime preflight format/version mismatch")
+    _strict_v1(value.get("version"), label="ExAvatar runtime preflight")
     if value.get("workspace_sha256") != workspace_sha:
         raise ExAvatarP2AnimationAdapterError(
             "ExAvatar runtime preflight belongs to different workspace"
@@ -273,10 +281,20 @@ def _validate_request(
         raise ExAvatarP2AnimationAdapterError(
             "P2 ExAvatar animation request fields must match v1 exactly"
         )
-    if request.get("format") != REQUEST_FORMAT or request.get("version") != VERSION:
+    if request.get("format") != REQUEST_FORMAT:
         raise ExAvatarP2AnimationAdapterError(
             "P2 ExAvatar animation request format/version mismatch"
         )
+    _strict_v1(request.get("version"), label="P2 ExAvatar animation request")
+    for field in (
+        "teacher_input_sha256",
+        "p2_animation_plan_sha256",
+        "p2_exavatar_animation_execution_input_sha256",
+        "exavatar_workspace_sha256",
+        "exavatar_preprocess_state_sha256",
+        "adapter_revision",
+    ):
+        _sha(request.get(field), label=f"P2 ExAvatar animation request {field}")
     claimed = _sha(
         request.get("p2_exavatar_animation_request_sha256"),
         label="P2 ExAvatar animation request SHA-256",
