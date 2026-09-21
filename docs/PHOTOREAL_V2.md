@@ -115,6 +115,17 @@ This planner performs strict static-teacher readback, revalidates the P1 receipt
 
 Planning grants only `p2_animation_build_authorized=true`. It does **not** run animation, accept animated output, authorize Quest distillation, grant broader photoreal acceptance, or activate production. P2 still requires hash-bound source motion evidence plus held-out human validation of head turns, eye motion, mouth motion, hands, and full-body pose.
 
+
+The next motion-evidence boundary is also explicit:
+
+```powershell
+.\prepare-photoreal-v2-p2-motion-evidence.ps1 -TeacherWorkRoot <TEACHER_WORK_ROOT>
+```
+
+This handoff does not rescan or rehash source media. It strict-validates the existing teacher input and P2 plan, then separates video candidates according to the already-authoritative P0 split: TRAIN video sources may become motion-driving/fitting evidence, while HELD-OUT EVALUATION video sources remain validation evidence. The public human handoff contains opaque source/group references and existing source hashes but no local source keys or resolved paths; those stay in a separate build-private path index. Flat mono videos are marked for direct ExAvatar motion fitting, while VR/stereo sources are marked `exact-authorized-deprojection-required` rather than being cropped or guessed.
+
+The operator stops at human source selection with no P2 motion-input, animation-execution, animated-teacher, Quest, photoreal or production authority.
+
 ### Gate P3 - Quest distillation
 
 Only after P2 passes:
