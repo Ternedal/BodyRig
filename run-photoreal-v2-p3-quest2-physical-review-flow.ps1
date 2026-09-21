@@ -44,6 +44,66 @@ function Invoke-BodyRigOperator {
     }
 }
 
+function Read-Json {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $resolved = Need-File -Path $Path -Label $Label
+    try {
+        return Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+    } catch {
+        throw "$Label is not valid JSON: $resolved"
+    }
+}
+
+function Machine-Evidence-Binding {
+    param([Parameter(Mandatory = $true)]$Evidence)
+
+    return [ordered]@{
+        format = $Evidence.format
+        version = $Evidence.version
+        runtime_review_plan_sha256 = $Evidence.runtime_review_plan_sha256
+        target_device_family = $Evidence.target_device_family
+        target_device_model = $Evidence.target_device_model
+        physical_device_observed = $Evidence.physical_device_observed
+        installed_student_artifacts = @($Evidence.installed_student_artifacts)
+        observed_refresh_hz = $Evidence.observed_refresh_hz
+        p95_frame_time_ms = $Evidence.p95_frame_time_ms
+        stereo_rendering_observed = $Evidence.stereo_rendering_observed
+        vr_safe_frame_pacing_observed = $Evidence.vr_safe_frame_pacing_observed
+        installed_student_hashes_verified_on_device = $Evidence.installed_student_hashes_verified_on_device
+    }
+}
+
+function Assert-HumanEvidenceMatchesPrefill {
+    param(
+        [Parameter(Mandatory = $true)][string]$MachinePrefill,
+        [Parameter(Mandatory = $true)][string]$HumanEvidence
+    )
+
+    $prefill = Read-Json -Path $MachinePrefill -Label "Quest2 machine-prefilled evidence"
+    $human = Read-Json -Path $HumanEvidence -Label "Quest2 human-reviewed evidence"
+
+    if ($human.operator_supplied -isnot [bool] -or $human.operator_supplied -ne $true) {
+        throw "Existing Quest2 human-review evidence is not explicitly operator supplied."
+    }
+    if (
+        $human.confirm_physical_device_review_complete -isnot [bool] -or
+        $human.confirm_physical_device_review_complete -ne $true
+    ) {
+        throw "Existing Quest2 human-review evidence is not explicitly complete."
+    }
+
+    $prefillBinding = Machine-Evidence-Binding -Evidence $prefill
+    $humanBinding = Machine-Evidence-Binding -Evidence $human
+    $prefillCanonical = $prefillBinding | ConvertTo-Json -Depth 100 -Compress
+    $humanCanonical = $humanBinding | ConvertTo-Json -Depth 100 -Compress
+    if ($humanCanonical -cne $prefillCanonical) {
+        throw "Existing Quest2 human-review evidence does not match the exact current machine prefill."
+    }
+}
+
 if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw "Quest2 P3 physical review flow is Windows-orchestrated."
 }
@@ -74,10 +134,8 @@ $machinePrefill = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-evidenc
 $humanEvidence = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-evidence.human-review.json"
 $finalReceipt = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-review.json"
 
-foreach ($path in @($machinePrefill, $humanEvidence, $finalReceipt)) {
-    if (Test-Path -LiteralPath $path) {
-        throw "Quest2 P3 physical review flow is create-only; output already exists: $path"
-    }
+if (Test-Path -LiteralPath $finalReceipt -PathType Leaf) {
+    Write-Host "Existing final Quest2 physical review receipt detected; the full evidence chain will be strictly revalidated without rewriting it."
 }
 
 Write-Host "============================================================"
@@ -93,7 +151,8 @@ Write-Host ""
 
 Invoke-BodyRigOperator -Pwsh $pwsh -Script $prefillScript -Arguments @(
     "-RuntimeReviewWorkspace", $RuntimeReviewWorkspace,
-    "-MachineProbe", $MachineProbe
+    "-MachineProbe", $MachineProbe,
+    "-ReuseExisting"
 ) -Label "Quest2 machine evidence prefill"
 
 $machinePrefill = Need-File -Path $machinePrefill -Label "Quest2 machine-prefilled evidence"
@@ -103,15 +162,22 @@ Write-Host "Machine-safe evidence is ready."
 Write-Host "The next stage is the explicit human in-headset visual review."
 Write-Host ""
 
-Invoke-BodyRigOperator -Pwsh $pwsh -Script $humanReviewScript -Arguments @(
-    "-MachinePrefill", $machinePrefill
-) -Label "Quest2 human physical review"
+if (Test-Path -LiteralPath $humanEvidence -PathType Leaf) {
+    Assert-HumanEvidenceMatchesPrefill -MachinePrefill $machinePrefill -HumanEvidence $humanEvidence
+    $humanEvidence = Need-File -Path $humanEvidence -Label "Quest2 human-reviewed evidence"
+    Write-Host "Existing human review evidence revalidated against the exact machine prefill; skipping interactive review."
+} else {
+    Invoke-BodyRigOperator -Pwsh $pwsh -Script $humanReviewScript -Arguments @(
+        "-MachinePrefill", $machinePrefill
+    ) -Label "Quest2 human physical review"
 
-$humanEvidence = Need-File -Path $humanEvidence -Label "Quest2 human-reviewed evidence"
+    $humanEvidence = Need-File -Path $humanEvidence -Label "Quest2 human-reviewed evidence"
+}
 
 $recorderArgs = @(
     "-RuntimeReviewWorkspace", $RuntimeReviewWorkspace,
-    "-Evidence", $humanEvidence
+    "-Evidence", $humanEvidence,
+    "-ReuseExisting"
 )
 if (-not [string]::IsNullOrWhiteSpace($WindowsPython)) {
     $recorderArgs += @("-WindowsPython", (Need-File -Path $WindowsPython -Label "Windows Python"))

@@ -7,6 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "run-photoreal-v2-p3-quest2-physical-review-flow.ps1"
+PREFILL_SCRIPT = ROOT / "prepare-photoreal-v2-p3-quest2-physical-evidence-from-machine.ps1"
+RECORDER_SCRIPT = ROOT / "record-photoreal-v2-p3-quest2-physical-runtime-review.ps1"
 
 
 def test_physical_review_flow_chains_existing_authority_boundaries() -> None:
@@ -17,14 +19,34 @@ def test_physical_review_flow_chains_existing_authority_boundaries() -> None:
     assert "Machine-safe evidence is ready." in source
 
 
-def test_physical_review_flow_is_create_only_and_keeps_human_review_explicit() -> None:
+def test_physical_review_flow_resumes_without_overwriting_evidence() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
-    assert "physical review flow is create-only; output already exists" in source
+    assert '"-ReuseExisting"' in source
+    assert "Assert-HumanEvidenceMatchesPrefill" in source
+    assert "Existing human review evidence revalidated against the exact machine prefill" in source
+    assert "Existing final Quest2 physical review receipt detected" in source
     assert "Human visual review:      REQUIRED" in source
     assert "Machine evidence:         PREFILL ONLY" in source
     assert "complete-photoreal-v2-p3-quest2-physical-evidence-review.ps1" in source
     assert "REVIEW COMPLETE" not in source
 
+
+def test_machine_prefill_reuse_requires_exact_current_plan_and_probe() -> None:
+    source = PREFILL_SCRIPT.read_text(encoding="utf-8")
+    assert "[switch]$ReuseExisting" in source
+    assert "Existing machine-safe physical review prefill revalidated against the exact current plan/probe" in source
+    assert "differs from the exact current runtime review plan and machine probe" in source
+    assert "if (-not $ReuseExisting)" in source
+
+
+
+
+
+def test_final_receipt_resume_uses_strict_python_revalidation() -> None:
+    source = RECORDER_SCRIPT.read_text(encoding="utf-8")
+    assert "[switch]$ReuseExisting" in source
+    assert '"--reuse-existing"' in source
+    assert "(Test-Path -LiteralPath $outputPath) -and -not $ReuseExisting" in source
 
 def test_physical_review_flow_never_grants_production_authority() -> None:
     source = SCRIPT.read_text(encoding="utf-8")

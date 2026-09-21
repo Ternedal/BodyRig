@@ -890,6 +890,38 @@ def record_physical_runtime_review_files(
     return result
 
 
+def reuse_physical_runtime_review_files(
+    runtime_review_plan_path: str | Path,
+    evidence_path: str | Path,
+    *,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    output = Path(output_path).expanduser().resolve()
+    if not output.is_file():
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            f"P3 physical runtime review receipt is missing: {output}"
+        )
+
+    plan = _read_json(
+        runtime_review_plan_path,
+        label="P3 device runtime review plan",
+    )
+    evidence = _read_json(
+        evidence_path,
+        label="P3 physical runtime evidence",
+    )
+    expected = record_physical_runtime_review(plan, evidence)
+    existing = validate_physical_runtime_review_receipt(
+        _read_json(output, label="P3 physical runtime review receipt")
+    )
+    if existing != expected:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "Existing P3 physical runtime review receipt differs from the "
+            "exact current runtime review plan and human evidence"
+        )
+    return existing
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -900,13 +932,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-review-plan", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--reuse-existing", action="store_true")
     args = parser.parse_args(argv)
     try:
-        receipt = record_physical_runtime_review_files(
-            args.runtime_review_plan,
-            args.evidence,
-            output_path=args.out,
-        )
+        if args.reuse_existing and args.out.expanduser().resolve().is_file():
+            receipt = reuse_physical_runtime_review_files(
+                args.runtime_review_plan,
+                args.evidence,
+                output_path=args.out,
+            )
+        else:
+            receipt = record_physical_runtime_review_files(
+                args.runtime_review_plan,
+                args.evidence,
+                output_path=args.out,
+            )
     except PhotorealP3PhysicalRuntimeReviewError as exc:
         print(f"BodyRig P3 physical runtime review: FAIL: {exc}", file=sys.stderr)
         return 1

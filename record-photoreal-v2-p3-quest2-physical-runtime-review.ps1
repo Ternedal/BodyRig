@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimeReviewWorkspace,
     [Parameter(Mandatory = $true)][string]$Evidence,
-    [string]$WindowsPython = ""
+    [string]$WindowsPython = "",
+    [switch]$ReuseExisting
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,7 +64,7 @@ $RuntimeReviewWorkspace = Need-Directory -Path $RuntimeReviewWorkspace -Label "Q
 $plan = Need-File -Path (Join-Path $RuntimeReviewWorkspace "p3-device-runtime-review-plan.json") -Label "Quest2 runtime review plan"
 $Evidence = Need-File -Path $Evidence -Label "Quest2 physical runtime evidence"
 $outputPath = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-review.json"
-if (Test-Path -LiteralPath $outputPath) {
+if ((Test-Path -LiteralPath $outputPath) -and -not $ReuseExisting) {
     throw "Quest2 physical runtime review receipt already exists: $outputPath"
 }
 
@@ -103,6 +104,9 @@ $argsList = @(
     "--evidence", $Evidence,
     "--out", $outputPath
 )
+if ($ReuseExisting) {
+    $argsList += "--reuse-existing"
+}
 $output = @(& $python @argsList 2>&1)
 $code = $LASTEXITCODE
 foreach ($line in $output) {

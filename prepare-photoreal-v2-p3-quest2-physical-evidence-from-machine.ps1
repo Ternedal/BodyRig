@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimeReviewWorkspace,
     [Parameter(Mandatory = $true)][string]$MachineProbe,
-    [string]$Output = ""
+    [string]$Output = "",
+    [switch]$ReuseExisting
 )
 
 $ErrorActionPreference = "Stop"
@@ -211,10 +212,6 @@ if ([string]::IsNullOrWhiteSpace($Output)) {
 } else {
     $Output = [IO.Path]::GetFullPath($Output)
 }
-if (Test-Path -LiteralPath $Output) {
-    throw "Quest2 P3 physical evidence prefill already exists: $Output"
-}
-
 $prefill = [ordered]@{
     format = "bodyrig-photoreal-p3-physical-runtime-evidence"
     version = 1
@@ -244,6 +241,28 @@ $prefill = [ordered]@{
     # Deliberately FALSE. The final recorder rejects the prefill until a
     # human has completed and explicitly confirmed the physical review.
     confirm_physical_device_review_complete = $false
+}
+
+if (Test-Path -LiteralPath $Output) {
+    if (-not $ReuseExisting) {
+        throw "Quest2 P3 physical evidence prefill already exists: $Output"
+    }
+
+    $existing = Get-Content -LiteralPath $Output -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
+    $expectedCanonical = (
+        $prefill |
+            ConvertTo-Json -Depth 100 -Compress |
+            ConvertFrom-Json -Depth 100 |
+            ConvertTo-Json -Depth 100 -Compress
+    )
+    $existingCanonical = $existing | ConvertTo-Json -Depth 100 -Compress
+    if ($existingCanonical -cne $expectedCanonical) {
+        throw "Existing Quest2 P3 physical evidence prefill differs from the exact current runtime review plan and machine probe."
+    }
+
+    Write-Host "Existing machine-safe physical review prefill revalidated against the exact current plan/probe:"
+    Write-Host $Output
+    exit 0
 }
 
 $prefill | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $Output -Encoding UTF8
