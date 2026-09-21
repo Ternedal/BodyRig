@@ -38,6 +38,8 @@ def _plan() -> dict[str, object]:
         },
         "target_device_family": "meta-quest",
         "target_device_model": "quest-2",
+        "executed_adapter": "test-distiller",
+        "executed_adapter_revision": "a" * 64,
         "student_representation": "skinned-mesh-neural-texture",
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "student_artifacts": [
@@ -101,6 +103,8 @@ def test_exact_physical_all_pass_grants_runtime_and_photoreal_only(
     receipt = record_physical_runtime_review(plan, _evidence())
 
     assert receipt["runtime_review_status"] == "pass"
+    assert receipt["executed_adapter"] == "test-distiller"
+    assert receipt["executed_adapter_revision"] == "a" * 64
     assert receipt["physical_device_evidence_present"] is True
     assert receipt["physical_device_review_complete"] is True
     assert receipt["runtime_acceptance_authority"] is True
@@ -308,6 +312,24 @@ def test_resealed_student_components_are_rejected(
     with pytest.raises(
         PhotorealP3PhysicalRuntimeReviewError,
         match="required student components mismatch",
+    ):
+        validate_physical_runtime_review_receipt(receipt)
+
+def test_resealed_adapter_revision_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = _plan()
+    _trust(monkeypatch, plan)
+    receipt = record_physical_runtime_review(plan, _evidence())
+    receipt["executed_adapter_revision"] = "rev-1"
+    receipt["p3_physical_runtime_review_sha256"] = physical._digest(
+        receipt,
+        omit="p3_physical_runtime_review_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3PhysicalRuntimeReviewError,
+        match="executed adapter revision",
     ):
         validate_physical_runtime_review_receipt(receipt)
 
