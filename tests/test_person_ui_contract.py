@@ -107,6 +107,7 @@ def test_person_ui_accepts_exact_suite_handoff_but_requires_fresh_audition() -> 
         'params.get("body_revision")',
         'params.get("voice_revision")',
         'params.get("personality_revision")',
+        'params.get("model")',
         'params.get("tab")',
         "function applyRequestedAssemblyHandoff(request)",
         'request.tab !== "assemble"',
@@ -117,9 +118,10 @@ def test_person_ui_accepts_exact_suite_handoff_but_requires_fresh_audition() -> 
         '$("assembleBody").value = exact.body.revision_id',
         '$("assembleVoice").value = exact.voice.revision_id',
         '$("assemblePersonality").value = exact.personality.revision_id',
-        'resetAssembly("Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition.")',
-        'switchTab("assemble")',
-        "await loadPeople(handoff.personId || null)",
+        'let message = "Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition."',
+        "resetAssembly(message)",
+        'switchTab("assemble", { refreshLibraries: false })',
+        "await Promise.all([loadPeople(handoff.personId || null), modelLibraryPromise])",
         "applyRequestedAssemblyHandoff(handoff)",
     ):
         assert token in js
@@ -130,6 +132,37 @@ def test_person_ui_accepts_exact_suite_handoff_but_requires_fresh_audition() -> 
     assert "prepareAssemblyButton" not in handoff_source
     assert "approvePersonButton" not in handoff_source
     assert 'method: "POST"' not in handoff_source
+
+
+
+def test_person_ui_suite_model_handoff_is_exact_and_fail_closed() -> None:
+    js = Path("bodyrig/ui/person_app.js").read_text(encoding="utf-8")
+
+    for token in (
+        'model: params.get("model") || ""',
+        'const requestedModel = String(request.model || "").trim()',
+        "state.modelLibrary.some((item) => item.name === requestedModel)",
+        '$("assemblyModel").value = requestedModel',
+        '$("assemblyModel").value = ""',
+        "findes ikke længere i ModelRig",
+        "const modelLibraryPromise = loadModelLibrary()",
+        "await Promise.all([loadPeople(handoff.personId || null), modelLibraryPromise])",
+        'switchTab("assemble", { refreshLibraries: false })',
+        "function switchTab(name, { refreshLibraries = true } = {})",
+    ):
+        assert token in js
+
+    start = js.index("function applyRequestedAssemblyHandoff(request)")
+    end = js.index("function sourceAlignmentForRevision", start)
+    source = js[start:end]
+    assert "prepareAssemblyButton" not in source
+    assert "approvePersonButton" not in source
+    assert 'method: "POST"' not in source
+
+    # A stale requested model must remain empty after the handoff. The tab switch
+    # may not reload the model library and silently choose its first model.
+    assert 'switchTab("assemble", { refreshLibraries: false })' in source
+
 
 
 def test_component_model_or_prompt_change_invalidates_previous_audition() -> None:
