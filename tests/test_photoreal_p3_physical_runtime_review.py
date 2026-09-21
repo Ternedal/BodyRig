@@ -171,7 +171,7 @@ def test_device_mismatch_is_rejected(
         PhotorealP3PhysicalRuntimeReviewError,
         match="different device class",
     ):
-        validate_physical_runtime_review_evidence(
+        validate_physical_runtime_evidence(
             evidence,
             runtime_review_plan=plan,
         )
@@ -189,7 +189,7 @@ def test_installed_student_hash_mismatch_is_rejected(
         PhotorealP3PhysicalRuntimeReviewError,
         match="installed student bytes differ",
     ):
-        validate_physical_runtime_review_evidence(
+        validate_physical_runtime_evidence(
             evidence,
             runtime_review_plan=plan,
         )
@@ -207,7 +207,7 @@ def test_missing_explicit_physical_confirmation_is_rejected(
         PhotorealP3PhysicalRuntimeReviewError,
         match="explicit physical-device review completion confirmation",
     ):
-        validate_physical_runtime_review_evidence(
+        validate_physical_runtime_evidence(
             evidence,
             runtime_review_plan=plan,
         )
