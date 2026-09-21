@@ -341,6 +341,9 @@ def _validate_request(
         "teacher_checkpoint",
         "identity_artifacts",
         "motion_driver",
+        "animation_mode",
+        "teacher_training_authorized",
+        "checkpoint_mutation_authorized",
         "source_media_rehash_performed",
         "held_out_evaluation_disclosed",
         "train_motion_driver_only",
@@ -388,7 +391,13 @@ def _validate_request(
         raise ExAvatarP2AnimationAdapterError(
             "P2 ExAvatar animation adapter bytes differ from core request"
         )
+    if request.get("animation_mode") != "inference-only":
+        raise ExAvatarP2AnimationAdapterError(
+            "P2 ExAvatar animation request is not inference-only"
+        )
     for field, expected_value in (
+        ("teacher_training_authorized", False),
+        ("checkpoint_mutation_authorized", False),
         ("source_media_rehash_performed", False),
         ("held_out_evaluation_disclosed", False),
         ("train_motion_driver_only", True),
@@ -677,6 +686,9 @@ def main(argv: list[str] | None = None) -> int:
             "consumed_motion_artifacts": consumed_motion,
             "animation_artifacts": [animation_artifact],
             "animation_complete": True,
+            "inference_only": True,
+            "teacher_training_performed": False,
+            "checkpoint_mutation_performed": False,
             "source_media_rehash_performed": False,
             "held_out_evaluation_disclosed": False,
             "human_animated_visual_acceptance_required": True,
