@@ -66,6 +66,7 @@ def test_sealed_suite_handoff_preserves_exact_candidates_without_activation() ->
         '&body_revision=${encodeURIComponent(sel.body_revision)}',
         '&voice_revision=${encodeURIComponent(sel.voice_revision)}',
         '&personality_revision=${encodeURIComponent(sel.personality_revision)}',
+        '&model=${encodeURIComponent($("modelSelect").value)}',
         "&tab=assemble",
         "reviewLink.hidden=false",
         "ny canonical samlet audition.",
