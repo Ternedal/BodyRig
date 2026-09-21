@@ -71,6 +71,7 @@ function requestedAssemblyHandoff() {
     bodyRevision: params.get("body_revision") || "",
     voiceRevision: params.get("voice_revision") || "",
     personalityRevision: params.get("personality_revision") || "",
+    model: params.get("model") || "",
     tab: params.get("tab") || "",
   };
 }
@@ -93,8 +94,22 @@ function applyRequestedAssemblyHandoff(request) {
   $("assembleBody").value = exact.body.revision_id;
   $("assembleVoice").value = exact.voice.revision_id;
   $("assemblePersonality").value = exact.personality.revision_id;
-  resetAssembly("Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition.");
-  switchTab("assemble");
+
+  let message = "Exact suite-kombination valgt via handoff — kør en ny canonical samlet audition.";
+  const requestedModel = String(request.model || "").trim();
+  if (requestedModel) {
+    const modelKnown = state.modelLibrary.some((item) => item.name === requestedModel);
+    if (modelKnown) {
+      $("assemblyModel").value = requestedModel;
+      message = `Exact suite-kombination + ModelRig ${requestedModel} valgt via handoff — kør en ny canonical samlet audition.`;
+    } else {
+      $("assemblyModel").value = "";
+      message = `Exact suite-kombination valgt, men suite-modellen ${requestedModel} er ikke tilgængelig — vælg ModelRig-model og kør en ny canonical samlet audition.`;
+      toast(`Suite-modellen ${requestedModel} findes ikke længere i ModelRig. Vælg model manuelt.`, true);
+    }
+  }
+  resetAssembly(message);
+  switchTab("assemble", { refreshLibraries: false });
   return true;
 }
 
@@ -661,13 +676,13 @@ async function buildBody() {
   } catch (error) { toast(error.message, true); }
 }
 
-function switchTab(name) {
+function switchTab(name, { refreshLibraries = true } = {}) {
   state.tab = name;
   document.querySelectorAll(".tab").forEach((el) => el.classList.toggle("active", el.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((el) => el.classList.add("hidden"));
   $(`tab-${name}`).classList.remove("hidden");
-  if (name === "voice") loadVoiceLibrary();
-  if (name === "assemble") loadModelLibrary();
+  if (refreshLibraries && name === "voice") loadVoiceLibrary();
+  if (refreshLibraries && name === "assemble") loadModelLibrary();
 }
 
 function invalidateAudition(message) {
@@ -730,10 +745,10 @@ function wire() {
   resetAssembly();
   await health();
   loadVoiceLibrary();
-  loadModelLibrary();
+  const modelLibraryPromise = loadModelLibrary();
   const handoff = requestedAssemblyHandoff();
   try {
-    await loadPeople(handoff.personId || null);
+    await Promise.all([loadPeople(handoff.personId || null), modelLibraryPromise]);
     applyRequestedAssemblyHandoff(handoff);
   } catch (error) { toast(error.message, true); }
 })();
