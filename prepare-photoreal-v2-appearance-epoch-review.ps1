@@ -80,6 +80,7 @@ if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') {
 $P0Root = Need-Directory -Path $P0Root -Label "P0 root"
 $datasetPlan = Need-File -Path (Join-Path $P0Root "dataset-plan.json") -Label "P0 dataset plan"
 $sourceReceipt = Need-File -Path (Join-Path $P0Root "source-receipt.json") -Label "P0 source receipt"
+$scanPlan = Need-File -Path (Join-Path $P0Root "scan-plan.json") -Label "P0 scan plan"
 $frameIndex = Need-File -Path (Join-Path $P0Root "frame-index.json") -Label "P0 frame index"
 $statusPath = Need-File -Path (Join-Path $P0Root "p0-status.json") -Label "P0 status"
 $status = Get-Content -LiteralPath $statusPath -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
@@ -124,7 +125,7 @@ $newPythonPath = if ([string]::IsNullOrWhiteSpace($oldPythonPath)) { $repoRoot }
 [Environment]::SetEnvironmentVariable("PYTHONPATH", $newPythonPath, "Process")
 try {
     Write-Host "=== 1/2 BUILD / REVALIDATE PRIVATE WSL PATH MAP ==="
-    & $Python -m bodyrig.photoreal_appearance_epoch_visual_review path-map --dataset-plan $datasetPlan --source-receipt $sourceReceipt --frame-index $frameIndex --wsl-exe $WslExe --distribution $Distribution --out $pathMap
+    & $Python -m bodyrig.photoreal_appearance_epoch_visual_review path-map --dataset-plan $datasetPlan --source-receipt $sourceReceipt --scan-plan $scanPlan --frame-index $frameIndex --wsl-exe $WslExe --distribution $Distribution --out $pathMap
     if ($LASTEXITCODE -ne 0) { throw "Appearance epoch runtime path-map preparation failed with code $LASTEXITCODE." }
 } finally {
     [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
@@ -134,6 +135,7 @@ $pathMap = Need-File -Path $pathMap -Label "Appearance epoch runtime path map"
 $wslRepo = Convert-ToWslPath -WindowsPath $repoRoot -RepoRoot $repoRoot -Python $Python
 $wslPlan = Convert-ToWslPath -WindowsPath $datasetPlan -RepoRoot $repoRoot -Python $Python
 $wslReceipt = Convert-ToWslPath -WindowsPath $sourceReceipt -RepoRoot $repoRoot -Python $Python
+$wslScanPlan = Convert-ToWslPath -WindowsPath $scanPlan -RepoRoot $repoRoot -Python $Python
 $wslFrameIndex = Convert-ToWslPath -WindowsPath $frameIndex -RepoRoot $repoRoot -Python $Python
 $wslPathMap = Convert-ToWslPath -WindowsPath $pathMap -RepoRoot $repoRoot -Python $Python
 $wslReviewRoot = Convert-ToWslPath -WindowsPath $reviewRoot -RepoRoot $repoRoot -Python $Python
@@ -154,6 +156,7 @@ $wslArgs = @(
     "prepare",
     "--dataset-plan", $wslPlan,
     "--source-receipt", $wslReceipt,
+    "--scan-plan", $wslScanPlan,
     "--frame-index", $wslFrameIndex,
     "--runtime-path-map", $wslPathMap,
     "--bodyrig-revision", $head,
