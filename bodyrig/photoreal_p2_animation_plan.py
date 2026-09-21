@@ -20,6 +20,8 @@ FORMAT = "bodyrig-photoreal-p2-animation-plan"
 VERSION = 1
 ADAPTER = "bodyrig-exavatar-p2-animation-v1"
 STATIC_TEACHER_ADAPTER = "bodyrig-exavatar-static-teacher-v1"
+PINNED_UPSTREAM_REPOSITORY = "https://github.com/mks0601/ExAvatar_RELEASE"
+PINNED_UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
 UPSTREAM_ANIMATION_SCRIPT = "avatar/main/animate.py"
 EXPECTED_CHECKPOINT = "checkpoint/snapshot_4.pth"
 EXPECTED_TEST_EPOCH = "4"
@@ -215,6 +217,10 @@ def build_p2_animation_plan(
         label="teacher upstream commit",
         maximum=64,
     )
+    if upstream_repository != PINNED_UPSTREAM_REPOSITORY:
+        raise PhotorealP2AnimationPlanError("static teacher upstream repository is not the pinned ExAvatar source")
+    if upstream_commit != PINNED_UPSTREAM_COMMIT:
+        raise PhotorealP2AnimationPlanError("static teacher upstream commit is not the pinned ExAvatar revision")
     adapter_revision = _text(
         validated_teacher.get("adapter_revision"),
         label="teacher adapter revision",
