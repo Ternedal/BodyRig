@@ -21,6 +21,21 @@ from bodyrig.photoreal_p3_physical_runtime_review import (
 
 
 def _plan() -> dict[str, object]:
+    profile = {
+        "format": "bodyrig-photoreal-device-target-profile",
+        "version": 1,
+        "operator_supplied": True,
+        "target_family": "meta-quest",
+        "target_model": "quest-2",
+        "target_runtime": "standalone",
+        "target_refresh_hz": 72.0,
+        "max_frame_time_ms": 13.888889,
+        "stereo_rendering_required": True,
+        "vr_safe_frame_pacing_required": True,
+        "teacher_quality_ceiling_preserved": True,
+        "fidelity_delta_reporting_required": True,
+        "production_activation": False,
+    }
     return {
         "performer_id": "42",
         "selected_epoch_id": "epoch-a",
@@ -31,26 +46,10 @@ def _plan() -> dict[str, object]:
         "p3_device_distillation_plan_sha256": "5" * 64,
         "p3_device_distillation_execution_receipt_sha256": "6" * 64,
         "p3_device_runtime_review_plan_sha256": "7" * 64,
-        "target_profile_sha256": "8" * 64,
-        "target_profile": {
-            "format": "bodyrig-photoreal-device-target-profile",
-            "version": 1,
-            "operator_supplied": True,
-            "target_family": "meta-quest",
-            "target_model": "quest-2",
-            "target_runtime": "standalone",
-            "target_refresh_hz": 72.0,
-            "max_frame_time_ms": 13.888889,
-            "stereo_rendering_required": True,
-            "vr_safe_frame_pacing_required": True,
-            "teacher_quality_ceiling_preserved": True,
-            "fidelity_delta_reporting_required": True,
-            "production_activation": False,
-        },
+        "target_profile_sha256": physical._digest(profile),
+        "target_profile": profile,
         "target_device_family": "meta-quest",
         "target_device_model": "quest-2",
-        "executed_adapter": "test-distiller",
-        "executed_adapter_revision": "a" * 64,
         "student_representation": "skinned-mesh-neural-texture",
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "student_artifacts": [
@@ -301,7 +300,7 @@ def test_resealed_installed_hashes_cannot_replace_planned_student_universe(
 
     with pytest.raises(
         PhotorealP3PhysicalRuntimeReviewError,
-        match="digest mismatch|planned student universe",
+        match="planned student universe differs from runtime review plan",
     ):
         validate_physical_runtime_review_receipt(receipt)
 
