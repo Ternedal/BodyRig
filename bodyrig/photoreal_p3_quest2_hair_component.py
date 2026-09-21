@@ -86,10 +86,11 @@ def _body_height(positions: Sequence[Sequence[float]]) -> tuple[float, float, fl
 def select_teacher_hair_faces(
     *,
     donor_positions: Sequence[Sequence[float]],
+    donor_normals: Sequence[Sequence[float]],
     donor_faces: Sequence[Sequence[int]],
     outward_offsets: Sequence[float],
 ) -> dict[str, Any]:
-    if len(outward_offsets) != len(donor_positions):
+    if len(outward_offsets) != len(donor_positions) or len(donor_normals) != len(donor_positions):
         raise PhotorealP3Quest2HairComponentError(
             "teacher hair offset vector does not match donor geometry"
         )
@@ -110,6 +111,24 @@ def select_teacher_hair_faces(
         point = tuple(_finite(row[i], label="hair donor coordinate") for i in range(3))
         donor.append(point)
 
+    normals: list[tuple[float, float, float]] = []
+    source: list[tuple[float, float, float]] = []
+    for point, raw_normal, offset in zip(donor, donor_normals, offsets):
+        if len(raw_normal) < 3:
+            raise PhotorealP3Quest2HairComponentError("hair donor normal width is invalid")
+        normal = tuple(
+            _finite(raw_normal[i], label="hair donor normal")
+            for i in range(3)
+        )
+        length = math.sqrt(sum(value * value for value in normal))
+        if not math.isfinite(length) or length <= 1e-8:
+            raise PhotorealP3Quest2HairComponentError("hair donor normal is degenerate")
+        normalized = tuple(value / length for value in normal)
+        normals.append(normalized)
+        source.append(
+            tuple(point[i] + normalized[i] * offset for i in range(3))
+        )
+
     head = [
         point
         for point in donor
@@ -125,8 +144,8 @@ def select_teacher_hair_faces(
     )
     search_radius = min(max(head_radius * 1.85, body_height * 0.08), body_height * 0.25)
 
-    normalized_y = [(point[1] - y_min) / body_height for point in donor]
-    radial = [math.hypot(point[0] - center_x, point[2] - center_z) for point in donor]
+    normalized_y = [(point[1] - y_min) / body_height for point in source]
+    radial = [math.hypot(point[0] - center_x, point[2] - center_z) for point in source]
 
     faces: list[tuple[int, int, int]] = []
     for raw in donor_faces:
@@ -208,9 +227,9 @@ def select_teacher_hair_faces(
             {vertex for face_index in selected_faces for vertex in faces[face_index]}
         )
         selected_offsets = [offsets[index] for index in selected_vertices]
-        xs = [donor[index][0] for index in selected_vertices]
-        ys = [donor[index][1] + offsets[index] for index in selected_vertices]
-        zs = [donor[index][2] for index in selected_vertices]
+        xs = [source[index][0] for index in selected_vertices]
+        ys = [source[index][1] for index in selected_vertices]
+        zs = [source[index][2] for index in selected_vertices]
         footprint = max(max(xs) - min(xs), max(zs) - min(zs)) / body_height
         vertical_span = (max(ys) - min(ys)) / body_height
 
