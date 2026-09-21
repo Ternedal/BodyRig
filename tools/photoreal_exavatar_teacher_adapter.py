@@ -246,6 +246,37 @@ def _snapshot_epochs(model_dir: Path) -> list[int]:
     return sorted(epochs)
 
 
+def _training_resume_plan(
+    model_dir: Path,
+    neutral_dir: Path,
+    *,
+    subject: str,
+) -> tuple[str, list[str] | None, str | None]:
+    snapshot_epochs = _snapshot_epochs(model_dir)
+    final_checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
+    if final_checkpoint.is_file():
+        return "reuse-final-checkpoint", None, None
+    if neutral_dir.exists():
+        if snapshot_epochs:
+            raise ExAvatarTeacherAdapterError(
+                "neutral-pose output exists before final checkpoint; refusing ambiguous resume"
+            )
+        raise ExAvatarTeacherAdapterError(
+            "neutral-pose output exists without any training checkpoint"
+        )
+    if snapshot_epochs:
+        return (
+            "resume-from-checkpoint",
+            [sys.executable, "train.py", "--subject_id", subject, "--continue"],
+            "train-resume.log",
+        )
+    return (
+        "fresh",
+        [sys.executable, "train.py", "--subject_id", subject],
+        "train.log",
+    )
+
+
 def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict[str, Any]:
     if not source.is_file() or source.stat().st_size < 1:
         raise ExAvatarTeacherAdapterError(f"teacher artifact source missing: {source}")
@@ -292,34 +323,22 @@ def main(argv: list[str] | None = None) -> int:
         neutral_dir = exavatar_main / "neutral_pose"
         logs = root / "logs" / "teacher"
         checkpoint = model_dir / f"snapshot_{FINAL_EPOCH}.pth"
-        snapshot_epochs = _snapshot_epochs(model_dir)
-
-        if checkpoint.is_file():
-            training_mode = "reuse-final-checkpoint"
-        elif snapshot_epochs:
-            if neutral_dir.exists():
-                raise ExAvatarTeacherAdapterError(
-                    "neutral-pose output exists before final checkpoint; refusing ambiguous resume"
-                )
+        training_mode, train_argv, train_log_name = _training_resume_plan(
+            model_dir,
+            neutral_dir,
+            subject=subject,
+        )
+        if train_argv is not None:
             _run(
-                [sys.executable, "train.py", "--subject_id", subject, "--continue"],
+                train_argv,
                 cwd=exavatar_main,
-                log_path=logs / "train-resume.log",
-                label="ExAvatar teacher training resume",
+                log_path=logs / str(train_log_name),
+                label=(
+                    "ExAvatar teacher training resume"
+                    if training_mode == "resume-from-checkpoint"
+                    else "ExAvatar teacher training"
+                ),
             )
-            training_mode = "resume-from-checkpoint"
-        else:
-            if neutral_dir.exists():
-                raise ExAvatarTeacherAdapterError(
-                    "neutral-pose output exists without any training checkpoint"
-                )
-            _run(
-                [sys.executable, "train.py", "--subject_id", subject],
-                cwd=exavatar_main,
-                log_path=logs / "train.log",
-                label="ExAvatar teacher training",
-            )
-            training_mode = "fresh"
 
         if not checkpoint.is_file() or checkpoint.stat().st_size < 1:
             raise ExAvatarTeacherAdapterError(f"ExAvatar final checkpoint missing: {checkpoint}")
