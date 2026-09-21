@@ -11,6 +11,7 @@ import pytest
 import bodyrig.photoreal_p2_motion_evidence as evidence
 import bodyrig.photoreal_p2_motion_preparation_runner as runner
 from bodyrig.photoreal_p2_motion_input_plan import build_motion_input_plan
+from bodyrig.photoreal_p2_motion_normalization_selection import build_normalization_selection
 from bodyrig.photoreal_p2_motion_preparation_runner import (
     PhotorealP2MotionPreparationRunnerError,
     build_motion_preparation_request,
@@ -75,6 +76,7 @@ def _artifacts(
     *,
     spatial_driver: bool = False,
 ) -> tuple[
+    dict[str, object],
     dict[str, object],
     dict[str, object],
     dict[str, object],
@@ -226,7 +228,22 @@ def _artifacts(
         "runtime_dependency": False,
         "production_activation": False,
     }
-    return handoff, private, selection, input_plan, scan_plan
+    normalization = build_normalization_selection(
+        handoff,
+        private,
+        selection,
+        input_plan,
+        scan_plan,
+        choices=(
+            {"src-driver": {"eye": "left", "viewport_id": "v00"}}
+            if spatial_driver
+            else None
+        ),
+        reviewed_by="operator",
+        review_notes="Confirmed exact motion normalization.",
+        approve_human_selection=True,
+    )
+    return handoff, private, selection, input_plan, normalization, scan_plan
 
 
 def _config(command: list[str]) -> dict[str, object]:
@@ -341,6 +358,7 @@ manifest = {
     "teacher_input_sha256": request["teacher_input_sha256"],
     "p2_animation_plan_sha256": request["p2_animation_plan_sha256"],
     "p2_motion_input_plan_sha256": request["p2_motion_input_plan_sha256"],
+    "p2_motion_normalization_selection_sha256": request["p2_motion_normalization_selection_sha256"],
     "p0_scan_plan_file_sha256": request["p0_scan_plan_file_sha256"],
     "adapter": request["adapter"],
     "adapter_revision": request["adapter_revision"],
@@ -369,7 +387,7 @@ manifest = {
 def test_request_binds_selected_sources_to_original_p0_projection_authority(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -379,6 +397,7 @@ def test_request_binds_selected_sources_to_original_p0_projection_authority(
         private,
         selection,
         input_plan,
+        normalization,
         scan_plan,
         scan_plan_file_sha256="e" * 64,
     )
@@ -388,12 +407,16 @@ def test_request_binds_selected_sources_to_original_p0_projection_authority(
     assert driver["projection"] == "equi"
     assert driver["stereo_layout"] == "side-by-side"
     assert driver["projection_authority"] == _projection_authority()
+    assert driver["normalization_strategy"] == "equirectangular-deprojection"
+    assert driver["selected_eye"] == "left"
+    assert driver["selected_viewport_id"] == "v00"
+    assert request["p2_motion_normalization_selection_sha256"] == normalization["p2_motion_normalization_selection_sha256"]
     assert request["source_media_rehash_performed"] is False
     assert request["p2_animation_execution_authorized"] is False
 
 
 def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) -> None:
-    handoff, private, selection, input_plan, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -415,7 +438,7 @@ def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) ->
 
 
 def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> None:
-    handoff, private, selection, input_plan, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
     Path(private["entries"][0]["resolved_path"]).write_bytes(b"size-drift")
 
     with pytest.raises(
@@ -436,7 +459,7 @@ def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> 
 def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
     adapter = tmp_path / "fake_adapter.py"
     _fake_adapter(adapter)
 
@@ -445,6 +468,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     private_path = tmp_path / "private.json"
     selection_path = tmp_path / "selection.json"
     input_plan_path = tmp_path / "input-plan.json"
+    normalization_path = tmp_path / "normalization.json"
     scan_path = tmp_path / "scan-plan.json"
     workspace = tmp_path / "workspace"
     _write_json(config_path, _config([sys.executable, str(adapter)]))
@@ -452,6 +476,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     _write_json(private_path, private)
     _write_json(selection_path, selection)
     _write_json(input_plan_path, input_plan)
+    _write_json(normalization_path, normalization)
     _write_json(scan_path, scan_plan)
 
     receipt = run_motion_preparation_files(
@@ -460,6 +485,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
         private_path,
         selection_path,
         input_plan_path,
+        normalization_path,
         scan_path,
         workspace,
     )
@@ -480,7 +506,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
 def test_receipt_rejects_resealed_downstream_authority_escalation(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
     adapter = tmp_path / "fake_adapter.py"
     _fake_adapter(adapter)
 
@@ -490,6 +516,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
         "private": tmp_path / "private.json",
         "selection": tmp_path / "selection.json",
         "input": tmp_path / "input-plan.json",
+        "normalization": tmp_path / "normalization.json",
         "scan": tmp_path / "scan-plan.json",
     }
     _write_json(paths["config"], _config([sys.executable, str(adapter)]))
@@ -497,6 +524,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
     _write_json(paths["private"], private)
     _write_json(paths["selection"], selection)
     _write_json(paths["input"], input_plan)
+    _write_json(paths["normalization"], normalization)
     _write_json(paths["scan"], scan_plan)
 
     receipt = run_motion_preparation_files(
@@ -505,6 +533,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
         paths["private"],
         paths["selection"],
         paths["input"],
+        paths["normalization"],
         paths["scan"],
         tmp_path / "workspace",
     )
