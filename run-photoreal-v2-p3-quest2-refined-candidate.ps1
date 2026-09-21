@@ -212,6 +212,49 @@ if ($LASTEXITCODE -ne 0) {
     throw "Pinned ExAvatar workspace is missing in WSL: $linuxWorkspace"
 }
 
+$runtimePreflightCode = @'
+import importlib
+import json
+import torch
+
+required = ("numpy", "PIL", "pytorch3d", "nvdiffrast")
+for name in required:
+    importlib.import_module(name)
+
+import bodyrig.photoreal_p3_quest2_student_candidate_runner
+
+if not torch.cuda.is_available():
+    raise SystemExit("CUDA unavailable in pinned ExAvatar Python")
+
+print(json.dumps({
+    "cuda_available": True,
+    "cuda_version": torch.version.cuda,
+    "device_name": torch.cuda.get_device_name(0),
+    "required_modules": list(required),
+}, sort_keys=True, separators=(",", ":")))
+'@
+$runtimePreflightArgs = @(
+    "-d", $distribution,
+    "--",
+    "/usr/bin/env",
+    "PYTHONPATH=$repoWsl",
+    "PYTHONNOUSERSITE=1",
+    $linuxPython,
+    "-c", $runtimePreflightCode
+)
+$runtimePreflightRaw = @(& $wslExe @runtimePreflightArgs 2>&1)
+if ($LASTEXITCODE -ne 0 -or $runtimePreflightRaw.Count -lt 1) {
+    throw "Pinned ExAvatar Quest2 candidate runtime preflight failed: $([string]::Join(' | ', $runtimePreflightRaw))"
+}
+try {
+    $runtimePreflight = ([string]$runtimePreflightRaw[-1]) | ConvertFrom-Json
+} catch {
+    throw "Pinned ExAvatar Quest2 candidate runtime preflight returned invalid JSON."
+}
+if ($runtimePreflight.cuda_available -ne $true) {
+    throw "Pinned ExAvatar Quest2 candidate runtime did not prove CUDA."
+}
+
 $dimensions = @(
     "identity_likeness",
     "face_detail",
@@ -261,6 +304,7 @@ Write-Host "Canonical UV:          $canonicalUvWsl"
 Write-Host "Adapter SHA:           $adapterSha"
 Write-Host "Candidate workspace:   $CandidateWorkspace"
 Write-Host "Execution runtime:     WSL / pinned ExAvatar Python"
+Write-Host "CUDA device:           $($runtimePreflight.device_name)"
 Write-Host "Teacher authority:     REFINED ExAvatar geometry + RGB"
 Write-Host "P3 complete:           FALSE"
 Write-Host "Physical review:       REQUIRED LATER"
