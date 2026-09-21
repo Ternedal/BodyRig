@@ -137,12 +137,14 @@ def _m4_link_command(
     composition_dir: Path,
     photoreal_binding: Path,
     p3_review: Path,
+    library_root: Path,
 ) -> str:
     return (
         f"{_script_invocation('link-photoreal-v2-m4.ps1', root)} "
         f"-CompositionAuthorityDir {_ps_quote(composition_dir)} "
         f"-PhotorealPersonBinding {_ps_quote(photoreal_binding)} "
-        f"-P3PhysicalReview {_ps_quote(p3_review)}"
+        f"-P3PhysicalReview {_ps_quote(p3_review)} "
+        f"-LibraryRoot {_ps_quote(library_root)}"
     )
 
 
@@ -152,12 +154,14 @@ def _m5_link_command(
     composition_dir: Path,
     acceptance_dir: Path,
     m4_link_dir: Path,
+    library_root: Path,
 ) -> str:
     return (
         f"{_script_invocation('link-photoreal-v2-m5.ps1', root)} "
         f"-CompositionAuthorityDir {_ps_quote(composition_dir)} "
         f"-AcceptanceDir {_ps_quote(acceptance_dir)} "
-        f"-M4PhotorealLinkDir {_ps_quote(m4_link_dir)}"
+        f"-M4PhotorealLinkDir {_ps_quote(m4_link_dir)} "
+        f"-LibraryRoot {_ps_quote(library_root)}"
     )
 
 
@@ -351,6 +355,7 @@ def inspect_photoreal_operator_status(
                 composition_dir=composition_dir,
                 photoreal_binding=binding_path,
                 p3_review=p3_path,
+                library_root=library,
             ),
             message=(
                 "Accepted P3/Person authority is valid; bind it to the exact "
@@ -433,6 +438,7 @@ def inspect_photoreal_operator_status(
                 composition_dir=composition_dir,
                 acceptance_dir=acceptance,
                 m4_link_dir=m4_dir,
+                library_root=library,
             ),
             message=(
                 "Canonical Windows/Quest M5 is complete; bind those exact "
