@@ -369,6 +369,19 @@ def build_device_runtime_review_plan(
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review target profile digest mismatch"
         )
+    if execution.get("target_model") != normalized_profile["target_model"]:
+        raise PhotorealP3DeviceRuntimeReviewPlanError(
+            "P3 runtime review executed target model differs from planned target"
+        )
+    adapter = _text(
+        execution.get("adapter"),
+        label="P3 runtime review executed adapter",
+        maximum=80,
+    )
+    adapter_revision = _sha(
+        execution.get("adapter_revision"),
+        label="P3 runtime review executed adapter revision",
+    )
 
     artifacts = _verify_student_artifacts(
         execution,
@@ -404,6 +417,8 @@ def build_device_runtime_review_plan(
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": normalized_profile["target_family"],
         "target_device_model": normalized_profile["target_model"],
+        "executed_adapter": adapter,
+        "executed_adapter_revision": adapter_revision,
         "student_representation": representation,
         "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "student_artifact_count": len(artifacts),
@@ -448,6 +463,8 @@ def validate_device_runtime_review_plan(
         "target_profile_sha256",
         "target_device_family",
         "target_device_model",
+        "executed_adapter",
+        "executed_adapter_revision",
         "student_representation",
         "student_components",
         "student_artifact_count",
@@ -506,6 +523,15 @@ def validate_device_runtime_review_plan(
         raise PhotorealP3DeviceRuntimeReviewPlanError(
             "P3 runtime review target device binding mismatch"
         )
+    _text(
+        value.get("executed_adapter"),
+        label="P3 runtime review executed adapter",
+        maximum=80,
+    )
+    _sha(
+        value.get("executed_adapter_revision"),
+        label="P3 runtime review executed adapter revision",
+    )
 
     if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceRuntimeReviewPlanError(
