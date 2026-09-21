@@ -18,7 +18,9 @@ def test_operator_requires_clean_main_and_original_p0_scan_authority() -> None:
     assert 'Join-Path $P2Root "motion-input"' in source
     assert 'Join-Path $motionInputRoot "p2-motion-input-plan.json"' in source
     assert 'Join-Path $motionInputRoot "p2-motion-normalization-selection.json"' in source
+    assert 'Join-Path $motionInputRoot "p2-motion-window-selection.json"' in source
     assert '"--normalization-selection", $normalizationSelection' in source
+    assert '"--window-selection", $windowSelection' in source
 
 
 def test_operator_marks_first_physical_motion_stage_without_source_library_rehash() -> None:

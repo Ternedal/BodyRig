@@ -9,6 +9,7 @@ It consumes:
 - the explicit human motion-source selection receipt;
 - the private P2 motion-input plan;
 - the explicit P2 eye/viewport normalization-selection receipt;
+- the explicit bounded P2 motion-window selection receipt;
 - the original P0 `scan-plan.json`;
 - an explicit pinned motion-preparation adapter config.
 
@@ -48,6 +49,38 @@ Use:
 The first invocation prints the legal choice universe. If human selection is required it exits with code 2 without touching media. Rerun with choices such as `-Choice "src-...=left@v00" -ApproveHumanSelection`.
 
 The physical preparation runner requires this exact receipt and binds it back to the original P0 scan authority.
+
+## Bounded motion windows
+
+Normalization authority answers *how* a source may be decoded. It does not authorize processing the entire video.
+
+Before physical preparation, BodyRig therefore strict-recomputes the P0 frame index from:
+
+- `dataset-plan.json`;
+- `source-receipt.json`;
+- `frame-authorized-observations.json`;
+
+and requires the persisted `frame-index.json` to match that recomputation exactly.
+
+For each selected source, the human operator then chooses one target-verified, teacher-eligible P0 video observation and a bounded before/after window. Each side must be 0.25..5.0 seconds and total clip length may not exceed 8.0 seconds.
+
+The canonical operator is:
+
+```powershell
+.\record-photoreal-v2-p2-motion-window-selection.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -P0Root <P0_RUN_ROOT> `
+  -ReviewedBy <OPERATOR> `
+  -ReviewNotes "<NOTES>"
+```
+
+The first invocation prints legal observation refs and exits 2 without touching media. A selection uses:
+
+```text
+-Window "src-...=obs-...,2.0,2.0"
+```
+
+The physical adapter receives the exact anchor frame SHA plus `window_start_seconds`, `window_end_seconds`, eye and viewport binding. The adapter manifest must echo those values exactly before BodyRig core accepts its generated motion path.
 
 ## Source hashing boundary
 
