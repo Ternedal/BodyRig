@@ -57,7 +57,9 @@ $handoffRoot = Need-Directory -Path (Join-Path $P2Root "motion-evidence") -Label
 $handoff = Need-File -Path (Join-Path $handoffRoot "p2-motion-evidence-handoff.json") -Label "P2 motion evidence handoff"
 $privateIndex = Need-File -Path (Join-Path $handoffRoot "private-motion-source-index.json") -Label "Private P2 motion source index"
 $selection = Need-File -Path (Join-Path $P2Root "p2-motion-source-selection.json") -Label "P2 motion source selection"
-$inputPlan = Need-File -Path (Join-Path $P2Root "motion-input\p2-motion-input-plan.json") -Label "P2 motion input plan"
+$motionInputRoot = Need-Directory -Path (Join-Path $P2Root "motion-input") -Label "P2 motion input root"
+$inputPlan = Need-File -Path (Join-Path $motionInputRoot "p2-motion-input-plan.json") -Label "P2 motion input plan"
+$normalizationSelection = Need-File -Path (Join-Path $motionInputRoot "p2-motion-normalization-selection.json") -Label "P2 motion normalization selection"
 
 if ([string]::IsNullOrWhiteSpace($Workspace)) {
     $Workspace = Join-Path $P2Root "motion-preparation"
@@ -72,6 +74,7 @@ Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL V2 - P2 MOTION PREPARATION"
 Write-Host "P0 scan authority:    $scanPlan"
 Write-Host "P2 input plan:        $inputPlan"
+Write-Host "Normalization:        $normalizationSelection"
 Write-Host "Adapter config:       $Config"
 Write-Host "Workspace:            $Workspace"
 Write-Host "Source media rehash:  NO"
@@ -92,6 +95,7 @@ $argsList = @(
     "--private-index", $privateIndex,
     "--selection", $selection,
     "--input-plan", $inputPlan,
+    "--normalization-selection", $normalizationSelection,
     "--scan-plan", $scanPlan,
     "--workspace", $Workspace
 )
