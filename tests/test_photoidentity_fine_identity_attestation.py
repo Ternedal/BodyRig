@@ -14,6 +14,7 @@ def _sha(path: Path) -> str:
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     anatomy_obs = tmp_path / "photoidentity-observations.json"
     anatomy_report = tmp_path / "photoidentity-evidence.json"
     anatomy_obs.write_text('{"ok":true}\n', encoding="utf-8")
