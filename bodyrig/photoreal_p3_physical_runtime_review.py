@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -441,8 +442,8 @@ def record_physical_runtime_review(
         "p3_device_runtime_review_plan_sha256": plan[
             "p3_device_runtime_review_plan_sha256"
         ],
-        "runtime_review_plan": dict(plan),
-        "target_profile": dict(plan["target_profile"]),
+        "runtime_review_plan": copy.deepcopy(plan),
+        "target_profile": copy.deepcopy(plan["target_profile"]),
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": plan["target_device_family"],
         "target_device_model": plan["target_device_model"],
@@ -452,7 +453,7 @@ def record_physical_runtime_review(
         "max_frame_time_ms": target_frame_time,
         "student_representation": plan["student_representation"],
         "student_components": list(plan["student_components"]),
-        "student_artifacts": list(plan["student_artifacts"]),
+        "student_artifacts": copy.deepcopy(plan["student_artifacts"]),
         "installed_student_artifacts": list(
             normalized["installed_student_artifacts"]
         ),
@@ -563,6 +564,10 @@ def validate_physical_runtime_review_receipt(
     ):
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review receipt targets a different runtime review plan snapshot"
+        )
+    if value.get("student_components") != list(REQUIRED_STUDENT_COMPONENTS):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review required student components mismatch"
         )
     for field in (
         "performer_id",
