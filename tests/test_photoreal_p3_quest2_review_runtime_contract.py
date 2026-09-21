@@ -11,7 +11,9 @@ LOADER = ROOT / "reference-renderer/Assets/BodyRig/BodyRigP3QuestReviewLoader.cs
 PROBE = ROOT / "reference-renderer/Assets/BodyRig/BodyRigP3QuestReviewProbe.cs"
 BOOTSTRAP = ROOT / "reference-renderer/Assets/BodyRig/BodyRigP3QuestReviewBootstrap.cs"
 PHYSICAL_BOOTSTRAP = ROOT / "reference-renderer/Assets/BodyRig/BodyRigPhysicalProbeBootstrap.cs"
+AUTO_QUALITY = ROOT / "reference-renderer/Assets/BodyRig/BodyRigAutomaticDeformationQuality.cs"
 BUILD = ROOT / "reference-renderer/Assets/BodyRig/Editor/BodyRigReferenceBuild.cs"
+PACKAGES = ROOT / "reference-renderer/Packages/manifest.json"
 BUILD_PS = ROOT / "reference-renderer/build-reference-renderer.ps1"
 PREPARE = ROOT / "prepare-photoreal-v2-p3-quest2-review-runtime.ps1"
 RUN = ROOT / "run-photoreal-v2-p3-quest2-review-probe.ps1"
@@ -74,6 +76,25 @@ def test_review_app_is_isolated_from_gate_a_application() -> None:
     assert 'P3ReviewApplicationId =\n            "dk.ternedal.bodyrig.p3review"' in build
     assert "BuildP3QuestReviewBatch" in build
     assert "BodyRigP3QuestReview.apk" in build
+
+
+
+def test_production_auto_components_are_disabled_in_review_app() -> None:
+    physical = PHYSICAL_BOOTSTRAP.read_text(encoding="utf-8")
+    automatic = AUTO_QUALITY.read_text(encoding="utf-8")
+    marker = "BodyRigP3QuestReviewBootstrap.ReviewApplicationId"
+    assert marker in physical
+    assert marker in automatic
+
+
+def test_review_probe_does_not_pretend_current_project_has_xr() -> None:
+    packages = PACKAGES.read_text(encoding="utf-8").lower()
+    probe = PROBE.read_text(encoding="utf-8")
+    assert "openxr" not in packages
+    assert "oculus" not in packages
+    assert "xr_runtime_present = false" in probe
+    assert "stereo_rendering_observed = false" in probe
+    assert "vr_safe_frame_pacing_observed = false" in probe
 
 
 def test_build_wrapper_exposes_only_explicit_p3_review_target() -> None:
