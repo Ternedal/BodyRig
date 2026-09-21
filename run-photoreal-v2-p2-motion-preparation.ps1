@@ -60,6 +60,7 @@ $selection = Need-File -Path (Join-Path $P2Root "p2-motion-source-selection.json
 $motionInputRoot = Need-Directory -Path (Join-Path $P2Root "motion-input") -Label "P2 motion input root"
 $inputPlan = Need-File -Path (Join-Path $motionInputRoot "p2-motion-input-plan.json") -Label "P2 motion input plan"
 $normalizationSelection = Need-File -Path (Join-Path $motionInputRoot "p2-motion-normalization-selection.json") -Label "P2 motion normalization selection"
+$windowSelection = Need-File -Path (Join-Path $motionInputRoot "p2-motion-window-selection.json") -Label "P2 motion window selection"
 
 if ([string]::IsNullOrWhiteSpace($Workspace)) {
     $Workspace = Join-Path $P2Root "motion-preparation"
@@ -75,6 +76,7 @@ Write-Host "BODYRIG PHOTOREAL V2 - P2 MOTION PREPARATION"
 Write-Host "P0 scan authority:    $scanPlan"
 Write-Host "P2 input plan:        $inputPlan"
 Write-Host "Normalization:        $normalizationSelection"
+Write-Host "Motion windows:       $windowSelection"
 Write-Host "Adapter config:       $Config"
 Write-Host "Workspace:            $Workspace"
 Write-Host "Source media rehash:  NO"
@@ -96,6 +98,7 @@ $argsList = @(
     "--selection", $selection,
     "--input-plan", $inputPlan,
     "--normalization-selection", $normalizationSelection,
+    "--window-selection", $windowSelection,
     "--scan-plan", $scanPlan,
     "--workspace", $Workspace
 )
