@@ -256,6 +256,17 @@ def validate_candidate_receipt(
             "Quest2 candidate artifact kind universe mismatch"
         )
 
+    actual = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+    expected_actual = set(seen_path) | {"quest2-student-candidate.json"}
+    if actual != expected_actual:
+        raise PhotorealP3Quest2EyeStudentRunnerError(
+            "Quest2 candidate output artifact universe drifted before eye stage"
+        )
+
     claimed = _sha(
         value.get("p3_quest2_student_candidate_receipt_sha256"),
         label="Quest2 candidate receipt SHA-256",
