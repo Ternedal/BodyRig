@@ -24,18 +24,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--acceptance-dir", type=Path, required=True)
     parser.add_argument("--m4-photoreal-link-dir", type=Path, required=True)
     parser.add_argument("--bodyrig-revision", required=True)
+    parser.add_argument("--library-root", default=None)
     args = parser.parse_args(argv)
+    library = (
+        Path(args.library_root).expanduser().resolve()
+        if args.library_root
+        else person_library()
+    )
 
     try:
         authority = write_photoreal_m5_link(
-            person_library(),
+            library,
             composition_authority_dir_path=args.composition_authority_dir,
             acceptance_dir_path=args.acceptance_dir,
             photoreal_link_authority_dir_path=args.m4_photoreal_link_dir,
             bodyrig_revision=args.bodyrig_revision,
         )
         directory = photoreal_m5_link_dir(
-            person_library(),
+            library,
             person_id=str(authority["person_id"]),
             person_revision=str(authority["person_revision"]),
             link_id=str(authority["link_id"]),
@@ -56,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
                 "photoreal_m5_ready": True,
                 "m6_photoreal_release_eligible": True,
                 "production_activation": False,
-                "authority": str(directory / "authority.json"),\n                "library_root": str(library),
+                "authority": str(directory / "authority.json"),
+                "library_root": str(library),
             },
             ensure_ascii=False,
             sort_keys=True,
