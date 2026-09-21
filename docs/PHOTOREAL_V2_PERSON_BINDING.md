@@ -31,8 +31,8 @@ Run:
 
 The authority is created only when all of these remain true:
 
-1. the Person profile is valid and has an active approved Person revision;
-2. the assembly receipt identifies that same active Person revision and body revision;
+1. the Person profile is valid and still contains the exact Person revision named by the assembly receipt;
+2. that immutable Person revision references the same body revision as the assembly receipt;
 3. the promoted body-release package SHA matches the Person profile body revision;
 4. that body revision still has a valid BodyRig source-alignment receipt;
 5. the Person source is an exact `stash-performer` binding;
