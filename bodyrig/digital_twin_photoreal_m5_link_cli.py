@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
                 "photoreal_m5_ready": True,
                 "m6_photoreal_release_eligible": True,
                 "production_activation": False,
-                "authority": str(directory / "authority.json"),
+                "authority": str(directory / "authority.json"),\n                "library_root": str(library),
             },
             ensure_ascii=False,
             sort_keys=True,
