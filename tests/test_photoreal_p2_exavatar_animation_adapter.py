@@ -242,6 +242,25 @@ def test_adapter_request_binds_workspace_preprocess_runtime_and_own_bytes(
     )
 
 
+def test_adapter_request_rejects_boolean_v1(tmp_path: Path) -> None:
+    workspace, preflight = _workspace(tmp_path)
+    request = _request(tmp_path, workspace)
+    request["version"] = True
+    request["p2_exavatar_animation_request_sha256"] = adapter._digest(
+        request,
+        omit="p2_exavatar_animation_request_sha256",
+    )
+    with pytest.raises(
+        adapter.ExAvatarP2AnimationAdapterError,
+        match="format/version mismatch",
+    ):
+        adapter._validate_request(
+            request,
+            workspace_root=workspace,
+            runtime_preflight_path=preflight,
+        )
+
+
 def test_adapter_stage_contains_only_checkpoint_identity_and_train_motion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
