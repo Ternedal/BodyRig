@@ -171,7 +171,7 @@ $arguments = @(
     "--performer-id", $PerformerId
 )
 if ($ApproveHumanReview) {
-    if ([string]::IsNullOrWhiteSpace($SelectedEpochId)) { throw "-SelectedEpochId is required with -ApproveHumanReview." }
+    if ([string]::IsNullOrWhiteSpace($SelectedEpochId)) { throw "-SelectedEpochId (a human-assigned audit label for the coherent appearance state) is required with -ApproveHumanReview." }
     if ($SourceGroup.Count -eq 0) { throw "At least one -SourceGroup is required with -ApproveHumanReview." }
     if ([string]::IsNullOrWhiteSpace($ReviewedBy)) { throw "-ReviewedBy is required with -ApproveHumanReview." }
     if ([string]::IsNullOrWhiteSpace($ReviewNotes)) { throw "-ReviewNotes is required with -ApproveHumanReview." }
@@ -215,6 +215,7 @@ if ($code -eq 2) {
     }
     Write-Host ""
     Write-Host "Rerun this script only after visually reviewing the source groups."
+    Write-Host "SelectedEpochId is a human-assigned audit label for the coherent appearance state; it is not a machine-ranked candidate."
     Write-Host "Supply -SelectedEpochId, repeated -SourceGroup values covering train + evaluation,"
     Write-Host "-ReviewedBy, -ReviewNotes and -ApproveHumanReview."
     Write-Host "Photoreal acceptance: FALSE"
