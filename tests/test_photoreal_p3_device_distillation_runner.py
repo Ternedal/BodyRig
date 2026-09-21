@@ -294,6 +294,33 @@ def test_gaussian_representation_requires_explicit_support() -> None:
         )
 
 
+def test_quest2_rejects_gaussian_representation_even_with_adapter_support(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    teacher, identity, plan = _roots(tmp_path)
+    _trust_plan(monkeypatch, plan)
+    staged = stage_teacher_sources(
+        plan,
+        teacher_output_root=teacher,
+        identity_root=identity,
+        staged_root=tmp_path / "staged",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="Quest 2.*native Gaussian splats",
+    ):
+        build_distillation_request(
+            _config(
+                representation="gaussian-splat-optional",
+                gaussian_support=True,
+            ),
+            plan,
+            staged_teacher_sources=staged,
+        )
+
+
 def test_adapter_revision_must_be_sha256() -> None:
     config = _config()
     config["revision"] = "rev-1"
