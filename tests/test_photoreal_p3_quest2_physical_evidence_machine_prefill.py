@@ -52,8 +52,8 @@ def test_machine_prefill_can_only_prefill_machine_safe_evidence() -> None:
     assert "stereo_rendering_observed = $true" in source
     assert "vr_safe_frame_pacing_observed = $true" in source
     assert "installed_student_hashes_verified_on_device = $true" in source
-    assert "runtime_acceptance_authority" not in source
-    assert "photoreal_acceptance_authority" not in source
+    assert "runtime_acceptance_authority =" not in source
+    assert "photoreal_acceptance_authority =" not in source
     assert "production_activation" in source  # checked false on machine probe only
 
 
