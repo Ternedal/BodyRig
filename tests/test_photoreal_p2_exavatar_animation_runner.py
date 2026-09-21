@@ -256,6 +256,9 @@ def _manifest(request: dict[str, object], output_root: Path) -> dict[str, object
             }
         ],
         "animation_complete": True,
+        "inference_only": True,
+        "teacher_training_performed": False,
+        "checkpoint_mutation_performed": False,
         "source_media_rehash_performed": False,
         "held_out_evaluation_disclosed": False,
         "human_animated_visual_acceptance_required": True,
@@ -281,6 +284,9 @@ def test_manifest_and_core_receipt_keep_human_acceptance_closed(
     receipt = build_animation_execution_receipt(manifest, request=request)
     assert receipt["artifact_bytes_verified_by_core"] is True
     assert receipt["animation_complete"] is True
+    assert receipt["inference_only"] is True
+    assert receipt["teacher_training_performed"] is False
+    assert receipt["checkpoint_mutation_performed"] is False
     assert receipt["held_out_evaluation_disclosed"] is False
     assert receipt["human_animated_visual_acceptance_required"] is True
     assert receipt["p2_animated_teacher_acceptance_authority"] is False
