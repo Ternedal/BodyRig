@@ -214,6 +214,7 @@ def test_animation_request_rejects_motion_byte_drift(
 
 
 def _manifest(request: dict[str, object], output_root: Path) -> dict[str, object]:
+    (output_root / "animation-manifest.json").write_text("{}\n", encoding="utf-8")
     video = output_root / "review" / "animation.mp4"
     video.parent.mkdir(parents=True, exist_ok=True)
     video.write_bytes(b"review-video")
