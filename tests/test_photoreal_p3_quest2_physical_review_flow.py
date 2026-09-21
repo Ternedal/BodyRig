@@ -7,6 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "run-photoreal-v2-p3-quest2-physical-review-flow.ps1"
+PREFILL_SCRIPT = ROOT / "prepare-photoreal-v2-p3-quest2-physical-evidence-from-machine.ps1"
+RECORDER_SCRIPT = ROOT / "record-photoreal-v2-p3-quest2-physical-runtime-review.ps1"
 
 
 def test_physical_review_flow_chains_existing_authority_boundaries() -> None:
@@ -22,7 +24,7 @@ def test_physical_review_flow_resumes_without_overwriting_evidence() -> None:
     assert '"-ReuseExisting"' in source
     assert "Assert-HumanEvidenceMatchesPrefill" in source
     assert "Existing human review evidence revalidated against the exact machine prefill" in source
-    assert "already has a final receipt; refusing to rewrite completed evidence" in source
+    assert "Existing final Quest2 physical review receipt detected" in source
     assert "Human visual review:      REQUIRED" in source
     assert "Machine evidence:         PREFILL ONLY" in source
     assert "complete-photoreal-v2-p3-quest2-physical-evidence-review.ps1" in source
