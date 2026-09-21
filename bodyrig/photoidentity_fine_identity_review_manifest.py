@@ -16,6 +16,7 @@ from .photoidentity_fine_identity_attestation import (
     PRIVATE_FORMAT,
     PRIVATE_VERSION,
     REQUIRED_DOMAINS,
+    _validate_marker_inventory,
 )
 
 FORMAT = "bodyrig-photoidentity-fine-identity-evidence-list"
@@ -174,6 +175,8 @@ def build_private_review_manifest(
             )
 
     marker_inventory = marker_inventory.expanduser().resolve()
+    marker_refs = {item["reference"] for item in entries if item["domain"] == "distinctive_markers_detail"}
+    _validate_marker_inventory(marker_inventory, allowed_source_refs=marker_refs)
     manifest = {
         "format": PRIVATE_FORMAT,
         "version": PRIVATE_VERSION,
