@@ -29,12 +29,24 @@ RECEIPT_FORMAT = "bodyrig-photoreal-p3-device-distillation-execution-receipt"
 RECEIPT_VERSION = 1
 MAX_TIMEOUT_SECONDS = 604800
 
+BASE_STUDENT_REPRESENTATIONS = (
+    "skinned-mesh-pbr",
+    "skinned-mesh-neural-texture",
+    "hybrid-mesh-neural-residual",
+    "gaussian-splat-optional",
+)
+REQUIRED_STUDENT_COMPONENTS = (
+    "specialized-eye-component",
+    "teacher-derived-hair-component",
+)
+
 CONFIG_FIELDS = {
     "format",
     "version",
     "adapter",
     "revision",
     "student_representation",
+    "student_components",
     "command",
     "timeout_seconds",
     "supported_target_models",
@@ -194,9 +206,14 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         maximum=160,
     )
     representation = value.get("student_representation")
-    if representation not in CANDIDATE_STUDENT_REPRESENTATIONS:
+    if representation not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceDistillationRunnerError(
-            "P3 distillation student representation is not canonical"
+            "P3 distillation base student representation is not canonical"
+        )
+    components = value.get("student_components")
+    if components != list(REQUIRED_STUDENT_COMPONENTS):
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 distillation must explicitly include specialized eyes and teacher-derived hair"
         )
     command = value.get("command")
     if (
@@ -270,6 +287,7 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         "adapter": adapter,
         "revision": revision,
         "student_representation": str(representation),
+        "student_components": list(REQUIRED_STUDENT_COMPONENTS),
         "command": list(command),
         "timeout_seconds": timeout,
         "supported_target_models": normalized_models,
@@ -456,6 +474,11 @@ def build_distillation_request(
         raise PhotorealP3DeviceDistillationRunnerError(
             "P3 adapter selected representation outside plan authority"
         )
+    for component in REQUIRED_STUDENT_COMPONENTS:
+        if component not in authority["candidate_student_representations"]:
+            raise PhotorealP3DeviceDistillationRunnerError(
+                f"P3 required student component is outside plan authority: {component}"
+            )
 
     expected_sources = [
         {
@@ -501,6 +524,7 @@ def build_distillation_request(
         "adapter": config["adapter"],
         "adapter_revision": config["revision"],
         "student_representation": config["student_representation"],
+        "student_components": list(config["student_components"]),
         "staged_teacher_sources": staged,
         "required_fidelity_delta_dimensions": list(
             FIDELITY_DELTA_DIMENSIONS
@@ -579,6 +603,7 @@ def validate_distillation_result(
         "adapter",
         "adapter_revision",
         "student_representation",
+        "student_components",
         "distillation_complete",
         "consumed_teacher_sources",
         "fidelity_delta_measurements",
@@ -607,6 +632,7 @@ def validate_distillation_result(
         "adapter",
         "adapter_revision",
         "student_representation",
+        "student_components",
     ):
         if value.get(field) != request.get(field):
             raise PhotorealP3DeviceDistillationRunnerError(
@@ -857,6 +883,7 @@ def build_execution_receipt(
         "adapter": validated_result["adapter"],
         "adapter_revision": validated_result["adapter_revision"],
         "student_representation": validated_result["student_representation"],
+        "student_components": list(validated_result["student_components"]),
         "distillation_complete": True,
         "consumed_teacher_sources": list(
             validated_result["consumed_teacher_sources"]
@@ -896,6 +923,7 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
         "adapter",
         "adapter_revision",
         "student_representation",
+        "student_components",
         "distillation_complete",
         "consumed_teacher_sources",
         "fidelity_delta_measurements",
@@ -932,9 +960,13 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
         label="P3 receipt adapter revision",
         maximum=160,
     )
-    if value.get("student_representation") not in CANDIDATE_STUDENT_REPRESENTATIONS:
+    if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceDistillationRunnerError(
-            "P3 receipt student representation is not canonical"
+            "P3 receipt base student representation is not canonical"
+        )
+    if value.get("student_components") != list(REQUIRED_STUDENT_COMPONENTS):
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 receipt is missing required eye/hair components"
         )
     consumed = value.get("consumed_teacher_sources")
     if not isinstance(consumed, list) or len(consumed) != 5:
@@ -1125,6 +1157,8 @@ def run_external_distillation(
         config["revision"],
         "--bodyrig-student-representation",
         config["student_representation"],
+        "--bodyrig-student-components",
+        ",".join(config["student_components"]),
     ]
     try:
         completed = run_logged_process(
@@ -1235,6 +1269,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "status": "P3_DISTILLATION_COMPLETE_RUNTIME_REVIEW_REQUIRED",
                 "student_representation": receipt["student_representation"],
+                "student_components": receipt["student_components"],
                 "student_artifact_count": len(receipt["student_artifacts"]),
                 "fidelity_delta_dimension_count": len(
                     receipt["fidelity_delta_measurements"]
