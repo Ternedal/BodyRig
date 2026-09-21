@@ -405,3 +405,38 @@ def test_resealed_adapter_revision_is_rejected(
     ):
         validate_physical_runtime_review_receipt(receipt)
 
+def test_existing_receipt_reuse_requires_exact_plan_and_human_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    plan = _plan()
+    _trust(monkeypatch, plan)
+    evidence = _evidence()
+    receipt = record_physical_runtime_review(plan, evidence)
+
+    plan_path = tmp_path / "plan.json"
+    evidence_path = tmp_path / "evidence.json"
+    receipt_path = tmp_path / "receipt.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    reused = reuse_physical_runtime_review_files(
+        plan_path,
+        evidence_path,
+        output_path=receipt_path,
+    )
+    assert reused == receipt
+
+    evidence["review_notes"] = "Different human evidence."
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(
+        PhotorealP3PhysicalRuntimeReviewError,
+        match="differs from the exact current runtime review plan and human evidence",
+    ):
+        reuse_physical_runtime_review_files(
+            plan_path,
+            evidence_path,
+            output_path=receipt_path,
+        )
+\n
