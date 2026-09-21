@@ -134,8 +134,8 @@ $machinePrefill = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-evidenc
 $humanEvidence = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-evidence.human-review.json"
 $finalReceipt = Join-Path $RuntimeReviewWorkspace "p3-physical-runtime-review.json"
 
-if (Test-Path -LiteralPath $finalReceipt) {
-    throw "Quest2 P3 physical review flow already has a final receipt; refusing to rewrite completed evidence: $finalReceipt"
+if (Test-Path -LiteralPath $finalReceipt -PathType Leaf) {
+    Write-Host "Existing final Quest2 physical review receipt detected; the full evidence chain will be strictly revalidated without rewriting it."
 }
 
 Write-Host "============================================================"
@@ -176,7 +176,8 @@ if (Test-Path -LiteralPath $humanEvidence -PathType Leaf) {
 
 $recorderArgs = @(
     "-RuntimeReviewWorkspace", $RuntimeReviewWorkspace,
-    "-Evidence", $humanEvidence
+    "-Evidence", $humanEvidence,
+    "-ReuseExisting"
 )
 if (-not [string]::IsNullOrWhiteSpace($WindowsPython)) {
     $recorderArgs += @("-WindowsPython", (Need-File -Path $WindowsPython -Label "Windows Python"))
