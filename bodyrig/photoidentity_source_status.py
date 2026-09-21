@@ -10,6 +10,10 @@ from typing import Any, Mapping
 
 from .photoidentity_authority import PhotoIdentityAuthorityError, validate_authoritative_bundle
 from .photoidentity_evidence import DETAIL_QUALITY_THRESHOLD, DOMAIN_REQUIREMENTS
+from .photoidentity_fine_identity_attestation import (
+    PhotoIdentityFineIdentityAttestationError,
+    read_attestation as read_fine_identity_attestation,
+)
 from .photoidentity_multiperformer_detail_aggregate import (
     PhotoIdentityMultiDetailAggregateError,
     validate_multiperformer_detail_aggregation,
@@ -638,6 +642,40 @@ def inspect_source_status(
     except PhotoIdentitySourceChainError as exc:
         raise PhotoIdentitySourceStatusError(f"final human source chain is invalid: {exc}") from exc
     final_report = dict(chain["report"])
+
+    fine_identity_receipt = root / "photoidentity-fine-identity-attestation.json"
+    if not fine_identity_receipt.is_file():
+        return _stage(
+            sweep_root=root,
+            base_report=base_report,
+            final_report=final_report,
+            name="fine-identity-human-review",
+            next_action="record_photoidentical_fine_identity_attestation",
+            human_review_required=True,
+            extra={
+                "source_evidence_sufficient": False,
+                "reconstruction_source_permitted": False,
+                "missing_photoidentical_domains": [
+                    "oral_teeth_detail",
+                    "chest_breast_shape_detail",
+                    "nipple_areola_detail",
+                    "intimate_anatomy_detail",
+                    "distinctive_markers_detail",
+                ],
+            },
+        )
+    try:
+        fine_identity = read_fine_identity_attestation(
+            fine_identity_receipt,
+            expected_performer_id=str(base_report["performer_id"]),
+            expected_bodyrig_revision=str(base_report["bodyrig_revision"]),
+            expected_anatomy_observation_sha256=_sha256(anatomy_observations),
+            expected_anatomy_report_sha256=_sha256(anatomy_report_path),
+        )
+    except PhotoIdentityFineIdentityAttestationError as exc:
+        raise PhotoIdentitySourceStatusError(f"fine-identity source authority is invalid: {exc}") from exc
+    if fine_identity.get("photoidentical_identity_detail_required") is not True:
+        raise PhotoIdentitySourceStatusError("fine-identity source authority did not preserve photoidentical policy")
 
     normalized_job_id = str(body_job_id or "").strip() or None
     if normalized_job_id is None:
