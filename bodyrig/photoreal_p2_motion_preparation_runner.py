@@ -720,6 +720,7 @@ def validate_motion_preparation_receipt(value: Mapping[str, Any]) -> dict[str, A
         "p2_motion_private_index_sha256",
         "p2_motion_source_selection_sha256",
         "p2_motion_input_plan_sha256",
+        "p2_motion_normalization_selection_sha256",
         "p0_scan_plan_file_sha256",
         "adapter",
         "adapter_revision",
