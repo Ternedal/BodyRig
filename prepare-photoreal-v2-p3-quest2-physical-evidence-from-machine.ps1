@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimeReviewWorkspace,
     [Parameter(Mandatory = $true)][string]$MachineProbe,
-    [string]$Output = ""
+    [string]$Output = "",
+    [switch]$ReuseExisting
 )
 
 $ErrorActionPreference = "Stop"
