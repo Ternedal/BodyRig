@@ -48,6 +48,8 @@ That launcher reads the exact accepted `exavatar-teacher-config.json` and reuses
 
 The Windows P3 plan, teacher output, P2 identity export and candidate output paths are translated into WSL paths.
 
+Before GPU work begins, the launcher runs a fail-fast preflight in the exact pinned Linux Python. It requires `numpy`, Pillow, `pytorch3d`, `nvdiffrast`, the BodyRig candidate core module and `torch.cuda.is_available() == true`. The selected CUDA device is printed before the expensive stage starts.
+
 The candidate core runner itself then executes **inside WSL**, so its pinned adapter entrypoint is a real Linux path and is hash-verified by the existing P3 runner.
 
 ## Candidate adapter config
