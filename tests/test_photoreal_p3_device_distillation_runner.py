@@ -176,6 +176,7 @@ def _result(
         "adapter": request["adapter"],
         "adapter_revision": request["adapter_revision"],
         "student_representation": request["student_representation"],
+        "student_components": request["student_components"],
         "distillation_complete": True,
         "consumed_teacher_sources": [
             {
