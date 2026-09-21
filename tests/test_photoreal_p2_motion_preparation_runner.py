@@ -23,6 +23,8 @@ from bodyrig.photoreal_p2_motion_preparation_runner import (
     validate_motion_preparation_receipt,
 )
 from bodyrig.photoreal_p2_motion_selection import build_motion_source_selection
+import bodyrig.photoreal_p2_motion_window_selection as window_module
+from bodyrig.photoreal_p2_motion_window_selection import validate_motion_window_selection
 
 
 def _candidate(
@@ -80,6 +82,7 @@ def _artifacts(
     *,
     spatial_driver: bool = False,
 ) -> tuple[
+    dict[str, object],
     dict[str, object],
     dict[str, object],
     dict[str, object],
@@ -247,7 +250,73 @@ def _artifacts(
         review_notes="Confirmed exact motion normalization.",
         approve_human_selection=True,
     )
-    return handoff, private, selection, input_plan, normalization, scan_plan
+    norm_by_ref = {item["source_ref"]: item for item in normalization["selections"]}
+    window_records = []
+    for task in list(input_plan["motion_driver_tasks"]) + list(input_plan["held_out_motion_validation_tasks"]):
+        ref = task["source_ref"]
+        norm = norm_by_ref[ref]
+        window_records.append(
+            {
+                "source_ref": ref,
+                "source_key": task["source_key"],
+                "split": task["split"],
+                "role": task["role"],
+                "source_sha256": task["source_sha256"],
+                "selected_eye": norm["selected_eye"],
+                "selected_viewport_id": norm["selected_viewport_id"],
+                "source_duration_seconds": 60.0,
+                "observation_ref": f"obs-{ref}",
+                "anchor_timestamp_seconds": 10.0,
+                "anchor_frame_sha256": "f" * 64,
+                "anchor_candidate_id": (
+                    "v00-person-000" if norm["selected_viewport_id"] == "v00" else "person-000"
+                ),
+                "anchor_view_bin": "front",
+                "anchor_coverage": ["face-front", "full-body-front"],
+                "window_before_seconds": 2.0,
+                "window_after_seconds": 2.0,
+                "window_start_seconds": 8.0,
+                "window_end_seconds": 12.0,
+                "window_duration_seconds": 4.0,
+                "human_selected": True,
+            }
+        )
+    window_records.sort(key=lambda item: item["source_ref"])
+    windows = {
+        "format": window_module.FORMAT,
+        "version": 1,
+        "performer_id": input_plan["performer_id"],
+        "selected_epoch_id": input_plan["selected_epoch_id"],
+        "teacher_input_sha256": input_plan["teacher_input_sha256"],
+        "p2_motion_input_plan_sha256": input_plan["p2_motion_input_plan_sha256"],
+        "p2_motion_normalization_selection_sha256": normalization[
+            "p2_motion_normalization_selection_sha256"
+        ],
+        "selection_count": len(window_records),
+        "selections": window_records,
+        "maximum_total_window_seconds": window_module.MAX_TOTAL_WINDOW_SECONDS,
+        "human_motion_window_selection_required": True,
+        "human_motion_window_selection_complete": True,
+        "reviewed_by": "operator",
+        "review_notes": "Selected bounded test windows.",
+        "source_media_rehash_performed": False,
+        "motion_input_preparation_execution_authorized": True,
+        "p2_animation_execution_authorized": False,
+        "p2_animated_teacher_acceptance_authority": False,
+        "quest_distillation_authorized": False,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    windows["p2_motion_window_selection_sha256"] = window_module._digest(
+        windows,
+        omit="p2_motion_window_selection_sha256",
+    )
+    validate_motion_window_selection(
+        windows,
+        input_plan=input_plan,
+        normalization_selection=normalization,
+    )
+    return handoff, private, selection, input_plan, normalization, windows, scan_plan
 
 
 def _config(command: list[str]) -> dict[str, object]:
@@ -347,6 +416,13 @@ for task in request["tasks"]:
             "split": task["split"],
             "role": task["role"],
             "normalization_action": task["normalization_action"],
+            "selected_eye": task["selected_eye"],
+            "selected_viewport_id": task["selected_viewport_id"],
+            "anchor_observation_ref": task["anchor_observation_ref"],
+            "anchor_frame_sha256": task["anchor_frame_sha256"],
+            "window_start_seconds": task["window_start_seconds"],
+            "window_end_seconds": task["window_end_seconds"],
+            "window_duration_seconds": task["window_duration_seconds"],
             "motion_path_relative": f"tasks/{ref}/motion",
             "frame_count": 1,
             "source_media_rehash_performed": False,
@@ -363,6 +439,7 @@ manifest = {
     "p2_animation_plan_sha256": request["p2_animation_plan_sha256"],
     "p2_motion_input_plan_sha256": request["p2_motion_input_plan_sha256"],
     "p2_motion_normalization_selection_sha256": request["p2_motion_normalization_selection_sha256"],
+    "p2_motion_window_selection_sha256": request["p2_motion_window_selection_sha256"],
     "p0_scan_plan_file_sha256": request["p0_scan_plan_file_sha256"],
     "adapter": request["adapter"],
     "adapter_revision": request["adapter_revision"],
@@ -391,7 +468,7 @@ manifest = {
 def test_request_binds_selected_sources_to_original_p0_projection_authority(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, windows, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -402,6 +479,7 @@ def test_request_binds_selected_sources_to_original_p0_projection_authority(
         selection,
         input_plan,
         normalization,
+        windows,
         scan_plan,
         scan_plan_file_sha256="e" * 64,
     )
@@ -415,12 +493,16 @@ def test_request_binds_selected_sources_to_original_p0_projection_authority(
     assert driver["selected_eye"] == "left"
     assert driver["selected_viewport_id"] == "v00"
     assert request["p2_motion_normalization_selection_sha256"] == normalization["p2_motion_normalization_selection_sha256"]
+    assert request["p2_motion_window_selection_sha256"] == windows["p2_motion_window_selection_sha256"]
+    assert driver["window_start_seconds"] == 8.0
+    assert driver["window_end_seconds"] == 12.0
+    assert driver["window_duration_seconds"] == 4.0
     assert request["source_media_rehash_performed"] is False
     assert request["p2_animation_execution_authorized"] is False
 
 
 def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) -> None:
-    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, windows, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -437,13 +519,14 @@ def test_request_rejects_missing_spatial_projection_authority(tmp_path: Path) ->
             selection,
             input_plan,
             normalization,
+            windows,
             scan_plan,
             scan_plan_file_sha256="e" * 64,
         )
 
 
 def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> None:
-    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, windows, scan_plan = _artifacts(tmp_path)
     Path(private["entries"][0]["resolved_path"]).write_bytes(b"size-drift")
 
     with pytest.raises(
@@ -457,6 +540,7 @@ def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> 
             selection,
             input_plan,
             normalization,
+            windows,
             scan_plan,
             scan_plan_file_sha256="e" * 64,
         )
@@ -465,7 +549,7 @@ def test_request_rejects_source_size_drift_without_rehashing(tmp_path: Path) -> 
 def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, windows, scan_plan = _artifacts(tmp_path)
     adapter = tmp_path / "fake_adapter.py"
     _fake_adapter(adapter)
 
@@ -475,6 +559,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     selection_path = tmp_path / "selection.json"
     input_plan_path = tmp_path / "input-plan.json"
     normalization_path = tmp_path / "normalization.json"
+    windows_path = tmp_path / "windows.json"
     scan_path = tmp_path / "scan-plan.json"
     workspace = tmp_path / "workspace"
     _write_json(config_path, _config([sys.executable, str(adapter)]))
@@ -483,6 +568,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
     _write_json(selection_path, selection)
     _write_json(input_plan_path, input_plan)
     _write_json(normalization_path, normalization)
+    _write_json(windows_path, windows)
     _write_json(scan_path, scan_plan)
 
     receipt = run_motion_preparation_files(
@@ -492,6 +578,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
         selection_path,
         input_plan_path,
         normalization_path,
+        windows_path,
         scan_path,
         workspace,
     )
@@ -512,7 +599,7 @@ def test_runner_emits_core_verified_receipt_and_opens_animation_execution(
 def test_receipt_rejects_resealed_downstream_authority_escalation(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, normalization, scan_plan = _artifacts(tmp_path)
+    handoff, private, selection, input_plan, normalization, windows, scan_plan = _artifacts(tmp_path)
     adapter = tmp_path / "fake_adapter.py"
     _fake_adapter(adapter)
 
@@ -523,6 +610,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
         "selection": tmp_path / "selection.json",
         "input": tmp_path / "input-plan.json",
         "normalization": tmp_path / "normalization.json",
+        "windows": tmp_path / "windows.json",
         "scan": tmp_path / "scan-plan.json",
     }
     _write_json(paths["config"], _config([sys.executable, str(adapter)]))
@@ -531,6 +619,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
     _write_json(paths["selection"], selection)
     _write_json(paths["input"], input_plan)
     _write_json(paths["normalization"], normalization)
+    _write_json(paths["windows"], windows)
     _write_json(paths["scan"], scan_plan)
 
     receipt = run_motion_preparation_files(
@@ -540,6 +629,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
         paths["selection"],
         paths["input"],
         paths["normalization"],
+        paths["windows"],
         paths["scan"],
         tmp_path / "workspace",
     )
@@ -560,7 +650,7 @@ def test_receipt_rejects_resealed_downstream_authority_escalation(
 def test_normalization_selection_requires_human_approval_for_spatial_choice(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, _normalization, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, _normalization, _windows, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -585,7 +675,7 @@ def test_normalization_selection_requires_human_approval_for_spatial_choice(
 def test_normalization_selection_rejects_viewport_outside_authority(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, _normalization, scan_plan = _artifacts(
+    handoff, private, selection, input_plan, _normalization, _windows, scan_plan = _artifacts(
         tmp_path,
         spatial_driver=True,
     )
@@ -610,7 +700,7 @@ def test_normalization_selection_rejects_viewport_outside_authority(
 def test_normalization_selection_auto_resolves_flat_mono_without_human_choice(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, normalization, _scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, _windows, _scan_plan = _artifacts(
         tmp_path,
     )
 
@@ -626,7 +716,7 @@ def test_normalization_selection_auto_resolves_flat_mono_without_human_choice(
 def test_normalization_selection_rejects_resealed_animation_authority(
     tmp_path: Path,
 ) -> None:
-    handoff, private, selection, input_plan, normalization, _scan_plan = _artifacts(
+    handoff, private, selection, input_plan, normalization, _windows, _scan_plan = _artifacts(
         tmp_path,
     )
     tampered = copy.deepcopy(normalization)
