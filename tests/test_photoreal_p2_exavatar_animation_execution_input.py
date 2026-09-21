@@ -293,7 +293,17 @@ def test_execution_input_rejects_resealed_downstream_authority() -> None:
                     "relative_path": "tasks/src-train/motion/frames/10.png",
                     "size_bytes": 1,
                     "sha256": "7" * 64,
-                }
+                },
+                {
+                    "relative_path": "tasks/src-train/motion/cam_params/10.json",
+                    "size_bytes": 1,
+                    "sha256": "8" * 64,
+                },
+                {
+                    "relative_path": "tasks/src-train/motion/smplx_optimized/smplx_params_smoothed/10.json",
+                    "size_bytes": 1,
+                    "sha256": "9" * 64,
+                },
             ],
         },
         "identity_artifact_bytes_reverified": True,
@@ -319,8 +329,29 @@ def test_execution_input_rejects_resealed_downstream_authority() -> None:
         validate_exavatar_animation_execution_input(value)
 
 
-def test_execution_input_rejects_boolean_version() -> None:
-    value = {"format": execution_input.FORMAT, "version": True}
+def test_execution_input_rejects_boolean_version(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    identity_root = tmp_path / "identity"
+    motion_root = tmp_path / "motion"
+    plan = _plan()
+    identity = _identity(identity_root)
+    motion = _motion(motion_root)
+    _trust(monkeypatch, plan, identity, motion)
+    value = build_exavatar_animation_execution_input(
+        plan,
+        identity,
+        motion,
+        identity_output_root=identity_root,
+        motion_output_root=motion_root,
+        motion_driver_source_ref="src-train",
+    )
+    value["version"] = True
+    value["p2_exavatar_animation_execution_input_sha256"] = execution_input._digest(
+        value,
+        omit="p2_exavatar_animation_execution_input_sha256",
+    )
     with pytest.raises(
         PhotorealP2ExAvatarAnimationExecutionInputError,
         match="format/version mismatch",
