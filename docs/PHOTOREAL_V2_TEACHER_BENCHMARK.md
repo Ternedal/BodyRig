@@ -63,6 +63,22 @@ The adapter may only receive data after all of these are true:
 
 Evaluation observations are never direct training inputs.
 
+## Interrupted ExAvatar teacher resume
+
+The canonical ExAvatar operator is intentionally resumable across an interrupted teacher run. Rerun the same exact operator with `-RunTeacher` and the same teacher input/config/workspace.
+
+BodyRig resumes only when all provenance checks still hold:
+
+- the existing generic teacher `request.json` must be byte-semantically identical to the newly rebuilt canonical request;
+- the generic `output/` directory must still be empty and contain no ambiguous partial teacher artifacts;
+- a completed `output/teacher-manifest.json` is never resumed and instead goes through strict completed-workspace validation;
+- the pinned ExAvatar model directory may contain only non-empty `snapshot_N.pth` files for epochs `0..4`;
+- a partial checkpoint set resumes through the pinned upstream `train.py --continue` path, which loads the latest snapshot and continues at the next epoch;
+- an existing final `snapshot_4.pth` skips retraining and regenerates the neutral-pose review renders;
+- unexpected checkpoint files, out-of-range epochs, empty checkpoints, or neutral-pose output without a final checkpoint fail closed.
+
+This resume path does not rescan Stash, rehash source media, change the approved appearance epoch, disclose held-out evaluation bytes, or grant P1/photoreal/production authority.
+
 ## P1 output
 
 The teacher adapter must emit a manifest with exact provenance and a fixed review render set at minimum:
