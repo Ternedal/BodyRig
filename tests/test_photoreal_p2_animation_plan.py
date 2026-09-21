@@ -171,6 +171,30 @@ def test_p2_plan_rejects_p1_teacher_provenance_drift(tmp_path: Path) -> None:
         build_p2_animation_plan(teacher, output, manifest, receipt)
 
 
+def test_p2_plan_rejects_unpinned_exavatar_revision(tmp_path: Path) -> None:
+    teacher, output = _teacher(tmp_path)
+    manifest, receipt = _p1_artifacts()
+    teacher["upstream_commit"] = "0" * 40
+
+    with pytest.raises(
+        PhotorealP2AnimationPlanError,
+        match="upstream commit is not the pinned ExAvatar revision",
+    ):
+        build_p2_animation_plan(teacher, output, manifest, receipt)
+
+
+def test_p2_plan_rejects_unpinned_exavatar_repository(tmp_path: Path) -> None:
+    teacher, output = _teacher(tmp_path)
+    manifest, receipt = _p1_artifacts()
+    teacher["upstream_repository"] = "https://example.invalid/not-exavatar"
+
+    with pytest.raises(
+        PhotorealP2AnimationPlanError,
+        match="upstream repository is not the pinned ExAvatar source",
+    ):
+        build_p2_animation_plan(teacher, output, manifest, receipt)
+
+
 def test_p2_plan_rejects_checkpoint_byte_drift(tmp_path: Path) -> None:
     teacher, output = _teacher(tmp_path)
     manifest, receipt = _p1_artifacts()
