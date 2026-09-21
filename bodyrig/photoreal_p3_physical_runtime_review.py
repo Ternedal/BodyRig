@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .photoreal_p3_device_distillation_plan import FIDELITY_DELTA_DIMENSIONS
+from .photoreal_p3_device_distillation_runner import (
+    BASE_STUDENT_REPRESENTATIONS,
+    REQUIRED_STUDENT_COMPONENTS,
+)
 from .photoreal_p3_device_runtime_review_plan import (
     PhotorealP3DeviceRuntimeReviewPlanError,
     validate_device_runtime_review_plan,
@@ -435,6 +439,8 @@ def record_physical_runtime_review(
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": plan["target_device_family"],
         "target_device_model": plan["target_device_model"],
+        "target_refresh_hz": target_refresh,
+        "max_frame_time_ms": target_frame_time,
         "student_representation": plan["student_representation"],
         "student_components": list(plan["student_components"]),
         "installed_student_artifacts": list(
@@ -442,6 +448,13 @@ def record_physical_runtime_review(
         ),
         "observed_refresh_hz": normalized["observed_refresh_hz"],
         "p95_frame_time_ms": normalized["p95_frame_time_ms"],
+        "stereo_rendering_observed": normalized["stereo_rendering_observed"],
+        "vr_safe_frame_pacing_observed": normalized[
+            "vr_safe_frame_pacing_observed"
+        ],
+        "installed_student_hashes_verified_on_device": normalized[
+            "installed_student_hashes_verified_on_device"
+        ],
         "visual_results": visual_results,
         "performance_results": performance_results,
         "reviewed_by": normalized["reviewed_by"],
@@ -478,11 +491,16 @@ def validate_physical_runtime_review_receipt(
         "target_profile_sha256",
         "target_device_family",
         "target_device_model",
+        "target_refresh_hz",
+        "max_frame_time_ms",
         "student_representation",
         "student_components",
         "installed_student_artifacts",
         "observed_refresh_hz",
         "p95_frame_time_ms",
+        "stereo_rendering_observed",
+        "vr_safe_frame_pacing_observed",
+        "installed_student_hashes_verified_on_device",
         "visual_results",
         "performance_results",
         "reviewed_by",
@@ -514,28 +532,23 @@ def validate_physical_runtime_review_receipt(
     ):
         _sha(value.get(field), label=f"P3 physical review {field}")
 
-    _text(
-        value.get("target_device_family"),
-        label="P3 physical review target family",
-        maximum=64,
-    )
-    _text(
-        value.get("target_device_model"),
-        label="P3 physical review target model",
-        maximum=64,
-    )
-    _text(
-        value.get("student_representation"),
-        label="P3 physical review student representation",
-        maximum=160,
-    )
-    components = value.get("student_components")
-    if not isinstance(components, list) or not components:
+    if value.get("target_device_family") != "meta-quest":
         raise PhotorealP3PhysicalRuntimeReviewError(
-            "P3 physical review student components are invalid"
+            "P3 physical review target family is not canonical"
         )
-    for item in components:
-        _text(item, label="P3 physical review student component", maximum=160)
+    if value.get("target_device_model") not in {"quest-2", "quest-3", "quest-3s"}:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target model is not canonical"
+        )
+    if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review student representation is not canonical"
+        )
+    components = value.get("student_components")
+    if components != list(REQUIRED_STUDENT_COMPONENTS):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review required student components mismatch"
+        )
 
     artifacts = value.get("installed_student_artifacts")
     if not isinstance(artifacts, list) or not artifacts:
@@ -562,6 +575,14 @@ def validate_physical_runtime_review_receipt(
             label="P3 physical review installed artifact SHA-256",
         )
 
+    target_refresh = _finite(
+        value.get("target_refresh_hz"),
+        label="P3 physical review target refresh",
+    )
+    target_frame_time = _finite(
+        value.get("max_frame_time_ms"),
+        label="P3 physical review target frame time",
+    )
     refresh = _finite(
         value.get("observed_refresh_hz"),
         label="P3 physical review observed refresh",
@@ -570,10 +591,19 @@ def validate_physical_runtime_review_receipt(
         value.get("p95_frame_time_ms"),
         label="P3 physical review p95 frame time",
     )
-    if refresh <= 0 or p95 <= 0:
+    if min(target_refresh, target_frame_time, refresh, p95) <= 0:
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review performance values must be positive"
         )
+    for field in (
+        "stereo_rendering_observed",
+        "vr_safe_frame_pacing_observed",
+        "installed_student_hashes_verified_on_device",
+    ):
+        if not isinstance(value.get(field), bool):
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                f"P3 physical review {field} must be boolean"
+            )
 
     visual = _decision_map(
         value.get("visual_results"),
@@ -585,6 +615,36 @@ def validate_physical_runtime_review_receipt(
         PERFORMANCE_CHECKS,
         label="P3 physical review performance result",
     )
+    expected_performance = [
+        {
+            "criterion": "target_refresh_achieved",
+            "decision": "pass" if refresh >= target_refresh else "fail",
+        },
+        {
+            "criterion": "p95_frame_time_within_budget",
+            "decision": "pass" if p95 <= target_frame_time else "fail",
+        },
+        {
+            "criterion": "stereo_rendering_observed",
+            "decision": "pass" if value["stereo_rendering_observed"] else "fail",
+        },
+        {
+            "criterion": "vr_safe_frame_pacing_observed",
+            "decision": "pass" if value["vr_safe_frame_pacing_observed"] else "fail",
+        },
+        {
+            "criterion": "installed_student_hashes_verified_on_device",
+            "decision": (
+                "pass"
+                if value["installed_student_hashes_verified_on_device"]
+                else "fail"
+            ),
+        },
+    ]
+    if performance != expected_performance:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review performance results do not match raw device evidence"
+        )
     all_pass = all(
         item["decision"] == "pass"
         for item in visual + performance
