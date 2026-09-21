@@ -43,6 +43,25 @@ class Quest2StudentCandidateError(ValueError):
     pass
 
 
+def _digest(value: Mapping[str, Any], *, omit: str | None = None) -> str:
+    payload = dict(value)
+    if omit is not None:
+        payload.pop(omit, None)
+    try:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise Quest2StudentCandidateError(
+            "P3 request cannot be canonically serialized"
+        ) from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _sha_file(path: Path) -> str:
     if not path.is_file() or path.is_symlink():
         raise Quest2StudentCandidateError(
@@ -134,9 +153,19 @@ def _validate_request(
     adapter: str,
     revision: str,
     representation: str,
+    student_components: str,
 ) -> None:
     if request.get("format") != REQUEST_FORMAT:
         raise Quest2StudentCandidateError("P3 request format mismatch")
+    claimed_request_sha = _sha(
+        request.get("p3_device_distillation_request_sha256"),
+        label="P3 request SHA-256",
+    )
+    if _digest(
+        request,
+        omit="p3_device_distillation_request_sha256",
+    ) != claimed_request_sha:
+        raise Quest2StudentCandidateError("P3 request digest mismatch")
     if request.get("target_profile", {}).get("target_model") != "quest-2":
         raise Quest2StudentCandidateError(
             "Quest2 student candidate requires target_model=quest-2"
@@ -154,6 +183,14 @@ def _validate_request(
     if request.get("adapter_revision") != revision:
         raise Quest2StudentCandidateError(
             "adapter revision differs from P3 request"
+        )
+    expected_components = request.get("student_components")
+    if (
+        not isinstance(expected_components, list)
+        or student_components != ",".join(str(item) for item in expected_components)
+    ):
+        raise Quest2StudentCandidateError(
+            "student component CLI binding differs from P3 request"
         )
     if request.get("staged_teacher_only") is not True:
         raise Quest2StudentCandidateError(
@@ -218,7 +255,7 @@ def _verify_workspace(
 
     protected = (
         "avatar/main/model.py",
-        "avatar/main/base.py",
+        "avatar/common/base.py",
         "avatar/common/nets/module.py",
         "avatar/common/utils/smpl_x.py",
         "avatar/common/utils/smplx/smplx/body_models.py",
@@ -253,6 +290,20 @@ def _verify_staged_teacher(
             raise Quest2StudentCandidateError(
                 "P3 staged teacher kind universe mismatch"
             )
+        root_kind = _text(
+            raw.get("root_kind"),
+            label="P3 staged teacher root kind",
+            maximum=64,
+        )
+        expected_root_kind = (
+            "teacher-output"
+            if kind == "teacher-checkpoint"
+            else "identity-export"
+        )
+        if root_kind != expected_root_kind:
+            raise Quest2StudentCandidateError(
+                f"P3 staged {kind} root-kind mismatch"
+            )
         relative, path = _safe_child(
             teacher_root,
             raw.get("relative_path"),
@@ -281,6 +332,22 @@ def _verify_staged_teacher(
     if set(result) != EXPECTED_SOURCE_KINDS:
         raise Quest2StudentCandidateError(
             "P3 staged teacher source universe mismatch"
+        )
+    actual = {
+        path.relative_to(teacher_root).as_posix()
+        for path in teacher_root.rglob("*")
+        if path.is_file()
+    }
+    expected = {
+        _relative(
+            raw["relative_path"],
+            label="P3 staged teacher relative path",
+        )
+        for raw in raw_sources
+    }
+    if actual != expected:
+        raise Quest2StudentCandidateError(
+            "P3 staged teacher filesystem universe differs from request"
         )
     return result
 
@@ -544,7 +611,10 @@ def _materialize_candidate(
     output: Path,
     checkpoint_sha256: str,
 ) -> dict[str, Any]:
-    from bodyrig.bridges.sith_smplx_vrm_fitter import _build_vrm
+    from bodyrig.bridges.sith_smplx_vrm_fitter import (
+        SMPLX_JOINT_NAMES,
+        _build_vrm,
+    )
     from bodyrig.photoreal_p3_teacher_point_bake import (
         bake_exavatar_teacher_points_to_canonical_smplx,
     )
@@ -570,12 +640,7 @@ def _materialize_candidate(
         )
     )
 
-    if tuple(state["joint_names"]) != tuple(
-        __import__(
-            "bodyrig.bridges.sith_smplx_vrm_fitter",
-            fromlist=["SMPLX_JOINT_NAMES"],
-        ).SMPLX_JOINT_NAMES
-    ):
+    if tuple(state["joint_names"]) != tuple(SMPLX_JOINT_NAMES):
         raise Quest2StudentCandidateError(
             "ExAvatar/BodyRig SMPL-X joint-name universe differs"
         )
@@ -661,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             adapter=args.bodyrig_adapter,
             revision=revision,
             representation=args.bodyrig_student_representation,
+            student_components=args.bodyrig_student_components,
         )
 
         output = args.bodyrig_output.expanduser().resolve()
