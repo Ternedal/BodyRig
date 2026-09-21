@@ -603,6 +603,14 @@ def _validate_manifest(
                 "sha256": observed,
             }
         )
+    if (
+        len(normalized_artifacts) != 1
+        or normalized_artifacts[0]["kind"] != "animation-review-video"
+        or normalized_artifacts[0]["relative_path"] != "review/animation.mp4"
+    ):
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation output must be exactly review/animation.mp4"
+        )
     actual = {
         path.relative_to(output_root).as_posix()
         for path in output_root.rglob("*")
@@ -839,13 +847,21 @@ def validate_animation_execution_receipt(value: Mapping[str, Any]) -> dict[str, 
                 "P2 ExAvatar animation receipt repeats artifact"
             )
         seen_artifacts.add(relative)
-        _text(raw.get("kind"), label="P2 ExAvatar animation receipt artifact kind", maximum=64)
+        kind = _text(raw.get("kind"), label="P2 ExAvatar animation receipt artifact kind", maximum=64)
+        if kind != "animation-review-video" or relative != "review/animation.mp4":
+            raise PhotorealP2ExAvatarAnimationRunnerError(
+                "P2 ExAvatar animation receipt output artifact contract mismatch"
+            )
         size = raw.get("size_bytes")
         if isinstance(size, bool) or not isinstance(size, int) or size < 1:
             raise PhotorealP2ExAvatarAnimationRunnerError(
                 "P2 ExAvatar animation receipt artifact size is invalid"
             )
         _sha(raw.get("sha256"), label="P2 ExAvatar animation receipt artifact SHA-256")
+    if seen_artifacts != {"review/animation.mp4"}:
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation receipt must contain exactly one review animation"
+        )
     for field, expected in (
         ("artifact_bytes_verified_by_core", True),
         ("animation_complete", True),
