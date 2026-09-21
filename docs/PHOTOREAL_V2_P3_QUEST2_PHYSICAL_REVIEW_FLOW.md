@@ -14,8 +14,14 @@ It runs, in order:
 
 Each stage runs in its own child PowerShell process so the existing stage scripts keep their independent exit semantics.
 
-The flow is create-only. It refuses to overwrite machine prefill, human-reviewed evidence, or the final physical-review receipt.
+The evidence artifacts remain create-only, but the wrapper itself is resumable:
 
-The human review remains mandatory. The wrapper never supplies visual pass/fail decisions and cannot provide the final human attestation on the reviewer's behalf.
+- an existing machine prefill is reused only after it is reproduced and matched against the exact current runtime-review plan and machine probe;
+- an existing human-reviewed evidence file is reused only after its machine-bound fields match that exact revalidated prefill;
+- an existing final physical-review receipt is treated as completed evidence and is never overwritten.
+
+This means an interruption after machine prefill or after human review does not require deleting evidence and repeating already completed work.
+
+The human review remains mandatory. The wrapper never supplies visual pass/fail decisions and cannot provide the final human attestation on the reviewer's behalf. Reuse applies only to an already completed explicit human review whose machine evidence still matches the current invocation.
 
 The final receipt may grant runtime and photoreal acceptance only through the existing strict recorder. Production activation remains false regardless of PASS or FAIL.
