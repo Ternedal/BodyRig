@@ -10,16 +10,16 @@ import bodyrig.photoidentity_fine_identity_review_manifest as subject
 from bodyrig.photoidentity_fine_identity_attestation import REQUIRED_DOMAINS
 
 
-def test_builder_requires_complete_domain_coverage(tmp_path: Path) -> None:
+def test_builder_requires_complete_domain_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sweep = tmp_path / "sweep"
     anatomy = sweep / "anatomy-attested-evidence"
     anatomy.mkdir(parents=True)
     revision = "a" * 40
     (anatomy / "photoidentity-observations.json").write_text(
-        json.dumps({"performer_id": "42", "bodyrig_revision": revision, "source_files_scanned": len(REQUIRED_DOMAINS) * 2}), encoding="utf-8"
+        json.dumps({"performer_id": "42", "bodyrig_revision": revision}), encoding="utf-8"
     )
     (anatomy / "photoidentity-evidence.json").write_text(
-        json.dumps({"performer_id": "42", "bodyrig_revision": revision}), encoding="utf-8"
+        json.dumps({"performer_id": "42", "bodyrig_revision": revision, "source_files_scanned": len(REQUIRED_DOMAINS) * 2}), encoding="utf-8"
     )
     marker = tmp_path / "markers.json"
     marker.write_text('{"markers":[]}\n', encoding="utf-8")
@@ -49,7 +49,7 @@ def test_builder_requires_complete_domain_coverage(tmp_path: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-    subject._private_source_bindings = lambda sweep_root, expected_count: (sources, "a" * 64)
+    monkeypatch.setattr(subject, "_private_source_bindings", lambda sweep_root, expected_count: (sources, "a" * 64))
     output = tmp_path / "private.json"
     result = subject.build_private_review_manifest(
         sweep_root=sweep,
