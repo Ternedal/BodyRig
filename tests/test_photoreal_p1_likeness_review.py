@@ -11,6 +11,7 @@ from bodyrig.photoreal_p1_likeness_review import (
     build_likeness_review_pack,
     record_likeness_review,
     validate_likeness_review_pack,
+    validate_likeness_review_receipt,
 )
 
 
@@ -240,3 +241,87 @@ def test_reuse_revalidates_html_and_copied_images(tmp_path: Path) -> None:
 
     with pytest.raises(PhotorealP1LikenessReviewError, match="HTML bytes changed"):
         validate_likeness_review_pack(output, expected_pairing=pairing)
+
+
+def test_final_receipt_validator_accepts_all_pass_against_exact_review_manifest(tmp_path: Path) -> None:
+    teacher, reference = _roots(tmp_path)
+    pairing = _pairing(teacher, reference)
+    output = tmp_path / "p1-review"
+    manifest = build_likeness_review_pack(
+        pairing,
+        teacher_output_root=teacher,
+        appearance_review_root=reference,
+        output_root=output,
+    )
+    receipt = record_likeness_review(
+        manifest,
+        decisions={"face-front": "pass", "full-body-front": "pass"},
+        reviewed_by="operator",
+        review_notes="Final human P1 review complete.",
+        confirm_review_complete=True,
+    )
+
+    validated = validate_likeness_review_receipt(receipt, review_manifest=manifest)
+
+    assert validated["p1_static_teacher_status"] == "pass"
+    assert validated["p2_animation_authorized"] is True
+    assert validated["photoreal_acceptance_authority"] is False
+    assert validated["production_activation"] is False
+
+
+def test_final_receipt_validator_rejects_resealed_status_that_disagrees_with_decisions(tmp_path: Path) -> None:
+    teacher, reference = _roots(tmp_path)
+    pairing = _pairing(teacher, reference)
+    output = tmp_path / "p1-review"
+    manifest = build_likeness_review_pack(
+        pairing,
+        teacher_output_root=teacher,
+        appearance_review_root=reference,
+        output_root=output,
+    )
+    receipt = record_likeness_review(
+        manifest,
+        decisions={"face-front": "fail", "full-body-front": "pass"},
+        reviewed_by="operator",
+        review_notes="One criterion failed.",
+        confirm_review_complete=True,
+    )
+    receipt["p1_static_teacher_status"] = "pass"
+    receipt["p1_static_teacher_acceptance_authority"] = True
+    receipt["human_visual_likeness_acceptance"] = True
+    receipt["p2_animation_authorized"] = True
+    receipt["p1_likeness_review_sha256"] = _digest(
+        receipt,
+        omit="p1_likeness_review_sha256",
+    )
+
+    with pytest.raises(PhotorealP1LikenessReviewError, match="status does not match criterion decisions"):
+        validate_likeness_review_receipt(receipt, review_manifest=manifest)
+
+
+def test_final_receipt_validator_rejects_different_review_manifest(tmp_path: Path) -> None:
+    teacher, reference = _roots(tmp_path)
+    pairing = _pairing(teacher, reference)
+    output = tmp_path / "p1-review"
+    manifest = build_likeness_review_pack(
+        pairing,
+        teacher_output_root=teacher,
+        appearance_review_root=reference,
+        output_root=output,
+    )
+    receipt = record_likeness_review(
+        manifest,
+        decisions={"face-front": "pass", "full-body-front": "pass"},
+        reviewed_by="operator",
+        review_notes="Final human P1 review complete.",
+        confirm_review_complete=True,
+    )
+    other_manifest = dict(manifest)
+    other_manifest["selected_epoch_id"] = "epoch-b"
+    other_manifest["p1_likeness_review_manifest_sha256"] = _digest(
+        other_manifest,
+        omit="p1_likeness_review_manifest_sha256",
+    )
+
+    with pytest.raises(PhotorealP1LikenessReviewError, match="targets different review manifest|provenance mismatch"):
+        validate_likeness_review_receipt(receipt, review_manifest=other_manifest)
