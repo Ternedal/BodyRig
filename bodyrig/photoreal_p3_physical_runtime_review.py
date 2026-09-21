@@ -439,6 +439,8 @@ def record_physical_runtime_review(
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": plan["target_device_family"],
         "target_device_model": plan["target_device_model"],
+        "executed_adapter": plan["executed_adapter"],
+        "executed_adapter_revision": plan["executed_adapter_revision"],
         "target_refresh_hz": target_refresh,
         "max_frame_time_ms": target_frame_time,
         "student_representation": plan["student_representation"],
@@ -491,6 +493,8 @@ def validate_physical_runtime_review_receipt(
         "target_profile_sha256",
         "target_device_family",
         "target_device_model",
+        "executed_adapter",
+        "executed_adapter_revision",
         "target_refresh_hz",
         "max_frame_time_ms",
         "student_representation",
@@ -540,6 +544,15 @@ def validate_physical_runtime_review_receipt(
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review target model is not canonical"
         )
+    _text(
+        value.get("executed_adapter"),
+        label="P3 physical review executed adapter",
+        maximum=80,
+    )
+    _sha(
+        value.get("executed_adapter_revision"),
+        label="P3 physical review executed adapter revision",
+    )
     if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3PhysicalRuntimeReviewError(
             "P3 physical review student representation is not canonical"
