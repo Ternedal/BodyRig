@@ -17,6 +17,7 @@ from bodyrig.photoreal_p3_quest2_hair_student_runner import (
     PhotorealP3Quest2HairStudentRunnerError,
     build_hair_student,
     validate_hair_envelope,
+    validate_hair_student_receipt,
 )
 from bodyrig.photoreal_p3_quest2_student_candidate_runner import (
     BLOCKERS as CANDIDATE_BLOCKERS,
@@ -281,3 +282,59 @@ def test_hair_stage_preserves_teacher_basecolor_bytes(tmp_path) -> None:
 
     copied = (tmp_path / "hair" / "student" / "basecolor.png").read_bytes()
     assert copied == source
+
+
+def test_hair_receipt_strict_readback_rehashes_artifacts(tmp_path) -> None:
+    eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    hair_root = tmp_path / "hair"
+    receipt = build_hair_student(
+        eye_receipt,
+        envelope,
+        eye_output_root=eye_root,
+        output_root=hair_root,
+    )
+
+    validated = validate_hair_student_receipt(
+        receipt,
+        hair_output_root=hair_root,
+    )
+    assert validated["p3_quest2_hair_student_receipt_sha256"] == receipt[
+        "p3_quest2_hair_student_receipt_sha256"
+    ]
+
+    (hair_root / "student" / "avatar.vrm").write_bytes(b"drift")
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="size/path drifted|bytes drifted",
+    ):
+        validate_hair_student_receipt(
+            receipt,
+            hair_output_root=hair_root,
+        )
+
+
+def test_hair_receipt_cannot_reseal_p3_complete(tmp_path) -> None:
+    eye_root, eye_receipt = _eye_stage(tmp_path)
+    envelope = _envelope(eye_receipt)
+    hair_root = tmp_path / "hair"
+    receipt = build_hair_student(
+        eye_receipt,
+        envelope,
+        eye_output_root=eye_root,
+        output_root=hair_root,
+    )
+    receipt["p3_distillation_complete"] = True
+    receipt["p3_quest2_hair_student_receipt_sha256"] = hair_runner._digest(
+        receipt,
+        omit="p3_quest2_hair_student_receipt_sha256",
+    )
+
+    with pytest.raises(
+        PhotorealP3Quest2HairStudentRunnerError,
+        match="p3_distillation_complete",
+    ):
+        validate_hair_student_receipt(
+            receipt,
+            hair_output_root=hair_root,
+        )
