@@ -76,6 +76,8 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
         "version": 1,
         "workspace_sha256": workspace["workspace_sha256"],
         "preprocessing_complete": True,
+        "teacher_training_authorized_by_preprocessing": False,
+        "human_visual_acceptance_required": True,
         "photoreal_acceptance_authority": False,
         "production_activation": False,
     }
@@ -91,6 +93,7 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
         "workspace_sha256": workspace["workspace_sha256"],
         "runtime_environment_ready": True,
         "blockers": [],
+        "human_visual_acceptance_required": True,
         "photoreal_acceptance_authority": False,
         "production_activation": False,
     }
