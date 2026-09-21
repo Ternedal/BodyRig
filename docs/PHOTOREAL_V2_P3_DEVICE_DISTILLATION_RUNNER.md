@@ -47,10 +47,11 @@ The adapter is explicit and revision-bound. `revision` is the lowercase SHA-256 
 }
 ```
 
-The adapter is invoked with the BodyRig request path, staged teacher root, output root, adapter/revision and selected student representation.
+The adapter is invoked with the BodyRig request path, staged teacher root, output root, adapter/revision and selected student representation. The request also binds the exact target model. Quest 2 explicitly rejects `gaussian-splat-optional` even if an adapter claims Gaussian support; that representation remains a Quest 3/3S-only option in this path.
 
 It must emit `output/distillation-manifest.json` and list:
 
+- the exact target model from the BodyRig request;
 - the exact staged teacher-source bytes it consumed;
 - exactly one teacher-to-student delta for every required fidelity dimension;
 - every generated student artifact with size and SHA-256;
@@ -62,7 +63,7 @@ BodyRig core then re-hashes every student artifact and requires the output artif
 
 A successful run produces `p3-device-distillation-execution-receipt.json` with:
 
-- distillation complete;
+- distillation complete and bound to the exact target model;
 - teacher staging verified before and after adapter execution;
 - student artifact bytes core-verified;
 - fidelity deltas present for the full canonical universe;
