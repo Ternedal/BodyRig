@@ -17,13 +17,15 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     tmp_path.mkdir(parents=True, exist_ok=True)
     anatomy_obs = tmp_path / "photoidentity-observations.json"
     anatomy_report = tmp_path / "photoidentity-evidence.json"
-    anatomy_obs.write_text('{"ok":true}\n', encoding="utf-8")
-    anatomy_report.write_text('{"ok":true}\n', encoding="utf-8")
     marker = tmp_path / "markers.private.json"
 
     entries = []
+    selected = []
+    ordinal = 0
     for domain in subject.REQUIRED_DOMAINS:
         for index in (1, 2):
+            ordinal += 1
+            scene_id = f"{domain}-scene-{index}"
             media = tmp_path / f"{domain}-{index}.mp4"
             image = tmp_path / f"{domain}-{index}.png"
             media.write_bytes(f"media-{domain}-{index}".encode())
@@ -32,16 +34,62 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
                 {
                     "reference": f"{domain}-ref-{index}",
                     "domain": domain,
-                    "scene_id": f"{domain}-scene-{index}",
+                    "scene_id": scene_id,
                     "region": f"{domain}-region",
-                    "source_ordinal": index,
-                    "source_media_path": str(media),
+                    "source_ordinal": ordinal,
+                    "source_media_path": str(media.resolve()),
                     "source_media_sha256": _sha(media),
-                    "review_image_path": str(image),
+                    "review_image_path": str(image.resolve()),
                     "review_image_sha256": _sha(image),
                     "source_quality": 0.91,
                 }
             )
+            selected.append(
+                {
+                    "scene_id": scene_id,
+                    "scene_title": scene_id,
+                    "path": str(media.resolve()),
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 60.0,
+                    "framerate": 30.0,
+                    "performer_count": 1,
+                    "score": 100.0,
+                }
+            )
+
+    batch = tmp_path / "private-batches" / "batch-0001"
+    batch.mkdir(parents=True)
+    source_manifest = {
+        "format": "bodyrig-stash-source-manifest",
+        "version": 1,
+        "source_kind": "stash-local",
+        "performer": {"id": "42", "name": "Fixture", "disambiguation": ""},
+        "stash_version": "test",
+        "candidate_count": len(selected),
+        "selected": selected,
+    }
+    (batch / "bodyrig-stash-source-manifest.json").write_text(
+        json.dumps(source_manifest),
+        encoding="utf-8",
+    )
+    _, manifest_set_sha = subject._private_source_bindings(tmp_path, expected_count=len(selected))
+
+    anatomy_obs.write_text(
+        json.dumps({"performer_id": "42", "bodyrig_revision": "a" * 40}),
+        encoding="utf-8",
+    )
+    anatomy_report.write_text(
+        json.dumps(
+            {
+                "performer_id": "42",
+                "bodyrig_revision": "a" * 40,
+                "source_files_scanned": len(selected),
+            }
+        ),
+        encoding="utf-8",
+    )
+
     marker_refs = [
         entry["reference"] for entry in entries if entry["domain"] == "distinctive_markers_detail"
     ]
@@ -73,7 +121,8 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "bodyrig_revision": "a" * 40,
         "anatomy_observation_evidence_sha256": _sha(anatomy_obs),
         "anatomy_sufficiency_report_sha256": _sha(anatomy_report),
-        "marker_inventory_path": str(marker),
+        "private_source_manifest_set_sha256": manifest_set_sha,
+        "marker_inventory_path": str(marker.resolve()),
         "marker_inventory_sha256": _sha(marker),
         "entries": entries,
     }
@@ -85,6 +134,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
 def _record(tmp_path: Path, **overrides: object) -> dict:
     manifest, obs, report, _ = _fixture(tmp_path)
     kwargs = dict(
+        sweep_root=tmp_path,
         private_manifest=manifest,
         anatomy_observations=obs,
         anatomy_report=report,
@@ -99,6 +149,30 @@ def _record(tmp_path: Path, **overrides: object) -> dict:
     )
     kwargs.update(overrides)
     return subject.record_attestation(**kwargs)
+
+
+def _record_direct(
+    *,
+    root: Path,
+    manifest: Path,
+    observations: Path,
+    report: Path,
+    output: Path,
+) -> dict:
+    return subject.record_attestation(
+        sweep_root=root,
+        private_manifest=manifest,
+        anatomy_observations=observations,
+        anatomy_report=report,
+        reviewed_by="reviewer",
+        quality_note="Reviewed exact source-grounded fine identity detail for photoidentical reconstruction.",
+        confirm_oral_teeth_photoidentity=True,
+        confirm_chest_breast_shape_photoidentity=True,
+        confirm_nipple_areola_photoidentity=True,
+        confirm_intimate_anatomy_photoidentity=True,
+        confirm_distinctive_markers_photoidentity=True,
+        output=output,
+    )
 
 
 def test_records_all_required_photoidentical_domains_without_private_paths(tmp_path: Path) -> None:
@@ -142,19 +216,7 @@ def test_rejects_single_scene_domain(tmp_path: Path) -> None:
     ]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(subject.PhotoIdentityFineIdentityAttestationError, match="oral_teeth_detail requires at least 2"):
-        subject.record_attestation(
-            private_manifest=manifest_path,
-            anatomy_observations=obs,
-            anatomy_report=report,
-            reviewed_by="reviewer",
-            quality_note="Reviewed exact source detail and found insufficient oral coverage.",
-            confirm_oral_teeth_photoidentity=True,
-            confirm_chest_breast_shape_photoidentity=True,
-            confirm_nipple_areola_photoidentity=True,
-            confirm_intimate_anatomy_photoidentity=True,
-            confirm_distinctive_markers_photoidentity=True,
-            output=tmp_path / "out.json",
-        )
+        _record_direct(root=tmp_path, manifest=manifest_path, observations=obs, report=report, output=tmp_path / "out.json")
 
 
 def test_rejects_changed_source_bytes(tmp_path: Path) -> None:
@@ -162,36 +224,25 @@ def test_rejects_changed_source_bytes(tmp_path: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     Path(manifest["entries"][0]["source_media_path"]).write_bytes(b"tampered")
     with pytest.raises(subject.PhotoIdentityFineIdentityAttestationError, match="source media bytes changed"):
-        subject.record_attestation(
-            private_manifest=manifest_path,
-            anatomy_observations=obs,
-            anatomy_report=report,
-            reviewed_by="reviewer",
-            quality_note="Reviewed exact source-grounded fine identity detail for photoidentical reconstruction.",
-            confirm_oral_teeth_photoidentity=True,
-            confirm_chest_breast_shape_photoidentity=True,
-            confirm_nipple_areola_photoidentity=True,
-            confirm_intimate_anatomy_photoidentity=True,
-            confirm_distinctive_markers_photoidentity=True,
-            output=tmp_path / "out.json",
-        )
+        _record_direct(root=tmp_path, manifest=manifest_path, observations=obs, report=report, output=tmp_path / "out.json")
+
+
+def test_rejects_source_path_swap_even_if_private_manifest_hash_is_updated(tmp_path: Path) -> None:
+    manifest_path, obs, report, _ = _fixture(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first = manifest["entries"][0]
+    second = manifest["entries"][1]
+    first["source_media_path"] = second["source_media_path"]
+    first["source_media_sha256"] = second["source_media_sha256"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(subject.PhotoIdentityFineIdentityAttestationError, match="source path does not match exact sweep"):
+        _record_direct(root=tmp_path, manifest=manifest_path, observations=obs, report=report, output=tmp_path / "out.json")
 
 
 def test_create_only_output(tmp_path: Path) -> None:
     _record(tmp_path)
-    manifest, obs, report, _ = _fixture(tmp_path / "other")
+    other = tmp_path / "other"
+    manifest, obs, report, _ = _fixture(other)
     output = tmp_path / "photoidentity-fine-identity-attestation.json"
     with pytest.raises(subject.PhotoIdentityFineIdentityAttestationError, match="already exists"):
-        subject.record_attestation(
-            private_manifest=manifest,
-            anatomy_observations=obs,
-            anatomy_report=report,
-            reviewed_by="reviewer",
-            quality_note="Reviewed exact source-grounded fine identity detail for photoidentical reconstruction.",
-            confirm_oral_teeth_photoidentity=True,
-            confirm_chest_breast_shape_photoidentity=True,
-            confirm_nipple_areola_photoidentity=True,
-            confirm_intimate_anatomy_photoidentity=True,
-            confirm_distinctive_markers_photoidentity=True,
-            output=output,
-        )
+        _record_direct(root=other, manifest=manifest, observations=obs, report=report, output=output)
