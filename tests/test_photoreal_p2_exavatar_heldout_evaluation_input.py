@@ -117,6 +117,10 @@ def _artifacts(tmp_path: Path) -> tuple[
         "p2_exavatar_animation_execution_input_sha256": "3" * 64,
         "p2_exavatar_animation_execution_receipt_sha256": "6" * 64,
         "consumed_checkpoint_sha256": checkpoint["sha256"],
+        "consumed_identity_artifacts": [
+            {"kind": item["kind"], "sha256": item["sha256"]}
+            for item in identity_artifacts
+        ],
         "motion_driver_source_ref": "src-train",
         "animation_complete": True,
         "inference_only": True,
@@ -237,6 +241,30 @@ def test_heldout_input_rejects_train_driver_as_evaluation(
             teacher_output_root=teacher_root,
             motion_output_root=motion_root,
             heldout_source_ref="src-train",
+        )
+
+
+def test_heldout_input_rejects_different_train_identity_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    values = _artifacts(tmp_path)
+    execution_input, train_receipt, motion_receipt, identity_root, teacher_root, motion_root = values
+    train_receipt["consumed_identity_artifacts"][0]["sha256"] = "f" * 64
+    _trust(monkeypatch, execution_input, train_receipt, motion_receipt)
+
+    with pytest.raises(
+        PhotorealP2ExAvatarHeldoutEvaluationInputError,
+        match="different identity bytes",
+    ):
+        build_heldout_evaluation_input(
+            execution_input,
+            train_receipt,
+            motion_receipt,
+            identity_root=identity_root,
+            teacher_output_root=teacher_root,
+            motion_output_root=motion_root,
+            heldout_source_ref="src-eval",
         )
 
 
