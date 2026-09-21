@@ -71,3 +71,12 @@ def test_refined_candidate_operator_parses_when_pwsh_is_available() -> None:
         "if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }"
     )
     subprocess.run([pwsh, "-NoProfile", "-Command", command], check=True)
+
+
+def test_refined_candidate_operator_preflights_cuda_dependencies() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'required = ("numpy", "PIL", "pytorch3d", "nvdiffrast")' in source
+    assert "torch.cuda.is_available()" in source
+    assert "bodyrig.photoreal_p3_quest2_student_candidate_runner" in source
+    assert "Pinned ExAvatar Quest2 candidate runtime preflight failed" in source
+    assert "CUDA device:" in source
