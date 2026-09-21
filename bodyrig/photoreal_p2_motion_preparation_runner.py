@@ -239,6 +239,12 @@ def _task_request(
             )
     if scan_source.get("kind") != "video":
         raise PhotorealP2MotionPreparationRunnerError("P2 motion preparation requires video source")
+    scan_path = _text(scan_source.get("resolved_path"), label="P0 motion resolved path")
+    task_path = _text(task.get("resolved_path"), label="P2 motion resolved path")
+    if scan_path != task_path:
+        raise PhotorealP2MotionPreparationRunnerError(
+            "P2 motion task/P0 scan-plan binding mismatch: resolved_path"
+        )
     projection = _text(scan_source.get("projection"), label="P0 motion projection", maximum=128)
     stereo = _text(scan_source.get("stereo_layout"), label="P0 motion stereo layout", maximum=128)
     action = task.get("normalization_action")
