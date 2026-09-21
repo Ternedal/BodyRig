@@ -49,6 +49,236 @@ class PhotorealP3Quest2HairStudentRunnerError(ValueError):
     pass
 
 
+def _hair_receipt_fields() -> set[str]:
+    return {
+        "format",
+        "version",
+        "performer_id",
+        "selected_epoch_id",
+        "teacher_input_sha256",
+        "p3_device_distillation_plan_sha256",
+        "p3_device_distillation_request_sha256",
+        "p3_quest2_student_candidate_receipt_sha256",
+        "p3_quest2_eye_student_receipt_sha256",
+        "hair_envelope_sha256",
+        "hair_runner_revision_sha256",
+        "hair_component_revision_sha256",
+        "target_model",
+        "student_representation",
+        "required_student_components",
+        "implemented_student_components",
+        "eye_component",
+        "hair_component",
+        "student_artifacts",
+        "artifact_bytes_verified_by_core",
+        "staged_teacher_only",
+        "student_candidate_complete",
+        "specialized_eye_component_complete",
+        "teacher_derived_hair_component_complete",
+        "p3_distillation_complete",
+        "remaining_blockers",
+        "physical_face_closeup_review_required",
+        "physical_hair_silhouette_review_required",
+        "runtime_acceptance_authority",
+        "photoreal_acceptance_authority",
+        "production_activation",
+        "p3_quest2_hair_student_receipt_sha256",
+    }
+
+
+def validate_hair_student_receipt(
+    value: Mapping[str, Any],
+    *,
+    hair_output_root: str | Path,
+) -> dict[str, Any]:
+    if set(value) != _hair_receipt_fields() or value.get("format") != FORMAT:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair receipt fields/format mismatch"
+        )
+    try:
+        _strict_v1(value.get("version"), label="Quest2 hair receipt")
+    except Exception as exc:
+        raise PhotorealP3Quest2HairStudentRunnerError(str(exc)) from exc
+    if value.get("version") != VERSION:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair receipt version mismatch"
+        )
+
+    _text(value.get("performer_id"), label="Quest2 hair performer", maximum=256)
+    _text(value.get("selected_epoch_id"), label="Quest2 hair epoch", maximum=256)
+    for field in (
+        "teacher_input_sha256",
+        "p3_device_distillation_plan_sha256",
+        "p3_device_distillation_request_sha256",
+        "p3_quest2_student_candidate_receipt_sha256",
+        "p3_quest2_eye_student_receipt_sha256",
+        "hair_envelope_sha256",
+        "hair_runner_revision_sha256",
+        "hair_component_revision_sha256",
+        "p3_quest2_hair_student_receipt_sha256",
+    ):
+        _sha(value.get(field), label=f"Quest2 hair receipt {field}")
+
+    if (
+        value.get("target_model") != "quest-2"
+        or value.get("student_representation") != "skinned-mesh-pbr"
+        or value.get("required_student_components") != list(REQUIRED_STUDENT_COMPONENTS)
+        or value.get("implemented_student_components") != list(IMPLEMENTED_COMPONENTS)
+        or value.get("remaining_blockers") != list(REMAINING_BLOCKERS)
+    ):
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair receipt student/component authority mismatch"
+        )
+
+    for field, expected in (
+        ("artifact_bytes_verified_by_core", True),
+        ("staged_teacher_only", True),
+        ("student_candidate_complete", True),
+        ("specialized_eye_component_complete", True),
+        ("teacher_derived_hair_component_complete", True),
+        ("p3_distillation_complete", False),
+        ("physical_face_closeup_review_required", True),
+        ("physical_hair_silhouette_review_required", True),
+        ("runtime_acceptance_authority", False),
+        ("photoreal_acceptance_authority", False),
+        ("production_activation", False),
+    ):
+        if value.get(field) is not expected:
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                f"Quest2 hair receipt authority mismatch: {field}"
+            )
+
+    try:
+        eye_metadata = _eye_metadata(value.get("eye_component"))
+    except Exception as exc:
+        raise PhotorealP3Quest2HairStudentRunnerError(str(exc)) from exc
+
+    hair_metadata = value.get("hair_component")
+    if not isinstance(hair_metadata, Mapping):
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair component metadata is missing"
+        )
+    required_hair = {
+        "format",
+        "version",
+        "sourceEyeReceiptSha256",
+        "teacherBasecolorSha256",
+        "teacherHairEnvelopeSha256",
+        "selectionMode",
+        "hairFaceCount",
+        "hairVertexCount",
+        "sourceDerived",
+        "generativeGeometry",
+        "bodyTopologyModified",
+        "separateRuntimePrimitive",
+        "teacherDerivedAppearance",
+        "physicalSilhouetteReviewRequired",
+        "teacherDerivedHairComponentImplemented",
+        "separateEyelashGeometryClaimed",
+        "runtimeAcceptanceAuthority",
+        "photorealAcceptanceAuthority",
+        "productionActivation",
+        "outputVrmSha256",
+    }
+    if set(hair_metadata) != required_hair or hair_metadata.get("format") != HAIR_COMPONENT_FORMAT:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair component metadata fields/format mismatch"
+        )
+    if hair_metadata.get("version") != 1:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair component metadata version mismatch"
+        )
+    for field in (
+        "sourceEyeReceiptSha256",
+        "teacherBasecolorSha256",
+        "teacherHairEnvelopeSha256",
+        "outputVrmSha256",
+    ):
+        _sha(hair_metadata.get(field), label=f"Quest2 hair component {field}")
+    if (
+        hair_metadata.get("sourceEyeReceiptSha256")
+        != value["p3_quest2_eye_student_receipt_sha256"]
+        or hair_metadata.get("teacherHairEnvelopeSha256")
+        != value["hair_envelope_sha256"]
+    ):
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair component provenance mismatch"
+        )
+    for field, expected in (
+        ("sourceDerived", True),
+        ("generativeGeometry", False),
+        ("bodyTopologyModified", False),
+        ("separateRuntimePrimitive", True),
+        ("teacherDerivedAppearance", True),
+        ("physicalSilhouetteReviewRequired", True),
+        ("teacherDerivedHairComponentImplemented", True),
+        ("separateEyelashGeometryClaimed", False),
+        ("runtimeAcceptanceAuthority", False),
+        ("photorealAcceptanceAuthority", False),
+        ("productionActivation", False),
+    ):
+        if hair_metadata.get(field) is not expected:
+            raise PhotorealP3Quest2HairStudentRunnerError(
+                f"Quest2 hair component authority mismatch: {field}"
+            )
+
+    root = Path(hair_output_root).expanduser().resolve()
+    if not root.is_dir() or root.is_symlink():
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair output root is missing/not regular"
+        )
+    artifacts = _artifact_records(
+        value.get("student_artifacts"),
+        root=root,
+        label="Quest2 hair",
+    )
+    avatar = next(
+        item for item in artifacts
+        if item["kind"] == "student-runtime-package"
+    )
+    basecolor = next(
+        item for item in artifacts
+        if item["kind"] == "teacher-derived-basecolor"
+    )
+    if hair_metadata["outputVrmSha256"] != avatar["sha256"]:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair metadata does not bind current student VRM bytes"
+        )
+    if hair_metadata["teacherBasecolorSha256"] != basecolor["sha256"]:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair metadata does not bind current basecolor bytes"
+        )
+    if eye_metadata["outputVrmSha256"] == avatar["sha256"]:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair stage did not materialize distinct student VRM bytes"
+        )
+
+    actual = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+    expected = {item["relative_path"] for item in artifacts} | {
+        "p3-quest2-hair-student-receipt.json"
+    }
+    if actual != expected:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair output artifact universe drifted"
+        )
+
+    claimed = value["p3_quest2_hair_student_receipt_sha256"]
+    if _digest(value, omit="p3_quest2_hair_student_receipt_sha256") != claimed:
+        raise PhotorealP3Quest2HairStudentRunnerError(
+            "Quest2 hair receipt digest mismatch"
+        )
+
+    result = dict(value)
+    result["student_artifacts"] = artifacts
+    result["eye_component"] = eye_metadata
+    result["hair_component"] = dict(hair_metadata)
+    return result
+
+
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     try:
