@@ -268,7 +268,7 @@ def test_motion_handoff_validator_rejects_resealed_private_path_leak() -> None:
 
     with pytest.raises(
         PhotorealP2MotionEvidenceError,
-        match="leaks private source identity",
+        match="fields must match v1 exactly",
     ):
         validate_motion_evidence_handoff(handoff)
 
@@ -302,7 +302,7 @@ def test_private_motion_index_validator_rejects_resealed_public_binding_drift() 
 
     with pytest.raises(
         PhotorealP2MotionEvidenceError,
-        match="private/public P2 motion binding mismatch: source_sha256",
+        match="digest differs from handoff binding",
     ):
         validate_private_motion_index(private_index, handoff=handoff)
 
