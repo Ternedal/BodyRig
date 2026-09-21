@@ -110,7 +110,10 @@ def build_private_review_manifest(
     if source_count < 1:
         raise PhotoIdentityFineIdentityReviewManifestError("anatomy report lacks source-file count")
     try:
-        sources_by_ordinal, _ = _private_source_bindings(sweep_root, expected_count=source_count)
+        sources_by_ordinal, private_manifest_set_sha = _private_source_bindings(
+            sweep_root,
+            expected_count=source_count,
+        )
     except Exception as exc:
         raise PhotoIdentityFineIdentityReviewManifestError(f"could not resolve exact sweep source bindings: {exc}") from exc
 
@@ -184,6 +187,7 @@ def build_private_review_manifest(
         "bodyrig_revision": revision,
         "anatomy_observation_evidence_sha256": _sha256(anatomy_obs),
         "anatomy_sufficiency_report_sha256": _sha256(anatomy_report),
+        "private_source_manifest_set_sha256": private_manifest_set_sha,
         "marker_inventory_path": str(marker_inventory),
         "marker_inventory_sha256": _sha256(marker_inventory),
         "entries": sorted(entries, key=lambda item: (item["domain"], item["scene_id"], item["reference"])),
