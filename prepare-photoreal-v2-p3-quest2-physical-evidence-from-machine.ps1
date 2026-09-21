@@ -248,7 +248,12 @@ if (Test-Path -LiteralPath $Output) {
     }
 
     $existing = Get-Content -LiteralPath $Output -Raw -Encoding UTF8 | ConvertFrom-Json -Depth 100
-    $expectedCanonical = $prefill | ConvertTo-Json -Depth 100 -Compress
+    $expectedCanonical = (
+        $prefill |
+            ConvertTo-Json -Depth 100 -Compress |
+            ConvertFrom-Json -Depth 100 |
+            ConvertTo-Json -Depth 100 -Compress
+    )
     $existingCanonical = $existing | ConvertTo-Json -Depth 100 -Compress
     if ($existingCanonical -cne $expectedCanonical) {
         throw "Existing Quest2 P3 physical evidence prefill differs from the exact current runtime review plan and machine probe."
