@@ -39,6 +39,18 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
+    model_asset = (
+        repo
+        / "avatar"
+        / "common"
+        / "utils"
+        / "human_model_files"
+        / "smplx"
+        / "fixture.npz"
+    )
+    model_asset.parent.mkdir(parents=True, exist_ok=True)
+    model_asset.write_bytes(b"model-asset")
+
     workspace = {
         "format": adapter.WORKSPACE_FORMAT,
         "version": 1,
@@ -57,6 +69,14 @@ def _workspace(tmp_path: Path) -> tuple[Path, Path]:
             "dataset": "Custom",
             "smplx_gender": "female",
         },
+        "linked_assets": [
+            {
+                "source_relative_path": "human_model_files/smplx/fixture.npz",
+                "destination": "repos/ExAvatar_RELEASE/avatar/common/utils/human_model_files/smplx/fixture.npz",
+                "sha256": adapter._file_sha(model_asset),
+                "reference_vision_asset": False,
+            }
+        ],
         "smplx_gender_explicit": True,
         "upstream_default_gender_accepted": False,
         "held_out_evaluation_disclosed": False,
