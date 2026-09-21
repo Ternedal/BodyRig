@@ -94,6 +94,8 @@ Skiftes body, voice, personality eller ModelRig-model efter audition, nulstilles
 
 En successful forseglet Personality Audition Suite kan åbne **Saml person** med exact `person_id`, `body-rXXXX`, `voice-rXXXX` og `personality-rXXXX` forvalgt via query-parametre. Person Studio validerer, at de tre revisions-ID'er tilhører den valgte Person, før de sættes.
 
+ModelRig-modelnavnet fra suiten bæres også med. Person Studio venter på den live ModelRig-library og forvælger kun modellen, når det eksakte navn stadig findes. Et stale modelnavn giver tomt modelvalg + operator-advarsel; det må ikke falde tilbage til bibliotekets første model uden menneskelig beslutning.
+
 Deep-linket genbruger **ikke** suite-audition som canonical Person audition. Ved handoff er assembly-state fortsat nulstillet, og **Kør samlet audition** skal køres igen. Review-felterne forbliver låst, indtil den normale body/ModelRig/VoiceRig execution- og afspilningsgate er opfyldt.
 
 ## Audition evidence
