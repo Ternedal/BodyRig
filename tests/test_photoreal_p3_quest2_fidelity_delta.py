@@ -206,3 +206,17 @@ def test_fidelity_digest_tamper_is_rejected() -> None:
         match="digest mismatch",
     ):
         validate_fidelity_delta_evidence_structure(tampered)
+
+
+def test_fidelity_engine_samples_materialized_eye_and_hair_primitives() -> None:
+    import inspect
+    from tools import photoreal_p3_exavatar_quest2_fidelity_delta as engine
+
+    source = inspect.getsource(engine.build_fidelity_evidence)
+
+    assert "query=eye_surface_positions" in source
+    assert "eye_surface_uvs" in source
+    assert "eye_student_rgb = _texture_samples" in source
+    assert "query=hair_positions" in source
+    assert "hair_uvs" in source
+    assert "hair_student_rgb = _texture_samples" in source
