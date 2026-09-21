@@ -179,7 +179,7 @@ def test_motion_selection_rejects_cross_split_source_refs() -> None:
             handoff,
             private,
             motion_driver_source_refs=["src-heldout"],
-            held_out_validation_source_refs=["src-heldout"],
+            held_out_validation_source_refs=["src-driver"],
             reviewed_by="operator",
             review_notes="Invalid cross-split selection.",
             approve_human_selection=True,
