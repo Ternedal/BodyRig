@@ -85,7 +85,7 @@ def _candidate(tmp_path: Path) -> tuple[dict[str, object], dict[str, object], Pa
         "required_student_components": list(runner.REQUIRED_STUDENT_COMPONENTS),
         "implemented_student_components": [],
         "geometry_source": "accepted-exavatar-zero-pose-smplx",
-        "appearance_source": "accepted-exavatar-zero-pose-gaussian-rgb",
+        "appearance_source": "accepted-exavatar-refined-zero-pose-gaussian-rgb",
         "teacher_checkpoint_sha256": "5" * 64,
         "student_artifacts": [
             {
