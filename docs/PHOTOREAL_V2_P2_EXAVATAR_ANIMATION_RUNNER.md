@@ -50,6 +50,6 @@ Default output:
 
 ## Authority boundary
 
-A successful execution receipt proves that the pinned ExAvatar animation completed from the exact accepted teacher identity and exact bounded TRAIN motion bytes. It does **not** assert that the animation looks good.
+A successful execution receipt proves that the pinned ExAvatar animation completed from the exact accepted teacher identity and exact bounded TRAIN motion bytes. The receipt also fixes the execution semantics as inference-only: `inference_only=true`, `teacher_training_performed=false`, and `checkpoint_mutation_performed=false`. It does **not** assert that the animation looks good.
 
 `human_animated_visual_acceptance_required=true` remains mandatory. Animated-teacher acceptance, Quest distillation, broader photoreal acceptance and production activation remain false until later explicit human review.
