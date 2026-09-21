@@ -637,26 +637,14 @@ def _log_tail(path: Path, limit: int = 8000) -> str:
     return raw[-limit:].decode("utf-8", errors="replace").strip()
 
 
-def run_external_teacher(
+def _invoke_teacher_adapter(
     config: Mapping[str, Any],
-    teacher_input: Mapping[str, Any],
+    request: Mapping[str, Any],
     *,
-    workspace: str | Path,
+    request_path: Path,
+    output_dir: Path,
+    log_path: Path,
 ) -> dict[str, Any]:
-    config = _validate_config(config)
-    request = build_teacher_request(config, teacher_input)
-    root = Path(workspace).expanduser().resolve()
-    if root.exists():
-        raise PhotorealTeacherRunnerError(f"teacher workspace already exists: {root}")
-    root.mkdir(parents=True)
-    request_path = root / "request.json"
-    output_dir = root / "output"
-    log_path = root / "adapter.log"
-    output_dir.mkdir()
-    request_path.write_text(
-        json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
     invoke = [
         *list(config["command"]),
         "--bodyrig-request",
@@ -695,6 +683,79 @@ def run_external_teacher(
     return validate_teacher_result(manifest, request=request, output_dir=output_dir)
 
 
+def _next_resume_log(root: Path) -> Path:
+    for index in range(1, 1000):
+        candidate = root / f"adapter-resume-{index:03d}.log"
+        if not candidate.exists():
+            return candidate
+    raise PhotorealTeacherRunnerError("teacher workspace exhausted resume log slots")
+
+
+def run_external_teacher(
+    config: Mapping[str, Any],
+    teacher_input: Mapping[str, Any],
+    *,
+    workspace: str | Path,
+) -> dict[str, Any]:
+    config = _validate_config(config)
+    request = build_teacher_request(config, teacher_input)
+    root = Path(workspace).expanduser().resolve()
+    if root.exists():
+        raise PhotorealTeacherRunnerError(f"teacher workspace already exists: {root}")
+    root.mkdir(parents=True)
+    request_path = root / "request.json"
+    output_dir = root / "output"
+    log_path = root / "adapter.log"
+    output_dir.mkdir()
+    request_path.write_text(
+        json.dumps(request, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return _invoke_teacher_adapter(
+        config,
+        request,
+        request_path=request_path,
+        output_dir=output_dir,
+        log_path=log_path,
+    )
+
+
+def resume_external_teacher(
+    config: Mapping[str, Any],
+    teacher_input: Mapping[str, Any],
+    *,
+    workspace: str | Path,
+) -> dict[str, Any]:
+    config = _validate_config(config)
+    request = build_teacher_request(config, teacher_input)
+    root = Path(workspace).expanduser().resolve()
+    if not root.is_dir():
+        raise PhotorealTeacherRunnerError(f"teacher resume workspace is missing: {root}")
+    request_path = root / "request.json"
+    output_dir = root / "output"
+    if not request_path.is_file():
+        raise PhotorealTeacherRunnerError("teacher resume workspace has no request.json")
+    if not output_dir.is_dir():
+        raise PhotorealTeacherRunnerError("teacher resume workspace has no output directory")
+    existing_request = _read_json(request_path, label="existing teacher request")
+    if existing_request != request:
+        raise PhotorealTeacherRunnerError("teacher resume request differs from existing workspace request")
+    if (output_dir / "teacher-manifest.json").exists():
+        raise PhotorealTeacherRunnerError(
+            "teacher resume workspace is already complete; use strict reuse validation"
+        )
+    if any(output_dir.iterdir()):
+        raise PhotorealTeacherRunnerError(
+            "teacher incomplete output directory is not empty; refusing ambiguous resume"
+        )
+    return _invoke_teacher_adapter(
+        config,
+        request,
+        request_path=request_path,
+        output_dir=output_dir,
+        log_path=_next_resume_log(root),
+    )
+
 def run_external_teacher_files(
     config_path: str | Path,
     teacher_input_path: str | Path,
@@ -703,3 +764,13 @@ def run_external_teacher_files(
     config = load_teacher_config(config_path)
     teacher_input = _read_json(teacher_input_path, label="photoreal teacher input")
     return run_external_teacher(config, teacher_input, workspace=workspace)
+
+
+def resume_external_teacher_files(
+    config_path: str | Path,
+    teacher_input_path: str | Path,
+    workspace: str | Path,
+) -> dict[str, Any]:
+    config = load_teacher_config(config_path)
+    teacher_input = _read_json(teacher_input_path, label="photoreal teacher input")
+    return resume_external_teacher(config, teacher_input, workspace=workspace)
