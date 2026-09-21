@@ -26,7 +26,7 @@ def test_guided_human_review_operator_requires_all_eight_explicit_decisions() ->
         "MotionIdentityPreservation",
         "TemporalStability",
     ):
-        assert f"[Parameter(Mandatory = $true)][ValidateSet(\"pass\", \"fail\")][string]$${parameter}" in source
+        assert "[Parameter(Mandatory = $true)][ValidateSet(\"pass\", \"fail\")][string]$" + parameter in source
 
     for criterion in (
         "identity_likeness",
