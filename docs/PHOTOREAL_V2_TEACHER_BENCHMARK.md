@@ -100,6 +100,26 @@ The next P1 handoff binds that semantic teacher receipt to the exact held-out ev
 
 The final P1 review surface copies only those hash-bound teacher/reference bytes into a private side-by-side review pack. The reviewer must record `pass` or `fail` for every required criterion. Any failed criterion records a completed P1 failure and keeps downstream animation blocked. Only an all-PASS receipt sets `p1_static_teacher_acceptance_authority=true`, `human_visual_likeness_acceptance=true` and `p2_animation_authorized=true`. It still keeps the broader `photoreal_acceptance_authority=false` and `production_activation=false`; a static P1 teacher is not a completed animated/runtime digital twin.
 
+## Canonical P1 operator
+
+After the completed ExAvatar teacher, appearance-epoch review pack, semantic camera metadata, and held-out pairing contracts are available on `main`, the canonical human workflow is:
+
+```powershell
+.\run-photoreal-v2-p1-review.ps1 `
+  -TeacherWorkRoot <TEACHER_WORK_ROOT> `
+  -AppearanceReviewRoot <APPEARANCE_REVIEW_ROOT>
+```
+
+The operator is deliberately resumable and stops with exit code 2 at each human boundary:
+
+1. **semantic camera alignment** — the human maps the six required semantic orientations to exact neutral teacher render indices;
+2. **held-out evidence pairing** — the human pairs every required P1 coverage criterion with one allowed teacher semantic view and one exact held-out reference frame;
+3. **likeness review** — the operator materializes the final private side-by-side review pack and the human records `pass` or `fail` for every criterion.
+
+The operator never opens a review automatically and never infers an approval from file existence. Existing semantic and pairing receipts are revalidated by the next strict downstream contract. The final P1 receipt is explicitly revalidated against its canonical review-manifest digest, provenance, criterion universe, PASS/FAIL decisions and authority flags before the operator reports P1 status.
+
+Only an all-PASS final receipt can authorize P2 animation. The operator continues to report the broader `photoreal_acceptance_authority=false` and `production_activation=false`.
+
 Training success, PSNR, SSIM, LPIPS or identity embedding similarity are diagnostics. None of them grants photoreal acceptance.
 
 ## P1 hard failure conditions
