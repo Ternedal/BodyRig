@@ -96,6 +96,8 @@ For the pinned ExAvatar `get_neutral_pose.py` path, BodyRig also emits `review/n
 
 Before held-out likeness review, run the semantic camera-alignment handoff against strict teacher readback. A human assigns the required `front`, three-quarter, profile and `rear` labels to six unique hash-bound render indices. That receipt grants only semantic camera-alignment authority; it explicitly keeps `human_visual_likeness_acceptance=false`, `photoreal_acceptance_authority=false` and `production_activation=false`. Semantic orientation and likeness acceptance are separate human decisions.
 
+The next P1 handoff binds that semantic teacher receipt to the exact held-out evaluation observations from `teacher-input.json` and the exact-frame appearance review pack. It exposes only selected-epoch evaluation frames whose P0 frame SHA and staged review-PNG SHA are still valid. A human pairs each required P1 coverage criterion with one semantic teacher view and one held-out reference frame. Pairing authority is still not likeness authority: `human_visual_likeness_acceptance=false` remains mandatory until the later comparison review is explicitly completed.
+
 Training success, PSNR, SSIM, LPIPS or identity embedding similarity are diagnostics. None of them grants photoreal acceptance.
 
 ## P1 hard failure conditions
