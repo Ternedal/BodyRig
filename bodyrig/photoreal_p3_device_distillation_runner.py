@@ -570,6 +570,7 @@ def build_distillation_request(
         ],
         "target_profile": authority["target_profile"],
         "target_profile_sha256": authority["target_profile_sha256"],
+        "target_model": target_model,
         "adapter": config["adapter"],
         "adapter_revision": config["revision"],
         "student_representation": config["student_representation"],
@@ -649,6 +650,7 @@ def validate_distillation_result(
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_request_sha256",
         "target_profile_sha256",
+        "target_model",
         "adapter",
         "adapter_revision",
         "student_representation",
@@ -678,6 +680,7 @@ def validate_distillation_result(
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_request_sha256",
         "target_profile_sha256",
+        "target_model",
         "adapter",
         "adapter_revision",
         "student_representation",
@@ -930,6 +933,7 @@ def build_execution_receipt(
             "p3_device_distillation_request_sha256"
         ],
         "target_profile_sha256": validated_result["target_profile_sha256"],
+        "target_model": validated_result["target_model"],
         "adapter": validated_result["adapter"],
         "adapter_revision": validated_result["adapter_revision"],
         "student_representation": validated_result["student_representation"],
@@ -970,6 +974,7 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_request_sha256",
         "target_profile_sha256",
+        "target_model",
         "adapter",
         "adapter_revision",
         "student_representation",
@@ -1009,9 +1014,25 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
         value.get("adapter_revision"),
         label="P3 receipt adapter revision",
     )
+    target_model = _text(
+        value.get("target_model"),
+        label="P3 receipt target model",
+        maximum=64,
+    )
+    if target_model not in {"quest-2", "quest-3", "quest-3s"}:
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 receipt target model is unsupported"
+        )
     if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceDistillationRunnerError(
             "P3 receipt base student representation is not canonical"
+        )
+    if (
+        target_model == "quest-2"
+        and value.get("student_representation") == "gaussian-splat-optional"
+    ):
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "Quest 2 P3 receipt cannot claim a native Gaussian student"
         )
     if value.get("student_components") != list(REQUIRED_STUDENT_COMPONENTS):
         raise PhotorealP3DeviceDistillationRunnerError(
@@ -1044,6 +1065,21 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
             maximum=64,
         )
         _sha(raw.get("sha256"), label="P3 receipt source SHA-256")
+
+    expected_source_kinds = {
+        "teacher-checkpoint": "teacher-output",
+        "shape-param": "identity-export",
+        "face-offset": "identity-export",
+        "joint-offset": "identity-export",
+        "locator-offset": "identity-export",
+    }
+    observed_source_kinds = {
+        raw["kind"]: raw["root_kind"] for raw in consumed
+    }
+    if observed_source_kinds != expected_source_kinds:
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 receipt teacher source kind/root universe mismatch"
+        )
 
     measurements = value.get("fidelity_delta_measurements")
     if (
