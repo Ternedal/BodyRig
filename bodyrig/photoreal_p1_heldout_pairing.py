@@ -317,6 +317,29 @@ def _review_eval_candidates(
                 raise PhotorealP1HeldoutPairingError("appearance review source reference differs from teacher input")
             if _text(raw.get("view_bin"), label="appearance review view bin", maximum=64) != teacher["view_bin"]:
                 raise PhotorealP1HeldoutPairingError("appearance review view bin differs from teacher input")
+            raw_eye = _text(raw.get("eye"), label="appearance review eye", maximum=16)
+            if raw_eye != teacher["eye"]:
+                raise PhotorealP1HeldoutPairingError("appearance review eye differs from teacher input")
+            raw_timestamp = raw.get("timestamp_seconds")
+            teacher_timestamp = teacher["timestamp_seconds"]
+            if raw_timestamp is None or teacher_timestamp is None:
+                if raw_timestamp is not None or teacher_timestamp is not None:
+                    raise PhotorealP1HeldoutPairingError(
+                        "appearance review timestamp differs from teacher input"
+                    )
+            else:
+                if (
+                    isinstance(raw_timestamp, bool)
+                    or not isinstance(raw_timestamp, (int, float))
+                    or isinstance(teacher_timestamp, bool)
+                    or not isinstance(teacher_timestamp, (int, float))
+                    or not math.isfinite(float(raw_timestamp))
+                    or not math.isfinite(float(teacher_timestamp))
+                    or round(float(raw_timestamp), 6) != round(float(teacher_timestamp), 6)
+                ):
+                    raise PhotorealP1HeldoutPairingError(
+                        "appearance review timestamp differs from teacher input"
+                    )
             coverage_raw = raw.get("coverage")
             if not isinstance(coverage_raw, list):
                 raise PhotorealP1HeldoutPairingError("appearance review coverage is invalid")
