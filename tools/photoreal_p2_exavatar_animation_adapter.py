@@ -374,7 +374,14 @@ def _copy_code(source: Path, destination: Path) -> None:
         source,
         destination,
         symlinks=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+        ignore=shutil.ignore_patterns(
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            "neutral_pose",
+            "*.mp4",
+            "*.log",
+        ),
     )
 
 
