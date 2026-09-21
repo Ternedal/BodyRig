@@ -34,6 +34,19 @@ p3-quest2-modular-continuation
 
 The root must not already exist.
 
+## Candidate freshness preflight
+
+Before any downstream stage runs, the operator binds four things:
+
+- the candidate `request.json`;
+- the candidate `quest2-student-candidate.json` manifest;
+- the candidate core receipt;
+- the SHA-256 of the candidate adapter file in the current checkout.
+
+Both request and candidate manifest must name the exact current adapter SHA. The request digest and candidate digest must also line up with the core receipt.
+
+A candidate generated before the refined-ExAvatar teacher fix therefore fails immediately with an explicit regenerate-candidate error rather than silently continuing with stale appearance bytes.
+
 ## Stages
 
 The operator runs, in order:
