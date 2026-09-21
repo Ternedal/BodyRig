@@ -673,11 +673,13 @@ def _materialize_candidate(
 
     return {
         "avatar": {
+            "kind": "student-runtime-package",
             "relative_path": "student/avatar.vrm",
             "size_bytes": avatar_path.stat().st_size,
             "sha256": _sha_file(avatar_path),
         },
         "basecolor": {
+            "kind": "teacher-derived-basecolor",
             "relative_path": "student/basecolor.png",
             "size_bytes": basecolor_path.stat().st_size,
             "sha256": _sha_file(basecolor_path),
@@ -786,7 +788,11 @@ def main(argv: list[str] | None = None) -> int:
                 "p3_device_distillation_request_sha256"
             ],
             "target_model": "quest-2",
+            "adapter": request["adapter"],
+            "adapter_revision": request["adapter_revision"],
             "student_representation": "skinned-mesh-pbr",
+            "required_student_components": list(request["student_components"]),
+            "implemented_student_components": [],
             "geometry_source": "accepted-exavatar-zero-pose-smplx",
             "appearance_source": "accepted-exavatar-zero-pose-gaussian-rgb",
             "teacher_checkpoint_sha256": _sha_file(
@@ -808,6 +814,10 @@ def main(argv: list[str] | None = None) -> int:
             "photoreal_acceptance_authority": False,
             "production_activation": False,
         }
+        manifest["p3_quest2_student_candidate_sha256"] = _digest(
+            manifest,
+            omit="p3_quest2_student_candidate_sha256",
+        )
         manifest_path = output / "quest2-student-candidate.json"
         manifest_path.write_text(
             json.dumps(
