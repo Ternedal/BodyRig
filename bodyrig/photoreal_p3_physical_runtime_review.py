@@ -890,6 +890,38 @@ def record_physical_runtime_review_files(
     return result
 
 
+def reuse_physical_runtime_review_files(
+    runtime_review_plan_path: str | Path,
+    evidence_path: str | Path,
+    *,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    output = Path(output_path).expanduser().resolve()
+    if not output.is_file():
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            f"P3 physical runtime review receipt is missing: {output}"
+        )
+
+    plan = _read_json(
+        runtime_review_plan_path,
+        label="P3 device runtime review plan",
+    )
+    evidence = _read_json(
+        evidence_path,
+        label="P3 physical runtime evidence",
+    )
+    expected = record_physical_runtime_review(plan, evidence)
+    existing = validate_physical_runtime_review_receipt(
+        _read_json(output, label="P3 physical runtime review receipt")
+    )
+    if existing != expected:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "Existing P3 physical runtime review receipt differs from the "
+            "exact current runtime review plan and human evidence"
+        )
+    return existing
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
