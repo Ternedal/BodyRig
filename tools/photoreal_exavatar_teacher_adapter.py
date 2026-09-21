@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -20,6 +21,9 @@ MANIFEST_FORMAT = "bodyrig-photoreal-teacher-manifest"
 VERSION = 1
 FINAL_EPOCH = 4
 NEUTRAL_RENDER_COUNT = 50
+NEUTRAL_CAMERA_MANIFEST_FORMAT = "bodyrig-photoreal-exavatar-neutral-camera-manifest"
+NEUTRAL_CAMERA_MANIFEST_VERSION = 1
+NEUTRAL_ELEVATION_RADIANS = -math.pi / 6.0
 
 
 class ExAvatarTeacherAdapterError(ValueError):
@@ -298,6 +302,61 @@ def _copy_artifact(source: Path, output: Path, relative: str, kind: str) -> dict
     return {"kind": kind, "relative_path": relative.replace("\\", "/"), "size_bytes": target.stat().st_size, "sha256": _file_sha(target)}
 
 
+def _neutral_camera_manifest() -> dict[str, Any]:
+    views: list[dict[str, Any]] = []
+    for index in range(NEUTRAL_RENDER_COUNT):
+        upstream_azimuth = math.pi + (math.pi * 2.0 * index / NEUTRAL_RENDER_COUNT)
+        upstream_degrees = 180.0 + (360.0 * index / NEUTRAL_RENDER_COUNT)
+        normalized_degrees = ((upstream_degrees + 180.0) % 360.0) - 180.0
+        views.append(
+            {
+                "index": index,
+                "render_relative_path": f"review/neutral-pose/{index}.png",
+                "upstream_azimuth_radians": round(upstream_azimuth, 12),
+                "upstream_azimuth_degrees": round(upstream_degrees, 6),
+                "normalized_azimuth_degrees": round(normalized_degrees, 6),
+                "elevation_radians": round(NEUTRAL_ELEVATION_RADIANS, 12),
+                "elevation_degrees": -30.0,
+                "semantic_view_label": None,
+            }
+        )
+    manifest: dict[str, Any] = {
+        "format": NEUTRAL_CAMERA_MANIFEST_FORMAT,
+        "version": NEUTRAL_CAMERA_MANIFEST_VERSION,
+        "upstream_repository": UPSTREAM_REPOSITORY,
+        "upstream_commit": UPSTREAM_COMMIT,
+        "upstream_script": "avatar/main/get_neutral_pose.py",
+        "view_count": NEUTRAL_RENDER_COUNT,
+        "view_ordering": "upstream-get-neutral-pose-v1",
+        "views": views,
+        "semantic_view_labels_machine_assigned": False,
+        "human_semantic_alignment_required": True,
+        "photoreal_acceptance_authority": False,
+        "production_activation": False,
+    }
+    manifest["camera_manifest_sha256"] = _digest(manifest, omit="camera_manifest_sha256")
+    return manifest
+
+
+def _write_neutral_camera_manifest(output: Path) -> dict[str, Any]:
+    relative = "review/neutral-pose/cameras.json"
+    target = output / relative
+    if target.exists():
+        raise ExAvatarTeacherAdapterError(f"teacher artifact destination already exists: {relative}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    value = _neutral_camera_manifest()
+    target.write_text(
+        json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "kind": "neutral-pose-camera-manifest",
+        "relative_path": relative,
+        "size_bytes": target.stat().st_size,
+        "sha256": _file_sha(target),
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BodyRig ExAvatar photoreal teacher benchmark adapter")
     parser.add_argument("--workspace-root", type=Path, required=True)
@@ -369,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         artifacts.append(_copy_artifact(checkpoint, output, f"checkpoint/snapshot_{FINAL_EPOCH}.pth", "checkpoint"))
         for index, path in enumerate(expected_renders):
             artifacts.append(_copy_artifact(path, output, f"review/neutral-pose/{index}.png", "neutral-pose-render"))
+        artifacts.append(_write_neutral_camera_manifest(output))
         artifacts.append(_copy_artifact(neutral_dir / "rgb.txt", output, "review/neutral-pose/rgb.txt", "neutral-pose-gaussian-export"))
         artifacts.append(_copy_artifact(root / "workspace-receipt.json", output, "provenance/workspace-receipt.json", "provenance"))
         artifacts.append(_copy_artifact(root / "preprocess-state.json", output, "provenance/preprocess-state.json", "provenance"))
