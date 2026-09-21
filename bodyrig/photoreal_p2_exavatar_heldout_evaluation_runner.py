@@ -14,16 +14,16 @@ from .photoreal_p2_exavatar_animation_runner import (
     PINNED_UPSTREAM_COMMIT,
     PINNED_UPSTREAM_REPOSITORY,
     PhotorealP2ExAvatarAnimationRunnerError,
-    _digest,
-    _file_sha,
-    _linux_join,
+    _digest as _animation_digest,
+    _file_sha as _animation_file_sha,
+    _linux_join as _animation_linux_join,
     _read_json as _read_animation_json,
-    _relative_path,
+    _relative_path as _animation_relative_path,
     _runtime_from_teacher_config,
-    _safe_child,
-    _sha,
-    _strict_v1,
-    _text,
+    _safe_child as _animation_safe_child,
+    _sha as _animation_sha,
+    _strict_v1 as _animation_strict_v1,
+    _text as _animation_text,
     _verify_file_record,
 )
 from .photoreal_p2_exavatar_heldout_evaluation_input import (
@@ -44,6 +44,62 @@ RECEIPT_VERSION = 1
 
 class PhotorealP2ExAvatarHeldoutEvaluationRunnerError(ValueError):
     pass
+
+
+def _text(value: Any, *, label: str, maximum: int = 32768) -> str:
+    try:
+        return _animation_text(value, label=label, maximum=maximum)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _sha(value: Any, *, label: str) -> str:
+    try:
+        return _animation_sha(value, label=label)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _strict_v1(value: Any, *, label: str) -> None:
+    try:
+        _animation_strict_v1(value, label=label)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _relative_path(value: Any, *, label: str) -> str:
+    try:
+        return _animation_relative_path(value, label=label)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _safe_child(root: Path, relative: Any, *, label: str) -> tuple[str, Path]:
+    try:
+        return _animation_safe_child(root, relative, label=label)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _file_sha(path: Path) -> str:
+    try:
+        return _animation_file_sha(path)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _linux_join(root: str, relative: str) -> str:
+    try:
+        return _animation_linux_join(root, relative)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
+
+
+def _digest(value: Mapping[str, Any], *, omit: str | None = None) -> str:
+    try:
+        return _animation_digest(value, omit=omit)
+    except PhotorealP2ExAvatarAnimationRunnerError as exc:
+        raise PhotorealP2ExAvatarHeldoutEvaluationRunnerError(str(exc)) from exc
 
 
 def _read_json(path: str | Path, *, label: str) -> dict[str, Any]:
