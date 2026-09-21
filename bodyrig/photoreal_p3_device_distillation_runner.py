@@ -342,6 +342,34 @@ def _verify_adapter_entrypoint(
     return entrypoint
 
 
+def _materialize_verified_adapter_command(
+    config: Mapping[str, Any],
+    *,
+    config_root: str | Path,
+    entrypoint: Path,
+) -> list[str]:
+    root = Path(config_root).expanduser().resolve()
+    command: list[str] = []
+    replaced = 0
+    for token in config["command"]:
+        candidate_raw = Path(token).expanduser()
+        candidate = (
+            candidate_raw.resolve()
+            if candidate_raw.is_absolute()
+            else (root / candidate_raw).resolve()
+        )
+        if candidate == entrypoint:
+            command.append(str(entrypoint))
+            replaced += 1
+        else:
+            command.append(token)
+    if replaced != 1:
+        raise PhotorealP3DeviceDistillationRunnerError(
+            "P3 distillation command must reference the pinned adapter entrypoint exactly once"
+        )
+    return command
+
+
 def _source_root(
     root_kind: str,
     *,
@@ -1190,9 +1218,19 @@ def run_external_distillation(
     config_root: str | Path | None = None,
 ) -> dict[str, Any]:
     config = validate_distillation_config(config)
-    _verify_adapter_entrypoint(
+    resolved_config_root = (
+        Path.cwd().resolve()
+        if config_root is None
+        else Path(config_root).expanduser().resolve()
+    )
+    entrypoint = _verify_adapter_entrypoint(
         config,
-        config_root=Path.cwd() if config_root is None else config_root,
+        config_root=resolved_config_root,
+    )
+    verified_command = _materialize_verified_adapter_command(
+        config,
+        config_root=resolved_config_root,
+        entrypoint=entrypoint,
     )
     try:
         authority = require_p3_distillation_execution_authority(plan)
@@ -1234,7 +1272,7 @@ def run_external_distillation(
     )
 
     invoke = [
-        *list(config["command"]),
+        *verified_command,
         "--bodyrig-request",
         str(request_path),
         "--bodyrig-teacher-root",
