@@ -441,6 +441,7 @@ def record_physical_runtime_review(
         "p3_device_runtime_review_plan_sha256": plan[
             "p3_device_runtime_review_plan_sha256"
         ],
+        "runtime_review_plan": dict(plan),
         "target_profile": dict(plan["target_profile"]),
         "target_profile_sha256": plan["target_profile_sha256"],
         "target_device_family": plan["target_device_family"],
@@ -497,6 +498,7 @@ def validate_physical_runtime_review_receipt(
         "p3_device_distillation_plan_sha256",
         "p3_device_distillation_execution_receipt_sha256",
         "p3_device_runtime_review_plan_sha256",
+        "runtime_review_plan",
         "target_profile",
         "target_profile_sha256",
         "target_device_family",
@@ -544,6 +546,51 @@ def validate_physical_runtime_review_receipt(
         "target_profile_sha256",
     ):
         _sha(value.get(field), label=f"P3 physical review {field}")
+
+    raw_runtime_plan = value.get("runtime_review_plan")
+    if not isinstance(raw_runtime_plan, Mapping):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review runtime review plan snapshot is invalid"
+        )
+    try:
+        snapshot_plan = validate_device_runtime_review_plan(raw_runtime_plan)
+    except PhotorealP3DeviceRuntimeReviewPlanError as exc:
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            f"P3 physical review runtime plan snapshot strict readback failed: {exc}"
+        ) from exc
+    if snapshot_plan.get("p3_device_runtime_review_plan_sha256") != value.get(
+        "p3_device_runtime_review_plan_sha256"
+    ):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review receipt targets a different runtime review plan snapshot"
+        )
+    for field in (
+        "performer_id",
+        "selected_epoch_id",
+        "teacher_input_sha256",
+        "p2_animation_plan_sha256",
+        "p2_exavatar_animation_execution_input_sha256",
+        "p2_animated_human_review_sha256",
+        "p3_device_distillation_plan_sha256",
+        "p3_device_distillation_execution_receipt_sha256",
+        "target_profile_sha256",
+        "target_device_family",
+        "target_device_model",
+        "student_representation",
+        "student_components",
+    ):
+        if value.get(field) != snapshot_plan.get(field):
+            raise PhotorealP3PhysicalRuntimeReviewError(
+                f"P3 physical review receipt/runtime-plan mismatch: {field}"
+            )
+    if value.get("target_profile") != snapshot_plan.get("target_profile"):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review target profile differs from runtime review plan"
+        )
+    if value.get("student_artifacts") != snapshot_plan.get("student_artifacts"):
+        raise PhotorealP3PhysicalRuntimeReviewError(
+            "P3 physical review planned student universe differs from runtime review plan"
+        )
 
     raw_profile = value.get("target_profile")
     if not isinstance(raw_profile, Mapping):
