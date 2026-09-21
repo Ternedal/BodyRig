@@ -443,6 +443,42 @@ def test_result_rejects_student_artifact_byte_drift(
         )
 
 
+def test_result_rejects_nested_unlisted_manifest_named_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    teacher, identity, plan = _roots(tmp_path)
+    _trust_plan(monkeypatch, plan)
+    staged = stage_teacher_sources(
+        plan,
+        teacher_output_root=teacher,
+        identity_root=identity,
+        staged_root=tmp_path / "staged",
+    )
+    request = build_distillation_request(
+        _config(),
+        plan,
+        staged_teacher_sources=staged,
+    )
+    output = tmp_path / "output"
+    output.mkdir()
+    raw = _result(output, request)
+    (output / "student" / "distillation-manifest.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        PhotorealP3DeviceDistillationRunnerError,
+        match="artifact universe differs from manifest",
+    ):
+        validate_distillation_result(
+            raw,
+            request=request,
+            output_dir=output,
+        )
+
+
 def test_result_cannot_self_authorize_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
