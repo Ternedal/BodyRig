@@ -11,7 +11,8 @@ For every selected source it records:
 - the already-bound source SHA-256 and size;
 - TRAIN versus HELD-OUT EVALUATION role;
 - whether the source is already flat mono or requires exact authorized deprojection;
-- that motion-parameter extraction is still required.
+- that motion-parameter extraction is still required;
+- the pinned ExAvatar fitting backend with `camera_mode=virtual`, matching ExAvatar's documented animation-motion preparation path.
 
 ## Operator
 
