@@ -235,16 +235,42 @@ def build_motion_evidence_handoff(
                 }
             )
 
+    performer_id = _text(validated_input.get("performer_id"), label="motion performer id", maximum=256)
+    selected_epoch_id = _text(validated_input.get("selected_epoch_id"), label="motion epoch id", maximum=256)
+    teacher_input_sha = _sha(validated_input.get("teacher_input_sha256"), label="teacher input SHA-256")
+    p2_plan_sha = _sha(
+        validated_plan.get("p2_animation_plan_sha256"),
+        label="P2 animation plan SHA-256",
+    )
+
+    private_index: dict[str, Any] = {
+        "format": PRIVATE_INDEX_FORMAT,
+        "version": PRIVATE_INDEX_VERSION,
+        "performer_id": performer_id,
+        "selected_epoch_id": selected_epoch_id,
+        "teacher_input_sha256": teacher_input_sha,
+        "p2_animation_plan_sha256": p2_plan_sha,
+        "entries": private_entries,
+        "entry_count": len(private_entries),
+        "build_private": True,
+        "source_media_rehash_performed": False,
+        "production_activation": False,
+    }
+    private_index["p2_motion_private_index_sha256"] = _digest(
+        private_index,
+        omit="p2_motion_private_index_sha256",
+    )
+
     handoff: dict[str, Any] = {
         "format": HANDOFF_FORMAT,
         "version": HANDOFF_VERSION,
-        "performer_id": _text(validated_input.get("performer_id"), label="motion performer id", maximum=256),
-        "selected_epoch_id": _text(validated_input.get("selected_epoch_id"), label="motion epoch id", maximum=256),
-        "teacher_input_sha256": _sha(validated_input.get("teacher_input_sha256"), label="teacher input SHA-256"),
-        "p2_animation_plan_sha256": _sha(
-            validated_plan.get("p2_animation_plan_sha256"),
-            label="P2 animation plan SHA-256",
-        ),
+        "performer_id": performer_id,
+        "selected_epoch_id": selected_epoch_id,
+        "teacher_input_sha256": teacher_input_sha,
+        "p2_animation_plan_sha256": p2_plan_sha,
+        "p2_motion_private_index_sha256": private_index[
+            "p2_motion_private_index_sha256"
+        ],
         "motion_driver_candidates": drivers,
         "held_out_motion_validation_candidates": heldout,
         "motion_driver_candidate_count": len(drivers),
@@ -270,25 +296,6 @@ def build_motion_evidence_handoff(
     handoff["p2_motion_evidence_handoff_sha256"] = _digest(
         handoff,
         omit="p2_motion_evidence_handoff_sha256",
-    )
-
-    private_index: dict[str, Any] = {
-        "format": PRIVATE_INDEX_FORMAT,
-        "version": PRIVATE_INDEX_VERSION,
-        "performer_id": handoff["performer_id"],
-        "selected_epoch_id": handoff["selected_epoch_id"],
-        "teacher_input_sha256": handoff["teacher_input_sha256"],
-        "p2_animation_plan_sha256": handoff["p2_animation_plan_sha256"],
-        "p2_motion_evidence_handoff_sha256": handoff["p2_motion_evidence_handoff_sha256"],
-        "entries": private_entries,
-        "entry_count": len(private_entries),
-        "build_private": True,
-        "source_media_rehash_performed": False,
-        "production_activation": False,
-    }
-    private_index["p2_motion_private_index_sha256"] = _digest(
-        private_index,
-        omit="p2_motion_private_index_sha256",
     )
     return (
         validate_motion_evidence_handoff(handoff),
@@ -376,6 +383,7 @@ def validate_motion_evidence_handoff(handoff: Mapping[str, Any]) -> dict[str, An
         "selected_epoch_id",
         "teacher_input_sha256",
         "p2_animation_plan_sha256",
+        "p2_motion_private_index_sha256",
         "motion_driver_candidates",
         "held_out_motion_validation_candidates",
         "motion_driver_candidate_count",
@@ -407,6 +415,10 @@ def validate_motion_evidence_handoff(handoff: Mapping[str, Any]) -> dict[str, An
     _text(handoff.get("selected_epoch_id"), label="P2 motion epoch", maximum=256)
     _sha(handoff.get("teacher_input_sha256"), label="P2 motion teacher input SHA-256")
     _sha(handoff.get("p2_animation_plan_sha256"), label="P2 motion animation plan SHA-256")
+    _sha(
+        handoff.get("p2_motion_private_index_sha256"),
+        label="private P2 motion index SHA-256",
+    )
 
     drivers = _candidate_map(
         handoff.get("motion_driver_candidates"),
@@ -468,7 +480,6 @@ def validate_private_motion_index(
         "selected_epoch_id",
         "teacher_input_sha256",
         "p2_animation_plan_sha256",
-        "p2_motion_evidence_handoff_sha256",
         "entries",
         "entry_count",
         "build_private",
@@ -492,10 +503,14 @@ def validate_private_motion_index(
         "selected_epoch_id",
         "teacher_input_sha256",
         "p2_animation_plan_sha256",
-        "p2_motion_evidence_handoff_sha256",
     ):
         if private_index.get(field) != validated_handoff.get(field):
             raise PhotorealP2MotionEvidenceError(f"private P2 motion index provenance mismatch: {field}")
+    if claimed != _sha(
+        validated_handoff.get("p2_motion_private_index_sha256"),
+        label="handoff-bound private P2 motion index SHA-256",
+    ):
+        raise PhotorealP2MotionEvidenceError("private P2 motion index digest differs from handoff binding")
     if private_index.get("build_private") is not True:
         raise PhotorealP2MotionEvidenceError("private P2 motion index lost build-private marking")
     if private_index.get("source_media_rehash_performed") is not False:
