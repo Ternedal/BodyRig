@@ -200,10 +200,9 @@ def validate_distillation_config(value: Mapping[str, Any]) -> dict[str, Any]:
         raise PhotorealP3DeviceDistillationRunnerError(
             "P3 distillation adapter name is invalid"
         )
-    revision = _text(
+    revision = _sha(
         value.get("revision"),
         label="P3 distillation adapter revision",
-        maximum=160,
     )
     representation = value.get("student_representation")
     if representation not in BASE_STUDENT_REPRESENTATIONS:
@@ -956,10 +955,9 @@ def validate_execution_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         _sha(value.get(field), label=f"P3 execution receipt {field}")
     _text(value.get("adapter"), label="P3 receipt adapter", maximum=80)
-    _text(
+    _sha(
         value.get("adapter_revision"),
         label="P3 receipt adapter revision",
-        maximum=160,
     )
     if value.get("student_representation") not in BASE_STUDENT_REPRESENTATIONS:
         raise PhotorealP3DeviceDistillationRunnerError(
