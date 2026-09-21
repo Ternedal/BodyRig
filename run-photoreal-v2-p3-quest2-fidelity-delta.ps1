@@ -130,12 +130,22 @@ if (-not $linuxPython.StartsWith("/") -or -not $linuxWorkspace.StartsWith("/")) 
 }
 
 if ([string]::IsNullOrWhiteSpace($Output)) {
-    $Output = Join-Path $HairOutputRoot "p3-quest2-fidelity-delta-evidence.json"
+    $fidelityWorkspace = Join-Path (Split-Path -Parent $HairOutputRoot) "p3-quest2-fidelity-delta"
+    if (Test-Path -LiteralPath $fidelityWorkspace) {
+        throw "Quest2 fidelity workspace already exists: $fidelityWorkspace"
+    }
+    New-Item -ItemType Directory -Path $fidelityWorkspace | Out-Null
+    $Output = Join-Path $fidelityWorkspace "p3-quest2-fidelity-delta-evidence.json"
 } else {
     $Output = [System.IO.Path]::GetFullPath($Output)
 }
 if (Test-Path -LiteralPath $Output) {
     throw "Quest2 fidelity evidence already exists: $Output"
+}
+$resolvedHairRoot = [System.IO.Path]::GetFullPath($HairOutputRoot).TrimEnd('\\')
+$resolvedOutput = [System.IO.Path]::GetFullPath($Output)
+if ($resolvedOutput.StartsWith($resolvedHairRoot + "\\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Quest2 fidelity evidence must live outside the immutable hair output root."
 }
 $outputParent = Split-Path -Parent $Output
 if ([string]::IsNullOrWhiteSpace($outputParent)) {
