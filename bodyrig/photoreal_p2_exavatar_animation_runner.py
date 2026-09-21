@@ -425,6 +425,7 @@ def _validate_manifest(
         "adapter_revision",
         "motion_driver_source_ref",
         "motion_frame_count",
+        "motion_frame_ids",
         "consumed_checkpoint_sha256",
         "consumed_identity_artifacts",
         "consumed_motion_artifacts",
@@ -479,6 +480,10 @@ def _validate_manifest(
     if manifest.get("motion_frame_count") != driver["frame_count"]:
         raise PhotorealP2ExAvatarAnimationRunnerError(
             "P2 ExAvatar animation manifest frame count mismatch"
+        )
+    if manifest.get("motion_frame_ids") != driver["frame_ids"]:
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation manifest frame-id universe mismatch"
         )
     if manifest.get("consumed_checkpoint_sha256") != request["teacher_checkpoint"]["sha256"]:
         raise PhotorealP2ExAvatarAnimationRunnerError(
@@ -654,6 +659,7 @@ def build_animation_execution_receipt(
         "adapter_revision": manifest["adapter_revision"],
         "motion_driver_source_ref": manifest["motion_driver_source_ref"],
         "motion_frame_count": manifest["motion_frame_count"],
+        "motion_frame_ids": manifest["motion_frame_ids"],
         "consumed_checkpoint_sha256": manifest["consumed_checkpoint_sha256"],
         "consumed_identity_artifacts": manifest["consumed_identity_artifacts"],
         "consumed_motion_artifacts": manifest["consumed_motion_artifacts"],
@@ -691,6 +697,7 @@ def validate_animation_execution_receipt(value: Mapping[str, Any]) -> dict[str, 
         "adapter_revision",
         "motion_driver_source_ref",
         "motion_frame_count",
+        "motion_frame_ids",
         "consumed_checkpoint_sha256",
         "consumed_identity_artifacts",
         "consumed_motion_artifacts",
@@ -741,6 +748,17 @@ def validate_animation_execution_receipt(value: Mapping[str, Any]) -> dict[str, 
         raise PhotorealP2ExAvatarAnimationRunnerError(
             "P2 ExAvatar animation receipt frame count is invalid"
         )
+    frame_ids = value.get("motion_frame_ids")
+    if (
+        not isinstance(frame_ids, list)
+        or not frame_ids
+        or any(isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in frame_ids)
+        or frame_ids != sorted(set(frame_ids))
+        or len(frame_ids) != frame_count
+    ):
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation receipt frame-id universe is invalid"
+        )
     identity = value.get("consumed_identity_artifacts")
     if not isinstance(identity, list) or len(identity) != 4:
         raise PhotorealP2ExAvatarAnimationRunnerError(
@@ -759,6 +777,10 @@ def validate_animation_execution_receipt(value: Mapping[str, Any]) -> dict[str, 
             )
         seen_identity.add(kind)
         _sha(raw.get("sha256"), label="P2 ExAvatar animation receipt identity SHA-256")
+    if seen_identity != {"shape-param", "face-offset", "joint-offset", "locator-offset"}:
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation receipt identity kind universe mismatch"
+        )
     motion = value.get("consumed_motion_artifacts")
     if not isinstance(motion, list) or not motion:
         raise PhotorealP2ExAvatarAnimationRunnerError(
@@ -777,6 +799,24 @@ def validate_animation_execution_receipt(value: Mapping[str, Any]) -> dict[str, 
             )
         seen_motion.add(relative)
         _sha(raw.get("sha256"), label="P2 ExAvatar animation receipt motion SHA-256")
+    source_ref = _text(
+        value.get("motion_driver_source_ref"),
+        label="P2 ExAvatar animation receipt driver ref",
+        maximum=64,
+    )
+    required_motion_paths: set[str] = set()
+    for frame_id in frame_ids:
+        required_motion_paths.update(
+            {
+                f"tasks/{source_ref}/motion/frames/{frame_id}.png",
+                f"tasks/{source_ref}/motion/cam_params/{frame_id}.json",
+                f"tasks/{source_ref}/motion/smplx_optimized/smplx_params_smoothed/{frame_id}.json",
+            }
+        )
+    if not required_motion_paths.issubset(seen_motion):
+        raise PhotorealP2ExAvatarAnimationRunnerError(
+            "P2 ExAvatar animation receipt omits consumed frame/camera/SMPL-X bytes"
+        )
     artifacts = value.get("animation_artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         raise PhotorealP2ExAvatarAnimationRunnerError(
