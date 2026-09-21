@@ -399,3 +399,15 @@ def test_verify_staged_teacher_rejects_identity_root_substitution(
         match="root-kind mismatch",
     ):
         candidate._verify_staged_teacher(request, tmp_path)
+
+
+def test_zero_pose_teacher_uses_refined_exavatar_asset() -> None:
+    import inspect
+
+    source = inspect.getsource(candidate._load_zero_pose_teacher)
+
+    assert "_base_teacher, refined_teacher" in source
+    assert '"teacher_xyz": refined_teacher["mean_3d"]' in source
+    assert '"teacher_rgb": refined_teacher["rgb"]' in source
+    assert '"teacher_xyz": _base_teacher["mean_3d"]' not in source
+    assert '"teacher_rgb": _base_teacher["rgb"]' not in source
