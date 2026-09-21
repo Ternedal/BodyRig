@@ -18,7 +18,7 @@ The evidence artifacts remain create-only, but the wrapper itself is resumable:
 
 - an existing machine prefill is reused only after it is reproduced and matched against the exact current runtime-review plan and machine probe;
 - an existing human-reviewed evidence file is reused only after its machine-bound fields match that exact revalidated prefill;
-- an existing final physical-review receipt is treated as completed evidence and is never overwritten.
+- an existing final physical-review receipt is never overwritten; it is strictly revalidated by rebuilding the expected receipt from the exact current runtime-review plan + human evidence and requiring exact equality.
 
 This means an interruption after machine prefill or after human review does not require deleting evidence and repeating already completed work.
 
