@@ -185,6 +185,7 @@ def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
     }
     heldout_input = {
         **lineage,
+        "held_out_motion": {"source_ref": "src-heldout"},
         "p2_exavatar_animation_execution_input_sha256": execution[
             "p2_exavatar_animation_execution_input_sha256"
         ],
