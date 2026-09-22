@@ -2,7 +2,8 @@ param(
     [string]$Distribution = "Ubuntu-22.04",
     [string]$LinuxPython = "/opt/bodyrig-exavatar/bin/python",
     [string]$WslExe = "wsl.exe",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Resume
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,10 +18,10 @@ $opencvVersion = "4.10.0.84"
 $smplxVersion = "0.1.28"
 $lpipsVersion = "0.1.4"
 $mmcvVersion = "2.1.0"
+$mmcvCommit = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
 $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
-$openmimVersion = "0.3.9"
 $setuptoolsVersion = "80.10.2"
 $pyopenglVersion = "3.1.0"
 $chumpyVersion = "0.70"
@@ -53,7 +54,6 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
     throw "LinuxPython must be an absolute venv path ending in /bin/python."
 }
 $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
-$mimExe = "$venvRoot/bin/mim"
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
 
 Write-Host "============================================================"
@@ -62,7 +62,7 @@ Write-Host "Distribution:      $Distribution"
 Write-Host "Linux Python:      $LinuxPython"
 Write-Host "Torch:             $torchVersion / CUDA $expectedCudaVersion wheel"
 Write-Host "PyTorch3D commit:  $pytorch3dCommit"
-Write-Host "MMCV:              $mmcvVersion"
+Write-Host "MMCV:              $mmcvVersion @ $mmcvCommit"
 Write-Host "Chumpy:            $chumpyVersion + NumPy 1.26 compatibility patch"
 Write-Host "Production:        FALSE"
 Write-Host "============================================================"
@@ -98,6 +98,9 @@ Invoke-Wsl -Root -Arguments @(
 # already-installed public dependency tree at /opt/bodyrig-exavatar/deps.
 # Do not reject or delete the whole root merely because deps/workspaces exist.
 $runtimeMarker = "$venvRoot/pyvenv.cfg"
+if ($Force -and $Resume) {
+    throw "-Force and -Resume are mutually exclusive."
+}
 if ($Force) {
     foreach ($runtimePath in @(
         "$venvRoot/bin",
@@ -110,6 +113,20 @@ if ($Force) {
     )) {
         Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $runtimePath)
     }
+} elseif ($Resume) {
+    & $WslExe -d $Distribution -- /usr/bin/test -f $runtimeMarker 2>$null
+    $markerExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -x $LinuxPython 2>$null
+    $pythonExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -e $receipt 2>$null
+    $receiptExists = ($LASTEXITCODE -eq 0)
+    if (-not $markerExists -or -not $pythonExists) {
+        throw "Cannot resume ExAvatar runtime because the partial venv is not structurally valid: $venvRoot"
+    }
+    if ($receiptExists) {
+        throw "Cannot resume ExAvatar runtime because a completed runtime receipt already exists: $receipt"
+    }
+    Write-Host "Runtime recovery:   RESUME PARTIAL VENV"
 } else {
     & $WslExe -d $Distribution -- /usr/bin/test -e $runtimeMarker 2>$null
     $markerExists = ($LASTEXITCODE -eq 0)
@@ -118,11 +135,13 @@ if ($Force) {
     & $WslExe -d $Distribution -- /usr/bin/test -e $receipt 2>$null
     $receiptExists = ($LASTEXITCODE -eq 0)
     if ($markerExists -or $pythonExists -or $receiptExists) {
-        throw "ExAvatar WSL runtime already exists under: $venvRoot. Use -Force to rebuild the runtime while preserving public dependencies."
+        throw "ExAvatar WSL runtime already exists under: $venvRoot. Use -Resume for an incomplete runtime or -Force to rebuild it while preserving public dependencies."
     }
 }
 
-Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
+if (-not $Resume) {
+    Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
+}
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "--upgrade", "pip", "setuptools==$setuptoolsVersion", "wheel", "cython", "ninja")
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
@@ -136,7 +155,7 @@ Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
     "numpy==$numpyVersion", "scipy==$scipyVersion", "opencv-python==$opencvVersion",
     "smplx==$smplxVersion", "lpips==$lpipsVersion",
-    "openmim==$openmimVersion", "mmengine==$mmengineVersion",
+    "mmengine==$mmengineVersion",
     "kornia==0.8.0", "yacs==0.1.8", "face-alignment==1.3.4",
     "timm==1.0.15", "einops==0.8.1", "tqdm==4.67.1", "pillow==10.4.0",
     "torchgeometry==0.1.2", "plyfile==1.1", "scikit-image==0.25.2", "PyYAML==6.0.2",
@@ -150,18 +169,19 @@ Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
 )
 
-# OpenMIM 0.3.9 still imports pkg_resources. setuptools 82+ removed it,
-# so keep the runtime on the last compatible setuptools family and fail closed
-# before invoking mim if that compatibility module is unavailable.
+# OpenMMLab publishes prebuilt MMCV wheels only for selected Torch/CUDA
+# combinations. Torch 2.6 / CUDA 12.4 falls back to the source distribution,
+# so build the exact MMCV 2.1.0 release commit explicitly. Disable PEP517
+# build isolation so setup.py sees the pinned Torch and setuptools<81 runtime.
 Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-c",
-    "import importlib.metadata, pkg_resources; assert importlib.metadata.version('setuptools') == '$setuptoolsVersion'"
+    "/usr/bin/env",
+    "MMCV_WITH_OPS=1",
+    "CUDA_HOME=/usr/local/cuda-$expectedCudaVersion",
+    "PYTHONNOUSERSITE=1",
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
+    "git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"
 )
-
-# OpenMMLab's documented order is MMEngine -> MMCV -> MMDetection/MMPose.
-# Pin every layer and run pip check before compiling PyTorch3D.
-Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmcv==$mmcvVersion")
-Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmdetVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
@@ -265,6 +285,7 @@ import lpips
 import OpenGL
 import pyrender
 import mmcv
+from mmcv.ops import nms as mmcv_nms
 import mmdet
 import mmengine
 import mmpose
@@ -291,6 +312,11 @@ if tuple(axis.shape) != (1, 3):
     raise SystemExit("torchgeometry smoke failed")
 if not hasattr(chumpy, "Ch"):
     raise SystemExit("chumpy import smoke failed")
+boxes = torch.tensor([[0.0, 0.0, 10.0, 10.0], [1.0, 1.0, 9.0, 9.0]], device="cuda:0")
+scores = torch.tensor([0.9, 0.8], device="cuda:0")
+dets, keep = mmcv_nms(boxes, scores, 0.5)
+if keep.numel() != 1:
+    raise SystemExit("MMCV CUDA ops smoke failed")
 payload = {
     "python": sys.version.split()[0],
     "torch": torch.__version__,
@@ -313,6 +339,7 @@ payload = {
     "cuda_smoke": True,
     "chumpy_smoke": True,
     "torchgeometry_smoke": True,
+    "mmcv_ops_smoke": True,
 }
 print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 '@
@@ -333,7 +360,7 @@ if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($p
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
 if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
 if ([string]$probe.mmpose -ne $mmposeVersion) { throw "Unexpected MMPose version: $($probe.mmpose)" }
-if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true) {
+if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true -or $probe.mmcv_ops_smoke -ne $true) {
     throw "ExAvatar runtime smoke did not pass."
 }
 
@@ -368,6 +395,7 @@ $setupReceipt = [ordered]@{
         pyrender = "0.1.45"
         chumpy = $chumpyVersion
         mmcv = $mmcvVersion
+        mmcv_commit = $mmcvCommit
         mmengine = $mmengineVersion
         mmdet = $mmdetVersion
         mmpose = $mmposeVersion
