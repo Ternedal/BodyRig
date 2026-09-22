@@ -95,8 +95,51 @@ def _p2_lineage() -> dict[str, str]:
 
 def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
     lineage = _p2_lineage()
+    handoff = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+    }
+    private_index = {
+        **lineage,
+        "p2_motion_private_index_sha256": "e" * 64,
+    }
+    selection = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+    }
+    input_plan = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+    }
+    normalization = {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+    }
+    window = {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+        "p2_motion_window_selection_sha256": "6" * 64,
+    }
     motion = {
         **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+        "p2_motion_window_selection_sha256": "6" * 64,
         "p2_motion_preparation_receipt_sha256": "7" * 64,
     }
     identity = {
@@ -145,6 +188,36 @@ def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
     }
     monkeypatch.setattr(
         status,
+        "validate_motion_evidence_handoff",
+        lambda value: dict(handoff),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_private_motion_index",
+        lambda value, handoff=None: dict(private_index),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_source_selection",
+        lambda value, handoff=None, private_index=None: dict(selection),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_input_plan",
+        lambda value, handoff=None, private_index=None, selection=None: dict(input_plan),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_normalization_selection",
+        lambda value, input_plan=None: dict(normalization),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_window_selection",
+        lambda value, input_plan=None, normalization_selection=None: dict(window),
+    )
+    monkeypatch.setattr(
+        status,
         "validate_motion_preparation_receipt",
         lambda value: dict(motion),
     )
@@ -175,10 +248,11 @@ def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         status,
-        "validate_heldout_animated_review_plan",
-        lambda value: {"p2_heldout_animated_review_plan_sha256": "c" * 64},
+        "revalidate_heldout_animated_review_plan",
+        lambda value, evaluation_workspaces=None: {
+            "p2_heldout_animated_review_plan_sha256": "c" * 64
+        },
     )
-
 
 def _p2_pass_review() -> dict[str, object]:
     return {
@@ -201,7 +275,7 @@ def _p2_intermediate_ready(
     monkeypatch.setattr(
         status,
         "validate_p2_animation_plan",
-        lambda value: dict(value),
+        lambda value: _p2_lineage(),
     )
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
@@ -473,7 +547,7 @@ def test_p2_source_selection_is_explicit_human_gate(
     _base_ready(monkeypatch, p0, teacher)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
@@ -500,7 +574,7 @@ def test_multi_driver_selection_can_be_routed_with_explicit_driver(
     _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
@@ -552,7 +626,7 @@ def test_multi_driver_router_rejects_unapproved_driver(
     _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
