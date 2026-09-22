@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .acceptance_status_cli import _git_checkout_state
+from .photoreal_post_p0_continuation import (
+    PhotorealPostP0ContinuationError,
+    validate_downstream_readiness,
+)
 from .photoreal_p1_likeness_review import (
     PhotorealP1LikenessReviewError,
     validate_likeness_review_receipt,
@@ -310,6 +314,16 @@ def inspect_photoreal_v2_status(
         )
         result.update(action)
         return result
+    try:
+        validate_downstream_readiness(
+            readiness,
+            root,
+            expected_performer_id=performer_id,
+        )
+    except PhotorealPostP0ContinuationError as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P0 downstream readiness strict readback failed: {exc}"
+        ) from exc
 
     appearance = _appearance_review_root(teacher, appearance_review_root)
     if appearance is None:
