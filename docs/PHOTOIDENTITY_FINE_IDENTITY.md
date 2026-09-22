@@ -66,3 +66,53 @@ An empty marker list therefore means "all required regions were reviewed and no 
 High-fidelity preview revalidates this sidecar and persists both the sidecar receipt SHA-256 and the fine-identity attestation SHA-256 into the preview job lineage.
 
 None of these receipts grants photoreal acceptance or production activation.
+
+
+## Source-derived dental reconstruction
+
+Photoidentical oral/teeth detail must not use the historical deterministic generic mouth/teeth generator. When `fineIdentityRequirement` is present, that generic path is blocked.
+
+A local dental reconstruction adapter can now consume only the exact private `oral_teeth_detail` evidence that was already bound into the fine-identity attestation.
+
+Adapter config format:
+
+```json
+{
+  "format": "bodyrig-photoidentity-dental-reconstruction-adapter-config",
+  "version": 1,
+  "adapter": "your-pinned-dental-adapter",
+  "revision": "exact-adapter-or-model-revision",
+  "command": [
+    "python",
+    "adapter.py",
+    "--bodyrig-dental-input",
+    "<replaced-by-bodyrig>",
+    "--bodyrig-dental-output",
+    "<replaced-by-bodyrig>"
+  ],
+  "capabilities": {
+    "oral_teeth_geometry": true,
+    "oral_teeth_appearance": true,
+    "source_grounded": true,
+    "generative_identity_synthesis": false
+  },
+  "timeout_seconds": 3600
+}
+```
+
+Run from an exact clean checkout:
+
+```powershell
+.\run-photoidentity-dental-reconstruction.ps1 `
+  -SweepRoot <SWEEP_ROOT> `
+  -AdapterConfig <DENTAL_ADAPTER_CONFIG>
+```
+
+The adapter receives a private input manifest whose review images are copied into a create-only workspace under hash-safe names. The adapter must write:
+
+- `adapter-output/dental-source.vrm`
+- `adapter-output/dental-reconstruction.json`
+
+The candidate VRM must expose one `BodyRigSourceDentalIdentity` skinned node and one `BodyRigSourceDentalIdentityMesh` containing exactly the roles `mouth_interior`, `upper_teeth`, and `lower_teeth`. The dental surface must carry a source-derived texture. BodyRig independently validates the VRM structure, exact input/attestation hashes, adapter revision, source references, and the non-generative/non-generic authority boundary.
+
+A successful run creates a **candidate only**. Human visual review remains mandatory; no face-secondary promotion or production activation is granted.
