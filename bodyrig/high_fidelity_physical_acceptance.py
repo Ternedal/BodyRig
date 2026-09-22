@@ -98,7 +98,7 @@ def physical_acceptance_dir(preview_job_id: str) -> Path:
         raise HighFidelityPhysicalAcceptanceError(str(exc)) from exc
 
 
-def _ready_package(preview_job_id: str) -> tuple[Path, str, dict[str, Any], dict[str, Any]]:
+def _ready_package(preview_job_id: str) -> tuple[Path, str, dict[str, Any], dict[str, Any], dict[str, Any]]:
     try:
         status = inspect_continuation(preview_job_id)
     except HighFidelityContinuationStatusError as exc:
@@ -126,7 +126,7 @@ def _ready_package(preview_job_id: str) -> tuple[Path, str, dict[str, Any], dict
         raise HighFidelityPhysicalAcceptanceError("final package/review authority is not ready for physical handoff")
     if _hash(package) != expected:
         raise HighFidelityPhysicalAcceptanceError("final promoted package changed during handoff validation")
-    return package, expected, audit, review
+    return package, expected, audit, review, status
 
 
 def _source_gate(preview_job_id: str) -> tuple[dict[str, Any], dict[str, Any], Path, Any, dict[str, Any]]:
@@ -220,8 +220,31 @@ def _assert_release_compatible_gate_report(report: dict[str, Any]) -> None:
 
 def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -> dict[str, Any]:
     revision = _revision(bodyrig_revision)
-    package, package_sha, audit, review = _ready_package(preview_job_id)
+    package, package_sha, audit, review, continuation = _ready_package(preview_job_id)
     preview, body_job, source_dir, source_gate, source_report = _source_gate(preview_job_id)
+    fine_identity_authority_sha = _sha(
+        continuation.get("fine_identity_authority_sha256"),
+        "continuation fine-identity authority SHA",
+    )
+    fine_identity_attestation_sha = _sha(
+        continuation.get("fine_identity_attestation_sha256"),
+        "continuation fine-identity attestation SHA",
+    )
+    preview_fine_identity_authority_sha = _sha(
+        preview.get("fine_identity_authority_sha256"),
+        "preview fine-identity authority SHA",
+    )
+    preview_fine_identity_attestation_sha = _sha(
+        preview.get("fine_identity_attestation_sha256"),
+        "preview fine-identity attestation SHA",
+    )
+    if (
+        preview_fine_identity_authority_sha != fine_identity_authority_sha
+        or preview_fine_identity_attestation_sha != fine_identity_attestation_sha
+    ):
+        raise HighFidelityPhysicalAcceptanceError(
+            "physical handoff fine-identity lineage differs between preview and continuation"
+        )
     body_id = str(audit.get("canonical_body_id") or "")
     if not body_id or body_id != source_gate.body_id or body_id != str(preview.get("canonical_body_id") or ""):
         raise HighFidelityPhysicalAcceptanceError("final package identity differs from the physical source lineage")
@@ -299,6 +322,8 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
             "sourceBodyprintSha256": release_lineage["source_bodyprint_sha256"],
             "promotedBodyprintSha256": release_lineage["bodyprint_sha256"],
             "promotedPackageSha256": package_sha,
+            "fineIdentityAuthoritySha256": fine_identity_authority_sha,
+            "fineIdentityAttestationSha256": fine_identity_attestation_sha,
             "highFidelityHumanReviewSha256": review_sha,
             "skinQaSha256": _hash(skin_path),
             "meshTopologyQaSha256": _hash(topology_path),
@@ -372,6 +397,8 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
                 "promoted_bodyprint_sha256": release_lineage["bodyprint_sha256"],
                 "release_lineage_reproved": True,
                 "package_sha256": package_sha,
+                "fine_identity_authority_sha256": fine_identity_authority_sha,
+                "fine_identity_attestation_sha256": fine_identity_attestation_sha,
                 "human_review_sha256": review_sha,
                 "preview_job_id": preview_job_id,
                 "body_job_id": str(body_job["job_id"]),
@@ -406,6 +433,8 @@ def prepare_physical_acceptance(preview_job_id: str, *, bodyrig_revision: str) -
             "body_id": body_id,
             "bodyrig_revision": revision,
             "package_sha256": package_sha,
+            "fine_identity_authority_sha256": fine_identity_authority_sha,
+            "fine_identity_attestation_sha256": fine_identity_attestation_sha,
             "acceptance_dir": str(final),
             "handoff_receipt_sha256": _hash(final / RECEIPT_NAME),
             "next_gate": status.gate,
@@ -461,6 +490,8 @@ def physical_acceptance_status(
             or receipt.get("productionActivation") is not False
         ):
             raise HighFidelityPhysicalAcceptanceError("physical handoff receipt is stale or non-canonical")
+        _sha(receipt.get("fineIdentityAuthoritySha256"), "physical handoff fine-identity authority SHA")
+        _sha(receipt.get("fineIdentityAttestationSha256"), "physical handoff fine-identity attestation SHA")
         accepted = acceptance / f"{receipt.get('canonicalBodyId')}.mrbody"
         if not accepted.is_file() or _hash(accepted) != expected:
             raise HighFidelityPhysicalAcceptanceError("physical acceptance package copy changed")
