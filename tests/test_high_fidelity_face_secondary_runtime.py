@@ -7,6 +7,7 @@ import pytest
 import bodyrig.high_fidelity_face_secondary_runtime as runtime
 from bodyrig.bridges.face_secondary_fidelity import current_face_secondary_receipt
 from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
+from bodyrig.fine_identity_application import build_requirement
 
 
 def _sha(raw: bytes) -> str:
@@ -45,7 +46,7 @@ def _appearance() -> dict[str, object]:
     }
 
 
-def _source_vrm(*, eyes: str = "complete", rotate_head: bool = False) -> bytes:
+def _source_vrm(*, eyes: str = "complete", rotate_head: bool = False, fine_identity: bool = False) -> bytes:
     nodes = [
         {"name": "smplx_head", "translation": [0.0, 1.60, 0.0]},
         {"name": "smplx_jaw", "translation": [0.0, 1.51, 0.035]},
@@ -56,6 +57,24 @@ def _source_vrm(*, eyes: str = "complete", rotate_head: bool = False) -> bytes:
     if rotate_head:
         nodes[0]["rotation"] = [0.0, 0.0, 0.0, 1.0]
     binary = b"existing-body"
+    bodyrig = {
+        "fidelityComponents": _top(eyes=eyes),
+        "faceSecondaryFidelity": current_face_secondary_receipt(),
+        "appearanceTransfer": _appearance(),
+        "eyePromotion": {
+            "format": "bodyrig-eye-promotion",
+            "version": 1,
+            "sourceHairRuntimeImported": False,
+            "productionActivation": False,
+        },
+        "keepMe": {"authority": "survives-face-secondary-runtime"},
+    }
+    if fine_identity:
+        bodyrig["fineIdentityRequirement"] = build_requirement(
+            bodyrig_revision="a" * 40,
+            fine_identity_authority_sha256="b" * 64,
+            fine_identity_attestation_sha256="c" * 64,
+        )
     document = {
         "buffers": [{"byteLength": len(binary)}],
         "bufferViews": [],
@@ -65,20 +84,7 @@ def _source_vrm(*, eyes: str = "complete", rotate_head: bool = False) -> bytes:
         "nodes": nodes,
         "skins": [{"joints": [0, 1, 2, 3]}],
         "scenes": [{"nodes": [0, 1, 2, 3, 4]}],
-        "extras": {
-            "bodyrig": {
-                "fidelityComponents": _top(eyes=eyes),
-                "faceSecondaryFidelity": current_face_secondary_receipt(),
-                "appearanceTransfer": _appearance(),
-                "eyePromotion": {
-                    "format": "bodyrig-eye-promotion",
-                    "version": 1,
-                    "sourceHairRuntimeImported": False,
-                    "productionActivation": False,
-                },
-                "keepMe": {"authority": "survives-face-secondary-runtime"},
-            }
-        },
+        "extras": {"bodyrig": bodyrig},
     }
     return _write_glb(document, binary)
 
@@ -120,6 +126,22 @@ def test_build_runtime_adds_all_secondary_geometry_without_component_authority(t
     assert metadata["mouthInteriorGeometry"] == "deterministic-rounded-oval-cavity-v2"
     assert metadata["teethGeometry"] == "deterministic-individual-rounded-dental-row-v2"
     assert metadata["eyelashGeometry"] == "deterministic-smplx-head-anchored-tapered-ribbon-v2"
+
+
+def test_runtime_rejects_generic_dental_generation_for_photoidentical_package(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _source_vrm(fine_identity=True)
+    package = tmp_path / "source.mrbody"
+    package.write_bytes(b"photoidentical-package")
+    monkeypatch.setattr(runtime, "_package_avatar", lambda path: (source, "body-1", _sha(package.read_bytes())))
+
+    with pytest.raises(
+        runtime.HighFidelityFaceSecondaryRuntimeError,
+        match="requires a source-derived dental candidate",
+    ):
+        runtime.build_runtime(package, tmp_path / "out-photoidentical", bodyrig_revision="a" * 40)
 
 
 def test_runtime_requires_promoted_eyes(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
