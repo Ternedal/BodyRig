@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .high_fidelity_face_secondary_runtime import (
     JOINT_NAMES,
     REVIEW_METADATA_FORMAT,
@@ -200,6 +204,18 @@ def build(package_path: str | Path, hair_eye_runtime_dir: str | Path, output_dir
     except PbrMaterialError as exc:
         raise FaceSecondaryHairEyeReviewError(str(exc)) from exc
     bodyrig = _bodyrig(document)
+    fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    if fine_requirement_raw is not None:
+        try:
+            validate_fine_identity_requirement(fine_requirement_raw)
+        except FineIdentityApplicationError as exc:
+            raise FaceSecondaryHairEyeReviewError(
+                f"photoidentical fine-identity requirement is invalid: {exc}"
+            ) from exc
+        raise FaceSecondaryHairEyeReviewError(
+            "photoidentical fine-identity requires source-derived dental/oral geometry; "
+            "refusing deterministic generic mouth/teeth face-secondary runtime"
+        )
     appearance_transfer = bodyrig.get("appearanceTransfer")
     if not isinstance(appearance_transfer, dict):
         raise FaceSecondaryHairEyeReviewError(
