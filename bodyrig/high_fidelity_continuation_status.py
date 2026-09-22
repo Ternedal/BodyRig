@@ -292,6 +292,8 @@ def _result(
         "format": FORMAT,
         "version": VERSION,
         "preview_job_id": job_id,
+        "fine_identity_authority_sha256": str((context or {}).get("fine_identity_authority_sha256") or "") or None,
+        "fine_identity_attestation_sha256": str((context or {}).get("fine_identity_attestation_sha256") or "") or None,
         "state": state,
         "gates": gates,
         "next_gate": None if high_fidelity_complete else action,

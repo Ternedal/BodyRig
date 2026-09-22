@@ -22,6 +22,10 @@ def test_audit_contract_covers_receipt_gate_qa_runtime_and_source_lineage() -> N
         '"sourceGateASha256"',
         '"sourcePhysicalSessionSha256"',
         '"sourceReadinessSha256"',
+        '"fineIdentityAuthoritySha256"',
+        '"fineIdentityAttestationSha256"',
+        '"fine_identity_authority_sha256"',
+        '"fine_identity_attestation_sha256"',
         '"receipt_sha256"',
         '"source_gate_a_sha256"',
     ):

@@ -10,6 +10,8 @@ import bodyrig.fidelity_component_gap_executor as executor
 
 REVISION = "a" * 40
 BODY_ID = "performer-42"
+FINE_AUTHORITY_SHA = "1" * 64
+FINE_ATTESTATION_SHA = "2" * 64
 
 
 def plan() -> dict:
@@ -66,6 +68,8 @@ def preview(
         "canonical_body_id": body_id,
         "bodyrig_revision": revision,
         "candidate_package_sha256": candidate_sha,
+        "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+        "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
         "status": status,
         "comparison_only": True,
         "production_activation": False,
@@ -86,6 +90,8 @@ def configure_continuation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> t
             "production_ready": False,
             "current_package_path": str(current_package),
             "current_package_sha256": current_sha,
+            "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
             "next_gate": {"gate": "face_secondary_runtime", "operator_input_required": False},
         },
     )
@@ -114,6 +120,8 @@ def test_face_execution_binds_preview_person_body_and_revision_before_continuati
     assert result["canonical_body_id"] == BODY_ID
     assert result["preview_bodyrig_revision"] == REVISION
     assert result["preview_candidate_package_sha256"] == "b" * 64
+    assert result["fine_identity_authority_sha256"] == FINE_AUTHORITY_SHA
+    assert result["fine_identity_attestation_sha256"] == FINE_ATTESTATION_SHA
     assert result["preview_lineage_resolution"] == "explicit"
     assert result["preview_job_id"] == "hfpreview-" + "1" * 32
     assert str(current_package.resolve()) in result["commands"][0]
@@ -169,6 +177,27 @@ def test_face_execution_rejects_cross_candidate_preview_before_continuation(
     with pytest.raises(executor.FidelityComponentGapExecutionError, match="different candidate package"):
         executor.build_execution(plan(), context={"preview_job_id": "hfpreview-" + "1" * 32}, repo_root=root)
     assert called is False
+
+
+
+def test_face_execution_rejects_fine_identity_lineage_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = repo(tmp_path)
+    monkeypatch.setattr(executor.preview_manager, "get", lambda _job: preview())
+    monkeypatch.setattr(
+        executor,
+        "inspect_continuation",
+        lambda _job: {
+            "production_activation": False,
+            "production_ready": False,
+            "fine_identity_authority_sha256": "3" * 64,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+        },
+    )
+
+    with pytest.raises(executor.FidelityComponentGapExecutionError, match="fine-identity lineage differs"):
+        executor.build_execution(plan(), context={"preview_job_id": "hfpreview-" + "1" * 32}, repo_root=root)
 
 
 def test_face_execution_auto_resolves_only_exact_candidate_lineage(

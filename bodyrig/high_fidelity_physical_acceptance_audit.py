@@ -107,6 +107,14 @@ def audited_physical_acceptance_status(
             raise HighFidelityPhysicalAcceptanceAuditError("physical handoff receipt format/version is non-canonical")
         _need_equal(receipt.get("previewJobId"), preview_job_id, "receipt preview job")
         _need_equal(receipt.get("promotedPackageSha256"), expected_package, "receipt promoted package SHA")
+        fine_identity_authority_sha = _sha(
+            receipt.get("fineIdentityAuthoritySha256"),
+            "receipt fine-identity authority SHA",
+        )
+        fine_identity_attestation_sha = _sha(
+            receipt.get("fineIdentityAttestationSha256"),
+            "receipt fine-identity attestation SHA",
+        )
         _need_equal(receipt.get("releaseLineageReproved"), True, "receipt release-lineage proof")
         _need_equal(receipt.get("physicalAcceptanceAuthority"), False, "receipt physical authority flag")
         _need_equal(receipt.get("productionActivation"), False, "receipt production activation flag")
@@ -178,6 +186,16 @@ def audited_physical_acceptance_status(
         _need_equal(extension.get("receipt_sha256"), receipt_sha, "Gate A handoff receipt hash")
         _need_equal(extension.get("source_gate_a_sha256"), receipt.get("sourceGateASha256"), "Gate A source lineage hash")
         _need_equal(extension.get("package_sha256"), expected_package, "Gate A handoff package hash")
+        _need_equal(
+            extension.get("fine_identity_authority_sha256"),
+            fine_identity_authority_sha,
+            "Gate A fine-identity authority hash",
+        )
+        _need_equal(
+            extension.get("fine_identity_attestation_sha256"),
+            fine_identity_attestation_sha,
+            "Gate A fine-identity attestation hash",
+        )
         _need_equal(extension.get("human_review_sha256"), review_sha, "Gate A human-review hash")
         _need_equal(extension.get("preview_job_id"), preview_job_id, "Gate A preview job")
         _need_equal(extension.get("body_job_id"), body_job_id, "Gate A body job")
@@ -186,6 +204,16 @@ def audited_physical_acceptance_status(
         preview, body_job, source_dir, source_gate, source_report = _source_gate(preview_job_id)
         _need_equal(str(body_job.get("job_id") or ""), body_job_id, "source body job")
         _need_equal(str(preview.get("canonical_body_id") or ""), body_id, "source preview body identity")
+        _need_equal(
+            _sha(preview.get("fine_identity_authority_sha256"), "source preview fine-identity authority SHA"),
+            fine_identity_authority_sha,
+            "source preview fine-identity authority",
+        )
+        _need_equal(
+            _sha(preview.get("fine_identity_attestation_sha256"), "source preview fine-identity attestation SHA"),
+            fine_identity_attestation_sha,
+            "source preview fine-identity attestation",
+        )
         _need_equal(source_gate.body_id, body_id, "source Gate A body identity")
         _need_equal(source_gate.revision, receipt.get("sourceGateABodyRigRevision"), "source Gate A BodyRig revision")
         _need_equal(source_gate.package_hash, receipt.get("sourcePackageSha256"), "source Gate A package hash")

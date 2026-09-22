@@ -10,6 +10,8 @@ import bodyrig.high_fidelity_physical_acceptance as physical
 
 
 JOB_ID = "hfpreview-" + "a" * 32
+FINE_AUTHORITY_SHA = "1" * 64
+FINE_ATTESTATION_SHA = "2" * 64
 
 
 def _package(tmp_path: Path) -> tuple[Path, str]:
@@ -74,6 +76,8 @@ def _mock_valid_committed_handoff(
             "canonicalBodyId": "bodyid-" + "1" * 24,
             "bodyrigRevision": "c" * 40,
             "promotedPackageSha256": package_sha,
+            "fineIdentityAuthoritySha256": FINE_AUTHORITY_SHA,
+            "fineIdentityAttestationSha256": FINE_ATTESTATION_SHA,
             "highFidelityHumanReviewSha256": physical._hash(review),
             "physicalAcceptanceAuthority": False,
             "productionActivation": False,
@@ -189,7 +193,20 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
     body_id = "bodyid-" + "2" * 24
     review = {"human_review_complete": True, "production_activation": False}
     audit = {"canonical_body_id": body_id, "package_sha256": package_sha, "high_fidelity_ready": True, "components": {"body_anatomy": "complete"}}
-    monkeypatch.setattr(physical, "_ready_package", lambda _job: (package, package_sha, audit, review))
+    monkeypatch.setattr(
+        physical,
+        "_ready_package",
+        lambda _job: (
+            package,
+            package_sha,
+            audit,
+            review,
+            {
+                "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+                "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+            },
+        ),
+    )
 
     source = tmp_path / "source-gate-a"
     source.mkdir()
@@ -217,7 +234,11 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
         physical,
         "_source_gate",
         lambda _job: (
-            {"canonical_body_id": body_id},
+            {
+                "canonical_body_id": body_id,
+                "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+                "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+            },
             {"job_id": "job-" + "3" * 32},
             source,
             source_gate,
@@ -319,6 +340,10 @@ def test_prepare_physical_acceptance_materializes_fresh_atomic_gate_a(monkeypatc
     assert gate_report["package"]["recovery_provenance_matches"] is True
     assert gate_report["package"]["avatar_fitting_provenance_present"] is True
     assert handoff["releaseLineageReproved"] is True
+    assert handoff["fineIdentityAuthoritySha256"] == FINE_AUTHORITY_SHA
+    assert handoff["fineIdentityAttestationSha256"] == FINE_ATTESTATION_SHA
+    assert gate_report["high_fidelity_handoff"]["fine_identity_authority_sha256"] == FINE_AUTHORITY_SHA
+    assert gate_report["high_fidelity_handoff"]["fine_identity_attestation_sha256"] == FINE_ATTESTATION_SHA
     assert handoff["sourceBodyprintSha256"] == handoff["promotedBodyprintSha256"]
     assert result["next_gate"] == "windows-probe"
     assert "run-windows-renderer-probe.ps1" in result["next_command"]
@@ -346,6 +371,8 @@ def test_operator_wrapper_is_clean_checkout_bound_and_non_activating() -> None:
     assert "materialize_runtime(accepted, runtime_dir)" in source
     assert '"sourceGateASha256"' in source
     assert '"highFidelityHumanReviewSha256"' in source
+    assert '"fineIdentityAuthoritySha256"' in source
+    assert '"fineIdentityAttestationSha256"' in source
     assert '"releaseLineageReproved": True' in source
     assert '"physicalAcceptanceAuthority": False' in source
     assert '"productionActivation": False' in source
