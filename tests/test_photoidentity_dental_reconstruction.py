@@ -111,7 +111,8 @@ def _config() -> dict:
     }
 
 
-def _dental_vrm(*, generic: bool = False) -> bytes:
+def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
+    texture_bytes = b"\x89PNG\r\n\x1a\nfixture-dental-texture" if png_texture else b"not-a-png-texture"
     attrs = {
         "POSITION": 0,
         "NORMAL": 1,
@@ -158,8 +159,8 @@ def _dental_vrm(*, generic: bool = False) -> bytes:
     }
     document = {
         "asset": {"version": "2.0"},
-        "buffers": [{"byteLength": 0}],
-        "bufferViews": [],
+        "buffers": [{"byteLength": len(texture_bytes)}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(texture_bytes)}],
         "accessors": [],
         "images": [{"name": subject.DENTAL_IMAGE, "bufferView": 0, "mimeType": "image/png"}],
         "textures": [{"source": 0}],
@@ -179,7 +180,7 @@ def _dental_vrm(*, generic: bool = False) -> bytes:
         "scenes": [{"nodes": [0]}],
         "extras": {"bodyrig": {"dentalSourceRuntime": metadata}},
     }
-    return _write_glb(document, b"")
+    return _write_glb(document, texture_bytes)
 
 
 def test_adapter_config_requires_source_grounded_non_generative_capabilities() -> None:
@@ -241,8 +242,11 @@ def test_prepare_workspace_uses_hash_safe_staged_names(
 def test_dental_vrm_requires_source_derived_non_generic_payload() -> None:
     detail = subject.validate_dental_vrm(_dental_vrm())
     assert detail["metadata"]["sourceDerivedDentalIdentity"] is True
+    assert len(detail["texture_sha256"]) == 64
     with pytest.raises(subject.PhotoIdentityDentalReconstructionError, match="authority boundary"):
         subject.validate_dental_vrm(_dental_vrm(generic=True))
+    with pytest.raises(subject.PhotoIdentityDentalReconstructionError, match="texture bytes are not PNG"):
+        subject.validate_dental_vrm(_dental_vrm(png_texture=False))
 
 
 def test_adapter_result_is_bound_to_exact_input_attestation_and_vrm(tmp_path: Path) -> None:
