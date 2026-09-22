@@ -12,6 +12,8 @@ import bodyrig.high_fidelity_continuation_status as status
 
 
 JOB_ID = "hfpreview-" + "a" * 32
+FINE_AUTHORITY_SHA = "1" * 64
+FINE_ATTESTATION_SHA = "2" * 64
 
 
 def test_gate_order_is_complete_and_stable() -> None:
@@ -77,6 +79,22 @@ def test_result_stops_at_first_unpassed_gate_and_never_grants_production(tmp_pat
     assert result["physical_windows_acceptance_required"] is True
     assert result["quest_acceptance_required"] is True
     assert result["final_release_required"] is True
+
+
+
+def test_result_exposes_photoidentical_fine_identity_lineage() -> None:
+    paths = status.continuation_paths(JOB_ID)
+    gates = [status._gate("preview", "pass"), status._gate("component_review", "required")]
+    context = {
+        "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+        "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+    }
+
+    result = status._result(JOB_ID, gates, paths, None, None, {}, context)
+
+    assert result["fine_identity_authority_sha256"] == FINE_AUTHORITY_SHA
+    assert result["fine_identity_attestation_sha256"] == FINE_ATTESTATION_SHA
+    assert result["production_activation"] is False
 
 
 def test_all_component_gates_can_be_high_fidelity_complete_without_becoming_production_ready(
@@ -190,7 +208,15 @@ def test_inconsistent_review_state_cannot_pass(value: dict) -> None:
 def test_corrupt_component_review_returns_blocked_status(monkeypatch, tmp_path: Path) -> None:
     package = tmp_path / "candidate.mrbody"
     package.write_bytes(b"candidate")
-    monkeypatch.setattr(status.preview_manager, "get", lambda _job: {"status": "succeeded"})
+    monkeypatch.setattr(
+        status.preview_manager,
+        "get",
+        lambda _job: {
+            "status": "succeeded",
+            "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+        },
+    )
     monkeypatch.setattr(status, "_candidate_package", lambda *_args: package)
 
     def corrupt(_job: str) -> dict:
