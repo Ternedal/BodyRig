@@ -370,7 +370,7 @@ def _named_index(document: Mapping[str, Any], array_name: str, name: str) -> int
 
 def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
     try:
-        document, _binary = _read_glb(vrm_bytes)
+        document, binary = _read_glb(vrm_bytes)
     except PbrMaterialError as exc:
         raise PhotoIdentityDentalReconstructionError(str(exc)) from exc
     node_index = _named_index(document, "nodes", NODE_NAME)
@@ -408,6 +408,38 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
     if seen_roles != set(REQUIRED_ROLES):
         raise PhotoIdentityDentalReconstructionError("dental VRM role set is incomplete")
 
+    images = _array(document, "images")
+    image = images[image_index]
+    if not isinstance(image, Mapping) or image.get("mimeType") != "image/png":
+        raise PhotoIdentityDentalReconstructionError("dental VRM source texture must be embedded PNG")
+    view_index = image.get("bufferView")
+    views = _array(document, "bufferViews")
+    if (
+        isinstance(view_index, bool)
+        or not isinstance(view_index, int)
+        or not 0 <= view_index < len(views)
+        or not isinstance(views[view_index], Mapping)
+    ):
+        raise PhotoIdentityDentalReconstructionError("dental VRM source texture bufferView is invalid")
+    view = views[view_index]
+    if view.get("buffer", 0) != 0:
+        raise PhotoIdentityDentalReconstructionError("dental VRM source texture must use embedded buffer 0")
+    offset = view.get("byteOffset", 0)
+    length = view.get("byteLength")
+    if (
+        isinstance(offset, bool)
+        or not isinstance(offset, int)
+        or offset < 0
+        or isinstance(length, bool)
+        or not isinstance(length, int)
+        or length < 8
+        or offset + length > len(binary)
+    ):
+        raise PhotoIdentityDentalReconstructionError("dental VRM source texture bufferView bounds are invalid")
+    texture_bytes = binary[offset : offset + length]
+    if not texture_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise PhotoIdentityDentalReconstructionError("dental VRM source texture bytes are not PNG")
+
     materials = _array(document, "materials")
     dental = materials[dental_material]
     pbr = dental.get("pbrMetallicRoughness") if isinstance(dental, Mapping) else None
@@ -443,6 +475,7 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
         "mouth_material_index": mouth_material,
         "dental_material_index": dental_material,
         "image_index": image_index,
+        "texture_sha256": hashlib.sha256(texture_bytes).hexdigest(),
         "metadata": dict(metadata),
     }
 
