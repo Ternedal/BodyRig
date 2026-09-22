@@ -47,6 +47,11 @@ def _trust_p0(monkeypatch: pytest.MonkeyPatch) -> None:
             Path(root) / "frame-index.json",
         ),
     )
+    monkeypatch.setattr(
+        status,
+        "validate_downstream_readiness",
+        lambda *args, **kwargs: {"fixture": "ready"},
+    )
 
 
 def _appearance(teacher: Path) -> Path:
