@@ -8,6 +8,9 @@ import pytest
 
 from bodyrig.high_fidelity_human_review import (
     CHECKLIST_FIELDS,
+    PHOTOIDENTITY_CHECKLIST_FIELDS,
+    PHOTOIDENTITY_POLICY_REVISION,
+    PHOTOIDENTITY_VERSION,
     HighFidelityHumanReviewError,
     read_review,
     review_path,
@@ -64,6 +67,45 @@ def _checklist() -> dict[str, bool]:
     return {field: True for field in CHECKLIST_FIELDS}
 
 
+def _photoidentity_audit(package: Path) -> dict:
+    value = _audit(package)
+    value.update(
+        {
+            "fine_identity_required": True,
+            "fine_identity_ready": True,
+            "fine_identity": {
+                "requirement": {
+                    "fineIdentityAuthoritySha256": "1" * 64,
+                    "fineIdentityAttestationSha256": "2" * 64,
+                },
+                "application": {
+                    "humanReviewRequired": True,
+                    "packageApplicationAuthority": True,
+                    "productionActivation": False,
+                    "domains": {
+                        field: {"sourceEvidenceCount": 2}
+                        for field in (
+                            "oral_teeth_detail",
+                            "chest_breast_shape_detail",
+                            "nipple_areola_detail",
+                            "intimate_anatomy_detail",
+                            "distinctive_markers_detail",
+                        )
+                    },
+                },
+            },
+        }
+    )
+    return value
+
+
+def _photoidentity_checklist() -> dict[str, bool]:
+    return {
+        field: True
+        for field in set(CHECKLIST_FIELDS) | set(PHOTOIDENTITY_CHECKLIST_FIELDS)
+    }
+
+
 def test_review_status_is_blocked_until_component_gates_are_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -114,6 +156,54 @@ def test_write_and_read_review_are_exact_package_and_component_state_bound(
     assert status["state"] == "pass"
     assert status["passed"] is True
     assert status["quality_note"] == receipt["quality_note"]
+
+
+def test_photoidentity_review_requires_five_explicit_domain_confirmations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(tmp_path)
+    audit = _photoidentity_audit(package)
+    monkeypatch.setattr("bodyrig.high_fidelity_human_review.audit_high_fidelity_package", lambda _: audit)
+
+    status = review_status(package)
+    assert status["state"] == "required"
+    assert status["photoidentity_review_required"] is True
+    assert "photoidentical fine-identity" in status["reason"]
+
+    with pytest.raises(HighFidelityHumanReviewError, match="missing:"):
+        write_review(package, checklist=_checklist(), quality_note="generic review is not sufficient")
+
+    receipt = write_review(
+        package,
+        checklist=_photoidentity_checklist(),
+        quality_note="All five source-specific fine-identity domains reviewed against source evidence.",
+    )
+    assert receipt["version"] == PHOTOIDENTITY_VERSION
+    assert receipt["policy_revision"] == PHOTOIDENTITY_POLICY_REVISION
+    assert set(receipt["checklist"]) == set(CHECKLIST_FIELDS) | set(PHOTOIDENTITY_CHECKLIST_FIELDS)
+    assert read_review(package) == receipt
+    assert review_status(package)["state"] == "pass"
+
+
+def test_photoidentity_review_rejects_legacy_v1_receipt_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _package(tmp_path)
+    audit = _photoidentity_audit(package)
+    monkeypatch.setattr("bodyrig.high_fidelity_human_review.audit_high_fidelity_package", lambda _: audit)
+    receipt = write_review(
+        package,
+        checklist=_photoidentity_checklist(),
+        quality_note="Fine identity reviewed.",
+    )
+    path = review_path(package)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    value["version"] = 1
+    value["policy_revision"] = "bodyrig-high-fidelity-human-review-v1"
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    with pytest.raises(HighFidelityHumanReviewError, match="format/version/policy mismatch"):
+        read_review(package)
 
 
 def test_review_rejects_boolean_v1_discriminator_before_pass(
