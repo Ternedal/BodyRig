@@ -610,11 +610,12 @@
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const personId=state.person.person_id;
-    const personGeneration=state.personSelectionGeneration;
+    const personContext=state.person;
     const saveGeneration=++state.saveRequestGeneration;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
+    const isCurrentSaveContext=()=>state.person===personContext&&state.person?.person_id===personId&&$("personSelect").value===personId;
     const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
     const settleStaleSave=result=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
@@ -622,20 +623,20 @@
       toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
     };
     const settleFailedSave=error=>{
-      if(saveGeneration!==state.saveRequestGeneration||!isCurrentPerson(personId,personGeneration)) return;
+      if(saveGeneration!==state.saveRequestGeneration) return;
       if($("status").textContent===savingStatus) $("status").textContent=`Gemning fejlede: ${error.message}`;
-      $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+      if(isCurrentSaveContext()) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
       toast(error.message,true);
     };
     $("saveButton").disabled=true; $("status").textContent=savingStatus;
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey){
+      if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
         settleStaleSave(result);
         return;
       }
       const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey){
+      if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
         settleStaleSave(result);
         return;
       }
@@ -662,6 +663,7 @@
     selectPerson(personId,{manual:true}).catch(error=>{
       if($("personSelect").value!==personId) return;
       $("personSelect").value=state.person?.person_id||"";
+      if($("status").textContent.startsWith("Gemning fejlede:")) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
       toast(error.message,true);
     });
   }); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
