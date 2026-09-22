@@ -57,6 +57,8 @@ $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
 $pytorch3dSourceParent = "$venvRoot/sources"
 $pytorch3dSourceRoot = "$pytorch3dSourceParent/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
+$pytorch3dArchive = "$pytorch3dSourceParent/pytorch3d-$pytorch3dCommit.tar.gz"
+$pytorch3dCommitMarker = "$pytorch3dSourceRoot/.bodyrig-pinned-commit"
 
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR WSL SETUP"
@@ -92,7 +94,7 @@ Invoke-Wsl -Root -Arguments @("/usr/bin/apt-get", "update")
 Invoke-Wsl -Root -Arguments @(
     "/usr/bin/apt-get", "install", "-y",
     "python3.10", "python3.10-venv", "python3.10-dev",
-    "build-essential", "git", "ffmpeg", "cmake", "ninja-build",
+    "build-essential", "git", "curl", "ca-certificates", "ffmpeg", "cmake", "ninja-build",
     "libgl1", "libglib2.0-0", "libgomp1", "libegl1", "libgles2"
 )
 
@@ -213,63 +215,70 @@ Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmd
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
-# Reuse a completed pinned PyTorch3D build when possible. The installed
-# distribution comes from the local source cache, so bind reuse to that cache's
-# exact Git HEAD plus a successful import instead of relying on direct_url.json.
-& $WslExe -d $Distribution -- /usr/bin/test -d "$pytorch3dSourceRoot/.git" 2>$null
-$pytorch3dSourceExists = ($LASTEXITCODE -eq 0)
-$pytorch3dHeadMatches = $false
-if ($pytorch3dSourceExists) {
-    $pytorch3dHeadRaw = @(& $WslExe -d $Distribution -- /usr/bin/git -C $pytorch3dSourceRoot rev-parse HEAD 2>$null)
-    $pytorch3dHeadMatches = (
+# Reuse a completed pinned PyTorch3D source cache when possible. Source
+# provenance is bound to a commit marker written only after a successful
+# commit-addressed codeload download, archive validation, and extraction.
+& $WslExe -d $Distribution -- /usr/bin/test -f $pytorch3dCommitMarker 2>$null
+$pytorch3dMarkerExists = ($LASTEXITCODE -eq 0)
+$pytorch3dSourceReady = $false
+if ($pytorch3dMarkerExists) {
+    $markerRaw = @(& $WslExe -d $Distribution -- /bin/cat $pytorch3dCommitMarker 2>$null)
+    $pytorch3dSourceReady = (
         $LASTEXITCODE -eq 0 -and
-        $pytorch3dHeadRaw.Count -eq 1 -and
-        ([string]$pytorch3dHeadRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
+        $markerRaw.Count -eq 1 -and
+        ([string]$markerRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
     )
 }
+
+if (-not $pytorch3dSourceReady) {
+    Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $pytorch3dSourceRoot)
+    Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceParent)
+
+    $archiveUrl = "https://codeload.github.com/facebookresearch/pytorch3d/tar.gz/$pytorch3dCommit"
+    Invoke-Wsl -Root -Arguments @(
+        "/usr/bin/curl",
+        "--http1.1",
+        "--fail",
+        "--location",
+        "--retry", "10",
+        "--retry-all-errors",
+        "--retry-delay", "2",
+        "--connect-timeout", "30",
+        "--max-time", "900",
+        "--output", $pytorch3dArchive,
+        $archiveUrl
+    )
+
+    $archiveList = @(& $WslExe -d $Distribution -- /usr/bin/tar -tzf $pytorch3dArchive 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $archiveList.Count -lt 1) {
+        throw "Pinned PyTorch3D archive validation failed: $pytorch3dArchive"
+    }
+    $expectedArchiveRoot = "pytorch3d-$pytorch3dCommit/"
+    foreach ($entry in $archiveList) {
+        if (-not ([string]$entry).StartsWith($expectedArchiveRoot, [System.StringComparison]::Ordinal)) {
+            throw "Pinned PyTorch3D archive contained an unexpected path: $entry"
+        }
+    }
+
+    Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceRoot)
+    Invoke-Wsl -Root -Arguments @(
+        "/usr/bin/tar", "-xzf", $pytorch3dArchive,
+        "--strip-components=1",
+        "-C", $pytorch3dSourceRoot
+    )
+    $markerCode = "from pathlib import Path; Path('$pytorch3dCommitMarker').write_text('$pytorch3dCommit\n', encoding='utf-8')"
+    Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-c", $markerCode)
+    $pytorch3dSourceReady = $true
+    Write-Host "PyTorch3D source:   PINNED ARCHIVE READY"
+} else {
+    Write-Host "PyTorch3D source:   REUSE PINNED ARCHIVE"
+}
+
 & $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c "import pytorch3d" 1>$null 2>$null
 $pytorch3dImportReady = ($LASTEXITCODE -eq 0)
-$pytorch3dReusable = ($pytorch3dHeadMatches -and $pytorch3dImportReady)
-
-if ($pytorch3dReusable) {
+if ($pytorch3dImportReady) {
     Write-Host "PyTorch3D:          REUSE PINNED BUILD"
 } else {
-    $pytorch3dFetched = $false
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $pytorch3dSourceRoot)
-        Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceParent)
-        Invoke-Wsl -Root -Arguments @("/usr/bin/git", "init", "-q", $pytorch3dSourceRoot)
-        Invoke-Wsl -Root -Arguments @(
-            "/usr/bin/git", "-C", $pytorch3dSourceRoot,
-            "remote", "add", "origin", "https://github.com/facebookresearch/pytorch3d.git"
-        )
-
-        & $WslExe -d $Distribution -u root -- /usr/bin/git -C $pytorch3dSourceRoot -c "http.version=HTTP/1.1" fetch --depth=1 origin $pytorch3dCommit
-        $fetchCode = $LASTEXITCODE
-        if ($fetchCode -eq 0) {
-            Invoke-Wsl -Root -Arguments @(
-                "/usr/bin/git", "-C", $pytorch3dSourceRoot,
-                "checkout", "-q", "--detach", "FETCH_HEAD"
-            )
-            $headRaw = @(& $WslExe -d $Distribution -- /usr/bin/git -C $pytorch3dSourceRoot rev-parse HEAD 2>$null)
-            if (
-                $LASTEXITCODE -eq 0 -and
-                $headRaw.Count -eq 1 -and
-                ([string]$headRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
-            ) {
-                $pytorch3dFetched = $true
-                break
-            }
-        }
-
-        if ($attempt -lt 3) {
-            Start-Sleep -Seconds (2 * $attempt)
-        }
-    }
-    if (-not $pytorch3dFetched) {
-        throw "Pinned PyTorch3D source fetch failed after 3 attempts: $pytorch3dCommit"
-    }
-
     Invoke-Wsl -Root -Arguments @(
         "/usr/bin/env",
         "FORCE_CUDA=1",
