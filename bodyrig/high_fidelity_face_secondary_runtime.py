@@ -11,6 +11,10 @@ from typing import Any, Mapping
 from .bridges.avatar_fidelity_components import FidelityComponentError, validate_receipt
 from .bridges.face_secondary_fidelity import FaceSecondaryFidelityError, validate_face_secondary_receipt
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .package import MRBodyError, validate_package
 
 FORMAT = "bodyrig-high-fidelity-face-secondary-runtime"
@@ -75,6 +79,18 @@ def _package_avatar(path: Path) -> tuple[bytes, str, str]:
 
 def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     bodyrig = _bodyrig(document)
+    fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    if fine_requirement_raw is not None:
+        try:
+            validate_fine_identity_requirement(fine_requirement_raw)
+        except FineIdentityApplicationError as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                f"photoidentical fine-identity requirement is invalid: {exc}"
+            ) from exc
+        raise HighFidelityFaceSecondaryRuntimeError(
+            "photoidentical fine-identity requires a source-derived dental candidate; "
+            "refusing deterministic generic mouth/teeth face-secondary runtime"
+        )
     try:
         top = validate_receipt(bodyrig.get("fidelityComponents", {}))
         face = validate_face_secondary_receipt(bodyrig.get("faceSecondaryFidelity", {}))
