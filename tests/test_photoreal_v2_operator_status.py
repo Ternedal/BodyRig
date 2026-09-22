@@ -78,6 +78,11 @@ def _p1_pass(monkeypatch: pytest.MonkeyPatch, teacher: Path) -> None:
         status,
         "validate_likeness_review_receipt",
         lambda receipt, review_manifest=None: {
+            "performer_id": PERFORMER,
+            "selected_epoch_id": "epoch-a",
+            "teacher_input_sha256": "1" * 64,
+            "p1_likeness_review_manifest_sha256": "a" * 64,
+            "p1_likeness_review_sha256": "b" * 64,
             "p1_static_teacher_status": "pass",
             "p2_animation_authorized": True,
         },
@@ -90,6 +95,14 @@ def _p2_lineage() -> dict[str, str]:
         "selected_epoch_id": "epoch-a",
         "teacher_input_sha256": "1" * 64,
         "p2_animation_plan_sha256": "2" * 64,
+    }
+
+
+def _p2_plan_authority() -> dict[str, str]:
+    return {
+        **_p2_lineage(),
+        "p1_likeness_review_manifest_sha256": "a" * 64,
+        "p1_likeness_review_sha256": "b" * 64,
     }
 
 
@@ -275,7 +288,7 @@ def _p2_intermediate_ready(
     monkeypatch.setattr(
         status,
         "validate_p2_animation_plan",
-        lambda value: _p2_lineage(),
+        lambda value: _p2_plan_authority(),
     )
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
@@ -538,6 +551,34 @@ def test_p1_fail_blocks_p2(
     assert result["next_command"] is None
 
 
+def test_stale_p2_plan_cannot_follow_current_p1_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    stale = _p2_plan_authority()
+    stale["p1_likeness_review_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        status,
+        "validate_p2_animation_plan",
+        lambda value: dict(stale),
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="targets stale P1 authority",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
 def test_p2_source_selection_is_explicit_human_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -547,7 +588,7 @@ def test_p2_source_selection_is_explicit_human_gate(
     _base_ready(monkeypatch, p0, teacher)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
@@ -574,7 +615,7 @@ def test_multi_driver_selection_can_be_routed_with_explicit_driver(
     _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
@@ -626,7 +667,7 @@ def test_multi_driver_router_rejects_unapproved_driver(
     _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_lineage())
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
