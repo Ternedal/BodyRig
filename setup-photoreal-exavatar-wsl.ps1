@@ -55,7 +55,8 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
 }
 $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
-$pytorch3dSourceRoot = "$venvRoot/sources/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
+$pytorch3dSourceParent = "$venvRoot/sources"
+$pytorch3dSourceRoot = "$pytorch3dSourceParent/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
 
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR WSL SETUP"
@@ -236,7 +237,7 @@ if ($pytorch3dReusable) {
     $pytorch3dFetched = $false
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $pytorch3dSourceRoot)
-        Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", (Split-Path -Path $pytorch3dSourceRoot -Parent))
+        Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceParent)
         Invoke-Wsl -Root -Arguments @("/usr/bin/git", "init", "-q", $pytorch3dSourceRoot)
         Invoke-Wsl -Root -Arguments @(
             "/usr/bin/git", "-C", $pytorch3dSourceRoot,
