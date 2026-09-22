@@ -72,6 +72,34 @@ function Test-WslExecutable {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Ensure-DefaultWslWorkspaceParent {
+    param([Parameter(Mandatory = $true)][string]$WorkspaceRoot)
+
+    $slash = $WorkspaceRoot.LastIndexOf('/')
+    if ($slash -le 0) { throw "Default ExAvatar workspace root has no parent: $WorkspaceRoot" }
+    $parent = $WorkspaceRoot.Substring(0, $slash)
+
+    $uidRaw = @(& $WslExe -d $Distribution -- /usr/bin/id -u 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $uidRaw.Count -ne 1 -or ([string]$uidRaw[0]).Trim() -notmatch '^\d+$') {
+        throw "Could not resolve default WSL user uid."
+    }
+    $gidRaw = @(& $WslExe -d $Distribution -- /usr/bin/id -g 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $gidRaw.Count -ne 1 -or ([string]$gidRaw[0]).Trim() -notmatch '^\d+$') {
+        throw "Could not resolve default WSL user gid."
+    }
+    $linuxUid = ([string]$uidRaw[0]).Trim()
+    $linuxGid = ([string]$gidRaw[0]).Trim()
+    $owner = "${linuxUid}:$linuxGid"
+
+    & $WslExe -d $Distribution -u root -- /bin/mkdir -p -- $parent
+    if ($LASTEXITCODE -ne 0) { throw "Could not create ExAvatar workspace parent: $parent" }
+    & $WslExe -d $Distribution -u root -- /bin/chown $owner -- $parent
+    if ($LASTEXITCODE -ne 0) { throw "Could not bind ExAvatar workspace parent ownership: $parent" }
+    & $WslExe -d $Distribution -u root -- /bin/chmod 0755 -- $parent
+    if ($LASTEXITCODE -ne 0) { throw "Could not set ExAvatar workspace parent permissions: $parent" }
+    & $WslExe -d $Distribution -- /usr/bin/test -w $parent
+    if ($LASTEXITCODE -ne 0) { throw "Default WSL user cannot write ExAvatar workspace parent: $parent" }
+}
 function Convert-ToWslPath {
     param(
         [Parameter(Mandatory = $true)][string]$WindowsPath,
@@ -175,7 +203,8 @@ $performerId = [string]$teacher.performer_id
 $teacherSha = ([string]$teacher.teacher_input_sha256).ToLowerInvariant()
 if ($teacherSha -notmatch '^[0-9a-f]{64}$') { throw "Teacher input SHA-256 is invalid." }
 
-if ([string]::IsNullOrWhiteSpace($LinuxWorkspaceRoot)) {
+$usingDefaultLinuxWorkspaceRoot = [string]::IsNullOrWhiteSpace($LinuxWorkspaceRoot)
+if ($usingDefaultLinuxWorkspaceRoot) {
     $safePerformer = ($performerId -replace '[^A-Za-z0-9._-]+', '-').Trim('-','_','.')
     if ([string]::IsNullOrWhiteSpace($safePerformer)) { throw "Performer id cannot form a safe ExAvatar workspace id." }
     $LinuxWorkspaceRoot = "/opt/bodyrig-exavatar/workspaces/bodyrig-$safePerformer-$($teacherSha.Substring(0,12))"
@@ -317,6 +346,9 @@ Invoke-Checked -FilePath $Python -Arguments $materializeArgs -Label "ExAvatar ma
 
 Write-Host ""
 Write-Host "=== 4/7 BUILD / REVALIDATE ISOLATED WSL WORKSPACE ==="
+if ($usingDefaultLinuxWorkspaceRoot) {
+    Ensure-DefaultWslWorkspaceParent -WorkspaceRoot $LinuxWorkspaceRoot
+}
 $workspaceOperator = Need-File -Path (Join-Path $repoRoot "prepare-photoreal-exavatar-workspace.ps1") -Label "ExAvatar workspace operator"
 $workspaceParams = @{
     MaterializationWorkspace = $materialization

@@ -131,3 +131,39 @@ def test_preflight_can_make_colmap_optional_but_never_nvcc(monkeypatch: pytest.M
     assert "required executable missing: colmap" not in result["blockers"]
     assert "required executable missing: nvcc" in result["blockers"]
     assert result["benchmark_environment_ready"] is False
+
+
+def test_git_uses_command_local_safe_directory_for_root_owned_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    checkout = tmp_path / "ExAvatar_RELEASE"
+    checkout.mkdir()
+    captured: dict[str, object] = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "d45268730c779fae4118f1a361cf9ff639bc4d1e\n"
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setattr(preflight.subprocess, "run", fake_run)
+
+    observed = preflight._git(checkout, "rev-parse", "HEAD")
+
+    resolved = checkout.resolve()
+    assert observed == "d45268730c779fae4118f1a361cf9ff639bc4d1e"
+    assert captured["command"] == [
+        "git",
+        "-c",
+        f"safe.directory={resolved}",
+        "-C",
+        str(resolved),
+        "rev-parse",
+        "HEAD",
+    ]
+    assert captured["kwargs"]["shell"] is False

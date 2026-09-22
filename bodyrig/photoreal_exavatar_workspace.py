@@ -88,7 +88,11 @@ def _run(argv: list[str], *, label: str) -> str:
 
 
 def _git(path: Path, *args: str) -> str:
-    return _run(["git", "-C", str(path), *args], label=f"git {' '.join(args)} in {path.name}")
+    resolved = path.expanduser().resolve()
+    return _run(
+        ["git", "-c", f"safe.directory={resolved}", "-C", str(resolved), *args],
+        label=f"git {' '.join(args)} in {path.name}",
+    )
 
 
 def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
@@ -185,7 +189,20 @@ def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, 
 def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
-    _run(["git", "clone", "--shared", "--no-checkout", str(source), str(destination)], label=f"clone {destination.name}")
+    resolved_source = source.expanduser().resolve()
+    _run(
+        [
+            "git",
+            "-c",
+            f"safe.directory={resolved_source}",
+            "clone",
+            "--shared",
+            "--no-checkout",
+            str(resolved_source),
+            str(destination),
+        ],
+        label=f"clone {destination.name}",
+    )
     _run(["git", "-C", str(destination), "checkout", "--detach", expected_commit], label=f"checkout {destination.name}")
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
