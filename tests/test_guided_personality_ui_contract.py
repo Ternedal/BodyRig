@@ -121,15 +121,18 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
 
     for token in (
-        "function isCurrentPerson(personId)",
+        "personSelectionGeneration: 0",
+        "function isCurrentPerson(personId,personGeneration=null)",
+        "personGeneration===state.personSelectionGeneration",
         "function setSelectedPersonUrl(personId,{clearRevision=false}={})",
         'url.searchParams.set("person_id",personId)',
         'url.searchParams.delete("edit_revision")',
         'url.searchParams.delete("baseline_revision")',
         "async function selectPerson(personId,{manual=false}={})",
+        "const selectionGeneration=++state.personSelectionGeneration",
         "const previousPersonId=state.person?.person_id||null",
-        'const profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`)',
-        'if($("personSelect").value!==personId) return',
+        'profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`)',
+        'if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return',
         "const changedPerson=previousPersonId!==personId",
         "state.person=profile",
         "if(manual) setSelectedPersonUrl(personId,{clearRevision:true})",
@@ -151,12 +154,16 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
     select_start = html.index("async function selectPerson(personId,{manual=false}={})")
     select_end = html.index("\n  function renderPreview", select_start)
     select_source = html[select_start:select_end]
-    assert select_source.index('if($("personSelect").value!==personId) return') < select_source.index(
-        "state.person=profile"
+    generation = select_source.index("const selectionGeneration=++state.personSelectionGeneration")
+    fetch = select_source.index("profile=await api")
+    accepted_guard = select_source.rindex(
+        'if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return'
     )
-    assert select_source.index("state.person=profile") < select_source.index(
-        "if(changedPerson) resetPersonScopedAuthoring()"
-    )
+    assign = select_source.index("state.person=profile")
+    assert generation < fetch < accepted_guard < assign
+    assert select_source.count(
+        'selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId'
+    ) >= 2
 
     reset_start = html.index("function resetPersonScopedAuthoring()")
     reset_end = html.index("\n  function applyGuidedRevision", reset_start)
@@ -181,16 +188,18 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     load_end = html.index("\n  async function loadPeople()", load_start)
     load_source = html[load_start:load_end]
     assert 'const personId=state.person.person_id' in load_source
+    assert "const personGeneration=state.personSelectionGeneration" in load_source
     assert load_source.index("const source=await api") < load_source.index(
-        "if(!isCurrentPerson(personId)) return"
+        "if(!isCurrentPerson(personId,personGeneration)) return"
     ) < load_source.index("applyGuidedRevision(source)")
 
     evidence_start = html.index("async function readEvidence(kind, file)")
     evidence_end = html.index("\n  function clearEvidence()", evidence_start)
     evidence_source = html[evidence_start:evidence_end]
     assert 'const personId=state.person?.person_id||null' in evidence_source
+    assert "const personGeneration=state.personSelectionGeneration" in evidence_source
     assert 'const input=kind==="styleReport"?$("styleReportFile"):$("styleApprovalFile")' in evidence_source
-    assert "const stillCurrent=()=>((state.person?.person_id||null)===personId&&input.files?.[0]===file)" in evidence_source
+    assert "state.personSelectionGeneration===personGeneration" in evidence_source
     assert evidence_source.index("const value=JSON.parse(await file.text())") < evidence_source.index(
         "if(!stillCurrent()) return"
     ) < evidence_source.index("state[kind]=value")
@@ -199,40 +208,45 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     transcript_end = html.index("\n  async function approveStashTranscriptCandidates()", transcript_start)
     transcript_source = html[transcript_start:transcript_end]
     assert 'const personId=state.person.person_id' in transcript_source
-    assert 'if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return' in transcript_source
+    assert "const personGeneration=state.personSelectionGeneration" in transcript_source
+    assert 'if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision) return' in transcript_source
 
     approval_start = transcript_end + 1
     approval_end = html.index("\n  function renderEvidenceStatus()", approval_start)
     approval_source = html[approval_start:approval_end]
+    assert "const personGeneration=state.personSelectionGeneration" in approval_source
     assert "const candidateReport=state.stashTranscriptPreview.candidate_report" in approval_source
     assert "candidate_report:candidateReport" in approval_source
-    assert 'if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return' in approval_source
+    assert 'if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return' in approval_source
 
     preview_start = html.index("async function preview()")
     preview_end = html.index("\n  async function save()", preview_start)
     preview_source = html[preview_start:preview_end]
+    assert "const personGeneration=state.personSelectionGeneration" in preview_source
     assert "const requestKey=JSON.stringify(request)" in preview_source
     assert preview_source.index("const result=await api") < preview_source.index(
-        "if(!isCurrentPerson(personId)||key()!==requestKey) return"
+        "if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return"
     ) < preview_source.index("renderPreview(result)")
 
     save_start = preview_end + 1
     save_end = html.index("\n\n  buildSliders();", save_start)
     save_source = html[save_start:save_end]
+    assert "const personGeneration=state.personSelectionGeneration" in save_source
     assert "const saveViewKey=JSON.stringify(request)" in save_source
     assert "const currentSaveViewKey=()=>JSON.stringify" in save_source
     assert 'const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…"' in save_source
     assert "const settleStaleSave=result=>" in save_source
     assert 'if($("status").textContent===savingStatus)' in save_source
     assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
-    first_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)")
+    guard_text = "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)"
+    first_guard = save_source.index(guard_text)
     first_settle = save_source.index("settleStaleSave(result)", first_guard)
     refresh = save_source.index("const refreshedPerson=await api", first_settle)
-    second_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)", refresh)
+    second_guard = save_source.index(guard_text, refresh)
     second_settle = save_source.index("settleStaleSave(result)", second_guard)
     assign = save_source.index("state.person=refreshedPerson", second_settle)
     assert first_guard < first_settle < refresh < second_guard < second_settle < assign
-    assert 'catch(error){if(isCurrentPerson(personId)&&currentSaveViewKey()===saveViewKey)' in save_source
+    assert 'catch(error){if(isCurrentPerson(personId,personGeneration)&&currentSaveViewKey()===saveViewKey)' in save_source
 
 
 def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
@@ -266,7 +280,7 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
         'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
     )
     guard = save_source.index(
-        "if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)",
+        "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)",
         refresh,
     )
     assign = save_source.index("state.person=refreshedPerson", guard)
@@ -296,7 +310,7 @@ def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
         'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
     )
     guard = save_source.index(
-        "if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)",
+        "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)",
         refresh,
     )
     assign = save_source.index("state.person=refreshedPerson", guard)
