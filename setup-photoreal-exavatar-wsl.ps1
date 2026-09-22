@@ -92,11 +92,32 @@ Invoke-Wsl -Root -Arguments @(
     "libgl1", "libglib2.0-0", "libgomp1", "libegl1", "libgles2"
 )
 
+# The runtime venv intentionally shares /opt/bodyrig-exavatar with the
+# already-installed public dependency tree at /opt/bodyrig-exavatar/deps.
+# Do not reject or delete the whole root merely because deps/workspaces exist.
+$runtimeMarker = "$venvRoot/pyvenv.cfg"
 if ($Force) {
-    Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $venvRoot)
+    foreach ($runtimePath in @(
+        "$venvRoot/bin",
+        "$venvRoot/include",
+        "$venvRoot/lib",
+        "$venvRoot/lib64",
+        "$venvRoot/share",
+        $runtimeMarker,
+        $receipt
+    )) {
+        Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $runtimePath)
+    }
 } else {
-    & $WslExe -d $Distribution -- /usr/bin/test -e $venvRoot 2>$null
-    if ($LASTEXITCODE -eq 0) { throw "ExAvatar WSL environment already exists: $venvRoot. Use -Force to rebuild intentionally." }
+    & $WslExe -d $Distribution -- /usr/bin/test -e $runtimeMarker 2>$null
+    $markerExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -e $LinuxPython 2>$null
+    $pythonExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -e $receipt 2>$null
+    $receiptExists = ($LASTEXITCODE -eq 0)
+    if ($markerExists -or $pythonExists -or $receiptExists) {
+        throw "ExAvatar WSL runtime already exists under: $venvRoot. Use -Force to rebuild the runtime while preserving public dependencies."
+    }
 }
 
 Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
