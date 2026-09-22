@@ -805,6 +805,10 @@
     syncCompareOptions();
     scheduleRender();
   });
+  document.addEventListener("bodyrig:person-context-restored", () => {
+    syncCompareOptions();
+    scheduleRender();
+  });
   document.addEventListener("click", event => {
     const summaryButton = event.target.closest?.("#traitSignature button, #traitRevisionDelta button");
     if (summaryButton && !state.rawVisible) toggleRawControls();
