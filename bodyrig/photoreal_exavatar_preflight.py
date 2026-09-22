@@ -70,9 +70,10 @@ def _file_sha(path: Path) -> str:
 
 
 def _git(path: Path, *args: str) -> str | None:
+    resolved = path.expanduser().resolve()
     try:
         completed = subprocess.run(
-            ["git", "-C", str(path), *args],
+            ["git", "-c", f"safe.directory={resolved}", "-C", str(resolved), *args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
