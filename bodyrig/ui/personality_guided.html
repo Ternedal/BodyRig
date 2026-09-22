@@ -139,7 +139,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, personSelectionGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
   function isCurrentPerson(personId,personGeneration=null){
     return Boolean(personId)
@@ -580,15 +580,30 @@
     if(!state.person) return toast("Vælg en person først.",true);
     const personId=state.person.person_id;
     const personGeneration=state.personSelectionGeneration;
+    const previewGeneration=++state.previewRequestGeneration;
     const request=payload();
     const requestKey=JSON.stringify(request);
-    $("status").textContent="Bygger og verifierer deterministisk blueprint…";
+    const previewStatus="Bygger og verifierer deterministisk blueprint…";
+    const settleStalePreview=()=>{
+      if(previewGeneration===state.previewRequestGeneration&&$("status").textContent===previewStatus){
+        $("status").textContent="Preview blev kasseret, fordi editoren blev ændret.";
+      }
+    };
+    $("status").textContent=previewStatus;
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return;
+      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey){
+        settleStalePreview();
+        return;
+      }
+      if(previewGeneration!==state.previewRequestGeneration) return;
       renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";
     }catch(error){
-      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return;
+      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey){
+        settleStalePreview();
+        return;
+      }
+      if(previewGeneration!==state.previewRequestGeneration) return;
       invalidate();$("status").textContent="";toast(error.message,true);
     }
   }
@@ -596,13 +611,21 @@
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const personId=state.person.person_id;
     const personGeneration=state.personSelectionGeneration;
+    const saveGeneration=++state.saveRequestGeneration;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
     const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
     const settleStaleSave=result=>{
+      if(saveGeneration!==state.saveRequestGeneration) return;
       if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · editoren er ændret, så visningen blev ikke overskrevet.`;
       toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
+    };
+    const settleFailedSave=error=>{
+      if(saveGeneration!==state.saveRequestGeneration||!isCurrentPerson(personId,personGeneration)) return;
+      if($("status").textContent===savingStatus) $("status").textContent=`Gemning fejlede: ${error.message}`;
+      $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+      toast(error.message,true);
     };
     $("saveButton").disabled=true; $("status").textContent=savingStatus;
     try{
@@ -626,7 +649,7 @@
       }
       $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
     }
-    catch(error){if(isCurrentPerson(personId,personGeneration)&&currentSaveViewKey()===saveViewKey){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}}
+    catch(error){settleFailedSave(error);}
   }
 
   buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
