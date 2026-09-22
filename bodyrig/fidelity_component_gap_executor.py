@@ -254,9 +254,36 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
         raise FidelityComponentGapExecutionError(
             "face-secondary preview targets a different candidate package than the Unity gap plan"
         )
+    preview_fine_authority_sha = _canonical_sha(
+        preview.get("fine_identity_authority_sha256"),
+        field="preview fine-identity authority SHA",
+        length=64,
+    )
+    preview_fine_attestation_sha = _canonical_sha(
+        preview.get("fine_identity_attestation_sha256"),
+        field="preview fine-identity attestation SHA",
+        length=64,
+    )
     status = inspect_continuation(preview_job_id)
     if status.get("production_activation") is not False or status.get("production_ready") is not False:
         raise FidelityComponentGapExecutionError("high-fidelity continuation crossed the non-production boundary")
+    status_fine_authority_sha = _canonical_sha(
+        status.get("fine_identity_authority_sha256"),
+        field="continuation fine-identity authority SHA",
+        length=64,
+    )
+    status_fine_attestation_sha = _canonical_sha(
+        status.get("fine_identity_attestation_sha256"),
+        field="continuation fine-identity attestation SHA",
+        length=64,
+    )
+    if (
+        status_fine_authority_sha != preview_fine_authority_sha
+        or status_fine_attestation_sha != preview_fine_attestation_sha
+    ):
+        raise FidelityComponentGapExecutionError(
+            "face-secondary continuation fine-identity lineage differs from the validated preview"
+        )
     current_package = _need_file(status.get("current_package_path"), label="continuation current package")
     current_sha = _canonical_sha(status.get("current_package_sha256"), field="continuation current package SHA", length=64)
     if _sha256_file(current_package) != current_sha:
@@ -302,6 +329,8 @@ def _face_execution(plan: Mapping[str, Any], context: Mapping[str, Any], repo_ro
         "canonical_body_id": preview_body_id,
         "preview_bodyrig_revision": preview_revision,
         "preview_candidate_package_sha256": preview_candidate_sha,
+        "fine_identity_authority_sha256": preview_fine_authority_sha,
+        "fine_identity_attestation_sha256": preview_fine_attestation_sha,
         "preview_lineage_resolution": preview_lineage_resolution,
     }
 
