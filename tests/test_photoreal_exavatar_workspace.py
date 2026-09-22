@@ -166,3 +166,41 @@ def test_workspace_git_uses_command_local_safe_directory(
         "rev-parse",
         "HEAD",
     ]
+
+
+def test_workspace_local_clone_marks_only_root_owned_source_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "root-owned" / "ExAvatar_RELEASE"
+    destination = tmp_path / "workspace" / "ExAvatar_RELEASE"
+    source.mkdir(parents=True)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, *, label):
+        calls.append(argv)
+        return ""
+
+    def fake_git(path: Path, *args: str):
+        if args == ("rev-parse", "HEAD"):
+            return workspace.UPSTREAM_COMMIT
+        if args == ("status", "--porcelain"):
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(workspace, "_run", fake_run)
+    monkeypatch.setattr(workspace, "_git", fake_git)
+
+    workspace._clone_pinned(source, destination, workspace.UPSTREAM_COMMIT)
+
+    resolved = source.resolve()
+    assert calls[0] == [
+        "git",
+        "-c",
+        f"safe.directory={resolved}",
+        "clone",
+        "--shared",
+        "--no-checkout",
+        str(resolved),
+        str(destination),
+    ]
