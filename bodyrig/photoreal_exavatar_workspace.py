@@ -88,7 +88,11 @@ def _run(argv: list[str], *, label: str) -> str:
 
 
 def _git(path: Path, *args: str) -> str:
-    return _run(["git", "-C", str(path), *args], label=f"git {' '.join(args)} in {path.name}")
+    resolved = path.expanduser().resolve()
+    return _run(
+        ["git", "-c", f"safe.directory={resolved}", "-C", str(resolved), *args],
+        label=f"git {' '.join(args)} in {path.name}",
+    )
 
 
 def _validate_preflight(preflight: Mapping[str, Any], *, smplx_gender: str) -> str:
