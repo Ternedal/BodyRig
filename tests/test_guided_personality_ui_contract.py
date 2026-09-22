@@ -179,6 +179,10 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "selectPerson(personId,{manual:true})"
     )
     assert 'if($("personSelect").value!==personId) return' in listener_source
+    restore = listener_source.index('$("personSelect").value=state.person?.person_id||""')
+    failed_save = listener_source.index('if($("status").textContent.startsWith("Gemning fejlede:"))', restore)
+    reenable = listener_source.index('$("saveButton").disabled=!(state.preview&&state.requestKey===key())', failed_save)
+    assert restore < failed_save < reenable
 
 
 def test_guided_person_async_results_cannot_cross_person_context() -> None:
@@ -244,20 +248,25 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     save_start = preview_end + 1
     save_end = html.index("\n\n  buildSliders();", save_start)
     save_source = html[save_start:save_end]
-    assert "const personGeneration=state.personSelectionGeneration" in save_source
+    assert "const personContext=state.person" in save_source
     assert "const saveGeneration=++state.saveRequestGeneration" in save_source
     assert "const saveViewKey=JSON.stringify(request)" in save_source
     assert "const currentSaveViewKey=()=>JSON.stringify" in save_source
+    assert 'const isCurrentSaveContext=()=>state.person===personContext&&state.person?.person_id===personId&&$("personSelect").value===personId' in save_source
     assert 'const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…"' in save_source
     assert "const settleStaleSave=result=>" in save_source
     assert "if(saveGeneration!==state.saveRequestGeneration) return" in save_source
     assert 'if($("status").textContent===savingStatus)' in save_source
     assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
     assert "const settleFailedSave=error=>" in save_source
-    assert "saveGeneration!==state.saveRequestGeneration||!isCurrentPerson(personId,personGeneration)" in save_source
-    assert '$("saveButton").disabled=!(state.preview&&state.requestKey===key())' in save_source
+    failed_start = save_source.index("const settleFailedSave=error=>")
+    failed_end = save_source.index("};", failed_start)
+    failed_source = save_source[failed_start:failed_end]
+    assert "if(saveGeneration!==state.saveRequestGeneration) return" in failed_source
+    assert "isCurrentPerson(personId,personGeneration)" not in failed_source
+    assert 'if(isCurrentSaveContext()) $("saveButton").disabled=!(state.preview&&state.requestKey===key())' in failed_source
     assert 'catch(error){settleFailedSave(error);}' in save_source
-    guard_text = "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)"
+    guard_text = "if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey)"
     first_guard = save_source.index(guard_text)
     first_settle = save_source.index("settleStaleSave(result)", first_guard)
     refresh = save_source.index("const refreshedPerson=await api", first_settle)
@@ -298,7 +307,7 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
         'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
     )
     guard = save_source.index(
-        "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)",
+        "if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey)",
         refresh,
     )
     assign = save_source.index("state.person=refreshedPerson", guard)
@@ -328,7 +337,7 @@ def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
         'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
     )
     guard = save_source.index(
-        "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)",
+        "if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey)",
         refresh,
     )
     assign = save_source.index("state.person=refreshedPerson", guard)
