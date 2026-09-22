@@ -68,6 +68,13 @@ def _canonical_json_sha(value: Mapping[str, Any]) -> str:
     return _sha256_bytes(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8"))
 
 
+def _canonical_sha(value: Any, *, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise HighFidelityFaceSecondaryRuntimeError(f"{label} is not a canonical SHA-256")
+    return text
+
+
 def _bodyrig(document: Mapping[str, Any]) -> dict[str, Any]:
     extras = document.get("extras")
     bodyrig = extras.get("bodyrig") if isinstance(extras, dict) else None
@@ -711,6 +718,15 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
         or embedded.get("eyePromotionSha256") != value.get("eyePromotionSha256")
         or embedded.get("canonicalBodyId") != value.get("canonicalBodyId")
         or embedded.get("bodyrigRevision") != value.get("bodyrigRevision")
+        or embedded.get("sourceDerivedDentalIdentity") != value.get("sourceDerivedDentalIdentity")
+        or embedded.get("genericSecondaryAnatomy") != value.get("genericSecondaryAnatomy")
+        or embedded.get("genericGeometryComponents") != value.get("genericGeometryComponents")
+        or embedded.get("dentalReconstructionResultSha256") != value.get("dentalReconstructionResultSha256")
+        or embedded.get("dentalVrmSha256") != value.get("dentalVrmSha256")
+        or embedded.get("fineIdentityAttestationSha256") != value.get("fineIdentityAttestationSha256")
+        or embedded.get("dentalTextureSha256") != value.get("dentalTextureSha256")
+        or embedded.get("dentalAdapter") != value.get("dentalAdapter")
+        or embedded.get("dentalAdapterRevision") != value.get("dentalAdapterRevision")
     ):
         raise HighFidelityFaceSecondaryRuntimeError("embedded face-secondary runtime authority is stale")
     if (
@@ -722,4 +738,81 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
         or embedded.get("productionActivation") is not False
     ):
         raise HighFidelityFaceSecondaryRuntimeError("embedded face-secondary runtime crossed review-only authority")
+
+    source_dental = value.get("sourceDerivedDentalIdentity")
+    generic = value.get("genericSecondaryAnatomy")
+    if type(source_dental) is not bool or type(generic) is not bool or source_dental is generic:
+        raise HighFidelityFaceSecondaryRuntimeError(
+            "face-secondary dental source/generic mode is inconsistent"
+        )
+    if source_dental:
+        if value.get("genericGeometryComponents") != ["eyelashes"]:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental runtime generic component disclosure is invalid"
+            )
+        result_sha = _canonical_sha(
+            value.get("dentalReconstructionResultSha256"),
+            label="dental reconstruction result SHA-256",
+        )
+        dental_vrm_sha = _canonical_sha(
+            value.get("dentalVrmSha256"),
+            label="dental source VRM SHA-256",
+        )
+        attestation_sha = _canonical_sha(
+            value.get("fineIdentityAttestationSha256"),
+            label="fine-identity attestation SHA-256",
+        )
+        texture_sha = _canonical_sha(
+            value.get("dentalTextureSha256"),
+            label="dental texture SHA-256",
+        )
+        if not str(value.get("dentalAdapter") or "").strip() or not str(value.get("dentalAdapterRevision") or "").strip():
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental runtime adapter identity is missing"
+            )
+        if (
+            embedded.get("mouthInteriorGeometry") != "source-derived-dental-candidate-v1"
+            or embedded.get("teethGeometry") != "source-derived-dental-candidate-v1"
+        ):
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental runtime geometry disclosure is invalid"
+            )
+        try:
+            payload = audit_source_dental_face_payload(
+                vrm_path.read_bytes(),
+                expected_texture_sha256=texture_sha,
+            )
+        except SourceDentalFaceGraftError as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                f"source-derived dental review payload failed audit: {exc}"
+            ) from exc
+        if payload.get("source_derived_dental_identity") is not True:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental review payload lost identity authority"
+            )
+        _ = (result_sha, dental_vrm_sha, attestation_sha)
+    else:
+        if value.get("genericGeometryComponents") != ["mouth_interior", "teeth", "eyelashes"]:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "historical generic face-secondary component disclosure is invalid"
+            )
+        for field in (
+            "dentalReconstructionResultSha256",
+            "dentalVrmSha256",
+            "fineIdentityAttestationSha256",
+            "dentalTextureSha256",
+            "dentalAdapter",
+            "dentalAdapterRevision",
+        ):
+            if value.get(field) is not None:
+                raise HighFidelityFaceSecondaryRuntimeError(
+                    f"historical generic face-secondary runtime unexpectedly carries {field}"
+                )
+        if (
+            embedded.get("mouthInteriorGeometry") != "deterministic-rounded-oval-cavity-v2"
+            or embedded.get("teethGeometry") != "deterministic-individual-rounded-dental-row-v2"
+        ):
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "historical generic face-secondary geometry disclosure changed"
+            )
     return {**value, "reviewVrmPath": str(vrm_path), "receiptPath": str(receipt_path)}
