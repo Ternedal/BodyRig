@@ -215,27 +215,22 @@ Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmd
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
-# Reuse a completed pinned PyTorch3D build when possible. Source provenance is
-# bound to a commit marker written only after a successful download from GitHub's
-# commit-addressed codeload archive and successful extraction.
+# Reuse a completed pinned PyTorch3D source cache when possible. Source
+# provenance is bound to a commit marker written only after a successful
+# commit-addressed codeload download, archive validation, and extraction.
 & $WslExe -d $Distribution -- /usr/bin/test -f $pytorch3dCommitMarker 2>$null
 $pytorch3dMarkerExists = ($LASTEXITCODE -eq 0)
-$pytorch3dMarkerMatches = $false
+$pytorch3dSourceReady = $false
 if ($pytorch3dMarkerExists) {
     $markerRaw = @(& $WslExe -d $Distribution -- /bin/cat $pytorch3dCommitMarker 2>$null)
-    $pytorch3dMarkerMatches = (
+    $pytorch3dSourceReady = (
         $LASTEXITCODE -eq 0 -and
         $markerRaw.Count -eq 1 -and
         ([string]$markerRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
     )
 }
-& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c "import pytorch3d" 1>$null 2>$null
-$pytorch3dImportReady = ($LASTEXITCODE -eq 0)
-$pytorch3dReusable = ($pytorch3dMarkerMatches -and $pytorch3dImportReady)
 
-if ($pytorch3dReusable) {
-    Write-Host "PyTorch3D:          REUSE PINNED BUILD"
-} else {
+if (-not $pytorch3dSourceReady) {
     Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $pytorch3dSourceRoot)
     Invoke-Wsl -Root -Arguments @("/bin/mkdir", "-p", $pytorch3dSourceParent)
 
@@ -271,9 +266,19 @@ if ($pytorch3dReusable) {
         "--strip-components=1",
         "-C", $pytorch3dSourceRoot
     )
-    $markerCode = "from pathlib import Path; Path('$pytorch3dCommitMarker').write_text('$pytorch3dCommit\\n', encoding='utf-8')"
+    $markerCode = "from pathlib import Path; Path('$pytorch3dCommitMarker').write_text('$pytorch3dCommit\n', encoding='utf-8')"
     Invoke-Wsl -Root -Arguments @("/usr/bin/python3", "-c", $markerCode)
+    $pytorch3dSourceReady = $true
+    Write-Host "PyTorch3D source:   PINNED ARCHIVE READY"
+} else {
+    Write-Host "PyTorch3D source:   REUSE PINNED ARCHIVE"
+}
 
+& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c "import pytorch3d" 1>$null 2>$null
+$pytorch3dImportReady = ($LASTEXITCODE -eq 0)
+if ($pytorch3dImportReady) {
+    Write-Host "PyTorch3D:          REUSE PINNED BUILD"
+} else {
     Invoke-Wsl -Root -Arguments @(
         "/usr/bin/env",
         "FORCE_CUDA=1",
