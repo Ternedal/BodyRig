@@ -705,18 +705,34 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         return blocked
 
     components = dict(audit.get("components") or {})
+    expected_fine_authority = (
+        str(base.get("fine_identity_authority_sha256") or "").strip().lower() or None
+    )
+    expected_fine_attestation = (
+        str(base.get("fine_identity_attestation_sha256") or "").strip().lower() or None
+    )
     fine_pending = _fine_identity_pending_audit(
         audit,
-        expected_authority_sha256=(
-            str(base.get("fine_identity_authority_sha256") or "").strip().lower() or None
-        ),
-        expected_attestation_sha256=(
-            str(base.get("fine_identity_attestation_sha256") or "").strip().lower() or None
-        ),
+        expected_authority_sha256=expected_fine_authority,
+        expected_attestation_sha256=expected_fine_attestation,
         expected_bodyrig_revision=(
             source_bodyrig_revision if fine_identity_handoff_requirement is not None else None
         ),
     )
+    if fine_pending is not None and (
+        expected_fine_authority is None or expected_fine_attestation is None
+    ):
+        blocked = _blocked_hfn_result(
+            base,
+            gates=combined,
+            package_path=current_package,
+            package_sha=current_sha,
+            gate_id=CANDIDATE_GATE,
+            reason="final HFN candidate introduced fine-identity requirements without originating lineage authority",
+        )
+        blocked["source_bodyrig_revision"] = source_bodyrig_revision
+        blocked["hfn_bodyrig_revision"] = hfn_bodyrig_revision
+        return blocked
     if fine_pending is not None:
         reason = (
             "HFN review is complete, but photoidentical readiness still requires the exact "
@@ -825,9 +841,6 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         "production_activation": False,
         "final_audit": audit,
     })
-    return result
-
-
     return result
 
 
