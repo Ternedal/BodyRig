@@ -95,8 +95,35 @@ def _current_authority(preparation_dir: Path, runtime_dir: Path, render_dir: Pat
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime candidate component set is not canonical review-pending v1")
     if runtime.get("semanticAnchorAuthority") != "licensed-smplx-joint-topology-v1":
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime lacks licensed SMPL-X semantic anchor authority")
-    if runtime.get("genericSecondaryAnatomy") is not True:
-        raise HighFidelityFaceSecondaryReviewError("face-secondary review requires explicit generic secondary anatomy disclosure")
+    source_dental = runtime.get("sourceDerivedDentalIdentity")
+    generic = runtime.get("genericSecondaryAnatomy")
+    if type(source_dental) is not bool or type(generic) is not bool or source_dental is generic:
+        raise HighFidelityFaceSecondaryReviewError("face-secondary dental source/generic mode is invalid")
+    dental_lineage = {
+        "dentalReconstructionResultSha256": runtime.get("dentalReconstructionResultSha256"),
+        "dentalVrmSha256": runtime.get("dentalVrmSha256"),
+        "fineIdentityAttestationSha256": runtime.get("fineIdentityAttestationSha256"),
+        "dentalTextureSha256": runtime.get("dentalTextureSha256"),
+        "dentalAdapter": runtime.get("dentalAdapter"),
+        "dentalAdapterRevision": runtime.get("dentalAdapterRevision"),
+    }
+    if source_dental:
+        if runtime.get("genericGeometryComponents") != ["eyelashes"]:
+            raise HighFidelityFaceSecondaryReviewError("source-derived dental generic component disclosure is invalid")
+        for field in (
+            "dentalReconstructionResultSha256",
+            "dentalVrmSha256",
+            "fineIdentityAttestationSha256",
+            "dentalTextureSha256",
+        ):
+            _sha(dental_lineage[field], label=field)
+        if not str(dental_lineage["dentalAdapter"] or "").strip() or not str(dental_lineage["dentalAdapterRevision"] or "").strip():
+            raise HighFidelityFaceSecondaryReviewError("source-derived dental adapter identity is missing")
+    else:
+        if runtime.get("genericGeometryComponents") != ["mouth_interior", "teeth", "eyelashes"]:
+            raise HighFidelityFaceSecondaryReviewError("historical generic face-secondary disclosure is invalid")
+        if any(value is not None for value in dental_lineage.values()):
+            raise HighFidelityFaceSecondaryReviewError("historical generic runtime unexpectedly carries dental source lineage")
     if runtime.get("sourceDerivedIdentitySynthesis") is not False or runtime.get("generativeIdentitySynthesis") is not False:
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime crossed identity-synthesis boundary")
     if runtime.get("comparisonOnly") is not True or runtime.get("humanReviewRequired") is not True or runtime.get("faceSecondaryComponentAuthority") is not False or runtime.get("packageMutationPerformed") is not False or runtime.get("productionActivation") is not False:
@@ -122,7 +149,9 @@ def _current_authority(preparation_dir: Path, runtime_dir: Path, render_dir: Pat
         "canonicalViewSha256": dict(preview.get("canonicalViewSha256") or {}),
         "diagnosticViewSha256": dict(preview.get("diagnosticViewSha256") or {}),
         "semanticAnchorAuthority": str(runtime["semanticAnchorAuthority"]),
-        "genericSecondaryAnatomy": True,
+        "sourceDerivedDentalIdentity": source_dental,
+        "genericSecondaryAnatomy": generic,
+        **dental_lineage,
     }
 
 
@@ -135,6 +164,7 @@ def write_review(
     bodyrig_revision: str,
     checklist: Mapping[str, Any],
     quality_note: str,
+    source_dental_identity_confirmed: bool = False,
 ) -> dict[str, Any]:
     preparation_root = Path(preparation_dir).expanduser().resolve()
     runtime_root = Path(runtime_dir).expanduser().resolve()
@@ -159,6 +189,19 @@ def write_review(
         raise HighFidelityFaceSecondaryReviewError("face-secondary human review requires a non-empty quality note")
     if len(note) > 4000:
         raise HighFidelityFaceSecondaryReviewError("face-secondary human review quality note exceeds 4000 characters")
+    source_dental = authority["sourceDerivedDentalIdentity"] is True
+    if source_dental and source_dental_identity_confirmed is not True:
+        raise HighFidelityFaceSecondaryReviewError(
+            "source-derived dental identity requires explicit human confirmation against attested source evidence"
+        )
+    if not source_dental and source_dental_identity_confirmed is True:
+        raise HighFidelityFaceSecondaryReviewError(
+            "source dental identity confirmation cannot be applied to historical generic face-secondary runtime"
+        )
+    dental_identity_review = {
+        "reviewedAgainstAttestedSource": source_dental,
+        "identityMatchAccepted": source_dental and source_dental_identity_confirmed is True,
+    }
 
     receipt = {
         "format": FORMAT,
@@ -174,6 +217,7 @@ def write_review(
             "lowerVisibleAndJawBound": True,
             "openPoseClippingAcceptable": True,
         },
+        "sourceDentalIdentityReviewAuthority": dental_identity_review,
         "humanReviewComplete": True,
         "faceSecondaryPromotionEligible": True,
         "faceSecondaryComponentAuthority": False,
@@ -213,7 +257,8 @@ def read_review(
     )
     required_fields = {
         "format", "version", "policyRevision", *authority.keys(), "reviewedUtc", "checklist", "qualityNote",
-        "componentReviewOutcome", "teethReviewAuthority", "humanReviewComplete", "faceSecondaryPromotionEligible",
+        "componentReviewOutcome", "teethReviewAuthority", "sourceDentalIdentityReviewAuthority",
+        "humanReviewComplete", "faceSecondaryPromotionEligible",
         "faceSecondaryComponentAuthority", "packageMutationPerformed", "productionActivation",
     }
     if set(value) != required_fields:
@@ -230,6 +275,14 @@ def read_review(
         raise HighFidelityFaceSecondaryReviewError("face-secondary component review outcome is not canonical PASS")
     if value.get("teethReviewAuthority") != {"upperVisibleAndPlausible": True, "lowerVisibleAndJawBound": True, "openPoseClippingAcceptable": True}:
         raise HighFidelityFaceSecondaryReviewError("face-secondary teeth review authority is incomplete")
+    expected_dental_identity_review = {
+        "reviewedAgainstAttestedSource": authority["sourceDerivedDentalIdentity"] is True,
+        "identityMatchAccepted": authority["sourceDerivedDentalIdentity"] is True,
+    }
+    if value.get("sourceDentalIdentityReviewAuthority") != expected_dental_identity_review:
+        raise HighFidelityFaceSecondaryReviewError(
+            "face-secondary source dental identity review authority is incomplete"
+        )
     if not str(value.get("qualityNote") or "").strip() or not str(value.get("reviewedUtc") or "").strip():
         raise HighFidelityFaceSecondaryReviewError("face-secondary human review lacks review note/time")
     if value.get("humanReviewComplete") is not True or value.get("faceSecondaryPromotionEligible") is not True:
