@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+import bodyrig.high_fidelity_package_audit as package_audit
+from bodyrig.fine_identity_application import build_requirement
+
 from bodyrig.bridges.avatar_fidelity_components import (
     current_pipeline_receipt,
     with_component_status,
@@ -162,3 +165,108 @@ def test_face_secondary_complete_requires_concrete_render_payload() -> None:
                 },
             )
         )
+
+
+def _source_dental_face_document() -> tuple[dict, dict]:
+    requirement = build_requirement(
+        bodyrig_revision="a" * 40,
+        fine_identity_authority_sha256="b" * 64,
+        fine_identity_attestation_sha256="c" * 64,
+    )
+    promotion = {
+        "format": "bodyrig-face-secondary-promotion",
+        "version": 1,
+        "component": "face_secondary",
+        "sourceDerivedDentalIdentity": True,
+        "genericSecondaryAnatomy": False,
+        "dentalSourceVrmSha256": "d" * 64,
+        "dentalReconstructionResultSha256": "e" * 64,
+        "fineIdentityAttestationSha256": "c" * 64,
+        "fineIdentityAuthoritySha256": "b" * 64,
+        "dentalSourceReferences": ["oral-a", "oral-b"],
+        "productionActivation": False,
+    }
+    document = {
+        "materials": [
+            {"name": "BodyRigEyelashesReview"},
+            {"name": package_audit.GRAFT_MOUTH_MATERIAL},
+            {"name": package_audit.GRAFT_DENTAL_MATERIAL},
+        ],
+        "meshes": [
+            {
+                "name": package_audit.FACE_MESH,
+                "primitives": [
+                    {"attributes": {"POSITION": 0}, "material": 0},
+                ],
+            },
+            {
+                "name": package_audit.GRAFT_MESH_NAME,
+                "primitives": [
+                    {
+                        "attributes": {"POSITION": 1},
+                        "material": 1,
+                        "extras": {"bodyrigDentalRole": "mouth_interior"},
+                    },
+                    {
+                        "attributes": {"POSITION": 2},
+                        "material": 2,
+                        "extras": {"bodyrigDentalRole": "upper_teeth"},
+                    },
+                    {
+                        "attributes": {"POSITION": 3},
+                        "material": 2,
+                        "extras": {"bodyrigDentalRole": "lower_teeth"},
+                    },
+                ],
+            },
+        ],
+        "nodes": [
+            {"name": package_audit.FACE_NODE, "mesh": 0, "skin": 0},
+            {"name": package_audit.GRAFT_NODE_NAME, "mesh": 1, "skin": 0},
+        ],
+        "scenes": [{"nodes": [0, 1]}],
+    }
+    bodyrig = {
+        "faceSecondaryPromotion": promotion,
+        "fineIdentityRequirement": requirement,
+    }
+    return document, bodyrig
+
+
+def test_source_derived_dental_face_payload_has_strict_separate_graft_contract() -> None:
+    document, bodyrig = _source_dental_face_document()
+
+    result = package_audit._audit_face_payload(document, bodyrig)
+
+    assert result["source_derived_dental_identity"] is True
+    assert result["materials"] == {"BodyRigEyelashesReview": 0}
+    assert result["source_dental"]["roles"] == [
+        "lower_teeth",
+        "mouth_interior",
+        "upper_teeth",
+    ]
+    assert result["source_dental"]["materials"] == {"mouth": 1, "dental": 2}
+
+
+def test_source_derived_dental_face_payload_rejects_missing_graft() -> None:
+    document, bodyrig = _source_dental_face_document()
+    document["nodes"] = [document["nodes"][0]]
+    document["meshes"] = [document["meshes"][0]]
+    document["scenes"] = [{"nodes": [0]}]
+
+    with pytest.raises(
+        HighFidelityPackageAuditError,
+        match="source-derived dental render payload requires exactly one nodes entry",
+    ):
+        package_audit._audit_face_payload(document, bodyrig)
+
+
+def test_source_derived_dental_face_payload_rejects_lineage_drift() -> None:
+    document, bodyrig = _source_dental_face_document()
+    bodyrig["faceSecondaryPromotion"]["fineIdentityAuthoritySha256"] = "9" * 64
+
+    with pytest.raises(
+        HighFidelityPackageAuditError,
+        match="lost fine-identity lineage",
+    ):
+        package_audit._audit_face_payload(document, bodyrig)
