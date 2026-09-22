@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -381,6 +382,137 @@ def _array(document: Mapping[str, Any], name: str) -> list[Any]:
     return value
 
 
+def _tight_accessor_bytes(
+    document: Mapping[str, Any],
+    binary: bytes,
+    index: Any,
+    *,
+    label: str,
+    expected_component: int,
+    expected_kind: str,
+) -> tuple[dict[str, Any], bytes]:
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor index is invalid")
+    accessors = _array(document, "accessors")
+    views = _array(document, "bufferViews")
+    if not 0 <= index < len(accessors) or not isinstance(accessors[index], Mapping):
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor is missing")
+    accessor = accessors[index]
+    if "sparse" in accessor or "bufferView" not in accessor:
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor must be dense and embedded")
+    component = accessor.get("componentType")
+    kind = accessor.get("type")
+    count = accessor.get("count")
+    if (
+        component != expected_component
+        or kind != expected_kind
+        or isinstance(count, bool)
+        or not isinstance(count, int)
+        or count < 1
+    ):
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor type/count is invalid")
+    view_index = accessor.get("bufferView")
+    if (
+        isinstance(view_index, bool)
+        or not isinstance(view_index, int)
+        or not 0 <= view_index < len(views)
+        or not isinstance(views[view_index], Mapping)
+    ):
+        raise PhotoIdentityDentalReconstructionError(f"{label} bufferView is invalid")
+    view = views[view_index]
+    if view.get("buffer", 0) != 0:
+        raise PhotoIdentityDentalReconstructionError(f"{label} must use embedded buffer 0")
+    component_size = {5123: 2, 5125: 4, 5126: 4}[expected_component]
+    width = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[expected_kind]
+    element_size = component_size * width
+    view_offset = view.get("byteOffset", 0)
+    view_length = view.get("byteLength")
+    accessor_offset = accessor.get("byteOffset", 0)
+    stride = view.get("byteStride", element_size)
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in (view_offset, view_length, accessor_offset, stride)
+    ):
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor bounds are invalid")
+    if (
+        view_length < 1
+        or stride < element_size
+        or view_offset + view_length > len(binary)
+        or accessor_offset + (count - 1) * stride + element_size > view_length
+    ):
+        raise PhotoIdentityDentalReconstructionError(f"{label} accessor exceeds embedded bytes")
+    raw = bytearray()
+    start = view_offset + accessor_offset
+    for item in range(count):
+        begin = start + item * stride
+        raw.extend(binary[begin : begin + element_size])
+    return dict(accessor), bytes(raw)
+
+
+def _validate_source_primitive_accessors(
+    document: Mapping[str, Any],
+    binary: bytes,
+    primitive: Mapping[str, Any],
+    *,
+    role: str,
+) -> int:
+    attrs = primitive.get("attributes")
+    if not isinstance(attrs, Mapping):
+        raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} attributes are invalid")
+    specs = {
+        "POSITION": (5126, "VEC3"),
+        "NORMAL": (5126, "VEC3"),
+        "TEXCOORD_0": (5126, "VEC2"),
+        "JOINTS_0": (5123, "VEC4"),
+        "WEIGHTS_0": (5126, "VEC4"),
+    }
+    counts: dict[str, int] = {}
+    for semantic, (component, kind) in specs.items():
+        accessor, _raw = _tight_accessor_bytes(
+            document,
+            binary,
+            attrs.get(semantic),
+            label=f"{role} {semantic}",
+            expected_component=component,
+            expected_kind=kind,
+        )
+        counts[semantic] = int(accessor["count"])
+    vertex_count = counts["POSITION"]
+    if any(count != vertex_count for count in counts.values()):
+        raise PhotoIdentityDentalReconstructionError(
+            f"dental VRM {role} vertex attribute counts differ"
+        )
+    indices_accessor = primitive.get("indices")
+    accessors = _array(document, "accessors")
+    if isinstance(indices_accessor, bool) or not isinstance(indices_accessor, int) or not 0 <= indices_accessor < len(accessors):
+        raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} indices are invalid")
+    index_meta = accessors[indices_accessor]
+    if not isinstance(index_meta, Mapping):
+        raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} index accessor is invalid")
+    component = index_meta.get("componentType")
+    if component not in {5123, 5125} or index_meta.get("type") != "SCALAR":
+        raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} index accessor type is invalid")
+    _meta, raw = _tight_accessor_bytes(
+        document,
+        binary,
+        indices_accessor,
+        label=f"{role} indices",
+        expected_component=int(component),
+        expected_kind="SCALAR",
+    )
+    index_count = int(index_meta.get("count", 0))
+    if index_count < 3 or index_count % 3:
+        raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} triangle indices are invalid")
+    fmt = "<H" if component == 5123 else "<I"
+    size = 2 if component == 5123 else 4
+    values = [struct.unpack_from(fmt, raw, offset)[0] for offset in range(0, len(raw), size)]
+    if any(index >= vertex_count for index in values):
+        raise PhotoIdentityDentalReconstructionError(
+            f"dental VRM {role} index references outside vertex range"
+        )
+    return vertex_count
+
+
 def _named_index(document: Mapping[str, Any], array_name: str, name: str) -> int:
     values = _array(document, array_name)
     matches = [
@@ -426,8 +558,12 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
         required_attrs = {"POSITION", "NORMAL", "TEXCOORD_0", "JOINTS_0", "WEIGHTS_0"}
         if not isinstance(attrs, Mapping) or set(attrs) != required_attrs:
             raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} attributes are not canonical")
-        if not isinstance(primitive.get("indices"), int) or isinstance(primitive.get("indices"), bool):
-            raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} indices are invalid")
+        _validate_source_primitive_accessors(
+            document,
+            binary,
+            primitive,
+            role=str(role),
+        )
         expected_material = mouth_material if role == "mouth_interior" else dental_material
         if primitive.get("material") != expected_material:
             raise PhotoIdentityDentalReconstructionError(f"dental VRM {role} material binding is invalid")
