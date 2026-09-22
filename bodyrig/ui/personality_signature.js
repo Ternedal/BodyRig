@@ -352,6 +352,7 @@
     });
   }
   document.getElementById("personSelect")?.addEventListener("change", scheduleRender);
+  document.addEventListener("bodyrig:person-context-restored", scheduleRender);
   document.addEventListener("bodyrig:matrix-compare-change", scheduleRender);
 
   scheduleRender();
