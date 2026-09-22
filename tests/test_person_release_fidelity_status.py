@@ -6,6 +6,7 @@ from bodyrig.acceptance_status import AcceptanceStatus
 from bodyrig.high_fidelity_package_audit import HighFidelityPackageAuditError
 from bodyrig.person_release_status import (
     PersonReleaseStatusError,
+    _high_fidelity_fidelity,
     _registered_fidelity_status,
     inspect_candidate_release_status,
 )
@@ -61,6 +62,39 @@ def _human_review(*, passed: bool) -> dict:
         "reason": None if passed else "Explicit high-fidelity human review is required for this exact package.",
         **({"reviewed_utc": "2026-09-02T14:00:00Z", "policy_revision": "bodyrig-high-fidelity-human-review-v1"} if passed else {}),
     }
+
+
+def test_high_fidelity_router_preserves_v2_photoidentity_review_policy() -> None:
+    readiness = {
+        "component_package_complete": True,
+        "components": {"body_anatomy": "complete", "face_secondary": "complete"},
+        "final_audit": {
+            "face_secondary_ready": True,
+            "face_secondary_components": {},
+            "face_secondary_blockers": [],
+            "semantic_vertex_map_authority": "licensed-smplx-verified",
+        },
+        "high_fidelity_human_review_complete": True,
+        "gates": [
+            {
+                "id": "high_fidelity_human_review",
+                "state": "pass",
+                "evidence": {
+                    "policy_revision": "bodyrig-high-fidelity-human-review-v2-photoidentity",
+                },
+            }
+        ],
+        "production_ready": False,
+        "next_gate": {"reason": "physical acceptance required"},
+    }
+
+    value = _high_fidelity_fidelity(readiness)
+
+    assert value["human_review"]["passed"] is True
+    assert (
+        value["human_review"]["policy_revision"]
+        == "bodyrig-high-fidelity-human-review-v2-photoidentity"
+    )
 
 
 def test_registered_fidelity_status_exposes_exact_component_blockers(
