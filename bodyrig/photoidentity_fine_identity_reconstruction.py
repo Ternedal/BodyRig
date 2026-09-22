@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import zipfile
@@ -37,6 +38,41 @@ INPUT_FORMAT = "bodyrig-photoidentity-fine-identity-reconstruction-input"
 INPUT_VERSION = 1
 RESULT_FORMAT = "bodyrig-photoidentity-fine-identity-reconstruction-result"
 RESULT_VERSION = 1
+INPUT_FIELDS = {
+    "format",
+    "version",
+    "canonical_body_id",
+    "operator_bodyrig_revision",
+    "requirement_bodyrig_revision",
+    "performer_id",
+    "fine_identity_authority_sha256",
+    "fine_identity_attestation_sha256",
+    "private_manifest_sha256",
+    "source_package_sha256",
+    "source_avatar_sha256",
+    "source_avatar_path",
+    "marker_inventory_sha256",
+    "marker_inventory_path",
+    "domains",
+    "source_grounded",
+    "generic_guessing_permitted",
+    "generative_identity_synthesis",
+    "human_review_required",
+    "package_application_authority",
+    "production_activation",
+}
+INPUT_EVIDENCE_FIELDS = {
+    "reference",
+    "scene_id",
+    "region",
+    "source_ordinal",
+    "source_media_sha256",
+    "review_image_sha256",
+    "source_quality",
+    "staged_review_image",
+}
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+
 RESULT_FIELDS = {
     "format",
     "version",
@@ -512,6 +548,187 @@ def prepare_input_workspace(
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise
+
+
+
+def _canonical_sha(value: Any, *, label: str) -> str:
+    text = str(value or "").strip().lower()
+    if not SHA_RE.fullmatch(text):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            f"{label} is not a canonical SHA-256"
+        )
+    return text
+
+
+def validate_input_manifest(
+    value: Mapping[str, Any],
+    *,
+    workspace_root: Path,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != INPUT_FIELDS:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity reconstruction input fields must match v1 exactly"
+        )
+    if value.get("format") != INPUT_FORMAT or value.get("version") != INPUT_VERSION:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity reconstruction input format/version mismatch"
+        )
+    for field, expected in (
+        ("source_grounded", True),
+        ("generic_guessing_permitted", False),
+        ("generative_identity_synthesis", False),
+        ("human_review_required", True),
+        ("package_application_authority", False),
+        ("production_activation", False),
+    ):
+        if value.get(field) is not expected:
+            raise PhotoIdentityFineIdentityReconstructionError(
+                f"fine-identity reconstruction input authority mismatch: {field}"
+            )
+
+    operator_revision = _canonical_revision(value.get("operator_bodyrig_revision"))
+    requirement_revision = _canonical_revision(value.get("requirement_bodyrig_revision"))
+    for field in (
+        "fine_identity_authority_sha256",
+        "fine_identity_attestation_sha256",
+        "private_manifest_sha256",
+        "source_package_sha256",
+        "source_avatar_sha256",
+        "marker_inventory_sha256",
+    ):
+        _canonical_sha(value.get(field), label=field)
+
+    root = workspace_root.expanduser().resolve()
+    source_avatar_path = (root / "input" / "source-avatar.vrm").resolve()
+    marker_path = (root / "input" / "distinctive-marker-inventory.json").resolve()
+    if Path(str(value.get("source_avatar_path") or "")).expanduser().resolve() != source_avatar_path:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity input source avatar path escaped canonical workspace"
+        )
+    if Path(str(value.get("marker_inventory_path") or "")).expanduser().resolve() != marker_path:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity input marker inventory path escaped canonical workspace"
+        )
+    if _sha256_file(source_avatar_path) != value["source_avatar_sha256"]:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "staged source avatar no longer matches input authority"
+        )
+    if _sha256_file(marker_path) != value["marker_inventory_sha256"]:
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "staged marker inventory no longer matches input authority"
+        )
+
+    domains = value.get("domains")
+    if not isinstance(domains, Mapping) or set(domains) != set(APPLICATION_DOMAINS):
+        raise PhotoIdentityFineIdentityReconstructionError(
+            "fine-identity reconstruction input domain set is incomplete"
+        )
+    source_references: dict[str, list[str]] = {}
+    canonical_domains: dict[str, list[dict[str, Any]]] = {}
+    for domain in APPLICATION_DOMAINS:
+        entries = domains.get(domain)
+        if not isinstance(entries, list) or len(entries) < 2:
+            raise PhotoIdentityFineIdentityReconstructionError(
+                f"{domain} input requires at least two evidence items"
+            )
+        refs: list[str] = []
+        scenes: set[str] = set()
+        canonical_entries: list[dict[str, Any]] = []
+        domain_root = (root / "input" / domain).resolve()
+        for entry in entries:
+            if not isinstance(entry, Mapping) or set(entry) != INPUT_EVIDENCE_FIELDS:
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} input evidence fields are not canonical"
+                )
+            reference = str(entry.get("reference") or "").strip()
+            scene = str(entry.get("scene_id") or "").strip()
+            if not reference or reference in refs or not scene:
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} input evidence identity is invalid"
+                )
+            staged_path = Path(str(entry.get("staged_review_image") or "")).expanduser().resolve()
+            if staged_path.parent != domain_root:
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} staged review image escaped canonical workspace"
+                )
+            expected = _canonical_sha(
+                entry.get("review_image_sha256"),
+                label=f"{domain} review image SHA-256",
+            )
+            _canonical_sha(
+                entry.get("source_media_sha256"),
+                label=f"{domain} source media SHA-256",
+            )
+            if _sha256_file(staged_path) != expected:
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} staged review image hash drifted: {reference}"
+                )
+            source_ordinal = entry.get("source_ordinal")
+            quality = entry.get("source_quality")
+            if isinstance(source_ordinal, bool) or not isinstance(source_ordinal, int) or source_ordinal < 0:
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} source ordinal is invalid"
+                )
+            if isinstance(quality, bool) or not isinstance(quality, (int, float)):
+                raise PhotoIdentityFineIdentityReconstructionError(
+                    f"{domain} source quality is invalid"
+                )
+            refs.append(reference)
+            scenes.add(scene)
+            canonical_entries.append(dict(entry))
+        if len(scenes) < 2:
+            raise PhotoIdentityFineIdentityReconstructionError(
+                f"{domain} input requires at least two distinct source scenes"
+            )
+        source_references[domain] = refs
+        canonical_domains[domain] = canonical_entries
+
+    return {
+        **dict(value),
+        "operator_bodyrig_revision": operator_revision,
+        "requirement_bodyrig_revision": requirement_revision,
+        "domains": canonical_domains,
+        "source_references": source_references,
+    }
+
+
+def read_reconstruction_workspace(
+    *,
+    workspace: Path,
+    config_path: Path,
+) -> dict[str, Any]:
+    root = workspace.expanduser().resolve()
+    input_manifest_path = root / "fine-identity-reconstruction-input.json"
+    result_path = root / "adapter-output" / "fine-identity-reconstruction.json"
+    candidate_vrm_path = root / "adapter-output" / "fine-identity-candidate.vrm"
+    config_raw = _read_json(
+        config_path.expanduser().resolve(),
+        label="Fine-identity adapter config",
+    )
+    try:
+        config = validate_adapter_config(config_raw)
+    except PhotoIdentityFineIdentityAdapterError as exc:
+        raise PhotoIdentityFineIdentityReconstructionError(str(exc)) from exc
+    prepared = validate_input_manifest(
+        _read_json(input_manifest_path, label="Fine-identity reconstruction input"),
+        workspace_root=root,
+    )
+    result = validate_adapter_result(
+        result_path=result_path,
+        candidate_vrm_path=candidate_vrm_path,
+        input_manifest_path=input_manifest_path,
+        config=config,
+        prepared=prepared,
+    )
+    return {
+        **result,
+        "workspace": str(root),
+        "input_manifest_path": str(input_manifest_path),
+        "candidate_vrm_path": str(candidate_vrm_path),
+        "result_path": str(result_path),
+        "prepared": prepared,
+        "config": config,
+    }
 
 
 def validate_adapter_result(
