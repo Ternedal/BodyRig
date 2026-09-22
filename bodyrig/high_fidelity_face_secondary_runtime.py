@@ -15,6 +15,15 @@ from .fine_identity_application import (
     FineIdentityApplicationError,
     validate_requirement as validate_fine_identity_requirement,
 )
+from .photoidentity_dental_reconstruction import (
+    PhotoIdentityDentalReconstructionError,
+    read_reconstruction_workspace,
+)
+from .source_dental_face_graft import (
+    SourceDentalFaceGraftError,
+    audit_source_dental_face_payload,
+    graft_source_dental_with_lashes,
+)
 from .package import MRBodyError, validate_package
 
 FORMAT = "bodyrig-high-fidelity-face-secondary-runtime"
@@ -77,20 +86,19 @@ def _package_avatar(path: Path) -> tuple[bytes, str, str]:
     return avatar, str(validated.manifest["id"]), _sha256_file(path)
 
 
-def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _validate_source(
+    document: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None]:
     bodyrig = _bodyrig(document)
     fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    fine_requirement: dict[str, Any] | None = None
     if fine_requirement_raw is not None:
         try:
-            validate_fine_identity_requirement(fine_requirement_raw)
+            fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
         except FineIdentityApplicationError as exc:
             raise HighFidelityFaceSecondaryRuntimeError(
                 f"photoidentical fine-identity requirement is invalid: {exc}"
             ) from exc
-        raise HighFidelityFaceSecondaryRuntimeError(
-            "photoidentical fine-identity requires a source-derived dental candidate; "
-            "refusing deterministic generic mouth/teeth face-secondary runtime"
-        )
     try:
         top = validate_receipt(bodyrig.get("fidelityComponents", {}))
         face = validate_face_secondary_receipt(bodyrig.get("faceSecondaryFidelity", {}))
@@ -118,7 +126,7 @@ def _validate_source(document: Mapping[str, Any]) -> tuple[dict[str, Any], dict[
         raise HighFidelityFaceSecondaryRuntimeError("source-derived face appearance authority is invalid")
     if "faceSecondaryReviewRuntime" in bodyrig:
         raise HighFidelityFaceSecondaryRuntimeError("source package already contains face-secondary review runtime metadata")
-    return bodyrig, top, face
+    return bodyrig, top, face, fine_requirement
 
 
 def _node_parent_map(document: Mapping[str, Any]) -> dict[int, int]:
@@ -440,7 +448,13 @@ def _append_geometry(document: dict[str, Any], binary_raw: bytes, primitives_sou
     return _write_glb(document, bytes(binary))
 
 
-def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_revision: str) -> dict[str, Any]:
+def build_runtime(
+    package_path: str | Path,
+    output_dir: str | Path,
+    *,
+    bodyrig_revision: str,
+    dental_reconstruction_dir: str | Path | None = None,
+) -> dict[str, Any]:
     package = Path(package_path).expanduser().resolve()
     root = Path(output_dir).expanduser().resolve()
     if root.exists():
@@ -452,7 +466,37 @@ def build_runtime(package_path: str | Path, output_dir: str | Path, *, bodyrig_r
         document, binary = _read_glb(avatar)
     except PbrMaterialError as exc:
         raise HighFidelityFaceSecondaryRuntimeError(str(exc)) from exc
-    bodyrig, top, face = _validate_source(document)
+    bodyrig, top, face, fine_requirement = _validate_source(document)
+
+    dental: dict[str, Any] | None = None
+    if fine_requirement is None:
+        if dental_reconstruction_dir is not None:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental candidate cannot be attached without fineIdentityRequirement"
+            )
+    else:
+        if dental_reconstruction_dir is None:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "photoidentical fine-identity requires a source-derived dental candidate"
+            )
+        try:
+            dental = read_reconstruction_workspace(dental_reconstruction_dir)
+        except (OSError, PhotoIdentityDentalReconstructionError) as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                f"source-derived dental candidate failed revalidation: {exc}"
+            ) from exc
+        if dental.get("bodyrig_revision") != bodyrig_revision:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental candidate BodyRig revision differs from runtime checkout"
+            )
+        if dental.get("bodyrig_revision") != fine_requirement.get("bodyrigRevision"):
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental candidate revision differs from fine-identity requirement"
+            )
+        if dental.get("fine_identity_attestation_sha256") != fine_requirement.get("fineIdentityAttestationSha256"):
+            raise HighFidelityFaceSecondaryRuntimeError(
+                "source-derived dental candidate attestation differs from fine-identity requirement"
+            )
 
     joint_values = {name: _joint_world(document, name) for name in JOINT_NAMES}
     head_joint, head = joint_values["smplx_head"]
