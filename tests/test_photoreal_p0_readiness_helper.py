@@ -26,6 +26,29 @@ def test_readiness_helper_binds_operator_supplied_exact_revision() -> None:
     assert "c98442a06eee32fb9ca0b8e386856bef58c8350c" not in source
 
 
+
+def test_readiness_helper_requires_current_clean_origin_main_for_revalidation() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'rev-parse --abbrev-ref HEAD' in source
+    assert 'requires the canonical main branch' in source
+    assert 'status --porcelain' in source
+    assert 'requires an exact clean checkout' in source
+    assert 'refs/remotes/origin/main^{commit}' in source
+    assert 'HEAD must equal fetched origin/main' in source
+
+
+def test_readiness_helper_can_revalidate_historical_ancestor_without_faking_old_ci() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "function Test-HistoricalRevisionAncestor" in source
+    assert 'merge-base --is-ancestor $EvidenceRevision $VerifierRevision' in source
+    assert 'softwareQualificationMode = "historical-ancestor-revalidated-by-current-main"' in source
+    assert 'evidence_exact_head_qualification_complete = $evidenceExactHeadQualified' in source
+    assert 'historical_ancestor_revalidation = $historicalAncestorRevalidation' in source
+    assert 'Historical exact-head gap (revalidated by current main)' in source
+    assert '$softwareQualified = $verifierSoftwareQualified' in source
+
 def test_readiness_helper_discovers_exact_head_workflows_without_weakenable_gate() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
