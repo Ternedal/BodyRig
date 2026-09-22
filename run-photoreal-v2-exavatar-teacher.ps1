@@ -183,13 +183,13 @@ if (-not (Test-WslFile -Path $runtimeReceipt) -or -not (Test-WslExecutable -Path
         Write-Host "Rerun with -SetupRuntime to invoke setup-photoreal-exavatar-wsl.ps1."
         exit 2
     }
-    $setupRuntime = Need-File -Path (Join-Path $repoRoot "setup-photoreal-exavatar-wsl.ps1") -Label "ExAvatar runtime setup"
+    $setupRuntimeScript = Need-File -Path (Join-Path $repoRoot "setup-photoreal-exavatar-wsl.ps1") -Label "ExAvatar runtime setup"
     $runtimeParams = @{
         Distribution = $Distribution
         LinuxPython = $LinuxRuntimePython
         WslExe = $WslExe
     }
-    & $setupRuntime @runtimeParams
+    & $setupRuntimeScript @runtimeParams
     if ($LASTEXITCODE -ne 0 -or -not (Test-WslFile -Path $runtimeReceipt)) {
         throw "Pinned ExAvatar runtime setup did not produce its receipt."
     }
