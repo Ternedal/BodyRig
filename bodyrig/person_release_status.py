@@ -452,12 +452,15 @@ def _high_fidelity_fidelity(readiness: Mapping[str, Any]) -> dict[str, Any]:
     )
     review_reason = str(review_gate.get("reason") or "") if isinstance(review_gate, Mapping) else ""
     if human_complete:
+        review_evidence = review_gate.get("evidence") if isinstance(review_gate, Mapping) else {}
+        review_policy = str(review_evidence.get("policy_revision") or "") if isinstance(review_evidence, Mapping) else ""
         human_review = {
             "state": "pass",
             "passed": True,
             "reason": None,
-            "policy_revision": "bodyrig-high-fidelity-human-review-v1",
         }
+        if review_policy:
+            human_review["policy_revision"] = review_policy
     else:
         next_gate = readiness.get("next_gate") if isinstance(readiness.get("next_gate"), Mapping) else {}
         next_id = str(next_gate.get("gate") or "")
