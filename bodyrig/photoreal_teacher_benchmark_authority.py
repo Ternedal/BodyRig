@@ -63,7 +63,11 @@ def validate_teacher_benchmark_plan_files_strict(
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
         scan_sha = digest.hexdigest()
-    expected = build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    expected = (
+        build_teacher_benchmark_plan(validated)
+        if scan_plan is None
+        else build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    )
     plan = _read_json(benchmark_plan_path)
     if not _strict_json_equal(plan, expected):
         raise PhotorealTeacherBenchmarkPlanError(
@@ -97,7 +101,11 @@ def build_teacher_benchmark_plan_files_strict(
                 digest.update(chunk)
         scan_sha = digest.hexdigest()
 
-    result = build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    result = (
+        build_teacher_benchmark_plan(validated)
+        if scan_plan is None
+        else build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    )
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealTeacherBenchmarkPlanError(
