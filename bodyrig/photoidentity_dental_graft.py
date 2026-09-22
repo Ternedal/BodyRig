@@ -144,6 +144,7 @@ def load_dental_candidate(
         "adapterRevision": result.get("adapter_revision"),
         "bodyrigRevision": requirement["bodyrigRevision"],
         "performerId": result.get("performer_id"),
+        "inputManifestSha256": result.get("input_manifest_sha256"),
         "fineIdentityAttestationSha256": requirement["fineIdentityAttestationSha256"],
     }
     for field, expected in metadata_expected.items():
