@@ -459,6 +459,21 @@
     const input=$(id); if(!input) return;
     input.value=String(value); const output=$(`${id}Value`); if(output) output.textContent=Number(value).toFixed(2);
   }
+  function resetPersonScopedAuthoring(){
+    for(const [id] of dimensions) setSliderValue(id,0.5);
+    $("language").value="da";
+    $("feedback").value="";
+    $("authoredNotes").value="";
+    if(state.traitDefinition){
+      for(const ring of ["inner","outer"]) for(const trait of state.traitDefinition.rings[ring]){
+        setSliderValue(traitInputId(ring,trait.id),0.5);
+      }
+    }
+    $("examples").replaceChildren();
+    addExample();
+    clearEvidence();
+    updateTraitView();
+  }
   function applyGuidedRevision(source){
     const blueprint=source?.blueprint;
     if(!blueprint||blueprint.version!==2) throw new Error("Kun Personality Matrix v2-revisioner kan genåbnes som redigerbar matrix.");
@@ -516,7 +531,7 @@
     const changedPerson=previousPersonId!==personId;
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
-    if(changedPerson) clearEvidence();
+    if(changedPerson) resetPersonScopedAuthoring();
     const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
     for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
     populateBaselines(); invalidate(); await loadRequestedEditRevision();
