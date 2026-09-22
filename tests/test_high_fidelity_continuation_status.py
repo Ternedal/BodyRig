@@ -169,7 +169,7 @@ def test_final_audit_cannot_turn_partial_components_into_complete(monkeypatch, t
     assert result["production_ready"] is False
 
 
-def test_terminal_fine_identity_gate_has_no_synthetic_command() -> None:
+def test_terminal_fine_identity_gate_routes_exact_operator_inputs() -> None:
     action = status._next_action(
         JOB_ID,
         status.FINE_IDENTITY_GATE,
@@ -177,9 +177,12 @@ def test_terminal_fine_identity_gate_has_no_synthetic_command() -> None:
     )
 
     assert action["gate"] == status.FINE_IDENTITY_GATE
-    assert action["command"] is None
-    assert action["operator_input_required"] is False
-    assert "fail-closed" in action["reason"]
+    assert "apply-photoidentity-fine-identity.ps1" in action["command"]
+    assert f"-PreviewJobId '{JOB_ID}'" in action["command"]
+    assert "-SweepRoot <SWEEP_ROOT>" in action["command"]
+    assert "-AdapterConfig <ADAPTER_CONFIG>" in action["command"]
+    assert action["operator_input_required"] is True
+    assert "generic or generative fallback is permitted" in action["reason"]
 
 
 def test_human_input_next_actions_stay_explicit() -> None:
