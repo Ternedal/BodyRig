@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--quality-note", required=True)
     for field in CHECKLIST_FIELDS:
         record.add_argument("--" + field.replace("_", "-"), action="store_true")
+    record.add_argument("--confirm-source-dental-identity", action="store_true")
     verify = sub.add_parser("verify")
     _add_common(verify)
     args = parser.parse_args(argv)
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
                 bodyrig_revision=args.bodyrig_revision,
                 checklist=checklist,
                 quality_note=args.quality_note,
+                source_dental_identity_confirmed=args.confirm_source_dental_identity,
             )
         else:
             value = read_review(args.preparation_dir, args.runtime_dir, args.render_dir, args.output_dir)
