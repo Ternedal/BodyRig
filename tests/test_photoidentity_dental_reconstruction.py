@@ -167,7 +167,10 @@ def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
         "materials": [
             {
                 "name": subject.MOUTH_MATERIAL,
-                "pbrMetallicRoughness": {"baseColorFactor": [0.2, 0.03, 0.04, 1.0]},
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.2, 0.03, 0.04, 1.0],
+                    "baseColorTexture": {"index": 0},
+                },
             },
             {
                 "name": subject.DENTAL_MATERIAL,
@@ -316,3 +319,89 @@ def test_adapter_result_is_bound_to_exact_input_attestation_and_vrm(tmp_path: Pa
             attestation_sha256=_sha(attestation),
             source_references=["oral-a", "oral-b"],
         )
+
+
+
+def _materialize_reconstruction_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    private_manifest, attestation_path, _entries = _fixture_evidence(tmp_path, monkeypatch)
+    root = tmp_path / "persisted-dental"
+    prepared = subject.prepare_input_workspace(
+        private_manifest_path=private_manifest,
+        attestation_path=attestation_path,
+        output_dir=root,
+        bodyrig_revision=REVISION,
+    )
+    input_manifest = Path(prepared["input_manifest_path"])
+    attestation_sha = prepared["fine_identity_attestation_sha256"]
+    output = root / "adapter-output"
+    vrm_path = output / "dental-source.vrm"
+
+    vrm = _dental_vrm()
+    from bodyrig.bridges.sith_pbr_material import _read_glb
+    document, binary = _read_glb(vrm)
+    metadata = document["extras"]["bodyrig"]["dentalSourceRuntime"]
+    metadata["inputManifestSha256"] = _sha(input_manifest)
+    metadata["fineIdentityAttestationSha256"] = attestation_sha
+    vrm = _write_glb(document, binary)
+    vrm_path.write_bytes(vrm)
+
+    result = {
+        "format": subject.RESULT_FORMAT,
+        "version": 1,
+        "adapter": "fixture-dental",
+        "adapter_revision": "fixture-v1",
+        "bodyrig_revision": REVISION,
+        "performer_id": PERFORMER,
+        "input_manifest_sha256": _sha(input_manifest),
+        "fine_identity_attestation_sha256": attestation_sha,
+        "dental_vrm_sha256": _sha(vrm_path),
+        "source_references": [item["reference"] for item in prepared["evidence"]],
+        "source_derived_dental_identity": True,
+        "generic_secondary_anatomy": False,
+        "generative_identity_synthesis": False,
+        "mouth_interior_source_derived": True,
+        "upper_teeth_source_derived": True,
+        "lower_teeth_source_derived": True,
+        "appearance_source_derived": True,
+        "human_review_required": True,
+        "promotion_authority": False,
+        "production_activation": False,
+    }
+    (output / "dental-reconstruction.json").write_text(
+        json.dumps(result),
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_reconstruction_workspace_readback_revalidates_private_staged_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _materialize_reconstruction_workspace(tmp_path, monkeypatch)
+    value = subject.read_reconstruction_workspace(root)
+    assert value["source_derived_dental_identity"] is True
+    assert value["generic_secondary_anatomy"] is False
+    assert len(value["dental_texture_sha256"]) == 64
+
+    manifest = json.loads((root / "dental-reconstruction-input.json").read_text(encoding="utf-8"))
+    staged = Path(manifest["evidence"][0]["staged_review_image"])
+    staged.write_bytes(staged.read_bytes() + b"tamper")
+    with pytest.raises(subject.PhotoIdentityDentalReconstructionError, match="staged dental review image bytes changed"):
+        subject.read_reconstruction_workspace(root)
+
+
+def test_reconstruction_workspace_readback_rejects_result_or_vrm_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _materialize_reconstruction_workspace(tmp_path, monkeypatch)
+    result_path = root / "adapter-output" / "dental-reconstruction.json"
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    result["source_references"] = list(reversed(result["source_references"]))
+    result_path.write_text(json.dumps(result), encoding="utf-8")
+    with pytest.raises(subject.PhotoIdentityDentalReconstructionError, match="source_references"):
+        subject.read_reconstruction_workspace(root)
