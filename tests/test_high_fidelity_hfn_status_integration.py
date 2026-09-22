@@ -275,10 +275,8 @@ def test_hfn_candidate_final_audit_failure_is_fail_closed(monkeypatch, tmp_path:
     assert result["source_bodyrig_revision"] == REVISION
     assert result["hfn_bodyrig_revision"] == CURRENT_HFN_REVISION
     assert result["next_gate"]["gate"] == status.CANDIDATE_GATE
-    assert "apply-photoidentity-fine-identity.ps1" in result["next_gate"]["command"]
-    assert "-SweepRoot <SWEEP_ROOT>" in result["next_gate"]["command"]
-    assert "-AdapterConfig <ADAPTER_CONFIG>" in result["next_gate"]["command"]
-    assert result["next_gate"]["operator_input_required"] is True
+    assert result["next_gate"]["command"] is None
+    assert result["next_gate"]["operator_input_required"] is False
     candidate_gate = next(gate for gate in result["gates"] if gate["id"] == status.CANDIDATE_GATE)
     assert candidate_gate["state"] == "invalid"
     assert "final HFN candidate audit failed" in candidate_gate["reason"]
