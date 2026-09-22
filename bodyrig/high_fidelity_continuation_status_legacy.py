@@ -334,7 +334,31 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         state = "required" if preview.get("status") in {"failed", "interrupted"} else "blocked"
         gates.append(_gate("preview", state, reason=f"preview status is {preview.get('status') or 'unknown'}"))
         return _result(job_id, gates, paths, current_package, current_sha, components, context)
-    gates.append(_gate("preview", "pass", evidence={"candidate_package_sha256": preview.get("candidate_package_sha256")}))
+
+    fine_identity_authority_sha = str(preview.get("fine_identity_authority_sha256") or "").strip().lower()
+    fine_identity_attestation_sha = str(preview.get("fine_identity_attestation_sha256") or "").strip().lower()
+    if not SHA_RE.fullmatch(fine_identity_authority_sha) or not SHA_RE.fullmatch(fine_identity_attestation_sha):
+        gates.append(
+            _gate(
+                "preview",
+                "invalid",
+                reason="succeeded preview lacks canonical photoidentical fine-identity lineage",
+            )
+        )
+        return _result(job_id, gates, paths, current_package, current_sha, components, context)
+    context["fine_identity_authority_sha256"] = fine_identity_authority_sha
+    context["fine_identity_attestation_sha256"] = fine_identity_attestation_sha
+    gates.append(
+        _gate(
+            "preview",
+            "pass",
+            evidence={
+                "candidate_package_sha256": preview.get("candidate_package_sha256"),
+                "fine_identity_authority_sha256": fine_identity_authority_sha,
+                "fine_identity_attestation_sha256": fine_identity_attestation_sha,
+            },
+        )
+    )
 
     try:
         candidate = _candidate_package(preview, paths)
@@ -590,6 +614,8 @@ def _result(
         "format": FORMAT,
         "version": VERSION,
         "preview_job_id": job_id,
+        "fine_identity_authority_sha256": str((context or {}).get("fine_identity_authority_sha256") or "") or None,
+        "fine_identity_attestation_sha256": str((context or {}).get("fine_identity_attestation_sha256") or "") or None,
         "state": state,
         "gates": gates,
         "next_gate": None if high_fidelity_complete else action,

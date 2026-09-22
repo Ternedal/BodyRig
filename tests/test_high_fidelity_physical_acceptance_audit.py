@@ -16,6 +16,8 @@ REVISION = "c" * 40
 SOURCE_REVISION = "b" * 40
 SOURCE_PACKAGE_SHA = "d" * 64
 BODYPRINT_SHA = "e" * 64
+FINE_AUTHORITY_SHA = "1" * 64
+FINE_ATTESTATION_SHA = "2" * 64
 
 
 def _hash(path: Path) -> str:
@@ -76,6 +78,8 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
         "sourceBodyprintSha256": BODYPRINT_SHA,
         "promotedBodyprintSha256": BODYPRINT_SHA,
         "promotedPackageSha256": package_sha,
+        "fineIdentityAuthoritySha256": FINE_AUTHORITY_SHA,
+        "fineIdentityAttestationSha256": FINE_ATTESTATION_SHA,
         "highFidelityHumanReviewSha256": _hash(review),
         "skinQaSha256": _hash(skin),
         "meshTopologyQaSha256": _hash(topology),
@@ -123,6 +127,8 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
             "promoted_bodyprint_sha256": BODYPRINT_SHA,
             "release_lineage_reproved": True,
             "package_sha256": package_sha,
+            "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
             "human_review_sha256": _hash(review),
             "preview_job_id": JOB_ID,
             "body_job_id": BODY_JOB_ID,
@@ -179,7 +185,11 @@ def _fixture(monkeypatch, tmp_path: Path, *, state: str = "ready", gate_name: st
         audit,
         "_source_gate",
         lambda _job: (
-            {"canonical_body_id": BODY_ID},
+            {
+                "canonical_body_id": BODY_ID,
+                "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+                "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
+            },
             {"job_id": BODY_JOB_ID},
             source,
             source_gate,
@@ -279,6 +289,25 @@ def test_source_gate_lineage_is_revalidated_on_every_status_read(monkeypatch, tm
     assert result["state"] == "invalid"
     assert result["production_activation"] is False
     assert "source gate a" in result["message"].lower()
+
+
+
+def test_source_preview_fine_identity_drift_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    fixture = _fixture(monkeypatch, tmp_path)
+    original = audit._source_gate
+
+    def drifted_source_gate(preview_job_id: str):
+        preview, body_job, source_dir, source_gate, source_report = original(preview_job_id)
+        preview = dict(preview)
+        preview["fine_identity_authority_sha256"] = "3" * 64
+        return preview, body_job, source_dir, source_gate, source_report
+
+    monkeypatch.setattr(audit, "_source_gate", drifted_source_gate)
+    result = _status(fixture)
+
+    assert result["state"] == "invalid"
+    assert result["production_activation"] is False
+    assert "fine-identity" in result["message"].lower()
 
 
 def test_release_check_tamper_fails_closed(monkeypatch, tmp_path: Path) -> None:
