@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         if set(photoidentity_confirmations) != PHOTOIDENTITY_CHECKLIST_FIELDS:
             raise HighFidelityHumanReviewError("photoidentity confirmation field mapping is not canonical")
         checklist.update(
-            field for field, confirmed in photoidentity_confirmations.items() if confirmed
+            {field: True for field, confirmed in photoidentity_confirmations.items() if confirmed}
         )
         receipt = write_review(
             package,
