@@ -141,6 +141,9 @@
   ];
   const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
+  function isCurrentPerson(personId){
+    return Boolean(personId)&&state.person?.person_id===personId&&$("personSelect").value===personId;
+  }
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
   async function api(path, options={}){ const headers={...(options.headers||{})}; if(options.body!==undefined) headers["Content-Type"]="application/json"; const response=await fetch(path,{...options,headers}); const payload=await response.json(); if(!response.ok) throw new Error(payload.detail||`HTTP ${response.status}`); return payload; }
@@ -304,31 +307,38 @@
   }
   async function loadStashTranscriptCandidates(){
     if(!state.person) return toast("Vælg en person først.",true);
+    const personId=state.person.person_id;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision) return toast("Vælg en body revision før transcript-søgning.",true);
     clearTranscriptPreview("Validerer source-binding og leder efter transcript-sidecars…");
     try{
-      const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/stash-transcript-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
-      if($("bodyRevision").value!==bodyRevision) return;
+      const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/stash-transcript-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
+      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return;
       renderTranscriptCandidates(result);
-    }catch(error){clearTranscriptPreview(`Transcript-kandidater kunne ikke hentes: ${error.message}`);toast(error.message,true);}
+    }catch(error){
+      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return;
+      clearTranscriptPreview(`Transcript-kandidater kunne ikke hentes: ${error.message}`);toast(error.message,true);
+    }
   }
   async function approveStashTranscriptCandidates(){
     if(!state.person||!state.stashTranscriptPreview?.candidate_report) return;
+    const personId=state.person.person_id;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision||bodyRevision!==state.stashTranscriptBodyRevision) return toast("Body revision har ændret sig. Hent transcript-kandidater igen.",true);
+    const candidateReport=state.stashTranscriptPreview.candidate_report;
     const indexes=selectedTranscriptIndexes();
     $("stashTranscriptApprove").disabled=true;
     try{
       const result=await api(
-        `/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/stash-transcript-approval?body_revision=${encodeURIComponent(bodyRevision)}`,
+        `/api/v1/people/${encodeURIComponent(personId)}/personality/stash-transcript-approval?body_revision=${encodeURIComponent(bodyRevision)}`,
         {method:"POST",body:JSON.stringify({
-          candidate_report:state.stashTranscriptPreview.candidate_report,
+          candidate_report:candidateReport,
           selected_candidate_indexes:indexes,
           speaker_identity_confirmed:$("stashTranscriptSpeakerConfirm").checked,
           style_use_approved:$("stashTranscriptStyleConfirm").checked
         })}
       );
+      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return;
       state.styleReport=result.candidate_report;
       state.styleApproval=result.approval;
       state.styleSource={kind:"stash-source-transcript",body_revision:bodyRevision,source_manifest_sha256:result.source_manifest_sha256};
@@ -339,7 +349,7 @@
       renderEvidenceStatus();
       invalidate();
       toast("Stash-transcript evidence er godkendt til talestil.");
-    }catch(error){updateTranscriptApprovalState();toast(error.message,true);}
+    }catch(error){if(isCurrentPerson(personId)&&$("bodyRevision").value===bodyRevision){updateTranscriptApprovalState();toast(error.message,true);}}
   }
   function renderEvidenceStatus(){
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt."; return; }
@@ -500,12 +510,14 @@
   }
   async function loadRequestedEditRevision(){
     if(!state.person) return;
+    const personId=state.person.person_id;
     const requested=new URLSearchParams(location.search).get("edit_revision");
     const fallback=latestMatrixRevisionItem()?.revision_id||"";
     const revisionId=requested||fallback;
     if(!revisionId) return;
     if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
-    const source=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
+    const source=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
+    if(!isCurrentPerson(personId)) return;
     applyGuidedRevision(source);
     if(!requested) setEditRevisionUrl(revisionId);
   }
@@ -547,17 +559,37 @@
     const target=$("auditionSuite"); target.innerHTML=""; for(const probe of result.audition_suite.probes){const row=document.createElement("div");row.className="revision-item";row.innerHTML=`<div class="revision-id">${escapeHtml(probe.id)}</div><div class="revision-feedback">${escapeHtml(probe.prompt)}</div>`;target.appendChild(row);}
   }
   async function preview(){
-    if(!state.person) return toast("Vælg en person først.",true); $("status").textContent="Bygger og verifierer deterministisk blueprint…";
-    try{const result=await api(`/api/v1/people/${encodeURIComponent(state.person.person_id)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(payload())});renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";}catch(error){invalidate();$("status").textContent="";toast(error.message,true);}
+    if(!state.person) return toast("Vælg en person først.",true);
+    const personId=state.person.person_id;
+    const request=payload();
+    const requestKey=JSON.stringify(request);
+    $("status").textContent="Bygger og verifierer deterministisk blueprint…";
+    try{
+      const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(request)});
+      if(!isCurrentPerson(personId)||key()!==requestKey) return;
+      renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";
+    }catch(error){
+      if(!isCurrentPerson(personId)||key()!==requestKey) return;
+      invalidate();$("status").textContent="";toast(error.message,true);
+    }
   }
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
-    const request={...payload(),feedback:$("feedback").value.trim()}; $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
+    const personId=state.person.person_id;
+    const request={...payload(),feedback:$("feedback").value.trim()};
+    const saveViewKey=JSON.stringify(request);
+    $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
     try{
-      const personId=state.person.person_id;
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
+      const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
+      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
+        toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
+        return;
+      }
+      const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey) return;
+      state.person=refreshedPerson;
       setEditRevisionUrl(result.saved_personality_revision);
-      state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
       populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
       if(result.source_baseline_revision){
         $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
