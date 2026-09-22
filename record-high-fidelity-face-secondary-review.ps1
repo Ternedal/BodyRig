@@ -14,6 +14,7 @@ param(
     [Parameter(Mandatory = $true)][switch]$TeethNoObviousClippingAtOpenPose,
     [Parameter(Mandatory = $true)][switch]$EyelashesVisibleAndPlausible,
     [Parameter(Mandatory = $true)][switch]$EyelashesNoObviousEyeSurfaceClipping,
+    [switch]$ConfirmSourceDentalIdentity,
     [string]$BodyRigPython = ""
 )
 
@@ -87,6 +88,9 @@ try {
         "--eyelashes-visible-and-plausible",
         "--eyelashes-no-obvious-eye-surface-clipping"
     )
+    if ($ConfirmSourceDentalIdentity.IsPresent) {
+        $args += "--confirm-source-dental-identity"
+    }
     [void](Invoke-ReviewPython -Arguments $args -Label "Face-secondary human review recording")
     $created = $true
 
@@ -111,5 +115,8 @@ try {
 Write-Host "BodyRig face-secondary human review: PASS"
 Write-Host "Output: $OutputDir"
 Write-Host "Teeth: upper/lower visibility + jaw binding + mouth-open clipping explicitly reviewed"
+if ($ConfirmSourceDentalIdentity.IsPresent) {
+    Write-Host "Dental identity: explicitly matched against attested source evidence"
+}
 Write-Host "Authority: promotion-eligible only; package not mutated; production remains false"
 exit 0
