@@ -37,6 +37,7 @@ def test_gate_order_is_complete_and_stable() -> None:
         "hfn_detail_candidate",
         "hfn_render_review",
         "hfn_human_review",
+        "fine_identity_application",
     )
 
 
@@ -54,6 +55,7 @@ def test_continuation_paths_stay_inside_one_preview_job(monkeypatch, tmp_path: P
     assert paths["face_promotion"] == root / "continuation" / "face-secondary" / "promotion"
     assert paths["hfn_render"] == root / "continuation" / "hands-feet-nails" / "render"
     assert paths["hfn_review"] == root / "continuation" / "hands-feet-nails" / "human-review"
+    assert paths["fine_identity"] == root / "continuation" / "fine-identity-application"
     for key, path in paths.items():
         if key != "preview_root":
             path.relative_to(root)
@@ -165,6 +167,19 @@ def test_final_audit_cannot_turn_partial_components_into_complete(monkeypatch, t
     assert result["next_gate"]["gate"] == "hfn_detail_candidate"
     assert result["next_gate"]["command"] is None
     assert result["production_ready"] is False
+
+
+def test_terminal_fine_identity_gate_has_no_synthetic_command() -> None:
+    action = status._next_action(
+        JOB_ID,
+        status.FINE_IDENTITY_GATE,
+        status.continuation_paths(JOB_ID),
+    )
+
+    assert action["gate"] == status.FINE_IDENTITY_GATE
+    assert action["command"] is None
+    assert action["operator_input_required"] is False
+    assert "fail-closed" in action["reason"]
 
 
 def test_human_input_next_actions_stay_explicit() -> None:
