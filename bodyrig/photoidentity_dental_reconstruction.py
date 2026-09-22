@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -297,9 +296,9 @@ def prepare_input_workspace(
             suffix = source.suffix.lower()
             if not suffix or len(suffix) > 10:
                 suffix = ".bin"
-            destination = input_dir / f"{index:02d}-{entry['reference']}{suffix}"
-            shutil.copyfile(source, destination)
             expected = _sha(entry["review_image_sha256"], label="review image SHA-256")
+            destination = input_dir / f"{index:02d}-{expected[:16]}{suffix}"
+            shutil.copyfile(source, destination)
             if _sha256_file(destination) != expected:
                 raise PhotoIdentityDentalReconstructionError(
                     f"staged oral/teeth review image hash mismatch: {entry['reference']}"
