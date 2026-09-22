@@ -12,6 +12,7 @@ from .photoreal_post_p0_continuation import (
 )
 from .photoreal_p1_likeness_review import (
     PhotorealP1LikenessReviewError,
+    validate_likeness_review_pack,
     validate_likeness_review_receipt,
 )
 from .photoreal_p2_animation_plan import (
@@ -44,6 +45,7 @@ from .photoreal_p2_heldout_animated_review_plan import (
 )
 from .photoreal_p2_heldout_animated_human_review import (
     PhotorealP2HeldoutAnimatedHumanReviewError,
+    validate_animated_human_review_pack,
     validate_animated_human_review_receipt,
 )
 from .photoreal_p2_motion_evidence import (
@@ -518,9 +520,10 @@ def inspect_photoreal_v2_status(
             "P1 likeness receipt exists without its canonical review manifest"
         )
     try:
+        p1_manifest = validate_likeness_review_pack(p1_manifest_path.parent)
         p1 = validate_likeness_review_receipt(
             _read_json(p1_receipt_path, "P1 likeness receipt"),
-            review_manifest=_read_json(p1_manifest_path, "P1 likeness manifest"),
+            review_manifest=p1_manifest,
         )
     except (PhotorealP1LikenessReviewError, ValueError, KeyError, TypeError) as exc:
         raise PhotorealV2OperatorStatusError(f"P1 strict readback failed: {exc}") from exc
@@ -1231,6 +1234,21 @@ def inspect_photoreal_v2_status(
         result.update(action)
         return result
 
+    try:
+        human_manifest_authority = validate_animated_human_review_pack(
+            human_manifest.parent,
+            expected_review_plan=review_plan_authority,
+        )
+    except (
+        PhotorealP2HeldoutAnimatedHumanReviewError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P2 human-review pack strict readback failed: {exc}"
+        ) from exc
+
     p2_receipt_path = animated_review / "p2-heldout-animated-human-review.json"
     if not p2_receipt_path.is_file():
         result.update(
@@ -1249,7 +1267,7 @@ def inspect_photoreal_v2_status(
     try:
         p2_review = validate_animated_human_review_receipt(
             _read_json(p2_receipt_path, "P2 animated human review receipt"),
-            review_manifest=_read_json(human_manifest, "P2 animated human review manifest"),
+            review_manifest=human_manifest_authority,
         )
     except (
         PhotorealP2HeldoutAnimatedHumanReviewError,
