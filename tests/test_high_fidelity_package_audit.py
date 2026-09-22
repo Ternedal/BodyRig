@@ -196,7 +196,16 @@ def _source_dental_face_document() -> tuple[dict, dict]:
             {
                 "name": package_audit.FACE_MESH,
                 "primitives": [
-                    {"attributes": {"POSITION": 0}, "material": 0},
+                    {
+                        "attributes": {"POSITION": 0},
+                        "material": 0,
+                        "extras": {"bodyrigFaceSecondaryRole": "left_eyelashes"},
+                    },
+                    {
+                        "attributes": {"POSITION": 4},
+                        "material": 0,
+                        "extras": {"bodyrigFaceSecondaryRole": "right_eyelashes"},
+                    },
                 ],
             },
             {
@@ -268,5 +277,23 @@ def test_source_derived_dental_face_payload_rejects_lineage_drift() -> None:
     with pytest.raises(
         HighFidelityPackageAuditError,
         match="lost fine-identity lineage",
+    ):
+        package_audit._audit_face_payload(document, bodyrig)
+
+
+def test_source_derived_dental_face_payload_rejects_generic_face_geometry() -> None:
+    document, bodyrig = _source_dental_face_document()
+    document["materials"].append({"name": "BodyRigTeethReview"})
+    document["meshes"][0]["primitives"].append(
+        {
+            "attributes": {"POSITION": 5},
+            "material": 3,
+            "extras": {"bodyrigFaceSecondaryRole": "upper_teeth"},
+        }
+    )
+
+    with pytest.raises(
+        HighFidelityPackageAuditError,
+        match="retained non-eyelash generic geometry",
     ):
         package_audit._audit_face_payload(document, bodyrig)
