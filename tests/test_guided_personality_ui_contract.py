@@ -158,6 +158,13 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "if(changedPerson) resetPersonScopedAuthoring()"
     )
 
+    reset_start = html.index("function resetPersonScopedAuthoring()")
+    reset_end = html.index("\n  function applyGuidedRevision", reset_start)
+    reset_source = html[reset_start:reset_end]
+    clear_evidence = reset_source.index("clearEvidence()")
+    add_example = reset_source.index("addExample()")
+    assert clear_evidence < add_example
+
     listener_start = html.index('$("personSelect").addEventListener("change"')
     listener_end = html.index('$("baselineRevision").addEventListener', listener_start)
     listener_source = html[listener_start:listener_end]
@@ -214,12 +221,17 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     save_source = html[save_start:save_end]
     assert "const saveViewKey=JSON.stringify(request)" in save_source
     assert "const currentSaveViewKey=()=>JSON.stringify" in save_source
+    assert 'const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…"' in save_source
+    assert "const settleStaleSave=result=>" in save_source
+    assert 'if($("status").textContent===savingStatus)' in save_source
     assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
     first_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)")
-    refresh = save_source.index("const refreshedPerson=await api", first_guard)
+    first_settle = save_source.index("settleStaleSave(result)", first_guard)
+    refresh = save_source.index("const refreshedPerson=await api", first_settle)
     second_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)", refresh)
-    assign = save_source.index("state.person=refreshedPerson", second_guard)
-    assert first_guard < refresh < second_guard < assign
+    second_settle = save_source.index("settleStaleSave(result)", second_guard)
+    assign = save_source.index("state.person=refreshedPerson", second_settle)
+    assert first_guard < first_settle < refresh < second_guard < second_settle < assign
     assert 'catch(error){if(isCurrentPerson(personId)&&currentSaveViewKey()===saveViewKey)' in save_source
 
 
