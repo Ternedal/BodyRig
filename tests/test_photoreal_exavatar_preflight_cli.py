@@ -81,5 +81,41 @@ def test_reuse_existing_rebuilds_only_the_known_fail_closed_receipt(
     )
 
     assert code == 0
-    assert Path(called["output_path"]) == output.resolve()
+    assert Path(called["output_path"]).parent == output.resolve().parent
+    assert Path(called["output_path"]).name.startswith(f".{output.name}.rebuild-")
     assert output.read_text(encoding="utf-8") == "{}\n"
+
+
+def test_migration_preserves_old_receipt_if_rebuild_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "preflight.json"
+    original = json.dumps(_legacy_unreadable_receipt(), sort_keys=True)
+    output.write_text(original, encoding="utf-8")
+
+    def fail_build(**kwargs):
+        raise cli.PhotorealExAvatarPreflightError("synthetic rebuild failure")
+
+    monkeypatch.setattr(cli, "build_exavatar_preflight_strict_files", fail_build)
+
+    code = cli.main(
+        [
+            "--dependency-root",
+            str(tmp_path / "deps"),
+            "--asset-root",
+            str(tmp_path / "assets"),
+            "--reference-model-root",
+            str(tmp_path / "reference"),
+            "--smplx-gender",
+            "female",
+            "--out",
+            str(output),
+            "--no-colmap",
+            "--reuse-existing",
+        ]
+    )
+
+    assert code == 1
+    assert output.read_text(encoding="utf-8") == original
+    assert list(tmp_path.glob(".preflight.json.rebuild-*")) == []
