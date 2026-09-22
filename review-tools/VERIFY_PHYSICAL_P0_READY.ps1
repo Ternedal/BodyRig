@@ -21,8 +21,12 @@ $requiredCheckSources = @(
     [pscustomobject]@{ Name = "test (3.12)"; AppId = [long]15368 },
     [pscustomobject]@{ Name = "test-windows-python"; AppId = [long]15368 },
     [pscustomobject]@{ Name = "acceptance-windows"; AppId = [long]15368 },
-    [pscustomobject]@{ Name = "adapter-log-handle"; AppId = [long]15368 },
-    [pscustomobject]@{ Name = "CodeQL"; AppId = [long]57789 }
+    [pscustomobject]@{ Name = "adapter-log-handle"; AppId = [long]15368 }
+)
+
+$codeQlCheckSources = @(
+    [pscustomobject]@{ Name = "CodeQL"; AppId = [long]57789 },
+    [pscustomobject]@{ Name = "analyze (python)"; AppId = [long]15368 }
 )
 
 function Read-Json {
@@ -297,6 +301,52 @@ function Get-ExactHeadCheckEvidence {
         }
         if ($successful.Count -eq 0) {
             $blockers.Add("check $name has no completed successful run from app $expectedAppId for the exact head")
+        }
+    }
+
+    $codeQlMatches = New-Object System.Collections.Generic.List[object]
+    foreach ($source in $codeQlCheckSources) {
+        $sourceName = [string]$source.Name
+        $sourceAppId = [long]$source.AppId
+        foreach ($candidate in @(
+            $allChecks |
+                Where-Object {
+                    [string]$_.head_sha -eq $Revision -and
+                    [string]::Equals([string]$_.name, $sourceName, [StringComparison]::Ordinal) -and
+                    $null -ne $_.app -and [long]$_.app.id -eq $sourceAppId
+                }
+        )) {
+            $codeQlMatches.Add($candidate)
+        }
+    }
+
+    if ($codeQlMatches.Count -eq 0) {
+        $blockers.Add("missing exact-head source-bound CodeQL check: CodeQL (app 57789) or analyze (python) (app 15368)")
+    } else {
+        $codeQlSuccessful = @(
+            $codeQlMatches |
+                Where-Object {
+                    [string]$_.status -eq "completed" -and [string]$_.conclusion -eq "success"
+                } |
+                Sort-Object -Property id -Descending
+        )
+        $codeQlCheck = if ($codeQlSuccessful.Count -gt 0) {
+            $codeQlSuccessful[0]
+        } else {
+            @($codeQlMatches | Sort-Object -Property id -Descending)[0]
+        }
+        $verified["CodeQL"] = [ordered]@{
+            check_run_id = [long]$codeQlCheck.id
+            name = [string]$codeQlCheck.name
+            app_id = [long]$codeQlCheck.app.id
+            app_slug = [string]$codeQlCheck.app.slug
+            status = [string]$codeQlCheck.status
+            conclusion = [string]$codeQlCheck.conclusion
+            head_sha = [string]$codeQlCheck.head_sha
+            html_url = [string]$codeQlCheck.html_url
+        }
+        if ($codeQlSuccessful.Count -eq 0) {
+            $blockers.Add("CodeQL has no completed successful exact-head source-bound check")
         }
     }
 

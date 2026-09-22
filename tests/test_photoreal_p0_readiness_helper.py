@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 from bodyrig.repository_authority import (
-    REQUIRED_CODEQL_APP_ID,
     REQUIRED_STATUS_CHECK_APP_ID,
     REQUIRED_STATUS_CHECKS,
 )
@@ -80,9 +79,13 @@ def test_readiness_helper_binds_workflow_identity_and_required_check_sources() -
         assert expected in source
 
     for check in REQUIRED_STATUS_CHECKS:
-        app_id = REQUIRED_CODEQL_APP_ID if check == "CodeQL" else REQUIRED_STATUS_CHECK_APP_ID
-        assert f'Name = "{check}"; AppId = [long]{app_id}' in source
+        if check == "CodeQL":
+            continue
+        assert f'Name = "{check}"; AppId = [long]{REQUIRED_STATUS_CHECK_APP_ID}' in source
 
+    assert 'Name = "CodeQL"; AppId = [long]57789' in source
+    assert 'Name = "analyze (python)"; AppId = [long]15368' in source
+    assert "CodeQL has no completed successful exact-head source-bound check" in source
     assert "commits/$Revision/check-runs?per_page=100" in source
     assert "[long]$_.app.id -eq $expectedAppId" in source
     assert "[long]$_.workflow_id -eq $workflowId" in source
@@ -90,6 +93,17 @@ def test_readiness_helper_binds_workflow_identity_and_required_check_sources() -
     assert "workflow_id = [long]$run.workflow_id" in source
     assert "verifier_verified_checks = $verifierCheckEvidence.Verified" in source
     assert "verified_checks = $checkEvidence.Verified" in source
+
+
+def test_readiness_helper_accepts_pr_or_push_codeql_check_identity() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert '$codeQlCheckSources = @(' in source
+    assert 'Name = "CodeQL"; AppId = [long]57789' in source
+    assert 'Name = "analyze (python)"; AppId = [long]15368' in source
+    assert '$codeQlSuccessful.Count -gt 0' in source
+    assert '$verified["CodeQL"]' in source
+    assert 'missing exact-head source-bound CodeQL check' in source
 
 
 def test_readiness_helper_binds_executing_verifier_to_tracked_git_blob_and_ci() -> None:
