@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
-    [Parameter(Mandatory = $true)][string]$OutputDir
+    [Parameter(Mandatory = $true)][string]$OutputDir,
+    [string]$DentalReconstructionDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,9 +31,18 @@ function Need-File {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Need-Directory {
+    param([Parameter(Mandatory = $true)][string]$Path,[Parameter(Mandatory = $true)][string]$Label)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "$Label not found: $Path" }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
 $repoRoot = (Resolve-Path $PSScriptRoot).Path
 $head = Assert-CheckoutAuthority -RepoRoot $repoRoot
 $PackagePath = Need-File -Path $PackagePath -Label "Promoted BodyRig package"
+if (-not [string]::IsNullOrWhiteSpace($DentalReconstructionDir)) {
+    $DentalReconstructionDir = Need-Directory -Path $DentalReconstructionDir -Label "Private dental reconstruction workspace"
+}
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 if (Test-Path -LiteralPath $OutputDir) { throw "Face-secondary output is create-only and already exists: $OutputDir" }
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
@@ -48,10 +58,16 @@ try {
     $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($priorPythonPath)) { $repoRoot } else { "$repoRoot;$priorPythonPath" }
     Push-Location $repoRoot
     try {
-        $raw = @(& $python -m bodyrig.high_fidelity_face_secondary_runtime_cli build `
-            --package $PackagePath `
-            --output-dir $OutputDir `
-            --bodyrig-revision $head)
+        $runtimeArgs = @(
+            "-m", "bodyrig.high_fidelity_face_secondary_runtime_cli", "build",
+            "--package", $PackagePath,
+            "--output-dir", $OutputDir,
+            "--bodyrig-revision", $head
+        )
+        if (-not [string]::IsNullOrWhiteSpace($DentalReconstructionDir)) {
+            $runtimeArgs += @("--dental-reconstruction-dir", $DentalReconstructionDir)
+        }
+        $raw = @(& $python @runtimeArgs)
         if ($LASTEXITCODE -ne 0) { throw "Face-secondary runtime CLI failed with exit code $LASTEXITCODE." }
     } finally { Pop-Location }
     $created = Test-Path -LiteralPath $OutputDir -PathType Container
@@ -60,6 +76,74 @@ try {
     if ($result.ok -ne $true -or [string]$result.mode -ne "build") { throw "Face-secondary runtime did not report canonical PASS." }
     if ($result.face_secondary_component_authority -ne $false -or $result.package_mutation_performed -ne $false -or $result.production_activation -ne $false) {
         throw "Face-secondary review runtime crossed component/package/production authority."
+    }
+    $sourceDentalRequested = -not [string]::IsNullOrWhiteSpace($DentalReconstructionDir)
+    if ($sourceDentalRequested) {
+        if ($result.source_derived_dental_identity -ne $true -or $result.generic_secondary_anatomy -ne $false) {
+            throw "Photoidentical face-secondary runtime did not preserve source-derived dental authority."
+        }
+        if ([string]$result.dental_reconstruction_result_sha256 -notmatch '^[0-9a-f]{64}    $expected = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
+    foreach ($name in $expected) {
+        if ([string]$result.candidate_components.$name -ne "partial") { throw "Face-secondary candidate component $name is not review-pending partial." }
+    }
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+} catch {
+    if ($created -and (Test-Path -LiteralPath $OutputDir -PathType Container)) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
+} finally {
+    $env:PYTHONPATH = $priorPythonPath
+}
+
+Write-Host "BodyRig face-secondary review runtime: READY"
+Write-Host "Output:           $OutputDir"
+Write-Host "Revision:         $head"
+Write-Host "Eyebrows:         SOURCE APPEARANCE / REVIEW REQUIRED"
+Write-Host "Lip boundary:     SOURCE APPEARANCE / REVIEW REQUIRED"
+if (-not [string]::IsNullOrWhiteSpace($DentalReconstructionDir)) {
+    Write-Host "Mouth interior:   SOURCE-DERIVED DENTAL / REVIEW REQUIRED"
+    Write-Host "Teeth:            SOURCE-DERIVED DENTAL / REVIEW REQUIRED"
+} else {
+    Write-Host "Mouth interior:   GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+    Write-Host "Teeth:            GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+}
+Write-Host "Eyelashes:        SMPL-X ANCHORED / REVIEW REQUIRED"
+Write-Host "Component auth:   FALSE"
+Write-Host "Production:       FALSE"
+exit 0
+ -or [string]$result.dental_vrm_sha256 -notmatch '^[0-9a-f]{64}    $expected = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
+    foreach ($name in $expected) {
+        if ([string]$result.candidate_components.$name -ne "partial") { throw "Face-secondary candidate component $name is not review-pending partial." }
+    }
+    [void](Assert-CheckoutAuthority -RepoRoot $repoRoot -ExpectedHead $head)
+} catch {
+    if ($created -and (Test-Path -LiteralPath $OutputDir -PathType Container)) {
+        Remove-Item -LiteralPath $OutputDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
+} finally {
+    $env:PYTHONPATH = $priorPythonPath
+}
+
+Write-Host "BodyRig face-secondary review runtime: READY"
+Write-Host "Output:           $OutputDir"
+Write-Host "Revision:         $head"
+Write-Host "Eyebrows:         SOURCE APPEARANCE / REVIEW REQUIRED"
+Write-Host "Lip boundary:     SOURCE APPEARANCE / REVIEW REQUIRED"
+Write-Host "Mouth interior:   GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+Write-Host "Teeth:            GENERIC SECONDARY ANATOMY / REVIEW REQUIRED"
+Write-Host "Eyelashes:        SMPL-X ANCHORED / REVIEW REQUIRED"
+Write-Host "Component auth:   FALSE"
+Write-Host "Production:       FALSE"
+exit 0
+) {
+            throw "Photoidentical face-secondary runtime did not report exact dental candidate hashes."
+        }
+    } else {
+        if ($result.source_derived_dental_identity -ne $false -or $result.generic_secondary_anatomy -ne $true) {
+            throw "Historical face-secondary runtime dental mode is inconsistent."
+        }
     }
     $expected = @("eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth", "eyelashes")
     foreach ($name in $expected) {
