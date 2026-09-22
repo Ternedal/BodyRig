@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 
 import pytest
@@ -113,31 +114,103 @@ def _config() -> dict:
 
 def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
     texture_bytes = b"\x89PNG\r\n\x1a\nfixture-dental-texture" if png_texture else b"not-a-png-texture"
+    binary = bytearray(texture_bytes)
+    views: list[dict] = []
+    accessors: list[dict] = []
+
+    def add_accessor(raw: bytes, *, component: int, count: int, kind: str, target: int) -> int:
+        while len(binary) % 4:
+            binary.append(0)
+        offset = len(binary)
+        binary.extend(raw)
+        views.append({
+            "buffer": 0,
+            "byteOffset": offset,
+            "byteLength": len(raw),
+            "target": target,
+        })
+        accessors.append({
+            "bufferView": len(views) - 1,
+            "componentType": component,
+            "count": count,
+            "type": kind,
+        })
+        return len(accessors) - 1
+
+    positions = [
+        (-0.01, 0.00, 0.00),
+        (0.01, 0.00, 0.00),
+        (0.00, 0.01, 0.00),
+    ]
+    normals = [(0.0, 0.0, 1.0)] * 3
+    uvs = [(0.0, 0.0), (1.0, 0.0), (0.5, 1.0)]
+    position_accessor = add_accessor(
+        b"".join(struct.pack("<3f", *item) for item in positions),
+        component=5126,
+        count=3,
+        kind="VEC3",
+        target=34962,
+    )
+    normal_accessor = add_accessor(
+        b"".join(struct.pack("<3f", *item) for item in normals),
+        component=5126,
+        count=3,
+        kind="VEC3",
+        target=34962,
+    )
+    uv_accessor = add_accessor(
+        b"".join(struct.pack("<2f", *item) for item in uvs),
+        component=5126,
+        count=3,
+        kind="VEC2",
+        target=34962,
+    )
+    joints_accessor = add_accessor(
+        b"".join(struct.pack("<4H", 0, 0, 0, 0) for _ in positions),
+        component=5123,
+        count=3,
+        kind="VEC4",
+        target=34962,
+    )
+    weights_accessor = add_accessor(
+        b"".join(struct.pack("<4f", 1.0, 0.0, 0.0, 0.0) for _ in positions),
+        component=5126,
+        count=3,
+        kind="VEC4",
+        target=34962,
+    )
+    index_accessor = add_accessor(
+        struct.pack("<3H", 0, 1, 2),
+        component=5123,
+        count=3,
+        kind="SCALAR",
+        target=34963,
+    )
     attrs = {
-        "POSITION": 0,
-        "NORMAL": 1,
-        "TEXCOORD_0": 2,
-        "JOINTS_0": 3,
-        "WEIGHTS_0": 4,
+        "POSITION": position_accessor,
+        "NORMAL": normal_accessor,
+        "TEXCOORD_0": uv_accessor,
+        "JOINTS_0": joints_accessor,
+        "WEIGHTS_0": weights_accessor,
     }
     primitives = [
         {
             "attributes": dict(attrs),
-            "indices": 5,
+            "indices": index_accessor,
             "material": 0,
             "mode": 4,
             "extras": {"bodyrigDentalRole": "mouth_interior"},
         },
         {
             "attributes": dict(attrs),
-            "indices": 5,
+            "indices": index_accessor,
             "material": 1,
             "mode": 4,
             "extras": {"bodyrigDentalRole": "upper_teeth"},
         },
         {
             "attributes": dict(attrs),
-            "indices": 5,
+            "indices": index_accessor,
             "material": 1,
             "mode": 4,
             "extras": {"bodyrigDentalRole": "lower_teeth"},
@@ -159,9 +232,15 @@ def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
     }
     document = {
         "asset": {"version": "2.0"},
-        "buffers": [{"byteLength": len(texture_bytes)}],
-        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(texture_bytes)}],
-        "accessors": [],
+        "buffers": [{"byteLength": len(binary)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(texture_bytes)},
+            *views,
+        ],
+        "accessors": [
+            {**item, "bufferView": int(item["bufferView"]) + 1}
+            for item in accessors
+        ],
         "images": [{"name": subject.DENTAL_IMAGE, "bufferView": 0, "mimeType": "image/png"}],
         "textures": [{"source": 0}],
         "materials": [
@@ -183,7 +262,7 @@ def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
         "scenes": [{"nodes": [0]}],
         "extras": {"bodyrig": {"dentalSourceRuntime": metadata}},
     }
-    return _write_glb(document, texture_bytes)
+    return _write_glb(document, bytes(binary))
 
 
 def test_adapter_config_requires_source_grounded_non_generative_capabilities() -> None:
