@@ -35,6 +35,10 @@ from .high_fidelity_face_secondary_runtime import (
     read_runtime,
 )
 from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_high_fidelity_package
+from .source_dental_face_graft import (
+    SourceDentalFaceGraftError,
+    audit_source_dental_face_payload,
+)
 from .package import MRBodyError, validate_package
 
 FORMAT = "bodyrig-high-fidelity-face-secondary-promotion"
@@ -185,6 +189,32 @@ def _authority(
     review_vrm = review_vrm_path.read_bytes()
     if review.get("sourceReviewVrmSha256") != _sha256_bytes(review_vrm) or runtime.get("reviewVrmSha256") != _sha256_bytes(review_vrm):
         raise HighFidelityFaceSecondaryPromotionError("human review/runtime no longer bind exact review VRM bytes")
+    source_dental = runtime.get("sourceDerivedDentalIdentity")
+    generic = runtime.get("genericSecondaryAnatomy")
+    if type(source_dental) is not bool or type(generic) is not bool or source_dental is generic:
+        raise HighFidelityFaceSecondaryPromotionError("runtime dental source/generic mode is invalid")
+    if review.get("sourceDerivedDentalIdentity") is not source_dental or review.get("genericSecondaryAnatomy") is not generic:
+        raise HighFidelityFaceSecondaryPromotionError("human review dental mode differs from runtime")
+    expected_dental_review = {
+        "reviewedAgainstAttestedSource": source_dental,
+        "identityMatchAccepted": source_dental,
+    }
+    if review.get("sourceDentalIdentityReviewAuthority") != expected_dental_review:
+        raise HighFidelityFaceSecondaryPromotionError(
+            "human review lacks exact source dental identity acceptance"
+        )
+    for field in (
+        "dentalReconstructionResultSha256",
+        "dentalVrmSha256",
+        "fineIdentityAttestationSha256",
+        "dentalTextureSha256",
+        "dentalAdapter",
+        "dentalAdapterRevision",
+    ):
+        if review.get(field) != runtime.get(field):
+            raise HighFidelityFaceSecondaryPromotionError(
+                f"human review dental lineage differs from runtime: {field}"
+            )
     return review, runtime, review_vrm, source_sha
 
 
@@ -206,22 +236,14 @@ def _build_promoted_avatar(
     source_bodyrig = _bodyrig(source_document)
     promoted_bodyrig = _bodyrig(review_document)
     fine_requirement_raw = source_bodyrig.get("fineIdentityRequirement")
+    fine_requirement: dict[str, Any] | None = None
     if fine_requirement_raw is not None:
         try:
-            validate_fine_identity_requirement(fine_requirement_raw)
+            fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
         except FineIdentityApplicationError as exc:
             raise HighFidelityFaceSecondaryPromotionError(
                 f"photoidentical fine-identity requirement is invalid: {exc}"
             ) from exc
-        review_meta_candidate = promoted_bodyrig.get("faceSecondaryReviewRuntime")
-        if (
-            not isinstance(review_meta_candidate, Mapping)
-            or review_meta_candidate.get("sourceDerivedDentalIdentity") is not True
-            or review_meta_candidate.get("genericSecondaryAnatomy") is not False
-        ):
-            raise HighFidelityFaceSecondaryPromotionError(
-                "photoidentical fine-identity forbids promotion of generic mouth/teeth geometry"
-            )
     if promoted_bodyrig.get("fidelityComponents") != source_bodyrig.get("fidelityComponents") or promoted_bodyrig.get("faceSecondaryFidelity") != source_bodyrig.get("faceSecondaryFidelity"):
         raise HighFidelityFaceSecondaryPromotionError("review runtime changed fidelity authority before promotion")
     review_meta = promoted_bodyrig.get("faceSecondaryReviewRuntime")
@@ -234,9 +256,25 @@ def _build_promoted_avatar(
         raise HighFidelityFaceSecondaryPromotionError("review VRM lacks canonical embedded face-secondary review metadata")
     if review_meta.get("sourcePackageSha256") != source_package_sha or review_meta.get("bodyrigRevision") != runtime.get("bodyrigRevision"):
         raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary review metadata is stale")
-    if review_meta.get("genericSecondaryAnatomy") is not None:
-        # v1 runtime keeps generic disclosure in the receipt; embedded metadata uses explicit geometry method fields.
-        raise HighFidelityFaceSecondaryPromotionError("unexpected genericSecondaryAnatomy field in embedded v1 runtime metadata")
+    source_dental = review_meta.get("sourceDerivedDentalIdentity")
+    generic = review_meta.get("genericSecondaryAnatomy")
+    if type(source_dental) is not bool or type(generic) is not bool or source_dental is generic:
+        raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary dental mode is invalid")
+    if source_dental is not (runtime.get("sourceDerivedDentalIdentity") is True) or generic is not (runtime.get("genericSecondaryAnatomy") is True):
+        raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary dental mode differs from runtime receipt")
+    if fine_requirement is not None:
+        if source_dental is not True or generic is not False:
+            raise HighFidelityFaceSecondaryPromotionError(
+                "photoidentical fine-identity forbids promotion of generic mouth/teeth geometry"
+            )
+        if review_meta.get("fineIdentityAttestationSha256") != fine_requirement.get("fineIdentityAttestationSha256"):
+            raise HighFidelityFaceSecondaryPromotionError(
+                "source dental runtime attestation differs from fine-identity requirement"
+            )
+    elif source_dental:
+        raise HighFidelityFaceSecondaryPromotionError(
+            "source-derived dental promotion requires fineIdentityRequirement"
+        )
     if review_meta.get("sourceDerivedIdentitySynthesis") is not False or review_meta.get("generativeIdentitySynthesis") is not False:
         raise HighFidelityFaceSecondaryPromotionError("review VRM crossed identity-synthesis boundary")
 
@@ -270,10 +308,20 @@ def _build_promoted_avatar(
         "humanReviewReceiptSha256": human_review_sha,
         "semanticAnchorAuthority": str(runtime["semanticAnchorAuthority"]),
         "semanticVertexMapAuthority": "licensed-smplx-verified",
-        "genericSecondaryAnatomy": True,
-        "genericGeometryComponents": ["mouth_interior", "teeth", "eyelashes"],
-        "sourceAppearanceComponents": ["eyebrow_appearance", "lip_boundary"],
-        "sourceDerivedDentalIdentity": False,
+        "genericSecondaryAnatomy": generic,
+        "genericGeometryComponents": list(runtime["genericGeometryComponents"]),
+        "sourceAppearanceComponents": (
+            ["eyebrow_appearance", "lip_boundary", "mouth_interior", "teeth"]
+            if source_dental
+            else ["eyebrow_appearance", "lip_boundary"]
+        ),
+        "sourceDerivedDentalIdentity": source_dental,
+        "dentalReconstructionResultSha256": runtime.get("dentalReconstructionResultSha256"),
+        "dentalVrmSha256": runtime.get("dentalVrmSha256"),
+        "fineIdentityAttestationSha256": runtime.get("fineIdentityAttestationSha256"),
+        "dentalTextureSha256": runtime.get("dentalTextureSha256"),
+        "dentalAdapter": runtime.get("dentalAdapter"),
+        "dentalAdapterRevision": runtime.get("dentalAdapterRevision"),
         "sourceDerivedIdentitySynthesis": False,
         "generativeIdentitySynthesis": False,
         "component": "face_secondary",
@@ -367,8 +415,15 @@ def write_promotion(
             "componentsAfter": dict(after["components"]),
             "faceSecondaryComponentsAfter": {component: "complete" for component in REQUIRED_SUBCOMPONENTS},
             "semanticVertexMapAuthority": "licensed-smplx-verified",
-            "genericSecondaryAnatomy": True,
-            "sourceDerivedDentalIdentity": False,
+            "genericSecondaryAnatomy": bool(runtime["genericSecondaryAnatomy"]),
+            "genericGeometryComponents": list(runtime["genericGeometryComponents"]),
+            "sourceDerivedDentalIdentity": bool(runtime["sourceDerivedDentalIdentity"]),
+            "dentalReconstructionResultSha256": runtime.get("dentalReconstructionResultSha256"),
+            "dentalVrmSha256": runtime.get("dentalVrmSha256"),
+            "fineIdentityAttestationSha256": runtime.get("fineIdentityAttestationSha256"),
+            "dentalTextureSha256": runtime.get("dentalTextureSha256"),
+            "dentalAdapter": runtime.get("dentalAdapter"),
+            "dentalAdapterRevision": runtime.get("dentalAdapterRevision"),
             "sourceDerivedIdentitySynthesis": False,
             "generativeIdentitySynthesis": False,
             "highFidelityReadyAfter": bool(audit["high_fidelity_ready"]),
@@ -422,7 +477,9 @@ def read_promotion(
         "sourcePackageSha256", "sourceAvatarSha256", "reviewRuntimeReceiptSha256", "reviewVrmSha256",
         "previewAuthoritySha256", "humanReviewReceiptSha256", "promotedPackageSha256", "promotedAvatarSha256",
         "componentsBefore", "componentsAfter", "faceSecondaryComponentsAfter", "semanticVertexMapAuthority",
-        "genericSecondaryAnatomy", "sourceDerivedDentalIdentity", "sourceDerivedIdentitySynthesis",
+        "genericSecondaryAnatomy", "genericGeometryComponents", "sourceDerivedDentalIdentity",
+        "dentalReconstructionResultSha256", "dentalVrmSha256", "fineIdentityAttestationSha256",
+        "dentalTextureSha256", "dentalAdapter", "dentalAdapterRevision", "sourceDerivedIdentitySynthesis",
         "generativeIdentitySynthesis", "highFidelityReadyAfter", "humanReviewRequired", "productionActivation",
     }
     if set(value) != required or value.get("format") != FORMAT or not _is_version(value.get("version"), VERSION) or value.get("policyRevision") != POLICY_REVISION:
@@ -465,8 +522,41 @@ def read_promotion(
         raise HighFidelityFaceSecondaryPromotionError("promoted avatar lacks canonical embedded face-secondary promotion")
     if embedded.get("sourcePackageSha256") != source_sha or embedded.get("humanReviewReceiptSha256") != expected_exact["humanReviewReceiptSha256"]:
         raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary promotion lineage is stale")
-    if embedded.get("sourceDerivedDentalIdentity") is not False or embedded.get("genericSecondaryAnatomy") is not True or embedded.get("productionActivation") is not False:
-        raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary promotion crossed disclosure/production boundary")
+    source_dental = runtime.get("sourceDerivedDentalIdentity") is True
+    generic = runtime.get("genericSecondaryAnatomy") is True
+    if source_dental is generic:
+        raise HighFidelityFaceSecondaryPromotionError("runtime dental mode is invalid during promotion readback")
+    for field in (
+        "sourceDerivedDentalIdentity",
+        "genericSecondaryAnatomy",
+        "genericGeometryComponents",
+        "dentalReconstructionResultSha256",
+        "dentalVrmSha256",
+        "fineIdentityAttestationSha256",
+        "dentalTextureSha256",
+        "dentalAdapter",
+        "dentalAdapterRevision",
+    ):
+        if embedded.get(field) != value.get(field) or value.get(field) != runtime.get(field):
+            raise HighFidelityFaceSecondaryPromotionError(
+                f"promoted dental lineage differs from reviewed runtime: {field}"
+            )
+    if embedded.get("productionActivation") is not False:
+        raise HighFidelityFaceSecondaryPromotionError("embedded face-secondary promotion crossed production boundary")
+    if source_dental:
+        dental_texture_sha = _sha(
+            value.get("dentalTextureSha256"),
+            label="promoted dental texture SHA-256",
+        )
+        try:
+            audit_source_dental_face_payload(
+                avatar,
+                expected_texture_sha256=dental_texture_sha,
+            )
+        except SourceDentalFaceGraftError as exc:
+            raise HighFidelityFaceSecondaryPromotionError(
+                f"promoted source dental render payload failed audit: {exc}"
+            ) from exc
     expected_nested = {component: "complete" for component in REQUIRED_SUBCOMPONENTS}
     if audit["face_secondary_components"] != expected_nested or audit["face_secondary_ready"] is not True or audit["components"].get("face_secondary") != "complete":
         raise HighFidelityFaceSecondaryPromotionError("promoted package face-secondary audit is incomplete")
@@ -474,7 +564,12 @@ def read_promotion(
         raise HighFidelityFaceSecondaryPromotionError("promotion receipt component state differs from strict audit")
     if value.get("semanticVertexMapAuthority") != "licensed-smplx-verified" or audit["semantic_vertex_map_authority"] != "licensed-smplx-verified":
         raise HighFidelityFaceSecondaryPromotionError("promoted semantic authority is invalid")
-    if value.get("genericSecondaryAnatomy") is not True or value.get("sourceDerivedDentalIdentity") is not False or value.get("sourceDerivedIdentitySynthesis") is not False or value.get("generativeIdentitySynthesis") is not False:
+    if (
+        value.get("genericSecondaryAnatomy") is not generic
+        or value.get("sourceDerivedDentalIdentity") is not source_dental
+        or value.get("sourceDerivedIdentitySynthesis") is not False
+        or value.get("generativeIdentitySynthesis") is not False
+    ):
         raise HighFidelityFaceSecondaryPromotionError("promotion disclosure fields are invalid")
     if value.get("highFidelityReadyAfter") is not bool(audit["high_fidelity_ready"]):
         raise HighFidelityFaceSecondaryPromotionError("promotion high-fidelity readiness differs from strict audit")
