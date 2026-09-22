@@ -132,7 +132,14 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "const changedPerson=previousPersonId!==personId",
         "state.person=profile",
         "if(manual) setSelectedPersonUrl(personId,{clearRevision:true})",
-        "if(changedPerson) clearEvidence()",
+        "function resetPersonScopedAuthoring()",
+        '$("language").value="da"',
+        '$("feedback").value=""',
+        '$("authoredNotes").value=""',
+        '$("examples").replaceChildren()',
+        "addExample()",
+        "clearEvidence()",
+        "if(changedPerson) resetPersonScopedAuthoring()",
         'selectPerson($("personSelect").value,{manual:true})',
         '$("personSelect").value=state.person?.person_id||""',
     ):
@@ -145,7 +152,7 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "state.person=profile"
     )
     assert select_source.index("state.person=profile") < select_source.index(
-        "if(changedPerson) clearEvidence()"
+        "if(changedPerson) resetPersonScopedAuthoring()"
     )
 
 
