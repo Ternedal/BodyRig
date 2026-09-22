@@ -6,6 +6,7 @@ import json
 import pytest
 
 from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt, with_component_status
+from bodyrig.fine_identity_application import build_requirement
 from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
 from bodyrig.high_fidelity_hair_promotion import (
     HighFidelityHairPromotionError,
@@ -42,27 +43,32 @@ def _hair_avatar(*, with_eyes: bool = False) -> bytes:
     )
 
 
-def _anatomy_avatar() -> bytes:
+def _anatomy_avatar(*, with_fine_requirement: bool = False) -> bytes:
     components = with_component_status(
         current_pipeline_receipt(),
         component="body_anatomy",
         status="complete",
     )
+    bodyrig = {
+        "fidelityComponents": components,
+        "bodyAnatomyPromotion": {
+            "format": "bodyrig-body-anatomy-promotion",
+            "version": 1,
+            "component": "body_anatomy",
+            "productionActivation": False,
+        },
+    }
+    if with_fine_requirement:
+        bodyrig["fineIdentityRequirement"] = build_requirement(
+            bodyrig_revision="1" * 40,
+            fine_identity_authority_sha256="b" * 64,
+            fine_identity_attestation_sha256="c" * 64,
+        )
     return _write_glb(
         {
             "asset": {"version": "2.0"},
             "buffers": [{"byteLength": 0}],
-            "extras": {
-                "bodyrig": {
-                    "fidelityComponents": components,
-                    "bodyAnatomyPromotion": {
-                        "format": "bodyrig-body-anatomy-promotion",
-                        "version": 1,
-                        "component": "body_anatomy",
-                        "productionActivation": False,
-                    },
-                }
-            },
+            "extras": {"bodyrig": bodyrig},
         },
         b"",
     )
@@ -143,3 +149,17 @@ def test_canonical_bridge_hash_matches_combined_bridge_algorithm() -> None:
         json.dumps(bridge, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     ).hexdigest()
     assert _canonical_json_sha256(bridge) == expected
+
+
+def test_hair_promotion_preserves_fine_identity_requirement() -> None:
+    promoted, _before, _after = _promoted_hair_avatar(
+        _hair_avatar(),
+        _anatomy_avatar(with_fine_requirement=True),
+        **_promotion_kwargs(),
+    )
+    document, _ = _read_glb(promoted)
+    requirement = document["extras"]["bodyrig"]["fineIdentityRequirement"]
+    assert requirement["fineIdentityAuthoritySha256"] == "b" * 64
+    assert requirement["fineIdentityAttestationSha256"] == "c" * 64
+    assert requirement["applicationRequired"] is True
+    assert requirement["genericGuessingPermitted"] is False

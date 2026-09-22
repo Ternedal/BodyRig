@@ -7,6 +7,7 @@ import pytest
 
 import bodyrig.high_fidelity_anatomy_promotion as promotion
 
+from bodyrig.fine_identity_application import build_requirement
 from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt, with_component_status
 from bodyrig.bridges.face_secondary_fidelity import current_face_secondary_receipt
 from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
@@ -30,6 +31,14 @@ def _avatar(top=None) -> bytes:
     return _write_glb(document, b"")
 
 
+def _fine_requirement() -> dict:
+    return build_requirement(
+        bodyrig_revision="1" * 40,
+        fine_identity_authority_sha256="5" * 64,
+        fine_identity_attestation_sha256="6" * 64,
+    )
+
+
 def _review() -> dict:
     return {
         "preview_job_id": "hfpreview-0123456789abcdef0123456789abcdef",
@@ -51,6 +60,7 @@ def test_promoted_avatar_changes_only_body_anatomy_and_stays_non_activating() ->
         review=_review(),
         component_review_sha256="3" * 64,
         source_package_sha256="4" * 64,
+        fine_identity_requirement=_fine_requirement(),
     )
 
     document, _ = _read_glb(promoted)
@@ -60,6 +70,7 @@ def test_promoted_avatar_changes_only_body_anatomy_and_stays_non_activating() ->
     for component in ("skin_appearance", "hair", "eyes", "face_secondary"):
         assert after["components"][component] == before["components"][component]
     assert bodyrig["fidelityComponents"] == after
+    assert bodyrig["fineIdentityRequirement"] == _fine_requirement()
     assert bodyrig["bodyAnatomyPromotion"] == {
         "format": "bodyrig-body-anatomy-promotion",
         "version": 1,
@@ -90,6 +101,7 @@ def test_promoted_avatar_rejects_review_that_attempts_hair_or_eye_promotion() ->
             review=review,
             component_review_sha256="3" * 64,
             source_package_sha256="4" * 64,
+            fine_identity_requirement=_fine_requirement(),
         )
 
 
@@ -105,6 +117,7 @@ def test_promoted_avatar_rejects_already_complete_anatomy() -> None:
             review=_review(),
             component_review_sha256="3" * 64,
             source_package_sha256="4" * 64,
+            fine_identity_requirement=_fine_requirement(),
         )
 
 

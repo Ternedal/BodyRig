@@ -15,6 +15,10 @@ from .bridges.avatar_fidelity_components import (
     with_component_status,
 )
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .high_fidelity_anatomy_promotion import (
     HighFidelityAnatomyPromotionError,
     read_promotion as read_anatomy_promotion,
@@ -590,6 +594,19 @@ def _promoted_hair_avatar(
         "eyesImported": False,
         "productionActivation": False,
     }
+    fine_requirement_raw = anatomy_bodyrig.get("fineIdentityRequirement")
+    if fine_requirement_raw is not None:
+        try:
+            fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
+        except FineIdentityApplicationError as exc:
+            raise HighFidelityHairPromotionError(
+                f"anatomy-promoted fine-identity requirement is invalid: {exc}"
+            ) from exc
+        if "fineIdentityRequirement" in hair_bodyrig or "fineIdentityApplication" in hair_bodyrig:
+            raise HighFidelityHairPromotionError(
+                "hair-only VRM unexpectedly carries fine-identity authority"
+            )
+        hair_bodyrig["fineIdentityRequirement"] = dict(fine_requirement)
     hair_bodyrig["fidelityComponents"] = after
     hair_bodyrig["bodyAnatomyPromotion"] = dict(anatomy_bodyrig["bodyAnatomyPromotion"])
     hair_bodyrig["hairPromotion"] = embedded

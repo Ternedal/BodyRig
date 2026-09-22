@@ -18,6 +18,11 @@ from .bridges.face_secondary_fidelity import (
     FaceSecondaryFidelityError,
     validate_face_secondary_receipt,
 )
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    validate_application as validate_fine_identity_application,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .package import MRBodyError, validate_package
 
 
@@ -559,6 +564,57 @@ def audit_fidelity_document(document: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _apply_fine_identity_gate(
+    fidelity: Mapping[str, Any],
+    *,
+    bodyrig: Mapping[str, Any],
+    avatar_vrm: bytes,
+) -> dict[str, Any]:
+    result = dict(fidelity)
+    result["top_level_blockers"] = list(fidelity.get("top_level_blockers") or [])
+    fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    fine_application_raw = bodyrig.get("fineIdentityApplication")
+    if fine_requirement_raw is None:
+        if fine_application_raw is not None:
+            raise HighFidelityPackageAuditError(
+                "fine-identity application exists without a fine-identity requirement"
+            )
+        result["fine_identity_required"] = False
+        result["fine_identity_ready"] = True
+        result["fine_identity"] = None
+        return result
+
+    try:
+        fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
+    except FineIdentityApplicationError as exc:
+        raise HighFidelityPackageAuditError(f"fine-identity requirement is invalid: {exc}") from exc
+
+    fine_ready = False
+    fine_application = None
+    if fine_application_raw is not None:
+        try:
+            fine_application = validate_fine_identity_application(
+                fine_application_raw,
+                requirement=fine_requirement,
+                avatar_vrm=avatar_vrm,
+            )
+        except FineIdentityApplicationError as exc:
+            raise HighFidelityPackageAuditError(f"fine-identity application is invalid: {exc}") from exc
+        fine_ready = True
+
+    result["fine_identity_required"] = True
+    result["fine_identity_ready"] = fine_ready
+    result["fine_identity"] = {
+        "requirement": fine_requirement,
+        "application": fine_application,
+    }
+    if not fine_ready:
+        result["high_fidelity_ready"] = False
+        if "fine_identity" not in result["top_level_blockers"]:
+            result["top_level_blockers"].append("fine_identity")
+    return result
+
+
 def audit_high_fidelity_package(path: str | Path) -> dict[str, Any]:
     package = Path(path).expanduser().resolve()
     try:
@@ -574,6 +630,13 @@ def audit_high_fidelity_package(path: str | Path) -> dict[str, Any]:
     document = _read_glb_document(avatar)
     fidelity = audit_fidelity_document(document)
     bodyrig = _bodyrig(document)
+
+    fidelity = _apply_fine_identity_gate(
+        fidelity,
+        bodyrig=bodyrig,
+        avatar_vrm=avatar,
+    )
+
     if bodyrig.get("handsFeetNailsDetailApplication") is not None:
         hfn_payload = _audit_hfn_payload(document, _read_glb_binary(avatar), bodyrig)
         if hfn_payload is not None:
