@@ -367,8 +367,12 @@
   }
   async function readEvidence(kind, file){
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
+    const personId=state.person?.person_id||null;
+    const input=kind==="styleReport"?$("styleReportFile"):$("styleApprovalFile");
+    const stillCurrent=()=>((state.person?.person_id||null)===personId&&input.files?.[0]===file);
     try{
       const value=JSON.parse(await file.text());
+      if(!stillCurrent()) return;
       state[kind]=value;
       state.styleSource=null;
       state.styleEvidenceOrigin="file";
@@ -376,7 +380,7 @@
       renderBaseline();
       renderEvidenceStatus();
       invalidate();
-    }catch(error){state[kind]=null;renderEvidenceStatus();invalidate();toast(`Ugyldig JSON evidence: ${error.message}`,true);}
+    }catch(error){if(stillCurrent()){state[kind]=null;renderEvidenceStatus();invalidate();toast(`Ugyldig JSON evidence: ${error.message}`,true);}}
   }
   function clearEvidence(){
     state.styleReport=null;state.styleApproval=null;state.styleSource=null;state.styleEvidenceOrigin=null;
