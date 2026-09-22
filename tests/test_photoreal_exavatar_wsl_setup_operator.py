@@ -29,14 +29,16 @@ def test_exavatar_runtime_requires_exact_nvcc_parity_and_never_installs_legacy_u
     assert '"cython", "ninja"' in SCRIPT
 
 
-def test_exavatar_runtime_installs_openmmlab_in_documented_dependency_order() -> None:
-    mmcv = 'Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmcv==$mmcvVersion")'
-    mmdet = 'Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")'
+def test_exavatar_runtime_installs_openmmlab_in_pinned_dependency_order() -> None:
+    mmcv = '"git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"'
+    mmdet = 'Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmdetVersion")'
     mmpose = 'Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")'
     pip_check = 'Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")'
-    pytorch3d = '"git+https://github.com/facebookresearch/pytorch3d.git@$pytorch3dCommit"'
+    pytorch3d = '$archiveUrl = "https://codeload.github.com/facebookresearch/pytorch3d/tar.gz/$pytorch3dCommit"'
     assert SCRIPT.index(mmcv) < SCRIPT.index(mmdet) < SCRIPT.index(mmpose) < SCRIPT.index(pip_check) < SCRIPT.index(pytorch3d)
     assert '"mmdet==$mmdetVersion", "mmpose==$mmposeVersion"' not in SCRIPT
+    assert '"MMCV_WITH_OPS=1"' in SCRIPT
+    assert '"--no-build-isolation"' in SCRIPT
 
 
 def test_exavatar_runtime_uses_public_chumpy_070_and_patches_numpy_aliases_fail_closed() -> None:
@@ -45,7 +47,9 @@ def test_exavatar_runtime_uses_public_chumpy_070_and_patches_numpy_aliases_fail_
     assert '"--no-build-isolation", "chumpy==$chumpyVersion"' in SCRIPT
     assert 'marker = "from numpy import bool, int, float, complex, object, unicode, str, nan, inf"' in SCRIPT
     assert 'bodyrig-chumpy-0.70-numpy-alias-v1' in SCRIPT
-    assert 'if raw.count(marker) != 1:' in SCRIPT
+    assert 'if raw.count(marker) == 1:' in SCRIPT
+    assert 'elif raw.count(marker) == 0 and raw.count(patch_tag) == 1' in SCRIPT
+    assert 'state = "already-applied"' in SCRIPT
     assert 'import chumpy' in SCRIPT
     assert '"chumpy_smoke": True' in SCRIPT
     assert 'chumpy_patch = $chumpyPatch' in SCRIPT
