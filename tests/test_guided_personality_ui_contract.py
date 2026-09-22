@@ -286,10 +286,13 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     assert 'if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid()' in stale_source
     assert "const settleFailedSave=error=>" in save_source
     failed_start = save_source.index("const settleFailedSave=error=>")
-    failed_end = save_source.index("};", failed_start)
+    failed_end = save_source.index("const settleRefreshFailure=(result,error)=>", failed_start)
     failed_source = save_source[failed_start:failed_end]
     assert "if(saveGeneration!==state.saveRequestGeneration) return" in failed_source
-    assert "isCurrentPerson(personId,personContextGeneration)" not in failed_source
+    assert "if(!isAcceptedPersonContext(personId,personContextGeneration))" in failed_source
+    assert 'if($("status").textContent===savingStatus) $("status").textContent=""' in failed_source
+    assert 'if($("personSelect").value!==personId)' in failed_source
+    assert "state.deferredSaveFailure={personId,personContextGeneration,saveGeneration,message:error.message,savingStatus}" in failed_source
     assert 'if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid()' in failed_source
     assert "const settleRefreshFailure=(result,error)=>" in save_source
     refresh_failure_start = save_source.index("const settleRefreshFailure=(result,error)=>")
@@ -628,6 +631,9 @@ def test_failed_person_switch_resyncs_comparisons_and_reconciles_successful_save
     matrix = Path("bodyrig/ui/personality_matrix.js").read_text(encoding="utf-8")
 
     assert "deferredSaveReconciliation: null" in html
+    assert "deferredSaveFailure: null" in html
+    assert "function discardDeferredSaveFailure()" in html
+    assert "function settleDeferredSaveFailure()" in html
     assert "const deferSavedResult=(result,refreshedPerson=null)=>" in html
     assert "state.deferredSaveReconciliation={personId,personContextGeneration,saveGeneration,result,saveViewKey,refreshedPerson}" in html
     assert "if(deferSavedResult(result)) return" in html
@@ -644,10 +650,11 @@ def test_failed_person_switch_resyncs_comparisons_and_reconciles_successful_save
     listener_source = html[listener_start:listener_end]
     restore = listener_source.index('$(\"personSelect\").value=state.person?.person_id||\"\"')
     resync = listener_source.index('document.dispatchEvent(new CustomEvent(\"bodyrig:person-context-restored\"', restore)
-    deferred_save = listener_source.index("const deferredSave=state.deferredSaveReconciliation", resync)
+    failed_save = listener_source.index("settleDeferredSaveFailure()", resync)
+    deferred_save = listener_source.index("const deferredSave=state.deferredSaveReconciliation", failed_save)
     reconcile = listener_source.index("reconcileDeferredSave().catch", deferred_save)
     deferred_revision = listener_source.index("const deferred=state.deferredEditRevisionReload", reconcile)
-    assert restore < resync < deferred_save < reconcile < deferred_revision
+    assert restore < resync < failed_save < deferred_save < reconcile < deferred_revision
 
     assert 'document.addEventListener("bodyrig:person-context-restored", scheduleRender)' in signature
     matrix_restore = 'document.addEventListener("bodyrig:person-context-restored", () => {'

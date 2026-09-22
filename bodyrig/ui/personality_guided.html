@@ -139,7 +139,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, deferredEditRevisionReload: null, deferredSaveReconciliation: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, deferredEditRevisionReload: null, deferredSaveReconciliation: null, deferredSaveFailure: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
   function isAcceptedPersonContext(personId,personContextGeneration=null){
     return Boolean(personId)
@@ -149,6 +149,20 @@
   function isCurrentPerson(personId,personContextGeneration=null){
     return isAcceptedPersonContext(personId,personContextGeneration)
       && $("personSelect").value===personId;
+  }
+  function discardDeferredSaveFailure(){
+    const deferred=state.deferredSaveFailure;
+    state.deferredSaveFailure=null;
+    if(deferred&&$("status").textContent===deferred.savingStatus) $("status").textContent="";
+  }
+  function settleDeferredSaveFailure(){
+    const deferred=state.deferredSaveFailure;
+    if(!deferred||deferred.saveGeneration!==state.saveRequestGeneration||!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
+    state.deferredSaveFailure=null;
+    if($("status").textContent===deferred.savingStatus) $("status").textContent="Gemning fejlede: "+deferred.message;
+    $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+    toast(deferred.message,true);
+    return true;
   }
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -572,6 +586,7 @@
       state.personContextGeneration+=1;
       state.deferredEditRevisionReload=null;
       state.deferredSaveReconciliation=null;
+      discardDeferredSaveFailure();
       state.person=null;
       resetPersonScopedAuthoring();
       populateBaselines();
@@ -590,12 +605,14 @@
     state.personContextGeneration+=1;
     state.deferredEditRevisionReload=null;
     state.deferredSaveReconciliation=null;
+    if(changedPerson) discardDeferredSaveFailure();
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
     if(changedPerson) resetPersonScopedAuthoring();
     const select=$("bodyRevision"); select.innerHTML='<option value="">Ingen — neutrale mannerisms</option>';
     for(const item of state.person.body_revisions||[]){const o=document.createElement("option");o.value=item.revision_id;o.textContent=`${item.revision_id} · ${item.body_id}`;select.appendChild(o);}
     populateBaselines(); invalidate(); await loadRequestedEditRevision();
+    if(!changedPerson) settleDeferredSaveFailure();
   }
 
   function renderPreview(result){
@@ -644,6 +661,7 @@
     const personContextGeneration=state.personContextGeneration;
     const saveGeneration=++state.saveRequestGeneration;
     state.deferredSaveReconciliation=null;
+    state.deferredSaveFailure=null;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
@@ -665,6 +683,14 @@
     };
     const settleFailedSave=error=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
+      if(!isAcceptedPersonContext(personId,personContextGeneration)){
+        if($("status").textContent===savingStatus) $("status").textContent="";
+        return;
+      }
+      if($("personSelect").value!==personId){
+        state.deferredSaveFailure={personId,personContextGeneration,saveGeneration,message:error.message,savingStatus};
+        return;
+      }
       if($("status").textContent===savingStatus) $("status").textContent="Gemning fejlede: "+error.message;
       if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid();
       toast(error.message,true);
@@ -789,6 +815,7 @@
       if($("personSelect").value!==personId) return;
       $("personSelect").value=state.person?.person_id||"";
       document.dispatchEvent(new CustomEvent("bodyrig:person-context-restored",{detail:{personId:state.person?.person_id||""}}));
+      settleDeferredSaveFailure();
       if($("status").textContent.startsWith("Gemning fejlede:")) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
       updateTranscriptApprovalState();
       const deferredSave=state.deferredSaveReconciliation;
