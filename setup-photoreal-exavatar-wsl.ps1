@@ -21,6 +21,7 @@ $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
 $openmimVersion = "0.3.9"
+$setuptoolsVersion = "80.10.2"
 $pyopenglVersion = "3.1.0"
 $chumpyVersion = "0.70"
 $pytorch3dCommit = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"
@@ -122,7 +123,7 @@ if ($Force) {
 }
 
 Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
-Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel", "cython", "ninja")
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "--upgrade", "pip", "setuptools==$setuptoolsVersion", "wheel", "cython", "ninja")
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
     "torch==$torchVersion", "torchvision==$torchvisionVersion",
@@ -147,6 +148,14 @@ Invoke-Wsl -Root -Arguments @(
 # public package separately, then patch its legacy NumPy alias import below.
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
+)
+
+# OpenMIM 0.3.9 still imports pkg_resources. setuptools 82+ removed it,
+# so keep the runtime on the last compatible setuptools family and fail closed
+# before invoking mim if that compatibility module is unavailable.
+Invoke-Wsl -Root -Arguments @(
+    $LinuxPython, "-c",
+    "import importlib.metadata, pkg_resources; assert importlib.metadata.version('setuptools') == '$setuptoolsVersion'"
 )
 
 # OpenMMLab's documented order is MMEngine -> MMCV -> MMDetection/MMPose.
