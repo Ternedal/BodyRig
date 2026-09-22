@@ -8,6 +8,7 @@ param(
     [ValidateSet("", "colmap", "virtual")][string]$CameraMode = "",
     [string]$P2MotionConfig = "",
     [string]$P2ReviewSelectionInput = "",
+    [string]$SingleMotionDriverSourceRef = "",
     [string]$ReviewedBy = "",
     [string]$ReviewNotes = "",
     [string]$P3TargetProfile = "",
@@ -83,6 +84,9 @@ if (-not [string]::IsNullOrWhiteSpace($P2MotionConfig)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($P2ReviewSelectionInput)) {
     $argsList += @("--p2-review-selection-input", [IO.Path]::GetFullPath($P2ReviewSelectionInput))
+}
+if (-not [string]::IsNullOrWhiteSpace($SingleMotionDriverSourceRef)) {
+    $argsList += @("--single-motion-driver-source-ref", $SingleMotionDriverSourceRef)
 }
 if (-not [string]::IsNullOrWhiteSpace($ReviewedBy)) {
     $argsList += @("--reviewed-by", $ReviewedBy)
