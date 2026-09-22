@@ -6,6 +6,7 @@ import json
 import pytest
 
 import bodyrig.face_secondary_hair_eye_review as review
+from bodyrig.fine_identity_application import build_requirement
 from bodyrig.bridges.sith_pbr_material import _read_glb, _write_glb
 from bodyrig.high_fidelity_face_secondary_runtime import NODE_NAME
 
@@ -214,3 +215,37 @@ def test_build_rejects_hair_eye_runtime_that_lost_promoted_appearance_authority(
 
     with pytest.raises(review.FaceSecondaryHairEyeReviewError, match="appearanceTransfer authority required by HFN"):
         review.build(package, source_root, tmp_path / "out-missing-appearance", bodyrig_revision="a" * 40)
+
+
+def test_build_rejects_generic_dental_runtime_for_photoidentical_package(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    package = tmp_path / "body.mrbody"
+    package.write_bytes(b"photoidentical-package")
+    package_sha = _sha(package.read_bytes())
+    monkeypatch.setattr(review, "_package_authority", lambda _path: ("body-1", package_sha))
+    source_root, receipt, _vrm = _source_runtime(tmp_path, package_sha=package_sha)
+
+    vrm_path = source_root / review.SOURCE_VRM_NAME
+    document, binary = _read_glb(vrm_path.read_bytes())
+    document["extras"]["bodyrig"]["fineIdentityRequirement"] = build_requirement(
+        bodyrig_revision="a" * 40,
+        fine_identity_authority_sha256="b" * 64,
+        fine_identity_attestation_sha256="c" * 64,
+    )
+    photoidentical_vrm = _write_glb(document, binary)
+    vrm_path.write_bytes(photoidentical_vrm)
+    receipt["reviewVrmSha256"] = _sha(photoidentical_vrm)
+    (source_root / review.SOURCE_RECEIPT_NAME).write_text(json.dumps(receipt), encoding="utf-8")
+
+    with pytest.raises(
+        review.FaceSecondaryHairEyeReviewError,
+        match="requires source-derived dental/oral geometry",
+    ):
+        review.build(
+            package,
+            source_root,
+            tmp_path / "photoidentical-face-secondary",
+            bodyrig_revision="a" * 40,
+        )

@@ -22,6 +22,10 @@ from .bridges.face_secondary_fidelity import (
     with_face_secondary_status,
 )
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .high_fidelity_face_secondary_review import (
     HighFidelityFaceSecondaryReviewError,
     read_review,
@@ -201,6 +205,23 @@ def _build_promoted_avatar(
         raise HighFidelityFaceSecondaryPromotionError(str(exc)) from exc
     source_bodyrig = _bodyrig(source_document)
     promoted_bodyrig = _bodyrig(review_document)
+    fine_requirement_raw = source_bodyrig.get("fineIdentityRequirement")
+    if fine_requirement_raw is not None:
+        try:
+            validate_fine_identity_requirement(fine_requirement_raw)
+        except FineIdentityApplicationError as exc:
+            raise HighFidelityFaceSecondaryPromotionError(
+                f"photoidentical fine-identity requirement is invalid: {exc}"
+            ) from exc
+        review_meta_candidate = promoted_bodyrig.get("faceSecondaryReviewRuntime")
+        if (
+            not isinstance(review_meta_candidate, Mapping)
+            or review_meta_candidate.get("sourceDerivedDentalIdentity") is not True
+            or review_meta_candidate.get("genericSecondaryAnatomy") is not False
+        ):
+            raise HighFidelityFaceSecondaryPromotionError(
+                "photoidentical fine-identity forbids promotion of generic mouth/teeth geometry"
+            )
     if promoted_bodyrig.get("fidelityComponents") != source_bodyrig.get("fidelityComponents") or promoted_bodyrig.get("faceSecondaryFidelity") != source_bodyrig.get("faceSecondaryFidelity"):
         raise HighFidelityFaceSecondaryPromotionError("review runtime changed fidelity authority before promotion")
     review_meta = promoted_bodyrig.get("faceSecondaryReviewRuntime")

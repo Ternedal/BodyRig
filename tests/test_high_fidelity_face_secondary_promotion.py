@@ -9,6 +9,7 @@ from bodyrig import high_fidelity_face_secondary_promotion as promotion
 from bodyrig.bridges.avatar_fidelity_components import current_pipeline_receipt, with_component_status
 from bodyrig.bridges.face_secondary_fidelity import current_face_secondary_receipt
 from bodyrig.high_fidelity_face_secondary_promotion import HighFidelityFaceSecondaryPromotionError
+from bodyrig.fine_identity_application import build_requirement
 
 
 def _before_components() -> dict:
@@ -99,3 +100,39 @@ def test_preexisting_output_is_never_removed(tmp_path: Path) -> None:
             promotion_bodyrig_revision="a" * 40,
         )
     assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_photoidentical_promotion_rejects_generic_dental_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_bodyrig = {
+        "fineIdentityRequirement": build_requirement(
+            bodyrig_revision="a" * 40,
+            fine_identity_authority_sha256="b" * 64,
+            fine_identity_attestation_sha256="c" * 64,
+        ),
+    }
+    review_bodyrig = {
+        "faceSecondaryReviewRuntime": {
+            "genericSecondaryAnatomy": True,
+            "sourceDerivedDentalIdentity": False,
+        },
+    }
+    source_document = {"extras": {"bodyrig": source_bodyrig}}
+    review_document = {"extras": {"bodyrig": review_bodyrig}}
+    calls = iter([(source_document, b"source"), (review_document, b"review")])
+    monkeypatch.setattr(promotion, "_read_glb", lambda _value: next(calls))
+
+    with pytest.raises(
+        HighFidelityFaceSecondaryPromotionError,
+        match="forbids promotion of generic mouth/teeth geometry",
+    ):
+        promotion._build_promoted_avatar(
+            source_avatar=b"source-avatar",
+            review_vrm=b"review-avatar",
+            source_package_sha="d" * 64,
+            review={},
+            runtime={},
+            promotion_revision="a" * 40,
+            human_review_sha="e" * 64,
+        )
