@@ -223,6 +223,8 @@ def _dental_vrm(*, generic: bool = False, png_texture: bool = True) -> bytes:
         "performerId": PERFORMER,
         "inputManifestSha256": "7" * 64,
         "fineIdentityAttestationSha256": "8" * 64,
+        "coordinateSpace": subject.COORDINATE_SPACE,
+        "jointBindingPolicy": subject.JOINT_BINDING_POLICY,
         "sourceDerivedDentalIdentity": not generic,
         "genericSecondaryAnatomy": generic,
         "generativeIdentitySynthesis": False,
