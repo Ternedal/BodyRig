@@ -189,7 +189,20 @@ def _verify_asset(root: Path, relative: str, records: Mapping[str, Mapping[str, 
 def _clone_pinned(source: Path, destination: Path, expected_commit: str) -> None:
     if not source.is_dir():
         raise PhotorealExAvatarWorkspaceError(f"pinned dependency source missing: {source}")
-    _run(["git", "clone", "--shared", "--no-checkout", str(source), str(destination)], label=f"clone {destination.name}")
+    resolved_source = source.expanduser().resolve()
+    _run(
+        [
+            "git",
+            "-c",
+            f"safe.directory={resolved_source}",
+            "clone",
+            "--shared",
+            "--no-checkout",
+            str(resolved_source),
+            str(destination),
+        ],
+        label=f"clone {destination.name}",
+    )
     _run(["git", "-C", str(destination), "checkout", "--detach", expected_commit], label=f"checkout {destination.name}")
     observed = _git(destination, "rev-parse", "HEAD").lower()
     if observed != expected_commit:
