@@ -95,8 +95,14 @@ def _current_authority(preparation_dir: Path, runtime_dir: Path, render_dir: Pat
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime candidate component set is not canonical review-pending v1")
     if runtime.get("semanticAnchorAuthority") != "licensed-smplx-joint-topology-v1":
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime lacks licensed SMPL-X semantic anchor authority")
-    if runtime.get("genericSecondaryAnatomy") is not True:
-        raise HighFidelityFaceSecondaryReviewError("face-secondary review requires explicit generic secondary anatomy disclosure")
+    source_derived_dental = runtime.get("sourceDerivedDentalIdentity", False)
+    if type(source_derived_dental) is not bool:
+        raise HighFidelityFaceSecondaryReviewError("face-secondary runtime dental disclosure is invalid")
+    expected_generic = not source_derived_dental
+    if runtime.get("genericSecondaryAnatomy") is not expected_generic:
+        raise HighFidelityFaceSecondaryReviewError(
+            "face-secondary runtime generic/source-derived dental disclosure is inconsistent"
+        )
     if runtime.get("sourceDerivedIdentitySynthesis") is not False or runtime.get("generativeIdentitySynthesis") is not False:
         raise HighFidelityFaceSecondaryReviewError("face-secondary runtime crossed identity-synthesis boundary")
     if runtime.get("comparisonOnly") is not True or runtime.get("humanReviewRequired") is not True or runtime.get("faceSecondaryComponentAuthority") is not False or runtime.get("packageMutationPerformed") is not False or runtime.get("productionActivation") is not False:
@@ -122,7 +128,8 @@ def _current_authority(preparation_dir: Path, runtime_dir: Path, render_dir: Pat
         "canonicalViewSha256": dict(preview.get("canonicalViewSha256") or {}),
         "diagnosticViewSha256": dict(preview.get("diagnosticViewSha256") or {}),
         "semanticAnchorAuthority": str(runtime["semanticAnchorAuthority"]),
-        "genericSecondaryAnatomy": True,
+        "genericSecondaryAnatomy": expected_generic,
+        "sourceDerivedDentalIdentity": source_derived_dental,
     }
 
 
