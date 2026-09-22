@@ -125,6 +125,76 @@ def validate_requirement(value: Mapping[str, Any]) -> dict[str, Any]:
     return dict(value)
 
 
+
+def build_application(
+    *,
+    requirement: Mapping[str, Any],
+    source_avatar_vrm: bytes,
+    candidate_avatar_vrm: bytes,
+    domains: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build the canonical terminal application receipt from exact source/candidate avatar bytes."""
+    expected_requirement = validate_requirement(requirement)
+    if not isinstance(domains, Mapping) or set(domains) != set(REQUIRED_DOMAINS):
+        raise FineIdentityApplicationError("fine-identity application domain set is incomplete")
+
+    canonical_domains: dict[str, dict[str, Any]] = {}
+    for domain in REQUIRED_DOMAINS:
+        entry = domains.get(domain)
+        if not isinstance(entry, Mapping) or set(entry) != DOMAIN_FIELDS:
+            raise FineIdentityApplicationError(f"{domain} application fields are not canonical")
+        canonical_domains[domain] = {
+            "sourceEvidenceCount": entry.get("sourceEvidenceCount"),
+            "geometryApplied": entry.get("geometryApplied"),
+            "appearanceApplied": entry.get("appearanceApplied"),
+        }
+
+    try:
+        source_fingerprints = _avatar_fingerprints(source_avatar_vrm)
+        candidate_fingerprints = _avatar_fingerprints(candidate_avatar_vrm)
+    except FidelityAbError as exc:
+        raise FineIdentityApplicationError(
+            f"fine-identity source/candidate avatar fingerprints are invalid: {exc}"
+        ) from exc
+
+    value = {
+        "format": APPLICATION_FORMAT,
+        "version": VERSION,
+        "policyRevision": POLICY_REVISION,
+        "bodyrigRevision": expected_requirement["bodyrigRevision"],
+        "fineIdentityAuthoritySha256": expected_requirement["fineIdentityAuthoritySha256"],
+        "fineIdentityAttestationSha256": expected_requirement["fineIdentityAttestationSha256"],
+        "domains": canonical_domains,
+        "sourceGeometrySurfaceSha256": _sha(
+            source_fingerprints.get("geometry_surface_sha256"),
+            label="fine-identity source geometry SHA-256",
+        ),
+        "candidateGeometrySurfaceSha256": _sha(
+            candidate_fingerprints.get("geometry_surface_sha256"),
+            label="fine-identity candidate geometry SHA-256",
+        ),
+        "sourceAppearanceGlobalSha256": _sha(
+            source_fingerprints.get("appearance_global_sha256"),
+            label="fine-identity source appearance SHA-256",
+        ),
+        "candidateAppearanceGlobalSha256": _sha(
+            candidate_fingerprints.get("appearance_global_sha256"),
+            label="fine-identity candidate appearance SHA-256",
+        ),
+        "sourceGrounded": True,
+        "generative": False,
+        "packageApplicationAuthority": True,
+        "geometryModified": True,
+        "appearanceModified": True,
+        "humanReviewRequired": True,
+        "productionActivation": False,
+    }
+    return validate_application(
+        value,
+        requirement=expected_requirement,
+        avatar_vrm=candidate_avatar_vrm,
+    )
+
 def validate_application(
     value: Mapping[str, Any],
     *,
