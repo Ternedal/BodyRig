@@ -76,24 +76,235 @@ def _p1_pass(monkeypatch: pytest.MonkeyPatch, teacher: Path) -> None:
     )
     monkeypatch.setattr(
         status,
+        "validate_likeness_review_pack",
+        lambda output_root: {
+            "p1_likeness_review_manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        status,
         "validate_likeness_review_receipt",
         lambda receipt, review_manifest=None: {
+            "performer_id": PERFORMER,
+            "selected_epoch_id": "epoch-a",
+            "teacher_input_sha256": "1" * 64,
+            "p1_likeness_review_manifest_sha256": "a" * 64,
+            "p1_likeness_review_sha256": "b" * 64,
             "p1_static_teacher_status": "pass",
             "p2_animation_authorized": True,
         },
     )
 
 
+def _p2_lineage() -> dict[str, str]:
+    return {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_animation_plan_sha256": "2" * 64,
+    }
+
+
+def _p2_plan_authority() -> dict[str, str]:
+    return {
+        **_p2_lineage(),
+        "p1_likeness_review_manifest_sha256": "a" * 64,
+        "p1_likeness_review_sha256": "b" * 64,
+    }
+
+
+def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    lineage = _p2_lineage()
+    handoff = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+    }
+    private_index = {
+        **lineage,
+        "p2_motion_private_index_sha256": "e" * 64,
+    }
+    selection = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+    }
+    input_plan = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+    }
+    normalization = {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+    }
+    window = {
+        "performer_id": PERFORMER,
+        "selected_epoch_id": "epoch-a",
+        "teacher_input_sha256": "1" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+        "p2_motion_window_selection_sha256": "6" * 64,
+    }
+    motion = {
+        **lineage,
+        "p2_motion_evidence_handoff_sha256": "d" * 64,
+        "p2_motion_private_index_sha256": "e" * 64,
+        "p2_motion_source_selection_sha256": "f" * 64,
+        "p2_motion_input_plan_sha256": "0" * 64,
+        "p2_motion_normalization_selection_sha256": "b" * 64,
+        "p2_motion_window_selection_sha256": "6" * 64,
+        "p2_motion_preparation_receipt_sha256": "7" * 64,
+    }
+    identity = {
+        **lineage,
+        "p2_exavatar_animation_identity_sha256": "8" * 64,
+    }
+    execution = {
+        **lineage,
+        "p2_exavatar_animation_identity_sha256": identity[
+            "p2_exavatar_animation_identity_sha256"
+        ],
+        "p2_motion_preparation_receipt_sha256": motion[
+            "p2_motion_preparation_receipt_sha256"
+        ],
+        "p2_exavatar_animation_execution_input_sha256": "3" * 64,
+    }
+    animation = {
+        **lineage,
+        "p2_exavatar_animation_execution_input_sha256": execution[
+            "p2_exavatar_animation_execution_input_sha256"
+        ],
+        "p2_exavatar_animation_execution_receipt_sha256": "9" * 64,
+    }
+    heldout_input = {
+        **lineage,
+        "held_out_motion": {"source_ref": "src-heldout"},
+        "p2_exavatar_animation_execution_input_sha256": execution[
+            "p2_exavatar_animation_execution_input_sha256"
+        ],
+        "train_animation_execution_receipt_sha256": animation[
+            "p2_exavatar_animation_execution_receipt_sha256"
+        ],
+        "p2_exavatar_heldout_evaluation_input_sha256": "a" * 64,
+    }
+    heldout_receipt = {
+        **lineage,
+        "p2_exavatar_animation_execution_input_sha256": execution[
+            "p2_exavatar_animation_execution_input_sha256"
+        ],
+        "train_animation_execution_receipt_sha256": animation[
+            "p2_exavatar_animation_execution_receipt_sha256"
+        ],
+        "p2_exavatar_heldout_evaluation_input_sha256": heldout_input[
+            "p2_exavatar_heldout_evaluation_input_sha256"
+        ],
+        "held_out_source_ref": "src-heldout",
+    }
+    monkeypatch.setattr(
+        status,
+        "validate_motion_evidence_handoff",
+        lambda value: dict(handoff),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_private_motion_index",
+        lambda value, handoff=None: dict(private_index),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_source_selection",
+        lambda value, handoff=None, private_index=None: dict(selection),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_input_plan",
+        lambda value, handoff=None, private_index=None, selection=None: dict(input_plan),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_normalization_selection",
+        lambda value, input_plan=None: dict(normalization),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_window_selection",
+        lambda value, input_plan=None, normalization_selection=None: dict(window),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_motion_preparation_receipt",
+        lambda value: dict(motion),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_exavatar_animation_identity",
+        lambda value, output_root=None: dict(identity),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_exavatar_animation_execution_input",
+        lambda value: dict(execution),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_animation_execution_receipt",
+        lambda value: dict(animation),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_heldout_evaluation_input",
+        lambda value: dict(heldout_input),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_heldout_evaluation_receipt",
+        lambda value: dict(heldout_receipt),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_animated_human_review_pack",
+        lambda output_root, expected_review_plan=None: {
+            "p2_heldout_animated_review_manifest_sha256": "5" * 64,
+            "p2_heldout_animated_review_plan_sha256": "c" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        status,
+        "revalidate_heldout_animated_review_plan",
+        lambda value, evaluation_workspaces=None: {
+            "p2_heldout_animated_review_plan_sha256": "c" * 64
+        },
+    )
+
+def _p2_pass_review() -> dict[str, object]:
+    return {
+        **_p2_lineage(),
+        "p2_exavatar_animation_execution_input_sha256": "3" * 64,
+        "p2_heldout_animated_review_plan_sha256": "c" * 64,
+        "p2_heldout_animated_human_review_sha256": "4" * 64,
+        "human_animated_review_status": "pass",
+        "p3_device_distillation_authorized": True,
+    }
+
+
 def _p2_intermediate_ready(
     monkeypatch: pytest.MonkeyPatch,
     teacher: Path,
 ) -> tuple[Path, str]:
+    _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
     monkeypatch.setattr(
         status,
         "validate_p2_animation_plan",
-        lambda value: dict(value),
+        lambda value: _p2_plan_authority(),
     )
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
@@ -338,6 +549,11 @@ def test_p1_fail_blocks_p2(
     )
     monkeypatch.setattr(
         status,
+        "validate_likeness_review_pack",
+        lambda output_root: {"p1_likeness_review_manifest_sha256": "a" * 64},
+    )
+    monkeypatch.setattr(
+        status,
         "validate_likeness_review_receipt",
         lambda receipt, review_manifest=None: {
             "p1_static_teacher_status": "fail",
@@ -356,6 +572,34 @@ def test_p1_fail_blocks_p2(
     assert result["next_command"] is None
 
 
+def test_stale_p2_plan_cannot_follow_current_p1_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2 = teacher / "p2-animated-teacher"
+    _write_json(p2 / "p2-animation-plan.json")
+    stale = _p2_plan_authority()
+    stale["p1_likeness_review_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        status,
+        "validate_p2_animation_plan",
+        lambda value: dict(stale),
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="targets stale P1 authority",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
 def test_p2_source_selection_is_explicit_human_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -365,7 +609,7 @@ def test_p2_source_selection_is_explicit_human_gate(
     _base_ready(monkeypatch, p0, teacher)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     monkeypatch.setattr(status, "_git_checkout_state", lambda root: (REVISION, True))
@@ -389,9 +633,10 @@ def test_multi_driver_selection_can_be_routed_with_explicit_driver(
     p0, repo, teacher = _workspace(tmp_path)
     _trust_p0(monkeypatch)
     _base_ready(monkeypatch, p0, teacher)
+    _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
@@ -440,9 +685,10 @@ def test_multi_driver_router_rejects_unapproved_driver(
     p0, repo, teacher = _workspace(tmp_path)
     _trust_p0(monkeypatch)
     _base_ready(monkeypatch, p0, teacher)
+    _trust_p2_materialized_chain(monkeypatch)
     p2 = teacher / "p2-animated-teacher"
     _write_json(p2 / "p2-animation-plan.json")
-    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: dict(value))
+    monkeypatch.setattr(status, "validate_p2_animation_plan", lambda value: _p2_plan_authority())
     _write_json(p2 / "motion-evidence" / "p2-motion-evidence-handoff.json")
     _write_json(p2 / "motion-evidence" / "private-motion-source-index.json")
     _write_json(p2 / "p2-motion-source-selection.json")
@@ -495,6 +741,60 @@ def test_p2_human_decisions_are_never_synthesized(
     assert "PASS/FAIL" in result["message"]
 
 
+def test_existing_p2_execution_input_is_strict_read(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    _p2_intermediate_ready(monkeypatch, teacher)
+
+    def reject_execution(value: dict) -> dict:
+        raise status.PhotorealP2ExAvatarAnimationExecutionInputError("fixture drift")
+
+    monkeypatch.setattr(
+        status,
+        "validate_exavatar_animation_execution_input",
+        reject_execution,
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="execution-input strict readback failed",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
+def test_heldout_input_cannot_cross_source_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    _p2_intermediate_ready(monkeypatch, teacher)
+    monkeypatch.setattr(
+        status,
+        "validate_heldout_evaluation_input",
+        lambda value: {"held_out_motion": {"source_ref": "different-heldout"}},
+    )
+
+    with pytest.raises(
+        status.PhotorealV2OperatorStatusError,
+        match="source reference does not match its workspace",
+    ):
+        status.inspect_photoreal_v2_status(
+            p0_root=p0,
+            teacher_work_root=teacher,
+            operator_root=repo,
+        )
+
+
 def test_p2_pass_requires_explicit_p3_target_profile(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -507,10 +807,7 @@ def test_p2_pass_requires_explicit_p3_target_profile(
     monkeypatch.setattr(
         status,
         "validate_animated_human_review_receipt",
-        lambda receipt, review_manifest=None: {
-            "human_animated_review_status": "pass",
-            "p3_device_distillation_authorized": True,
-        },
+        lambda receipt, review_manifest=None: _p2_pass_review(),
     )
 
     result = status.inspect_photoreal_v2_status(
@@ -549,10 +846,7 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
     monkeypatch.setattr(
         status,
         "validate_animated_human_review_receipt",
-        lambda receipt, review_manifest=None: {
-            "human_animated_review_status": "pass",
-            "p3_device_distillation_authorized": True,
-        },
+        lambda receipt, review_manifest=None: _p2_pass_review(),
     )
     p3 = teacher / "p3-device-distillation"
     _write_json(p3 / "p3-device-distillation-plan.json")
@@ -595,6 +889,42 @@ def test_p3_photoreal_acceptance_still_keeps_production_false(
     assert result["next_command"] is None
 
 
+def test_stale_p3_plan_cannot_follow_current_p2_review(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    p0, repo, teacher = _workspace(tmp_path)
+    _trust_p0(monkeypatch)
+    _base_ready(monkeypatch, p0, teacher)
+    p2, _ = _p2_intermediate_ready(monkeypatch, teacher)
+    _write_json(p2 / "animated-review" / "p2-heldout-animated-human-review.json")
+    monkeypatch.setattr(
+        status,
+        "validate_animated_human_review_receipt",
+        lambda receipt, review_manifest=None: _p2_pass_review(),
+    )
+    p3 = teacher / "p3-device-distillation"
+    _write_json(p3 / "p3-device-distillation-plan.json")
+    stale = _p3_lineage()
+    stale["p2_animated_human_review_sha256"] = "9" * 64
+    monkeypatch.setattr(
+        status,
+        "validate_p3_device_distillation_plan",
+        lambda value: dict(stale),
+    )
+
+    result = status.inspect_photoreal_v2_status(
+        p0_root=p0,
+        teacher_work_root=teacher,
+        operator_root=repo,
+    )
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"] == "p3_lineage"
+    assert result["next_command"] is None
+    assert "p2_animated_human_review_sha256" in result["message"]
+
+
 def test_stale_p3_physical_receipt_cannot_accept_replaced_current_plan(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -607,10 +937,7 @@ def test_stale_p3_physical_receipt_cannot_accept_replaced_current_plan(
     monkeypatch.setattr(
         status,
         "validate_animated_human_review_receipt",
-        lambda receipt, review_manifest=None: {
-            "human_animated_review_status": "pass",
-            "p3_device_distillation_authorized": True,
-        },
+        lambda receipt, review_manifest=None: _p2_pass_review(),
     )
     p3 = teacher / "p3-device-distillation"
     _write_json(p3 / "p3-device-distillation-plan.json")
