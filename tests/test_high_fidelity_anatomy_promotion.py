@@ -101,7 +101,7 @@ def test_promoted_avatar_rejects_review_that_attempts_hair_or_eye_promotion() ->
             review=review,
             component_review_sha256="3" * 64,
             source_package_sha256="4" * 64,
-        fine_identity_requirement=_fine_requirement(),
+            fine_identity_requirement=_fine_requirement(),
         )
 
 
@@ -117,7 +117,7 @@ def test_promoted_avatar_rejects_already_complete_anatomy() -> None:
             review=_review(),
             component_review_sha256="3" * 64,
             source_package_sha256="4" * 64,
-        fine_identity_requirement=_fine_requirement(),
+            fine_identity_requirement=_fine_requirement(),
         )
 
 
