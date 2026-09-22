@@ -25,6 +25,8 @@ def test_review_cli_and_operator_require_all_face_secondary_checks() -> None:
         "EyelashesNoObviousEyeSurfaceClipping",
     ):
         assert token in wrapper
+    assert "ConfirmSourceDentalIdentity" in wrapper
+    assert "--confirm-source-dental-identity" in wrapper
     assert "status --porcelain" in wrapper
     assert '"verify"' in wrapper
 
