@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, Mapping
 
 from .fidelity_ab import FidelityAbError, _avatar_fingerprints
+from .photoidentity_fine_identity_attestation import (
+    PhotoIdentityFineIdentityAttestationError,
+    validate_attestation,
+)
 
 REQUIREMENT_FORMAT = "bodyrig-fine-identity-requirement"
 APPLICATION_FORMAT = "bodyrig-fine-identity-application"
@@ -209,3 +214,102 @@ def validate_application(
     if fingerprints.get("appearance_global_sha256") != candidate_appearance:
         raise FineIdentityApplicationError("fine-identity candidate appearance no longer matches current avatar")
     return dict(value)
+
+
+def build_application(
+    *,
+    requirement: Mapping[str, Any],
+    attestation: Mapping[str, Any],
+    attestation_bytes: bytes,
+    source_avatar_vrm: bytes,
+    candidate_avatar_vrm: bytes,
+    domain_application: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Build a canonical fine-identity application receipt for already-applied source-derived edits.
+
+    This function certifies an edited candidate; it does not synthesize or infer identity details.
+    Domain application booleans are explicit operator/modeling evidence, while source-evidence counts
+    are derived from the validated photoidentity attestation.
+    """
+    expected_requirement = validate_requirement(requirement)
+    if hashlib.sha256(attestation_bytes).hexdigest() != expected_requirement["fineIdentityAttestationSha256"]:
+        raise FineIdentityApplicationError(
+            "fine-identity attestation bytes do not match the exact requirement"
+        )
+    try:
+        validated_attestation = validate_attestation(
+            attestation,
+            expected_bodyrig_revision=expected_requirement["bodyrigRevision"],
+        )
+    except PhotoIdentityFineIdentityAttestationError as exc:
+        raise FineIdentityApplicationError(str(exc)) from exc
+
+    if not isinstance(domain_application, Mapping) or set(domain_application) != set(REQUIRED_DOMAINS):
+        raise FineIdentityApplicationError("fine-identity domain application set is incomplete")
+
+    evidence_scenes: dict[str, set[str]] = {domain: set() for domain in REQUIRED_DOMAINS}
+    for item in validated_attestation["selected_evidence"]:
+        domain = str(item["domain"])
+        evidence_scenes[domain].add(str(item["scene_id"]))
+
+    domains: dict[str, dict[str, Any]] = {}
+    for domain, minimum in REQUIRED_DOMAINS.items():
+        item = domain_application.get(domain)
+        if not isinstance(item, Mapping) or set(item) != {"geometryApplied", "appearanceApplied"}:
+            raise FineIdentityApplicationError(
+                f"{domain} application declaration fields are not canonical"
+            )
+        geometry_applied = item.get("geometryApplied")
+        appearance_applied = item.get("appearanceApplied")
+        if type(geometry_applied) is not bool or type(appearance_applied) is not bool:
+            raise FineIdentityApplicationError(f"{domain} application declaration is not boolean")
+        if minimum["geometry"] and geometry_applied is not True:
+            raise FineIdentityApplicationError(f"{domain} geometry application is not confirmed")
+        if minimum["appearance"] and appearance_applied is not True:
+            raise FineIdentityApplicationError(f"{domain} appearance application is not confirmed")
+        domains[domain] = {
+            "sourceEvidenceCount": len(evidence_scenes[domain]),
+            "geometryApplied": geometry_applied,
+            "appearanceApplied": appearance_applied,
+        }
+
+    try:
+        source_fp = _avatar_fingerprints(source_avatar_vrm)
+        candidate_fp = _avatar_fingerprints(candidate_avatar_vrm)
+    except FidelityAbError as exc:
+        raise FineIdentityApplicationError(
+            f"fine-identity package fingerprints are invalid: {exc}"
+        ) from exc
+
+    if source_fp["geometry_surface_sha256"] == candidate_fp["geometry_surface_sha256"]:
+        raise FineIdentityApplicationError("fine-identity candidate did not change geometry")
+    if source_fp["appearance_global_sha256"] == candidate_fp["appearance_global_sha256"]:
+        raise FineIdentityApplicationError("fine-identity candidate did not change appearance")
+    if source_fp["rig_sha256"] != candidate_fp["rig_sha256"]:
+        raise FineIdentityApplicationError("fine-identity candidate changed protected rig authority")
+
+    value = {
+        "format": APPLICATION_FORMAT,
+        "version": VERSION,
+        "policyRevision": POLICY_REVISION,
+        "bodyrigRevision": expected_requirement["bodyrigRevision"],
+        "fineIdentityAuthoritySha256": expected_requirement["fineIdentityAuthoritySha256"],
+        "fineIdentityAttestationSha256": expected_requirement["fineIdentityAttestationSha256"],
+        "domains": domains,
+        "sourceGeometrySurfaceSha256": source_fp["geometry_surface_sha256"],
+        "candidateGeometrySurfaceSha256": candidate_fp["geometry_surface_sha256"],
+        "sourceAppearanceGlobalSha256": source_fp["appearance_global_sha256"],
+        "candidateAppearanceGlobalSha256": candidate_fp["appearance_global_sha256"],
+        "sourceGrounded": True,
+        "generative": False,
+        "packageApplicationAuthority": True,
+        "geometryModified": True,
+        "appearanceModified": True,
+        "humanReviewRequired": True,
+        "productionActivation": False,
+    }
+    return validate_application(
+        value,
+        requirement=expected_requirement,
+        avatar_vrm=candidate_avatar_vrm,
+    )
