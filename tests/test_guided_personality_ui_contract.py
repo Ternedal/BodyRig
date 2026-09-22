@@ -124,6 +124,8 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "personSelectionGeneration: 0",
         "personContextGeneration: 0",
         "transcriptLoadGeneration: 0",
+        "deferredEditRevisionReload: null",
+        "function isAcceptedPersonContext(personId,personContextGeneration=null)",
         "function isCurrentPerson(personId,personContextGeneration=null)",
         "personContextGeneration===state.personContextGeneration",
         "function setSelectedPersonUrl(personId,{clearRevision=false}={})",
@@ -186,7 +188,11 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
     failed_save = listener_source.index('if($("status").textContent.startsWith("Gemning fejlede:"))', restore)
     reenable = listener_source.index('$("saveButton").disabled=!(state.preview&&state.requestKey===key())', failed_save)
     approval_restore = listener_source.index("updateTranscriptApprovalState()", reenable)
-    assert restore < failed_save < reenable < approval_restore
+    deferred = listener_source.index("const deferred=state.deferredEditRevisionReload", approval_restore)
+    deferred_guard = listener_source.index("if(deferred&&isCurrentPerson(deferred.personId,deferred.personContextGeneration))", deferred)
+    deferred_clear = listener_source.index("state.deferredEditRevisionReload=null", deferred_guard)
+    reload = listener_source.index("loadRequestedEditRevision().catch", deferred_clear)
+    assert restore < failed_save < reenable < approval_restore < deferred < deferred_guard < deferred_clear < reload
 
 
 def test_guided_person_async_results_cannot_cross_person_context() -> None:
@@ -197,9 +203,13 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     load_source = html[load_start:load_end]
     assert 'const personId=state.person.person_id' in load_source
     assert "const personContextGeneration=state.personContextGeneration" in load_source
-    assert load_source.index("const source=await api") < load_source.index(
-        "if(!isCurrentPerson(personId,personContextGeneration)) return"
-    ) < load_source.index("applyGuidedRevision(source)")
+    source = load_source.index("const source=await api")
+    accepted = load_source.index("if(!isAcceptedPersonContext(personId,personContextGeneration)) return", source)
+    picker = load_source.index('if($("personSelect").value!==personId)', accepted)
+    defer = load_source.index("state.deferredEditRevisionReload={personId,personContextGeneration}", picker)
+    clear = load_source.index("state.deferredEditRevisionReload=null", defer)
+    apply = load_source.index("applyGuidedRevision(source)", clear)
+    assert source < accepted < picker < defer < clear < apply
 
     evidence_start = html.index("async function readEvidence(kind, file)")
     evidence_end = html.index("\n  function clearEvidence()", evidence_start)
