@@ -177,6 +177,107 @@ def test_operator_cleans_partial_terminal_workspace_on_failure(
     assert not fine_root.exists()
 
 
+
+
+@pytest.mark.parametrize(
+    "final_state",
+    [
+        ("1" * 40, False),
+        ("4" * 40, True),
+    ],
+)
+def test_operator_requires_same_clean_git_state_after_terminal_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    final_state: tuple[str, bool],
+) -> None:
+    sweep = tmp_path / "sweep"
+    sweep.mkdir()
+    (sweep / "private-fine-identity-review-manifest.json").write_text("{}", encoding="utf-8")
+    (sweep / "photoidentity-fine-identity-attestation.json").write_text("{}", encoding="utf-8")
+    config = tmp_path / "adapter.json"
+    config.write_text("{}", encoding="utf-8")
+    source_package = tmp_path / "hfn.mrbody"
+    source_package.write_bytes(b"hfn")
+    fine_root = tmp_path / "preview" / "continuation" / "fine-identity-application"
+
+    git_states = iter([
+        ("1" * 40, True),
+        final_state,
+    ])
+    monkeypatch.setattr(subject, "_git_state", lambda _root: next(git_states))
+    monkeypatch.setattr(
+        subject.preview_manager,
+        "get",
+        lambda _job: {"body_job_id": "body-job-1", "bodyrig_revision": "2" * 40},
+    )
+    monkeypatch.setattr(
+        subject,
+        "inspect_source_status",
+        lambda *_args, **_kwargs: {
+            "stage": "registered",
+            "avatar_render_permitted": True,
+            "generic_guessing_permitted": False,
+            "production_activation": False,
+            "body_job_id": "body-job-1",
+            "bodyrig_revision": "2" * 40,
+        },
+    )
+    status_calls = {"count": 0}
+
+    def continuation(_job: str) -> dict:
+        status_calls["count"] += 1
+        if status_calls["count"] == 1:
+            return {
+                "state": "incomplete",
+                "next_gate": {"gate": subject.FINE_IDENTITY_GATE},
+                "current_package_path": str(source_package),
+            }
+        return {
+            "state": "complete",
+            "next_gate": None,
+            "current_package_path": str(fine_root / "package" / "applied.mrbody"),
+            "current_package_sha256": "3" * 64,
+            "high_fidelity_complete": True,
+            "production_ready": False,
+            "production_activation": False,
+            "gates": [{"id": subject.FINE_IDENTITY_GATE, "state": "pass"}],
+        }
+
+    monkeypatch.setattr(subject, "inspect_continuation", continuation)
+    monkeypatch.setattr(
+        subject,
+        "continuation_paths",
+        lambda _job: {"fine_identity": fine_root},
+    )
+    monkeypatch.setattr(
+        subject,
+        "run_reconstruction",
+        lambda **kwargs: Path(kwargs["output_dir"]).mkdir(parents=True),
+    )
+
+    def materialize_application(**kwargs):
+        output = Path(kwargs["output_dir"])
+        output.mkdir(parents=True)
+        (output / "applied.mrbody").write_bytes(b"applied")
+
+    monkeypatch.setattr(subject, "materialize_application", materialize_application)
+
+    with pytest.raises(
+        subject.PhotoIdentityFineIdentityOperatorError,
+        match="checkout changed or became dirty",
+    ):
+        subject.apply_terminal_fine_identity(
+            preview_job_id=JOB_ID,
+            sweep_root=sweep,
+            adapter_config=config,
+            operator_root=_operator_root(),
+        )
+
+    assert not fine_root.exists()
+
+
+
 def test_powershell_operator_has_no_user_revision_and_rechecks_status() -> None:
     root = Path(__file__).resolve().parents[1]
     text = (root / "apply-photoidentity-fine-identity.ps1").read_text(encoding="utf-8")

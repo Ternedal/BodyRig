@@ -208,6 +208,12 @@ def apply_terminal_fine_identity(
             raise PhotoIdentityFineIdentityOperatorError(
                 "terminal application materialized but continuation did not revalidate it as complete"
             )
+        final_revision, final_clean = _git_state(root)
+        if final_revision != revision or not final_clean:
+            raise PhotoIdentityFineIdentityOperatorError(
+                "BodyRig operator checkout changed or became dirty during terminal "
+                "fine-identity application"
+            )
         return final
     except Exception:
         shutil.rmtree(application_root, ignore_errors=True)
