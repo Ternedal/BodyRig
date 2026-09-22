@@ -139,7 +139,7 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, deferredEditRevisionReload: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, deferredEditRevisionReload: null, deferredSaveReconciliation: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
   function isAcceptedPersonContext(personId,personContextGeneration=null){
     return Boolean(personId)
@@ -571,6 +571,7 @@
     if(!personId){
       state.personContextGeneration+=1;
       state.deferredEditRevisionReload=null;
+      state.deferredSaveReconciliation=null;
       state.person=null;
       resetPersonScopedAuthoring();
       populateBaselines();
@@ -588,6 +589,7 @@
     const changedPerson=previousPersonId!==personId;
     state.personContextGeneration+=1;
     state.deferredEditRevisionReload=null;
+    state.deferredSaveReconciliation=null;
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
     if(changedPerson) resetPersonScopedAuthoring();
@@ -641,21 +643,29 @@
     const personId=state.person.person_id;
     const personContextGeneration=state.personContextGeneration;
     const saveGeneration=++state.saveRequestGeneration;
+    state.deferredSaveReconciliation=null;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
     const isCurrentSaveContext=()=>isCurrentPerson(personId,personContextGeneration);
     const previewStillValid=()=>Boolean(state.preview&&state.requestKey===key());
     const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
+    const deferSavedResult=(result,refreshedPerson=null)=>{
+      if(saveGeneration!==state.saveRequestGeneration) return false;
+      if(!isAcceptedPersonContext(personId,personContextGeneration)||$("personSelect").value===personId) return false;
+      state.deferredSaveReconciliation={personId,personContextGeneration,saveGeneration,result,saveViewKey,refreshedPerson};
+      if($("status").textContent===savingStatus) $("status").textContent=result.saved_personality_revision+" gemt · afventer udfaldet af personskiftet…";
+      return true;
+    };
     const settleStaleSave=result=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
-      if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · editoren er ændret, så visningen blev ikke overskrevet.`;
+      if($("status").textContent===savingStatus) $("status").textContent=result.saved_personality_revision+" gemt · editoren er ændret, så visningen blev ikke overskrevet.";
       if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid();
-      toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
+      toast(result.saved_personality_revision+" blev gemt, men editoren har ændret sig og blev ikke overskrevet.");
     };
     const settleFailedSave=error=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
-      if($("status").textContent===savingStatus) $("status").textContent=`Gemning fejlede: ${error.message}`;
+      if($("status").textContent===savingStatus) $("status").textContent="Gemning fejlede: "+error.message;
       if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid();
       toast(error.message,true);
     };
@@ -663,14 +673,14 @@
       if(saveGeneration!==state.saveRequestGeneration) return;
       const contextCurrent=isCurrentSaveContext();
       const viewUnchanged=contextCurrent&&currentSaveViewKey()===saveViewKey;
-      if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · profil-refresh fejlede: ${error.message}`;
+      if($("status").textContent===savingStatus) $("status").textContent=result.saved_personality_revision+" gemt · profil-refresh fejlede: "+error.message;
       if(viewUnchanged){
         setEditRevisionUrl(result.saved_personality_revision);
         state.preview=null;state.requestKey=null;$("saveButton").disabled=true;
       }else if(contextCurrent){
         $("saveButton").disabled=!previewStillValid();
       }
-      toast(`${result.saved_personality_revision} blev gemt, men profilen kunne ikke genindlæses: ${error.message}`,true);
+      toast(result.saved_personality_revision+" blev gemt, men profilen kunne ikke genindlæses: "+error.message,true);
     };
     $("saveButton").disabled=true; $("status").textContent=savingStatus;
     let result;
@@ -681,6 +691,7 @@
       return;
     }
     if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
+      if(deferSavedResult(result)) return;
       settleStaleSave(result);
       return;
     }
@@ -692,6 +703,7 @@
       return;
     }
     if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
+      if(deferSavedResult(result,refreshedPerson)) return;
       settleStaleSave(result);
       return;
     }
@@ -704,7 +716,55 @@
     }else{
       $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
     }
-    $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
+    $("status").textContent=result.saved_personality_revision+" gemt · blueprint "+result.blueprint_sha256.slice(0,12)+"…";
+    toast(result.saved_personality_revision+" er gemt. Aktiv person er uændret.");
+    state.preview=null;state.requestKey=null;
+  }
+
+  async function reconcileDeferredSave(){
+    const deferred=state.deferredSaveReconciliation;
+    if(!deferred||!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
+    state.deferredSaveReconciliation=null;
+    let refreshedPerson=deferred.refreshedPerson;
+    if(!refreshedPerson){
+      try{
+        refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(deferred.personId)}`);
+      }catch(error){
+        if(isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+          $("status").textContent=deferred.result.saved_personality_revision+" gemt · profil-refresh efter personskift fejlede: "+error.message;
+          $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+          toast(deferred.result.saved_personality_revision+" er gemt, men profilen kunne ikke genindlæses: "+error.message,true);
+        }
+        return true;
+      }
+    }
+    if(!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
+    const editorUnchanged=JSON.stringify({...payload(),feedback:$("feedback").value.trim()})===deferred.saveViewKey;
+    const previousBaseline=$("baselineRevision").value;
+    const previousStack=$("stackBaseline").checked;
+    state.personContextGeneration+=1;
+    state.person=refreshedPerson;
+    if(editorUnchanged){
+      setEditRevisionUrl(deferred.result.saved_personality_revision);
+      populateBaselines(); $("baselineRevision").value=deferred.result.saved_personality_revision; renderBaseline();
+      if(deferred.result.source_baseline_revision){
+        $("baselineRevision").value=deferred.result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
+      }else{
+        $("baselineRevision").value=deferred.result.saved_personality_revision; renderBaseline();
+      }
+      $("status").textContent=deferred.result.saved_personality_revision+" gemt · reconciled efter fejlet personskift.";
+      state.preview=null;state.requestKey=null;$("saveButton").disabled=true;
+    }else{
+      populateBaselines();
+      if(previousBaseline&&[...$("baselineRevision").options].some(option=>option.value===previousBaseline)){
+        $("baselineRevision").value=previousBaseline;renderBaseline();$("stackBaseline").checked=previousStack&&!$("stackBaseline").disabled;
+      }
+      $("status").textContent=deferred.result.saved_personality_revision+" gemt · profilen er opdateret; nyere editorændringer er bevaret.";
+      $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+    }
+    document.dispatchEvent(new CustomEvent("bodyrig:person-context-restored",{detail:{personId:deferred.personId}}));
+    toast(deferred.result.saved_personality_revision+" er gemt og synkroniseret efter det fejlede personskift.");
+    return true;
   }
 
   buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
@@ -717,14 +777,23 @@
     selectPerson(personId,{manual:true}).catch(error=>{
       if($("personSelect").value!==personId) return;
       $("personSelect").value=state.person?.person_id||"";
+      document.dispatchEvent(new CustomEvent("bodyrig:person-context-restored",{detail:{personId:state.person?.person_id||""}}));
       if($("status").textContent.startsWith("Gemning fejlede:")) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
       updateTranscriptApprovalState();
-      const deferred=state.deferredEditRevisionReload;
-      if(deferred&&isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+      const deferredSave=state.deferredSaveReconciliation;
+      if(deferredSave&&isCurrentPerson(deferredSave.personId,deferredSave.personContextGeneration)){
         state.deferredEditRevisionReload=null;
-        loadRequestedEditRevision().catch(reloadError=>{
-          if(isCurrentPerson(deferred.personId,deferred.personContextGeneration)) toast(`Personskiftet fejlede, og den tidligere revision kunne ikke genindlæses: ${reloadError.message}`,true);
+        reconcileDeferredSave().catch(reconcileError=>{
+          if(state.person?.person_id===deferredSave.personId) toast("Den gemte revision kunne ikke reconciles efter personskiftet: "+reconcileError.message,true);
         });
+      }else{
+        const deferred=state.deferredEditRevisionReload;
+        if(deferred&&isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+          state.deferredEditRevisionReload=null;
+          loadRequestedEditRevision().catch(reloadError=>{
+            if(isCurrentPerson(deferred.personId,deferred.personContextGeneration)) toast(`Personskiftet fejlede, og den tidligere revision kunne ikke genindlæses: ${reloadError.message}`,true);
+          });
+        }
       }
       toast(error.message,true);
     });
