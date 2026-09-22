@@ -139,10 +139,13 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
-  function isCurrentPerson(personId){
-    return Boolean(personId)&&state.person?.person_id===personId&&$("personSelect").value===personId;
+  function isCurrentPerson(personId,personGeneration=null){
+    return Boolean(personId)
+      && state.person?.person_id===personId
+      && $("personSelect").value===personId
+      && (personGeneration===null||personGeneration===state.personSelectionGeneration);
   }
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -308,21 +311,23 @@
   async function loadStashTranscriptCandidates(){
     if(!state.person) return toast("Vælg en person først.",true);
     const personId=state.person.person_id;
+    const personGeneration=state.personSelectionGeneration;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision) return toast("Vælg en body revision før transcript-søgning.",true);
     clearTranscriptPreview("Validerer source-binding og leder efter transcript-sidecars…");
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/stash-transcript-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
-      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return;
+      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision) return;
       renderTranscriptCandidates(result);
     }catch(error){
-      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return;
+      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision) return;
       clearTranscriptPreview(`Transcript-kandidater kunne ikke hentes: ${error.message}`);toast(error.message,true);
     }
   }
   async function approveStashTranscriptCandidates(){
     if(!state.person||!state.stashTranscriptPreview?.candidate_report) return;
     const personId=state.person.person_id;
+    const personGeneration=state.personSelectionGeneration;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision||bodyRevision!==state.stashTranscriptBodyRevision) return toast("Body revision har ændret sig. Hent transcript-kandidater igen.",true);
     const candidateReport=state.stashTranscriptPreview.candidate_report;
@@ -338,7 +343,7 @@
           style_use_approved:$("stashTranscriptStyleConfirm").checked
         })}
       );
-      if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return;
+      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return;
       state.styleReport=result.candidate_report;
       state.styleApproval=result.approval;
       state.styleSource={kind:"stash-source-transcript",body_revision:bodyRevision,source_manifest_sha256:result.source_manifest_sha256};
@@ -349,7 +354,7 @@
       renderEvidenceStatus();
       invalidate();
       toast("Stash-transcript evidence er godkendt til talestil.");
-    }catch(error){if(isCurrentPerson(personId)&&$("bodyRevision").value===bodyRevision){updateTranscriptApprovalState();toast(error.message,true);}}
+    }catch(error){if(isCurrentPerson(personId,personGeneration)&&$("bodyRevision").value===bodyRevision){updateTranscriptApprovalState();toast(error.message,true);}}
   }
   function renderEvidenceStatus(){
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt."; return; }
@@ -368,8 +373,9 @@
   async function readEvidence(kind, file){
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
     const personId=state.person?.person_id||null;
+    const personGeneration=state.personSelectionGeneration;
     const input=kind==="styleReport"?$("styleReportFile"):$("styleApprovalFile");
-    const stillCurrent=()=>((state.person?.person_id||null)===personId&&input.files?.[0]===file);
+    const stillCurrent=()=>((state.person?.person_id||null)===personId&&state.personSelectionGeneration===personGeneration&&input.files?.[0]===file);
     try{
       const value=JSON.parse(await file.text());
       if(!stillCurrent()) return;
@@ -515,13 +521,14 @@
   async function loadRequestedEditRevision(){
     if(!state.person) return;
     const personId=state.person.person_id;
+    const personGeneration=state.personSelectionGeneration;
     const requested=new URLSearchParams(location.search).get("edit_revision");
     const fallback=latestMatrixRevisionItem()?.revision_id||"";
     const revisionId=requested||fallback;
     if(!revisionId) return;
     if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
     const source=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
-    if(!isCurrentPerson(personId)) return;
+    if(!isCurrentPerson(personId,personGeneration)) return;
     applyGuidedRevision(source);
     if(!requested) setEditRevisionUrl(revisionId);
   }
@@ -534,6 +541,7 @@
     else $("status").textContent="Opret først en person i Person Studio.";
   }
   async function selectPerson(personId,{manual=false}={}){
+    const selectionGeneration=++state.personSelectionGeneration;
     const previousPersonId=state.person?.person_id||null;
     if(!personId){
       state.person=null;
@@ -542,8 +550,14 @@
       if(manual) setSelectedPersonUrl("",{clearRevision:true});
       return;
     }
-    const profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-    if($("personSelect").value!==personId) return;
+    let profile;
+    try{
+      profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+    }catch(error){
+      if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return;
+      throw error;
+    }
+    if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return;
     const changedPerson=previousPersonId!==personId;
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
@@ -565,21 +579,23 @@
   async function preview(){
     if(!state.person) return toast("Vælg en person først.",true);
     const personId=state.person.person_id;
+    const personGeneration=state.personSelectionGeneration;
     const request=payload();
     const requestKey=JSON.stringify(request);
     $("status").textContent="Bygger og verifierer deterministisk blueprint…";
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentPerson(personId)||key()!==requestKey) return;
+      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return;
       renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";
     }catch(error){
-      if(!isCurrentPerson(personId)||key()!==requestKey) return;
+      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return;
       invalidate();$("status").textContent="";toast(error.message,true);
     }
   }
   async function save(){
     if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const personId=state.person.person_id;
+    const personGeneration=state.personSelectionGeneration;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
@@ -591,12 +607,12 @@
     $("saveButton").disabled=true; $("status").textContent=savingStatus;
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
+      if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey){
         settleStaleSave(result);
         return;
       }
       const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
+      if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey){
         settleStaleSave(result);
         return;
       }
@@ -610,7 +626,7 @@
       }
       $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
     }
-    catch(error){if(isCurrentPerson(personId)&&currentSaveViewKey()===saveViewKey){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}}
+    catch(error){if(isCurrentPerson(personId,personGeneration)&&currentSaveViewKey()===saveViewKey){$("saveButton").disabled=false;$("status").textContent="";toast(error.message,true);}}
   }
 
   buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
