@@ -67,3 +67,88 @@ def test_application_requires_full_domain_set(monkeypatch: pytest.MonkeyPatch) -
     broken["domains"] = broken_domains
     with pytest.raises(subject.FineIdentityApplicationError, match="domain set is incomplete"):
         subject.validate_application(broken, requirement=requirement, avatar_vrm=b"vrm")
+
+def test_build_application_binds_exact_source_and_candidate_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requirement = subject.build_requirement(
+        bodyrig_revision="a" * 40,
+        fine_identity_authority_sha256="b" * 64,
+        fine_identity_attestation_sha256="c" * 64,
+    )
+    domains = {
+        domain: {
+            "sourceEvidenceCount": 2,
+            "geometryApplied": bool(minimum["geometry"]),
+            "appearanceApplied": bool(minimum["appearance"]),
+        }
+        for domain, minimum in subject.REQUIRED_DOMAINS.items()
+    }
+
+    def fingerprints(avatar: bytes) -> dict[str, str]:
+        if avatar == b"source":
+            return {
+                "geometry_surface_sha256": "d" * 64,
+                "appearance_global_sha256": "e" * 64,
+            }
+        if avatar == b"candidate":
+            return {
+                "geometry_surface_sha256": "f" * 64,
+                "appearance_global_sha256": "1" * 64,
+            }
+        raise AssertionError("unexpected avatar")
+
+    monkeypatch.setattr(subject, "_avatar_fingerprints", fingerprints)
+    value = subject.build_application(
+        requirement=requirement,
+        source_avatar_vrm=b"source",
+        candidate_avatar_vrm=b"candidate",
+        domains=domains,
+    )
+
+    assert value["bodyrigRevision"] == "a" * 40
+    assert value["fineIdentityAuthoritySha256"] == "b" * 64
+    assert value["fineIdentityAttestationSha256"] == "c" * 64
+    assert value["sourceGeometrySurfaceSha256"] == "d" * 64
+    assert value["candidateGeometrySurfaceSha256"] == "f" * 64
+    assert value["sourceAppearanceGlobalSha256"] == "e" * 64
+    assert value["candidateAppearanceGlobalSha256"] == "1" * 64
+    assert value["sourceGrounded"] is True
+    assert value["generative"] is False
+    assert value["humanReviewRequired"] is True
+    assert value["productionActivation"] is False
+
+
+def test_build_application_rejects_unchanged_identity_surfaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requirement = subject.build_requirement(
+        bodyrig_revision="a" * 40,
+        fine_identity_authority_sha256="b" * 64,
+        fine_identity_attestation_sha256="c" * 64,
+    )
+    domains = {
+        domain: {
+            "sourceEvidenceCount": 2,
+            "geometryApplied": bool(minimum["geometry"]),
+            "appearanceApplied": bool(minimum["appearance"]),
+        }
+        for domain, minimum in subject.REQUIRED_DOMAINS.items()
+    }
+    monkeypatch.setattr(
+        subject,
+        "_avatar_fingerprints",
+        lambda _avatar: {
+            "geometry_surface_sha256": "d" * 64,
+            "appearance_global_sha256": "e" * 64,
+        },
+    )
+
+    with pytest.raises(subject.FineIdentityApplicationError, match="did not change geometry bytes"):
+        subject.build_application(
+            requirement=requirement,
+            source_avatar_vrm=b"source",
+            candidate_avatar_vrm=b"candidate",
+            domains=domains,
+        )
+
