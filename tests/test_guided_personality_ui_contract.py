@@ -279,7 +279,7 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     assert "const settleStaleSave=result=>" in save_source
     assert "if(saveGeneration!==state.saveRequestGeneration) return" in save_source
     assert 'if($("status").textContent===savingStatus)' in save_source
-    assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
+    assert 'toast(result.saved_personality_revision+" blev gemt, men editoren har ændret sig og blev ikke overskrevet.")' in save_source
     stale_start = save_source.index("const settleStaleSave=result=>")
     stale_end = save_source.index("};", stale_start)
     stale_source = save_source[stale_start:stale_end]
@@ -620,3 +620,39 @@ def test_guided_matrix_radial_editor_is_ui_only() -> None:
     # Cockpit actions must proxy the existing preview/save controls rather than
     # bypassing the established request-key and preview gate with their own POST.
     assert 'method:"POST"' not in matrix
+
+
+def test_failed_person_switch_resyncs_comparisons_and_reconciles_successful_save() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+    signature = Path("bodyrig/ui/personality_signature.js").read_text(encoding="utf-8")
+    matrix = Path("bodyrig/ui/personality_matrix.js").read_text(encoding="utf-8")
+
+    assert "deferredSaveReconciliation: null" in html
+    assert "const deferSavedResult=(result,refreshedPerson=null)=>" in html
+    assert "state.deferredSaveReconciliation={personId,personContextGeneration,saveGeneration,result,saveViewKey,refreshedPerson}" in html
+    assert "if(deferSavedResult(result)) return" in html
+    assert "if(deferSavedResult(result,refreshedPerson)) return" in html
+    assert "async function reconcileDeferredSave()" in html
+    assert "const deferred=state.deferredSaveReconciliation" in html
+    assert "state.deferredSaveReconciliation=null" in html
+    assert "const editorUnchanged=JSON.stringify({...payload(),feedback:$(\"feedback\").value.trim()})===deferred.saveViewKey" in html
+    assert "setEditRevisionUrl(deferred.result.saved_personality_revision)" in html
+    assert "state.person=refreshedPerson" in html
+
+    listener_start = html.index('$(\"personSelect\").addEventListener(\"change\"')
+    listener_end = html.index('$(\"baselineRevision\").addEventListener', listener_start)
+    listener_source = html[listener_start:listener_end]
+    restore = listener_source.index('$(\"personSelect\").value=state.person?.person_id||\"\"')
+    resync = listener_source.index('document.dispatchEvent(new CustomEvent(\"bodyrig:person-context-restored\"', restore)
+    deferred_save = listener_source.index("const deferredSave=state.deferredSaveReconciliation", resync)
+    reconcile = listener_source.index("reconcileDeferredSave().catch", deferred_save)
+    deferred_revision = listener_source.index("const deferred=state.deferredEditRevisionReload", reconcile)
+    assert restore < resync < deferred_save < reconcile < deferred_revision
+
+    assert 'document.addEventListener("bodyrig:person-context-restored", scheduleRender)' in signature
+    matrix_restore = 'document.addEventListener("bodyrig:person-context-restored", () => {'
+    assert matrix_restore in matrix
+    matrix_start = matrix.index(matrix_restore)
+    matrix_end = matrix.index("});", matrix_start)
+    matrix_source = matrix[matrix_start:matrix_end]
+    assert matrix_source.index("syncCompareOptions();") < matrix_source.index("scheduleRender();")
