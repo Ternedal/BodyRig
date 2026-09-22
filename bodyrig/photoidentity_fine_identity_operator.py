@@ -195,12 +195,6 @@ def apply_terminal_fine_identity(
             attestation_path=attestation,
             output_dir=package_root,
         )
-        final_revision, final_clean = _git_state(root)
-        if final_revision != revision or not final_clean:
-            raise PhotoIdentityFineIdentityOperatorError(
-                "BodyRig operator checkout changed or became dirty during terminal "
-                "fine-identity application"
-            )
         final = inspect_continuation(preview_job_id)
         expected_package = (package_root / "applied.mrbody").resolve()
         if (
@@ -213,6 +207,12 @@ def apply_terminal_fine_identity(
         ):
             raise PhotoIdentityFineIdentityOperatorError(
                 "terminal application materialized but continuation did not revalidate it as complete"
+            )
+        final_revision, final_clean = _git_state(root)
+        if final_revision != revision or not final_clean:
+            raise PhotoIdentityFineIdentityOperatorError(
+                "BodyRig operator checkout changed or became dirty during terminal "
+                "fine-identity application"
             )
         return final
     except Exception:
