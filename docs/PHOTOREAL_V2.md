@@ -445,13 +445,29 @@ Photoreal V2 therefore has an explicit `appearance_epoch` layer before teacher t
 9. One-command reference P0 operator. **Implemented in code; physical rig validation pending.**
 10. Appearance-epoch proposal + explicit human review receipt. **Implemented in core.**
 11. Representation-agnostic teacher request/runner boundary. **Implemented in core.**
-12. ExAvatar benchmark adapter/preflight. **Prepared; real performer benchmark pending P0 data.**
+12. ExAvatar benchmark adapter/preflight. **Implemented; real performer benchmark pending P0 data.**
 13. Run P0 against performer 42 and inspect actual source coverage/calibration. **Pending physical rig.**
-14. Reconstruct performer 42 as the first teacher benchmark. **Blocked on P0 + human epoch selection.**
-15. Render fixed canonical views plus held-out-reference comparisons.
-16. Stop until human visual review says the static teacher is genuinely photographic.
-17. Add body/face animation correspondence.
-18. Distill the accepted animated teacher to Quest 2, then Quest 3/3S.
+14. Reconstruct performer 42 as the first teacher benchmark. **P1 software implemented; real execution remains blocked on P0 + human epoch selection.**
+15. Fixed canonical teacher views plus held-out-reference pairing/review pack. **Implemented in P1 software.**
+16. Explicit human static-teacher likeness gate. **Implemented and fail-closed; performer-42 human review pending real P1 output.**
+17. P2 body/face animation, held-out inference and animated human review. **Implemented in software; real execution requires P1 PASS.**
+18. P3 Quest 2 distillation, fidelity-delta/runtime handoff and guided physical review. **Implemented in software; real Quest 2 evidence requires P2 PASS.**
+
+## Read-only P0 -> P3 operator status
+
+The pre-P3 pipeline is routed by one checkout-bound, read-only status command:
+
+```powershell
+.\photoreal-v2-status.ps1 -P0Root <P0_ROOT>
+```
+
+The status engine strict-reads the applicable P0/P1/P2/P3 authority and returns exactly one next gate. It never records human or physical PASS. An executable next command is exposed only when the supplied operator checkout is clean and its HEAD exactly matches the BodyRig revision bound into the P0 evidence.
+
+Environment-dependent teacher/model inputs, P2 adapter configuration, human source/view/window choices, held-out review mappings, P3 target profile and physical machine probe are never guessed. When one of those is required the router reports `operator-input-required` or a human/physical-review state with no synthetic decision.
+If multiple TRAIN motion drivers were explicitly approved, select one with `-SingleMotionDriverSourceRef <REF>`; the router verifies that the ref belongs to the approved TRAIN set before emitting the execution-input command. Executable commands are only emitted from a clean `main` checkout at the exact P0-bound BodyRig revision.
+
+
+After a real all-PASS P3 physical review the router stops at `photoreal_person_binding`; production activation remains false. The existing `photoreal-digital-twin-status.ps1` owns the additive Person/M4/M5/M6 path after that binding.
 
 ## What is deliberately frozen
 
