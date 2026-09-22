@@ -669,6 +669,31 @@ def test_cli_uses_blocked_exit_code(
     assert json.loads(capsys.readouterr().out)["state"] == "blocked"
 
 
+def test_cli_forwards_explicit_motion_driver(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_status(**kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"state": "required", "read_only": True}
+
+    monkeypatch.setattr(status_cli, "inspect_photoreal_v2_status", fake_status)
+    code = status_cli.main(
+        [
+            "--p0-root",
+            "p0",
+            "--single-motion-driver-source-ref",
+            "driver-b",
+        ]
+    )
+
+    assert code == 0
+    assert seen["single_motion_driver_source_ref"] == "driver-b"
+    assert json.loads(capsys.readouterr().out)["read_only"] is True
+
+
 def test_powershell_wrapper_is_status_only() -> None:
     root = Path(__file__).resolve().parents[1]
     source = (root / "photoreal-v2-status.ps1").read_text(encoding="utf-8")
