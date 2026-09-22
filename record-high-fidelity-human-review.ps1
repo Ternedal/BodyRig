@@ -2,6 +2,11 @@ param(
     [string]$BodyId = "",
     [string]$PackagePath = "",
     [Parameter(Mandatory = $true)][switch]$ConfirmQualityChecklist,
+    [switch]$ConfirmOralTeethPhotoidentity,
+    [switch]$ConfirmChestBreastShapePhotoidentity,
+    [switch]$ConfirmNippleAreolaPhotoidentity,
+    [switch]$ConfirmIntimateAnatomyPhotoidentity,
+    [switch]$ConfirmDistinctiveMarkersPhotoidentity,
     [Parameter(Mandatory = $true)][ValidateLength(1, 4000)][string]$QualityNote
 )
 
@@ -79,6 +84,12 @@ if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 11)) {
 }
 
 $sourceArgs = if ($hasBodyId) { @("--body-id", $BodyId) } else { @("--package", $PackagePath) }
+$reviewArgs = @("--confirm-quality-checklist")
+if ($ConfirmOralTeethPhotoidentity) { $reviewArgs += "--confirm-oral-teeth-photoidentity" }
+if ($ConfirmChestBreastShapePhotoidentity) { $reviewArgs += "--confirm-chest-breast-shape-photoidentity" }
+if ($ConfirmNippleAreolaPhotoidentity) { $reviewArgs += "--confirm-nipple-areola-photoidentity" }
+if ($ConfirmIntimateAnatomyPhotoidentity) { $reviewArgs += "--confirm-intimate-anatomy-photoidentity" }
+if ($ConfirmDistinctiveMarkersPhotoidentity) { $reviewArgs += "--confirm-distinctive-markers-photoidentity" }
 $expectedPackageSha = if ($hasPackage) { (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { "" }
 $previousPythonPath = $env:PYTHONPATH
 $reviewPath = ""
@@ -98,8 +109,7 @@ try {
 
     Push-Location $repoRoot
     try {
-        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_cli @sourceArgs `
-            --confirm-quality-checklist `
+        $output = @(& $pythonExe -m bodyrig.high_fidelity_human_review_cli @sourceArgs @reviewArgs `
             --quality-note $QualityNote)
         if ($LASTEXITCODE -ne 0) {
             throw "High-fidelity human review CLI failed with exit code $LASTEXITCODE."
@@ -140,5 +150,5 @@ Write-Host "BodyRig high-fidelity human review: PASS | body=$([string]$result.bo
 Write-Host "Python: $pythonExe"
 Write-Host "Package SHA: $([string]$result.package_sha256)"
 Write-Host "Receipt: $reviewPath"
-Write-Host "Authority: package SHA + component-state SHA + bodyrig-high-fidelity-human-review-v1 | production_activation=false"
+Write-Host "Authority: package SHA + component-state SHA + $([string]$result.policy_revision) | production_activation=false"
 exit 0

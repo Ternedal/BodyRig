@@ -66,11 +66,20 @@ def _final_review_gate(state: str, *, reason: str = "", evidence: dict[str, Any]
     )
 
 
-def _review_command(package_path: Path) -> str:
+def _review_command(package_path: Path, *, photoidentity_required: bool = False) -> str:
     quoted = "'" + str(package_path).replace("'", "''") + "'"
+    photoidentity = (
+        " -ConfirmOralTeethPhotoidentity"
+        " -ConfirmChestBreastShapePhotoidentity"
+        " -ConfirmNippleAreolaPhotoidentity"
+        " -ConfirmIntimateAnatomyPhotoidentity"
+        " -ConfirmDistinctiveMarkersPhotoidentity"
+        if photoidentity_required
+        else ""
+    )
     return (
         ".\\record-high-fidelity-human-review.ps1 "
-        f"-PackagePath {quoted} -ConfirmQualityChecklist -QualityNote '<QUALITY_NOTE>'"
+        f"-PackagePath {quoted} -ConfirmQualityChecklist{photoidentity} -QualityNote '<QUALITY_NOTE>'"
     )
 
 
@@ -494,11 +503,20 @@ def inspect_release_readiness(preview_job_id: str) -> dict[str, Any]:
         result["state"] = "human-review-required"
         result["next_gate"] = {
             "gate": FINAL_REVIEW_GATE,
-            "command": _review_command(package),
+            "command": _review_command(
+                package,
+                photoidentity_required=review.get("photoidentity_review_required") is True,
+            ),
             "operator_input_required": True,
             "reason": (
                 "Review source identity, anatomy, skin, hair, eyes, face-secondary, "
                 "full-body multiview and face close-up evidence for these exact package bytes."
+                + (
+                    " Separately confirm source-specific oral/teeth, chest/breast shape, "
+                    "nipple/areola, intimate anatomy and distinctive-marker identity."
+                    if review.get("photoidentity_review_required") is True
+                    else ""
+                )
             ),
         }
         return result

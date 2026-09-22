@@ -79,6 +79,38 @@ def test_component_complete_requires_review_of_exact_promoted_package(monkeypatc
     assert result["production_ready"] is False
 
 
+def test_photoidentity_component_complete_requires_domain_specific_review_command(
+    monkeypatch, tmp_path: Path
+) -> None:
+    package = tmp_path / "photoidentical.mrbody"
+    package.write_bytes(b"exact-photoidentity-package")
+    monkeypatch.setattr(readiness, "inspect_continuation", lambda _job: _base(package, complete=True))
+    monkeypatch.setattr(
+        readiness,
+        "high_fidelity_human_review_status",
+        lambda _package: {
+            "state": "required",
+            "passed": False,
+            "reason": "explicit fine-identity review required",
+            "photoidentity_review_required": True,
+        },
+    )
+
+    result = readiness.inspect_release_readiness(JOB_ID)
+
+    assert result["state"] == "human-review-required"
+    command = result["next_gate"]["command"]
+    for switch_name in (
+        "-ConfirmOralTeethPhotoidentity",
+        "-ConfirmChestBreastShapePhotoidentity",
+        "-ConfirmNippleAreolaPhotoidentity",
+        "-ConfirmIntimateAnatomyPhotoidentity",
+        "-ConfirmDistinctiveMarkersPhotoidentity",
+    ):
+        assert switch_name in command
+    assert "Separately confirm source-specific oral/teeth" in result["next_gate"]["reason"]
+
+
 def test_human_review_pass_requires_fresh_promoted_package_gate_a(monkeypatch, tmp_path: Path) -> None:
     package = tmp_path / "promoted.mrbody"
     package.write_bytes(b"exact-package")

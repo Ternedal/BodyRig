@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .high_fidelity_human_review import (
     CHECKLIST_FIELDS,
+    PHOTOIDENTITY_CHECKLIST_FIELDS,
     HighFidelityHumanReviewError,
     read_review,
     review_path,
@@ -43,6 +44,31 @@ def main(argv: list[str] | None = None) -> int:
             "full-body multiview and face close-up review."
         ),
     )
+    parser.add_argument(
+        "--confirm-oral-teeth-photoidentity",
+        action="store_true",
+        help="Explicitly confirm source-specific oral/teeth identity on the exact fine-identity package.",
+    )
+    parser.add_argument(
+        "--confirm-chest-breast-shape-photoidentity",
+        action="store_true",
+        help="Explicitly confirm source-specific chest/breast shape identity.",
+    )
+    parser.add_argument(
+        "--confirm-nipple-areola-photoidentity",
+        action="store_true",
+        help="Explicitly confirm source-specific nipple/areola identity.",
+    )
+    parser.add_argument(
+        "--confirm-intimate-anatomy-photoidentity",
+        action="store_true",
+        help="Explicitly confirm source-specific intimate anatomy identity.",
+    )
+    parser.add_argument(
+        "--confirm-distinctive-markers-photoidentity",
+        action="store_true",
+        help="Explicitly confirm source-specific distinctive markers and reviewed absence/presence.",
+    )
     parser.add_argument("--quality-note", required=True, help="Operator's physical high-fidelity review note.")
     args = parser.parse_args(argv)
 
@@ -57,9 +83,22 @@ def main(argv: list[str] | None = None) -> int:
             if args.body_id is not None
             else Path(args.package).expanduser().resolve()
         )
+        checklist = {field: True for field in CHECKLIST_FIELDS}
+        photoidentity_confirmations = {
+            "oral_teeth_photoidentity_acceptable": args.confirm_oral_teeth_photoidentity,
+            "chest_breast_shape_photoidentity_acceptable": args.confirm_chest_breast_shape_photoidentity,
+            "nipple_areola_photoidentity_acceptable": args.confirm_nipple_areola_photoidentity,
+            "intimate_anatomy_photoidentity_acceptable": args.confirm_intimate_anatomy_photoidentity,
+            "distinctive_markers_photoidentity_acceptable": args.confirm_distinctive_markers_photoidentity,
+        }
+        if set(photoidentity_confirmations) != PHOTOIDENTITY_CHECKLIST_FIELDS:
+            raise HighFidelityHumanReviewError("photoidentity confirmation field mapping is not canonical")
+        checklist.update(
+            {field: True for field, confirmed in photoidentity_confirmations.items() if confirmed}
+        )
         receipt = write_review(
             package,
-            checklist={field: True for field in CHECKLIST_FIELDS},
+            checklist=checklist,
             quality_note=args.quality_note,
         )
         created_path = review_path(package, package_sha256=receipt["package_sha256"])

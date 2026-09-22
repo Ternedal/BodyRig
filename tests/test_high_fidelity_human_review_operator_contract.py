@@ -65,6 +65,22 @@ def test_human_review_operator_accepts_installed_body_or_exact_package_but_not_b
     assert '@("--package", $PackagePath)' in wrapper
 
 
+def test_photoidentity_review_wrapper_exposes_five_explicit_confirmation_switches() -> None:
+    wrapper = (ROOT / "record-high-fidelity-human-review.ps1").read_text(encoding="utf-8")
+
+    expected = {
+        "ConfirmOralTeethPhotoidentity": "--confirm-oral-teeth-photoidentity",
+        "ConfirmChestBreastShapePhotoidentity": "--confirm-chest-breast-shape-photoidentity",
+        "ConfirmNippleAreolaPhotoidentity": "--confirm-nipple-areola-photoidentity",
+        "ConfirmIntimateAnatomyPhotoidentity": "--confirm-intimate-anatomy-photoidentity",
+        "ConfirmDistinctiveMarkersPhotoidentity": "--confirm-distinctive-markers-photoidentity",
+    }
+    for switch_name, cli_flag in expected.items():
+        assert f"[switch]${switch_name}" in wrapper
+        assert f"if (${switch_name})" in wrapper
+        assert cli_flag in wrapper
+
+
 def test_package_review_is_hash_checked_before_and_after_receipt_creation() -> None:
     wrapper = (ROOT / "record-high-fidelity-human-review.ps1").read_text(encoding="utf-8")
 

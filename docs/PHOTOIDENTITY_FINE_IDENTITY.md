@@ -169,3 +169,23 @@ A successful terminal application means only:
 
 A partial or stale terminal workspace is treated as **invalid** and continuation will not offer an overwrite/retry command until that state is explicitly resolved.
 
+### Final package-bound human review
+
+For packages carrying a complete `fineIdentityRequirement` + `fineIdentityApplication`, the historical high-fidelity human-review v1 checklist is intentionally insufficient. The exact final package requires a v2 photoidentity review receipt that repeats the normal identity/anatomy/skin/hair/eyes/face/full-body checks **and** explicitly confirms all five source-specific fine-identity domains on the final applied bytes.
+
+The release-status command includes the required confirmations:
+
+```powershell
+.\record-high-fidelity-human-review.ps1 `
+  -PackagePath <FINAL_PHOTOIDENTICAL_PACKAGE> `
+  -ConfirmQualityChecklist `
+  -ConfirmOralTeethPhotoidentity `
+  -ConfirmChestBreastShapePhotoidentity `
+  -ConfirmNippleAreolaPhotoidentity `
+  -ConfirmIntimateAnatomyPhotoidentity `
+  -ConfirmDistinctiveMarkersPhotoidentity `
+  -QualityNote "<what was visibly verified on the final package>"
+```
+
+The v2 receipt is bound to the exact package SHA-256 and to the exact fine-identity requirement/application component state. A legacy v1 review cannot satisfy a photoidentical package. Historical packages without `fineIdentityRequirement` continue to use the unchanged v1 review contract.
+

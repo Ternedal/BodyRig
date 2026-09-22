@@ -11,7 +11,9 @@ from .high_fidelity_package_audit import HighFidelityPackageAuditError, audit_hi
 
 FORMAT = "bodyrig-high-fidelity-human-review"
 VERSION = 1
+PHOTOIDENTITY_VERSION = 2
 POLICY_REVISION = "bodyrig-high-fidelity-human-review-v1"
+PHOTOIDENTITY_POLICY_REVISION = "bodyrig-high-fidelity-human-review-v2-photoidentity"
 CHECKLIST_FIELDS = {
     "source_identity_match_acceptable",
     "anatomy_geometry_acceptable",
@@ -21,6 +23,13 @@ CHECKLIST_FIELDS = {
     "face_secondary_acceptable",
     "full_body_multiview_reviewed",
     "face_closeup_reviewed",
+}
+PHOTOIDENTITY_CHECKLIST_FIELDS = {
+    "oral_teeth_photoidentity_acceptable",
+    "chest_breast_shape_photoidentity_acceptable",
+    "nipple_areola_photoidentity_acceptable",
+    "intimate_anatomy_photoidentity_acceptable",
+    "distinctive_markers_photoidentity_acceptable",
 }
 TOP_FIELDS = {
     "format",
@@ -43,8 +52,8 @@ class HighFidelityHumanReviewError(RuntimeError):
     pass
 
 
-def _is_v1(value: Any) -> bool:
-    return not isinstance(value, bool) and value == VERSION
+def _is_version(value: Any, expected: int) -> bool:
+    return not isinstance(value, bool) and value == expected
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -80,8 +89,38 @@ def _quality_note(value: Any) -> str:
     return note
 
 
-def _component_state(audit: Mapping[str, Any]) -> dict[str, Any]:
+def _review_contract(audit: Mapping[str, Any]) -> dict[str, Any]:
+    if audit.get("fine_identity_required") is not True:
+        return {
+            "version": VERSION,
+            "policy_revision": POLICY_REVISION,
+            "checklist_fields": set(CHECKLIST_FIELDS),
+            "photoidentity_required": False,
+        }
+    fine = audit.get("fine_identity")
+    requirement = fine.get("requirement") if isinstance(fine, Mapping) else None
+    application = fine.get("application") if isinstance(fine, Mapping) else None
+    if (
+        audit.get("fine_identity_ready") is not True
+        or not isinstance(requirement, Mapping)
+        or not isinstance(application, Mapping)
+        or application.get("humanReviewRequired") is not True
+        or application.get("packageApplicationAuthority") is not True
+        or application.get("productionActivation") is not False
+    ):
+        raise HighFidelityHumanReviewError(
+            "photoidentical human review requires a complete non-activating fine-identity application"
+        )
     return {
+        "version": PHOTOIDENTITY_VERSION,
+        "policy_revision": PHOTOIDENTITY_POLICY_REVISION,
+        "checklist_fields": set(CHECKLIST_FIELDS) | set(PHOTOIDENTITY_CHECKLIST_FIELDS),
+        "photoidentity_required": True,
+    }
+
+
+def _component_state(audit: Mapping[str, Any], *, version: int = VERSION) -> dict[str, Any]:
+    value = {
         "components": dict(audit.get("components") or {}),
         "high_fidelity_ready": bool(audit.get("high_fidelity_ready")),
         "top_level_blockers": list(audit.get("top_level_blockers") or []),
@@ -91,10 +130,19 @@ def _component_state(audit: Mapping[str, Any]) -> dict[str, Any]:
         "semantic_vertex_map_authority": str(audit.get("semantic_vertex_map_authority") or "unavailable"),
         "human_review_required": bool(audit.get("human_review_required", True)),
     }
+    if version == PHOTOIDENTITY_VERSION:
+        value.update(
+            {
+                "fine_identity_required": audit.get("fine_identity_required") is True,
+                "fine_identity_ready": audit.get("fine_identity_ready") is True,
+                "fine_identity": audit.get("fine_identity"),
+            }
+        )
+    return value
 
 
-def component_state_sha256(audit: Mapping[str, Any]) -> str:
-    return _sha256_bytes(_canonical_json(_component_state(audit)))
+def component_state_sha256(audit: Mapping[str, Any], *, version: int = VERSION) -> str:
+    return _sha256_bytes(_canonical_json(_component_state(audit, version=version)))
 
 
 def _strict_ready_audit(package: Path) -> dict[str, Any]:
@@ -155,23 +203,39 @@ def write_review(
     if not body_id:
         raise HighFidelityHumanReviewError("high-fidelity audit has no canonical body id")
 
+    contract = _review_contract(audit)
+    required_fields = set(contract["checklist_fields"])
     normalized = dict(checklist)
-    if set(normalized) != CHECKLIST_FIELDS:
-        raise HighFidelityHumanReviewError("high-fidelity human review checklist fields are not canonical")
-    for field in CHECKLIST_FIELDS:
+    if set(normalized) != required_fields:
+        missing = ", ".join(sorted(required_fields - set(normalized)))
+        extra = ", ".join(sorted(set(normalized) - required_fields))
+        detail = "; ".join(
+            part
+            for part in (
+                f"missing: {missing}" if missing else "",
+                f"unexpected: {extra}" if extra else "",
+            )
+            if part
+        )
+        raise HighFidelityHumanReviewError(
+            "high-fidelity human review checklist fields are not canonical"
+            + (f" ({detail})" if detail else "")
+        )
+    for field in required_fields:
         if normalized.get(field) is not True:
             raise HighFidelityHumanReviewError(f"high-fidelity human review did not explicitly pass {field}")
     note = _quality_note(quality_note)
+    version = int(contract["version"])
 
     receipt = {
         "format": FORMAT,
-        "version": VERSION,
-        "policy_revision": POLICY_REVISION,
+        "version": version,
+        "policy_revision": str(contract["policy_revision"]),
         "body_id": body_id,
         "package_sha256": actual_sha,
-        "component_state_sha256": component_state_sha256(audit),
+        "component_state_sha256": component_state_sha256(audit, version=version),
         "reviewed_utc": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "checklist": {field: True for field in sorted(CHECKLIST_FIELDS)},
+        "checklist": {field: True for field in sorted(required_fields)},
         "quality_note": note,
         "human_review_complete": True,
         "production_activation": False,
@@ -201,7 +265,13 @@ def read_review(package_path: str | Path) -> dict[str, Any]:
         raise HighFidelityHumanReviewError(f"high-fidelity human review is unreadable: {path}") from exc
     if not isinstance(value, dict) or set(value) != TOP_FIELDS:
         raise HighFidelityHumanReviewError("high-fidelity human review fields are not canonical")
-    if value.get("format") != FORMAT or not _is_v1(value.get("version")) or value.get("policy_revision") != POLICY_REVISION:
+    contract = _review_contract(audit)
+    expected_version = int(contract["version"])
+    if (
+        value.get("format") != FORMAT
+        or not _is_version(value.get("version"), expected_version)
+        or value.get("policy_revision") != contract["policy_revision"]
+    ):
         raise HighFidelityHumanReviewError("high-fidelity human review format/version/policy mismatch")
     if str(value.get("body_id") or "") != str(audit.get("canonical_body_id") or ""):
         raise HighFidelityHumanReviewError("high-fidelity human review body id no longer matches package authority")
@@ -209,12 +279,15 @@ def read_review(package_path: str | Path) -> dict[str, Any]:
         raise HighFidelityHumanReviewError("high-fidelity human review package SHA no longer matches package bytes")
     if str(audit.get("package_sha256") or "").lower() != actual_sha:
         raise HighFidelityHumanReviewError("high-fidelity audit package SHA no longer matches package bytes")
-    if str(value.get("component_state_sha256") or "").lower() != component_state_sha256(audit):
+    if str(value.get("component_state_sha256") or "").lower() != component_state_sha256(
+        audit, version=expected_version
+    ):
         raise HighFidelityHumanReviewError("high-fidelity human review no longer matches current component-state authority")
+    required_fields = set(contract["checklist_fields"])
     checklist = value.get("checklist")
-    if not isinstance(checklist, dict) or set(checklist) != CHECKLIST_FIELDS:
+    if not isinstance(checklist, dict) or set(checklist) != required_fields:
         raise HighFidelityHumanReviewError("high-fidelity human review checklist is not canonical")
-    for field in CHECKLIST_FIELDS:
+    for field in required_fields:
         if checklist.get(field) is not True:
             raise HighFidelityHumanReviewError(f"high-fidelity human review did not explicitly pass {field}")
     _quality_note(value.get("quality_note"))
@@ -325,12 +398,19 @@ def review_status(package_path: str | Path) -> dict[str, Any]:
             "passed": False,
             "reason": "High-fidelity component gates must be complete before human fidelity review.",
         }
+    contract = _review_contract(audit)
     path = review_path(package, package_sha256=actual_sha)
     if not path.is_file():
+        reason = (
+            "Explicit photoidentical fine-identity human review is required for this exact package."
+            if contract["photoidentity_required"]
+            else "Explicit high-fidelity human review is required for this exact package."
+        )
         return {
             "state": "required",
             "passed": False,
-            "reason": "Explicit high-fidelity human review is required for this exact package.",
+            "reason": reason,
+            "photoidentity_review_required": bool(contract["photoidentity_required"]),
         }
     receipt = read_review(package)
     return {
@@ -340,4 +420,5 @@ def review_status(package_path: str | Path) -> dict[str, Any]:
         "reviewed_utc": receipt["reviewed_utc"],
         "quality_note": receipt["quality_note"],
         "policy_revision": receipt["policy_revision"],
+        "photoidentity_review_required": bool(contract["photoidentity_required"]),
     }
