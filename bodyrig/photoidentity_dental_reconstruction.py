@@ -53,6 +53,33 @@ CAPABILITY_FIELDS = {
     "source_grounded",
     "generative_identity_synthesis",
 }
+INPUT_FIELDS = {
+    "format",
+    "version",
+    "performer_id",
+    "bodyrig_revision",
+    "domain",
+    "private_manifest_sha256",
+    "fine_identity_attestation_sha256",
+    "evidence",
+    "distinct_scene_count",
+    "source_grounded",
+    "generic_guessing_permitted",
+    "generative_identity_synthesis",
+    "human_review_required",
+    "production_activation",
+}
+INPUT_EVIDENCE_FIELDS = {
+    "reference",
+    "scene_id",
+    "region",
+    "source_ordinal",
+    "source_media_sha256",
+    "review_image_sha256",
+    "source_quality",
+    "staged_review_image",
+}
+
 RESULT_FIELDS = {
     "format",
     "version",
@@ -441,19 +468,25 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
         raise PhotoIdentityDentalReconstructionError("dental VRM source texture bytes are not PNG")
 
     materials = _array(document, "materials")
-    dental = materials[dental_material]
-    pbr = dental.get("pbrMetallicRoughness") if isinstance(dental, Mapping) else None
-    texture_info = pbr.get("baseColorTexture") if isinstance(pbr, Mapping) else None
-    texture_index = texture_info.get("index") if isinstance(texture_info, Mapping) else None
     textures = _array(document, "textures")
-    if (
-        isinstance(texture_index, bool)
-        or not isinstance(texture_index, int)
-        or not 0 <= texture_index < len(textures)
-        or not isinstance(textures[texture_index], Mapping)
-        or textures[texture_index].get("source") != image_index
+    for material_index, label in (
+        (mouth_material, "mouth"),
+        (dental_material, "dental"),
     ):
-        raise PhotoIdentityDentalReconstructionError("dental VRM source texture is not bound to dental material")
+        material = materials[material_index]
+        pbr = material.get("pbrMetallicRoughness") if isinstance(material, Mapping) else None
+        texture_info = pbr.get("baseColorTexture") if isinstance(pbr, Mapping) else None
+        texture_index = texture_info.get("index") if isinstance(texture_info, Mapping) else None
+        if (
+            isinstance(texture_index, bool)
+            or not isinstance(texture_index, int)
+            or not 0 <= texture_index < len(textures)
+            or not isinstance(textures[texture_index], Mapping)
+            or textures[texture_index].get("source") != image_index
+        ):
+            raise PhotoIdentityDentalReconstructionError(
+                f"dental VRM source texture is not bound to {label} material"
+            )
 
     extras = document.get("extras")
     bodyrig = extras.get("bodyrig") if isinstance(extras, Mapping) else None
@@ -537,6 +570,181 @@ def validate_adapter_result(
                 f"dental VRM metadata mismatch: {field}"
             )
     return result
+
+
+def read_reconstruction_workspace(output_dir: str | Path) -> dict[str, Any]:
+    root = Path(output_dir).expanduser().resolve()
+    input_manifest_path = root / "dental-reconstruction-input.json"
+    adapter_output = root / "adapter-output"
+    result_path = adapter_output / "dental-reconstruction.json"
+    vrm_path = adapter_output / "dental-source.vrm"
+
+    value = _read_json(input_manifest_path, label="Dental reconstruction input")
+    if set(value) != INPUT_FIELDS:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction input fields must match v1 exactly"
+        )
+    if (
+        value.get("format") != INPUT_FORMAT
+        or value.get("version") != INPUT_VERSION
+        or value.get("domain") != DOMAIN
+        or value.get("source_grounded") is not True
+        or value.get("generic_guessing_permitted") is not False
+        or value.get("generative_identity_synthesis") is not False
+        or value.get("human_review_required") is not True
+        or value.get("production_activation") is not False
+    ):
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction input authority boundary is invalid"
+        )
+
+    revision = _revision(value.get("bodyrig_revision"))
+    performer_id = str(value.get("performer_id") or "").strip()
+    if not performer_id or len(performer_id) > 256:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction input performer id is invalid"
+        )
+    _sha(value.get("private_manifest_sha256"), label="private fine-identity manifest SHA-256")
+    attestation_sha = _sha(
+        value.get("fine_identity_attestation_sha256"),
+        label="fine-identity attestation SHA-256",
+    )
+
+    evidence = value.get("evidence")
+    if not isinstance(evidence, list) or len(evidence) < 2:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction input requires at least two evidence items"
+        )
+    input_dir = (root / "input").resolve()
+    scenes: set[str] = set()
+    references: list[str] = []
+    seen_references: set[str] = set()
+    for item in evidence:
+        if not isinstance(item, Mapping) or set(item) != INPUT_EVIDENCE_FIELDS:
+            raise PhotoIdentityDentalReconstructionError(
+                "dental reconstruction input evidence fields are invalid"
+            )
+        reference = str(item.get("reference") or "").strip()
+        scene = str(item.get("scene_id") or "").strip()
+        region = str(item.get("region") or "").strip()
+        ordinal = item.get("source_ordinal")
+        quality = item.get("source_quality")
+        if (
+            not reference
+            or reference in seen_references
+            or not scene
+            or not region
+            or isinstance(ordinal, bool)
+            or not isinstance(ordinal, int)
+            or ordinal < 1
+            or isinstance(quality, bool)
+            or not isinstance(quality, (int, float))
+            or not 0.80 <= float(quality) <= 1.0
+        ):
+            raise PhotoIdentityDentalReconstructionError(
+                "dental reconstruction input evidence identity/quality is invalid"
+            )
+        _sha(item.get("source_media_sha256"), label=f"{reference} source media SHA-256")
+        review_sha = _sha(
+            item.get("review_image_sha256"),
+            label=f"{reference} review image SHA-256",
+        )
+        staged = Path(str(item.get("staged_review_image") or "")).expanduser().resolve()
+        try:
+            staged.relative_to(input_dir)
+        except ValueError as exc:
+            raise PhotoIdentityDentalReconstructionError(
+                f"staged dental review image escaped private input root: {reference}"
+            ) from exc
+        if staged.parent != input_dir:
+            raise PhotoIdentityDentalReconstructionError(
+                f"staged dental review image is not a direct private input file: {reference}"
+            )
+        if _sha256_file(staged) != review_sha:
+            raise PhotoIdentityDentalReconstructionError(
+                f"staged dental review image bytes changed: {reference}"
+            )
+        references.append(reference)
+        seen_references.add(reference)
+        scenes.add(scene)
+
+    distinct_scene_count = value.get("distinct_scene_count")
+    if (
+        isinstance(distinct_scene_count, bool)
+        or not isinstance(distinct_scene_count, int)
+        or distinct_scene_count != len(scenes)
+        or distinct_scene_count < 2
+    ):
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction distinct-scene authority is invalid"
+        )
+
+    result = _read_json(result_path, label="Dental reconstruction result")
+    if set(result) != RESULT_FIELDS:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction result fields must match v1 exactly"
+        )
+    if result.get("format") != RESULT_FORMAT or result.get("version") != RESULT_VERSION:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction result format/version mismatch"
+        )
+    adapter = str(result.get("adapter") or "").strip()
+    adapter_revision = str(result.get("adapter_revision") or "").strip()
+    if not ADAPTER_RE.fullmatch(adapter) or not adapter_revision or len(adapter_revision) > 160:
+        raise PhotoIdentityDentalReconstructionError(
+            "dental reconstruction result adapter identity is invalid"
+        )
+    expected = {
+        "bodyrig_revision": revision,
+        "performer_id": performer_id,
+        "input_manifest_sha256": _sha256_file(input_manifest_path),
+        "fine_identity_attestation_sha256": attestation_sha,
+        "dental_vrm_sha256": _sha256_file(vrm_path),
+        "source_references": references,
+        "source_derived_dental_identity": True,
+        "generic_secondary_anatomy": False,
+        "generative_identity_synthesis": False,
+        "mouth_interior_source_derived": True,
+        "upper_teeth_source_derived": True,
+        "lower_teeth_source_derived": True,
+        "appearance_source_derived": True,
+        "human_review_required": True,
+        "promotion_authority": False,
+        "production_activation": False,
+    }
+    for field, expected_value in expected.items():
+        if result.get(field) != expected_value:
+            raise PhotoIdentityDentalReconstructionError(
+                f"dental reconstruction workspace mismatch: {field}"
+            )
+
+    vrm_bytes = vrm_path.read_bytes()
+    detail = validate_dental_vrm(vrm_bytes)
+    metadata = detail["metadata"]
+    for field, expected_value in (
+        ("adapter", adapter),
+        ("adapterRevision", adapter_revision),
+        ("bodyrigRevision", revision),
+        ("performerId", performer_id),
+        ("inputManifestSha256", expected["input_manifest_sha256"]),
+        ("fineIdentityAttestationSha256", attestation_sha),
+    ):
+        if metadata.get(field) != expected_value:
+            raise PhotoIdentityDentalReconstructionError(
+                f"dental reconstruction workspace VRM metadata mismatch: {field}"
+            )
+
+    return {
+        **result,
+        "workspace": str(root),
+        "input_manifest_path": str(input_manifest_path),
+        "input_manifest_sha256": expected["input_manifest_sha256"],
+        "result_path": str(result_path),
+        "result_sha256": _sha256_file(result_path),
+        "dental_vrm_path": str(vrm_path),
+        "dental_vrm_sha256": expected["dental_vrm_sha256"],
+        "dental_texture_sha256": detail["texture_sha256"],
+    }
 
 
 def run_reconstruction(
