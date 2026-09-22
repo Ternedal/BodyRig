@@ -223,15 +223,28 @@ def test_operator_requires_same_clean_git_state_after_terminal_write(
             "bodyrig_revision": "2" * 40,
         },
     )
-    monkeypatch.setattr(
-        subject,
-        "inspect_continuation",
-        lambda _job: {
-            "state": "incomplete",
-            "next_gate": {"gate": subject.FINE_IDENTITY_GATE},
-            "current_package_path": str(source_package),
-        },
-    )
+    status_calls = {"count": 0}
+
+    def continuation(_job: str) -> dict:
+        status_calls["count"] += 1
+        if status_calls["count"] == 1:
+            return {
+                "state": "incomplete",
+                "next_gate": {"gate": subject.FINE_IDENTITY_GATE},
+                "current_package_path": str(source_package),
+            }
+        return {
+            "state": "complete",
+            "next_gate": None,
+            "current_package_path": str(fine_root / "package" / "applied.mrbody"),
+            "current_package_sha256": "3" * 64,
+            "high_fidelity_complete": True,
+            "production_ready": False,
+            "production_activation": False,
+            "gates": [{"id": subject.FINE_IDENTITY_GATE, "state": "pass"}],
+        }
+
+    monkeypatch.setattr(subject, "inspect_continuation", continuation)
     monkeypatch.setattr(
         subject,
         "continuation_paths",
