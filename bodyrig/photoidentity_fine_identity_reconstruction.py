@@ -19,6 +19,7 @@ from .photoidentity_fine_identity_adapter import (
     APPLICATION_DOMAINS,
     PhotoIdentityFineIdentityAdapterError,
     _bound_command,
+    _revision as _canonical_revision,
     load_application_source_evidence,
     validate_adapter_config,
 )
@@ -237,7 +238,7 @@ def prepare_input_workspace(
             "format": INPUT_FORMAT,
             "version": INPUT_VERSION,
             "canonical_body_id": body_id,
-            "operator_bodyrig_revision": str(operator_bodyrig_revision).strip().lower(),
+            "operator_bodyrig_revision": _canonical_revision(operator_bodyrig_revision),
             "requirement_bodyrig_revision": requirement_revision,
             "performer_id": str(attestation["performer_id"]),
             "fine_identity_authority_sha256": requirement["fineIdentityAuthoritySha256"],
