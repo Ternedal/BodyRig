@@ -5,114 +5,471 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "format", "version", "performer_id", "selected_epoch_id", "teacher_input_sha256",
-    "benchmark", "strategy", "upstream_repository", "upstream_commit", "candidate_count",
-    "candidates", "selected_source_key", "selected_source_sha256", "selected_observation_count",
-    "selected_observations", "training_source_universe_count", "training_observation_universe_count",
-    "intended_source_utilization_fraction", "intended_observation_utilization_fraction",
-    "selection_authority", "benchmark_execution_authorized", "benchmark_blockers",
-    "teacher_training_authority_inherited", "photoreal_acceptance_authority",
-    "human_visual_acceptance_required", "build_only", "runtime_dependency",
-    "production_activation", "benchmark_plan_sha256"
+    "format",
+    "version",
+    "performer_id",
+    "selected_epoch_id",
+    "teacher_input_sha256",
+    "benchmark",
+    "scan_plan_sha256",
+    "strategy",
+    "upstream_repository",
+    "upstream_commit",
+    "candidate_count",
+    "candidates",
+    "selected_source_key",
+    "selected_source_sha256",
+    "selected_observation_count",
+    "selected_observations",
+    "training_source_universe_count",
+    "training_observation_universe_count",
+    "intended_source_utilization_fraction",
+    "intended_observation_utilization_fraction",
+    "selection_authority",
+    "benchmark_execution_authorized",
+    "benchmark_blockers",
+    "teacher_training_authority_inherited",
+    "photoreal_acceptance_authority",
+    "human_visual_acceptance_required",
+    "build_only",
+    "runtime_dependency",
+    "production_activation",
+    "benchmark_plan_sha256"
   ],
   "properties": {
-    "format": {"const": "bodyrig-photoreal-teacher-benchmark-plan"},
-    "version": {"const": 1},
-    "performer_id": {"type": "string", "minLength": 1, "maxLength": 256},
-    "selected_epoch_id": {"type": "string", "minLength": 1, "maxLength": 256},
-    "teacher_input_sha256": {"$ref": "#/$defs/sha256"},
-    "benchmark": {"const": "exavatar"},
-    "strategy": {"const": "single-flat-mono-video-coverage-ranking-v1"},
-    "upstream_repository": {"const": "https://github.com/mks0601/ExAvatar_RELEASE"},
-    "upstream_commit": {"const": "d45268730c779fae4118f1a361cf9ff639bc4d1e"},
-    "candidate_count": {"type": "integer", "minimum": 0},
-    "candidates": {"type": "array", "items": {"$ref": "#/$defs/candidate"}},
-    "selected_source_key": {"oneOf": [{"type": "string", "minLength": 1, "maxLength": 4096}, {"type": "null"}]},
-    "selected_source_sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-    "selected_observation_count": {"type": "integer", "minimum": 0},
-    "selected_observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
-    "training_source_universe_count": {"type": "integer", "minimum": 1},
-    "training_observation_universe_count": {"type": "integer", "minimum": 1},
-    "intended_source_utilization_fraction": {"$ref": "#/$defs/unit"},
-    "intended_observation_utilization_fraction": {"$ref": "#/$defs/unit"},
-    "selection_authority": {"const": "core-benchmark-scheduling-only-v1"},
-    "benchmark_execution_authorized": {"type": "boolean"},
-    "benchmark_blockers": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
-    "teacher_training_authority_inherited": {"const": true},
-    "photoreal_acceptance_authority": {"const": false},
-    "human_visual_acceptance_required": {"const": true},
-    "build_only": {"const": true},
-    "runtime_dependency": {"const": false},
-    "production_activation": {"const": false},
-    "benchmark_plan_sha256": {"$ref": "#/$defs/sha256"}
+    "format": {
+      "const": "bodyrig-photoreal-teacher-benchmark-plan"
+    },
+    "version": {
+      "const": 1
+    },
+    "performer_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "selected_epoch_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "teacher_input_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "benchmark": {
+      "const": "exavatar"
+    },
+    "strategy": {
+      "enum": [
+        "single-flat-mono-video-coverage-ranking-v1",
+        "single-authorized-video-exact-p0-replay-v2"
+      ]
+    },
+    "upstream_repository": {
+      "const": "https://github.com/mks0601/ExAvatar_RELEASE"
+    },
+    "upstream_commit": {
+      "const": "d45268730c779fae4118f1a361cf9ff639bc4d1e"
+    },
+    "candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "selected_source_key": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selected_source_sha256": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selected_observation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "selected_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      }
+    },
+    "training_source_universe_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "training_observation_universe_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "intended_source_utilization_fraction": {
+      "$ref": "#/$defs/unit"
+    },
+    "intended_observation_utilization_fraction": {
+      "$ref": "#/$defs/unit"
+    },
+    "selection_authority": {
+      "enum": [
+        "core-benchmark-scheduling-only-v1",
+        "core-benchmark-scheduling-with-scan-authority-v2"
+      ]
+    },
+    "benchmark_execution_authorized": {
+      "type": "boolean"
+    },
+    "benchmark_blockers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "teacher_training_authority_inherited": {
+      "const": true
+    },
+    "photoreal_acceptance_authority": {
+      "const": false
+    },
+    "human_visual_acceptance_required": {
+      "const": true
+    },
+    "build_only": {
+      "const": true
+    },
+    "runtime_dependency": {
+      "const": false
+    },
+    "production_activation": {
+      "const": false
+    },
+    "benchmark_plan_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "scan_plan_sha256": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"benchmark_execution_authorized": {"const": true}}, "required": ["benchmark_execution_authorized"]},
+      "if": {
+        "properties": {
+          "benchmark_execution_authorized": {
+            "const": true
+          }
+        },
+        "required": [
+          "benchmark_execution_authorized"
+        ]
+      },
       "then": {
         "properties": {
-          "selected_source_key": {"type": "string", "minLength": 1},
-          "selected_source_sha256": {"$ref": "#/$defs/sha256"},
-          "selected_observation_count": {"type": "integer", "minimum": 1},
-          "selected_observations": {"type": "array", "minItems": 1},
-          "benchmark_blockers": {"const": []}
+          "selected_source_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "selected_source_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "selected_observation_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "selected_observations": {
+            "type": "array",
+            "minItems": 1
+          },
+          "benchmark_blockers": {
+            "const": []
+          }
         }
       }
     },
     {
-      "if": {"properties": {"benchmark_execution_authorized": {"const": false}}, "required": ["benchmark_execution_authorized"]},
+      "if": {
+        "properties": {
+          "benchmark_execution_authorized": {
+            "const": false
+          }
+        },
+        "required": [
+          "benchmark_execution_authorized"
+        ]
+      },
       "then": {
         "properties": {
-          "selected_source_key": {"type": "null"},
-          "selected_source_sha256": {"type": "null"},
-          "selected_observation_count": {"const": 0},
-          "selected_observations": {"const": []},
-          "benchmark_blockers": {"type": "array", "minItems": 1}
+          "selected_source_key": {
+            "type": "null"
+          },
+          "selected_source_sha256": {
+            "type": "null"
+          },
+          "selected_observation_count": {
+            "const": 0
+          },
+          "selected_observations": {
+            "const": []
+          },
+          "benchmark_blockers": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "selection_authority": {
+            "const": "core-benchmark-scheduling-with-scan-authority-v2"
+          }
+        },
+        "required": [
+          "selection_authority"
+        ]
+      },
+      "then": {
+        "properties": {
+          "scan_plan_sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "selection_authority": {
+            "const": "core-benchmark-scheduling-only-v1"
+          }
+        },
+        "required": [
+          "selection_authority"
+        ]
+      },
+      "then": {
+        "properties": {
+          "scan_plan_sha256": {
+            "type": "null"
+          }
         }
       }
     }
   ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "unit": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "unit": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
     "observation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_key", "frame_sha256", "timestamp_seconds", "eye", "view_bin", "coverage"],
+      "required": [
+        "source_key",
+        "frame_sha256",
+        "timestamp_seconds",
+        "eye",
+        "view_bin",
+        "coverage"
+      ],
       "properties": {
-        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "frame_sha256": {"$ref": "#/$defs/sha256"},
-        "timestamp_seconds": {"type": "number", "minimum": 0},
-        "eye": {"const": "mono"},
-        "view_bin": {"type": "string", "minLength": 1, "maxLength": 64},
-        "coverage": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}}
+        "source_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "frame_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "timestamp_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "eye": {
+          "enum": [
+            "mono",
+            "left",
+            "right"
+          ]
+        },
+        "view_bin": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "coverage": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
       }
     },
     "candidate": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "source_key", "source_sha256", "resolved_path", "group_id", "projection", "stereo_layout",
-        "width", "height", "megapixels", "information_score", "observation_count", "coverage",
-        "coverage_count", "face_coverage_count", "full_body_coverage_count", "observations"
+        "source_key",
+        "source_sha256",
+        "resolved_path",
+        "group_id",
+        "projection",
+        "stereo_layout",
+        "width",
+        "height",
+        "megapixels",
+        "information_score",
+        "observation_count",
+        "coverage",
+        "coverage_count",
+        "face_coverage_count",
+        "full_body_coverage_count",
+        "observations",
+        "kind",
+        "decode_mode",
+        "projection_authority",
+        "normalization_action"
       ],
       "properties": {
-        "source_key": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "source_sha256": {"$ref": "#/$defs/sha256"},
-        "resolved_path": {"type": "string", "minLength": 1, "maxLength": 32768},
-        "group_id": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "projection": {"const": "flat"},
-        "stereo_layout": {"const": "mono"},
-        "width": {"type": "integer", "minimum": 0},
-        "height": {"type": "integer", "minimum": 0},
-        "megapixels": {"type": "number", "minimum": 0},
-        "information_score": {"type": "number", "minimum": 0},
-        "observation_count": {"type": "integer", "minimum": 1},
-        "coverage": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
-        "coverage_count": {"type": "integer", "minimum": 0},
-        "face_coverage_count": {"type": "integer", "minimum": 0},
-        "full_body_coverage_count": {"type": "integer", "minimum": 0},
-        "observations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/observation"}}
+        "source_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "resolved_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        },
+        "group_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "projection": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "stereo_layout": {
+          "enum": [
+            "mono",
+            "side-by-side",
+            "over-under",
+            "mesh-custom"
+          ]
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "megapixels": {
+          "type": "number",
+          "minimum": 0
+        },
+        "information_score": {
+          "type": "number",
+          "minimum": 0
+        },
+        "observation_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "coverage": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "coverage_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "face_coverage_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "full_body_coverage_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "kind": {
+          "const": "video"
+        },
+        "decode_mode": {
+          "enum": [
+            "rectilinear-mono",
+            "rectilinear-stereo-split",
+            "spatial-deprojection-required"
+          ]
+        },
+        "projection_authority": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "normalization_action": {
+          "enum": [
+            "preserve-flat-mono-video",
+            "exact-authorized-deprojection"
+          ]
+        }
       }
     }
   }

@@ -8,10 +8,13 @@ from typing import Any, Mapping
 
 INPUT_FORMAT = "bodyrig-photoreal-teacher-input"
 INPUT_VERSION = 1
+SCAN_PLAN_FORMAT = "bodyrig-photoreal-scan-plan"
+SCAN_PLAN_VERSION = 1
 FORMAT = "bodyrig-photoreal-teacher-benchmark-plan"
 VERSION = 1
 BENCHMARK = "exavatar"
-STRATEGY = "single-flat-mono-video-coverage-ranking-v1"
+LEGACY_STRATEGY = "single-flat-mono-video-coverage-ranking-v1"
+SCAN_AUTHORITY_STRATEGY = "single-authorized-video-exact-p0-replay-v2"
 UPSTREAM_REPOSITORY = "https://github.com/mks0601/ExAvatar_RELEASE"
 UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
 
@@ -190,13 +193,105 @@ def _training_observations(value: Mapping[str, Any], sources: Mapping[str, Mappi
     return by_source
 
 
-def _candidate(source: Mapping[str, Any], observations: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if source["kind"] != "video" or source["projection"] != "flat" or source["stereo_layout"] != "mono":
+def _scan_sources(
+    scan_plan: Mapping[str, Any],
+    *,
+    performer_id: str,
+    teacher_sources: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if scan_plan.get("format") != SCAN_PLAN_FORMAT or scan_plan.get("version") != SCAN_PLAN_VERSION:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan format/version mismatch")
+    if _text(scan_plan.get("performer_id"), label="scan-plan performer id", maximum=256) != performer_id:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan performer differs from teacher input")
+    if scan_plan.get("all_sources_sha256_bound") is not True:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan is not source-SHA bound")
+    if scan_plan.get("train_evaluation_assignment_inherited") is not True:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan lost train/evaluation assignment")
+    if scan_plan.get("build_only") is not True or scan_plan.get("runtime_dependency") is not False:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan build/runtime authority boundary is invalid")
+    if scan_plan.get("production_activation") is not False:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan crossed production authority")
+
+    raw_sources = scan_plan.get("sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise PhotorealTeacherBenchmarkPlanError("scan plan contains no sources")
+    result: dict[str, dict[str, Any]] = {}
+    for raw in raw_sources:
+        if not isinstance(raw, Mapping):
+            raise PhotorealTeacherBenchmarkPlanError("scan-plan source is invalid")
+        source_key = _text(raw.get("source_key"), label="scan-plan source key")
+        if source_key not in teacher_sources:
+            continue
+        if source_key in result:
+            raise PhotorealTeacherBenchmarkPlanError("scan plan repeats teacher training source")
+        teacher = teacher_sources[source_key]
+        source_sha = _sha(raw.get("source_sha256"), label="scan-plan source SHA-256")
+        if source_sha != teacher["source_sha256"]:
+            raise PhotorealTeacherBenchmarkPlanError("scan-plan source SHA differs from teacher input")
+        if _text(raw.get("kind"), label="scan-plan source kind", maximum=16) != teacher["kind"]:
+            raise PhotorealTeacherBenchmarkPlanError("scan-plan source kind differs from teacher input")
+        if _text(raw.get("split"), label="scan-plan source split", maximum=32) != "train":
+            raise PhotorealTeacherBenchmarkPlanError("teacher training source is not train in scan plan")
+        if _text(raw.get("group_id"), label="scan-plan source group id") != teacher["group_id"]:
+            raise PhotorealTeacherBenchmarkPlanError("scan-plan source group differs from teacher input")
+        authority = raw.get("projection_authority")
+        if authority is not None and not isinstance(authority, Mapping):
+            raise PhotorealTeacherBenchmarkPlanError("scan-plan projection authority is invalid")
+        result[source_key] = {
+            "projection": _text(raw.get("projection"), label="scan-plan source projection", maximum=128),
+            "stereo_layout": _text(raw.get("stereo_layout"), label="scan-plan source stereo layout", maximum=128),
+            "decode_mode": _text(raw.get("decode_mode"), label="scan-plan source decode mode", maximum=128),
+            "projection_authority": None if authority is None else dict(authority),
+        }
+    return result
+
+
+def _allowed_eyes(stereo_layout: str) -> set[str]:
+    if stereo_layout == "mono":
+        return {"mono"}
+    if stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
+        return {"left", "right"}
+    raise PhotorealTeacherBenchmarkPlanError(
+        f"scan-plan stereo layout is not ExAvatar-replayable: {stereo_layout}"
+    )
+
+
+def _candidate(
+    source: Mapping[str, Any],
+    observations: list[dict[str, Any]],
+    scan_source: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if source["kind"] != "video" or not observations:
         return None
-    if not observations:
-        return None
-    if any(item["eye"] != "mono" or item["timestamp_seconds"] is None for item in observations):
-        raise PhotorealTeacherBenchmarkPlanError("flat mono video candidate carries incompatible observations")
+
+    if scan_source is None:
+        if source["projection"] != "flat" or source["stereo_layout"] != "mono":
+            return None
+        projection = "flat"
+        stereo_layout = "mono"
+        decode_mode = "rectilinear-mono"
+        projection_authority = None
+        normalization_action = "preserve-flat-mono-video"
+    else:
+        projection = str(scan_source["projection"])
+        stereo_layout = str(scan_source["stereo_layout"])
+        decode_mode = str(scan_source["decode_mode"])
+        projection_authority = scan_source.get("projection_authority")
+        if decode_mode == "rectilinear-mono":
+            if projection != "flat" or stereo_layout != "mono":
+                raise PhotorealTeacherBenchmarkPlanError("rectilinear-mono scan authority is inconsistent")
+            normalization_action = "preserve-flat-mono-video"
+        elif decode_mode in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
+            if decode_mode == "spatial-deprojection-required" and projection_authority is None:
+                raise PhotorealTeacherBenchmarkPlanError("spatial ExAvatar candidate lacks projection authority")
+            normalization_action = "exact-authorized-deprojection"
+        else:
+            return None
+
+    allowed_eyes = _allowed_eyes(stereo_layout)
+    if any(item["eye"] not in allowed_eyes or item["timestamp_seconds"] is None for item in observations):
+        raise PhotorealTeacherBenchmarkPlanError("ExAvatar video candidate carries incompatible observations")
+
     coverage = sorted({label for item in observations for label in item["coverage"]})
     full_body_coverage = sorted(label for label in coverage if label.startswith("full-body-"))
     face_coverage = sorted(label for label in coverage if label.startswith("face-"))
@@ -206,8 +301,12 @@ def _candidate(source: Mapping[str, Any], observations: list[dict[str, Any]]) ->
         "source_sha256": source["source_sha256"],
         "resolved_path": source["resolved_path"],
         "group_id": source["group_id"],
-        "projection": source["projection"],
-        "stereo_layout": source["stereo_layout"],
+        "kind": source["kind"],
+        "projection": projection,
+        "stereo_layout": stereo_layout,
+        "decode_mode": decode_mode,
+        "projection_authority": projection_authority,
+        "normalization_action": normalization_action,
         "width": source["width"],
         "height": source["height"],
         "megapixels": round(megapixels, 6),
@@ -233,22 +332,45 @@ def _rank_key(candidate: Mapping[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def build_teacher_benchmark_plan(teacher_input: Mapping[str, Any]) -> dict[str, Any]:
+def build_teacher_benchmark_plan(
+    teacher_input: Mapping[str, Any],
+    *,
+    scan_plan: Mapping[str, Any] | None = None,
+    scan_plan_sha256: str | None = None,
+) -> dict[str, Any]:
     performer_id, selected_epoch_id, teacher_input_sha256 = _validate_input(teacher_input)
     sources = _training_sources(teacher_input)
     observations = _training_observations(teacher_input, sources)
 
+    scan_sources: dict[str, dict[str, Any]] = {}
+    bound_scan_sha: str | None = None
+    if scan_plan is not None:
+        if scan_plan_sha256 is None:
+            raise PhotorealTeacherBenchmarkPlanError("scan plan SHA-256 is required with scan-plan authority")
+        bound_scan_sha = _sha(scan_plan_sha256, label="scan plan SHA-256")
+        scan_sources = _scan_sources(scan_plan, performer_id=performer_id, teacher_sources=sources)
+
     candidates = [
         item
         for source_key, source in sources.items()
-        if (item := _candidate(source, observations[source_key])) is not None
+        if (
+            item := _candidate(
+                source,
+                observations[source_key],
+                scan_sources.get(source_key) if scan_plan is not None else None,
+            )
+        ) is not None
     ]
     candidates.sort(key=_rank_key)
 
     blockers: list[str] = []
     selected: dict[str, Any] | None = candidates[0] if candidates else None
     if selected is None:
-        blockers.append("no authorized flat/mono training video exists in the selected appearance epoch")
+        blockers.append(
+            "no authorized ExAvatar-replayable training video exists in the selected appearance epoch"
+            if scan_plan is not None
+            else "no authorized flat/mono training video exists in the selected appearance epoch"
+        )
 
     training_observation_count = _count(
         teacher_input.get("training_observation_count"), label="teacher training observation count"
@@ -267,7 +389,8 @@ def build_teacher_benchmark_plan(teacher_input: Mapping[str, Any]) -> dict[str, 
         "selected_epoch_id": selected_epoch_id,
         "teacher_input_sha256": teacher_input_sha256,
         "benchmark": BENCHMARK,
-        "strategy": STRATEGY,
+        "strategy": SCAN_AUTHORITY_STRATEGY if scan_plan is not None else LEGACY_STRATEGY,
+        "scan_plan_sha256": bound_scan_sha,
         "upstream_repository": UPSTREAM_REPOSITORY,
         "upstream_commit": UPSTREAM_COMMIT,
         "candidate_count": len(candidates),
@@ -282,7 +405,11 @@ def build_teacher_benchmark_plan(teacher_input: Mapping[str, Any]) -> dict[str, 
         "intended_observation_utilization_fraction": (
             0.0 if selected is None or training_observation_count == 0 else round(selected["observation_count"] / training_observation_count, 9)
         ),
-        "selection_authority": "core-benchmark-scheduling-only-v1",
+        "selection_authority": (
+            "core-benchmark-scheduling-with-scan-authority-v2"
+            if scan_plan is not None
+            else "core-benchmark-scheduling-only-v1"
+        ),
         "benchmark_execution_authorized": selected is not None,
         "benchmark_blockers": blockers,
         "teacher_training_authority_inherited": teacher_input.get("teacher_training_authorized") is True,
@@ -299,9 +426,21 @@ def build_teacher_benchmark_plan(teacher_input: Mapping[str, Any]) -> dict[str, 
 def build_teacher_benchmark_plan_files(
     teacher_input_path: str | Path,
     output_path: str | Path,
+    *,
+    scan_plan_path: str | Path | None = None,
 ) -> dict[str, Any]:
     teacher_input = _read_json(teacher_input_path, label="photoreal teacher input")
-    result = build_teacher_benchmark_plan(teacher_input)
+    scan_plan = None
+    scan_sha = None
+    if scan_plan_path is not None:
+        scan_path = Path(scan_plan_path).expanduser().resolve()
+        scan_plan = _read_json(scan_path, label="photoreal scan plan")
+        digest = hashlib.sha256()
+        with scan_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        scan_sha = digest.hexdigest()
+    result = build_teacher_benchmark_plan(teacher_input, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealTeacherBenchmarkPlanError(f"teacher benchmark plan already exists: {output}")

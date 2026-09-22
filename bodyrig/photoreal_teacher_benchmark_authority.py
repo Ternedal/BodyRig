@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,8 @@ def _read_json(path: str | Path) -> dict[str, Any]:
 def validate_teacher_benchmark_plan_files_strict(
     teacher_input_path: str | Path,
     benchmark_plan_path: str | Path,
+    *,
+    scan_plan_path: str | Path | None = None,
 ) -> dict[str, Any]:
     teacher_input = _read_json(teacher_input_path)
     try:
@@ -50,7 +53,21 @@ def validate_teacher_benchmark_plan_files_strict(
         raise PhotorealTeacherBenchmarkPlanError(
             f"teacher input authority validation failed: {exc}"
         ) from exc
-    expected = build_teacher_benchmark_plan(validated)
+    scan_plan = None
+    scan_sha = None
+    if scan_plan_path is not None:
+        scan_path = Path(scan_plan_path).expanduser().resolve()
+        scan_plan = _read_json(scan_path)
+        digest = hashlib.sha256()
+        with scan_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        scan_sha = digest.hexdigest()
+    expected = (
+        build_teacher_benchmark_plan(validated)
+        if scan_plan is None
+        else build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    )
     plan = _read_json(benchmark_plan_path)
     if not _strict_json_equal(plan, expected):
         raise PhotorealTeacherBenchmarkPlanError(
@@ -62,6 +79,8 @@ def validate_teacher_benchmark_plan_files_strict(
 def build_teacher_benchmark_plan_files_strict(
     teacher_input_path: str | Path,
     output_path: str | Path,
+    *,
+    scan_plan_path: str | Path | None = None,
 ) -> dict[str, Any]:
     teacher_input = _read_json(teacher_input_path)
     try:
@@ -71,7 +90,22 @@ def build_teacher_benchmark_plan_files_strict(
             f"teacher input authority validation failed: {exc}"
         ) from exc
 
-    result = build_teacher_benchmark_plan(validated)
+    scan_plan = None
+    scan_sha = None
+    if scan_plan_path is not None:
+        scan_path = Path(scan_plan_path).expanduser().resolve()
+        scan_plan = _read_json(scan_path)
+        digest = hashlib.sha256()
+        with scan_path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        scan_sha = digest.hexdigest()
+
+    result = (
+        build_teacher_benchmark_plan(validated)
+        if scan_plan is None
+        else build_teacher_benchmark_plan(validated, scan_plan=scan_plan, scan_plan_sha256=scan_sha)
+    )
     output = Path(output_path).expanduser().resolve()
     if output.exists():
         raise PhotorealTeacherBenchmarkPlanError(

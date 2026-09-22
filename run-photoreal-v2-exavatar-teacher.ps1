@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$TeacherWorkRoot,
+    [string]$P0Root = "",
     [Parameter(Mandatory = $true)][string]$AssetRoot,
     [Parameter(Mandatory = $true)][string]$ReferenceModelRoot,
     [Parameter(Mandatory = $true)][ValidateSet("female", "male", "neutral")][string]$SmplxGender,
@@ -105,6 +106,17 @@ if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
 }
 
 $TeacherWorkRoot = Need-Directory -Path $TeacherWorkRoot -Label "Teacher continuation workspace"
+if ([string]::IsNullOrWhiteSpace($P0Root)) {
+    $teacherSuffix = "-teacher"
+    if (-not $TeacherWorkRoot.EndsWith($teacherSuffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "P0Root is required when TeacherWorkRoot does not end with '-teacher'."
+    }
+    $inferredP0Root = $TeacherWorkRoot.Substring(0, $TeacherWorkRoot.Length - $teacherSuffix.Length)
+    $P0Root = Need-Directory -Path $inferredP0Root -Label "Canonical P0 root"
+} else {
+    $P0Root = Need-Directory -Path $P0Root -Label "Canonical P0 root"
+}
+$scanPlan = Need-File -Path (Join-Path $P0Root "scan-plan.json") -Label "Canonical P0 scan plan"
 $AssetRoot = Need-Directory -Path $AssetRoot -Label "ExAvatar asset root"
 $ReferenceModelRoot = Need-Directory -Path $ReferenceModelRoot -Label "Reference model root"
 $teacherInput = Need-File -Path (Join-Path $TeacherWorkRoot "teacher-input.json") -Label "Strict teacher input"
@@ -159,6 +171,7 @@ Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR STATIC TEACHER"
 Write-Host "Performer:           $performerId"
 Write-Host "Teacher input SHA:   $teacherSha"
+Write-Host "P0 scan authority:   $scanPlan"
 Write-Host "SMPL-X prior:        $SmplxGender (operator supplied)"
 Write-Host "Camera mode:         $CameraMode (operator supplied)"
 Write-Host "Linux workspace:     $LinuxWorkspaceRoot"
@@ -222,12 +235,13 @@ Write-Host "=== 1/7 STRICT EXAVATAR BENCHMARK PLAN ==="
 $planArgs = @(
     "-m", "bodyrig.photoreal_teacher_benchmark_plan_cli",
     "--teacher-input", $teacherInput,
+    "--scan-plan", $scanPlan,
     "--out", $benchmarkPlan,
     "--reuse-existing"
 )
 $planCode = Invoke-Checked -FilePath $Python -Arguments $planArgs -Label "ExAvatar benchmark plan" -AllowedExitCodes @(0,2)
 if ($planCode -eq 2) {
-    Write-Host "BLOCKED: no authorized flat/mono ExAvatar training candidate exists."
+    Write-Host "BLOCKED: no authorized ExAvatar-replayable training candidate exists."
     exit 2
 }
 

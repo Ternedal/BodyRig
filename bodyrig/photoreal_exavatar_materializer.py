@@ -17,6 +17,9 @@ REQUEST_VERSION = 1
 RECEIPT_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 RECEIPT_VERSION = 1
 UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
+LEGACY_SELECTION_AUTHORITY = "core-benchmark-scheduling-only-v1"
+SCAN_SELECTION_AUTHORITY = "core-benchmark-scheduling-with-scan-authority-v2"
+SUPPORTED_NORMALIZATION_ACTIONS = {"preserve-flat-mono-video", "exact-authorized-deprojection"}
 
 
 class PhotorealExAvatarMaterializerError(ValueError):
@@ -92,8 +95,11 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan targets unsupported benchmark/upstream")
     if plan.get("benchmark_execution_authorized") is not True or plan.get("benchmark_blockers") != []:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan does not authorize materialization")
-    if plan.get("selection_authority") != "core-benchmark-scheduling-only-v1":
+    selection_authority = plan.get("selection_authority")
+    if selection_authority not in {LEGACY_SELECTION_AUTHORITY, SCAN_SELECTION_AUTHORITY}:
         raise PhotorealExAvatarMaterializerError("teacher benchmark selection authority is invalid")
+    if selection_authority == SCAN_SELECTION_AUTHORITY:
+        _sha(plan.get("scan_plan_sha256"), label="benchmark scan-plan SHA-256")
     if plan.get("teacher_training_authority_inherited") is not True:
         raise PhotorealExAvatarMaterializerError("teacher benchmark plan did not inherit teacher-training authority")
     if plan.get("photoreal_acceptance_authority") is not False or plan.get("human_visual_acceptance_required") is not True:
@@ -117,8 +123,36 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
     selected = dict(matches[0])
     if _sha(selected.get("source_sha256"), label="candidate source SHA-256") != selected_sha:
         raise PhotorealExAvatarMaterializerError("selected benchmark source SHA differs from candidate")
-    if selected.get("projection") != "flat" or selected.get("stereo_layout") != "mono":
-        raise PhotorealExAvatarMaterializerError("ExAvatar benchmark materializer requires flat mono source")
+    if _text(selected.get("kind"), label="candidate source kind", maximum=16) != "video":
+        raise PhotorealExAvatarMaterializerError("ExAvatar benchmark materializer requires a video source")
+    projection = _text(selected.get("projection"), label="candidate projection", maximum=128)
+    stereo_layout = _text(selected.get("stereo_layout"), label="candidate stereo layout", maximum=128)
+    decode_mode = _text(selected.get("decode_mode"), label="candidate decode mode", maximum=128)
+    normalization_action = _text(
+        selected.get("normalization_action"),
+        label="candidate normalization action",
+        maximum=128,
+    )
+    if normalization_action not in SUPPORTED_NORMALIZATION_ACTIONS:
+        raise PhotorealExAvatarMaterializerError("ExAvatar candidate normalization action is unsupported")
+    projection_authority = selected.get("projection_authority")
+    if normalization_action == "preserve-flat-mono-video":
+        if projection != "flat" or stereo_layout != "mono" or decode_mode != "rectilinear-mono":
+            raise PhotorealExAvatarMaterializerError("direct ExAvatar candidate is not authoritative flat mono")
+        if projection_authority is not None:
+            raise PhotorealExAvatarMaterializerError("direct ExAvatar candidate unexpectedly carries projection authority")
+        allowed_eyes = {"mono"}
+    else:
+        if decode_mode not in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
+            raise PhotorealExAvatarMaterializerError("deprojected ExAvatar candidate decode mode is unsupported")
+        if stereo_layout == "mono":
+            allowed_eyes = {"mono"}
+        elif stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
+            allowed_eyes = {"left", "right"}
+        else:
+            raise PhotorealExAvatarMaterializerError("deprojected ExAvatar candidate stereo layout is unsupported")
+        if decode_mode == "spatial-deprojection-required" and not isinstance(projection_authority, Mapping):
+            raise PhotorealExAvatarMaterializerError("spatial ExAvatar candidate lacks projection authority")
     resolved_path = _text(selected.get("resolved_path"), label="selected source resolved path")
 
     observations = plan.get("selected_observations")
@@ -135,8 +169,8 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
         if source_key != selected_key:
             raise PhotorealExAvatarMaterializerError("benchmark observation references different source")
         eye = _text(raw.get("eye"), label="benchmark observation eye", maximum=16)
-        if eye != "mono":
-            raise PhotorealExAvatarMaterializerError("ExAvatar materialization requires mono observations")
+        if eye not in allowed_eyes:
+            raise PhotorealExAvatarMaterializerError("ExAvatar materialization observation eye is incompatible with source authority")
         timestamp = _timestamp(
             raw.get("timestamp_seconds"),
             label="benchmark observation timestamp",
@@ -156,6 +190,12 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[s
         )
     normalized.sort(key=lambda item: (item["timestamp_seconds"], item["frame_sha256"]))
     selected["resolved_path"] = resolved_path
+    selected["kind"] = "video"
+    selected["projection"] = projection
+    selected["stereo_layout"] = stereo_layout
+    selected["decode_mode"] = decode_mode
+    selected["normalization_action"] = normalization_action
+    selected["projection_authority"] = None if projection_authority is None else dict(projection_authority)
     return selected, normalized
 
 
@@ -174,8 +214,12 @@ def _build_request(plan: Mapping[str, Any], selected: Mapping[str, Any], observa
             "source_key": selected["source_key"],
             "source_sha256": selected["source_sha256"],
             "resolved_path": linux_source_path,
-            "projection": "flat",
-            "stereo_layout": "mono",
+            "kind": selected["kind"],
+            "projection": selected["projection"],
+            "stereo_layout": selected["stereo_layout"],
+            "decode_mode": selected["decode_mode"],
+            "normalization_action": selected["normalization_action"],
+            "projection_authority": selected.get("projection_authority"),
         },
         "observations": observations,
         "held_out_evaluation_disclosed": False,
@@ -221,7 +265,7 @@ def _validate_receipt(receipt: Mapping[str, Any], *, request: Mapping[str, Any],
             raw.get("timestamp_seconds"),
             label="materialized ExAvatar timestamp",
         )
-        if timestamp != expected["timestamp_seconds"] or raw.get("eye") != "mono":
+        if timestamp != expected["timestamp_seconds"] or raw.get("eye") != expected["eye"]:
             raise PhotorealExAvatarMaterializerError("ExAvatar materialization timestamp/eye mismatch")
         relative = f"frames/{index}.png"
         if raw.get("relative_path") != relative:
@@ -295,11 +339,15 @@ def materialize_exavatar_benchmark(
             linux_request = converter(str(request_path))
             linux_output = converter(str(dataset_dir))
             linux_tool = converter(str(tool))
+            linux_repo = converter(str(Path(__file__).resolve().parents[1]))
             invocation = [
                 wsl_exe,
                 "-d",
                 _text(distribution, label="WSL distribution", maximum=160),
                 "--",
+                "/usr/bin/env",
+                f"PYTHONPATH={linux_repo}",
+                "PYTHONNOUSERSITE=1",
                 _text(linux_python, label="Linux Python"),
                 linux_tool,
                 "--request",

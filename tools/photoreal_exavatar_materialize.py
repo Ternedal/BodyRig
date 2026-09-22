@@ -6,6 +6,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 REQUEST_FORMAT = "bodyrig-photoreal-exavatar-materialization-request"
@@ -13,6 +14,7 @@ REQUEST_VERSION = 1
 RECEIPT_FORMAT = "bodyrig-photoreal-exavatar-materialization-receipt"
 RECEIPT_VERSION = 1
 UPSTREAM_COMMIT = "d45268730c779fae4118f1a361cf9ff639bc4d1e"
+SUPPORTED_NORMALIZATION_ACTIONS = {"preserve-flat-mono-video", "exact-authorized-deprojection"}
 
 
 class ExAvatarMaterializeError(RuntimeError):
@@ -78,12 +80,47 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
     source_raw = value.get("source")
     if not isinstance(source_raw, Mapping):
         raise ExAvatarMaterializeError("materialization request source is invalid")
-    if source_raw.get("projection") != "flat" or source_raw.get("stereo_layout") != "mono":
-        raise ExAvatarMaterializeError("ExAvatar materialization supports only flat mono source")
+    if source_raw.get("kind") != "video":
+        raise ExAvatarMaterializeError("ExAvatar materialization requires a video source")
+    projection = _text(source_raw.get("projection"), label="source projection", maximum=128)
+    stereo_layout = _text(source_raw.get("stereo_layout"), label="source stereo layout", maximum=128)
+    decode_mode = _text(source_raw.get("decode_mode"), label="source decode mode", maximum=128)
+    normalization_action = _text(
+        source_raw.get("normalization_action"),
+        label="source normalization action",
+        maximum=128,
+    )
+    if normalization_action not in SUPPORTED_NORMALIZATION_ACTIONS:
+        raise ExAvatarMaterializeError("source normalization action is unsupported")
+    projection_authority = source_raw.get("projection_authority")
+    if normalization_action == "preserve-flat-mono-video":
+        if projection != "flat" or stereo_layout != "mono" or decode_mode != "rectilinear-mono":
+            raise ExAvatarMaterializeError("direct ExAvatar source is not authoritative flat mono")
+        if projection_authority is not None:
+            raise ExAvatarMaterializeError("direct ExAvatar source unexpectedly carries projection authority")
+        allowed_eyes = {"mono"}
+    else:
+        if decode_mode not in {"rectilinear-stereo-split", "spatial-deprojection-required"}:
+            raise ExAvatarMaterializeError("deprojected ExAvatar source decode mode is unsupported")
+        if stereo_layout == "mono":
+            allowed_eyes = {"mono"}
+        elif stereo_layout in {"side-by-side", "over-under", "mesh-custom"}:
+            allowed_eyes = {"left", "right"}
+        else:
+            raise ExAvatarMaterializeError("deprojected ExAvatar source stereo layout is unsupported")
+        if decode_mode == "spatial-deprojection-required" and not isinstance(projection_authority, Mapping):
+            raise ExAvatarMaterializeError("spatial ExAvatar source lacks projection authority")
+
     source = {
         "source_key": _text(source_raw.get("source_key"), label="source key", maximum=4096),
         "source_sha256": _sha(source_raw.get("source_sha256"), label="source SHA-256"),
         "resolved_path": _text(source_raw.get("resolved_path"), label="resolved source path"),
+        "kind": "video",
+        "projection": projection,
+        "stereo_layout": stereo_layout,
+        "decode_mode": decode_mode,
+        "normalization_action": normalization_action,
+        "projection_authority": None if projection_authority is None else dict(projection_authority),
     }
     if not source["resolved_path"].startswith("/"):
         raise ExAvatarMaterializeError("resolved source path must be absolute Linux path")
@@ -98,8 +135,9 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
             raise ExAvatarMaterializeError("materialization observation is invalid")
         if raw.get("source_key") != source["source_key"]:
             raise ExAvatarMaterializeError("materialization observation references different source")
-        if raw.get("eye") != "mono":
-            raise ExAvatarMaterializeError("materialization observation is not mono")
+        eye = _text(raw.get("eye"), label="materialization observation eye", maximum=16)
+        if eye not in allowed_eyes:
+            raise ExAvatarMaterializeError("materialization observation eye is incompatible with source authority")
         timestamp_raw = raw.get("timestamp_seconds")
         if isinstance(timestamp_raw, bool):
             raise ExAvatarMaterializeError("materialization timestamp is invalid")
@@ -120,63 +158,82 @@ def _validate_request(value: Mapping[str, Any]) -> tuple[dict[str, str], list[di
                 "source_key": source["source_key"],
                 "frame_sha256": frame_sha,
                 "timestamp_seconds": timestamp,
-                "eye": "mono",
+                "eye": eye,
             }
         )
     observations.sort(key=lambda item: (item["timestamp_seconds"], item["frame_sha256"]))
     return source, observations
 
 
-def _load_cv2() -> Any:
+def _load_replay_runtime() -> tuple[Any, Any]:
     try:
-        import cv2
+        from bodyrig.photoreal_appearance_epoch_visual_review import (
+            _load_adapter,
+            _load_runtime,
+            _reproduce_observation,
+        )
     except Exception as exc:  # noqa: BLE001
-        raise ExAvatarMaterializeError("OpenCV is unavailable in ExAvatar materializer environment") from exc
-    return cv2
+        raise ExAvatarMaterializeError("BodyRig exact-frame replay support is unavailable") from exc
+    try:
+        repo_root = Path(__file__).resolve().parents[1]
+        adapter = _load_adapter(repo_root)
+        runtime = _load_runtime()
+    except Exception as exc:  # noqa: BLE001
+        raise ExAvatarMaterializeError("could not initialize BodyRig exact-frame replay runtime") from exc
+    return SimpleNamespace(
+        adapter=adapter,
+        runtime=runtime,
+        reproduce=_reproduce_observation,
+    ), runtime.cv2
 
 
-def _decode_exact_frames(cv2: Any, source: Mapping[str, str], observations: list[dict[str, Any]], output: Path) -> list[dict[str, Any]]:
-    source_path = source["resolved_path"]
-    capture = cv2.VideoCapture(source_path)
-    if not capture.isOpened():
-        raise ExAvatarMaterializeError(f"could not open selected benchmark source: {source_path}")
+def _decode_exact_frames(source: Mapping[str, Any], observations: list[dict[str, Any]], output: Path) -> list[dict[str, Any]]:
+    replay, cv2 = _load_replay_runtime()
     frames_dir = output / "frames"
     frames_dir.mkdir()
     result: list[dict[str, Any]] = []
-    try:
-        for index, observation in enumerate(observations):
-            timestamp = float(observation["timestamp_seconds"])
-            capture.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000.0)
-            ok, image = capture.read()
-            if not ok or image is None or image.size == 0:
-                raise ExAvatarMaterializeError(f"could not decode authorized benchmark frame at {timestamp:.6f}s")
-            observed_frame_sha = _frame_sha(image)
-            expected_frame_sha = observation["frame_sha256"]
-            if observed_frame_sha != expected_frame_sha:
-                raise ExAvatarMaterializeError(
-                    "authorized benchmark frame bytes do not reproduce P0 observation "
-                    f"at {timestamp:.6f}s (expected={expected_frame_sha}, observed={observed_frame_sha})"
-                )
-            frame_path = frames_dir / f"{index}.png"
-            if not cv2.imwrite(str(frame_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
-                raise ExAvatarMaterializeError(f"could not write lossless staged PNG: {frame_path}")
-            if not frame_path.is_file() or frame_path.stat().st_size < 1:
-                raise ExAvatarMaterializeError(f"staged PNG is missing/empty: {frame_path}")
-            result.append(
-                {
-                    "exavatar_frame_index": index,
-                    "source_key": source["source_key"],
-                    "source_frame_sha256": expected_frame_sha,
-                    "timestamp_seconds": timestamp,
-                    "eye": "mono",
-                    "relative_path": f"frames/{index}.png",
-                    "staged_png_sha256": _file_sha(frame_path),
-                    "width": int(image.shape[1]),
-                    "height": int(image.shape[0]),
-                }
+    mesh_cache: dict[Any, Any] = {}
+    for index, observation in enumerate(observations):
+        try:
+            image = replay.reproduce(
+                replay.adapter,
+                replay.runtime,
+                source,
+                observation,
+                mesh_cache=mesh_cache,
             )
-    finally:
-        capture.release()
+        except Exception as exc:  # noqa: BLE001
+            raise ExAvatarMaterializeError(
+                "authorized benchmark frame could not be reproduced from P0 decode authority "
+                f"(source={source['source_key']}, timestamp={observation['timestamp_seconds']}, eye={observation['eye']})"
+            ) from exc
+
+        observed_frame_sha = replay.adapter.base._frame_sha(image)
+        expected_frame_sha = observation["frame_sha256"]
+        if observed_frame_sha != expected_frame_sha:
+            raise ExAvatarMaterializeError(
+                "authorized benchmark frame bytes do not reproduce P0 observation "
+                f"(expected={expected_frame_sha}, observed={observed_frame_sha})"
+            )
+
+        frame_path = frames_dir / f"{index}.png"
+        if not cv2.imwrite(str(frame_path), image, [cv2.IMWRITE_PNG_COMPRESSION, 3]):
+            raise ExAvatarMaterializeError(f"could not write lossless staged PNG: {frame_path}")
+        if not frame_path.is_file() or frame_path.stat().st_size < 1:
+            raise ExAvatarMaterializeError(f"staged PNG is missing/empty: {frame_path}")
+        result.append(
+            {
+                "exavatar_frame_index": index,
+                "source_key": source["source_key"],
+                "source_frame_sha256": expected_frame_sha,
+                "timestamp_seconds": float(observation["timestamp_seconds"]),
+                "eye": observation["eye"],
+                "relative_path": f"frames/{index}.png",
+                "staged_png_sha256": _file_sha(frame_path),
+                "width": int(image.shape[1]),
+                "height": int(image.shape[0]),
+            }
+        )
     return result
 
 
@@ -187,8 +244,7 @@ def materialize(request: Mapping[str, Any], output: Path) -> dict[str, Any]:
     if any(output.iterdir()):
         raise ExAvatarMaterializeError("materialization output directory must be empty")
 
-    cv2 = _load_cv2()
-    frames = _decode_exact_frames(cv2, source, observations, output)
+    frames = _decode_exact_frames(source, observations, output)
     indices = "".join(f"{index}\n" for index in range(len(frames)))
     (output / "frame_list_all.txt").write_text(indices, encoding="utf-8")
     (output / "frame_list_train.txt").write_text(indices, encoding="utf-8")
