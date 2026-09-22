@@ -178,6 +178,16 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
         "if(!isCurrentPerson(personId)) return"
     ) < load_source.index("applyGuidedRevision(source)")
 
+    evidence_start = html.index("async function readEvidence(kind, file)")
+    evidence_end = html.index("\n  function clearEvidence()", evidence_start)
+    evidence_source = html[evidence_start:evidence_end]
+    assert 'const personId=state.person?.person_id||null' in evidence_source
+    assert 'const input=kind==="styleReport"?$("styleReportFile"):$("styleApprovalFile")' in evidence_source
+    assert "const stillCurrent=()=>((state.person?.person_id||null)===personId&&input.files?.[0]===file)" in evidence_source
+    assert evidence_source.index("const value=JSON.parse(await file.text())") < evidence_source.index(
+        "if(!stillCurrent()) return"
+    ) < evidence_source.index("state[kind]=value")
+
     transcript_start = html.index("async function loadStashTranscriptCandidates()")
     transcript_end = html.index("\n  async function approveStashTranscriptCandidates()", transcript_start)
     transcript_source = html[transcript_start:transcript_end]
