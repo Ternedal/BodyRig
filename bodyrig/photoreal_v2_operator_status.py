@@ -40,7 +40,7 @@ from .photoreal_p2_exavatar_heldout_evaluation_runner import (
 )
 from .photoreal_p2_heldout_animated_review_plan import (
     PhotorealP2HeldoutAnimatedReviewPlanError,
-    validate_heldout_animated_review_plan,
+    revalidate_heldout_animated_review_plan,
 )
 from .photoreal_p2_heldout_animated_human_review import (
     PhotorealP2HeldoutAnimatedHumanReviewError,
@@ -54,6 +54,18 @@ from .photoreal_p2_motion_evidence import (
 from .photoreal_p2_motion_selection import (
     PhotorealP2MotionSelectionError,
     validate_motion_source_selection,
+)
+from .photoreal_p2_motion_input_plan import (
+    PhotorealP2MotionInputPlanError,
+    validate_motion_input_plan,
+)
+from .photoreal_p2_motion_normalization_selection import (
+    PhotorealP2MotionNormalizationSelectionError,
+    validate_normalization_selection,
+)
+from .photoreal_p2_motion_window_selection import (
+    PhotorealP2MotionWindowSelectionError,
+    validate_motion_window_selection,
 )
 from .photoreal_p2_motion_preparation_runner import (
     PhotorealP2MotionPreparationRunnerError,
@@ -608,6 +620,49 @@ def inspect_photoreal_v2_status(
         result.update(action)
         return result
 
+    try:
+        handoff_authority = validate_motion_evidence_handoff(
+            _read_json(handoff_path, "P2 motion evidence handoff")
+        )
+        private_index_authority = validate_private_motion_index(
+            _read_json(private_index_path, "private P2 motion source index"),
+            handoff=handoff_authority,
+        )
+        selection_authority = validate_motion_source_selection(
+            _read_json(selection_path, "P2 motion source selection"),
+            handoff=handoff_authority,
+            private_index=private_index_authority,
+        )
+        input_plan_authority = validate_motion_input_plan(
+            _read_json(input_plan, "P2 motion input plan"),
+            handoff=handoff_authority,
+            private_index=private_index_authority,
+            selection=selection_authority,
+        )
+    except (
+        PhotorealP2MotionEvidenceError,
+        PhotorealP2MotionSelectionError,
+        PhotorealP2MotionInputPlanError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P2 motion input chain strict readback failed: {exc}"
+        ) from exc
+    for field in ("performer_id", "selected_epoch_id", "teacher_input_sha256"):
+        if input_plan_authority.get(field) != p2_plan.get(field):
+            raise PhotorealV2OperatorStatusError(
+                f"P2 motion input chain / current P2 plan mismatch: {field}"
+            )
+    if (
+        input_plan_authority.get("p2_animation_plan_sha256")
+        != p2_plan.get("p2_animation_plan_sha256")
+    ):
+        raise PhotorealV2OperatorStatusError(
+            "P2 motion input chain targets a different current P2 animation plan"
+        )
+
     normalization = motion_input / "p2-motion-normalization-selection.json"
     if not normalization.is_file():
         missing = []
@@ -644,6 +699,21 @@ def inspect_photoreal_v2_status(
         )
         result.update(action)
         return result
+
+    try:
+        normalization_authority = validate_normalization_selection(
+            _read_json(normalization, "P2 motion normalization selection"),
+            input_plan=input_plan_authority,
+        )
+    except (
+        PhotorealP2MotionNormalizationSelectionError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P2 motion normalization strict readback failed: {exc}"
+        ) from exc
 
     window_selection = motion_input / "p2-motion-window-selection.json"
     if not window_selection.is_file():
@@ -682,6 +752,22 @@ def inspect_photoreal_v2_status(
         result.update(action)
         return result
 
+    try:
+        window_authority = validate_motion_window_selection(
+            _read_json(window_selection, "P2 motion window selection"),
+            input_plan=input_plan_authority,
+            normalization_selection=normalization_authority,
+        )
+    except (
+        PhotorealP2MotionWindowSelectionError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P2 motion window strict readback failed: {exc}"
+        ) from exc
+
     motion_receipt = p2 / "motion-preparation" / "motion-preparation-receipt.json"
     if not motion_receipt.is_file():
         if p2_motion_config is None:
@@ -719,6 +805,42 @@ def inspect_photoreal_v2_status(
         raise PhotorealV2OperatorStatusError(
             f"P2 motion preparation strict readback failed: {exc}"
         ) from exc
+    expected_motion_lineage = {
+        "performer_id": input_plan_authority.get("performer_id"),
+        "selected_epoch_id": input_plan_authority.get("selected_epoch_id"),
+        "teacher_input_sha256": input_plan_authority.get("teacher_input_sha256"),
+        "p2_animation_plan_sha256": input_plan_authority.get(
+            "p2_animation_plan_sha256"
+        ),
+        "p2_motion_evidence_handoff_sha256": input_plan_authority.get(
+            "p2_motion_evidence_handoff_sha256"
+        ),
+        "p2_motion_private_index_sha256": input_plan_authority.get(
+            "p2_motion_private_index_sha256"
+        ),
+        "p2_motion_source_selection_sha256": input_plan_authority.get(
+            "p2_motion_source_selection_sha256"
+        ),
+        "p2_motion_input_plan_sha256": input_plan_authority.get(
+            "p2_motion_input_plan_sha256"
+        ),
+        "p2_motion_normalization_selection_sha256": normalization_authority.get(
+            "p2_motion_normalization_selection_sha256"
+        ),
+        "p2_motion_window_selection_sha256": window_authority.get(
+            "p2_motion_window_selection_sha256"
+        ),
+    }
+    mismatched_motion = [
+        field
+        for field, expected in expected_motion_lineage.items()
+        if motion_authority.get(field) != expected
+    ]
+    if mismatched_motion:
+        raise PhotorealV2OperatorStatusError(
+            "P2 motion preparation targets stale/current-mismatched motion authority: "
+            + ", ".join(mismatched_motion)
+        )
 
     identity_receipt = (
         p2 / "animation-input" / "exavatar-identity" / "p2-exavatar-animation-identity.json"
@@ -751,6 +873,18 @@ def inspect_photoreal_v2_status(
         raise PhotorealV2OperatorStatusError(
             f"P2 ExAvatar identity strict readback failed: {exc}"
         ) from exc
+    for field in ("performer_id", "selected_epoch_id", "teacher_input_sha256"):
+        if identity_authority.get(field) != p2_plan.get(field):
+            raise PhotorealV2OperatorStatusError(
+                f"P2 ExAvatar identity / current P2 plan mismatch: {field}"
+            )
+    if (
+        identity_authority.get("p2_animation_plan_sha256")
+        != p2_plan.get("p2_animation_plan_sha256")
+    ):
+        raise PhotorealV2OperatorStatusError(
+            "P2 ExAvatar identity targets a different current P2 animation plan"
+        )
 
     execution_input = (
         p2
@@ -1044,8 +1178,12 @@ def inspect_photoreal_v2_status(
         return result
 
     try:
-        review_plan_authority = validate_heldout_animated_review_plan(
-            _read_json(review_plan, "P2 held-out animated review plan")
+        review_plan_authority = revalidate_heldout_animated_review_plan(
+            _read_json(review_plan, "P2 held-out animated review plan"),
+            evaluation_workspaces=[
+                p2 / "animation-evaluation" / "heldout-execution" / source_ref
+                for source_ref in heldout_refs
+            ],
         )
     except (
         PhotorealP2HeldoutAnimatedReviewPlanError,
