@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .photoidentity_fine_identity_registry import (
+    PhotoIdentityFineIdentityRegistryError,
+    require_body_job_photoidentical_fine_identity,
+)
 from .person_profiles import PersonProfileError, load_profile
 from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library, ui_jobs_dir
@@ -236,10 +240,30 @@ def _validate_completed(job: dict[str, Any]) -> dict[str, Any]:
     expected_revision = str(job.get("bodyrig_revision") or "").lower()
     target_family = str(job.get("target_family") or "")
     canonical_body_id = str(job.get("canonical_body_id") or "")
+    fine_authority_sha = str(job.get("fine_identity_authority_sha256") or "").strip().lower()
+    fine_attestation_sha = str(job.get("fine_identity_attestation_sha256") or "").strip().lower()
     if target_family not in TARGET_FAMILIES or not SHA_RE.fullmatch(expected_revision):
         raise HighFidelityPreviewError("persisted high-fidelity target/revision authority is invalid")
     _require_current_fidelity_floor(expected_revision, label="persisted high-fidelity preview")
-
+    if (
+        len(fine_authority_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in fine_authority_sha)
+        or len(fine_attestation_sha) != 64
+        or any(ch not in "0123456789abcdef" for ch in fine_attestation_sha)
+    ):
+        raise HighFidelityPreviewError("persisted preview lacks exact photoidentical fine-identity lineage")
+    try:
+        fine_authority = require_body_job_photoidentical_fine_identity(
+            str(job.get("person_id") or ""),
+            str(job.get("body_job_id") or ""),
+        )
+    except PhotoIdentityFineIdentityRegistryError as exc:
+        raise HighFidelityPreviewError(f"photoidentical fine-identity authority no longer validates: {exc}") from exc
+    if (
+        str(fine_authority.get("receipt_sha256") or "") != fine_authority_sha
+        or str(fine_authority.get("fine_identity_attestation_sha256") or "") != fine_attestation_sha
+    ):
+        raise HighFidelityPreviewError("photoidentical fine-identity authority changed after preview start")
     anatomy_dir = _need_dir(root, str(job.get("anatomy_run_root") or ""), label="Anatomy run root")
     summary_path = _need_file(root, anatomy_dir / "subject-anatomy-physical-gate.json", label="Anatomy gate summary")
     summary = _read_json(summary_path, label="Anatomy gate summary")
@@ -367,6 +391,8 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
             "canonical_body_id",
             "target_family",
             "bodyrig_revision",
+            "fine_identity_authority_sha256",
+            "fine_identity_attestation_sha256",
             "status",
             "progress",
             "stage",
@@ -422,6 +448,8 @@ class HighFidelityPreviewManager:
                 job.get("person_id") == person_id
                 and job.get("body_job_id") == body_job_id
                 and job.get("target_family") == target_family
+                and bool(job.get("fine_identity_authority_sha256"))
+                and bool(job.get("fine_identity_attestation_sha256"))
                 and job.get("status") in {"queued", "running", "succeeded"}
             ):
                 matches.append(job)
@@ -435,6 +463,10 @@ class HighFidelityPreviewManager:
         bodyrig_revision = str(body_job["bodyrig_revision"]).lower()
         _require_current_fidelity_floor(bodyrig_revision, label="baseline body-build")
         _checkout_revision(bodyrig_revision)
+        try:
+            fine_identity = require_body_job_photoidentical_fine_identity(person_id, body_job_id)
+        except PhotoIdentityFineIdentityRegistryError as exc:
+            raise HighFidelityPreviewError(f"photoidentical fine-identity authority is required: {exc}") from exc
 
         with self._lock:
             existing = self._existing(person_id=person_id, body_job_id=body_job_id, target_family=target_family)
@@ -453,6 +485,8 @@ class HighFidelityPreviewManager:
                 "canonical_body_id": str(body_job["canonical_body_id"]),
                 "target_family": target_family,
                 "bodyrig_revision": bodyrig_revision,
+                "fine_identity_authority_sha256": str(fine_identity["receipt_sha256"]),
+                "fine_identity_attestation_sha256": str(fine_identity["fine_identity_attestation_sha256"]),
                 "display_name": str(profile["display_name"]),
                 "baseline_clone_output": str(Path(str(body_job["clone_output"])).resolve()),
                 "retained_anatomy_source": str(retained.resolve()),

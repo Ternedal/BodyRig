@@ -24,6 +24,10 @@ from .photoidentity_registry import (
     PhotoIdentityRegistryError,
     require_body_job_photoidentity_evidence,
 )
+from .photoidentity_fine_identity_registry import (
+    PhotoIdentityFineIdentityRegistryError,
+    require_body_job_photoidentical_fine_identity,
+)
 from .revision_bound_body_build import (
     RevisionBoundBodyBuildError,
     start_revision_bound_body_build,
@@ -107,12 +111,13 @@ def start_high_fidelity_preview(person_id: str, request: HighFidelityPreviewStar
         # so missing identity-critical regions cannot be silently filled by a
         # generic human prior and presented to the operator as a clone.
         require_body_job_photoidentity_evidence(person_id, request.body_job_id)
+        require_body_job_photoidentical_fine_identity(person_id, request.body_job_id)
         return manager.start(
             person_id,
             body_job_id=request.body_job_id,
             target_family=request.target_family,
         )
-    except (PhotoIdentityRegistryError, HighFidelityPreviewError) as exc:
+    except (PhotoIdentityRegistryError, PhotoIdentityFineIdentityRegistryError, HighFidelityPreviewError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

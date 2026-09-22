@@ -39,14 +39,19 @@ def test_preview_api_calls_manager_only_after_sufficient_authority(monkeypatch: 
     calls: list[str] = []
 
     def allow(person_id: str, body_job_id: str):
-        calls.append("gate")
+        calls.append("base-gate")
         return {"source_evidence_sufficient": True, "human_review_render_permitted": True}
+
+    def allow_fine(person_id: str, body_job_id: str):
+        calls.append("fine-gate")
+        return {"photoidentical_identity_detail_authority": True}
 
     def start(person_id: str, *, body_job_id: str, target_family: str):
         calls.append("manager")
         return {"job_id": "hfpreview-" + "2" * 32, "status": "queued"}
 
     monkeypatch.setattr(api, "require_body_job_photoidentity_evidence", allow)
+    monkeypatch.setattr(api, "require_body_job_photoidentical_fine_identity", allow_fine)
     monkeypatch.setattr(api.manager, "start", start)
     request = api.HighFidelityPreviewStartRequest(
         body_job_id="job-" + "2" * 32,
@@ -55,9 +60,10 @@ def test_preview_api_calls_manager_only_after_sufficient_authority(monkeypatch: 
 
     result = api.start_high_fidelity_preview("person-fixture", request)
     assert result["status"] == "queued"
-    assert calls == ["gate", "manager"]
+    assert calls == ["base-gate", "fine-gate", "manager"]
 
 
 def test_preview_route_source_keeps_gate_before_manager_start() -> None:
     source = inspect.getsource(api.start_high_fidelity_preview)
-    assert source.index("require_body_job_photoidentity_evidence") < source.index("manager.start")
+    assert source.index("require_body_job_photoidentity_evidence") < source.index("require_body_job_photoidentical_fine_identity")
+    assert source.index("require_body_job_photoidentical_fine_identity") < source.index("manager.start")
