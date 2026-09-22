@@ -15,6 +15,11 @@ from .bridges.avatar_fidelity_components import (
     with_component_status,
 )
 from .bridges.sith_pbr_material import PbrMaterialError, _read_glb, _write_glb
+from .fine_identity_application import (
+    FineIdentityApplicationError,
+    build_requirement as build_fine_identity_requirement,
+    validate_requirement as validate_fine_identity_requirement,
+)
 from .high_fidelity_component_review import (
     HighFidelityComponentReviewError,
     read_review,
@@ -92,6 +97,42 @@ def _preview_root(job_id: str) -> Path:
     return (ui_jobs_dir() / ROOT_DIRNAME / job_id).resolve()
 
 
+def _fine_identity_requirement(review: Mapping[str, Any]) -> dict[str, Any]:
+    job_id = str(review["preview_job_id"])
+    root = _preview_root(job_id)
+    job_path = root / "job.json"
+    try:
+        job = json.loads(job_path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HighFidelityAnatomyPromotionError("high-fidelity preview job is unreadable") from exc
+    if not isinstance(job, dict):
+        raise HighFidelityAnatomyPromotionError("high-fidelity preview job is invalid")
+    if (
+        job.get("format") != "bodyrig-high-fidelity-preview-job"
+        or not _is_numeric_v1(job.get("version"))
+        or job.get("job_id") != job_id
+        or job.get("status") != "succeeded"
+        or str(job.get("bodyrig_revision") or "").lower() != str(review.get("bodyrig_revision") or "").lower()
+    ):
+        raise HighFidelityAnatomyPromotionError(
+            "anatomy promotion fine-identity requirement lost exact preview authority"
+        )
+    try:
+        return build_fine_identity_requirement(
+            bodyrig_revision=str(review["bodyrig_revision"]),
+            fine_identity_authority_sha256=_canonical_sha256(
+                job.get("fine_identity_authority_sha256"),
+                label="preview fine-identity authority SHA-256",
+            ),
+            fine_identity_attestation_sha256=_canonical_sha256(
+                job.get("fine_identity_attestation_sha256"),
+                label="preview fine-identity attestation SHA-256",
+            ),
+        )
+    except FineIdentityApplicationError as exc:
+        raise HighFidelityAnatomyPromotionError(str(exc)) from exc
+
+
 def _candidate_package(review: Mapping[str, Any]) -> Path:
     job_id = str(review["preview_job_id"])
     root = _preview_root(job_id)
@@ -144,6 +185,7 @@ def _promoted_avatar(
     review: Mapping[str, Any],
     component_review_sha256: str,
     source_package_sha256: str,
+    fine_identity_requirement: Mapping[str, Any],
 ) -> tuple[bytes, dict[str, Any], dict[str, Any]]:
     try:
         document, binary = _read_glb(avatar_vrm)
@@ -155,6 +197,8 @@ def _promoted_avatar(
         raise HighFidelityAnatomyPromotionError("BodyRig VRM metadata is missing")
     if "bodyAnatomyPromotion" in bodyrig:
         raise HighFidelityAnatomyPromotionError("candidate avatar already carries anatomy promotion metadata")
+    if "fineIdentityRequirement" in bodyrig or "fineIdentityApplication" in bodyrig:
+        raise HighFidelityAnatomyPromotionError("candidate avatar already carries fine-identity metadata")
     raw = bodyrig.get("fidelityComponents")
     if not isinstance(raw, Mapping):
         raise HighFidelityAnatomyPromotionError("candidate avatar fidelity component receipt is missing")
@@ -186,8 +230,13 @@ def _promoted_avatar(
         "component": "body_anatomy",
         "productionActivation": False,
     }
+    try:
+        fine_requirement = validate_fine_identity_requirement(fine_identity_requirement)
+    except FineIdentityApplicationError as exc:
+        raise HighFidelityAnatomyPromotionError(str(exc)) from exc
     bodyrig["fidelityComponents"] = after
     bodyrig["bodyAnatomyPromotion"] = embedded
+    bodyrig["fineIdentityRequirement"] = fine_requirement
     return _write_glb(document, binary), before, after
 
 
@@ -266,11 +315,13 @@ def write_promotion(preview_job_id: str, *, bodyrig_revision: str) -> dict[str, 
             source_avatar = archive.read("avatar.vrm")
     except (OSError, zipfile.BadZipFile, KeyError) as exc:
         raise HighFidelityAnatomyPromotionError("could not read source candidate avatar") from exc
+    fine_requirement = _fine_identity_requirement(review)
     promoted_avatar, before, after = _promoted_avatar(
         source_avatar,
         review=review,
         component_review_sha256=review_sha,
         source_package_sha256=source_sha,
+        fine_identity_requirement=fine_requirement,
     )
 
     package_created = False
@@ -390,6 +441,25 @@ def read_promotion(preview_job_id: str) -> dict[str, Any]:
     }
     if embedded != expected_embedded:
         raise HighFidelityAnatomyPromotionError("embedded anatomy promotion authority is stale or tampered")
+    try:
+        with zipfile.ZipFile(destination, "r") as archive:
+            promoted_avatar_bytes = archive.read("avatar.vrm")
+        promoted_document, _ = _read_glb(promoted_avatar_bytes)
+    except (OSError, zipfile.BadZipFile, KeyError, PbrMaterialError) as exc:
+        raise HighFidelityAnatomyPromotionError("could not revalidate fine-identity requirement metadata") from exc
+    extras = promoted_document.get("extras")
+    promoted_bodyrig = extras.get("bodyrig") if isinstance(extras, dict) else None
+    fine_requirement_raw = promoted_bodyrig.get("fineIdentityRequirement") if isinstance(promoted_bodyrig, dict) else None
+    if fine_requirement_raw is not None:
+        try:
+            expected_fine_requirement = _fine_identity_requirement(review)
+            actual_fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
+        except FineIdentityApplicationError as exc:
+            raise HighFidelityAnatomyPromotionError(str(exc)) from exc
+        if actual_fine_requirement != expected_fine_requirement:
+            raise HighFidelityAnatomyPromotionError(
+                "embedded fine-identity requirement no longer matches exact preview authority"
+            )
     try:
         with zipfile.ZipFile(destination, "r") as archive:
             avatar_sha = _sha256_bytes(archive.read("avatar.vrm"))
