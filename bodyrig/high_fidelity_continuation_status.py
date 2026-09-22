@@ -18,6 +18,10 @@ from .high_fidelity_hfn_continuation import (
     inspect_hfn_continuation,
 )
 from .high_fidelity_package_audit import HighFidelityPackageAuditError
+from .photoidentity_fine_identity_package import (
+    PhotoIdentityFineIdentityPackageError,
+    read_application_output,
+)
 from .physical_handoff_floor import MINIMUM_PHYSICAL_HANDOFF_REVISION
 from .storage import person_library
 
@@ -222,11 +226,15 @@ def _next_action(
             return dict(action)
         return {
             "gate": gate,
-            "command": None,
-            "operator_input_required": False,
+            "command": (
+                f".\\apply-photoidentity-fine-identity.ps1 -PreviewJobId {_quote(job_id)} "
+                "-SweepRoot <SWEEP_ROOT> -AdapterConfig <ADAPTER_CONFIG>"
+            ),
+            "operator_input_required": True,
             "reason": (
-                "The exact terminal fine-identity application has not been materialized; "
-                "continuation remains fail-closed."
+                "Run the terminal source-grounded fine-identity application from the exact private "
+                "PhotoIdentity sweep and one pinned local adapter config. Replace both placeholders "
+                "with real paths; no generic or generative fallback is permitted."
             ),
         }
     _sync_legacy_seams()
@@ -734,6 +742,112 @@ def inspect_continuation(preview_job_id: str) -> dict[str, Any]:
         blocked["hfn_bodyrig_revision"] = hfn_bodyrig_revision
         return blocked
     if fine_pending is not None:
+        application_root = paths["fine_identity"]
+        application_output = application_root / "package"
+        if application_root.exists():
+            try:
+                applied = read_application_output(
+                    application_output,
+                    expected_source_package_sha256=current_sha,
+                    expected_fine_identity_authority_sha256=fine_pending["requirement"][
+                        "fineIdentityAuthoritySha256"
+                    ],
+                    expected_fine_identity_attestation_sha256=fine_pending["requirement"][
+                        "fineIdentityAttestationSha256"
+                    ],
+                )
+            except (OSError, PhotoIdentityFineIdentityPackageError) as exc:
+                reason = f"terminal fine-identity application output is invalid: {exc}"
+                combined.append(
+                    _gate(
+                        FINE_IDENTITY_GATE,
+                        "invalid",
+                        reason=reason,
+                        evidence={
+                            "fine_identity_authority_sha256": fine_pending["requirement"][
+                                "fineIdentityAuthoritySha256"
+                            ],
+                            "fine_identity_attestation_sha256": fine_pending["requirement"][
+                                "fineIdentityAttestationSha256"
+                            ],
+                            "hfn_package_sha256": current_sha,
+                        },
+                    )
+                )
+                result = dict(base)
+                result.update(
+                    {
+                        "state": "blocked",
+                        "gates": combined,
+                        "next_gate": {
+                            "gate": FINE_IDENTITY_GATE,
+                            "command": None,
+                            "operator_input_required": False,
+                            "reason": reason,
+                        },
+                        "current_package_path": str(current_package),
+                        "current_package_sha256": current_sha,
+                        "components": components,
+                        "source_bodyrig_revision": source_bodyrig_revision,
+                        "hfn_bodyrig_revision": hfn_bodyrig_revision,
+                        "high_fidelity_complete": False,
+                        "high_fidelity_human_review_required": False,
+                        "physical_windows_acceptance_required": True,
+                        "quest_acceptance_required": True,
+                        "final_release_required": True,
+                        "production_ready": False,
+                        "production_activation": False,
+                        "final_audit": audit,
+                    }
+                )
+                return result
+
+            applied_package = Path(str(applied["package_path"])).expanduser().resolve()
+            applied_sha = str(applied["applied_package_sha256"])
+            applied_audit = dict(applied["audit"])
+            applied_components = dict(applied_audit.get("components") or {})
+            combined.append(
+                _gate(
+                    FINE_IDENTITY_GATE,
+                    "pass",
+                    evidence={
+                        "fine_identity_authority_sha256": fine_pending["requirement"][
+                            "fineIdentityAuthoritySha256"
+                        ],
+                        "fine_identity_attestation_sha256": fine_pending["requirement"][
+                            "fineIdentityAttestationSha256"
+                        ],
+                        "hfn_package_sha256": current_sha,
+                        "applied_package_sha256": applied_sha,
+                        "application_receipt_sha256": _sha256(
+                            Path(str(applied["receipt_path"])).expanduser().resolve()
+                        ),
+                    },
+                )
+            )
+            result = dict(base)
+            result.update(
+                {
+                    "state": "complete",
+                    "gates": combined,
+                    "next_gate": None,
+                    "current_package_path": str(applied_package),
+                    "current_package_sha256": applied_sha,
+                    "components": applied_components,
+                    "source_bodyrig_revision": source_bodyrig_revision,
+                    "hfn_bodyrig_revision": hfn_bodyrig_revision,
+                    "high_fidelity_complete": True,
+                    "high_fidelity_human_review_required": True,
+                    "physical_windows_acceptance_required": True,
+                    "quest_acceptance_required": True,
+                    "final_release_required": True,
+                    "production_ready": False,
+                    "production_activation": False,
+                    "final_audit": applied_audit,
+                }
+            )
+            return result
+
         reason = (
             "HFN review is complete, but photoidentical readiness still requires the exact "
             "source-grounded terminal fine-identity application on these final avatar bytes."
