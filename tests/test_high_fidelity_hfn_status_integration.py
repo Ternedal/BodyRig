@@ -414,7 +414,10 @@ def test_hfn_complete_photoidentical_package_stops_at_terminal_fine_identity_gat
 
     assert result["state"] == "incomplete"
     assert result["next_gate"]["gate"] == status.FINE_IDENTITY_GATE
-    assert result["next_gate"]["command"] is None
+    assert "apply-photoidentity-fine-identity.ps1" in result["next_gate"]["command"]
+    assert "-SweepRoot <SWEEP_ROOT>" in result["next_gate"]["command"]
+    assert "-AdapterConfig <ADAPTER_CONFIG>" in result["next_gate"]["command"]
+    assert result["next_gate"]["operator_input_required"] is True
     assert result["high_fidelity_complete"] is False
     assert result["current_package_path"] == str(candidate.resolve())
     assert result["current_package_sha256"] == candidate_sha
