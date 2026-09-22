@@ -332,6 +332,27 @@ def test_fine_identity_only_pending_face_package_can_enter_hfn(monkeypatch, tmp_
     assert result["production_activation"] is False
 
 
+def test_fine_identity_handoff_rejects_origin_lineage_mismatch(monkeypatch, tmp_path: Path) -> None:
+    face = tmp_path / "face-photoidentical.mrbody"
+    face.write_bytes(b"photoidentical face package")
+    base = _legacy_fine_pending(face)
+    base["fine_identity_authority_sha256"] = "9" * 64
+
+    monkeypatch.setattr(status._legacy, "inspect_continuation", lambda _job: base)
+    monkeypatch.setattr(status, "audit_high_fidelity_package", lambda _path: _fine_pending_audit(face))
+    monkeypatch.setattr(
+        status,
+        "inspect_hfn_continuation",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("HFN must not run")),
+    )
+
+    result = status.inspect_continuation(JOB_ID)
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"]["gate"] == "face_secondary_promotion"
+    assert result["high_fidelity_complete"] is False
+
+
 def test_non_fine_identity_blocker_does_not_bypass_legacy_stop(monkeypatch, tmp_path: Path) -> None:
     face = tmp_path / "face-photoidentical.mrbody"
     face.write_bytes(b"photoidentical face package")
