@@ -484,8 +484,8 @@
       }
     }
     $("examples").replaceChildren();
-    addExample();
     clearEvidence();
+    addExample();
     updateTraitView();
   }
   function applyGuidedRevision(source){
@@ -583,15 +583,23 @@
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
-    $("saveButton").disabled=true; $("status").textContent="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
+    const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
+    const settleStaleSave=result=>{
+      if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · editoren er ændret, så visningen blev ikke overskrevet.`;
+      toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
+    };
+    $("saveButton").disabled=true; $("status").textContent=savingStatus;
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
       if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
-        toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
+        settleStaleSave(result);
         return;
       }
       const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey) return;
+      if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey){
+        settleStaleSave(result);
+        return;
+      }
       state.person=refreshedPerson;
       setEditRevisionUrl(result.saved_personality_revision);
       populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
