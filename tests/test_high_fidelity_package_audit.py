@@ -256,7 +256,7 @@ def test_source_derived_dental_face_payload_rejects_missing_graft() -> None:
 
     with pytest.raises(
         HighFidelityPackageAuditError,
-        match="source-derived dental render payload requires glTF nodes entry",
+        match="source-derived dental render payload requires exactly one nodes entry",
     ):
         package_audit._audit_face_payload(document, bodyrig)
 
