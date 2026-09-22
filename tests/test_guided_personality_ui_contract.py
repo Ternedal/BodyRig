@@ -121,6 +121,7 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
 
     for token in (
+        "function isCurrentPerson(personId)",
         "function setSelectedPersonUrl(personId,{clearRevision=false}={})",
         'url.searchParams.set("person_id",personId)',
         'url.searchParams.delete("edit_revision")',
@@ -140,7 +141,9 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
         "addExample()",
         "clearEvidence()",
         "if(changedPerson) resetPersonScopedAuthoring()",
-        'selectPerson($("personSelect").value,{manual:true})',
+        "state.person=null;\n      resetPersonScopedAuthoring()",
+        'const personId=$("personSelect").value',
+        "selectPerson(personId,{manual:true})",
         '$("personSelect").value=state.person?.person_id||""',
     ):
         assert token in html
@@ -154,6 +157,60 @@ def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
     assert select_source.index("state.person=profile") < select_source.index(
         "if(changedPerson) resetPersonScopedAuthoring()"
     )
+
+    listener_start = html.index('$("personSelect").addEventListener("change"')
+    listener_end = html.index('$("baselineRevision").addEventListener', listener_start)
+    listener_source = html[listener_start:listener_end]
+    assert listener_source.index('const personId=$("personSelect").value') < listener_source.index(
+        "selectPerson(personId,{manual:true})"
+    )
+    assert 'if($("personSelect").value!==personId) return' in listener_source
+
+
+def test_guided_person_async_results_cannot_cross_person_context() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    load_start = html.index("async function loadRequestedEditRevision()")
+    load_end = html.index("\n  async function loadPeople()", load_start)
+    load_source = html[load_start:load_end]
+    assert 'const personId=state.person.person_id' in load_source
+    assert load_source.index("const source=await api") < load_source.index(
+        "if(!isCurrentPerson(personId)) return"
+    ) < load_source.index("applyGuidedRevision(source)")
+
+    transcript_start = html.index("async function loadStashTranscriptCandidates()")
+    transcript_end = html.index("\n  async function approveStashTranscriptCandidates()", transcript_start)
+    transcript_source = html[transcript_start:transcript_end]
+    assert 'const personId=state.person.person_id' in transcript_source
+    assert 'if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision) return' in transcript_source
+
+    approval_start = transcript_end + 1
+    approval_end = html.index("\n  function renderEvidenceStatus()", approval_start)
+    approval_source = html[approval_start:approval_end]
+    assert "const candidateReport=state.stashTranscriptPreview.candidate_report" in approval_source
+    assert "candidate_report:candidateReport" in approval_source
+    assert 'if(!isCurrentPerson(personId)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return' in approval_source
+
+    preview_start = html.index("async function preview()")
+    preview_end = html.index("\n  async function save()", preview_start)
+    preview_source = html[preview_start:preview_end]
+    assert "const requestKey=JSON.stringify(request)" in preview_source
+    assert preview_source.index("const result=await api") < preview_source.index(
+        "if(!isCurrentPerson(personId)||key()!==requestKey) return"
+    ) < preview_source.index("renderPreview(result)")
+
+    save_start = preview_end + 1
+    save_end = html.index("\n\n  buildSliders();", save_start)
+    save_source = html[save_start:save_end]
+    assert "const saveViewKey=JSON.stringify(request)" in save_source
+    assert "const currentSaveViewKey=()=>JSON.stringify" in save_source
+    assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
+    first_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)")
+    refresh = save_source.index("const refreshedPerson=await api", first_guard)
+    second_guard = save_source.index("if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)", refresh)
+    assign = save_source.index("state.person=refreshedPerson", second_guard)
+    assert first_guard < refresh < second_guard < assign
+    assert 'catch(error){if(isCurrentPerson(personId)&&currentSaveViewKey()===saveViewKey)' in save_source
 
 
 def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
