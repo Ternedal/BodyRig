@@ -76,6 +76,13 @@ def _p1_pass(monkeypatch: pytest.MonkeyPatch, teacher: Path) -> None:
     )
     monkeypatch.setattr(
         status,
+        "validate_likeness_review_pack",
+        lambda output_root: {
+            "p1_likeness_review_manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        status,
         "validate_likeness_review_receipt",
         lambda receipt, review_manifest=None: {
             "performer_id": PERFORMER,
@@ -258,6 +265,14 @@ def _trust_p2_materialized_chain(monkeypatch: pytest.MonkeyPatch) -> None:
         status,
         "validate_heldout_evaluation_receipt",
         lambda value: dict(heldout_receipt),
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_animated_human_review_pack",
+        lambda output_root, expected_review_plan=None: {
+            "p2_heldout_animated_review_manifest_sha256": "5" * 64,
+            "p2_heldout_animated_review_plan_sha256": "c" * 64,
+        },
     )
     monkeypatch.setattr(
         status,
@@ -530,6 +545,11 @@ def test_p1_fail_blocks_p2(
     _write_json(teacher / "p1-static-teacher-review" / "p1-likeness-review.json")
     _write_json(
         teacher / "p1-static-teacher-review" / "likeness-review" / "p1-likeness-review-manifest.json"
+    )
+    monkeypatch.setattr(
+        status,
+        "validate_likeness_review_pack",
+        lambda output_root: {"p1_likeness_review_manifest_sha256": "a" * 64},
     )
     monkeypatch.setattr(
         status,
