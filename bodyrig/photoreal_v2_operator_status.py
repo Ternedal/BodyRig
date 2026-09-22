@@ -30,10 +30,8 @@ from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
     validate_physical_runtime_review_receipt,
 )
-from .photoreal_teacher_authority import (
-    PhotorealTeacherAuthorityError,
-    validate_teacher_input_document,
-)
+from .photoreal_teacher_authority import validate_teacher_input_document
+from .photoreal_teacher_runner import PhotorealTeacherRunnerError
 from .photoreal_teacher_input_p0_root import (
     PhotorealTeacherInputP0RootError,
     resolve_authorized_p0_root,
@@ -356,7 +354,7 @@ def inspect_photoreal_v2_status(
         validate_teacher_input_document(
             _read_json(teacher_input_path, "strict teacher input")
         )
-    except (PhotorealTeacherAuthorityError, ValueError, KeyError, TypeError) as exc:
+    except (PhotorealTeacherRunnerError, ValueError, KeyError, TypeError) as exc:
         raise PhotorealV2OperatorStatusError(
             f"Teacher input strict readback failed: {exc}"
         ) from exc
