@@ -510,20 +510,68 @@ def build_runtime(
     mouth = tuple(jaw[index] + (eye_mid[index] - jaw[index]) * 0.36 for index in range(3))
     mouth = (mouth[0], mouth[1], mouth[2] - interocular * 0.055)
 
-    primitives: list[tuple[str, list[tuple[float, float, float]], list[tuple[float, float, float]], list[tuple[int, int, int]], int]] = []
-    for role, geometry in (
-        ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
-        ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
-        ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
-        ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
-        ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
-    ):
-        positions, normals, faces_value, joint = geometry
-        primitives.append((role, positions, normals, faces_value, joint))
-
-    review_vrm = _append_geometry(document, binary, primitives)
+    source_dental_mode = dental is not None
+    dental_graft_audit: dict[str, Any] | None = None
+    if source_dental_mode:
+        lash_primitives: list[
+            tuple[
+                str,
+                list[tuple[float, float, float]],
+                list[tuple[float, float, float]],
+                list[tuple[int, int, int]],
+                int,
+            ]
+        ] = []
+        for role, geometry in (
+            ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
+            ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
+        ):
+            positions, normals, faces_value, joint = geometry
+            lash_primitives.append((role, positions, normals, faces_value, joint))
+        try:
+            dental_vrm = Path(str(dental["dental_vrm_path"])).read_bytes()
+            review_vrm, dental_graft_audit = graft_source_dental_with_lashes(
+                avatar,
+                dental_vrm,
+                head_joint=head_joint,
+                jaw_joint=jaw_joint,
+                lash_primitives=lash_primitives,
+            )
+        except (OSError, SourceDentalFaceGraftError) as exc:
+            raise HighFidelityFaceSecondaryRuntimeError(
+                f"source-derived dental graft failed: {exc}"
+            ) from exc
+    else:
+        primitives: list[
+            tuple[
+                str,
+                list[tuple[float, float, float]],
+                list[tuple[float, float, float]],
+                list[tuple[int, int, int]],
+                int,
+            ]
+        ] = []
+        for role, geometry in (
+            ("mouth_interior", _oval_prism(mouth, (interocular * 0.90, interocular * 0.22, interocular * 0.085), jaw_joint)),
+            ("upper_teeth", _tooth_row((mouth[0], mouth[1] + interocular * 0.046, mouth[2] + interocular * 0.030), (interocular * 0.70, interocular * 0.078, interocular * 0.050), head_joint, upper=True)),
+            ("lower_teeth", _tooth_row((mouth[0], mouth[1] - interocular * 0.046, mouth[2] + interocular * 0.026), (interocular * 0.66, interocular * 0.068, interocular * 0.046), jaw_joint, upper=False)),
+            ("left_eyelashes", _lash(left_eye, interocular, head_joint)),
+            ("right_eyelashes", _lash(right_eye, interocular, head_joint)),
+        ):
+            positions, normals, faces_value, joint = geometry
+            primitives.append((role, positions, normals, faces_value, joint))
+        review_vrm = _append_geometry(document, binary, primitives)
     appearance = bodyrig["appearanceTransfer"]
     eye = bodyrig["eyePromotion"]
+    generic_secondary_anatomy = not source_dental_mode
+    source_derived_dental_identity = source_dental_mode
+    dental_result_sha = str(dental["result_sha256"]) if dental is not None else None
+    dental_vrm_sha = str(dental["dental_vrm_sha256"]) if dental is not None else None
+    fine_attestation_sha = str(dental["fine_identity_attestation_sha256"]) if dental is not None else None
+    dental_texture_sha = str(dental["dental_texture_sha256"]) if dental is not None else None
+    dental_adapter = str(dental["adapter"]) if dental is not None else None
+    dental_adapter_revision = str(dental["adapter_revision"]) if dental is not None else None
+
     metadata = {
         "format": REVIEW_METADATA_FORMAT,
         "version": VERSION,
@@ -538,10 +586,31 @@ def build_runtime(
         "interocularDistanceMeters": round(interocular, 8),
         "eyebrowAppearanceSource": "existing-source-derived-face-basecolor",
         "lipBoundarySource": "existing-source-derived-face-basecolor",
-        "mouthInteriorGeometry": "deterministic-rounded-oval-cavity-v2",
-        "teethGeometry": "deterministic-individual-rounded-dental-row-v2",
+        "mouthInteriorGeometry": (
+            "source-derived-dental-candidate-v1"
+            if source_dental_mode
+            else "deterministic-rounded-oval-cavity-v2"
+        ),
+        "teethGeometry": (
+            "source-derived-dental-candidate-v1"
+            if source_dental_mode
+            else "deterministic-individual-rounded-dental-row-v2"
+        ),
         "eyelashGeometry": "deterministic-smplx-head-anchored-tapered-ribbon-v2",
         "semanticAnchorAuthority": "licensed-smplx-joint-topology-v1",
+        "sourceDerivedDentalIdentity": source_derived_dental_identity,
+        "genericSecondaryAnatomy": generic_secondary_anatomy,
+        "genericGeometryComponents": (
+            ["eyelashes"]
+            if source_dental_mode
+            else ["mouth_interior", "teeth", "eyelashes"]
+        ),
+        "dentalReconstructionResultSha256": dental_result_sha,
+        "dentalVrmSha256": dental_vrm_sha,
+        "fineIdentityAttestationSha256": fine_attestation_sha,
+        "dentalTextureSha256": dental_texture_sha,
+        "dentalAdapter": dental_adapter,
+        "dentalAdapterRevision": dental_adapter_revision,
         "sourceDerivedIdentitySynthesis": False,
         "generativeIdentitySynthesis": False,
         "comparisonOnly": True,
@@ -577,7 +646,15 @@ def build_runtime(
             "eyelashes": "partial",
         },
         "semanticAnchorAuthority": metadata["semanticAnchorAuthority"],
-        "genericSecondaryAnatomy": True,
+        "sourceDerivedDentalIdentity": source_derived_dental_identity,
+        "genericSecondaryAnatomy": generic_secondary_anatomy,
+        "genericGeometryComponents": list(metadata["genericGeometryComponents"]),
+        "dentalReconstructionResultSha256": dental_result_sha,
+        "dentalVrmSha256": dental_vrm_sha,
+        "fineIdentityAttestationSha256": fine_attestation_sha,
+        "dentalTextureSha256": dental_texture_sha,
+        "dentalAdapter": dental_adapter,
+        "dentalAdapterRevision": dental_adapter_revision,
         "sourceDerivedIdentitySynthesis": False,
         "generativeIdentitySynthesis": False,
         "comparisonOnly": True,
