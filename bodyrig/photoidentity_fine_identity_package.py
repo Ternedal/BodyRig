@@ -253,7 +253,11 @@ def read_application_output(
         raise PhotoIdentityFineIdentityPackageError(
             "fine-identity application receipt fields must match v1 exactly"
         )
-    if receipt.get("format") != FORMAT or receipt.get("version") != VERSION:
+    if (
+        receipt.get("format") != FORMAT
+        or isinstance(receipt.get("version"), bool)
+        or receipt.get("version") != VERSION
+    ):
         raise PhotoIdentityFineIdentityPackageError(
             "fine-identity application receipt format/version mismatch"
         )
