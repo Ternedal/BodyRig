@@ -275,7 +275,10 @@ def test_hfn_candidate_final_audit_failure_is_fail_closed(monkeypatch, tmp_path:
     assert result["source_bodyrig_revision"] == REVISION
     assert result["hfn_bodyrig_revision"] == CURRENT_HFN_REVISION
     assert result["next_gate"]["gate"] == status.CANDIDATE_GATE
-    assert result["next_gate"]["command"] is None
+    assert "apply-photoidentity-fine-identity.ps1" in result["next_gate"]["command"]
+    assert "-SweepRoot <SWEEP_ROOT>" in result["next_gate"]["command"]
+    assert "-AdapterConfig <ADAPTER_CONFIG>" in result["next_gate"]["command"]
+    assert result["next_gate"]["operator_input_required"] is True
     candidate_gate = next(gate for gate in result["gates"] if gate["id"] == status.CANDIDATE_GATE)
     assert candidate_gate["state"] == "invalid"
     assert "final HFN candidate audit failed" in candidate_gate["reason"]
@@ -420,3 +423,126 @@ def test_hfn_complete_photoidentical_package_stops_at_terminal_fine_identity_gat
     assert result["gates"][-1]["evidence"]["fine_identity_authority_sha256"] == "1" * 64
     assert result["gates"][-1]["evidence"]["fine_identity_attestation_sha256"] == "2" * 64
     assert result["production_activation"] is False
+
+def test_terminal_fine_identity_output_becomes_current_complete_package(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    face = tmp_path / "face-photoidentical.mrbody"
+    face.write_bytes(b"photoidentical face package")
+    candidate = tmp_path / "hfn-photoidentical.mrbody"
+    candidate.write_bytes(b"photoidentical HFN package")
+    candidate_sha = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    preview_root = tmp_path / "preview"
+    application_root = preview_root / "continuation" / "fine-identity-application"
+    package_root = application_root / "package"
+    package_root.mkdir(parents=True)
+    applied = package_root / "applied.mrbody"
+    applied.write_bytes(b"photoidentical applied package")
+    applied_sha = hashlib.sha256(applied.read_bytes()).hexdigest()
+    receipt = package_root / "application.json"
+    receipt.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(status._legacy, "inspect_continuation", lambda _job: _legacy_fine_pending(face))
+    monkeypatch.setattr(status._legacy.preview_manager, "get", lambda _job: _preview_identity())
+    monkeypatch.setattr(status, "_preview_root", lambda _job: preview_root)
+    monkeypatch.setattr(status, "person_library", lambda: tmp_path / "people")
+    monkeypatch.setattr(status, "audit_high_fidelity_package", lambda path: _fine_pending_audit(path))
+    _install_current_hfn_authority(monkeypatch)
+    monkeypatch.setattr(
+        status,
+        "inspect_hfn_continuation",
+        lambda **_kwargs: {
+            "gates": [
+                {"id": status.CANDIDATE_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+                {"id": status.RENDER_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+                {"id": status.HUMAN_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+            ],
+            "actions": {},
+            "package_path": candidate,
+            "package_sha256": candidate_sha,
+        },
+    )
+    applied_audit = {
+        "components": _components(),
+        "high_fidelity_ready": True,
+        "fine_identity_required": True,
+        "fine_identity_ready": True,
+        "top_level_blockers": [],
+        "production_ready": False,
+    }
+    monkeypatch.setattr(
+        status,
+        "read_application_output",
+        lambda *_args, **_kwargs: {
+            "package_path": str(applied),
+            "receipt_path": str(receipt),
+            "applied_package_sha256": applied_sha,
+            "audit": applied_audit,
+        },
+    )
+
+    result = status.inspect_continuation(JOB_ID)
+
+    assert result["state"] == "complete"
+    assert result["next_gate"] is None
+    assert result["current_package_path"] == str(applied.resolve())
+    assert result["current_package_sha256"] == applied_sha
+    assert result["high_fidelity_complete"] is True
+    assert result["high_fidelity_human_review_required"] is True
+    assert result["gates"][-1]["id"] == status.FINE_IDENTITY_GATE
+    assert result["gates"][-1]["state"] == "pass"
+    assert result["production_ready"] is False
+    assert result["production_activation"] is False
+
+
+def test_partial_terminal_fine_identity_output_blocks_without_overwrite_command(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    face = tmp_path / "face-photoidentical.mrbody"
+    face.write_bytes(b"photoidentical face package")
+    candidate = tmp_path / "hfn-photoidentical.mrbody"
+    candidate.write_bytes(b"photoidentical HFN package")
+    candidate_sha = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    preview_root = tmp_path / "preview"
+    (preview_root / "continuation" / "fine-identity-application").mkdir(parents=True)
+
+    monkeypatch.setattr(status._legacy, "inspect_continuation", lambda _job: _legacy_fine_pending(face))
+    monkeypatch.setattr(status._legacy.preview_manager, "get", lambda _job: _preview_identity())
+    monkeypatch.setattr(status, "_preview_root", lambda _job: preview_root)
+    monkeypatch.setattr(status, "person_library", lambda: tmp_path / "people")
+    monkeypatch.setattr(status, "audit_high_fidelity_package", lambda path: _fine_pending_audit(path))
+    _install_current_hfn_authority(monkeypatch)
+    monkeypatch.setattr(
+        status,
+        "inspect_hfn_continuation",
+        lambda **_kwargs: {
+            "gates": [
+                {"id": status.CANDIDATE_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+                {"id": status.RENDER_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+                {"id": status.HUMAN_GATE, "state": "pass", "passed": True, "reason": "", "evidence": {}},
+            ],
+            "actions": {},
+            "package_path": candidate,
+            "package_sha256": candidate_sha,
+        },
+    )
+    monkeypatch.setattr(
+        status,
+        "read_application_output",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            status.PhotoIdentityFineIdentityPackageError("persisted output is partial")
+        ),
+    )
+
+    result = status.inspect_continuation(JOB_ID)
+
+    assert result["state"] == "blocked"
+    assert result["next_gate"]["gate"] == status.FINE_IDENTITY_GATE
+    assert result["next_gate"]["command"] is None
+    assert result["gates"][-1]["state"] == "invalid"
+    assert "persisted output is partial" in result["next_gate"]["reason"]
+    assert result["high_fidelity_complete"] is False
+    assert result["production_activation"] is False
+
