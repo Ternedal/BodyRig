@@ -22,7 +22,6 @@ $mmcvCommit = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
 $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
-$openmimVersion = "0.3.9"
 $setuptoolsVersion = "80.10.2"
 $pyopenglVersion = "3.1.0"
 $chumpyVersion = "0.70"
@@ -55,7 +54,6 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
     throw "LinuxPython must be an absolute venv path ending in /bin/python."
 }
 $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
-$mimExe = "$venvRoot/bin/mim"
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
 
 Write-Host "============================================================"
@@ -157,7 +155,7 @@ Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
     "numpy==$numpyVersion", "scipy==$scipyVersion", "opencv-python==$opencvVersion",
     "smplx==$smplxVersion", "lpips==$lpipsVersion",
-    "openmim==$openmimVersion", "mmengine==$mmengineVersion",
+    "mmengine==$mmengineVersion",
     "kornia==0.8.0", "yacs==0.1.8", "face-alignment==1.3.4",
     "timm==1.0.15", "einops==0.8.1", "tqdm==4.67.1", "pillow==10.4.0",
     "torchgeometry==0.1.2", "plyfile==1.1", "scikit-image==0.25.2", "PyYAML==6.0.2",
@@ -169,14 +167,6 @@ Invoke-Wsl -Root -Arguments @(
 # public package separately, then patch its legacy NumPy alias import below.
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
-)
-
-# OpenMIM 0.3.9 still imports pkg_resources. setuptools 82+ removed it,
-# so keep the runtime on the last compatible setuptools family and fail closed
-# before invoking mim if that compatibility module is unavailable.
-Invoke-Wsl -Root -Arguments @(
-    $LinuxPython, "-c",
-    "import importlib.metadata, pkg_resources; assert importlib.metadata.version('setuptools') == '$setuptoolsVersion'"
 )
 
 # OpenMMLab publishes prebuilt MMCV wheels only for selected Torch/CUDA
@@ -191,7 +181,7 @@ Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
     "git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"
 )
-Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")
+Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmdetVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
@@ -295,6 +285,7 @@ import lpips
 import OpenGL
 import pyrender
 import mmcv
+from mmcv.ops import nms as mmcv_nms
 import mmdet
 import mmengine
 import mmpose
@@ -321,6 +312,11 @@ if tuple(axis.shape) != (1, 3):
     raise SystemExit("torchgeometry smoke failed")
 if not hasattr(chumpy, "Ch"):
     raise SystemExit("chumpy import smoke failed")
+boxes = torch.tensor([[0.0, 0.0, 10.0, 10.0], [1.0, 1.0, 9.0, 9.0]], device="cuda:0")
+scores = torch.tensor([0.9, 0.8], device="cuda:0")
+dets, keep = mmcv_nms(boxes, scores, 0.5)
+if keep.numel() != 1:
+    raise SystemExit("MMCV CUDA ops smoke failed")
 payload = {
     "python": sys.version.split()[0],
     "torch": torch.__version__,
@@ -343,6 +339,7 @@ payload = {
     "cuda_smoke": True,
     "chumpy_smoke": True,
     "torchgeometry_smoke": True,
+    "mmcv_ops_smoke": True,
 }
 print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
 '@
@@ -363,7 +360,7 @@ if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($p
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
 if ([string]$probe.mmdet -ne $mmdetVersion) { throw "Unexpected MMDetection version: $($probe.mmdet)" }
 if ([string]$probe.mmpose -ne $mmposeVersion) { throw "Unexpected MMPose version: $($probe.mmpose)" }
-if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true) {
+if ($probe.cuda_smoke -ne $true -or $probe.chumpy_smoke -ne $true -or $probe.torchgeometry_smoke -ne $true -or $probe.mmcv_ops_smoke -ne $true) {
     throw "ExAvatar runtime smoke did not pass."
 }
 
