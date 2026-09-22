@@ -117,6 +117,38 @@ def test_guided_matrix_keeps_existing_personality_as_read_only_reference() -> No
 
 
 
+def test_manual_person_change_isolates_person_scoped_guided_state() -> None:
+    html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
+
+    for token in (
+        "function setSelectedPersonUrl(personId,{clearRevision=false}={})",
+        'url.searchParams.set("person_id",personId)',
+        'url.searchParams.delete("edit_revision")',
+        'url.searchParams.delete("baseline_revision")',
+        "async function selectPerson(personId,{manual=false}={})",
+        "const previousPersonId=state.person?.person_id||null",
+        'const profile=await api(`/api/v1/people/${encodeURIComponent(personId)}`)',
+        'if($("personSelect").value!==personId) return',
+        "const changedPerson=previousPersonId!==personId",
+        "state.person=profile",
+        "if(manual) setSelectedPersonUrl(personId,{clearRevision:true})",
+        "if(changedPerson) clearEvidence()",
+        'selectPerson($("personSelect").value,{manual:true})',
+        '$("personSelect").value=state.person?.person_id||""',
+    ):
+        assert token in html
+
+    select_start = html.index("async function selectPerson(personId,{manual=false}={})")
+    select_end = html.index("\n  function renderPreview", select_start)
+    select_source = html[select_start:select_end]
+    assert select_source.index('if($("personSelect").value!==personId) return') < select_source.index(
+        "state.person=profile"
+    )
+    assert select_source.index("state.person=profile") < select_source.index(
+        "if(changedPerson) clearEvidence()"
+    )
+
+
 def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
 
