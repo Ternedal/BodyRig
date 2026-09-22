@@ -560,6 +560,19 @@ def inspect_photoreal_v2_status(
         )
     except (PhotorealP2AnimationPlanError, ValueError, KeyError, TypeError) as exc:
         raise PhotorealV2OperatorStatusError(f"P2 plan strict readback failed: {exc}") from exc
+    for field in ("performer_id", "selected_epoch_id", "teacher_input_sha256"):
+        if p2_plan.get(field) != p1.get(field):
+            raise PhotorealV2OperatorStatusError(
+                f"P2 animation plan / current P1 review mismatch: {field}"
+            )
+    for field in (
+        "p1_likeness_review_manifest_sha256",
+        "p1_likeness_review_sha256",
+    ):
+        if p2_plan.get(field) != p1.get(field):
+            raise PhotorealV2OperatorStatusError(
+                f"P2 animation plan targets stale P1 authority: {field}"
+            )
 
     handoff_path = p2 / "motion-evidence" / "p2-motion-evidence-handoff.json"
     private_index_path = p2 / "motion-evidence" / "private-motion-source-index.json"
