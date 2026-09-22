@@ -223,21 +223,40 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     preview_end = html.index("\n  async function save()", preview_start)
     preview_source = html[preview_start:preview_end]
     assert "const personGeneration=state.personSelectionGeneration" in preview_source
+    assert "const previewGeneration=++state.previewRequestGeneration" in preview_source
     assert "const requestKey=JSON.stringify(request)" in preview_source
-    assert preview_source.index("const result=await api") < preview_source.index(
-        "if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey) return"
-    ) < preview_source.index("renderPreview(result)")
+    assert 'const previewStatus="Bygger og verifierer deterministisk blueprint…"' in preview_source
+    assert "const settleStalePreview=()=>{" in preview_source
+    assert 'previewGeneration===state.previewRequestGeneration&&$("status").textContent===previewStatus' in preview_source
+    stale_guard = "if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey)"
+    result = preview_source.index("const result=await api")
+    first_guard = preview_source.index(stale_guard, result)
+    first_settle = preview_source.index("settleStalePreview()", first_guard)
+    success_generation = preview_source.index(
+        "if(previewGeneration!==state.previewRequestGeneration) return",
+        first_settle,
+    )
+    render = preview_source.index("renderPreview(result)", success_generation)
+    second_guard = preview_source.index(stale_guard, render)
+    second_settle = preview_source.index("settleStalePreview()", second_guard)
+    assert result < first_guard < first_settle < success_generation < render < second_guard < second_settle
 
     save_start = preview_end + 1
     save_end = html.index("\n\n  buildSliders();", save_start)
     save_source = html[save_start:save_end]
     assert "const personGeneration=state.personSelectionGeneration" in save_source
+    assert "const saveGeneration=++state.saveRequestGeneration" in save_source
     assert "const saveViewKey=JSON.stringify(request)" in save_source
     assert "const currentSaveViewKey=()=>JSON.stringify" in save_source
     assert 'const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…"' in save_source
     assert "const settleStaleSave=result=>" in save_source
+    assert "if(saveGeneration!==state.saveRequestGeneration) return" in save_source
     assert 'if($("status").textContent===savingStatus)' in save_source
     assert "toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`)" in save_source
+    assert "const settleFailedSave=error=>" in save_source
+    assert "saveGeneration!==state.saveRequestGeneration||!isCurrentPerson(personId,personGeneration)" in save_source
+    assert '$("saveButton").disabled=!(state.preview&&state.requestKey===key())' in save_source
+    assert 'catch(error){settleFailedSave(error);}' in save_source
     guard_text = "if(!isCurrentPerson(personId,personGeneration)||currentSaveViewKey()!==saveViewKey)"
     first_guard = save_source.index(guard_text)
     first_settle = save_source.index("settleStaleSave(result)", first_guard)
@@ -246,7 +265,6 @@ def test_guided_person_async_results_cannot_cross_person_context() -> None:
     second_settle = save_source.index("settleStaleSave(result)", second_guard)
     assign = save_source.index("state.person=refreshedPerson", second_settle)
     assert first_guard < first_settle < refresh < second_guard < second_settle < assign
-    assert 'catch(error){if(isCurrentPerson(personId,personGeneration)&&currentSaveViewKey()===saveViewKey)' in save_source
 
 
 def test_guided_matrix_surfaces_changed_trait_workflow() -> None:
