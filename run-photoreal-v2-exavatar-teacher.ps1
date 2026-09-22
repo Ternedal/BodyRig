@@ -73,14 +73,40 @@ function Test-WslExecutable {
 }
 
 function Convert-ToWslPath {
-    param([Parameter(Mandatory = $true)][string]$WindowsPath)
+    param(
+        [Parameter(Mandatory = $true)][string]$WindowsPath,
+        [switch]$AllowMissingLeaf
+    )
 
-    $resolved = (Resolve-Path -LiteralPath $WindowsPath -ErrorAction Stop).Path
+    if (Test-Path -LiteralPath $WindowsPath) {
+        $resolved = (Resolve-Path -LiteralPath $WindowsPath -ErrorAction Stop).Path
+    } elseif ($AllowMissingLeaf) {
+        $parent = Split-Path -Parent $WindowsPath
+        $leaf = Split-Path -Leaf $WindowsPath
+        if ([string]::IsNullOrWhiteSpace($parent) -or [string]::IsNullOrWhiteSpace($leaf)) {
+            throw "Cannot translate missing output path without a parent/leaf: $WindowsPath"
+        }
+        $resolvedParent = (Resolve-Path -LiteralPath $parent -ErrorAction Stop).Path
+        $resolved = Join-Path $resolvedParent $leaf
+    } else {
+        throw "Windows path does not exist: $WindowsPath"
+    }
+
     $driveMatch = [regex]::Match($resolved, '^(?<drive>[A-Za-z]):\\(?<rest>.*)$')
     if ($driveMatch.Success) {
         $drive = $driveMatch.Groups['drive'].Value.ToLowerInvariant()
         $rest = $driveMatch.Groups['rest'].Value.Replace('\', '/')
         $candidate = "/mnt/$drive/$rest"
+
+        if ($AllowMissingLeaf -and -not (Test-Path -LiteralPath $WindowsPath)) {
+            $candidateParent = $candidate.Substring(0, $candidate.LastIndexOf('/'))
+            & $WslExe -d $Distribution -- /usr/bin/test -d $candidateParent 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+            throw "Translated WSL output parent does not exist: $candidateParent (from $resolved)"
+        }
+
         & $WslExe -d $Distribution -- /usr/bin/test -e $candidate 2>$null
         if ($LASTEXITCODE -eq 0) {
             return $candidate
@@ -246,7 +272,7 @@ if ($planCode -eq 2) {
 }
 
 $strictPreflight = Join-Path $TeacherWorkRoot "exavatar-strict-preflight.json"
-$linuxPreflight = Convert-ToWslPath -WindowsPath $strictPreflight
+$linuxPreflight = Convert-ToWslPath -WindowsPath $strictPreflight -AllowMissingLeaf
 Write-Host ""
 Write-Host "=== 2/7 STRICT EXAVATAR ENVIRONMENT PREFLIGHT ==="
 $preflightArgs = @(
