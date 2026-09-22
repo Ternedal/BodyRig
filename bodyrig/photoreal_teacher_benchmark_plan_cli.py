@@ -17,6 +17,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Build the core-owned BodyRig Photoreal teacher benchmark source plan."
     )
     parser.add_argument("--teacher-input", type=Path, required=True)
+    parser.add_argument("--scan-plan", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--reuse-existing", action="store_true")
     return parser
@@ -25,11 +26,46 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        if args.reuse_existing and args.out.expanduser().resolve().is_file():
-            result = validate_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
+        output = args.out.expanduser().resolve()
+        if args.reuse_existing and output.is_file():
+            try:
+                result = validate_teacher_benchmark_plan_files_strict(
+                    args.teacher_input,
+                    output,
+                    scan_plan_path=args.scan_plan,
+                )
+            except PhotorealTeacherBenchmarkPlanError:
+                # One-time migration path for an earlier fail-closed benchmark plan
+                # that had no executable candidate before scan-plan replay support.
+                try:
+                    stale = json.loads(output.read_text(encoding="utf-8-sig"))
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    raise
+                rebuildable = (
+                    isinstance(stale, dict)
+                    and stale.get("format") == "bodyrig-photoreal-teacher-benchmark-plan"
+                    and stale.get("version") == 1
+                    and stale.get("benchmark") == "exavatar"
+                    and stale.get("benchmark_execution_authorized") is False
+                    and stale.get("selected_source_key") is None
+                    and stale.get("production_activation") is False
+                    and args.scan_plan is not None
+                )
+                if not rebuildable:
+                    raise
+                output.unlink()
+                result = build_teacher_benchmark_plan_files_strict(
+                    args.teacher_input,
+                    output,
+                    scan_plan_path=args.scan_plan,
+                )
         else:
-            result = build_teacher_benchmark_plan_files_strict(args.teacher_input, args.out)
-    except PhotorealTeacherBenchmarkPlanError as exc:
+            result = build_teacher_benchmark_plan_files_strict(
+                args.teacher_input,
+                output,
+                scan_plan_path=args.scan_plan,
+            )
+    except (OSError, PhotorealTeacherBenchmarkPlanError) as exc:
         print(f"BodyRig Photoreal teacher benchmark plan: FAIL: {exc}", file=sys.stderr)
         return 1
 
