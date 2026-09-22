@@ -2,7 +2,8 @@ param(
     [string]$Distribution = "Ubuntu-22.04",
     [string]$LinuxPython = "/opt/bodyrig-exavatar/bin/python",
     [string]$WslExe = "wsl.exe",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Resume
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +18,7 @@ $opencvVersion = "4.10.0.84"
 $smplxVersion = "0.1.28"
 $lpipsVersion = "0.1.4"
 $mmcvVersion = "2.1.0"
+$mmcvCommit = "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
 $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
@@ -62,7 +64,7 @@ Write-Host "Distribution:      $Distribution"
 Write-Host "Linux Python:      $LinuxPython"
 Write-Host "Torch:             $torchVersion / CUDA $expectedCudaVersion wheel"
 Write-Host "PyTorch3D commit:  $pytorch3dCommit"
-Write-Host "MMCV:              $mmcvVersion"
+Write-Host "MMCV:              $mmcvVersion @ $mmcvCommit"
 Write-Host "Chumpy:            $chumpyVersion + NumPy 1.26 compatibility patch"
 Write-Host "Production:        FALSE"
 Write-Host "============================================================"
@@ -98,6 +100,9 @@ Invoke-Wsl -Root -Arguments @(
 # already-installed public dependency tree at /opt/bodyrig-exavatar/deps.
 # Do not reject or delete the whole root merely because deps/workspaces exist.
 $runtimeMarker = "$venvRoot/pyvenv.cfg"
+if ($Force -and $Resume) {
+    throw "-Force and -Resume are mutually exclusive."
+}
 if ($Force) {
     foreach ($runtimePath in @(
         "$venvRoot/bin",
@@ -110,6 +115,20 @@ if ($Force) {
     )) {
         Invoke-Wsl -Root -Arguments @("/bin/rm", "-rf", $runtimePath)
     }
+} elseif ($Resume) {
+    & $WslExe -d $Distribution -- /usr/bin/test -f $runtimeMarker 2>$null
+    $markerExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -x $LinuxPython 2>$null
+    $pythonExists = ($LASTEXITCODE -eq 0)
+    & $WslExe -d $Distribution -- /usr/bin/test -e $receipt 2>$null
+    $receiptExists = ($LASTEXITCODE -eq 0)
+    if (-not $markerExists -or -not $pythonExists) {
+        throw "Cannot resume ExAvatar runtime because the partial venv is not structurally valid: $venvRoot"
+    }
+    if ($receiptExists) {
+        throw "Cannot resume ExAvatar runtime because a completed runtime receipt already exists: $receipt"
+    }
+    Write-Host "Runtime recovery:   RESUME PARTIAL VENV"
 } else {
     & $WslExe -d $Distribution -- /usr/bin/test -e $runtimeMarker 2>$null
     $markerExists = ($LASTEXITCODE -eq 0)
@@ -118,11 +137,13 @@ if ($Force) {
     & $WslExe -d $Distribution -- /usr/bin/test -e $receipt 2>$null
     $receiptExists = ($LASTEXITCODE -eq 0)
     if ($markerExists -or $pythonExists -or $receiptExists) {
-        throw "ExAvatar WSL runtime already exists under: $venvRoot. Use -Force to rebuild the runtime while preserving public dependencies."
+        throw "ExAvatar WSL runtime already exists under: $venvRoot. Use -Resume for an incomplete runtime or -Force to rebuild it while preserving public dependencies."
     }
 }
 
-Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
+if (-not $Resume) {
+    Invoke-Wsl -Root -Arguments @("/usr/bin/python3.10", "-m", "venv", $venvRoot)
+}
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "--upgrade", "pip", "setuptools==$setuptoolsVersion", "wheel", "cython", "ninja")
 Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install",
@@ -158,9 +179,18 @@ Invoke-Wsl -Root -Arguments @(
     "import importlib.metadata, pkg_resources; assert importlib.metadata.version('setuptools') == '$setuptoolsVersion'"
 )
 
-# OpenMMLab's documented order is MMEngine -> MMCV -> MMDetection/MMPose.
-# Pin every layer and run pip check before compiling PyTorch3D.
-Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmcv==$mmcvVersion")
+# OpenMMLab publishes prebuilt MMCV wheels only for selected Torch/CUDA
+# combinations. Torch 2.6 / CUDA 12.4 falls back to the source distribution,
+# so build the exact MMCV 2.1.0 release commit explicitly. Disable PEP517
+# build isolation so setup.py sees the pinned Torch and setuptools<81 runtime.
+Invoke-Wsl -Root -Arguments @(
+    "/usr/bin/env",
+    "MMCV_WITH_OPS=1",
+    "CUDA_HOME=/usr/local/cuda-$expectedCudaVersion",
+    "PYTHONNOUSERSITE=1",
+    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
+    "git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"
+)
 Invoke-Wsl -Root -Arguments @($mimExe, "install", "mmdet==$mmdetVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
@@ -368,6 +398,7 @@ $setupReceipt = [ordered]@{
         pyrender = "0.1.45"
         chumpy = $chumpyVersion
         mmcv = $mmcvVersion
+        mmcv_commit = $mmcvCommit
         mmengine = $mmengineVersion
         mmdet = $mmdetVersion
         mmpose = $mmposeVersion
