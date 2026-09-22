@@ -212,27 +212,23 @@ Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmd
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
-# Reuse a completed pinned PyTorch3D build when possible. Otherwise fetch the
-# exact commit into a persistent source cache with HTTP/1.1 and bounded retries
-# before compiling, so transient GitHub HTTP/2 failures do not force earlier
-# runtime stages to be rebuilt.
-$pytorch3dReuseCode = @'
-import importlib.metadata
-import json
-import sys
-
-dist = importlib.metadata.distribution("pytorch3d")
-raw = dist.read_text("direct_url.json")
-if not raw:
-    raise SystemExit(1)
-direct = json.loads(raw)
-commit = ((direct.get("vcs_info") or {}).get("commit_id") or "").lower()
-if commit != sys.argv[1].lower():
-    raise SystemExit(1)
-import pytorch3d
-'@
-& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c $pytorch3dReuseCode $pytorch3dCommit 1>$null 2>$null
-$pytorch3dReusable = ($LASTEXITCODE -eq 0)
+# Reuse a completed pinned PyTorch3D build when possible. The installed
+# distribution comes from the local source cache, so bind reuse to that cache's
+# exact Git HEAD plus a successful import instead of relying on direct_url.json.
+& $WslExe -d $Distribution -- /usr/bin/test -d "$pytorch3dSourceRoot/.git" 2>$null
+$pytorch3dSourceExists = ($LASTEXITCODE -eq 0)
+$pytorch3dHeadMatches = $false
+if ($pytorch3dSourceExists) {
+    $pytorch3dHeadRaw = @(& $WslExe -d $Distribution -- /usr/bin/git -C $pytorch3dSourceRoot rev-parse HEAD 2>$null)
+    $pytorch3dHeadMatches = (
+        $LASTEXITCODE -eq 0 -and
+        $pytorch3dHeadRaw.Count -eq 1 -and
+        ([string]$pytorch3dHeadRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
+    )
+}
+& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c "import pytorch3d" 1>$null 2>$null
+$pytorch3dImportReady = ($LASTEXITCODE -eq 0)
+$pytorch3dReusable = ($pytorch3dHeadMatches -and $pytorch3dImportReady)
 
 if ($pytorch3dReusable) {
     Write-Host "PyTorch3D:          REUSE PINNED BUILD"
