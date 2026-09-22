@@ -21,6 +21,7 @@ $mmengineVersion = "0.10.7"
 $mmdetVersion = "3.3.0"
 $mmposeVersion = "1.3.2"
 $openmimVersion = "0.3.9"
+$pyopenglVersion = "3.1.0"
 $chumpyVersion = "0.70"
 $pytorch3dCommit = "0a7d4c1a171e8b768c63f15b17564f9ad495f49b"
 
@@ -139,7 +140,7 @@ Invoke-Wsl -Root -Arguments @(
     "timm==1.0.15", "einops==0.8.1", "tqdm==4.67.1", "pillow==10.4.0",
     "torchgeometry==0.1.2", "plyfile==1.1", "scikit-image==0.25.2", "PyYAML==6.0.2",
     "pyrender==0.1.45", "trimesh==3.23.5", "tensorboardX==2.6.2.2",
-    "setproctitle==1.3.5", "fvcore", "iopath", "pyopengl==3.1.5"
+    "setproctitle==1.3.5", "fvcore", "iopath", "pyopengl==$pyopenglVersion"
 )
 
 # ExAvatar lists chumpy 0.71, but public PyPI publishes 0.70. Install the
@@ -252,6 +253,8 @@ import einops
 import face_alignment
 import kornia
 import lpips
+import OpenGL
+import pyrender
 import mmcv
 import mmdet
 import mmengine
@@ -290,6 +293,8 @@ payload = {
     "opencv": cv2.__version__,
     "smplx": importlib.metadata.version("smplx"),
     "lpips": importlib.metadata.version("lpips"),
+    "pyopengl": importlib.metadata.version("PyOpenGL"),
+    "pyrender": importlib.metadata.version("pyrender"),
     "chumpy": importlib.metadata.version("chumpy"),
     "mmcv": mmcv.__version__,
     "mmengine": mmengine.__version__,
@@ -312,6 +317,8 @@ if ([string]$probe.torchvision -notlike "$torchvisionVersion*") { throw "Unexpec
 if ([string]$probe.torch_cuda -ne $expectedCudaVersion) { throw "Unexpected Torch CUDA runtime: $($probe.torch_cuda), expected $expectedCudaVersion" }
 if ([string]$probe.numpy -ne $numpyVersion) { throw "Unexpected NumPy version: $($probe.numpy)" }
 if ([string]$probe.scipy -ne $scipyVersion) { throw "Unexpected SciPy version: $($probe.scipy)" }
+if ([string]$probe.pyopengl -ne $pyopenglVersion) { throw "Unexpected PyOpenGL version: $($probe.pyopengl)" }
+if ([string]$probe.pyrender -ne "0.1.45") { throw "Unexpected pyrender version: $($probe.pyrender)" }
 if ([string]$probe.chumpy -ne $chumpyVersion) { throw "Unexpected Chumpy version: $($probe.chumpy)" }
 if ([string]$probe.mmcv -ne $mmcvVersion) { throw "Unexpected MMCV version: $($probe.mmcv)" }
 if ([string]$probe.mmengine -ne $mmengineVersion) { throw "Unexpected MMEngine version: $($probe.mmengine)" }
@@ -348,6 +355,8 @@ $setupReceipt = [ordered]@{
         opencv_python = $opencvVersion
         smplx = $smplxVersion
         lpips = $lpipsVersion
+        pyopengl = $pyopenglVersion
+        pyrender = "0.1.45"
         chumpy = $chumpyVersion
         mmcv = $mmcvVersion
         mmengine = $mmengineVersion
@@ -374,6 +383,7 @@ Write-Host "CUDA:            $($probe.torch_cuda)"
 Write-Host "GPU:             $($probe.gpu)"
 Write-Host "PyTorch3D:       PINNED $pytorch3dCommit"
 Write-Host "OpenMMLab:       MMCV $($probe.mmcv) / MMDet $($probe.mmdet) / MMPose $($probe.mmpose)"
+Write-Host "PyOpenGL:        $($probe.pyopengl) / pyrender $($probe.pyrender)"
 Write-Host "Chumpy:          $($probe.chumpy) PATCHED + SMOKE PASS"
 Write-Host "torchgeometry:   PATCHED + SMOKE PASS"
 Write-Host "Receipt:         $receipt"
