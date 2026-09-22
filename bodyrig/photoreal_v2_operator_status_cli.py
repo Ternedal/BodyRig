@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--camera-mode", choices=("colmap", "virtual"), default=None)
     parser.add_argument("--p2-motion-config", default=None)
     parser.add_argument("--p2-review-selection-input", default=None)
+    parser.add_argument("--single-motion-driver-source-ref", default=None)
     parser.add_argument("--reviewed-by", default=None)
     parser.add_argument("--review-notes", default=None)
     parser.add_argument("--p3-target-profile", default=None)
@@ -45,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             camera_mode=args.camera_mode,
             p2_motion_config=args.p2_motion_config,
             p2_review_selection_input=args.p2_review_selection_input,
+            single_motion_driver_source_ref=args.single_motion_driver_source_ref,
             reviewed_by=args.reviewed_by,
             review_notes=args.review_notes,
             p3_target_profile=args.p3_target_profile,
