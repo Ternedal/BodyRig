@@ -92,6 +92,16 @@ def test_validate_adapter_result_proves_rig_and_authority_preservation(
         "_avatar_fingerprints",
         lambda value: source_fp if value == b"source-avatar" else candidate_fp,
     )
+    monkeypatch.setattr(
+        subject,
+        "_protected_payload_fingerprints",
+        lambda _value: {
+            "hair": "1" * 64,
+            "eyes": "2" * 64,
+            "face_secondary": "3" * 64,
+            "hfn_base_color": "4" * 64,
+        },
+    )
     monkeypatch.setattr(subject, "_bodyrig_metadata", lambda _value: {"authority": "same"})
 
     result = _result(prepared, _sha(candidate.read_bytes()), _sha(input_manifest.read_bytes()))
@@ -137,6 +147,16 @@ def test_validate_adapter_result_rejects_candidate_self_granted_application(
             return {"authority": "same"}
         return {"authority": "same", "fineIdentityApplication": {"forged": True}}
 
+    monkeypatch.setattr(
+        subject,
+        "_protected_payload_fingerprints",
+        lambda _value: {
+            "hair": "1" * 64,
+            "eyes": "2" * 64,
+            "face_secondary": "3" * 64,
+            "hfn_base_color": "4" * 64,
+        },
+    )
     monkeypatch.setattr(subject, "_bodyrig_metadata", metadata)
     result_path.write_text(
         json.dumps(_result(prepared, _sha(candidate.read_bytes()), _sha(input_manifest.read_bytes()))),
@@ -176,6 +196,16 @@ def test_validate_adapter_result_rejects_rig_drift(
             "appearance_global_sha256": ("3" if value == b"source-avatar" else "5") * 64,
         },
     )
+    monkeypatch.setattr(
+        subject,
+        "_protected_payload_fingerprints",
+        lambda _value: {
+            "hair": "1" * 64,
+            "eyes": "2" * 64,
+            "face_secondary": "3" * 64,
+            "hfn_base_color": "4" * 64,
+        },
+    )
     monkeypatch.setattr(subject, "_bodyrig_metadata", lambda _value: {"authority": "same"})
     result_path.write_text(
         json.dumps(_result(prepared, _sha(candidate.read_bytes()), _sha(input_manifest.read_bytes()))),
@@ -193,3 +223,52 @@ def test_validate_adapter_result_rejects_rig_drift(
             config={"adapter": "adapter", "revision": "adapter-r1"},
             prepared=prepared,
         )
+
+def test_validate_adapter_result_rejects_protected_payload_drift(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = _prepared(tmp_path)
+    candidate = tmp_path / "candidate.vrm"
+    candidate.write_bytes(b"candidate-avatar")
+    input_manifest = tmp_path / "input.json"
+    input_manifest.write_text("{}", encoding="utf-8")
+    result_path = tmp_path / "result.json"
+
+    monkeypatch.setattr(
+        subject,
+        "_avatar_fingerprints",
+        lambda value: {
+            "rig_sha256": "1" * 64,
+            "geometry_surface_sha256": ("2" if value == b"source-avatar" else "4") * 64,
+            "appearance_global_sha256": ("3" if value == b"source-avatar" else "5") * 64,
+        },
+    )
+    monkeypatch.setattr(
+        subject,
+        "_protected_payload_fingerprints",
+        lambda value: {
+            "hair": "1" * 64,
+            "eyes": "2" * 64,
+            "face_secondary": ("3" if value == b"source-avatar" else "9") * 64,
+            "hfn_base_color": "4" * 64,
+        },
+    )
+    monkeypatch.setattr(subject, "_bodyrig_metadata", lambda _value: {"authority": "same"})
+    result_path.write_text(
+        json.dumps(_result(prepared, _sha(candidate.read_bytes()), _sha(input_manifest.read_bytes()))),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        subject.PhotoIdentityFineIdentityReconstructionError,
+        match="changed protected promoted payloads: face_secondary",
+    ):
+        subject.validate_adapter_result(
+            result_path=result_path,
+            candidate_vrm_path=candidate,
+            input_manifest_path=input_manifest,
+            config={"adapter": "adapter", "revision": "adapter-r1"},
+            prepared=prepared,
+        )
+
