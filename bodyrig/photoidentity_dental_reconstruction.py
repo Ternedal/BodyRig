@@ -35,6 +35,8 @@ MOUTH_MATERIAL = "BodyRigSourceMouthInterior"
 DENTAL_MATERIAL = "BodyRigSourceDentalSurface"
 DENTAL_IMAGE = "BodyRigSourceDentalTexture"
 REQUIRED_ROLES = ("mouth_interior", "upper_teeth", "lower_teeth")
+COORDINATE_SPACE = "bodyrig-smplx-rest-space-meters-v1"
+JOINT_BINDING_POLICY = "runtime-rebind-head-jaw-v1"
 ADAPTER_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 GIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -541,6 +543,10 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
     node = _array(document, "nodes")[node_index]
     if not isinstance(node, Mapping) or node.get("mesh") != mesh_index or node.get("skin") != 0:
         raise PhotoIdentityDentalReconstructionError("dental VRM node is not bound to canonical mesh/skin 0")
+    if any(field in node for field in ("translation", "rotation", "scale", "matrix")):
+        raise PhotoIdentityDentalReconstructionError(
+            "dental VRM source node must be untransformed canonical rest-space geometry"
+        )
     mesh = _array(document, "meshes")[mesh_index]
     primitives = mesh.get("primitives") if isinstance(mesh, Mapping) else None
     if not isinstance(primitives, list) or len(primitives) != len(REQUIRED_ROLES):
@@ -630,7 +636,9 @@ def validate_dental_vrm(vrm_bytes: bytes) -> dict[str, Any]:
     if not isinstance(metadata, Mapping):
         raise PhotoIdentityDentalReconstructionError("dental VRM lacks dentalSourceRuntime metadata")
     if (
-        metadata.get("sourceDerivedDentalIdentity") is not True
+        metadata.get("coordinateSpace") != COORDINATE_SPACE
+        or metadata.get("jointBindingPolicy") != JOINT_BINDING_POLICY
+        or metadata.get("sourceDerivedDentalIdentity") is not True
         or metadata.get("genericSecondaryAnatomy") is not False
         or metadata.get("generativeIdentitySynthesis") is not False
         or metadata.get("humanReviewRequired") is not True
