@@ -159,6 +159,20 @@ function Test-HistoricalRevisionAncestor {
     return ($LASTEXITCODE -eq 0)
 }
 
+function Test-HistoricalQualificationGapIsCodeQlOnly {
+    param(
+        [Parameter(Mandatory = $true)]$WorkflowEvidence,
+        [Parameter(Mandatory = $true)]$CheckEvidence
+    )
+
+    $blockers = @($WorkflowEvidence.Blockers) + @($CheckEvidence.Blockers)
+    if ($blockers.Count -eq 0) { return $false }
+    foreach ($blocker in $blockers) {
+        if ([string]$blocker -notmatch '(?i)codeql') { return $false }
+    }
+    return $true
+}
+
 function Get-GitHubHeaders {
     $headers = @{
         Accept = "application/vnd.github+json"
@@ -451,6 +465,7 @@ if ($evidenceExactHeadQualified) {
     }
 } elseif (
     $ExpectedBodyRigRevision -ne $verifierRevision -and
+    (Test-HistoricalQualificationGapIsCodeQlOnly -WorkflowEvidence $workflowEvidence -CheckEvidence $checkEvidence) -and
     (Test-HistoricalRevisionAncestor -RepoRoot ([string]$verifier.RepoRoot) -EvidenceRevision $ExpectedBodyRigRevision -VerifierRevision $verifierRevision)
 ) {
     $historicalAncestorRevalidation = $true
