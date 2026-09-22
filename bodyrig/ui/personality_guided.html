@@ -723,25 +723,36 @@
 
   async function reconcileDeferredSave(){
     const deferred=state.deferredSaveReconciliation;
-    if(!deferred||!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
-    state.deferredSaveReconciliation=null;
+    if(!deferred||deferred.reconciling||!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
+    deferred.reconciling=true;
     let refreshedPerson=deferred.refreshedPerson;
     if(!refreshedPerson){
       try{
         refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(deferred.personId)}`);
       }catch(error){
+        if(state.deferredSaveReconciliation===deferred) deferred.reconciling=false;
         if(isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+          const editorUnchanged=JSON.stringify({...payload(),feedback:$("feedback").value.trim()})===deferred.saveViewKey;
           $("status").textContent=deferred.result.saved_personality_revision+" gemt · profil-refresh efter personskift fejlede: "+error.message;
-          $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+          if(editorUnchanged){
+            setEditRevisionUrl(deferred.result.saved_personality_revision);
+            state.preview=null;state.requestKey=null;$("saveButton").disabled=true;
+          }else{
+            $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+          }
           toast(deferred.result.saved_personality_revision+" er gemt, men profilen kunne ikke genindlæses: "+error.message,true);
         }
         return true;
       }
     }
-    if(!isCurrentPerson(deferred.personId,deferred.personContextGeneration)) return false;
+    if(!isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+      if(state.deferredSaveReconciliation===deferred) deferred.reconciling=false;
+      return false;
+    }
     const editorUnchanged=JSON.stringify({...payload(),feedback:$("feedback").value.trim()})===deferred.saveViewKey;
     const previousBaseline=$("baselineRevision").value;
     const previousStack=$("stackBaseline").checked;
+    if(state.deferredSaveReconciliation===deferred) state.deferredSaveReconciliation=null;
     state.personContextGeneration+=1;
     state.person=refreshedPerson;
     if(editorUnchanged){
