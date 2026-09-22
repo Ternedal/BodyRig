@@ -783,7 +783,7 @@ def run_reconstruction(
             )
         result_path = adapter_output / "dental-reconstruction.json"
         vrm_path = adapter_output / "dental-source.vrm"
-        result = validate_adapter_result(
+        validate_adapter_result(
             result_path=result_path,
             vrm_path=vrm_path,
             input_manifest_path=input_manifest,
@@ -793,13 +793,7 @@ def run_reconstruction(
             attestation_sha256=str(prepared["fine_identity_attestation_sha256"]),
             source_references=[str(item["reference"]) for item in prepared["evidence"]],
         )
-        return {
-            **result,
-            "workspace": str(root),
-            "input_manifest_path": str(input_manifest),
-            "dental_vrm_path": str(vrm_path),
-            "result_path": str(result_path),
-        }
+        return read_reconstruction_workspace(root)
     except Exception:
         shutil.rmtree(root, ignore_errors=True)
         raise
