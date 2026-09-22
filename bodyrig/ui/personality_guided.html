@@ -139,13 +139,16 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, deferredEditRevisionReload: null, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
-  function isCurrentPerson(personId,personContextGeneration=null){
+  function isAcceptedPersonContext(personId,personContextGeneration=null){
     return Boolean(personId)
       && state.person?.person_id===personId
-      && $("personSelect").value===personId
       && (personContextGeneration===null||personContextGeneration===state.personContextGeneration);
+  }
+  function isCurrentPerson(personId,personContextGeneration=null){
+    return isAcceptedPersonContext(personId,personContextGeneration)
+      && $("personSelect").value===personId;
   }
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -545,7 +548,12 @@
     if(!revisionId) return;
     if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
     const source=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
-    if(!isCurrentPerson(personId,personContextGeneration)) return;
+    if(!isAcceptedPersonContext(personId,personContextGeneration)) return;
+    if($("personSelect").value!==personId){
+      state.deferredEditRevisionReload={personId,personContextGeneration};
+      return;
+    }
+    state.deferredEditRevisionReload=null;
     applyGuidedRevision(source);
     if(!requested) setEditRevisionUrl(revisionId);
   }
@@ -562,6 +570,7 @@
     const previousPersonId=state.person?.person_id||null;
     if(!personId){
       state.personContextGeneration+=1;
+      state.deferredEditRevisionReload=null;
       state.person=null;
       resetPersonScopedAuthoring();
       populateBaselines();
@@ -578,6 +587,7 @@
     if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return;
     const changedPerson=previousPersonId!==personId;
     state.personContextGeneration+=1;
+    state.deferredEditRevisionReload=null;
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
     if(changedPerson) resetPersonScopedAuthoring();
@@ -709,6 +719,13 @@
       $("personSelect").value=state.person?.person_id||"";
       if($("status").textContent.startsWith("Gemning fejlede:")) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
       updateTranscriptApprovalState();
+      const deferred=state.deferredEditRevisionReload;
+      if(deferred&&isCurrentPerson(deferred.personId,deferred.personContextGeneration)){
+        state.deferredEditRevisionReload=null;
+        loadRequestedEditRevision().catch(reloadError=>{
+          if(isCurrentPerson(deferred.personId,deferred.personContextGeneration)) toast(`Personskiftet fejlede, og den tidligere revision kunne ikke genindlæses: ${reloadError.message}`,true);
+        });
+      }
       toast(error.message,true);
     });
   }); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
