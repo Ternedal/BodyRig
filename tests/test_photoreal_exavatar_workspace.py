@@ -136,3 +136,33 @@ def test_preflight_without_strict_upstream_assets_cannot_prepare_workspace() -> 
 def test_safe_subject_id_is_deterministic_and_path_safe() -> None:
     assert workspace._safe_subject_id("42") == "bodyrig-42"
     assert workspace._safe_subject_id("performer/42") == "bodyrig-performer-42"
+
+
+def test_workspace_git_uses_command_local_safe_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    checkout = tmp_path / "ExAvatar_RELEASE"
+    checkout.mkdir()
+    captured: dict[str, object] = {}
+
+    def fake_run(argv, *, label):
+        captured["argv"] = argv
+        captured["label"] = label
+        return workspace.UPSTREAM_COMMIT
+
+    monkeypatch.setattr(workspace, "_run", fake_run)
+
+    observed = workspace._git(checkout, "rev-parse", "HEAD")
+
+    resolved = checkout.resolve()
+    assert observed == workspace.UPSTREAM_COMMIT
+    assert captured["argv"] == [
+        "git",
+        "-c",
+        f"safe.directory={resolved}",
+        "-C",
+        str(resolved),
+        "rev-parse",
+        "HEAD",
+    ]
