@@ -11,6 +11,8 @@ import bodyrig.fidelity_component_gap_executor as executor
 
 REVISION = "a" * 40
 PACKAGE_SHA = hashlib.sha256(b"package").hexdigest()
+FINE_AUTHORITY_SHA = "1" * 64
+FINE_ATTESTATION_SHA = "2" * 64
 
 
 def plan(action_id: str, *, missing: list[str] | None = None) -> dict:
@@ -66,6 +68,8 @@ def preview_lineage() -> dict:
         "canonical_body_id": "performer-42",
         "bodyrig_revision": REVISION,
         "candidate_package_sha256": PACKAGE_SHA,
+        "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+        "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
         "status": "succeeded",
         "comparison_only": True,
         "production_activation": False,
@@ -145,6 +149,8 @@ def test_face_secondary_routes_only_through_canonical_machine_safe_continuation(
         lambda _job: {
             "production_activation": False,
             "production_ready": False,
+            "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
             "current_package_path": str(current_package),
             "current_package_sha256": current_sha,
             "next_gate": {
@@ -179,6 +185,8 @@ def test_face_secondary_routes_only_through_canonical_machine_safe_continuation(
         lambda _job: {
             "production_activation": False,
             "production_ready": False,
+            "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+            "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
             "current_package_path": str(current_package),
             "current_package_sha256": current_sha,
             "next_gate": {
@@ -209,6 +217,8 @@ def test_face_secondary_preview_uses_existing_runtime_and_refuses_reuse(monkeypa
     monkeypatch.setattr(executor, "inspect_continuation", lambda _job: {
         "production_activation": False,
         "production_ready": False,
+        "fine_identity_authority_sha256": FINE_AUTHORITY_SHA,
+        "fine_identity_attestation_sha256": FINE_ATTESTATION_SHA,
         "current_package_path": str(current_package),
         "current_package_sha256": current_sha,
         "next_gate": {"gate": "face_secondary_preview", "operator_input_required": False},
