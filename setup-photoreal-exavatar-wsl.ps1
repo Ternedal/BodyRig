@@ -303,8 +303,9 @@ if not path.is_file():
     raise SystemExit(f"chumpy __init__.py not found: {path}")
 raw = path.read_text(encoding="utf-8")
 marker = "from numpy import bool, int, float, complex, object, unicode, str, nan, inf"
+patch_tag = "# BodyRig NumPy>=1.24 compatibility patch for public chumpy 0.70."
 replacement = "\n".join([
-    "# BodyRig NumPy>=1.24 compatibility patch for public chumpy 0.70.",
+    patch_tag,
     "import builtins as _bodyrig_builtins",
     "bool = _bodyrig_builtins.bool",
     "int = _bodyrig_builtins.int",
@@ -315,18 +316,25 @@ replacement = "\n".join([
     "str = _bodyrig_builtins.str",
     "from numpy import nan, inf",
 ])
-if raw.count(marker) != 1:
-    raise SystemExit(f"chumpy legacy NumPy marker mismatch: expected exactly one occurrence, observed {raw.count(marker)}")
 before = hashlib.sha256(path.read_bytes()).hexdigest()
-path.write_text(raw.replace(marker, replacement, 1), encoding="utf-8")
+if raw.count(marker) == 1:
+    raw = raw.replace(marker, replacement, 1)
+    path.write_text(raw, encoding="utf-8")
+    state = "applied"
+elif raw.count(marker) == 0 and raw.count(patch_tag) == 1 and raw.count("from numpy import nan, inf") == 1:
+    state = "already-applied"
+else:
+    raise SystemExit(
+        "chumpy compatibility patch state mismatch: "
+        f"legacy={raw.count(marker)} tag={raw.count(patch_tag)}"
+    )
 after = hashlib.sha256(path.read_bytes()).hexdigest()
-if before == after:
-    raise SystemExit("chumpy compatibility patch did not change bytes")
 print(json.dumps({
     "path": str(path),
     "before_sha256": before,
     "sha256": after,
     "patch": "bodyrig-chumpy-0.70-numpy-alias-v1",
+    "state": state,
 }, sort_keys=True, separators=(",", ":")))
 '@
 $chumpyPatchRaw = Invoke-Wsl -Root -Arguments @($LinuxPython, "-c", $chumpyPatchCode) -Capture
@@ -350,15 +358,29 @@ replacements = {
     "mask_c2 = (1 - mask_d2) * mask_d0_nd1": "mask_c2 = (1 - mask_d2.float()) * mask_d0_nd1.float()",
     "mask_c3 = (1 - mask_d2) * (1 - mask_d0_nd1)": "mask_c3 = (1 - mask_d2.float()) * (1 - mask_d0_nd1.float())",
 }
+applied = 0
+reused = 0
 for old, new in replacements.items():
-    if raw.count(old) != 1:
-        raise SystemExit(f"torchgeometry legacy marker mismatch: {old}")
-    raw = raw.replace(old, new, 1)
-path.write_text(raw, encoding="utf-8")
+    if raw.count(old) == 1 and raw.count(new) == 0:
+        raw = raw.replace(old, new, 1)
+        applied += 1
+    elif raw.count(old) == 0 and raw.count(new) == 1:
+        reused += 1
+    else:
+        raise SystemExit(
+            f"torchgeometry compatibility patch state mismatch: "
+            f"old={raw.count(old)} new={raw.count(new)} marker={old}"
+        )
+if applied:
+    path.write_text(raw, encoding="utf-8")
+state = "already-applied" if applied == 0 else ("applied" if reused == 0 else "completed-partial")
 print(json.dumps({
     "path": str(path),
     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     "patch": "hand4whole-author-float-mask-v1",
+    "state": state,
+    "applied_markers": applied,
+    "reused_markers": reused,
 }, sort_keys=True, separators=(",", ":")))
 '@
 $torchgeometryPatchRaw = Invoke-Wsl -Root -Arguments @($LinuxPython, "-c", $torchgeometryPatchCode) -Capture
@@ -399,7 +421,7 @@ if not torch.cuda.is_available():
 mat = axis_angle_to_matrix(torch.zeros((1, 3), device="cuda:0"))
 if tuple(mat.shape) != (1, 3, 3):
     raise SystemExit("PyTorch3D smoke failed")
-legacy = torch.eye(3).view(1, 3, 3)
+legacy = torch.eye(3, 4).view(1, 3, 4)
 axis = rotation_matrix_to_angle_axis(legacy)
 if tuple(axis.shape) != (1, 3):
     raise SystemExit("torchgeometry smoke failed")
