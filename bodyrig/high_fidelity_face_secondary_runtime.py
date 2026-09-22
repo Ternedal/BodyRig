@@ -682,6 +682,9 @@ def read_runtime(output_dir: str | Path) -> dict[str, Any]:
             or embedded.get("genericSecondaryAnatomy") is not False
             or embedded.get("dentalSourceVrmSha256") != value.get("dentalSourceVrmSha256")
             or embedded.get("dentalReconstructionResultSha256") != value.get("dentalReconstructionResultSha256")
+            or embedded.get("fineIdentityAttestationSha256") != value.get("fineIdentityAttestationSha256")
+            or embedded.get("fineIdentityAuthoritySha256") != value.get("fineIdentityAuthoritySha256")
+            or embedded.get("dentalSourceReferences") != value.get("dentalSourceReferences")
         ):
             raise HighFidelityFaceSecondaryRuntimeError("embedded source-derived dental authority is stale")
     elif embedded.get("sourceDerivedDentalIdentity") is not None or embedded.get("genericSecondaryAnatomy") is not None:
