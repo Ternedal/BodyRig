@@ -55,6 +55,7 @@ if ([string]::IsNullOrWhiteSpace($LinuxPython) -or -not $LinuxPython.StartsWith(
 }
 $venvRoot = $LinuxPython.Substring(0, $LinuxPython.Length - "/bin/python".Length)
 $receipt = "$venvRoot/bodyrig-exavatar-runtime-setup.json"
+$pytorch3dSourceRoot = "$venvRoot/sources/pytorch3d-$($pytorch3dCommit.Substring(0,12))"
 
 Write-Host "============================================================"
 Write-Host "BODYRIG PHOTOREAL EXAVATAR WSL SETUP"
@@ -169,32 +170,115 @@ Invoke-Wsl -Root -Arguments @(
     $LinuxPython, "-m", "pip", "install", "--no-build-isolation", "chumpy==$chumpyVersion"
 )
 
-# OpenMMLab publishes prebuilt MMCV wheels only for selected Torch/CUDA
-# combinations. Torch 2.6 / CUDA 12.4 falls back to the source distribution,
-# so build the exact MMCV 2.1.0 release commit explicitly. Disable PEP517
-# build isolation so setup.py sees the pinned Torch and setuptools<81 runtime.
-Invoke-Wsl -Root -Arguments @(
-    "/usr/bin/env",
-    "MMCV_WITH_OPS=1",
-    "CUDA_HOME=/usr/local/cuda-$expectedCudaVersion",
-    "PYTHONNOUSERSITE=1",
-    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
-    "git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"
-)
+# Reuse a previously completed pinned MMCV source build when resuming. PEP 610
+# direct_url.json binds the installed distribution back to the exact VCS commit.
+$mmcvReuseCode = @'
+import importlib.metadata
+import json
+import sys
+
+dist = importlib.metadata.distribution("mmcv")
+if dist.version != sys.argv[1]:
+    raise SystemExit(1)
+raw = dist.read_text("direct_url.json")
+if not raw:
+    raise SystemExit(1)
+direct = json.loads(raw)
+commit = ((direct.get("vcs_info") or {}).get("commit_id") or "").lower()
+if commit != sys.argv[2].lower():
+    raise SystemExit(1)
+from mmcv.ops import nms
+'@
+& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c $mmcvReuseCode $mmcvVersion $mmcvCommit 1>$null 2>$null
+$mmcvReusable = ($LASTEXITCODE -eq 0)
+
+if ($mmcvReusable) {
+    Write-Host "MMCV:              REUSE PINNED BUILD + OPS"
+} else {
+    # OpenMMLab publishes prebuilt MMCV wheels only for selected Torch/CUDA
+    # combinations. Torch 2.6 / CUDA 12.4 falls back to the source distribution,
+    # so build the exact MMCV 2.1.0 release commit explicitly. Disable PEP517
+    # build isolation so setup.py sees the pinned Torch and setuptools<81 runtime.
+    Invoke-Wsl -Root -Arguments @(
+        "/usr/bin/env",
+        "MMCV_WITH_OPS=1",
+        "CUDA_HOME=/usr/local/cuda-$expectedCudaVersion",
+        "PYTHONNOUSERSITE=1",
+        $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
+        "git+https://github.com/open-mmlab/mmcv.git@$mmcvCommit"
+    )
+}
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmdet==$mmdetVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "install", "mmpose==$mmposeVersion")
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
-# Pin PyTorch3D to exact public source bytes and build against the already
-# pinned Torch/CUDA environment. Build isolation could otherwise hide Torch
-# from setup.py or compile against a transient dependency set.
-Invoke-Wsl -Root -Arguments @(
-    "/usr/bin/env",
-    "FORCE_CUDA=1",
-    "PYTHONNOUSERSITE=1",
-    $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
-    "git+https://github.com/facebookresearch/pytorch3d.git@$pytorch3dCommit"
-)
+# Reuse a completed pinned PyTorch3D build when possible. The installed
+# distribution comes from the local source cache, so bind reuse to that cache's
+# exact Git HEAD plus a successful import instead of relying on direct_url.json.
+& $WslExe -d $Distribution -- /usr/bin/test -d "$pytorch3dSourceRoot/.git" 2>$null
+$pytorch3dSourceExists = ($LASTEXITCODE -eq 0)
+$pytorch3dHeadMatches = $false
+if ($pytorch3dSourceExists) {
+    $pytorch3dHeadRaw = @(& $WslExe -d $Distribution -- /usr/bin/git -C $pytorch3dSourceRoot rev-parse HEAD 2>$null)
+    $pytorch3dHeadMatches = (
+        $LASTEXITCODE -eq 0 -and
+        $pytorch3dHeadRaw.Count -eq 1 -and
+        ([string]$pytorch3dHeadRaw[0]).Trim().ToLowerInvariant() -eq $pytorch3dCommit
+    )
+}
+& $WslExe -d $Distribution -- /usr/bin/env PYTHONNOUSERSITE=1 $LinuxPython -c "import pytorch3d" 1>$null 2>$null
+$pytorch3dImportReady = ($LASTEXITCODE -eq 0)
+$pytorch3dReusable = ($pytorch3dHeadMatches -and $pytorch3dImportReady)
+
+if ($pytorch3dReusable) {
+    Write-Host "PyTorch3D:          REUSE PINNED BUILD"
+} else {
+    $pytorch3dFetchScript = @'
+set -euo pipefail
+target="$1"
+url="$2"
+commit="$3"
+
+if [ -d "$target/.git" ]; then
+    current="$(git -C "$target" rev-parse HEAD 2>/dev/null || true)"
+    if [ "$current" = "$commit" ]; then
+        exit 0
+    fi
+fi
+
+for attempt in 1 2 3; do
+    rm -rf "$target"
+    mkdir -p "$(dirname "$target")"
+    git init -q "$target"
+    git -C "$target" remote add origin "$url"
+    if git -C "$target" -c http.version=HTTP/1.1 fetch --depth=1 origin "$commit"; then
+        git -C "$target" checkout -q --detach FETCH_HEAD
+        current="$(git -C "$target" rev-parse HEAD)"
+        if [ "$current" = "$commit" ]; then
+            exit 0
+        fi
+    fi
+    sleep $((attempt * 2))
+done
+
+exit 1
+'@
+    Invoke-Wsl -Root -Arguments @(
+        "/bin/bash", "-c", $pytorch3dFetchScript, "bodyrig-pytorch3d-fetch",
+        $pytorch3dSourceRoot,
+        "https://github.com/facebookresearch/pytorch3d.git",
+        $pytorch3dCommit
+    )
+
+    Invoke-Wsl -Root -Arguments @(
+        "/usr/bin/env",
+        "FORCE_CUDA=1",
+        "CUDA_HOME=/usr/local/cuda-$expectedCudaVersion",
+        "PYTHONNOUSERSITE=1",
+        $LinuxPython, "-m", "pip", "install", "--no-build-isolation",
+        $pytorch3dSourceRoot
+    )
+}
 Invoke-Wsl -Root -Arguments @($LinuxPython, "-m", "pip", "check")
 
 # Chumpy 0.70 imports NumPy aliases removed in modern NumPy. Patch only the
