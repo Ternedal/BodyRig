@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -29,6 +30,10 @@ from .photoreal_p2_motion_evidence import (
 from .photoreal_p2_motion_selection import (
     PhotorealP2MotionSelectionError,
     validate_motion_source_selection,
+)
+from .photoreal_p3_device_distillation_plan import (
+    PhotorealP3DeviceDistillationPlanError,
+    validate_p3_device_distillation_plan,
 )
 from .photoreal_p3_physical_runtime_review import (
     PhotorealP3PhysicalRuntimeReviewError,
@@ -110,6 +115,26 @@ def _resolve_operator_root(explicit: str | Path | None) -> Path | None:
     return root
 
 
+def _git_checkout_branch(root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"Could not inspect BodyRig operator branch: {exc}"
+        ) from exc
+    branch = result.stdout.strip()
+    if result.returncode != 0 or not branch:
+        raise PhotorealV2OperatorStatusError(
+            "Could not resolve BodyRig operator branch"
+        )
+    return branch
+
+
 def _authorized_command(
     *,
     root: Path | None,
@@ -148,6 +173,17 @@ def _authorized_command(
             "next_gate": "operator-checkout",
             "next_command": None,
             "message": f"Operator checkout {head} is dirty; Photoreal continuation is fail-closed.",
+        }
+    branch = _git_checkout_branch(root)
+    if branch != "main":
+        return {
+            "state": "blocked",
+            "next_gate": "operator-checkout",
+            "next_command": None,
+            "message": (
+                f"Operator checkout must be on main for canonical Photoreal operators; "
+                f"current branch is {branch!r}."
+            ),
         }
     return {
         "state": state,
@@ -245,6 +281,7 @@ def inspect_photoreal_v2_status(
     camera_mode: str | None = None,
     p2_motion_config: str | Path | None = None,
     p2_review_selection_input: str | Path | None = None,
+    single_motion_driver_source_ref: str | None = None,
     reviewed_by: str | None = None,
     review_notes: str | None = None,
     p3_target_profile: str | Path | None = None,
@@ -663,18 +700,31 @@ def inspect_photoreal_v2_status(
         / "p2-exavatar-animation-execution-input.json"
     )
     if not execution_input.is_file():
-        if len(driver_refs) != 1:
-            action = _operator_input_required(
-                next_gate="p2_animation_execution_input",
-                message=(
-                    "More than one TRAIN driver was human-selected. Pass an exact "
-                    "driver in the dedicated execution-input operator; the status router "
-                    "will not choose among approved drivers."
-                ),
-                missing_inputs=["single_motion_driver_source_ref"],
+        chosen_driver = (
+            single_motion_driver_source_ref.strip()
+            if isinstance(single_motion_driver_source_ref, str)
+            and single_motion_driver_source_ref.strip()
+            else None
+        )
+        if chosen_driver is not None and chosen_driver not in driver_refs:
+            raise PhotorealV2OperatorStatusError(
+                "single_motion_driver_source_ref is not one of the human-approved TRAIN drivers"
             )
-            result.update(action)
-            return result
+        if chosen_driver is None:
+            if len(driver_refs) == 1:
+                chosen_driver = driver_refs[0]
+            else:
+                action = _operator_input_required(
+                    next_gate="p2_animation_execution_input",
+                    message=(
+                        "More than one TRAIN driver was human-selected. Pass one exact "
+                        "approved driver through single_motion_driver_source_ref; the "
+                        "router will not choose among them."
+                    ),
+                    missing_inputs=["single_motion_driver_source_ref"],
+                )
+                result.update(action)
+                return result
         action = _authorized_command(
             root=op_root,
             expected_revision=revision,
@@ -682,9 +732,9 @@ def inspect_photoreal_v2_status(
             command=(
                 f"{_script(op_root, 'prepare-photoreal-v2-p2-exavatar-animation-execution-input.ps1')} "
                 f"-TeacherWorkRoot {_ps_quote(teacher)} "
-                f"-MotionDriverSourceRef {_ps_quote(driver_refs[0])}"
+                f"-MotionDriverSourceRef {_ps_quote(chosen_driver)}"
             ),
-            message="Bind the sole human-selected TRAIN driver to the frozen teacher.",
+            message="Bind the explicit human-approved TRAIN driver to the frozen teacher.",
         )
         result.update(action)
         return result
@@ -874,6 +924,20 @@ def inspect_photoreal_v2_status(
         result.update(action)
         return result
 
+    try:
+        current_p3_plan = validate_p3_device_distillation_plan(
+            _read_json(p3_plan, "P3 device distillation plan")
+        )
+    except (
+        PhotorealP3DeviceDistillationPlanError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as exc:
+        raise PhotorealV2OperatorStatusError(
+            f"P3 device distillation plan strict readback failed: {exc}"
+        ) from exc
+
     p3_work = p3 / "quest2-full-software"
     p3_software_summary = p3_work / "p3-quest2-full-software.json"
     runtime_review_workspace = p3_work / "continuation" / "runtime-review"
@@ -898,6 +962,34 @@ def inspect_photoreal_v2_status(
             or ""
         ).lower()
         result["p3_runtime_review_status"] = status or None
+        lineage_fields = (
+            "performer_id",
+            "selected_epoch_id",
+            "teacher_input_sha256",
+            "p2_animation_plan_sha256",
+            "p2_exavatar_animation_execution_input_sha256",
+            "p2_animated_human_review_sha256",
+            "p3_device_distillation_plan_sha256",
+            "target_profile_sha256",
+        )
+        mismatched = [
+            field
+            for field in lineage_fields
+            if p3_review.get(field) != current_p3_plan.get(field)
+        ]
+        if mismatched:
+            result.update(
+                {
+                    "state": "blocked",
+                    "next_gate": "p3_lineage",
+                    "next_command": None,
+                    "message": (
+                        "Persisted P3 physical review is stale or targets a different "
+                        "current distillation plan: " + ", ".join(mismatched)
+                    ),
+                }
+            )
+            return result
         accepted = (
             p3_review.get("runtime_acceptance_authority") is True
             and p3_review.get("photoreal_acceptance_authority") is True
