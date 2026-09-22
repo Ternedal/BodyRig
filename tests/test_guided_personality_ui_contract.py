@@ -245,9 +245,20 @@ def test_guided_matrix_reloads_provenance_after_save() -> None:
     save_start = html.index("async function save(){")
     save_end = html.index("buildSliders();", save_start)
     save_source = html[save_start:save_end]
-    assert 'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)' in save_source
+    assert 'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)' in save_source
+    assert "state.person=refreshedPerson" in save_source
     assert 'populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();' in save_source
     assert "Aktiv person er uændret" in save_source
+
+    refresh = save_source.index(
+        'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
+    )
+    guard = save_source.index(
+        "if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)",
+        refresh,
+    )
+    assign = save_source.index("state.person=refreshedPerson", guard)
+    assert refresh < guard < assign
 
 
 def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
@@ -269,9 +280,16 @@ def test_guided_matrix_save_persists_edit_revision_in_url() -> None:
     save_start = html.index("async function save(){")
     save_end = html.index("buildSliders();", save_start)
     save_source = html[save_start:save_end]
-    assert save_source.index("setEditRevisionUrl(result.saved_personality_revision)") < save_source.index(
-        'state.person=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
+    refresh = save_source.index(
+        'const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`)'
     )
+    guard = save_source.index(
+        "if(!isCurrentPerson(personId)||currentSaveViewKey()!==saveViewKey)",
+        refresh,
+    )
+    assign = save_source.index("state.person=refreshedPerson", guard)
+    update_url = save_source.index("setEditRevisionUrl(result.saved_personality_revision)", assign)
+    assert refresh < guard < assign < update_url
 
 def test_guided_matrix_can_reopen_verified_v2_revision() -> None:
     html = Path("bodyrig/ui/personality_guided.html").read_text(encoding="utf-8")
