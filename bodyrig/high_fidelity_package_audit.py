@@ -534,6 +534,35 @@ def _audit_face_payload(document: Mapping[str, Any], bodyrig: Mapping[str, Any])
         raise HighFidelityPackageAuditError(
             "face_secondary=complete but canonical secondary-face materials are not all used"
         )
+    if source_dental:
+        expected_lash_material = material_indexes["BodyRigEyelashesReview"]
+        if used != {expected_lash_material}:
+            raise HighFidelityPackageAuditError(
+                "source-derived dental face mesh retained non-eyelash generic geometry"
+            )
+        face_primitives = mesh.get("primitives")
+        if not isinstance(face_primitives, list) or len(face_primitives) != 2:
+            raise HighFidelityPackageAuditError(
+                "source-derived dental face mesh requires exactly two eyelash primitives"
+            )
+        expected_lash_roles = {"left_eyelashes", "right_eyelashes"}
+        seen_lash_roles: set[str] = set()
+        for primitive in face_primitives:
+            extras = primitive.get("extras") if isinstance(primitive, Mapping) else None
+            role = extras.get("bodyrigFaceSecondaryRole") if isinstance(extras, Mapping) else None
+            if (
+                role not in expected_lash_roles
+                or role in seen_lash_roles
+                or primitive.get("material") != expected_lash_material
+            ):
+                raise HighFidelityPackageAuditError(
+                    "source-derived dental face eyelash role/material binding is invalid"
+                )
+            seen_lash_roles.add(str(role))
+        if seen_lash_roles != expected_lash_roles:
+            raise HighFidelityPackageAuditError(
+                "source-derived dental face eyelash role set is incomplete"
+            )
     result: dict[str, Any] = {
         "node": node_index,
         "mesh": mesh_index,
