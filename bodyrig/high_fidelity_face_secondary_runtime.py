@@ -610,6 +610,16 @@ def build_runtime(
         "packageMutationPerformed": False,
         "productionActivation": False,
     }
+    if dental_candidate is not None:
+        receipt.update(
+            {
+                "dentalSourceVrmSha256": dental_candidate["vrm_sha256"],
+                "dentalReconstructionResultSha256": dental_candidate["result_sha256"],
+                "fineIdentityAttestationSha256": dental_candidate["fine_identity_attestation_sha256"],
+                "fineIdentityAuthoritySha256": dental_candidate["fine_identity_authority_sha256"],
+                "dentalSourceReferences": dental_candidate["source_references"],
+            }
+        )
     root.mkdir(parents=True)
     try:
         (root / REVIEW_VRM_NAME).write_bytes(review_vrm)
