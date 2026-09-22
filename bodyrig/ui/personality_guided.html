@@ -139,13 +139,13 @@
     ["directness","Direktehed"], ["warmth","Varme"], ["playfulness","Legesyge/humor"],
     ["formality","Formalitet"], ["verbosity","Detaljeringsgrad"], ["initiative","Initiativ"]
   ];
-  const state = { people: [], person: null, personSelectionGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
+  const state = { people: [], person: null, personSelectionGeneration: 0, personContextGeneration: 0, transcriptLoadGeneration: 0, previewRequestGeneration: 0, saveRequestGeneration: 0, preview: null, requestKey: null, styleReport: null, styleApproval: null, styleSource: null, styleEvidenceOrigin: null, stashTranscriptPreview: null, stashTranscriptBodyRevision: null, traitDefinition: null, selectedBaselineRevision: null };
   const $ = id => document.getElementById(id);
-  function isCurrentPerson(personId,personGeneration=null){
+  function isCurrentPerson(personId,personContextGeneration=null){
     return Boolean(personId)
       && state.person?.person_id===personId
       && $("personSelect").value===personId
-      && (personGeneration===null||personGeneration===state.personSelectionGeneration);
+      && (personContextGeneration===null||personContextGeneration===state.personContextGeneration);
   }
 
   function toast(message, error=false){ const el=$("toast"); el.textContent=message; el.classList.toggle("error",error); el.classList.remove("hidden"); clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.classList.add("hidden"),4200); }
@@ -309,25 +309,42 @@
     updateTranscriptApprovalState();
   }
   async function loadStashTranscriptCandidates(){
-    if(!state.person) return toast("Vælg en person først.",true);
+    if(!state.person||$("personSelect").value!==state.person.person_id) return toast("Vent til personskiftet er afsluttet.",true);
     const personId=state.person.person_id;
-    const personGeneration=state.personSelectionGeneration;
+    const personContextGeneration=state.personContextGeneration;
+    const transcriptLoadGeneration=++state.transcriptLoadGeneration;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision) return toast("Vælg en body revision før transcript-søgning.",true);
-    clearTranscriptPreview("Validerer source-binding og leder efter transcript-sidecars…");
+    const loadingStatus="Validerer source-binding og leder efter transcript-sidecars…";
+    const isCurrentTranscriptContext=()=>isCurrentPerson(personId,personContextGeneration)&&$("bodyRevision").value===bodyRevision;
+    const settleStaleTranscriptLoad=()=>{
+      if(transcriptLoadGeneration!==state.transcriptLoadGeneration) return;
+      if($("stashTranscriptStatus").textContent===loadingStatus){
+        clearTranscriptPreview("Transcript-load blev kasseret, fordi person eller body revision ændrede sig. Hent igen.");
+      }
+    };
+    clearTranscriptPreview(loadingStatus);
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/stash-transcript-candidates?body_revision=${encodeURIComponent(bodyRevision)}`,{method:"POST"});
-      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision) return;
+      if(!isCurrentTranscriptContext()){
+        settleStaleTranscriptLoad();
+        return;
+      }
+      if(transcriptLoadGeneration!==state.transcriptLoadGeneration) return;
       renderTranscriptCandidates(result);
     }catch(error){
-      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision) return;
+      if(!isCurrentTranscriptContext()){
+        settleStaleTranscriptLoad();
+        return;
+      }
+      if(transcriptLoadGeneration!==state.transcriptLoadGeneration) return;
       clearTranscriptPreview(`Transcript-kandidater kunne ikke hentes: ${error.message}`);toast(error.message,true);
     }
   }
   async function approveStashTranscriptCandidates(){
-    if(!state.person||!state.stashTranscriptPreview?.candidate_report) return;
+    if(!state.person||$("personSelect").value!==state.person.person_id||!state.stashTranscriptPreview?.candidate_report) return;
     const personId=state.person.person_id;
-    const personGeneration=state.personSelectionGeneration;
+    const personContextGeneration=state.personContextGeneration;
     const bodyRevision=$("bodyRevision").value;
     if(!bodyRevision||bodyRevision!==state.stashTranscriptBodyRevision) return toast("Body revision har ændret sig. Hent transcript-kandidater igen.",true);
     const candidateReport=state.stashTranscriptPreview.candidate_report;
@@ -343,7 +360,7 @@
           style_use_approved:$("stashTranscriptStyleConfirm").checked
         })}
       );
-      if(!isCurrentPerson(personId,personGeneration)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return;
+      if(!isCurrentPerson(personId,personContextGeneration)||$("bodyRevision").value!==bodyRevision||state.stashTranscriptPreview?.candidate_report!==candidateReport) return;
       state.styleReport=result.candidate_report;
       state.styleApproval=result.approval;
       state.styleSource={kind:"stash-source-transcript",body_revision:bodyRevision,source_manifest_sha256:result.source_manifest_sha256};
@@ -354,7 +371,7 @@
       renderEvidenceStatus();
       invalidate();
       toast("Stash-transcript evidence er godkendt til talestil.");
-    }catch(error){if(isCurrentPerson(personId,personGeneration)&&$("bodyRevision").value===bodyRevision){updateTranscriptApprovalState();toast(error.message,true);}}
+    }catch(error){if(isCurrentPerson(personId,personContextGeneration)&&$("bodyRevision").value===bodyRevision){updateTranscriptApprovalState();toast(error.message,true);}}
   }
   function renderEvidenceStatus(){
     if(!state.styleReport&&!state.styleApproval){ $("evidenceStatus").textContent="Ingen transcript-evidence valgt."; return; }
@@ -373,9 +390,9 @@
   async function readEvidence(kind, file){
     if(!file){ state[kind]=null; renderEvidenceStatus(); invalidate(); return; }
     const personId=state.person?.person_id||null;
-    const personGeneration=state.personSelectionGeneration;
+    const personContextGeneration=state.personContextGeneration;
     const input=kind==="styleReport"?$("styleReportFile"):$("styleApprovalFile");
-    const stillCurrent=()=>((state.person?.person_id||null)===personId&&state.personSelectionGeneration===personGeneration&&input.files?.[0]===file);
+    const stillCurrent=()=>((state.person?.person_id||null)===personId&&state.personContextGeneration===personContextGeneration&&$("personSelect").value===personId&&input.files?.[0]===file);
     try{
       const value=JSON.parse(await file.text());
       if(!stillCurrent()) return;
@@ -521,14 +538,14 @@
   async function loadRequestedEditRevision(){
     if(!state.person) return;
     const personId=state.person.person_id;
-    const personGeneration=state.personSelectionGeneration;
+    const personContextGeneration=state.personContextGeneration;
     const requested=new URLSearchParams(location.search).get("edit_revision");
     const fallback=latestMatrixRevisionItem()?.revision_id||"";
     const revisionId=requested||fallback;
     if(!revisionId) return;
     if(!(state.person.personality_revisions||[]).some(item=>item.revision_id===revisionId)) return;
     const source=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions/${encodeURIComponent(revisionId)}`);
-    if(!isCurrentPerson(personId,personGeneration)) return;
+    if(!isCurrentPerson(personId,personContextGeneration)) return;
     applyGuidedRevision(source);
     if(!requested) setEditRevisionUrl(revisionId);
   }
@@ -544,6 +561,7 @@
     const selectionGeneration=++state.personSelectionGeneration;
     const previousPersonId=state.person?.person_id||null;
     if(!personId){
+      state.personContextGeneration+=1;
       state.person=null;
       resetPersonScopedAuthoring();
       populateBaselines();
@@ -559,6 +577,7 @@
     }
     if(selectionGeneration!==state.personSelectionGeneration||$("personSelect").value!==personId) return;
     const changedPerson=previousPersonId!==personId;
+    state.personContextGeneration+=1;
     state.person=profile;
     if(manual) setSelectedPersonUrl(personId,{clearRevision:true});
     if(changedPerson) resetPersonScopedAuthoring();
@@ -579,7 +598,7 @@
   async function preview(){
     if(!state.person) return toast("Vælg en person først.",true);
     const personId=state.person.person_id;
-    const personGeneration=state.personSelectionGeneration;
+    const personContextGeneration=state.personContextGeneration;
     const previewGeneration=++state.previewRequestGeneration;
     const request=payload();
     const requestKey=JSON.stringify(request);
@@ -592,14 +611,14 @@
     $("status").textContent=previewStatus;
     try{
       const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/preview`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey){
+      if(!isCurrentPerson(personId,personContextGeneration)||key()!==requestKey){
         settleStalePreview();
         return;
       }
       if(previewGeneration!==state.previewRequestGeneration) return;
       renderPreview(result);$("status").textContent="Preview klar. Intet er gemt endnu.";
     }catch(error){
-      if(!isCurrentPerson(personId,personGeneration)||key()!==requestKey){
+      if(!isCurrentPerson(personId,personContextGeneration)||key()!==requestKey){
         settleStalePreview();
         return;
       }
@@ -608,49 +627,74 @@
     }
   }
   async function save(){
-    if(!state.person||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
+    if(!state.person||$("personSelect").value!==state.person.person_id||!state.preview||state.requestKey!==key()) return toast("Byg et nyt preview før gem.",true);
     const personId=state.person.person_id;
-    const personContext=state.person;
+    const personContextGeneration=state.personContextGeneration;
     const saveGeneration=++state.saveRequestGeneration;
     const request={...payload(),feedback:$("feedback").value.trim()};
     const saveViewKey=JSON.stringify(request);
     const currentSaveViewKey=()=>JSON.stringify({...payload(),feedback:$("feedback").value.trim()});
-    const isCurrentSaveContext=()=>state.person===personContext&&state.person?.person_id===personId&&$("personSelect").value===personId;
+    const isCurrentSaveContext=()=>isCurrentPerson(personId,personContextGeneration);
+    const previewStillValid=()=>Boolean(state.preview&&state.requestKey===key());
     const savingStatus="Gemmer immutable blueprint/style-evidence og personality-kandidat…";
     const settleStaleSave=result=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
       if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · editoren er ændret, så visningen blev ikke overskrevet.`;
+      if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid();
       toast(`${result.saved_personality_revision} blev gemt, men editoren har ændret sig og blev ikke overskrevet.`);
     };
     const settleFailedSave=error=>{
       if(saveGeneration!==state.saveRequestGeneration) return;
       if($("status").textContent===savingStatus) $("status").textContent=`Gemning fejlede: ${error.message}`;
-      if(isCurrentSaveContext()) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+      if(isCurrentSaveContext()) $("saveButton").disabled=!previewStillValid();
       toast(error.message,true);
     };
+    const settleRefreshFailure=(result,error)=>{
+      if(saveGeneration!==state.saveRequestGeneration) return;
+      const contextCurrent=isCurrentSaveContext();
+      const viewUnchanged=contextCurrent&&currentSaveViewKey()===saveViewKey;
+      if($("status").textContent===savingStatus) $("status").textContent=`${result.saved_personality_revision} gemt · profil-refresh fejlede: ${error.message}`;
+      if(viewUnchanged){
+        setEditRevisionUrl(result.saved_personality_revision);
+        state.preview=null;state.requestKey=null;$("saveButton").disabled=true;
+      }else if(contextCurrent){
+        $("saveButton").disabled=!previewStillValid();
+      }
+      toast(`${result.saved_personality_revision} blev gemt, men profilen kunne ikke genindlæses: ${error.message}`,true);
+    };
     $("saveButton").disabled=true; $("status").textContent=savingStatus;
+    let result;
     try{
-      const result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
-      if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
-        settleStaleSave(result);
-        return;
-      }
-      const refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
-      if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
-        settleStaleSave(result);
-        return;
-      }
-      state.person=refreshedPerson;
-      setEditRevisionUrl(result.saved_personality_revision);
-      populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
-      if(result.source_baseline_revision){
-        $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
-      }else{
-        $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
-      }
-      $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
+      result=await api(`/api/v1/people/${encodeURIComponent(personId)}/personality/guided/revisions`,{method:"POST",body:JSON.stringify(request)});
+    }catch(error){
+      settleFailedSave(error);
+      return;
     }
-    catch(error){settleFailedSave(error);}
+    if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
+      settleStaleSave(result);
+      return;
+    }
+    let refreshedPerson;
+    try{
+      refreshedPerson=await api(`/api/v1/people/${encodeURIComponent(personId)}`);
+    }catch(error){
+      settleRefreshFailure(result,error);
+      return;
+    }
+    if(!isCurrentSaveContext()||currentSaveViewKey()!==saveViewKey){
+      settleStaleSave(result);
+      return;
+    }
+    state.personContextGeneration+=1;
+    state.person=refreshedPerson;
+    setEditRevisionUrl(result.saved_personality_revision);
+    populateBaselines(); $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+    if(result.source_baseline_revision){
+      $("baselineRevision").value=result.source_baseline_revision; renderBaseline(); $("stackBaseline").checked=!$("stackBaseline").disabled;
+    }else{
+      $("baselineRevision").value=result.saved_personality_revision; renderBaseline();
+    }
+    $("status").textContent=`${result.saved_personality_revision} gemt · blueprint ${result.blueprint_sha256.slice(0,12)}…`;toast(`${result.saved_personality_revision} er gemt. Aktiv person er uændret.`); state.preview=null;state.requestKey=null;
   }
 
   buildSliders(); addExample(); renderEvidenceStatus(); clearTranscriptPreview();
@@ -664,6 +708,7 @@
       if($("personSelect").value!==personId) return;
       $("personSelect").value=state.person?.person_id||"";
       if($("status").textContent.startsWith("Gemning fejlede:")) $("saveButton").disabled=!(state.preview&&state.requestKey===key());
+      updateTranscriptApprovalState();
       toast(error.message,true);
     });
   }); $("baselineRevision").addEventListener("change",renderBaseline); $("baselineRevision").addEventListener("change",invalidate); $("stackBaseline").addEventListener("change",invalidate); $("bodyRevision").addEventListener("change",onBodyRevisionChange); $("language").addEventListener("input",invalidate); $("authoredNotes").addEventListener("input",invalidate);
