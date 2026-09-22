@@ -23,6 +23,12 @@ from .fine_identity_application import (
     validate_application as validate_fine_identity_application,
     validate_requirement as validate_fine_identity_requirement,
 )
+from .photoidentity_dental_graft import (
+    GRAFT_DENTAL_MATERIAL,
+    GRAFT_MESH_NAME,
+    GRAFT_MOUTH_MATERIAL,
+    GRAFT_NODE_NAME,
+)
 from .package import MRBodyError, validate_package
 
 
@@ -490,32 +496,146 @@ def _audit_eye_payload(document: Mapping[str, Any], bodyrig: Mapping[str, Any]) 
 
 
 def _audit_face_payload(document: Mapping[str, Any], bodyrig: Mapping[str, Any]) -> dict[str, Any]:
-    _require_promotion(
+    promotion = _require_promotion(
         bodyrig,
         "faceSecondaryPromotion",
         expected_format="bodyrig-face-secondary-promotion",
         component="face_secondary",
     )
+    source_dental_raw = promotion.get("sourceDerivedDentalIdentity", False)
+    generic_raw = promotion.get("genericSecondaryAnatomy", True)
+    if type(source_dental_raw) is not bool or type(generic_raw) is not bool:
+        raise HighFidelityPackageAuditError(
+            "face_secondary dental source/generic disclosure is not boolean"
+        )
+    source_dental = source_dental_raw
+    if generic_raw is source_dental:
+        raise HighFidelityPackageAuditError(
+            "face_secondary dental source/generic disclosure is inconsistent"
+        )
+
     node_index, mesh_index, mesh = _require_scene_mesh(
         document,
         component="face_secondary",
         node_name=FACE_NODE,
         mesh_name=FACE_MESH,
     )
+    required_face_materials = (
+        ("BodyRigEyelashesReview",)
+        if source_dental
+        else FACE_MATERIALS
+    )
     material_indexes = {
         name: _named_index(document, "materials", name, label="face_secondary render payload")
-        for name in FACE_MATERIALS
+        for name in required_face_materials
     }
     used = _primitive_materials(mesh, component="face_secondary")
     if not set(material_indexes.values()).issubset(used):
         raise HighFidelityPackageAuditError(
             "face_secondary=complete but canonical secondary-face materials are not all used"
         )
-    return {
+    result: dict[str, Any] = {
         "node": node_index,
         "mesh": mesh_index,
         "materials": material_indexes,
+        "source_derived_dental_identity": source_dental,
     }
+    if not source_dental:
+        return result
+
+    fine_requirement_raw = bodyrig.get("fineIdentityRequirement")
+    try:
+        fine_requirement = validate_fine_identity_requirement(fine_requirement_raw)
+    except FineIdentityApplicationError as exc:
+        raise HighFidelityPackageAuditError(
+            f"source-derived dental payload lacks canonical fine-identity requirement: {exc}"
+        ) from exc
+    lineage = {
+        "fineIdentityAttestationSha256": fine_requirement["fineIdentityAttestationSha256"],
+        "fineIdentityAuthoritySha256": fine_requirement["fineIdentityAuthoritySha256"],
+    }
+    for field, expected in lineage.items():
+        if promotion.get(field) != expected:
+            raise HighFidelityPackageAuditError(
+                f"source-derived dental promotion lost fine-identity lineage: {field}"
+            )
+    for field in ("dentalSourceVrmSha256", "dentalReconstructionResultSha256"):
+        _canonical_sha256(
+            promotion.get(field),
+            label=f"source-derived dental {field}",
+        )
+    references = promotion.get("dentalSourceReferences")
+    if (
+        not isinstance(references, list)
+        or len(references) < 2
+        or any(not isinstance(item, str) or not item.strip() for item in references)
+        or len(set(references)) != len(references)
+    ):
+        raise HighFidelityPackageAuditError(
+            "source-derived dental promotion source references are invalid"
+        )
+
+    dental_node, dental_mesh_index, dental_mesh = _require_scene_mesh(
+        document,
+        component="source-derived dental",
+        node_name=GRAFT_NODE_NAME,
+        mesh_name=GRAFT_MESH_NAME,
+    )
+    dental_materials = {
+        "mouth": _named_index(
+            document,
+            "materials",
+            GRAFT_MOUTH_MATERIAL,
+            label="source-derived dental render payload",
+        ),
+        "dental": _named_index(
+            document,
+            "materials",
+            GRAFT_DENTAL_MATERIAL,
+            label="source-derived dental render payload",
+        ),
+    }
+    dental_used = _primitive_materials(dental_mesh, component="source-derived dental")
+    if set(dental_materials.values()) != dental_used:
+        raise HighFidelityPackageAuditError(
+            "source-derived dental mesh uses non-canonical materials"
+        )
+
+    primitives = dental_mesh.get("primitives")
+    if not isinstance(primitives, list):
+        raise HighFidelityPackageAuditError(
+            "source-derived dental mesh primitives are invalid"
+        )
+    expected_roles = {
+        "mouth_interior": dental_materials["mouth"],
+        "upper_teeth": dental_materials["dental"],
+        "lower_teeth": dental_materials["dental"],
+    }
+    seen_roles: set[str] = set()
+    for primitive in primitives:
+        extras = primitive.get("extras") if isinstance(primitive, Mapping) else None
+        role = extras.get("bodyrigDentalRole") if isinstance(extras, Mapping) else None
+        if (
+            role not in expected_roles
+            or role in seen_roles
+            or primitive.get("material") != expected_roles[role]
+        ):
+            raise HighFidelityPackageAuditError(
+                "source-derived dental primitive role/material binding is invalid"
+            )
+        seen_roles.add(str(role))
+    if seen_roles != set(expected_roles):
+        raise HighFidelityPackageAuditError(
+            "source-derived dental primitive role set is incomplete"
+        )
+    result["source_dental"] = {
+        "node": dental_node,
+        "mesh": dental_mesh_index,
+        "materials": dental_materials,
+        "roles": sorted(seen_roles),
+        "source_references": list(references),
+    }
+    return result
 
 
 def audit_fidelity_document(document: Mapping[str, Any]) -> dict[str, Any]:
